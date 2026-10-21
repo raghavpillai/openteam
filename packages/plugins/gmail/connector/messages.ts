@@ -81,6 +81,10 @@ export function draftMime(args: Args, original?: any) {
     const quote = `On ${originalHeaders.date ?? 'the previous message'}, ${originalHeaders.from ?? 'the sender'} wrote:`;
     if (body !== undefined || html === undefined) body = `${body ?? ''}\n\n${quote}\n${(normalized.plaintextBody ?? '').split('\n').map((line: string) => `> ${line}`).join('\n')}`;
     if (html !== undefined) html = `${html}<br><br>${escapeHtml(quote)}<blockquote>${normalized.htmlBody ?? escapeHtml(normalized.plaintextBody ?? '').replaceAll('\n', '<br>')}</blockquote>`;
+  } else if (args.inReplyTo) {
+    // A rewritten reply draft keeps its thread headers.
+    headers.push(`In-Reply-To: ${safeHeader(args.inReplyTo)}`);
+    headers.push(`References: ${safeHeader(args.references || args.inReplyTo)}`);
   }
   const texts = [];
   if (body !== undefined || html === undefined) texts.push(textPart(body ?? '', 'text/plain'));

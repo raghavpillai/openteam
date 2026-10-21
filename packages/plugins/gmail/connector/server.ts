@@ -40,6 +40,28 @@ const createDraftText = {
     "Optional. The plain text body content of the email draft. Do NOT format this field with Markdown (such as headers `#`, bold `**`, bullet points `*`, or tables `|`). If formatted rich text is desired, use `html_body` instead.") },
   includeSignature: { type: 'boolean', description: "Optional. Whether to append the user's configured Gmail web signature to the draft. Defaults to false." },
 };
+// Google's update_draft and delete_draft (seen 2026-10-21; the 2026-09-12 pin predates them).
+// Their htmlBody and attachment texts reuse create_draft's pinned ones, and drafts carry no viewUrl.
+const filled = (value: unknown) => (Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.length > 0);
+const draftRecipients = (role: string) => ({ type: 'array', items: { type: 'string' },
+  description: `Optional. The ${role} of the email draft. Each string MUST be a valid plain email address (e.g., "user@example.com"). If omitted or empty, the existing recipients are preserved.` });
+const updateDraftSchema = {
+  $defs: createDraft.inputSchema.$defs,
+  description: 'Request message for UpdateDraft RPC.',
+  type: 'object',
+  properties: {
+    attachments: { ...createDraft.inputSchema.properties.attachments, description: 'Optional. The attachments to include in the email. The combined size of attachments in the message cannot exceed 25MB. If you need to send files larger than 25MB, upload the file to Drive first and then insert the Drive link into `body` or `html_body`. If omitted or empty, any existing attachments on the draft will be removed.' },
+    bcc: draftRecipients('blind carbon copy recipients'),
+    body: { type: 'string', description: 'Optional. The plain text body content of the email draft. Do NOT format this field with Markdown (such as headers `#`, bold `**`, bullet points `*`, or tables `|`). If formatted rich text is desired, use `html_body` instead. If `html_body` is also provided, this field is treated as the plain-text alternative. If both `body` and `html_body` are omitted or empty, the existing body is preserved. If `body` is provided but `html_body` is omitted, the body will be updated to plain text and the existing HTML body will be cleared.' },
+    cc: draftRecipients('carbon copy recipients'),
+    draftId: { type: 'string', description: 'Required. The unique identifier of the draft to update.' },
+    htmlBody: createDraft.inputSchema.properties.htmlBody,
+    subject: { type: 'string', description: 'Optional. The subject line of the email. If omitted or empty, the existing subject is preserved.' },
+    to: draftRecipients('primary recipients'),
+  },
+  required: ['draftId'],
+  additionalProperties: false,
+};
 const normalizeLabel = (label: any) => compact({ ...label, labelId: label.id, labelType: label.type?.toUpperCase(),
   colorPreset: Object.entries(colors).find(([, c]) => c.backgroundColor === label.color?.backgroundColor && c.textColor === label.color?.textColor)?.[0] ?? 'LABEL_COLOR_PRESET_UNSPECIFIED',
   labelListVisibility: Object.keys(visibility).find(k => visibility[k] === label.labelListVisibility),
@@ -131,6 +153,26 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
       // The insert result is authoritative; a subsequent read must not make a successful write appear failed.
       return compact({ id: d.id, messageId: d.message?.id, threadId: d.message?.threadId ?? mime.threadId });
     }, { risk: 'write', description: createDraftText.description, properties: { body: createDraftText.body, includeSignature: createDraftText.includeSignature, threadId: string('Legacy thread ID; use replyToMessageId for a correctly threaded reply') } }),
+    { ...tool('update_draft', 'Updates an existing draft email in the authenticated user\'s Gmail account. This operation supports merge semantics: fields provided in the request (non-empty) will overwrite the corresponding fields in the draft, while omitted (or empty) fields will preserve their existing values. Plain text body content can be provided in `body` (do NOT format `body` with Markdown), and rich-text HTML content can be provided in `htmlBody` (use valid HTML tags for formatting; if only one is provided, the other is cleared to keep content in sync). WARNING: Attachments are NOT merged. If the draft contains attachments, they will be removed unless they are explicitly re-provided in the `attachments` field of this request.\n\nReturns a Draft object with the `id` and `threadId` fields populated.\n', {}, [], withIdNote('draft', async input => {
+      const a = unwrappedBody(input);
+      assertAttachmentsComplete(a.attachments);
+      const current = await api.request(`/drafts/${segment(a.draftId)}`, { format: 'full' });
+      const saved = await hydrate(current.message ?? {});
+      const h = headersOf(saved), existing = normalizeMessage(saved);
+      const sender = h.from?.match(/^\s*"?([^"<]*?)"?\s*<([^<>]+)>\s*$/);
+      const mime = draftMime({
+        from: sender?.[2] ?? (h.from?.includes('@') ? h.from.trim() : undefined), fromName: sender?.[1]?.trim() || undefined,
+        to: filled(a.to) ? a.to : existing.toRecipients, cc: filled(a.cc) ? a.cc : existing.ccRecipients, bcc: filled(a.bcc) ? a.bcc : existing.bccRecipients,
+        subject: filled(a.subject) ? a.subject : h.subject ?? '',
+        body: filled(a.body) ? a.body : filled(a.htmlBody) ? undefined : existing.plaintextBody,
+        htmlBody: filled(a.htmlBody) ? a.htmlBody : filled(a.body) ? undefined : existing.htmlBody,
+        attachments: a.attachments, inReplyTo: h['in-reply-to'], references: h.references, threadId: saved.threadId,
+      });
+      const d = await api.request(`/drafts/${segment(a.draftId)}`, {}, 'PUT', { id: a.draftId, message: compact(mime) });
+      return compact({ id: d.id, messageId: d.message?.id, threadId: d.message?.threadId ?? mime.threadId });
+    }), 'write'), inputSchema: updateDraftSchema as Tool['inputSchema'] },
+    tool('delete_draft', 'Deletes a draft email in the authenticated user\'s Gmail account using its draft ID.', { draftId: string('Required. The unique identifier of the draft to delete.') }, ['draftId'],
+      withIdNote('draft', a => api.request(`/drafts/${segment(a.draftId)}`, {}, 'DELETE')), 'destructive'),
     ref('update_message_labels', withIdNote('message', a => api.request(`/messages/${segment(a.messageId)}/modify`, {}, 'POST', { addLabelIds: a.addLabelIds ?? [], removeLabelIds: a.removeLabelIds ?? [] })), { risk: 'write' }),
   ];
   // Card review: OpenTeam verifies the route when a Bot drafts, then sends only after the user presses Send.

@@ -115,3 +115,47 @@ test('Gmail serves Google\'s current label:, body and includeSignature texts', (
   expect(byName.create_draft!.inputSchema.properties.body.description).toStartWith('Optional. The plain text body content of the email draft. Do NOT format this field with Markdown');
   expect(byName.create_draft!.inputSchema.properties.includeSignature).toEqual({ type: 'boolean', description: 'Optional. Whether to append the user\'s configured Gmail web signature to the draft. Defaults to false.' });
 });
+
+const savedDraft = (parts: any[]) => ({ id: 'r-1', message: { id: 'm-1', threadId: 'thread-1', payload: { mimeType: 'multipart/mixed', headers: [
+  { name: 'To', value: 'Ann Lee <ann@example.com>' }, { name: 'Cc', value: 'bob@example.com' }, { name: 'Subject', value: 'Re: Proposal' },
+  { name: 'In-Reply-To', value: '<original@example.com>' }, { name: 'References', value: '<root@example.com> <original@example.com>' },
+], parts } } });
+const textPart = (mimeType: string, text: string) => ({ mimeType, body: { data: Buffer.from(text).toString('base64url') } });
+const savedParts = [
+  { mimeType: 'multipart/alternative', parts: [textPart('text/plain', 'Old body'), textPart('text/html', '<p>Old body</p>')] },
+  { mimeType: 'application/pdf', filename: 'old.pdf', body: { attachmentId: 'a-1' } },
+];
+
+test('update_draft merges like Google: given fields replace, omitted ones stay, attachments are not merged', async () => {
+  const h = harness(gmailTools, [savedDraft(savedParts), { id: 'r-1', message: { id: 'm-2', threadId: 'thread-1' } }]);
+  const result = await h.call('update_draft', { draftId: 'r-1', to: [], body: 'We reviewed the contract terms with legal on Monday and they asked us to\nadd a clause about data retention.' });
+  expect(result).toEqual({ id: 'r-1', messageId: 'm-2', threadId: 'thread-1' });
+  const put = h.requests[1]!;
+  expect([put.init.method, put.url.pathname, put.json.id, put.json.message.threadId]).toEqual(['PUT', '/drafts/r-1', 'r-1', 'thread-1']);
+  const parsed = await PostalMime.parse(Buffer.from(put.json.message.raw, 'base64url'));
+  expect(parsed.to?.map((entry) => entry.address)).toEqual(['ann@example.com']);
+  expect(parsed.cc?.map((entry) => entry.address)).toEqual(['bob@example.com']);
+  expect(parsed.subject).toBe('Re: Proposal');
+  expect(parsed.inReplyTo).toBe('<original@example.com>');
+  expect(parsed.references).toBe('<root@example.com> <original@example.com>');
+  expect(parsed.text).toBe('We reviewed the contract terms with legal on Monday and they asked us to add a clause about data retention.');
+  expect(parsed.html).toBeUndefined();
+  expect(parsed.attachments).toHaveLength(0);
+});
+
+test('update_draft keeps both bodies when neither is given, and clears the plain one for an HTML-only update', async () => {
+  const h = harness(gmailTools, [savedDraft(savedParts), { id: 'r-1', message: { id: 'm-2' } }, savedDraft(savedParts), { id: 'r-1', message: { id: 'm-3' } }]);
+  await h.call('update_draft', { draftId: 'r-1', subject: 'Re: Proposal v2', attachments: [{ filename: 'new.pdf', content: pdf.toString('base64') }] });
+  const kept = await PostalMime.parse(Buffer.from(h.requests[1]!.json.message.raw, 'base64url'));
+  expect([kept.subject, kept.text, kept.html, kept.attachments.map((a) => a.filename)]).toEqual(['Re: Proposal v2', 'Old body', '<p>Old body</p>', ['new.pdf']]);
+  await h.call('update_draft', { draftId: 'r-1', htmlBody: '<p>New</p>' });
+  const html = await PostalMime.parse(Buffer.from(h.requests[3]!.json.message.raw, 'base64url'));
+  expect([html.html, html.text]).toEqual(['<p>New</p>', undefined]);
+});
+
+test('delete_draft removes the draft; a stale draft id gets the draft note', async () => {
+  const h = harness(gmailTools, [new Response(null, { status: 204 }), () => Response.json({ error: { message: 'Requested entity was not found.' } }, { status: 404 })]);
+  expect(await h.call('delete_draft', { draftId: 'r-1' })).toEqual({ success: true });
+  expect([h.requests[0]!.init.method, h.requests[0]!.url.pathname]).toEqual(['DELETE', '/drafts/r-1']);
+  await expect(h.call('update_draft', { draftId: 'm-1', subject: 'x' })).rejects.toThrow(GMAIL_ID_NOTES.draft);
+});

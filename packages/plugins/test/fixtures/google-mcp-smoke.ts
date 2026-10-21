@@ -23,7 +23,7 @@ try {
   if(url.pathname.endsWith('/files/large'))return Response.json({id:'large',name:'large.txt',mimeType:'text/plain',size:'180000'});
   throw new Error('Unexpected fixture destination '+url.pathname);
  };`);
- for(const [key,expected,read] of [['gmail',27,'list_labels'],['google-calendar',10,'list_calendars'],['google-drive',23,'list_recent_files']] as const){
+ for(const [key,expected,read] of [['gmail',29,'list_labels'],['google-calendar',10,'list_calendars'],['google-drive',23,'list_recent_files']] as const){
   const root=join(directory,key),pkg=pluginCatalog.find(p=>p.key===key)!;
   for(const [path,text] of Object.entries(pkg.files??{})){await mkdir(dirname(join(root,path)),{recursive:true});await writeFile(join(root,path),text);}
   for(const [path,base64] of Object.entries(pkg.binaryFiles??{})){await mkdir(dirname(join(root,path)),{recursive:true});await writeFile(join(root,path),Buffer.from(base64,'base64'));}

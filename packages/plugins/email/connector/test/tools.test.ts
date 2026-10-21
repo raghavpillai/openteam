@@ -61,3 +61,10 @@ describe("Email tool contracts", () => {
       expect(ours[name]!._meta).toEqual({ "openteam/hostOnly": true });
   });
 });
+
+test("the mailbox skill says the bot can turn drafts back on", async () => {
+  // UpdateProfile refuses drafting_disabled: true but accepts false, so only turning drafts off is the user's.
+  const skill = await Bun.file(new URL("../../skills/email-mailbox/SKILL.md", import.meta.url)).text();
+  expect(skill).not.toContain("Only the user changes that");
+  expect(skill).toContain("Only the user can turn drafts off or allow recipients; you can turn drafts back on with UpdateProfile drafting_disabled: false when they ask.");
+});

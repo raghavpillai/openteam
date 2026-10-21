@@ -57,3 +57,15 @@ test("CopyToBox takes the reference's computer_path aliases", async () => {
     "Invalid arguments:\ncomputer_path: Pass the file's absolute path on the user's computer once, as computer_path."
   );
 });
+
+test("a missing attachment is named before anything reaches the tool host", async () => {
+  const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
+  const active: any = { runId: "fixture", botId: "fixture", runtimeProfile: "agent", pluginNamespaces: [], pendingSteers: [], discoveredDynamicTools: new Set() };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => { throw new Error("the tool host must not be called"); }) as any;
+  try {
+    await expect(tools.executeOpenTeamTool(active, "call", "SendToUser", { type: "attachment", url: "file:///tmp/openteam-missing-deliverable.pdf" })).rejects.toThrow(
+      /^Failed to send the message to the user: No file at \/tmp\/openteam-missing-deliverable\.pdf on your box, so nothing was sent\./
+    );
+  } finally { globalThis.fetch = originalFetch; }
+});

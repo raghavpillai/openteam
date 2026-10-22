@@ -19,6 +19,7 @@ import type {
   ScreenClipboardView,
   AssetRef,
   BotStopView,
+  BusyBotsView,
   BotTranscriptView,
   BotView,
   BotMemoryList,
@@ -697,6 +698,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       transport.request(`/api/v0/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
     stopBot: (botId: string) =>
       transport.request<BotStopView>(`/api/v0/bots/${encodeURIComponent(botId)}/stop`, { method: "POST" }),
+    busyBots: () => transport.request<BusyBotsView>("/api/v0/system/busy-bots"),
     registerPushDevice: (input: RegisterPushDeviceInput) =>
       transport.request("/api/v0/notification-devices", {
         method: "POST",

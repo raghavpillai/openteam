@@ -1772,6 +1772,11 @@ export interface BotStopView {
   hadActiveRun: boolean;
 }
 
+/** Bots with turns or subagents in progress, longest-running first; an update waits for none. */
+export interface BusyBotsView {
+  bots: Array<{ botId: string; name: string; runIds: string[] }>;
+}
+
 /** Public release metadata used by clients before loading version-sensitive API surfaces. */
 export interface SystemVersionView {
   releaseVersion: string;

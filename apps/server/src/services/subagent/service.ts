@@ -7,6 +7,7 @@ import {
   normalizePiReasoningLevel,
   type StopSubagentInput,
   SubagentType,
+  type BusyBotsView,
   type TaskInput,
 } from "@openteam/contracts";
 import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
@@ -323,6 +324,51 @@ export class SubagentService {
       await Promise.allSettled(runs.map((run) => Effect.runPromise(this.stopRun(run.id))));
       const workers = await this.stopRunningSubagents(botId, `user-stop:bot:${botId}`);
       return { hadActiveRun: runs.length > 0 || workers.length > 0 };
+    });
+
+  /**
+   * The bots with work in progress, longest-running first, which an update waits for. A subagent's
+   * turn counts for the bot that launched it, as the user can only stop that bot.
+   */
+  busyBots = () =>
+    serviceEffect(async (): Promise<BusyBotsView> => {
+      const [runs, subagents] = await Promise.all([
+        this.prisma.run.findMany({
+          where: { status: { in: ["queued", "running"] } },
+          select: { id: true, botId: true },
+          orderBy: { createdAt: "asc" },
+        }),
+        this.prisma.subagent.findMany({
+          where: { status: { in: [...ACTIVE_STATUSES] } },
+          select: { childBotId: true },
+          orderBy: { createdAt: "asc" },
+        }),
+      ]);
+      const parentOf = new Map<string, string>();
+      let unresolved = [...new Set([...runs.map((run) => run.botId), ...subagents.map((row) => row.childBotId)])];
+      while (unresolved.length > 0) {
+        const links = await this.prisma.subagent.findMany({
+          where: { childBotId: { in: unresolved } },
+          select: { childBotId: true, parentBotId: true },
+        });
+        for (const link of links) parentOf.set(link.childBotId, link.parentBotId);
+        unresolved = links.map((link) => link.parentBotId).filter((id) => !parentOf.has(id));
+      }
+      const root = (botId: string) => {
+        let id = botId;
+        for (let depth = 0; parentOf.has(id) && depth < 16; depth++) id = parentOf.get(id)!;
+        return id;
+      };
+      const runIds = new Map<string, string[]>();
+      for (const run of runs) runIds.set(root(run.botId), [...(runIds.get(root(run.botId)) ?? []), run.id]);
+      for (const row of subagents) if (!runIds.has(root(row.childBotId))) runIds.set(root(row.childBotId), []);
+      const names = new Map(
+        (await this.prisma.bot.findMany({ where: { id: { in: [...runIds.keys()] } }, select: { id: true, name: true } }))
+          .map((bot) => [bot.id, bot.name]),
+      );
+      return {
+        bots: [...runIds].map(([botId, ids]) => ({ botId, name: names.get(botId) ?? "", runIds: ids })),
+      };
     });
 
   async stop(parentBotId: string, callId: string, input: StopSubagentInput) {

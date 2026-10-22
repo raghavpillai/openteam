@@ -236,13 +236,15 @@ describe("managed server updater", () => {
     const child = fakeUpdaterProcess();
     let fetchCount = 0;
     let spawnedArguments: readonly string[] = [];
+    let spawnedEnvironment: NodeJS.ProcessEnv = {};
     const updater = new ServerUpdater({
       cliPath: fixture.cliPath,
       executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
       environment: fixture.environment,
       fetcher: async () => versionResponse(fetchCount++ === 0 ? "1.2.3" : "1.3.0"),
-      spawnUpdater: (_executable, args) => {
+      spawnUpdater: (_executable, args, options) => {
         spawnedArguments = args;
+        spawnedEnvironment = options.env;
         setTimeout(() => {
           child.stdout.write(
             '@@OPENTEAM_UPDATE@@{"phase":"pulling","message":"Pulling images","version":"1.3.0"}\n'
@@ -262,6 +264,7 @@ describe("managed server updater", () => {
     expect(spawnedArguments).toContain("--json-progress");
     expect(spawnedArguments).toContain("--version");
     expect(spawnedArguments).toContain("1.3.0");
+    expect(spawnedEnvironment.OPENTEAM_UPDATE_WHEN_IDLE).toBe("1");
     expect(statuses.map((status) => status.phase)).toContain("pulling");
     expect(result).toMatchObject({
       status: "updated",
@@ -420,6 +423,11 @@ describe("managed server updater", () => {
     expect(spawnedArguments).toContain("StrictHostKeyChecking=yes");
     expect(spawnedArguments).toContain("owner@server.example");
     expect(spawnedArguments).toContain("openteam");
+    // An installed CLI that predates the gate still hands it to the release it stages.
+    expect(spawnedArguments.slice(spawnedArguments.indexOf("owner@server.example") + 1, -5)).toEqual([
+      "env",
+      "OPENTEAM_UPDATE_WHEN_IDLE=1",
+    ]);
     expect(spawnedEnvironment.ELECTRON_RUN_AS_NODE).toBeUndefined();
     expect(result).toMatchObject({ status: "updated", updateMethod: "ssh" });
   });

@@ -173,6 +173,7 @@ ${directoryOption}
   --force               Reapply the currently installed release
   --allow-downgrade     Permit an explicit downgrade for recovery
   --allow-prerelease    Permit an explicit prerelease target
+  --when-idle           Refuse, changing nothing, while any bot is working
 ${helpHint}
 
 Advanced release/testing options:

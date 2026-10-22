@@ -61,6 +61,7 @@ import {
   type PersistedUpdateState,
 } from "./update-safety";
 import { refreshPluginHostComponents } from "./plugin-host";
+import { assertNoAgentWorking, UpdateBusyError, updateWaitsForIdle } from "./update-gate";
 
 export const UPDATE_PROGRESS_PREFIX = "@@OPENTEAM_UPDATE@@";
 export type UpdateProgressPhase =
@@ -464,6 +465,8 @@ const updateCommandUnlocked = async (
     console.log(`${message}.`);
     return;
   }
+  const whenIdle = updateWaitsForIdle(options);
+  if (whenIdle) await assertNoAgentWorking(paths);
   console.log(`Updating OpenTeam ${manifest.version} → ${target}…`);
   report("downloading", `Downloading and verifying OpenTeam ${target}`, target);
   const release = await downloadRelease({
@@ -490,6 +493,8 @@ const updateCommandUnlocked = async (
     assertUpdatePreflight(paths, runner, project, nextCompose);
     report("pulling", `Pulling OpenTeam ${target} container images`, target);
     project.runOrThrow(["pull"], { inherit: true, composeFile: nextCompose });
+    // Work may have started during the download; this is the last moment nothing has stopped.
+    if (whenIdle) await assertNoAgentWorking(paths);
     maintenanceStarted = true;
     project.runOrThrow([
       "stop", "server", "worker",
@@ -521,6 +526,10 @@ const updateCommandUnlocked = async (
       promoteStagedCli(cliPromotion);
     }
   } catch (error) {
+    if (error instanceof UpdateBusyError) {
+      rmSync(nextCompose, { force: true });
+      throw error;
+    }
     report(
       "rolling-back",
       "The update failed; restoring the previous OpenTeam configuration",

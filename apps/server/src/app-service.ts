@@ -580,6 +580,8 @@ export class AppService {
 
   stopBot = forwardServiceMethod(() => this.subagents.stopBot);
 
+  busyBots = forwardServiceMethod(() => this.subagents.busyBots);
+
 
   snapshot = forwardServiceMethod(() => this.snapshots.full);
 

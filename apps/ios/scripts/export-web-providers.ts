@@ -1,6 +1,6 @@
 /** Writes the web provider catalog from packages/contracts for the Swift catalog test.
  * `--check` fails when the fixture is stale; the Swift test fails when Swift drifts. */
-import { WEB_PROVIDER_LISTS } from "../../../packages/contracts/src/web-search";
+import { RECOMMENDED_SEARCH_PROVIDER, WEB_PROVIDER_LISTS } from "../../../packages/contracts/src/web-search";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -13,7 +13,7 @@ const provider = (info: (typeof WEB_PROVIDER_LISTS)["search"][number]) => ({
   fields: info.fields.map((field) => ({ id: field.id, label: field.label, secret: field.secret, required: field.required, placeholder: field.placeholder ?? "" })),
   setupUrl: info.setupUrl ?? null,
 });
-const json = `${JSON.stringify({ search: WEB_PROVIDER_LISTS.search.map(provider), fetch: WEB_PROVIDER_LISTS.fetch.map(provider) }, null, 2)}\n`;
+const json = `${JSON.stringify({ search: WEB_PROVIDER_LISTS.search.map(provider), fetch: WEB_PROVIDER_LISTS.fetch.map(provider), recommendedSearch: RECOMMENDED_SEARCH_PROVIDER }, null, 2)}\n`;
 if (process.argv.includes("--check")) {
   let current = "";
   try {

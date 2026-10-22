@@ -1,5 +1,5 @@
 import type { RobotAvatarShape } from "@openteam/contracts/robot-avatar";
-import { CircleAlert, ExternalLink, KeyRound, Lock, Mic } from "lucide-react";
+import { CircleAlert, ExternalLink, Globe, KeyRound, Lock, Mic, Search } from "lucide-react";
 import { type CSSProperties, useEffect, useState } from "react";
 import { BotAvatarGlyph } from "../avatar-picker-icons";
 import { CrossFade } from "./cross-fade";
@@ -277,6 +277,57 @@ export function KeyVisual({
       <span className="setup-badge">
         <Lock aria-hidden="true" className="size-3" /> Only your server sees it
       </span>
+    </div>
+  );
+}
+
+const SEARCH_RESULTS = [
+  { site: "timeout.com", title: "The best meeting venues in Lisbon" },
+  { site: "visitlisboa.com", title: "Event spaces for groups of 20–40" },
+  { site: "tripadvisor.com", title: "Top-rated offsite venues, 2026 reviews" },
+] as const;
+
+/** A bot looking something up: the question, then fresh results with their sources. */
+export function SearchVisual({
+  providerName,
+  providerIcon,
+  on = false,
+}: {
+  providerName: string;
+  providerIcon?: string;
+  /** Search was just turned on: the card says so. */
+  on?: boolean;
+}) {
+  return (
+    <div className="setup-card setup-chat">
+      {on ? (
+        <span aria-hidden="true" className="setup-chat-check">
+          <SetupSuccessMark />
+        </span>
+      ) : null}
+      <div className="setup-chat-head">
+        {providerIcon ? (
+          <img alt="" className="setup-search-logo" src={providerIcon} />
+        ) : (
+          <Search aria-hidden="true" className="size-4" />
+        )}
+        Web search
+        <span>{providerName}</span>
+      </div>
+      <div className="setup-bubble" data-from="you">
+        Find a venue in Lisbon for our team offsite.
+      </div>
+      <ul className="setup-search-results">
+        {SEARCH_RESULTS.map((result, index) => (
+          <li key={result.site} style={nth(index)}>
+            <Globe aria-hidden="true" className="size-3.5" />
+            <span>
+              <strong>{result.title}</strong>
+              <small>{result.site}</small>
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

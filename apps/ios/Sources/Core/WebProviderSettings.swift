@@ -86,6 +86,9 @@ public enum WebProviderCatalog {
       "Renders JavaScript and returns clean Markdown.",
       keyURL: "https://www.firecrawl.dev/app/api-keys"),
   ]
+  /// The search provider setup recommends: the most accurate results in our search benchmark.
+  /// Only a recommendation; search stays off until someone checks and chooses a provider.
+  public static let recommendedSearch = "exa"
   public static func providers(_ tool: WebTool) -> [WebProviderInfo] {
     tool == .search ? search : fetch
   }

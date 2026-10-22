@@ -133,7 +133,8 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // With them and the server gauges: 16,425,283 bytes.
 // Main at 69b13a34 measures 16,448,915 after auto-review settings and composer
 // motion. The dedicated Model/Voice notes pages add 5,358 bytes (16,454,273 total).
-atMost("renderer bytes", result.renderer.bytes, 16_455_000);
+// Setup's web search step adds 6,667 bytes (16,460,940 total).
+atMost("renderer bytes", result.renderer.bytes, 16_461_500);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -225,15 +226,17 @@ const lazyBudgets: Record<string, number> = {
   // 146,262 with the chaos fixes (the saved model's Try again, fresh server checks with an
   // unreachable state, "still waiting" notes, and the other-device bot); 150,671 with the
   // sign-in-or-key step for ChatGPT and Claude, checked keys, and the model select (a
-  // select-style trigger with a filtered list, also on "You're already connected").
-  onboarding: 152_000,
+  // select-style trigger with a filtered list, also on "You're already connected");
+  // 152,506 with the web search step (a recommended provider, its key and a real check).
+  onboarding: 153_000,
   // Welcome, server address, and sign-in; loads only while signed out. Measured
   // October closure: 40,306; 44,595 after the QA fixes (cancellable connects, address
   // checks, and the shared layout's guards and styles); 61,766 with the setup screens'
   // shared motion CSS and transition helpers (see onboarding); 65,416 with the motion
   // review's shared layout and CSS; 66,735 with the cinematic pass's shared CSS (its own
-  // pictures, the topology and the model picker live apart, with the setup screens).
-  signIn: 68_000,
+  // pictures, the topology and the model picker live apart, with the setup screens);
+  // 69,096 with the web search stage's shared tint and five-step progress.
+  signIn: 69_500,
   pluginSettings: 50_000,
   pluginSettingsDetail: 30_000,
   pluginManagement: 38_000,

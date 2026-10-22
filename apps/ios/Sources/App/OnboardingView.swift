@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// First-run setup after sign-in, one decision per screen: check the server (W3),
-/// choose and test the bots' AI (W4–W5), voice notes (W6), and the first bot (W7).
+/// choose and test the bots' AI (W4–W5), web search (W5b), voice notes (W6), and the
+/// first bot (W7).
 /// Once the bot is created, Home shows it arriving and zooms into its chat (W8). Same
 /// screens and copy as desktop; the art lives in the shared WizardBackdrop.
 struct OnboardingView: View {
@@ -70,6 +71,13 @@ private struct OnboardingWizard: View {
   /// A key is tested before W5 opens; the confetti waits for the page.
   @State private var celebrateOnArrival = false
   @State private var choosingModel = false
+  // W5b
+  @State private var web: WebProvidersView?
+  @State private var searchProvider = WebProviderCatalog.recommendedSearch
+  @State private var searchKey = ""
+  @State private var searchBusy = false
+  @State private var searchError: String?
+  @State private var searchOn = false
   // W6
   @State private var voice: TranscriptionSettingsView?
   @State private var voiceProvider: TranscriptionSettings.Provider = .openai
@@ -94,13 +102,20 @@ private struct OnboardingWizard: View {
   @State private var setAsideBots: Set<String> = []
   /// Mirrored into each page's own focus (see WizardFocusHost).
   @State private var focus: Focus?
-  private enum Focus: Hashable { case apiKey, voiceKey, botName, paste }
+  private enum Focus: Hashable { case apiKey, searchKey, voiceKey, botName, paste }
   private typealias FocusBinding = FocusState<Focus?>.Binding
 
   /// The screen on top.
   private var step: WizardStep { path.last ?? .health }
   private var voiceConfigured: Bool {
     voice?.configured ?? (store.runtime.values["transcription"] == "configured")
+  }
+  private var searchConfigured: Bool { web?.search.selected != nil }
+  private var searchInfo: WebProviderInfo {
+    WebProviderCatalog.info(.search, searchProvider) ?? WebProviderCatalog.search[0]
+  }
+  private var afterModel: WizardStep {
+    .afterModel(searchConfigured: searchConfigured, voiceConfigured: voiceConfigured)
   }
   private var testPassed: Bool {
     if case .passed = setup.test { return true }
@@ -128,6 +143,9 @@ private struct OnboardingWizard: View {
     .task {
       if botsAtStart == nil { botsAtStart = Set(store.bots.map(\.id)) }
       await setup.start()
+      if web == nil {
+        web = (try? await store.request(WebProvidersRequest.path)).map(WebProvidersView.init)
+      }
       if voice == nil {
         voice = try? await store.request(TranscriptionRequest.path)
           .decode(TranscriptionSettingsView.self)
@@ -174,6 +192,12 @@ private struct OnboardingWizard: View {
     }
     .onChange(of: setup.session?.prompt?.id) { _, _ in pasted = "" }
     .onChange(of: apiKey) { _, _ in keyError = nil }
+    .onChange(of: searchProvider) { _, _ in
+      // A key belongs to one service.
+      searchKey = ""
+      searchError = nil
+    }
+    .onChange(of: searchKey) { _, _ in searchError = nil }
     .onChange(of: voiceProvider) { _, _ in
       voiceKey = ""
       voiceError = nil
@@ -194,7 +218,10 @@ private struct OnboardingWizard: View {
       WizardPage(
         stage: step.stage,
         active: self.step == step,
-        skip: step == .voice && !voiceOn ? { go(.bot) } : nil,
+        skip: step == .voice && !voiceOn
+          ? { go(.bot) }
+          : step == .search && !searchOn
+            ? { go(.afterSearch(voiceConfigured: voiceConfigured)) } : nil,
         focusAnchor: focus.map { _ in "fields-" + step.rawValue },
         motion: motion(step)
       ) {
@@ -205,6 +232,7 @@ private struct OnboardingWizard: View {
         case .signIn: signInPage(binding)
         case .apiKey: apiKeyPage(binding)
         case .test: testPage
+        case .search: searchPage(binding)
         case .voice: voicePage(binding)
         case .bot: botPage(binding)
         }
@@ -252,6 +280,17 @@ private struct OnboardingWizard: View {
     case .method: break
     case .signIn: await advanceWhenConnected()
     case .test: await testModel()
+    case .search:
+      if web == nil {
+        web = (try? await store.request(WebProvidersRequest.path)).map(WebProvidersView.init)
+      }
+      if searchConfigured, !searchOn, path.last == .search {
+        // Already set up: nothing to ask.
+        var next = path
+        next.removeLast()
+        next.append(.afterSearch(voiceConfigured: voiceConfigured))
+        path = next
+      }
     case .voice:
       if voiceConfigured, !voiceOn, path.last == .voice {
         // Already set up: nothing to ask.
@@ -319,6 +358,9 @@ private struct OnboardingWizard: View {
         marks: [ProviderMark.kind(for: setup.providerId)],
         model: modelName.isEmpty ? providerName(setup.providerId) : modelName, dark: payoff,
         celebrate: celebrate)
+    case .search:
+      return .search(
+        brand: searchInfo.brand, name: searchOn ? searchInfo.name : "Not set up yet", on: searchOn)
     case .voice:
       return .voice(on: voiceOn)
     case .bot:
@@ -346,6 +388,7 @@ private struct OnboardingWizard: View {
         "\(session?.status ?? "")|\(session?.deviceCode?.userCode ?? "")|\(session?.prompt?.id ?? "")|\(setup.finishingSignIn)|\(setup.error ?? "")|\(copiedCode ?? "")"
     case .apiKey: return "\(keyAccepted)|\(connectingKey)|\(keyError ?? "")"
     case .test: return "\(setup.test)|\(modelProblem ?? "")|\(setup.error ?? "")|\(setup.modelId)"
+    case .search: return "\(searchOn)|\(searchBusy)|\(searchProvider)|\(searchError ?? "")"
     case .voice: return "\(voiceOn)|\(voiceBusy)|\(voiceError ?? "")"
     case .bot: return "\(creating)|\(createError ?? "")|\(hadBots)|\(arrival?.bot.id ?? "")"
     }
@@ -1095,6 +1138,129 @@ private struct OnboardingWizard: View {
     }
   }
 
+  // MARK: - W5b Web search
+
+  @ViewBuilder private func searchPage(_ focusBinding: FocusBinding) -> some View {
+    let info = searchInfo
+    WizardHeader(
+      title: searchOn ? "Web search is on" : "Let your bots search the web",
+      detail: searchOn
+        ? "Bots search the web with \(info.name). You can change it in Settings → Providers."
+        : info.id == WebProviderCatalog.recommendedSearch
+          ? "Bots look things up with a search service. \(info.name) gives the most accurate results; paste its API key to turn it on."
+          : "Bots look things up with a search service. Paste your \(info.name) API key to turn it on.",
+      detailIdentifier: searchOn ? "search-on" : "wizard-detail"
+    ) {
+      if searchOn {
+        WizardCheck(size: 36).transition(.scale(scale: 0.4).combined(with: .opacity))
+      }
+    }
+    if !searchOn {
+      WizardGroup {
+        Menu {
+          Picker("Search provider", selection: $searchProvider) {
+            ForEach(WebProviderCatalog.search) { provider in
+              Text(
+                provider.id == WebProviderCatalog.recommendedSearch
+                  ? "\(provider.name) · Recommended" : provider.name
+              ).tag(provider.id)
+            }
+          }
+        } label: {
+          HStack(spacing: 14) {
+            WebProviderIcon(brand: info.brand, size: 30)
+            VStack(alignment: .leading, spacing: 2) {
+              HStack(spacing: 6) {
+                Text(info.name).font(.body).foregroundStyle(.primary)
+                if info.id == WebProviderCatalog.recommendedSearch {
+                  Text("Recommended").font(.caption2.weight(.semibold))
+                    .foregroundStyle(WizardStage.search.accent)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(WizardStage.search.accent.opacity(0.14), in: Capsule())
+                }
+              }
+              Text(info.description).font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.semibold))
+              .foregroundStyle(.tertiary)
+          }
+          .padding(.horizontal, 16).padding(.vertical, 11)
+          .frame(minHeight: 54)
+          .contentShape(Rectangle())
+        }
+        .disabled(searchBusy)
+        .accessibilityLabel("Search provider: \(info.name)")
+        .accessibilityIdentifier("search-provider")
+      }
+      .wizardFeedback(.selection, trigger: searchProvider)
+      WizardGroup {
+        HStack(spacing: 12) {
+          Image(systemName: "key.fill").foregroundStyle(.secondary)
+          SecureField("Paste your \(info.name) API key", text: $searchKey)
+            .textContentType(.password)
+            .textInputAutocapitalization(.never).autocorrectionDisabled()
+            .submitLabel(.go).focused(focusBinding, equals: .searchKey)
+            .onSubmit { Task { await turnOnSearch() } }
+            .disabled(searchBusy)
+            .accessibilityLabel("\(info.name) API key")
+            .accessibilityIdentifier("search-key-field")
+        }
+        .modifier(WizardFieldStyle())
+      }
+      .id("fields-search")
+      if let searchError { WizardError(message: searchError) }
+    }
+  }
+
+  /// Saves the key, runs a real search with it, and only then chooses the provider, so
+  /// search never runs on a refused key. A refused key is removed and search stays off.
+  private func turnOnSearch() async {
+    let key = searchKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !searchBusy, !key.isEmpty else { return }
+    let info = searchInfo
+    focus = nil
+    searchBusy = true
+    searchError = nil
+    defer { searchBusy = false }
+    var draft = WebProviderDraft()
+    draft.key = key
+    var saved = false
+    do {
+      guard let body = draft.patch(.search, info) else { return }
+      _ = try await store.request(WebProvidersRequest.path, method: "PATCH", body: body)
+      saved = true
+      let checked = WebProvidersView(
+        try await store.request(
+          WebProvidersRequest.checkPath, method: "POST", body: WebProvidersRequest.check(.search, info.id),
+          timeout: 90))
+      let check = checked.search[info.id].check
+      guard check?.passed == true else {
+        let message = check?.message ?? ""
+        throw APIError(message.isEmpty ? "\(info.name) didn't accept that key." : message)
+      }
+      web = WebProvidersView(
+        try await store.request(
+          WebProvidersRequest.path, method: "PATCH", body: WebProvidersRequest.select(.search, info.id)))
+      UIAccessibility.post(notification: .announcement, argument: "Web search is on")
+      NativeHaptics.play(.success, source: "onboarding.search")
+      withAnimation(.bouncy) { searchOn = true }
+      try? await Task.sleep(for: .milliseconds(1000))
+      guard step == .search else { return }
+      go(.afterSearch(voiceConfigured: voiceConfigured))
+    } catch {
+      if saved,
+        let value = try? await store.request(
+          WebProvidersRequest.path, method: "PATCH",
+          body: WebProvidersRequest.removeKey(.search, info.id))
+      {
+        web = WebProvidersView(value)
+      }
+      guard !UserFacingError.isCancelled(error) else { return }
+      withAnimation(.snappy) { searchError = UserFacingError.message(error) }
+    }
+  }
+
   // MARK: - W6 Voice
 
   @ViewBuilder private func voicePage(_ focusBinding: FocusBinding) -> some View {
@@ -1374,7 +1540,7 @@ private struct OnboardingWizard: View {
           if failed {
             Task { await setup.runTest() }
           } else {
-            go(WizardStep.afterModel(voiceConfigured: voiceConfigured))
+            go(afterModel)
           }
         }
         WizardLink(
@@ -1420,7 +1586,7 @@ private struct OnboardingWizard: View {
         switch setup.test {
         case .passed:
           WizardPrimaryButton(title: "Continue", disabled: setup.busy != nil) {
-            go(WizardStep.afterModel(voiceConfigured: voiceConfigured))
+            go(afterModel)
           }
         case .failed:
           WizardPrimaryButton(title: "Try again", busy: setup.busy != nil) {
@@ -1430,6 +1596,18 @@ private struct OnboardingWizard: View {
             goBack()
           }
         case .idle, .running: EmptyView()
+        }
+      }
+    case .search:
+      if !searchOn {
+        WizardPrimaryButton(
+          title: "Turn on web search", busy: searchBusy,
+          disabled: searchKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchBusy
+        ) { Task { await turnOnSearch() } }
+        if let url = searchInfo.setupURL {
+          WizardLink(title: "Get a key from \(searchInfo.name)", identifier: "search-key-help") {
+            openURL(url)
+          }
         }
       }
     case .voice:

@@ -22,8 +22,8 @@ import {
 import { ignoresSubmit, nextOptionIndex, setupKeyAction } from "./setup-guards";
 import "./setup.css";
 
-export const SETUP_STAGES = ["Server", "AI model", "Voice", "First bot"] as const;
-const TONES = ["server", "model", "voice", "bot"] as const;
+export const SETUP_STAGES = ["Server", "AI model", "Web search", "Voice", "First bot"] as const;
+const TONES = ["server", "model", "search", "voice", "bot"] as const;
 
 // The stage the progress bar last showed, across screens, so newly reached segments fill
 // (and segments stepped back over empty) instead of appearing in their final state. The

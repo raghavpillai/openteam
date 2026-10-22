@@ -12,6 +12,7 @@ extension WizardStage {
     switch self {
     case .server: return NativePalette.color("E8F0FE", "0F1B2E")
     case .model: return NativePalette.color("EFEAFF", "1B1631")
+    case .search: return NativePalette.color("E7F5F6", "0C1D20")
     case .voice: return NativePalette.color("FFEFE2", "2A1B0E")
     case .bot: return NativePalette.color("E4F5EA", "0E2417")
     }
@@ -21,6 +22,7 @@ extension WizardStage {
     switch self {
     case .server: return NativePalette.color("2F6FEB", "6B9BFF")
     case .model: return NativePalette.color("7C4DFF", "A285FF")
+    case .search: return NativePalette.color("12A4B4", "3FC9D6")
     case .voice: return NativePalette.color("F0701A", "FF8F45")
     case .bot: return NativePalette.color("1E9E57", "3FD083")
     }

@@ -154,5 +154,6 @@
       ],
       "setupUrl": "https://www.firecrawl.dev/app/api-keys"
     }
-  ]
+  ],
+  "recommendedSearch": "exa"
 }

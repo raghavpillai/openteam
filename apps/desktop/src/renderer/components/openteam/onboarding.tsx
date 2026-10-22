@@ -2,6 +2,11 @@ import type { ClientSnapshot, CreateBotInput } from "@openteam/contracts";
 import { BOT_AVATAR_COLORS } from "@openteam/contracts/bot-avatar";
 import { ROBOT_AVATAR_SHAPES, type RobotAvatarShape } from "@openteam/contracts/robot-avatar";
 import type { TranscriptionSettings } from "@openteam/contracts/transcription";
+import {
+  RECOMMENDED_SEARCH_PROVIDER,
+  SEARCH_PROVIDER_LIST,
+  type WebProvidersView,
+} from "@openteam/contracts/web-search";
 import { Check, ChevronsUpDown, CircleAlert, Copy, Ellipsis, Minus, Shuffle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openteam-api";
@@ -14,6 +19,7 @@ import {
   withDeadline,
 } from "../../lib/request-errors";
 import { requestRuntimeRefresh } from "../../lib/runtime-refresh";
+import { webProviderIcon } from "../../lib/web-provider-icons";
 import {
   HOSTED_TRANSCRIPTION_ENDPOINTS,
   HOSTED_TRANSCRIPTION_MODELS,
@@ -43,13 +49,23 @@ import {
   ChatVisual,
   KeyVisual,
   ProvidersVisual,
+  SearchVisual,
   VoiceVisual,
 } from "./setup/visuals";
 
 type Runtime = ClientSnapshot["runtime"];
 type Bot = ClientSnapshot["bots"][number];
 type ModelSetup = ReturnType<typeof useModelSetup>;
-type Screen = "health" | "model" | "method" | "connect" | "key" | "test" | "voice" | "bot";
+type Screen =
+  | "health"
+  | "model"
+  | "method"
+  | "connect"
+  | "key"
+  | "test"
+  | "search"
+  | "voice"
+  | "bot";
 export type FirstBotProfile = Required<
   Pick<CreateBotInput, "clientRequestId" | "name" | "icon" | "color" | "description">
 >;
@@ -61,8 +77,9 @@ const STAGE: Record<Screen, number> = {
   connect: 1,
   key: 1,
   test: 1,
-  voice: 2,
-  bot: 3,
+  search: 2,
+  voice: 3,
+  bot: 4,
 };
 
 const SERVER_CHECKS = [
@@ -209,7 +226,7 @@ type Frame = {
   onBack?: () => void;
 };
 
-/** First run after sign-in: server check, AI model, voice notes, and a first bot. */
+/** First run after sign-in: server check, AI model, web search, voice notes, and a first bot. */
 export function Onboarding({
   runtime,
   bots,
@@ -243,6 +260,19 @@ export function Onboarding({
   // An OpenAI key can also turn on voice notes; it stays in memory for this run only.
   const openAIKey = useRef<string | null>(null);
   const voiceConfigured = runtime.transcription === "configured";
+  // The server's web providers, read up front so a server that already searches skips that step.
+  const [webProviders, setWebProviders] = useState<WebProvidersView | null>(null);
+  useEffect(() => {
+    let active = true;
+    api
+      .webProviders()
+      .then((view) => active && setWebProviders(view))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+  const searchConfigured = Boolean(webProviders?.search.selected);
 
   // Every screen change runs as a view transition (see setup/screen-transition.ts). The
   // update lands a frame later, so a repeat request for the same screen is dropped.
@@ -273,9 +303,10 @@ export function Onboarding({
       setScreen(previous);
     }, "back");
   };
+  const afterSearch = () => go(voiceConfigured ? "bot" : "voice");
   // A passing test closes the model steps, so Back from here returns to the model choice.
   const afterModel = () =>
-    go(voiceConfigured ? "bot" : "voice", () =>
+    go(searchConfigured ? (voiceConfigured ? "bot" : "voice") : "search", () =>
       setHistory((previous) => previous.filter((entry) => entry !== "key" && entry !== "method"))
     );
   const connectWith = (providerId: string, authType: AuthType) =>
@@ -339,6 +370,19 @@ export function Onboarding({
         onContinue={afterModel}
         onSignInAgain={() => go("connect", () => setProviderChoice(setup.providerId))}
         setup={setup}
+      />
+    );
+  }
+  if (screen === "search") {
+    return (
+      <SearchScreen
+        frame={frame}
+        initial={webProviders}
+        onDone={(view) => {
+          setWebProviders(view);
+          afterSearch();
+        }}
+        onSkip={afterSearch}
       />
     );
   }
@@ -1333,6 +1377,202 @@ function TestScreen({
           />
         </>
       ) : null}
+    </SetupLayout>
+  );
+}
+
+const searchInfo = (id: string) =>
+  SEARCH_PROVIDER_LIST.find((provider) => provider.id === id) ?? SEARCH_PROVIDER_LIST[0];
+
+/**
+ * Web search: one provider, recommended first, checked with a real search before it counts.
+ * A key that fails its check leaves search off, so bots never claim a search they can't run.
+ */
+function SearchScreen({
+  frame,
+  initial,
+  onDone,
+  onSkip,
+}: {
+  frame: Frame;
+  initial: WebProvidersView | null;
+  onDone: (view: WebProvidersView) => void;
+  onSkip: () => void;
+}) {
+  const [view, setView] = useState(initial);
+  const [providerId, setProviderId] = useState<string>(RECOMMENDED_SEARCH_PROVIDER);
+  const [key, setKey] = useState("");
+  const [state, setState] = useState<"idle" | "saving" | "done">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const info = searchInfo(providerId);
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+
+  const skipRef = useRef(onSkip);
+  skipRef.current = onSkip;
+
+  useEffect(() => {
+    if (view) return;
+    let active = true;
+    api
+      .webProviders()
+      .then((next) => active && setView(next))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [view]);
+
+  // Search turned out to be set up already (the first read hadn't answered): nothing to ask.
+  const alreadyOn = state === "idle" && Boolean(view?.search.selected);
+  useEffect(() => {
+    if (alreadyOn) skipRef.current();
+  }, [alreadyOn]);
+
+  useEffect(() => {
+    if (state !== "done" || !view) return;
+    const timer = window.setTimeout(() => doneRef.current(view), 1_000);
+    return () => window.clearTimeout(timer);
+  }, [state, view]);
+
+  const turnOn = async () => {
+    const apiKey = key.trim();
+    if (!apiKey || state !== "idle") return;
+    setState("saving");
+    setError(null);
+    let saved = false;
+    try {
+      // The key is checked before the provider is chosen, so search never runs on a refused key.
+      await api.updateWebProviders({ search: { providers: { [info.id]: { apiKey } } } });
+      saved = true;
+      const checked = await api.checkWebProvider({ tool: "search", provider: info.id });
+      const check = checked.search.providers[info.id]?.check;
+      if (check?.status !== "passed") {
+        throw new Error(check?.message || `${info.name} didn't accept that key.`);
+      }
+      setView(await api.updateWebProviders({ search: { selected: info.id } }));
+      setState("done");
+    } catch (cause) {
+      // A refused key is removed, like a refused model key; search stays off.
+      if (saved) {
+        await api
+          .updateWebProviders({ search: { providers: { [info.id]: { apiKey: null } } } })
+          .then(setView)
+          .catch(() => {});
+      }
+      setError(requestErrorMessage(cause, "Couldn't turn on web search. Try again."));
+      setState("idle");
+    }
+  };
+
+  const icon = webProviderIcon(info.brand);
+  return (
+    <SetupLayout
+      {...frame}
+      body={
+        state === "done"
+          ? `Bots search the web with ${info.name}. You can change it in Settings → Providers.`
+          : providerId === RECOMMENDED_SEARCH_PROVIDER
+            ? `Bots look things up with a search service. ${info.name} gives the most accurate results; paste its API key to turn it on.`
+            : `Bots look things up with a search service. Paste your ${info.name} API key to turn it on.`
+      }
+      footer={
+        state === "done" ? null : (
+          <>
+            <SetupPrimary busy={state === "saving"} disabled={!key.trim()}>
+              Turn on web search
+            </SetupPrimary>
+            {info.setupUrl ? (
+              <SetupLink onClick={() => openExternal(info.setupUrl!)}>
+                Get a key from {info.name}
+              </SetupLink>
+            ) : null}
+          </>
+        )
+      }
+      onSkip={state === "done" ? undefined : onSkip}
+      onSubmit={() => void turnOn()}
+      title={state === "done" ? "Web search is on" : "Let your bots search the web"}
+      visual={
+        <SearchVisual
+          on={state === "done"}
+          providerIcon={icon}
+          providerName={state === "done" ? info.name : "Not set up yet"}
+        />
+      }
+    >
+      {state === "done" ? (
+        <SetupSuccessMark />
+      ) : (
+        <>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild disabled={state === "saving"}>
+              <button aria-label={`Search provider: ${info.name}`} className="setup-option" type="button">
+                <span className="setup-option-icon">
+                  {icon ? <img alt="" className="setup-search-tile" src={icon} /> : null}
+                </span>
+                <span className="setup-option-text">
+                  <strong>
+                    {info.name}
+                    {info.id === RECOMMENDED_SEARCH_PROVIDER ? (
+                      <span className="setup-tag">Recommended</span>
+                    ) : null}
+                  </strong>
+                  <span>{info.description}</span>
+                </span>
+                <ChevronsUpDown aria-hidden="true" className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-[var(--radix-dropdown-menu-trigger-width)]"
+            >
+              {SEARCH_PROVIDER_LIST.map((provider) => (
+                <DropdownMenuItem
+                  key={provider.id}
+                  onSelect={() => {
+                    if (provider.id === providerId) return;
+                    // A key belongs to one service.
+                    setProviderId(provider.id);
+                    setKey("");
+                    setError(null);
+                  }}
+                >
+                  {provider.name}
+                  {provider.id === RECOMMENDED_SEARCH_PROVIDER ? " · Recommended" : ""}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <input
+            aria-invalid={Boolean(error)}
+            aria-label={`${info.name} API key`}
+            autoComplete="off"
+            className="setup-input"
+            onChange={(event) => {
+              setKey(event.target.value);
+              setError(null);
+            }}
+            placeholder={`${info.name} API key`}
+            readOnly={state === "saving"}
+            spellCheck={false}
+            type="password"
+            value={key}
+          />
+          {error ? (
+            <p className="setup-note" data-tone="error" role="alert">
+              {error}
+            </p>
+          ) : state === "saving" ? (
+            <p className="setup-note">
+              <span className="mr-1.5 inline-flex align-[-2px]">
+                <LoadingOrb aria-hidden size={14} />
+              </span>
+              Running a test search with {info.name}…
+            </p>
+          ) : null}
+        </>
+      )}
     </SetupLayout>
   );
 }

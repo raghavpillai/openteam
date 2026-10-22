@@ -135,5 +135,6 @@ final class WebProviderSettingsTests: XCTestCase {
         }
       }
     }
+    XCTAssertEqual(WebProviderCatalog.recommendedSearch, contract["recommendedSearch"].string)
   }
 }

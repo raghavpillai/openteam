@@ -42,6 +42,8 @@ import XCTest
   func testCompletesFirstBotOnboardingInDarkMode() async throws {
     let app = try await launch(appearance: "dark")
     tap("wizard-continue", app)
+    title("Let your bots search the web", app)
+    tap("wizard-skip", app)
     title("Talk instead of type?", app)
     tap("wizard-skip", app)
     title("Create your first bot", app)
@@ -92,9 +94,34 @@ import XCTest
     XCTAssertFalse(app.buttons["wizard-skip"].exists)
   }
 
+  func testSearchOnboardingChoosesOnlyACheckedProvider() async throws {
+    let app = try await launch()
+    tap("wizard-continue", app)
+    title("Let your bots search the web", app)
+    XCTAssertTrue(app.staticTexts["Recommended"].exists)
+    let key = app.secureTextFields["search-key-field"]
+    key.tap()
+    key.typeText("bad-search-key")
+    tap("wizard-continue", app)
+    XCTAssertTrue(
+      app.staticTexts["Exa rejected the API key (HTTP 401)."].waitForExistence(timeout: 8))
+    let refused = try await request("/api/v0/server-settings/web-providers")
+    let search = refused["search"] as! [String: Any]
+    XCTAssertTrue(search["selected"] is NSNull)
+    key.tap()
+    key.typeText(
+      String(repeating: XCUIKeyboardKey.delete.rawValue, count: 14) + "good-search-key")
+    tap("wizard-continue", app)
+    title("Talk instead of type?", app)
+    let chosen = try await request("/api/v0/server-settings/web-providers")
+    XCTAssertEqual((chosen["search"] as! [String: Any])["selected"] as? String, "exa")
+  }
+
   func testVoiceOnboardingSavesAndDisablesARefusedService() async throws {
     let app = try await launch()
     tap("wizard-continue", app)
+    title("Let your bots search the web", app)
+    tap("wizard-skip", app)
     title("Talk instead of type?", app)
     let key = app.secureTextFields["voice-key-field"]
     key.tap()

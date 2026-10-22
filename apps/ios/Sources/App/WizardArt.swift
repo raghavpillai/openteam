@@ -577,6 +577,60 @@ struct KeyArt: View {
   }
 }
 
+// MARK: - W5b Web search
+
+/// A bot looking something up: the question, then fresh results with their sources.
+/// Same card as desktop's SearchVisual.
+struct SearchArt: View {
+  @Environment(\.wizardArtNamespace) private var namespace
+  var brand: String
+  var name: String
+  var on: Bool
+  private static let results = [
+    ("The best meeting venues in Lisbon", "timeout.com"),
+    ("Event spaces for groups of 20–40", "visitlisboa.com"),
+    ("Top-rated offsite venues, 2026 reviews", "tripadvisor.com"),
+  ]
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 8) {
+        WebProviderIcon(brand: brand, size: 22)
+        Text("Web search").font(.system(size: 13, weight: .semibold))
+        Spacer(minLength: 4)
+        Text(name).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+        if on { WizardCheck(size: 20) }
+      }
+      Text("Find a venue in Lisbon for our team offsite.")
+        .font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(WizardStage.search.accent.gradient, in: BubbleShape(mine: true))
+        .frame(maxWidth: .infinity, alignment: .trailing)
+      ForEach(Self.results, id: \.1) { title, site in
+        HStack(alignment: .top, spacing: 9) {
+          Image(systemName: "globe").font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(WizardStage.search.accent).padding(.top, 2)
+          VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+            Text(site).font(.system(size: 11)).foregroundStyle(.secondary)
+          }
+          Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(WizardStage.search.tint.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+      }
+    }
+    .padding(12)
+    .frame(width: 300)
+    .background {
+      RoundedRectangle(cornerRadius: 20, style: .continuous).fill(WizardPalette.card)
+        .shadow(color: Color(hex: "0B5560").opacity(0.12), radius: 16, y: 8)
+        .wizardShared("card", in: namespace)
+    }
+    .animation(.bouncy, value: on)
+    .accessibilityHidden(true)
+  }
+}
+
 // MARK: - W6 Voice
 
 /// A microphone with a live waveform and what it heard.

@@ -13,7 +13,7 @@ import {
   type PromptMemoryRecord,
 } from "./memory-rendering";
 import managedSkills from "./prompts/managed-skills.json";
-import { managedSkillAgents, managedSkillIsForMain } from "./managed-skill-agents";
+import { managedSkillAgents } from "./managed-skill-agents";
 import { safePackagePath } from "@openteam/plugin-sdk";
 import { originalSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { pluginSkillsForAgent, renderPluginSkillCatalog, type PluginSkillCache } from "./plugin-skill-catalog";
@@ -2772,8 +2772,8 @@ export class AgentDataStore {
     try {
       const cache = JSON.parse(text);
       if (!Array.isArray(cache.skills)) return "";
-      // Skills for a worker type (such as knowledgeWork) stay out of the main agent's catalog.
-      const allowed = new Set(managedSkills.skills.filter(managedSkillIsForMain).map((skill) => skill.id));
+      // The main agent lists every managed skill, including the ones a worker type also carries.
+      const allowed = new Set(managedSkills.skills.map((skill) => skill.id));
       const blocks: string[] = [];
       for (const skill of cache.skills.slice(0, MAX_SAVED_SKILLS)) {
         if (!skill || !allowed.has(skill.id) || typeof skill.name !== "string" ||

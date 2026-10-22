@@ -7,7 +7,7 @@ export {
   renderQuietSubagentRevivalPrompt,
 } from "./quiet-revival";
 import { automationContextRoutine, quietRoutineOriginNote, renderQuietRevivalBatchPrompt } from "./quiet-revival";
-import { mediaReviewPrompt, renderWorkerBoxSection, renderWorkerTimeSection, WORKER_READONLY_LINE, WORKER_USER_IDENTITY_LINE } from "./worker-prompts";
+import { mediaReviewPrompt, renderWorkerBoxSection, renderWorkerTimeSection, WORKER_READONLY_LINE, USER_IDENTITY_LINE } from "./worker-prompts";
 import { attachmentContext } from "./attachment-context";
 import { listSiblingThreads, renderOtherActiveConversations } from "./sibling-threads";
 import { nextMessageAddress, resolveMessageAddress } from "./message-address";
@@ -1869,7 +1869,7 @@ export class AgentMessaging {
         ].join("\n"),
         workerSafetySection(executes),
         `${WORKER_UNTRUSTED_CONTENT_SECTION}\n\n${WORKER_DRAFT_HANDOFF}`,
-        WORKER_USER_IDENTITY_LINE,
+        USER_IDENTITY_LINE,
         executes ? renderWorkerTimeSection(this.defaultTimeZone) : "",
         connectorInstructions.trim(),
         executes ? renderWorkerBoxSection({ readOnly: bot.subagentIdentity.readOnly, workingDirectory: bot.defaultDirectory }) : "",
@@ -2027,6 +2027,7 @@ export class AgentMessaging {
     const instructions = [
       renderPlatformBaseSystemPrompt(),
       agentPrompt.profileSection,
+      USER_IDENTITY_LINE,
       frozen.sections.agent_instructions,
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,

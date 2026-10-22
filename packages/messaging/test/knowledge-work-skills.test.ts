@@ -54,7 +54,7 @@ test("a Google Slides deck lands in Drive once and is checked as Google draws it
   expect(executor).not.toMatch(/update_presentation|read_slide_page_thumbnail/);
 });
 
-test("knowledgeWork skills stay out of the main agent's catalog and workflow list", async () => {
+test("the main agent's catalog and workflow list include the skills knowledgeWork carries", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-kw-skills-"));
   try {
     const store = new AgentDataStore({} as never, { root: join(root, "data"), workspaceRoot: join(root, "workspace") });
@@ -66,8 +66,8 @@ test("knowledgeWork skills stay out of the main agent's catalog and workflow lis
     expect(record("slides").agents).toBeUndefined();
     const catalog: string = await (store as any).renderManagedSkills();
     expect(catalog).toContain(`<agent_skill fullPath="${record("slides").filePath}">`);
-    expect(catalog).not.toContain(record("slides-executor").filePath);
-    expect(catalog).not.toContain(record("office-pptx").filePath);
+    expect(catalog).toContain(`<agent_skill fullPath="${record("slides-executor").filePath}">`);
+    expect(catalog).toContain(`<agent_skill fullPath="${record("office-pptx").filePath}">`);
     // knowledgeWork has no Skill tool: like the main agent, its agent_skills block lists file paths to open with Read.
     const kwCatalog = await store.renderWorkerSkillCatalog("knowledgeWork");
     expect(kwCatalog).toBe(
@@ -91,8 +91,8 @@ test("knowledgeWork skills stay out of the main agent's catalog and workflow lis
   }
   const workflows = renderPlatformBaseSystemPrompt().match(/## Managed workflows\n[^\n]*/)?.[0] ?? "";
   expect(workflows).toContain("slides");
-  expect(workflows).not.toContain("slides-executor");
-  expect(workflows).not.toContain("office-pptx");
+  expect(workflows).toContain("slides-executor");
+  expect(workflows).toContain("office-pptx");
 });
 
 test("knowledgeWork's prompt names no Skill tool", () => {

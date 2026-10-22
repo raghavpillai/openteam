@@ -98,7 +98,7 @@ describe("main-agent graphical delegation instructions", () => {
       const executes = subagentType === "executor" || subagentType === "knowledgeWork";
       expect(prompt.instructions).not.toContain("Parent profile");
       expect(prompt.instructions).not.toContain(PLATFORM_BASE_SYSTEM_PROMPT);
-      expect(prompt.instructions).not.toContain("SendToUser is your only voice");
+      expect(prompt.instructions).not.toContain("## How a turn works");
       // knowledgeWork's own skills sit in its user_info block, like the main agent's.
       expect(prompt.instructions).not.toContain("<agent_skills>");
       if (subagentType === "knowledgeWork") expect(prompt.userInfo).toBe("<user_info>\n<agent_skills>knowledgeWork catalog</agent_skills>\n</user_info>");

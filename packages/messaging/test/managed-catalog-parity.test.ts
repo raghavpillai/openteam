@@ -6,7 +6,6 @@ import { parse as yaml } from 'yaml';
 import managed from '../src/prompts/managed-skills.json';
 import { AgentDataStore } from '../src/agent-data';
 import { buildGroupTurnPrompt } from '../src/index';
-import { managedSkillIsForMain } from '../src/managed-skill-agents';
 import { normalizeMemoryContent } from '../src/memory-facts';
 import { referenceTool } from '@openteam/contracts/tool-contracts';
 import { AUTOMATION_TRIGGER_SHAPE_LINES } from '@openteam/contracts/reference-main-parsers';
@@ -299,7 +298,7 @@ test('active skills materialize and appear in metadata without injecting full bo
       expect(await readFile(entry.filePath,'utf8')).toBe(skill.content);
     }
     const rendered=await (store as any).renderManagedSkills();
-    for(const skill of managed.skills.filter(managedSkillIsForMain))expect(rendered).toContain(`<agent_skill fullPath="${join(root,'data/managed-skills',skill.id,'SKILL.md')}">`);
+    for(const skill of managed.skills)expect(rendered).toContain(`<agent_skill fullPath="${join(root,'data/managed-skills',skill.id,'SKILL.md')}">`);
     expect(rendered).not.toContain('function tfs(');
   }finally{await rm(root,{recursive:true,force:true});}
 });

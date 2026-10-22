@@ -3,8 +3,8 @@ import { formatTimeZoneWithOffset, resolveTimeZone } from "./timestamps";
 
 // The reference's worker prompt sections, adapted where they name what this computer lacks.
 
-/** Every worker writes as the user when it acts through their accounts (the reference adds their full name, which OpenTeam does not keep). */
-export const WORKER_USER_IDENTITY_LINE =
+/** The main agent and every worker write as the user when they act through their accounts (the reference adds their full name, which OpenTeam does not keep). */
+export const USER_IDENTITY_LINE =
   "When acting through your user's accounts and apps, such as Slack, speak as them and never refer to them in the third person.";
 
 export const WORKER_READONLY_LINE = "Operate in readonly mode: do not modify anything.";

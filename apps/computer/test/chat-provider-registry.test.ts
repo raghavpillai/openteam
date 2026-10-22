@@ -566,6 +566,53 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
   expect((await saved()).contextWindow).toBe(1_050_000);
 });
 
+test("a saved OpenRouter model without the prompt cap picks it up on refresh", async () => {
+  const saved = (id: string, contextWindow: number) => ({
+    id,
+    name: id,
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow,
+    maxTokens: 128_000,
+    api: "openai-completions",
+    baseUrl: "https://openrouter.test/api/v1",
+  });
+  const f = await fixture({
+    openrouter: {
+      models: [saved("openai/gpt-6.1-sol", 1_050_000), saved("vendor/uncapped", 400_000), saved("vendor/smaller", 200_000)],
+    },
+  });
+  const caps: Record<string, unknown> = { "openai/gpt-6.1-sol": 922_000, "vendor/smaller": 300_000 };
+  let refreshed = 0;
+  f.runtime.refresh = (async () => {
+    refreshed++;
+    return { errors: new Map(), aborted: false };
+  }) as ModelRuntime["refresh"];
+  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (raw: URL | string | Request) => {
+    const id = new URL(String(raw)).pathname.replace(/^\/api\/v1\/models\/|\/endpoints$/g, "");
+    if (id === "vendor/uncapped") throw new Error("offline");
+    return Response.json({ data: { endpoints: [{ context_length: 1_050_000, max_prompt_tokens: caps[id] }] } });
+  }) as typeof fetch);
+  const windows = async () =>
+    Object.fromEntries(
+      JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models.map(
+        (m: { id: string; contextWindow: number }) => [m.id, m.contextWindow]
+      )
+    );
+  await registry.refreshPromptCaps();
+  // Only a cap below the saved window lowers it; a failed lookup keeps the saved window.
+  expect(await windows()).toEqual({
+    "openai/gpt-6.1-sol": 922_000,
+    "vendor/uncapped": 400_000,
+    "vendor/smaller": 200_000,
+  });
+  expect(refreshed).toBe(1);
+  // Nothing to change: no write and no runtime reload.
+  await registry.refreshPromptCaps();
+  expect(refreshed).toBe(1);
+});
+
 test("OpenRouter recommends the Auto Router, else a rolling general model, and lists it first", async () => {
   const f = await fixture({
     openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" },

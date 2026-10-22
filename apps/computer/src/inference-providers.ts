@@ -72,6 +72,10 @@ export class InferenceProviderService {
     await this.registry.verify(settings);
   }
 
+  async refreshPromptCaps(): Promise<void> {
+    await this.registry.refreshPromptCaps();
+  }
+
   async disconnect(providerId: string): Promise<void> {
     await this.runtime().logout(normalizeInferenceProviderId(providerId));
   }

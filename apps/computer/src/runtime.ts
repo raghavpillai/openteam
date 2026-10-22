@@ -147,6 +147,8 @@ export class ComputerRuntime {
         allowModelNetwork: false,
       });
       this.started = true;
+      // Saved windows predating the provider's published input cap pick it up in the background.
+      void this.inferenceProviders.refreshPromptCaps().catch(() => {});
     }
     await this.refreshAuthentication();
   }

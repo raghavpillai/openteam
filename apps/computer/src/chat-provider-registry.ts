@@ -527,19 +527,44 @@ export class ChatProviderRegistry {
           baseUrl,
         },
       ];
-      await mkdir(dirname(this.modelsPath), { recursive: true, mode: 0o700 });
-      const temp = `${this.modelsPath}.${randomUUID()}.tmp`;
-      try {
-        await writeFile(temp, JSON.stringify(document, null, 2) + "\n", { mode: 0o600 });
-        await rename(temp, this.modelsPath);
-      } finally {
-        await rm(temp, { force: true });
-      }
-      await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
+      await this.save(document);
     }
   }
-  /** The selected model's endpoint prompt cap, or nothing when OpenRouter doesn't publish one. */
-  private async openRouterPromptCap(model: ChatModel): Promise<number | undefined> {
+  /**
+   * Bound saved OpenRouter models by their endpoints' current prompt cap, so a model
+   * saved before the cap was published (or checked) compacts in time without re-selection.
+   */
+  async refreshPromptCaps(): Promise<void> {
+    const caps = new Map<string, number>();
+    for (const model of (await configFile(this.modelsPath)).providers?.openrouter?.models ?? []) {
+      if (!validId(model.id) || typeof model.baseUrl !== "string") continue;
+      const cap = await this.openRouterPromptCap({ id: model.id, baseUrl: model.baseUrl });
+      if (cap && cap < positive(model.contextWindow, Infinity)) caps.set(model.id, cap);
+    }
+    if (!caps.size) return;
+    // Re-read so a selection saved during the lookups isn't overwritten.
+    const document = await configFile(this.modelsPath);
+    for (const model of document.providers?.openrouter?.models ?? []) {
+      const cap = caps.get(String(model.id));
+      if (cap) model.contextWindow = Math.min(positive(model.contextWindow, cap), cap);
+    }
+    await this.save(document);
+  }
+  private async save(document: Config): Promise<void> {
+    await mkdir(dirname(this.modelsPath), { recursive: true, mode: 0o700 });
+    const temp = `${this.modelsPath}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temp, JSON.stringify(document, null, 2) + "\n", { mode: 0o600 });
+      await rename(temp, this.modelsPath);
+    } finally {
+      await rm(temp, { force: true });
+    }
+    await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
+  }
+  /** The model's endpoint prompt cap, or nothing when OpenRouter doesn't publish one. */
+  private async openRouterPromptCap(
+    model: Pick<ChatModel, "id" | "baseUrl">
+  ): Promise<number | undefined> {
     try {
       const signal = AbortSignal.timeout(8_000);
       const url = modelsEndpoint(model.baseUrl);

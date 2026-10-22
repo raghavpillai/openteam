@@ -78,6 +78,8 @@ import { measureUntilNextPaint, recordPerformance } from "./lib/performance";
 import { requestErrorMessage, withDeadline } from "./lib/request-errors";
 import { enableScreenForSession } from "./lib/screen-session";
 import { useSnapshotIndex } from "./lib/snapshot-index";
+import { SidebarBotOrderContext } from "./lib/sidebar-bot-order";
+import { sidebarChannelOrder } from "./lib/sidebar-rows";
 import { readThemePreference, setThemePreference, THEME_CHANGE_EVENT } from "./lib/theme";
 import { useOpenTeam } from "./state/use-openteam";
 
@@ -755,6 +757,26 @@ export default function App() {
       return Boolean(botId && !hiddenBotIds.has(botId));
     });
   }, [snapshot, snapshotChannels]);
+  const sidebarBotOrder = useMemo(
+    () => [
+      ...new Set(
+        sidebarChannelOrder(
+          visibleChannels,
+          index.latestMessageByChannel,
+          sidebarPreferences.pinnedIds,
+          sidebarPreferences.sections,
+          sidebarPreferences.sectionByChannel
+        ).flatMap((channel) => channel.members.map((member) => member.botId))
+      ),
+    ],
+    [
+      index.latestMessageByChannel,
+      sidebarPreferences.pinnedIds,
+      sidebarPreferences.sectionByChannel,
+      sidebarPreferences.sections,
+      visibleChannels,
+    ]
+  );
   const activeTaskChannelIds = useMemo(
     () => activeAsyncTaskChannelIds(snapshot?.subagents ?? []),
     [snapshot?.subagents]
@@ -1725,11 +1747,13 @@ export default function App() {
           )}
           {loadedSurfaces.current.settings && (
             <Suspense fallback={null}>
-              <SettingsPanel
-                onOpenChange={setSettingsOpen}
-                open={settingsOpen}
-                target={settingsTarget}
-              />
+              <SidebarBotOrderContext.Provider value={sidebarBotOrder}>
+                <SettingsPanel
+                  onOpenChange={setSettingsOpen}
+                  open={settingsOpen}
+                  target={settingsTarget}
+                />
+              </SidebarBotOrderContext.Provider>
             </Suspense>
           )}
           {loadedSurfaces.current.plugins && (

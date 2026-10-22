@@ -129,3 +129,24 @@ export function groupSidebarRows(
     unassigned: sortRowsByRecency(unassigned),
   };
 }
+
+/** Channels top to bottom as the sidebar lists them: pinned, then each section, then the rest. */
+export function sidebarChannelOrder(
+  channels: ChannelView[],
+  latestMessageByChannel: ReadonlyMap<string, ChannelMessageView>,
+  pinnedIds: ReadonlySet<string>,
+  sections: ReadonlyArray<{ id: string }>,
+  sectionByChannel: Readonly<Record<string, string>>
+): ChannelView[] {
+  const groups = groupSidebarRows(
+    channels.map((channel) => ({ channel, latest: latestMessageByChannel.get(channel.id) })),
+    pinnedIds,
+    sections,
+    sectionByChannel
+  );
+  return [
+    ...groups.pinned,
+    ...sections.flatMap((section) => groups.bySection[section.id] ?? []),
+    ...groups.unassigned,
+  ].map((row) => row.channel);
+}

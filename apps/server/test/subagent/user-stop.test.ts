@@ -18,7 +18,11 @@ function fixture() {
   const cancelled: string[] = [];
   const shellStops: string[] = [];
   const db: any = {
-    run: { findUnique: async ({ where }: any) => (runs[where.id] ? { ...runs[where.id] } : null) },
+    bot: { findUnique: async ({ where }: any) => (["bot", "idle-bot"].includes(where.id) ? { id: where.id } : null) },
+    run: {
+      findUnique: async ({ where }: any) => (runs[where.id] ? { ...runs[where.id] } : null),
+      findMany: async ({ where }: any) => Object.values(runs).filter((row) => matches(row, where)).map(({ id }) => ({ id })),
+    },
     subagent: {
       findFirst: async ({ where }: any) => subagents.find((row) => matches(row, where)) ?? null,
       findMany: async ({ where }: any) => subagents.filter((row) => matches(row, where)),
@@ -90,4 +94,35 @@ test("a worker the worker process already recorded as stopped still counts as st
 test("unknown runs are not found", async () => {
   const f = fixture();
   await expect(Effect.runPromise(f.service.stopRun("missing"))).rejects.toThrow("Run not found");
+});
+
+test("stopping a bot stops its turn and every subagent it has running, without posting anything", async () => {
+  const f = fixture();
+  const result = await Effect.runPromise(f.service.stopBot("bot"));
+  expect(result).toEqual({ hadActiveRun: true });
+  expect(f.cancelled).toEqual(["main", "workerRun", "otherRun"]);
+  expect(f.subagents.map((row) => row.status)).toEqual(["stopped", "stopped"]);
+  expect(f.events.map((event) => event.topic)).toEqual(["subagent.stopped", "subagent.stopped"]);
+});
+
+test("stopping a bot whose turn ended stops the subagents still working in the background", async () => {
+  const f = fixture();
+  f.runs.main!.status = "completed";
+  const result = await Effect.runPromise(f.service.stopBot("bot"));
+  expect(result).toEqual({ hadActiveRun: true });
+  expect(f.cancelled).toEqual(["workerRun", "otherRun"]);
+  expect(f.subagents.map((row) => row.status)).toEqual(["stopped", "stopped"]);
+});
+
+test("stopping an idle bot changes nothing", async () => {
+  const f = fixture();
+  const result = await Effect.runPromise(f.service.stopBot("idle-bot"));
+  expect(result).toEqual({ hadActiveRun: false });
+  expect(f.cancelled).toEqual([]);
+  expect(f.shellStops).toEqual([]);
+});
+
+test("unknown bots are not found", async () => {
+  const f = fixture();
+  await expect(Effect.runPromise(f.service.stopBot("missing"))).rejects.toThrow("Bot not found");
 });

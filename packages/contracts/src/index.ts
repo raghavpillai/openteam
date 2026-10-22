@@ -1767,6 +1767,11 @@ export interface ClientRuntimeView {
   runtime: ClientSnapshot["runtime"];
 }
 
+/** A user's stop of everything a bot is doing: its turns and the subagents it has running. */
+export interface BotStopView {
+  hadActiveRun: boolean;
+}
+
 /** Public release metadata used by clients before loading version-sensitive API surfaces. */
 export interface SystemVersionView {
   releaseVersion: string;

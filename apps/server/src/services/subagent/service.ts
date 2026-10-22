@@ -306,6 +306,25 @@ export class SubagentService {
       return result;
     });
 
+  /**
+   * The reference's escape from a pending update: every turn the bot has queued or running stops
+   * as the user's stop above, then every subagent it still has running, so nothing reports back
+   * or is redone. Nothing is posted to the chat.
+   */
+  stopBot = (botId: string) =>
+    serviceEffect(async () => {
+      const bot = await this.prisma.bot.findUnique({ where: { id: botId }, select: { id: true } });
+      if (!bot) throw new ApiError(404, "bot_not_found", "Bot not found");
+      const runs = await this.prisma.run.findMany({
+        where: { botId, status: { in: ["queued", "running"] } },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+      });
+      await Promise.allSettled(runs.map((run) => Effect.runPromise(this.stopRun(run.id))));
+      const workers = await this.stopRunningSubagents(botId, `user-stop:bot:${botId}`);
+      return { hadActiveRun: runs.length > 0 || workers.length > 0 };
+    });
+
   async stop(parentBotId: string, callId: string, input: StopSubagentInput) {
     if (input.all === true) return this.stopAll(parentBotId, callId);
     const subagent = await this.runningOwned(parentBotId, input.subagent_id);

@@ -18,6 +18,7 @@ import type {
   ScreenClipboardInput,
   ScreenClipboardView,
   AssetRef,
+  BotStopView,
   BotTranscriptView,
   BotView,
   BotMemoryList,
@@ -694,6 +695,8 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       ),
     cancelRun: (runId: string) =>
       transport.request(`/api/v0/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
+    stopBot: (botId: string) =>
+      transport.request<BotStopView>(`/api/v0/bots/${encodeURIComponent(botId)}/stop`, { method: "POST" }),
     registerPushDevice: (input: RegisterPushDeviceInput) =>
       transport.request("/api/v0/notification-devices", {
         method: "POST",

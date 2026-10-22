@@ -578,6 +578,8 @@ export class AppService {
 
   cancelRun = forwardServiceMethod(() => this.subagents.stopRun);
 
+  stopBot = forwardServiceMethod(() => this.subagents.stopBot);
+
 
   snapshot = forwardServiceMethod(() => this.snapshots.full);
 

@@ -52,15 +52,17 @@ const text = (role: string, value: string, options?: Record<string, unknown>): B
 });
 
 describe("Bot trigger thresholds", () => {
-  test("starts and adopts at 90% of every model window, including Pi's strict boundary", () => {
+  test("starts and adopts once 10,000 tokens or 10% of the window remain, including Pi's strict boundary", () => {
     for (const [window, boundary] of [
-      [8_000, 7_200],
-      [32_000, 28_800],
-      [64_000, 57_600],
+      [12_000, 2_000],
+      [32_768, 22_768],
+      [64_000, 54_000],
+      [100_000, 90_000],
       [100_003, 90_003],
       [128_000, 115_200],
       [256_000, 230_400],
       [272_000, 244_800],
+      [922_000, 829_800],
       [1_000_000, 900_000],
     ] as const) {
       expect(botBackgroundThreshold(window)).toBe(boundary);

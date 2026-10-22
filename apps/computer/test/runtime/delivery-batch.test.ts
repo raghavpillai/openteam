@@ -69,15 +69,12 @@ function cleanupFixture() {
 test("queued worker cleanup completes after closing text without creating another delivery obligation", async () => {
   const {active, call, execute, calls} = cleanupFixture();
   await call("summary", {type: "text", content: "Done", end_turn: true});
-  const result = await execute();
-  expect(result.details.deliveryCleanup).toBe(true);
-  expect(active.toolActivityAfterLastSend).toBe(false);
+  await execute();
   expect(calls.map(c => c.name)).toEqual(["SendToUser", "StopSubagent"]);
   await expect(execute()).rejects.toThrow("turn has ended");
-  expect(active.toolActivityAfterLastSend).toBe(true);
 });
 
-for (const scenario of ["changed", "new", "failed", "cancelled", "widget", "later", "prior-activity", "read-only"] as const) {
+for (const scenario of ["changed", "new", "failed", "cancelled", "widget", "later", "read-only"] as const) {
   test(`worker cleanup grace respects ${scenario}`, async () => {
     const {active, call, execute, tools, batch} = cleanupFixture();
     if (scenario === "widget") await tools.callControlPlaneTool(active, "summary", "SendToUser", {type: "widget"});
@@ -86,14 +83,8 @@ for (const scenario of ["changed", "new", "failed", "cancelled", "widget", "late
     if (scenario === "cancelled") { active.pluginAbortController = new AbortController(); active.pluginAbortController.abort(); }
     if (scenario === "read-only") active.readOnly = true;
     if (scenario === "later") batch([{type: "toolCall", name: "CallDynamicTool", id: "later", arguments: stop}]);
-    if (scenario === "prior-activity") {
-      active.toolActivityAfterLastSend = true;
-      await execute();
-    } else {
-      await expect(execute(scenario === "changed" ? {...stop, arguments: {subagent_id: "other"}} : stop,
-        ["new", "later"].includes(scenario) ? scenario : "stop")).rejects.toThrow();
-    }
-    expect(active.toolActivityAfterLastSend).toBe(true);
+    await expect(execute(scenario === "changed" ? {...stop, arguments: {subagent_id: "other"}} : stop,
+      ["new", "later"].includes(scenario) ? scenario : "stop")).rejects.toThrow();
   });
 }
 
@@ -108,7 +99,6 @@ test("queued cleanup rechecks cancel after mutation wait", async () => {
   release();
   await expect(pending).rejects.toThrow();
   expect(calls.map(c => c.name)).toEqual(["SendToUser"]);
-  expect(active.toolActivityAfterLastSend).toBe(true);
 });
 
 test("every main-agent tool runs in parallel; only graphical controls stay sequential", () => {
@@ -146,20 +136,4 @@ test("an ack goes out at once beside other calls, and sends of one response keep
   expect(order.slice(2)).toEqual(["end:work", "end:ack", "start:second"]);
   releases.get("second")!();
   await second;
-});
-
-for (const [label, parts, owed] of [
-  ["work after the ack still owes a report", ["ack", "search"], true],
-  ["a reply after the work covers it", ["search", "ack"], false],
-] as const) test(`parallel delivery bookkeeping follows call order: ${label}`, async () => {
-  const {active, call, batch} = fixture();
-  active.toolArgs = new Map();
-  const args = {ack: {type: "text", content: "Here you go"}, search: {search_term: "openteam"}};
-  const names = {ack: "SendToUser", search: "WebSearch"};
-  batch(parts.map((id) => ({type: "toolCall", name: names[id], id, arguments: args[id]})));
-  // Pi announces every call of a parallel batch before any of them settles.
-  for (const id of parts) routeEvent(undefined, active, {type: "tool_execution_start", toolName: names[id], toolCallId: id, args: args[id]} as any);
-  await call("ack", args.ack);
-  expect(active.sentMessageCount).toBe(1);
-  expect(active.toolActivityAfterLastSend).toBe(owed);
 });

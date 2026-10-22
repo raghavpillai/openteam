@@ -328,6 +328,9 @@ const assetRefs = (value: unknown): AssetRef[] => {
     .slice(0, 6);
 };
 
+/** The computer settled the turn as stopped (the cancel-run API), even before the server records the cancel. */
+export class TurnStoppedError extends Error {}
+
 export const turnCompletionFailure = (
   event: Extract<ComputerEvent, { type: "turn.completed" }>
 ): Error | null => {
@@ -339,7 +342,8 @@ export const turnCompletionFailure = (
     typeof event.error.message === "string"
       ? event.error.message
       : null;
-  return new Error(runtimeMessage ?? `Computer turn ended with status ${event.status}`);
+  const message = runtimeMessage ?? `Computer turn ended with status ${event.status}`;
+  return event.status === "cancelled" ? new TurnStoppedError(message) : new Error(message);
 };
 
 /** The learner reviews every memorable turn: what the bot sent plus all its own text, even when both are empty. */
@@ -1723,7 +1727,7 @@ export class WakeWorker {
         (Boolean(supersededByUser) && current?.status !== "failed");
       const failureDetails = (priorityInterrupted || current?.status === "cancelled") && currentError ? currentError : details;
       const finalStatus =
-        current?.status === "cancelled"
+        current?.status === "cancelled" || (error instanceof TurnStoppedError && current?.status !== "failed")
           ? "cancelled"
           : current?.status === "failed"
             ? "failed"
@@ -1797,7 +1801,7 @@ export class WakeWorker {
         if (
           channel &&
           !lastMessage &&
-          current.status !== "cancelled" &&
+          finalStatus !== "cancelled" &&
           runOwesUserDelivery(claimed.origin) &&
           claimed.inboxType !== "ack.redrive"
         ) {
@@ -1823,7 +1827,7 @@ export class WakeWorker {
         }
       }
       await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
-      await this.failSubagent(tx, claimed, failureDetails, interrupted);
+      await this.failSubagent(tx, claimed, failureDetails, interrupted, finalStatus === "cancelled");
     });
     await this.syncRoutineRunFile(claimed.botId, claimed.runId);
     if (claimed.deliveryId) {
@@ -2018,7 +2022,8 @@ export class WakeWorker {
     tx: Prisma.TransactionClient,
     claimed: Claimed,
     details: Prisma.InputJsonObject,
-    interrupted: boolean
+    interrupted: boolean,
+    stopped = false
   ): Promise<void> {
     const subagent = await tx.subagent.findFirst({
       where: { childBotId: claimed.botId, currentRunId: claimed.runId },
@@ -2032,6 +2037,24 @@ export class WakeWorker {
       ["completed", "failed", "stopped"].includes(subagent.status) ||
       ["completed", "failed", "stopped"].includes(attempt.status)
     ) {
+      return;
+    }
+    if (stopped) {
+      // A stopped worker is torn down and never reports back, as in the reference.
+      const stoppedAt = new Date();
+      const updated = await tx.subagent.updateMany({
+        where: { id: subagent.id, currentRunId: claimed.runId, status: { notIn: ["completed", "failed", "stopped"] } },
+        data: { status: "stopped", stoppedAt, completedAt: stoppedAt },
+      });
+      if (updated.count === 0) return;
+      await tx.subagentAttempt.update({ where: { id: attempt.id }, data: { status: "stopped", stoppedAt, completedAt: stoppedAt } });
+      await tx.event.create({
+        data: {
+          topic: "subagent.stopped",
+          entityId: subagent.id,
+          payload: { parentBotId: subagent.parentBotId, subagentId: subagent.id, runId: claimed.runId },
+        },
+      });
       return;
     }
     // A run the computer never settled reads as interrupted; a reported failure gives its error.

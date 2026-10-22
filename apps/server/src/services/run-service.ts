@@ -12,6 +12,7 @@ export class RunService {
     private readonly computerFetch: ComputerFetch,
   ) {}
 
+  /** Stops one turn. The user's stop goes through SubagentService.stopRun, which also stops the subagents. */
   cancel = (runId: string) =>
     serviceEffect(async () => {
       let run = await this.prisma.run.findUnique({ where: { id: runId } });
@@ -50,6 +51,7 @@ export class RunService {
       try {
         const response = await this.computerFetch(COMPUTER_API_PATHS.turnCancel(runId), {
           method: "POST",
+          body: JSON.stringify({ reason: "stop" }),
         });
         if (!response.ok) throw new ApiError(409, "run_not_active", await response.text());
       } catch (error) {
@@ -68,7 +70,6 @@ export class RunService {
         });
         if (updated.count) await appendEvent(tx, "run.cancel_requested", runId, { runId });
       });
-      // Its subagents run in the background, as in the reference, and outlive the stop.
       const current = await this.prisma.run.findUnique({ where: { id: runId } });
       return { ok: true, status: current?.status ?? "cancelled" };
     });

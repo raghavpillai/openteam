@@ -616,7 +616,7 @@ const server = Bun.serve({
       const cancelMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/cancel$/);
       if (request.method === "POST" && cancelMatch?.[1]) {
         const body = await request.json().catch(() => null) as { reason?: unknown; recovery?: unknown } | null;
-        const cancelled = await runtime.cancel(cancelMatch[1], body?.reason === "user_message" || body?.reason === "parent_message" ? body.reason : undefined, { recovery: body?.recovery === true });
+        const cancelled = await runtime.cancel(cancelMatch[1], body?.reason === "user_message" || body?.reason === "parent_message" || body?.reason === "stop" ? body.reason : undefined, { recovery: body?.recovery === true });
         return cancelled ? json({ ok: true }) : json({ ok: false, error: "run_not_dispatched" }, 409);
       }
 

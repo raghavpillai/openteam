@@ -5,37 +5,9 @@ import { safeToolResult, textFromContent, thinkingFromContent, toolItem } from "
 import { observeGraphicalToolResult } from "./graphical-completion";
 import type { ActiveTurn } from "./types";
 
-function isBackgroundStatusCheck(toolName: string, args: unknown): boolean {
-  if (toolName === "CheckSubagent") return true;
-  if (toolName !== "CallDynamicTool" || !args || typeof args !== "object") return false;
-  const input = args as Record<string, unknown>;
-  return input.namespace === "cursor" && input.toolName === "CheckSubagent";
-}
-
-const responseIndex = (active: ActiveTurn, callId: string) =>
-  active.responseCallOrder?.get(callId) ?? Number.POSITIVE_INFINITY;
-
-/** Work the user has not heard about: any call after the response's last delivered send, in call order. */
-export function markToolActivity(active: ActiveTurn, callId: string): void {
-  const index = responseIndex(active, callId);
-  active.responseActivity?.add(index);
-  if (active.sentMessageCount > 0 && index > (active.responseLastSendIndex ?? -1)) active.toolActivityAfterLastSend = true;
-}
-
-/** A delivered send covers the calls before it in call order, even ones that finish after it. */
-export function markDelivered(active: ActiveTurn, callId: string): void {
+/** A delivered send or closing reaction. */
+export function markDelivered(active: ActiveTurn): void {
   active.sentMessageCount += 1;
-  const own = active.responseCallOrder?.get(callId);
-  if (own === undefined) {
-    // A send outside the response's calls covers everything recorded so far.
-    active.responseActivity?.clear();
-    active.responseLastSendIndex = -1;
-    active.toolActivityAfterLastSend = false;
-    return;
-  }
-  const index = Math.max(active.responseLastSendIndex ?? -1, own);
-  active.responseLastSendIndex = index;
-  active.toolActivityAfterLastSend = [...(active.responseActivity ?? [])].some((activity) => activity > index);
 }
 
 export function startAgentMessage(active: ActiveTurn, itemId: string): void {
@@ -129,10 +101,6 @@ export function routeEvent(
       return;
     }
     if (message.role !== "assistant") return;
-    const calls = Array.isArray(message.content) ? message.content.filter((part: any) => part?.type === "toolCall" && typeof part.id === "string") : [];
-    active.responseCallOrder = new Map(calls.map((part: any, index: number) => [part.id, index]));
-    active.responseActivity = new Set();
-    active.responseLastSendIndex = undefined;
     // Capture the finite delivery batch before any tool executes. A text reply
     // ending the turn must not discard attachments already emitted with it.
     if (!active.endTurnRequested) {
@@ -201,19 +169,9 @@ export function routeEvent(
   }
 
   if (event.type === "tool_execution_start") {
-    // Schema discovery and a status-only poll may leave an already-announced
-    // background handoff intact. Loading metadata does not produce a task result.
-    // Defer its delivery obligation until the host's result proves it is pending.
-    const deliveryCleanup = active.endTurnRequested === true && active.finishDeliveryAttachments === true &&
-      event.toolName === "CallDynamicTool" &&
-      active.pendingDeliveryCleanup?.get(event.toolCallId) === JSON.stringify(event.args);
-    if (!deliveryCleanup && event.toolName !== "GetDynamicTools" && !isBackgroundStatusCheck(event.toolName, event.args)) {
-      markToolActivity(active, event.toolCallId);
-    }
     active.toolArgs.set(event.toolCallId, {
       toolName: event.toolName,
       args: event.args,
-      deliveryCleanup,
     });
     active.queue.push({
       type: "item.started",
@@ -227,24 +185,6 @@ export function routeEvent(
     const stored = active.toolArgs.get(event.toolCallId);
     const outcome = event.result as {isError?: boolean; content?: unknown} | undefined;
     observeGraphicalToolResult(active, event.isError || outcome?.isError === true, textFromContent(outcome?.content));
-    if (stored?.toolName === "GetDynamicTools") {
-      const result = event.result as {isError?: boolean} | undefined;
-      if (event.isError || result?.isError) markToolActivity(active, event.toolCallId);
-      // Successful discovery never clears earlier work or a failed delivery.
-    }
-    if (stored?.deliveryCleanup) {
-      const result = event.result as {details?: {deliveryCleanup?: boolean}; isError?: boolean} | undefined;
-      if (event.isError || result?.isError || result?.details?.deliveryCleanup !== true)
-        markToolActivity(active, event.toolCallId);
-    }
-    if (stored && isBackgroundStatusCheck(stored.toolName, stored.args)) {
-      const result = event.result as {details?: {tool?: string; pendingBackgroundWork?: boolean}} | undefined;
-      if (event.isError || result?.details?.tool !== "CheckSubagent" || result.details.pendingBackgroundWork !== true) {
-        markToolActivity(active, event.toolCallId);
-      }
-      // Never clear prior/concurrent activity: a pending worker cannot excuse
-      // another undelivered result or a failed SendToUser call.
-    }
     active.queue.push({
       type: "item.completed",
       turnId: active.turnId,

@@ -57,3 +57,49 @@ test("a failure that loses the race with a parent's message leaves the worker on
   expect(delivered).toBe(false);
   expect(attemptWrites).toEqual([]);
 });
+
+test("a worker whose turn the user or parent cancelled is stopped and never reports back", async () => {
+  let delivered = false;
+  const writes: any[] = [];
+  const events: any[] = [];
+  const worker = Object.create(WakeWorker.prototype) as any;
+  worker.notifySubagentParent = async () => { delivered = true; };
+  const tx = {
+    subagent: { findFirst: async () => ({ id: "child", parentBotId: "parent", status: "running" }), updateMany: async (arg: any) => { writes.push(arg); return { count: 1 }; } },
+    subagentAttempt: { findUnique: async () => ({ id: "attempt", status: "running" }), update: async (arg: any) => { writes.push(arg); return {}; } },
+    event: { create: async (arg: any) => { events.push(arg.data); } },
+  };
+  await worker.failSubagent(tx, { botId: "bot", runId: "run" }, { code: "cancelled_by_user", message: "Computer turn ended with status interrupted" }, true, true);
+  expect(delivered).toBe(false);
+  expect(writes.map((write) => write.data.status)).toEqual(["stopped", "stopped"]);
+  expect(events.map((event) => event.topic)).toEqual(["subagent.stopped"]);
+});
+
+test("a turn the computer settled as stopped is cancelled even before the server records the stop, and nothing is redriven", async () => {
+  const runUpdates: any[] = [];
+  const wakes: any[] = [];
+  let stoppedSubagent: boolean | undefined;
+  const any = (overrides: Record<string, any> = {}) =>
+    new Proxy(overrides, { get: (target, key) => target[key as string] ?? (async () => null) });
+  const tx = new Proxy({
+    run: any({
+      findUnique: async () => ({ id: "run", botId: "bot", status: "running", inputDeliveredAt: new Date(), error: null }),
+      update: async (arg: any) => { runUpdates.push(arg.data); return {}; },
+    }),
+    runItem: any({ findMany: async () => [] }),
+    bot: any({ findUnique: async () => ({ id: "bot", notificationsEnabled: false }) }),
+    channel: any({ findFirst: async () => ({ id: "channel", kind: "bot_dm", archivedAt: null }) }),
+  } as Record<string, any>, { get: (target, key) => target[key as string] ?? any() });
+  const worker = Object.create(WakeWorker.prototype) as any;
+  const unused = async () => undefined;
+  worker.prisma = new Proxy({ $transaction: async (fn: any) => fn(tx) }, { get: (target: any, key) => target[key] ?? any() });
+  worker.messaging = { enqueueWake: async (_tx: unknown, wake: unknown) => { wakes.push(wake); }, scheduleTranscriptProjection: unused };
+  worker.failSubagent = async (_tx: unknown, _claimed: unknown, _details: unknown, _interrupted: boolean, stopped: boolean) => { stoppedSubagent = stopped; };
+  worker.syncRoutineRunFile = unused;
+  const { TurnStoppedError } = await import("../src/worker");
+  await worker.fail({ botId: "bot", runId: "run", inboxId: "inbox", ownerId: "owner", origin: "user", inboxType: "message", conversationId: "c", channelId: "channel" },
+    new TurnStoppedError("Computer turn ended with status cancelled"));
+  expect(runUpdates[0]?.status).toBe("cancelled");
+  expect(wakes).toEqual([]);
+  expect(stoppedSubagent).toBe(true);
+});

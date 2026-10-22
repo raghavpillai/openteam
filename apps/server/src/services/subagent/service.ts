@@ -15,7 +15,7 @@ import { type AgentDataStore, type AgentMessaging, PRIORITY, type ToolContext } 
 import { Effect, Schema } from "effect";
 import { fromPrisma } from "pg-boss";
 import type { RunService } from "../run-service";
-import { appendEvent, type ComputerFetch, hashRequest, stopSubagentShells, toJson } from "../service-utils";
+import { appendEvent, type ComputerFetch, hashRequest, serviceEffect, stopSubagentShells, toJson } from "../service-utils";
 import { taskInference, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { normalizeSubagentTypeName, parentOnlyDispatchNotice, subagentTitle, withSiteDispatchNotes } from "@openteam/contracts/subagent-dispatch";
 
@@ -283,6 +283,29 @@ export class SubagentService {
     });
   }
 
+  /**
+   * The user stopping a run, as the reference's agent-run interrupt: a worker's turn stops that
+   * worker (its shells end and it won't report back, as with StopSubagent); a bot's turn stops
+   * along with every subagent the bot has running.
+   */
+  stopRun = (runId: string) =>
+    serviceEffect(async () => {
+      const run = await this.prisma.run.findUnique({ where: { id: runId }, select: { botId: true, status: true } });
+      if (!run) throw new ApiError(404, "run_not_found", "Run not found");
+      const callId = `user-stop:${runId}`;
+      const worker = await this.prisma.subagent.findFirst({
+        where: { childBotId: run.botId, currentRunId: runId, status: { in: [...ACTIVE_STATUSES] } },
+      });
+      if (worker) {
+        await this.stopOne(worker.parentBotId, callId, worker);
+        const current = await this.prisma.run.findUnique({ where: { id: runId }, select: { status: true } });
+        return { ok: true, status: current?.status ?? "cancelled" };
+      }
+      const result = await Effect.runPromise(this.runs.cancel(runId));
+      if (["queued", "running"].includes(run.status)) await this.stopRunningSubagents(run.botId, callId);
+      return result;
+    });
+
   async stop(parentBotId: string, callId: string, input: StopSubagentInput) {
     if (input.all === true) return this.stopAll(parentBotId, callId);
     const subagent = await this.runningOwned(parentBotId, input.subagent_id);
@@ -410,6 +433,9 @@ export class SubagentService {
     });
     if (!stopped) {
       const current = await this.prisma.subagent.findUnique({ where: { id: subagent.id } });
+      // The worker may record the cancelled turn as stopped before this transaction does.
+      if (current?.status === "stopped" && current.currentRunId === subagent.currentRunId)
+        return { stopped: true, subagent_id: botSubagentId(subagent.id), status: "stopped" };
       return { stopped: false, subagent_id: botSubagentId(subagent.id), status: current?.status ?? "unavailable" };
     }
     return { stopped: true, subagent_id: botSubagentId(subagent.id), status: "stopped" };

@@ -1410,7 +1410,7 @@ export class RuntimeTools {
       typeof body === "object" &&
       ((body as Record<string, unknown>).reacted === true || (body as Record<string, unknown>).removed === true)
     ) {
-      markDelivered(active, callId);
+      markDelivered(active);
       active.endTurnRequested = true;
     }
     if (
@@ -1426,7 +1426,7 @@ export class RuntimeTools {
       !Array.isArray(body) &&
       (body as Record<string, unknown>).sent === true
     ) {
-      markDelivered(active, callId);
+      markDelivered(active);
       const input = args as { end_turn?: boolean; type?: string };
       if (
         input.end_turn === true ||
@@ -1864,9 +1864,7 @@ export class RuntimeTools {
         ? await resolved.tool.execute(active, callId, resolved.arguments, signal)
             .catch((error) => { throw connectorCallError(error, resolved.namespace, input.toolName, options); })
         : await resolved.tool.execute(active, callId, resolved.arguments, signal);
-      return finishCleanup && !("isError" in result && result.isError)
-        ? {...result, details: {...result.details, deliveryCleanup: true}}
-        : result;
+      return result;
     };
     if (
       input.namespace === "cursor" &&

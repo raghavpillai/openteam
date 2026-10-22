@@ -108,7 +108,7 @@ function fixture() {
     race: () => (queueRace = true),
   };
 }
-test("a stop leaves the parent's subagents running, since every Task runs in the background", async () => {
+test("cancelling a turn stops only that turn; the user's stop also stops subagents (SubagentService.stopRun)", async () => {
   const f = fixture();
   await Effect.runPromise(f.service.cancel("parent"));
   expect(f.runs.parent.status).toBe("cancelled");
@@ -118,7 +118,6 @@ test("a stop leaves the parent's subagents running, since every Task runs in the
   await Effect.runPromise(f.service.cancel("parent"));
   expect(f.calls).toEqual(["parent"]);
   expect(f.runs.child.status).toBe("running");
-  // Their background shells keep running too; only StopSubagent ends a child's shells.
   expect(f.shellStops).toEqual([]);
 });
 test("HTTP failure on a running parent returns failure", async () => {

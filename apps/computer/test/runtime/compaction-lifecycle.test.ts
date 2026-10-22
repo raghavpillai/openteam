@@ -185,7 +185,6 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           requestSource: "agent",
           resetSelfSummaryCount: true,
           sentMessageCount: 1,
-          toolActivityAfterLastSend: false,
           assistantOrdinal: 0,
           startedItems: new Set(),
           toolArgs: new Map(),
@@ -345,7 +344,6 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
             await releaseTool.promise;
             // Model a successful terminal delivery, not only an end-turn flag.
             currentActive.sentMessageCount++;
-            currentActive.toolActivityAfterLastSend = false;
             currentActive.endTurnRequested = true;
             return {
               content: [{ type: "text", text: `Tool result ${round}` }],
@@ -382,7 +380,6 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
           requestSource: "turn",
           resetSelfSummaryCount: true,
           sentMessageCount: 1,
-          toolActivityAfterLastSend: false,
           assistantOrdinal: 0,
           startedItems: new Set(),
           toolArgs: new Map(),

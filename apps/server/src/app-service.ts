@@ -576,7 +576,7 @@ export class AppService {
 
   setMcpInstructions = forwardServiceMethod(() => this.plugins.setInstructions);
 
-  cancelRun = forwardServiceMethod(() => this.runs.cancel);
+  cancelRun = forwardServiceMethod(() => this.subagents.stopRun);
 
 
   snapshot = forwardServiceMethod(() => this.snapshots.full);

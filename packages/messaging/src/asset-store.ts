@@ -5,7 +5,7 @@ import { createReadStream } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { link, mkdir, open, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { isIP } from "node:net";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ApiError, type AssetKind, type AssetRef } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
@@ -155,6 +155,43 @@ const imageDimensions = (bytes: Uint8Array, mimeType: string) => {
 const starts = (bytes: Uint8Array, signature: readonly number[]): boolean =>
   signature.every((value, index) => bytes[index] === value);
 
+// Types for files the byte signatures above can't name. A container type is only
+// taken from the extension when the bytes carry that container's signature.
+const isZip = (bytes: Uint8Array) => starts(bytes, [0x50, 0x4b, 0x03, 0x04]);
+const isOle = (bytes: Uint8Array) => starts(bytes, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+const isGzip = (bytes: Uint8Array) => starts(bytes, [0x1f, 0x8b]);
+const isTar = (bytes: Uint8Array) => Buffer.from(bytes.subarray(257, 262)).toString("ascii") === "ustar";
+const isRtf = (bytes: Uint8Array) => Buffer.from(bytes.subarray(0, 5)).toString("ascii") === "{\\rtf";
+const CONTAINER_MIME_FROM_EXTENSION: Record<string, readonly [mimeType: string, matches: (bytes: Uint8Array) => boolean]> = {
+  ".docx": ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", isZip],
+  ".xlsx": ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", isZip],
+  ".pptx": ["application/vnd.openxmlformats-officedocument.presentationml.presentation", isZip],
+  ".odt": ["application/vnd.oasis.opendocument.text", isZip],
+  ".ods": ["application/vnd.oasis.opendocument.spreadsheet", isZip],
+  ".odp": ["application/vnd.oasis.opendocument.presentation", isZip],
+  ".zip": ["application/zip", isZip],
+  ".doc": ["application/msword", isOle],
+  ".xls": ["application/vnd.ms-excel", isOle],
+  ".ppt": ["application/vnd.ms-powerpoint", isOle],
+  ".gz": ["application/gzip", isGzip],
+  ".tgz": ["application/gzip", isGzip],
+  ".tar": ["application/x-tar", isTar],
+  ".rtf": ["application/rtf", isRtf],
+};
+const TEXT_MIME_FROM_EXTENSION: Record<string, string> = {
+  ".csv": "text/csv",
+  ".json": "application/json",
+  ".jsonl": "application/jsonl",
+  ".log": "text/plain",
+  ".markdown": "text/markdown",
+  ".md": "text/markdown",
+  ".toml": "application/toml",
+  ".tsv": "text/tab-separated-values",
+  ".txt": "text/plain",
+  ".yaml": "application/yaml",
+  ".yml": "application/yaml",
+};
+
 const classify = (
   bytes: Uint8Array,
   fileName: string,
@@ -196,12 +233,16 @@ const classify = (
     mimeType = declaredMime.toLowerCase();
     kind = "audio";
   } else {
+    const extension = extname(fileName).toLowerCase();
+    const container = CONTAINER_MIME_FROM_EXTENSION[extension];
     const declared = declaredMime?.trim().toLowerCase();
     const textLike =
       declared?.startsWith("text/") ||
       declared === "application/json" ||
-      /\.(?:csv|json|log|md|markdown|txt)$/i.test(fileName);
-    if (textLike && !bytes.subarray(0, Math.min(bytes.length, 8_192)).includes(0)) {
+      TEXT_MIME_FROM_EXTENSION[extension] !== undefined;
+    if (container?.[1](bytes)) {
+      mimeType = container[0];
+    } else if (textLike && !bytes.subarray(0, Math.min(bytes.length, 8_192)).includes(0)) {
       mimeType =
         declared === "application/json"
           ? "application/json"
@@ -209,7 +250,7 @@ const classify = (
             ? "text/csv"
             : declared === "text/markdown"
               ? "text/markdown"
-              : "text/plain";
+              : TEXT_MIME_FROM_EXTENSION[extension] ?? "text/plain";
       kind = "text";
     }
   }

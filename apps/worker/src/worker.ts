@@ -1326,7 +1326,9 @@ export class WakeWorker {
   }
 
   private async execute(claimed: Claimed): Promise<void> {
-    const heartbeat = setInterval(() => void this.heartbeat(claimed), 30_000);
+    const heartbeat = setInterval(() => {
+      void this.heartbeat(claimed).catch((error) => console.error("run heartbeat", error));
+    }, 30_000);
     let completion: Extract<ComputerEvent, { type: "turn.completed" }> | null = null;
     try {
       await this.reconcileContextState(claimed);

@@ -302,7 +302,7 @@ send.inputSchema.properties.secret = {
 adaptDescription("SendToAgent", [
   [
     "priority is REQUIRED and decides how a 1:1 message reaches its recipient. priority=true wakes them now. Use it when they should act on the message or someone is waiting on their reply (a task, a question you or the user needs answered, a handoff, a STOP or change of plan). priority=false does NOT wake them. The message is held for the start of their next turn, possibly much later. Use it for anything informational: a status update, FYI, acknowledgement, thanks, or a reply nobody is waiting for. When in doubt whether someone is waiting, use true. Group posts always land immediately.",
-    "Peer messages run ahead of routines and other background work; messages reaching a busy agent queue up and arrive together on its next turn. priority=true on a 1:1 send marks it urgent (a STOP or change of plan): it jumps the recipient's queue and interrupts a routine or other background work, but never a user turn or another agent's message already in progress. Group posts always land immediately.",
+    "Peer messages run ahead of routines and other background work; messages reaching a busy agent queue up and arrive together on its next turn. priority=true on a 1:1 send marks it urgent (a STOP or change of plan): it jumps the recipient's queue and interrupts other background work, but never a user turn or another agent's message already in progress. Group posts always land immediately.",
   ],
   [
     "Any reply arrives later as its own message. A priority reply wakes you on a fresh turn, and an informational one is handed to you at your next turn.",
@@ -313,7 +313,7 @@ adaptDescription("SendToAgent", [
 ]);
 adaptArgument("SendToAgent", "priority", [[
   "REQUIRED. Is this message actionable for the recipient? true: they should act on it, or someone is waiting on their reply (a task, a question you or the user needs answered, a handoff, a STOP or change of plan). It is delivered now and wakes them. false: informational only (a status update, FYI, acknowledgement, thanks, or a reply nobody is waiting for). It is held and read at the start of their next turn, whenever that is, without waking them. Ignored for groups, which always post immediately.",
-  "When true (1:1 only; ignored for groups), mark the message urgent: it jumps the recipient's queue and interrupts a routine or other background work, but never a user turn or another agent's message already in progress, which it follows right after. Use it for a STOP, a change of plan, or anything time-critical. Default false: it waits its turn, but still runs ahead of routines and other background work.",
+  "When true (1:1 only; ignored for groups), mark the message urgent: it jumps the recipient's queue and interrupts other background work, but never a user turn or another agent's message already in progress, which it follows right after. Use it for a STOP, a change of plan, or anything time-critical. Default false: it waits its turn, but still runs ahead of routines and other background work.",
 ]]);
 adaptArgument("SendToAgent", "target_id", [["Use an id from your teammates list, ListAgents, or ListGroups, not a name.", "Use an id from your teammates list, not a name."]]);
 contracts.SendToAgent!.inputSchema.required = contracts.SendToAgent!.inputSchema.required.filter((key: string) => key !== "priority");

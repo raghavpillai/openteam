@@ -206,7 +206,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
       );
       expect(held.interruptRunId).toBeNull();
       expect(held.acknowledgement).toBe(
-        "Sent to Peer as a priority message — it jumps their queue and interrupts any routine or background work they are running; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
+        "Sent to Peer as a priority message — it jumps their queue, interrupts any background work they are running, and doesn't wait for a running routine; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
       );
       await app.prisma.botRunLease.deleteMany({ where: { botId: peer.id } });
     }

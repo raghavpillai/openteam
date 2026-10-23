@@ -362,7 +362,7 @@ export const renderTeammatesUserInfo = (input: {
 };
 
 // Routine runs hold their own automation lease, never the foreground one, so a priority
-// message already runs beside them instead of waiting; the reference acknowledgement still names them.
+// message runs beside them instead of interrupting them.
 const PRIORITY_INTERRUPTIBLE_ORIGINS: ReadonlySet<string> = new Set(["event", "background_revival", "broadcast"]);
 
 export const directAgentAcknowledgement = (input: {
@@ -371,7 +371,7 @@ export const directAgentAcknowledgement = (input: {
 }): string => {
   const name = compactName(input.targetName);
   const prefix = input.priority
-    ? `Sent to ${name} as a priority message — it jumps their queue and interrupts any routine or background work they are running; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that.`
+    ? `Sent to ${name} as a priority message — it jumps their queue, interrupts any background work they are running, and doesn't wait for a running routine; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that.`
     : `Sent to ${name}.`;
   return `${prefix} This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now.`;
 };

@@ -40,6 +40,19 @@ Staged screenshots for the Claude Duet comparison use the same method, with fict
 - `openteam-morning-brief-chat.png`: the routine's morning brief of meetings, emails, an invoice and a Slack request that need attention.
 - `openteam-email-draft-approval.png`: an email reply draft card waiting for Send, with the Needs approval setting.
 
+Staged screenshots for the self-hosting guide use a made-up home server (`192.168.1.20`) and user (`sam`), captured on 2026-10-21. The desktop screens are the shipping first-run wizard (`apps/desktop/test/browser/model-onboarding.html`) walked in a local browser against a synthetic API fixture, with OpenRouter model IDs read from OpenRouter's public model list that day. The terminal screens are the shipping CLI renderers (`renderSetupSession`, `createSetupPresentation`, `renderCompactDoctor`) fed the same sample values and drawn in a terminal frame; the setup header, which shows the release version, is left out:
+
+- `openteam-install-setup-connection.png`: the Connection step of `openteam setup`, with Private network and a detected private address.
+- `openteam-install-setup-ready.png`: the end of setup, with the server address, username and app links.
+- `openteam-install-server-check.png`: the desktop app's first-run server check.
+- `openteam-install-model-test.png`: a passed model test with OpenRouter's Auto Router.
+- `openteam-install-first-bot.png`: the Create your first bot screen.
+
+Screenshots for the local-models guide are real captures, not staged. They come from the shipping desktop renderer, run in a local browser against a throwaway OpenTeam test server whose bots used Qwen 3.5 4B on Ollama, on 2026-10-21. The chat shows the model's actual replies:
+
+- `openteam-local-models-settings.png`: Settings → Server → Model with Ollama as the provider and the `qwen3.5-agent:latest` model.
+- `openteam-local-models-chat.png`: a bot's first turns on the local model, including its repeated greetings.
+
 Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG on a 1,000 px canvas, rendered at 2× and scaled to 1600 px wide. Numbers come from the source code. Each post's version frames share one template, so each component stays in the same place as the design grows:
 
 - `memory-design-overview.png`: the memory design's steps, and the first step compared with the final design.

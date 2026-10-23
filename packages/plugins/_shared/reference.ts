@@ -7,7 +7,7 @@ import sheets from "./reference/sheets.json";
 import slides from "./reference/slides.json";
 import { tool, type Tool } from "./google";
 
-// Pinned public tools/list snapshots: Calendar retrieved 2026-10-14, Gmail texts 2026-10-21, Drive 2026-09-12; driveFiles
+// Pinned public tools/list snapshots: Calendar retrieved 2026-10-14, Gmail 2026-10-23, Drive 2026-09-12; driveFiles
 // (the cursor/plugins google-drive tool surface) 2026-10-14. See reference/README.md.
 export const referenceTools = { gmail, calendar, drive, driveFiles, docs, sheets, slides };
 export function referenceTool(

@@ -24,6 +24,12 @@ export function gmailViewUrl(account: string | undefined, threadId: unknown, mes
   if (!account || !thread || message === undefined) return undefined;
   return `https://mail.google.com/mail/?authuser=${account}#all/thread-f:${thread}${message ? `|msg-f:${message}` : ''}`;
 }
+/** Gmail web's compose window for a draft, as Google's draft viewUrl gives it. */
+export function gmailDraftUrl(account: string | undefined, threadId: unknown, draftId: unknown): string | undefined {
+  const thread = webId(threadId);
+  if (!account || !thread || typeof draftId !== 'string' || !draftId) return undefined;
+  return `https://mail.google.com/mail/?authuser=${account}#all?compose=thread-f:${thread}%2Bmsg-a:${encodeURIComponent(draftId)}`;
+}
 export function normalizeMessage(message: any, format = 'FULL_CONTENT'): any {
   if (format === 'MESSAGE_FORMAT_UNSPECIFIED') format = 'FULL_CONTENT';
   const h = headersOf(message);

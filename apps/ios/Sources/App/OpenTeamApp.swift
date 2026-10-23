@@ -15,6 +15,8 @@ struct OpenTeamApp: App {
             ComposerLatencyControl()
           } else if ProcessInfo.processInfo.arguments.contains("--bot-motion-lab") {
             RobotMotionLab()
+          } else if ProcessInfo.processInfo.arguments.contains("--duo-preview") {
+            DuoPreviewHarness { LaunchContentView() }
           } else {
             LaunchContentView()
           }

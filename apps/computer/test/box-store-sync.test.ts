@@ -377,4 +377,33 @@ describe("OpenTeam-compatible box-store synchronization", () => {
     });
     await expect(liveTarget.copyIn()).rejects.toThrow("live-agent");
   });
+
+  test("skips Chromium caches in profiles while keeping sign-in state and same-named workspace folders", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-chrome-caches-"));
+    const home = join(root, "home");
+    const sandRoot = join(home, "sand-data");
+    const workspaceRoot = join(root, "workspace");
+    const profile = join(home, "chrome-profile-2");
+    const cached = [
+      "Default/Service Worker/CacheStorage/origin/entry_0",
+      "component_crx_cache/component",
+      "extensions_crx_cache/extension",
+      "Default/DawnGraphiteCache/data_1",
+      "Default/DawnWebGPUCache/data_1",
+    ];
+    const kept = ["Default/Cookies", "Default/Service Worker/ScriptCache/script", "Default/Local Storage/leveldb/000003.log"];
+    for (const path of [...cached, ...kept, "../../workspace/CacheStorage/note.txt"]) {
+      await mkdir(join(profile, path, ".."), { recursive: true });
+      await writeFile(join(profile, path), path);
+    }
+    await mkdir(sandRoot, { recursive: true });
+    const sync = new BoxStoreSync({ storeRoot: join(root, "store"), home, sandRoot, workspaceRoot });
+    const paths = (await sync.snapshotOut()).files.map(({ path }) => path);
+    expect(paths).toEqual([
+      ...kept.map((path) => `home/box/chrome-profile-2/${path}`).sort(),
+      "workspace/CacheStorage/note.txt",
+    ]);
+    const chrome = (await sync.snapshotOut({ all: false, chrome: true })).files.map(({ path }) => path);
+    expect(chrome).toEqual(paths);
+  });
 });

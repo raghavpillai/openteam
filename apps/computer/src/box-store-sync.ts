@@ -15,6 +15,7 @@ import {
   COPY_IN_CRITICAL_BASENAMES,
   digest,
   EXCLUDED_DIRECTORY_NAMES,
+  excludedDirectory,
   logicalContains,
   manifestEtag,
   sqliteName,
@@ -239,18 +240,22 @@ export class BoxStoreSync {
 
   async snapshotOut(hint: BoxStoreDirtyHint = { all: true }): Promise<BoxStoreManifest> {
     return withBoxStoreOperation(this.storeRoot, async () => {
-      const manifest = await this.snapshotOutLocked(hint);
-      if (Date.now() - this.lastBlobCollection >= 60 * 60_000) {
-        try {
-          const collection = await collectBoxStoreBlobsLocked(this.storeRoot);
-          this.lastBlobCollection = Date.now();
-          if (collection.deleted) console.info(JSON.stringify({event: "box_store.collection", ...collection}));
-        } catch (error) {
-          // Snapshot publication remains valid even if optional maintenance fails.
-          console.warn("box-store collection", error);
+      try {
+        return await this.snapshotOutLocked(hint);
+      } finally {
+        // Collect after failed snapshots too: on a full disk every snapshot
+        // fails, and collection is the only thing that frees space.
+        if (Date.now() - this.lastBlobCollection >= 60 * 60_000) {
+          try {
+            const collection = await collectBoxStoreBlobsLocked(this.storeRoot);
+            this.lastBlobCollection = Date.now();
+            if (collection.deleted) console.info(JSON.stringify({event: "box_store.collection", ...collection}));
+          } catch (error) {
+            // Snapshot publication remains valid even if optional maintenance fails.
+            console.warn("box-store collection", error);
+          }
         }
       }
-      return manifest;
     });
   }
 
@@ -491,7 +496,9 @@ export class BoxStoreSync {
       const suffix = prefix.slice(source.logical.length).replace(/^\//, "");
       const segments = suffix ? suffix.split("/") : [];
       if (
-        segments.some((segment) => EXCLUDED_DIRECTORY_NAMES.has(segment)) ||
+        segments.some((_, index) =>
+          excludedDirectory([source.logical, ...segments.slice(0, index + 1)].join("/"))
+        ) ||
         segments.some(
           (segment) =>
             temporaryName(segment) || sqliteSidecar(segment) || sqliteRecoveryArtifact(segment)
@@ -526,7 +533,7 @@ export class BoxStoreSync {
     const info = await lstat(path, { bigint: true }).catch(() => null);
     if (!info || info.isSymbolicLink()) return;
     if (info.isDirectory()) {
-      if (EXCLUDED_DIRECTORY_NAMES.has(basename(path))) return;
+      if (excludedDirectory(logical)) return;
       this.metrics.directoriesVisited += 1;
       for (const entry of await readdir(path)) {
         if (temporaryName(entry) || sqliteSidecar(entry) || sqliteRecoveryArtifact(entry)) continue;

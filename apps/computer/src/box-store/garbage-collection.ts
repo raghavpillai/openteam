@@ -5,6 +5,8 @@ import { atomicWrite, manifestEtag, type BoxStoreManifest } from "./manifest";
 
 export const BLOB_RETENTION_MS = 24 * 60 * 60_000;
 const HASH = /^[a-f0-9]{64}$/;
+// Retention clocks that a full disk kept from reaching the candidate file.
+const unsavedCandidates = new Map<string, Record<string, number>>();
 
 /** All snapshot, restore and collection operations share an OS-backed SQLite
  * write lock, including operations in different processes. Process death releases
@@ -69,8 +71,10 @@ export async function collectBoxStoreBlobsLocked(root: string, now = Date.now())
     for (const hash of manifestReferences(await readFile(join(root, name), "utf8"))) references.add(hash);
   }
   const statePath = join(root, ".blob-gc-candidates.json");
-  const previousText = await readOptional(statePath);
-  const previous = previousText === null ? {version: 1, candidates: {}} : JSON.parse(previousText);
+  const unsaved = unsavedCandidates.get(statePath);
+  const previousText = unsaved ? null : await readOptional(statePath);
+  const previous = unsaved ? {version: 1, candidates: unsaved}
+    : previousText === null ? {version: 1, candidates: {}} : JSON.parse(previousText);
   if (previous.version !== 1 || !previous.candidates || typeof previous.candidates !== "object" || Array.isArray(previous.candidates) ||
       !Object.entries(previous.candidates).every(([hash, at]) => HASH.test(hash) && typeof at === "number" && Number.isFinite(at) && at >= 0)) {
     throw new Error("Refusing blob collection: invalid candidate state");
@@ -87,7 +91,7 @@ export async function collectBoxStoreBlobsLocked(root: string, now = Date.now())
     const prior = previous.candidates[entry.name] as number | undefined;
     // A reused/recreated blob and a backwards clock both restart the grace period.
     const firstSeen = prior !== undefined && prior <= now && info.mtimeMs <= prior ? prior : now;
-    if (now - firstSeen >= BLOB_RETENTION_MS && result.deleted < 5000 && result.deletedBytes < 2 * 1024 ** 3) {
+    if (now - firstSeen >= BLOB_RETENTION_MS) {
       await unlink(path);
       result.deleted += 1;
       result.deletedBytes += info.size;
@@ -97,6 +101,14 @@ export async function collectBoxStoreBlobsLocked(root: string, now = Date.now())
       result.candidateBytes += info.size;
     }
   }
-  await atomicWrite(statePath, Buffer.from(JSON.stringify({version: 1, candidates})));
+  try {
+    await atomicWrite(statePath, Buffer.from(JSON.stringify({version: 1, candidates})));
+    unsavedCandidates.delete(statePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOSPC") throw error;
+    // Eligible blobs are already gone. Keep this run's clocks in memory so a
+    // disk that stays full still lets new candidates age out on later runs.
+    unsavedCandidates.set(statePath, candidates);
+  }
   return result;
 }

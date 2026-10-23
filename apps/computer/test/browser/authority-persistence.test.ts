@@ -180,3 +180,33 @@ test("overlapping saves publish the latest snapshot after an in-flight older sav
   await loaded.load();
   expect(loaded.origins.get(origin)?.localStorage).toEqual([["value", "new"]]);
 });
+
+test("saves with unchanged state keep the encrypted file, and a changed key or state rewrites it", async () => {
+  const { broker, directory, path } = await fixture();
+  broker.cookies.set("persistent", cookie);
+  broker.origins.set(origin, { origin, capturedAt: "2026-10-22", localStorage: [["value", "kept"]] });
+  await broker.save();
+  const saved = await readFile(path);
+  const savedAt = (await stat(path)).mtimeMs;
+  broker.cookies.set("session", { ...cookie, name: "session", expires: -1 });
+  await broker.save();
+  expect(await readFile(path)).toEqual(saved);
+  expect((await stat(path)).mtimeMs).toBe(savedAt);
+  const reloaded = new BrowserBroker(home) as unknown as Persistence;
+  await reloaded.load();
+  await reloaded.save();
+  expect(await readFile(path)).toEqual(saved);
+  reloaded.origins.set(origin, { origin, capturedAt: "2026-10-22", localStorage: [["value", "changed"]] });
+  await reloaded.save();
+  const changed = await readFile(path);
+  expect(changed).not.toEqual(saved);
+  await rm(join(directory, "browser-authority.key"));
+  await reloaded.save();
+  expect(await readFile(path)).not.toEqual(changed);
+  const rekeyed = new BrowserBroker(home) as unknown as Persistence;
+  await rekeyed.load();
+  expect(rekeyed.origins.get(origin)?.localStorage).toEqual([["value", "changed"]]);
+  await rm(path);
+  await rekeyed.save();
+  expect(await stat(path)).toBeTruthy();
+});

@@ -8,6 +8,7 @@ import {
   renderSubagentRevivalPrompt,
   renderShellCompletionPrompt,
   renderRevivalBatchPrompt,
+  renderAutomationHandoffPrompt,
   shellCompletionBlock,
   subagentRevivalBlock,
   describeHeldDuration,
@@ -211,6 +212,22 @@ describe("main-agent graphical delegation instructions", () => {
     expect(single).toEndWith(`${HELD_REVIVAL_NOTE}\n\n${room}`);
     expect([30_000, 60_000, 89 * 60_000, 90 * 60_000, 47 * 3_600_000, 50 * 3_600_000].map(describeHeldDuration))
       .toEqual(["1 minute", "1 minute", "89 minutes", "2 hours", "47 hours", "2 days"]);
+  });
+
+  test("renders a routine's handoff with the reference's parent instructions", () => {
+    expect(renderAutomationHandoffPrompt("Tell the user the build is green.")).toBe([
+      "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
+      "",
+      "Tell the user the build is green.",
+      "",
+      "An automation explicitly handed this work to you because only the parent can communicate outside its isolated run. Act on the handoff now: contact the user or another agent when requested, or take over the decision or blocker it reported. Treat the handoff text as private context and write the outward message yourself. Never message the user just to say that nothing has changed. If the handoff tells you to draft an email or Slack message, call DraftExternalMessage with the recipient, the channel or connector, the thread or other context, and the proposed text it includes. Do not send that message through a connector yourself.",
+      "This handoff is still owed even if the user has sent you something new since it arrived: deliver it in this turn, in the same reply as your answer to their message, and do not drop it because the routine ran at an unexpected time.",
+    ].join("\n"));
+    const late = renderAutomationHandoffPrompt("Tell the user the build is green.", 7 * 60_000);
+    expect(late).toContain("Tell the user the build is green.\n(This finished about 7 minutes ago and reached you only now, so it may be out of date.)");
+    expect(late).toContain("It reached you late, so act on a handoff only while it still matters: contact the user");
+    expect(late).toEndWith(`\n${HELD_REVIVAL_NOTE}`);
+    expect(late).not.toContain("still owed");
   });
 
   test("renders an administrator broadcast as a hidden non-user wake", () => {

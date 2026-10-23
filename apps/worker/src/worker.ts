@@ -38,6 +38,7 @@ import {
   renderSubagentRevivalPrompt,
   renderQuietSubagentRevivalPrompt,
   renderQuietRevivalBatchPrompt,
+  renderAutomationHandoffPrompt,
   renderRevivalBatchPrompt,
   quietRoutineOriginNote,
   automationContextRoutine,
@@ -270,6 +271,12 @@ export const routineRevivalContext = (wake: RevivalWake): string | null =>
  * the claimed wake's own prompt.
  */
 export const revivalBatch = <T extends RevivalWake>(claimed: T, pending: readonly T[], now = Date.now()): { content: string; folded: T[] } | null => {
+  if (claimed.type === "automation.wake_parent") {
+    if (claimed.status !== "pending") return null;
+    const handoff = (claimed.payload as { handoff?: unknown } | null)?.handoff;
+    const heldForMs = now - claimed.createdAt.getTime();
+    return typeof handoff === "string" && heldForMs >= REVIVAL_HELD_AFTER_MS ? { content: renderAutomationHandoffPrompt(handoff, heldForMs), folded: [] } : null;
+  }
   if (!revivalOf(claimed)) return null;
   const routine = routineRevivalContext(claimed);
   if (claimed.run.origin === "routine") {

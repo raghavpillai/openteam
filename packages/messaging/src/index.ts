@@ -218,6 +218,30 @@ export const describeHeldDuration = (heldForMs: number): string => {
   return hours < 48 ? `${hours} hours` : `${Math.round(hours / 24)} days`;
 };
 
+const describeHeldNote = (heldForMs: number): string =>
+  `(This finished about ${describeHeldDuration(heldForMs)} ago and reached you only now, so it may be out of date.)`;
+
+const AUTOMATION_PARENT_WAKE_REASON =
+  "An automation explicitly handed this work to you because only the parent can communicate outside its isolated run.";
+const AUTOMATION_PARENT_WAKE_ACTIONS =
+  "contact the user or another agent when requested, or take over the decision or blocker it reported. Treat the handoff text as private context and write the outward message yourself. Never message the user just to say that nothing has changed. ";
+const PARENT_DRAFT_EXTERNAL_MESSAGE_HANDOFF =
+  "If the handoff tells you to draft an email or Slack message, call DraftExternalMessage with the recipient, the channel or connector, the thread or other context, and the proposed text it includes. Do not send that message through a connector yourself.";
+const AUTOMATION_HANDOFF_STILL_OWED_INSTRUCTION =
+  "This handoff is still owed even if the user has sent you something new since it arrived: deliver it in this turn, in the same reply as your answer to their message, and do not drop it because the routine ran at an unexpected time.";
+
+/** A routine's WakeParent handoff; one that waited for the agent to be free says how long and may be stale. */
+export const renderAutomationHandoffPrompt = (handoff: string, heldForMs?: number): string =>
+  [
+    "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
+    "",
+    heldForMs === undefined ? handoff : `${handoff}\n${describeHeldNote(heldForMs)}`,
+    "",
+    ...(heldForMs === undefined
+      ? [`${AUTOMATION_PARENT_WAKE_REASON} Act on the handoff now: ${AUTOMATION_PARENT_WAKE_ACTIONS}${PARENT_DRAFT_EXTERNAL_MESSAGE_HANDOFF}`, AUTOMATION_HANDOFF_STILL_OWED_INSTRUCTION]
+      : [`${AUTOMATION_PARENT_WAKE_REASON} It reached you late, so act on a handoff only while it still matters: ${AUTOMATION_PARENT_WAKE_ACTIONS}${PARENT_DRAFT_EXTERNAL_MESSAGE_HANDOFF}`, HELD_REVIVAL_NOTE]),
+  ].join("\n");
+
 /** Completions delivered in one turn, as the reference batches them; a late one says how long it waited. */
 export const renderRevivalBatchPrompt = (completions: ReadonlyArray<RevivalCompletion & { heldForMs?: number }>): string => {
   const held = completions.some((completion) => completion.heldForMs !== undefined);
@@ -227,7 +251,7 @@ export const renderRevivalBatchPrompt = (completions: ReadonlyArray<RevivalCompl
     "",
     completions
       .map(({ block, heldForMs }) =>
-        heldForMs === undefined ? block : `${block}\n(This finished about ${describeHeldDuration(heldForMs)} ago and reached you only now, so it may be out of date.)`
+        heldForMs === undefined ? block : `${block}\n${describeHeldNote(heldForMs)}`
       )
       .join("\n\n"),
     "",
@@ -666,6 +690,8 @@ export interface WakeInput {
   taskContextRunId?: string;
   includeAttachmentPaths?: boolean;
   revival?: RevivalCompletion;
+  /** A WakeParent handoff, re-rendered as late when the wake waits for the agent. */
+  handoff?: string;
   /** The run this typed message superseded; it gets the unfinished-tasks reminder when that run had dispatched. */
   interruptedRunId?: string;
 }
@@ -914,6 +940,7 @@ export class AgentMessaging {
           automationContextRunId: input.automationContextRunId,
           taskContextRunId: input.taskContextRunId,
           revival: input.revival,
+          handoff: input.handoff,
           interruptedRunId: input.interruptedRunId,
         }),
         priority: input.priority,

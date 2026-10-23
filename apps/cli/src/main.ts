@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import "./runtime-compat";
+import { ensureUpdateAgent, runUpdateAgent, UPDATE_AGENT_ENV } from "./update-agent";
 import { renderHelp, renderCommandError } from "./command-ui";
 import { colorEnabled } from "./ui";
 import { resolve } from "node:path";
@@ -52,6 +53,10 @@ const main = async (): Promise<void> => {
   }
   const directory = options.directory ? resolve(options.directory) : defaultInstallDirectory();
   const paths = installationPaths(directory);
+  if (process.env[UPDATE_AGENT_ENV] === "1") {
+    await runUpdateAgent(paths);
+    return;
+  }
   const runner = new SystemCommandRunner();
   switch (options.command) {
     case "tailscale-enable":
@@ -129,6 +134,7 @@ const main = async (): Promise<void> => {
       await uninstallCommand(paths, options, runner);
       break;
   }
+  if (["install", "setup", "start", "update"].includes(options.command)) ensureUpdateAgent(paths);
 };
 
 main().catch((error) => {

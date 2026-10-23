@@ -7,7 +7,6 @@ import { hostname } from "node:os";
 import { extname, join } from "node:path";
 import {
   compareOpenTeamVersions,
-  isOpenTeamVersion,
 } from "@openteam/contracts/version-compatibility";
 import { safeErrorMessage } from "@openteam/product-core/redaction";
 import {
@@ -56,7 +55,7 @@ import {
   type ComputerSettings,
   type ComputerSettingsStore,
 } from "./computer-settings";
-import { readManagedInstallation, ServerUpdater } from "./server-updater";
+import { readManagedInstallation } from "./local-installation";
 import {
   classifyDesktopUpdateError,
   type DesktopUpdateSnapshot,
@@ -192,15 +191,6 @@ const tailscaleManager = new TailscaleManager({
     ? join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "openteam-cli.js")
     : join(import.meta.dirname, "openteam-cli.js"),
   executablePath: process.execPath,
-});
-
-const serverUpdater = new ServerUpdater({
-  cliPath: app.isPackaged
-    ? join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "openteam-cli.js")
-    : join(import.meta.dirname, "openteam-cli.js"),
-  executablePath: process.execPath,
-  fetcher: (input, init) => net.fetch(input instanceof URL ? input.toString() : input, init),
-  onStatus: (status) => mainWindow?.webContents.send("openteam:server-update-progress", status),
 });
 
 const checkForDesktopUpdate = async (): Promise<DesktopUpdateSnapshot> => {
@@ -790,55 +780,11 @@ ipcMain.handle("openteam:updates:install-client", async (event) => {
   autoUpdater.quitAndInstall(false, true);
 });
 
-const serverUpdateRequest = (value: unknown) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Server update request is invalid");
-  }
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate.serverUrl !== "string" || candidate.serverUrl.length > 2_000) {
-    throw new Error("Server URL is invalid");
-  }
-  if (
-    candidate.targetVersion !== undefined &&
-    candidate.targetVersion !== null &&
-    (typeof candidate.targetVersion !== "string" || !isOpenTeamVersion(candidate.targetVersion))
-  ) {
-    throw new Error("Target version is invalid");
-  }
-  if (
-    candidate.sshTarget !== undefined &&
-    candidate.sshTarget !== null &&
-    typeof candidate.sshTarget !== "string"
-  ) {
-    throw new Error("SSH destination is invalid");
-  }
-  const targetVersion =
-    typeof candidate.targetVersion === "string" ? candidate.targetVersion.replace(/^v/i, "") : null;
-  const sshTarget =
-    typeof candidate.sshTarget === "string" ? candidate.sshTarget.trim() || null : null;
-  return { serverUrl: candidate.serverUrl, targetVersion, sshTarget };
-};
-
 ipcMain.handle("openteam:tailscale", async (event, value) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Tailscale management is unavailable");
   return tailscaleManager.request(value);
 });
 
-ipcMain.handle("openteam:updates:server-status", async (event, value) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) {
-    throw new Error("Server update status is unavailable");
-  }
-  const request = serverUpdateRequest(value);
-  return serverUpdater.status(request.serverUrl, request.targetVersion, request.sshTarget);
-});
-
-ipcMain.handle("openteam:updates:update-server", async (event, value) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) {
-    throw new Error("Server update is unavailable");
-  }
-  const request = serverUpdateRequest(value);
-  return serverUpdater.update(request.serverUrl, request.targetVersion, request.sshTarget);
-});
 
 const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapshot | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;

@@ -1,3 +1,4 @@
+import { ServerUpdates, serverUpdateRoute } from "./server-updates";
 import { internalNotificationsRoute } from "./routes/internal-notifications";
 import { machineChannelResponse } from "./machine-http";
 import { connectorTransferResponse, boundedRequest } from "./connector-transfer-http";
@@ -48,6 +49,7 @@ if (process.argv[2] === "owner-credentials") {
 }
 
 const app = new AppService(authMode);
+const serverUpdates = new ServerUpdates(app.agentData.assetRoot, release.releaseVersion);
 
 await Effect.runPromise(app.boot());
 
@@ -104,6 +106,11 @@ const server = Bun.serve<VncConnection>({
         return await app.machines.relay.forward(machineRelay[1]!, machineRelay[2]!, request);
       }
       request=boundedRequest(request,280*1024*1024);
+      if (path === "/api/internal/system/update-agent") {
+        if (!authorizedInternal(request)) return json({ error: { code: "unauthorized" } }, 401);
+        if (request.method !== "POST") return json({ error: { code: "method_not_allowed" } }, 405);
+        return json(serverUpdates.heartbeat(await request.json()));
+      }
       const automationHook = path.match(/^\/api\/automation-hooks\/([a-zA-Z0-9_-]{1,100})$/);
       if (automationHook && request.method === "POST") {
         const native=await app.automationWebhooks.receive(automationHook[1]!,request);
@@ -287,6 +294,8 @@ const server = Bun.serve<VncConnection>({
         }
         authenticatedSessionId = session.session.id;
       }
+      if (path === "/api/system/update")
+        return await serverUpdateRoute(request, serverUpdates, authenticatedSessionId);
       if (request.method === "POST" && vncMatch) {
         const response = json(await vnc.issue(vncMatch[1]!, authenticatedSessionId, request.headers.get("origin")));
         response.headers.set("cache-control", "no-store");

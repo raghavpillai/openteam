@@ -4,6 +4,7 @@ import { OPENTEAM_API_PROTOCOL_VERSION } from "@openteam/contracts/version-compa
 import "../../src/renderer/styles.css";
 if (window.openteam) throw new Error("Synthetic fixture requires an isolated window");
 window.open = () => null;
+localStorage.setItem("openteam:server-url", "https://openteam.example");
 
 type Bot = { botId: string; name: string; runIds: string[] };
 type ServerStatus = Record<string, unknown> & { status: string; currentVersion: string | null };
@@ -18,21 +19,22 @@ declare global {
       stopClears: boolean;
       updates: Array<{ targetVersion: string | null }>;
       failUpdate: string | null;
+      destinations: string[];
+      payloads: unknown[];
+      offline: boolean;
       server: (next: Partial<ServerStatus>) => void;
     };
   }
 }
 
-const serverListeners = new Set<(status: ServerStatus) => void>();
 let server: ServerStatus = {
-  serverUrl: "http://127.0.0.1:8787",
+  serverUrl: "https://openteam.example",
   currentVersion: "0.46.0",
   targetVersion: "0.47.0",
   apiProtocolVersion: OPENTEAM_API_PROTOCOL_VERSION,
   minimumClientVersion: null,
   maximumClientVersionExclusive: null,
   recommendedClientVersion: null,
-  updateMethod: "local",
   updaterAvailable: true,
   status: "ready",
   phase: null,
@@ -51,13 +53,37 @@ const fixture = (window.fixture = {
   stopClears: true,
   updates: [] as Array<{ targetVersion: string | null }>,
   failUpdate: null as string | null,
+  destinations: [] as string[],
+  payloads: [] as unknown[],
+  offline: false,
   server(next: Partial<ServerStatus>) {
     server = { ...server, ...next };
-    for (const listener of serverListeners) listener(server);
+    window.dispatchEvent(new Event("focus"));
   },
 });
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href);
+  if (url.pathname === "/api/v0/system/version") {
+    if (fixture.offline) throw new Error("Server restarting");
+    return Response.json({ releaseVersion: server.currentVersion,
+      apiProtocolVersion: OPENTEAM_API_PROTOCOL_VERSION });
+  }
+  if (url.pathname === "/api/v0/system/update") {
+    if (fixture.offline) throw new Error("Server restarting");
+    if (init?.method === "POST") {
+      const input = JSON.parse(String(init.body));
+      fixture.updates.push({ targetVersion: input.targetVersion });
+      fixture.destinations.push(url.href);
+      fixture.payloads.push(input);
+      if (fixture.failUpdate) {
+        fixture.server({ status: "error", message: fixture.failUpdate });
+        return Response.json({ error: { code: "update_failed", message: fixture.failUpdate } }, { status: 503 });
+      }
+      fixture.server({ status: "updating", phase: "pulling", safeToCloseDesktop: true,
+        message: "Pulling OpenTeam 0.47.0 container images" });
+    }
+    return Response.json(server);
+  }
   if (url.pathname === "/api/v0/system/busy-bots") {
     fixture.busyChecks++;
     return Response.json({ bots: fixture.busy });
@@ -77,20 +103,7 @@ window.openteam = {
   updates: {
     status: async () => ({ currentVersion: "0.47.0", latestVersion: "0.47.0", status: "up-to-date", progress: null, message: null, failureKind: null, track: "stable", downloadUrl: null }),
     onClientProgress: () => () => {},
-    serverStatus: async () => server,
-    onServerProgress(listener: (status: ServerStatus) => void) {
-      serverListeners.add(listener);
-      return () => serverListeners.delete(listener);
-    },
-    async updateServer(input: { targetVersion: string | null }) {
-      fixture.updates.push({ targetVersion: input.targetVersion });
-      if (fixture.failUpdate) {
-        fixture.server({ status: "error", message: fixture.failUpdate });
-        throw new Error(`Error invoking remote method 'openteam:update-server': Error: ${fixture.failUpdate}`);
-      }
-      fixture.server({ status: "updating", phase: "pulling", message: "Pulling OpenTeam 0.47.0 container images" });
-      return server;
-    },
+
   },
 } as unknown as NonNullable<Window["openteam"]>;
 

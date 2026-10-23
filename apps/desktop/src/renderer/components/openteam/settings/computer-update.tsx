@@ -7,7 +7,7 @@ import { API_BASE } from "../../../client/http";
 import { useServerUpdate } from "../../../hooks/use-server-update";
 import { cn } from "../../../lib/cn";
 import { inSidebarOrder, useSidebarBotOrder } from "../../../lib/sidebar-bot-order";
-import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
+import { SectionLabel, SettingsGroup } from "./ui";
 
 const BUSY = "An agent is working. Update will be available when every agent is done.";
 const BUSY_REFUSAL = "An agent could not pause. Nothing changed; try again when it settles.";
@@ -67,8 +67,6 @@ export function ComputerUpdateSettings() {
     server,
     serverNeedsUpdate,
     serverUpdating,
-    sshTarget,
-    changeSshTarget,
     updateServer,
   } = useServerUpdate();
   const sidebarOrder = useSidebarBotOrder();
@@ -161,7 +159,7 @@ export function ComputerUpdateSettings() {
 
   return (
     <>
-      <SectionLabel>Bot's computer</SectionLabel>
+      <SectionLabel>Connected server</SectionLabel>
       <SettingsGroup>
         <div
           className="flex min-h-[52px] items-center gap-5 py-2.5"
@@ -170,11 +168,12 @@ export function ComputerUpdateSettings() {
         >
           <div className="min-w-0 flex-1">
             <div className="text-[12.5px] leading-[17px] text-foreground">
-              Update Bot's Computer
+              Update connected server
             </div>
             <div className="mt-px max-w-[440px] text-[12px] leading-4 text-foreground-secondary">
-              Updates the computer your assistants share. Your files and logins stay, but installed
-              apps and packages are removed. All assistants update together.
+              Connected to {new URL(API_BASE).host}. Updates this server and the computer your
+              assistants share. Your files and logins stay, but installed apps and packages are
+              removed. All assistants update together.
             </div>
             {extraCopy ? (
               <div
@@ -190,7 +189,7 @@ export function ComputerUpdateSettings() {
                 role="status"
               >
                 <CircleCheck aria-hidden className="size-3.5" />
-                Your computer is on the latest version
+                Your server is on the latest version
               </div>
             ) : null}
           </div>
@@ -208,29 +207,7 @@ export function ComputerUpdateSettings() {
             </div>
           )}
         </div>
-        {server && server.updateMethod !== "local" ? (
-          <SettingsRow
-            anchors={["server-update"]}
-            control={
-              <input
-                aria-label="SSH destination"
-                autoCapitalize="none"
-                autoCorrect="off"
-                className="h-8 w-48 rounded-[8px] border border-black/[0.09] bg-background px-2.5 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30 dark:border-white/[0.1]"
-                onChange={(event) => changeSshTarget(event.target.value)}
-                placeholder={`user@${new URL(API_BASE).hostname}`}
-                spellCheck={false}
-                value={sshTarget}
-              />
-            }
-            description={
-              server.updateMethod === "ssh"
-                ? "Uses your operating system SSH agent and known_hosts; passwords are never stored. The update continues after it starts, even if Desktop closes"
-                : "Enter an SSH host already configured on this computer to enable one-click remote updates"
-            }
-            title="Remote server access"
-          />
-        ) : null}
+
       </SettingsGroup>
     </>
   );

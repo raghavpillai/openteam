@@ -69,17 +69,7 @@ interface Window {
       openDownload: () => Promise<void>;
       installClient: () => Promise<void>;
       onClientProgress: (listener: (status: OpenTeamUpdateStatus) => void) => () => void;
-      serverStatus: (request: {
-        serverUrl: string;
-        targetVersion?: string | null;
-        sshTarget?: string | null;
-      }) => Promise<OpenTeamServerUpdateStatus>;
-      updateServer: (request: {
-        serverUrl: string;
-        targetVersion?: string | null;
-        sshTarget?: string | null;
-      }) => Promise<OpenTeamServerUpdateStatus>;
-      onServerProgress: (listener: (status: OpenTeamServerUpdateStatus) => void) => () => void;
+
     };
     microphone: {
       status: () => Promise<{
@@ -165,30 +155,12 @@ interface OpenTeamUpdateStatus {
   track: "stable";
 }
 
-interface OpenTeamServerUpdateStatus {
+type OpenTeamServerUpdateStatus = import("@openteam/contracts").ServerUpdateView & {
   serverUrl: string;
   currentVersion: string | null;
-  targetVersion: string | null;
   apiProtocolVersion: number | null;
   minimumClientVersion: string | null;
   maximumClientVersionExclusive: string | null;
   recommendedClientVersion: string | null;
-  updateMethod: "local" | "ssh" | "manual";
-  updaterAvailable: boolean;
-  status: "ready" | "updating" | "updated" | "unavailable" | "error";
-  phase:
-    | "checking"
-    | "downloading"
-    | "backing-up"
-    | "pulling"
-    | "restarting"
-    | "verifying"
-    | "updating-cli"
-    | "rolling-back"
-    | "complete"
-    | null;
-  message: string | null;
   manualCommand: string;
-  jobId: string | null;
-  safeToCloseDesktop: boolean;
-}
+};

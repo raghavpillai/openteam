@@ -23,9 +23,11 @@ If the new version doesn't start, the updater rolls back to the previous version
 
 ## Update from the desktop app
 
-Open **Settings → Updates** to update the desktop app. It can also update the server when the app runs on the server host, connects to it at `http://localhost:<port>` or `http://127.0.0.1:<port>` (your API port), and OpenTeam is installed in the default directory. Otherwise, it offers **Copy server command** so you can run the update yourself. When the app does update the server, it uses its own bundled CLI, so run `openteam update` on the host afterward to update the host's CLI too.
+Open **Settings → Updates** to update the desktop app. In **Settings → Computer → Connected server**, choose **Update** and confirm to update the server you are connected to. The request uses your existing signed-in connection. It updates that server's stack, including the worker, database migrations, and computer. No SSH destination or additional sign-in is needed.
 
-For a server on another machine, you can give the app an SSH destination so it can run the update for you. This needs SSH key sign-in that works without a password prompt, such as through an SSH agent. The host must already be in your `known_hosts` file, `openteam` must be on the `PATH` for non-interactive SSH sessions, and OpenTeam must be installed in the default directory. Otherwise, run `openteam update` on the server yourself.
+The host CLI runs the same signed-release updater described above, including backup and rollback. Updates wait until every agent is idle; the host checks again before stopping services. The update continues after you close the desktop app; the app reconnects when the server restarts.
+
+The CLI starts a background updater after `openteam install`, `openteam setup`, `openteam start`, or `openteam update`. After rebooting the host, run `openteam start` to re-enable in-app updates. If the updater is unavailable, Settings shows the command to run on that server. Servers installed before this feature need one update with `openteam update` on the host first.
 
 The desktop app and the server have separate versions. If the app reports that it's incompatible with the server, update both.
 

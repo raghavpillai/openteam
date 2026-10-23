@@ -77,7 +77,7 @@ const agentIdLine = (id: string) =>
   `Agent ID: ${botSubagentId(id)} (can be used with the \`resume\` parameter to send a follow-up after it completes)`;
 
 export const subagentBackgroundResult = (id: string): string =>
-  `Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\n\n${agentIdLine(id)}`;
+  `Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\nDo NOT try to predict the subagent's response before it replies.\n\n${agentIdLine(id)}`;
 
 const failedTaskMessage = (status: string, error: Prisma.JsonValue | null): string => {
   const message = error && typeof error === "object" && !Array.isArray(error) && typeof error.message === "string" ? error.message : undefined;

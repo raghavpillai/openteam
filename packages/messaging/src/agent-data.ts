@@ -110,7 +110,7 @@ import {
   type HeldMemoryExchange,
   type MemoryExchange,
 } from "./memory-learning";
-import { resolveTimeZone } from "./timestamps";
+import { readUserTimeZone } from "./user-time-zone";
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "./memory-prompts";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
@@ -2014,16 +2014,13 @@ export class AgentDataStore {
     const root = join(this.botDirectory(botId), "automations");
     const slugs = await listDirectories(root);
     const seen = new Set<string>();
+    const userZone = await readUserTimeZone(tx);
     for (const slug of slugs) {
       const path = join(root, slug, "automation.json");
       const text = await readText(path, Number.MAX_SAFE_INTEGER);
       if (text === null) continue;
       try {
-        const parsed = await parseAutomationFile(
-          path,
-          text,
-          process.env.OPENTEAM_TIME_ZONE ?? "UTC"
-        );
+        const parsed = await parseAutomationFile(path, text, userZone);
         seen.add(slug);
         const existing = await tx.routine.findUnique({
           where: { botId_slug: { botId, slug } },
@@ -2043,7 +2040,7 @@ export class AgentDataStore {
           cronExpression: null,
           intervalSeconds: null,
           timezoneMode: "installation" as const,
-          timezone: process.env.OPENTEAM_TIME_ZONE ?? "UTC",
+          timezone: userZone,
         };
         const common = {
           name: parsed.name,
@@ -3254,7 +3251,7 @@ export class AgentDataStore {
           exchange,
           earlier,
           occurredAt: input.occurredAt ?? Date.now(),
-          timeZone: input.timeZone ?? resolveTimeZone(),
+          timeZone: input.timeZone ?? (await readUserTimeZone(this.prisma)),
           runId: input.runId,
         });
       } catch (error) {

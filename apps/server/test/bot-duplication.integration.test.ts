@@ -173,7 +173,7 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
       });
       const routines = new RoutineService(
         prisma,
-        { defaultTimeZone: "UTC", enqueueWake: async () => ({ run: { id: crypto.randomUUID() } }) },
+        { enqueueWake: async () => ({ run: { id: crypto.randomUUID() } }) },
         f.store
       );
       for (const enabled of [true, false]) {

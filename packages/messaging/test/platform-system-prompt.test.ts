@@ -21,7 +21,7 @@ const mainAgent = (id: string) => {
   const memory = { policy: `## Memory\n${id}'s memory policy.`, facts: `- (learned 2026-10-01) Only ${id} knows this fact.` };
   const messaging = Object.create(AgentMessaging.prototype) as AgentMessaging;
   Object.assign(messaging, {
-    defaultTimeZone: "Asia/Kolkata",
+    userTimeZone: async () => "Asia/Kolkata",
     agentData: {
       root: "/srv/current-agent-data",
       loadTaskConfiguration: async () => ({ executorProfiles: [] }),

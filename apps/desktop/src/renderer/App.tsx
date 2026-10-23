@@ -1,4 +1,5 @@
 import { startNotificationPresence } from "./lib/notification-presence";
+import { startTimeZoneReporting } from "./lib/time-zone";
 import { authHeaders } from "./client/auth";
 import { API_BASE } from "./client/http";
 import type { PromptDraft } from "./components/ai-elements/prompt-input";
@@ -382,6 +383,11 @@ export default function App() {
       window.removeEventListener("beforeunload", stop);
       stop();
     };
+  }, [appReady]);
+
+  useEffect(() => {
+    if (!appReady) return;
+    return startTimeZoneReporting({ send: (detectedTimeZone) => api.updateUserTimeZone({ detectedTimeZone }) });
   }, [appReady]);
 
   useEffect(() => {

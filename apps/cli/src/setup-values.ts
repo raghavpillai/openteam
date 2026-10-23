@@ -52,7 +52,6 @@ export type AccessMode = (typeof ACCESS_MODES)[number];
 /** Networking and account choices. Models are connected later in the apps. */
 export interface SetupConfiguration {
   accessMode: AccessMode;
-  timeZone: string;
   workerConcurrency: string;
   apiPort: string;
   bindHost: "127.0.0.1" | "0.0.0.0";
@@ -108,17 +107,6 @@ const singleLine = (label: string, value: string): string => {
   return value;
 };
 
-export const validateTimeZone = (value: string): string => {
-  const normalized = singleLine("Time zone", value);
-  try {
-    // The box clock is set from the zone database, which has no "+05:30"-style offsets.
-    if (!/^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/.test(normalized)) throw new Error("not a zone name");
-    new Intl.DateTimeFormat("en-US", { timeZone: normalized }).format();
-    return normalized;
-  } catch {
-    throw new Error("Enter a valid IANA time zone, such as America/New_York.");
-  }
-};
 
 export const validateIntegerInRange =
   (label: string, minimum: number, maximum: number) =>

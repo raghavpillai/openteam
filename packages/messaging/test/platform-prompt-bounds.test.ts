@@ -94,7 +94,7 @@ describe("bounded teammates roster", () => {
     }));
     const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
     Object.assign(messaging, {
-      defaultTimeZone: "UTC",
+      userTimeZone: async () => "UTC",
       agentData: {
         root: "/agent-data",
         preparePlatformSections: async (_bot: string, _context: string, epoch: number, live: Record<string, string>) => preparePromptSections({}, epoch, live),

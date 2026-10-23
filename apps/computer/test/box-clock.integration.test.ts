@@ -1,11 +1,12 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 
 // Run inside a built computer image with scripts/test-computer-image.sh IMAGE, which
-// starts the box with OPENTEAM_TIME_ZONE set. Box shells get no TZ variable (as the
-// Shell tool's do not), so every reading below comes from the box clock itself.
-const zone = process.env.OPENTEAM_TIME_ZONE;
+// passes the user's zone as OPENTEAM_TEST_TIME_ZONE. The computer applies a turn's zone
+// with the clock script, as below. Box shells get no TZ variable (as the Shell tool's do
+// not), so every reading below comes from the box clock itself.
+const zone = process.env.OPENTEAM_TEST_TIME_ZONE;
 const inImage = Boolean(process.env.OPENTEAM_COMPUTER_TEST_URL && zone);
 
 const asBox = (script: string) => {
@@ -25,16 +26,15 @@ const offset = (date: Date, timeZone = zone!) => {
   return match ? `${match[1]}${match[2]}` : "+0000";
 };
 
-test.skipIf(inImage)("the computer image sets its clock from the configured zone at start", async () => {
+beforeAll(() => {
+  if (inImage) expect(applyZone(zone!).status).toBe(0);
+});
+
+test.skipIf(inImage)("the computer image ships the clock script and zone data", async () => {
   const file = (path: string) => Bun.file(new URL(`../../../${path}`, import.meta.url)).text();
-  const [dockerfile, entrypoint, compose, devCompose] = await Promise.all([
-    file("docker/computer.Dockerfile"), file("docker/computer-entrypoint.sh"), file("deploy/compose.yaml"), file("docker-compose.yml"),
-  ]);
+  const dockerfile = await file("docker/computer.Dockerfile");
   expect(dockerfile).toMatch(/apt-get install[\s\S]*?\btzdata\b/);
   expect(dockerfile).toContain("COPY docker/openteam-box-timezone /usr/local/bin/openteam-box-timezone");
-  expect(entrypoint).toContain('openteam-box-timezone apply "${OPENTEAM_TIME_ZONE:-UTC}"');
-  for (const stack of [compose, devCompose])
-    expect(stack.match(/\n  computer:\n[\s\S]*?\n  [a-z-]+:\n/)?.[0]).toContain("OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}");
 });
 
 test.skipIf(!inImage)("the box clock runs in the configured time zone", () => {

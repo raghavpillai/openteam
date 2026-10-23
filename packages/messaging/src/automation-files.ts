@@ -105,7 +105,7 @@ export const parseAutomationRuns = (text: string | null): AutomationRun[] => {
 export const parseAutomationFile = async (
   automationPath: string,
   text: string,
-  installationZone: string
+  userZone: string
 ): Promise<ParsedAutomation> => {
   const value = object(JSON.parse(text), "automation.json");
   const name = required(value.name, "automation name", Number.MAX_SAFE_INTEGER)
@@ -125,7 +125,7 @@ export const parseAutomationFile = async (
   const cronSchedule = firstCronSchedule(trigger);
   const schedule =
     cronSchedule !== null
-      ? normalizeRoutineSchedule(cronSchedule, installationZone, {
+      ? normalizeRoutineSchedule(cronSchedule, userZone, {
           enforceMinimum: process.env.OPENTEAM_ENFORCE_AUTOMATION_MINIMUM !== "false",
         })
       : null;

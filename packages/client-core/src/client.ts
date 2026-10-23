@@ -15,6 +15,8 @@ import type {
 } from "@openteam/contracts/plugin-management";
 import type {
   AddCustomMcpInput,
+  UpdateUserTimeZoneInput,
+  UserTimeZoneView,
   ScreenClipboardInput,
   ScreenClipboardView,
   AssetRef,
@@ -708,6 +710,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       transport.request(`/api/v0/notification-devices/${encodeURIComponent(installationId)}`, {
         method: "DELETE",
       }),
+    userTimeZone: () => transport.request<UserTimeZoneView>("/api/v0/time-zone"),
+    /** Reports the zone this device detects, or sets/clears (null) the Settings override. */
+    updateUserTimeZone: (input: UpdateUserTimeZoneInput) =>
+      transport.request<UserTimeZoneView>("/api/v0/time-zone", { method: "PATCH", body: JSON.stringify(input) }),
     notificationPreferences: () => transport.request<NotificationRouting>("/api/v0/notification-preferences"),
     updateNotificationPreferences: (smartEnabled: boolean) => transport.request<NotificationRouting>("/api/v0/notification-preferences", { method: "PATCH", body: JSON.stringify({ smartEnabled }) }),
     updateNotificationPresence: (input: NotificationPresenceInput) => transport.request<NotificationRouting>("/api/v0/notification-presence", { method: "POST", body: JSON.stringify(input) }),

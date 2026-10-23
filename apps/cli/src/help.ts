@@ -135,7 +135,7 @@ Advanced release/testing options:
 
 Options:
 ${directoryOption}
-  --advanced            Also show the API port, time zone, and tasks at once
+  --advanced            Also show the API port and tasks at once
 ${helpHint}`,
 
   doctor: `${heading(

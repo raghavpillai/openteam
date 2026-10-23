@@ -118,7 +118,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
   const eventWakes: Array<{ origin: string; type: string; content: string }> = [];
   let timelineSessionActive = true;
   const timelineHost = {
-    defaultTimeZone: "UTC",
     isTimelineSessionActive: async () => timelineSessionActive,
     enqueueWake: async (_tx: unknown, input: { origin: string; type: string; content: string }) => {
       eventWakes.push(input);
@@ -204,7 +203,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       "automation.json"
     );
     await atomicWrite(occupiedRoutineFile, "{ intentionally invalid\n");
-    const routineService = new RoutineService(prisma, timelineHost, store, "UTC");
+    const routineService = new RoutineService(prisma, timelineHost, store);
     const createdRoutine = await routineService.mutate(firstBotId, randomUUID(), null, {
       action: "create",
       name: "Manual   folder",

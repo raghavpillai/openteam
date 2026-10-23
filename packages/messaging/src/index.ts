@@ -35,6 +35,7 @@ import {
   type SubagentType,
   TODO_MAX_ITEMS,
   type TranscriptEventView,
+  type UserTimeZoneView,
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { fromPrisma, type PgBoss } from "pg-boss";
@@ -49,7 +50,7 @@ import {
   resolveGroupResponderIds,
   rotateGroupResponders,
 } from "./group-routing";
-import { appendRoutineRunLedger } from "./routines";
+import { appendRoutineRunLedger, followUserTimeZone, pinRoutinesToScheduledZone } from "./routines";
 import { groupMessageCount, stageGroupMessage, settleGroupOutbox } from "./group-outbox";
 import { groupRoutineState } from "./group-routine-state";
 import { lockGroupExecution, lockGroupRound, lockGroupDelivery } from "./group-supersession";
@@ -60,6 +61,7 @@ import {
   renderPlatformRuntimeInstructions,
 } from "./platform-system-prompt";
 import { formatFriendlyDate, resolveTimeZone, timestampUserTurn } from "./timestamps";
+import { canonicalTimeZone, readUserTimeZone, userTimeZoneView } from "./user-time-zone";
 import { renderAgentSkillsSection } from "./skill-catalog";
 import type { AutomationStatusReceipt, MemoryContextReceipt, PromptSectionReceipt } from "./prompt-sections";
 import { renderAutomationStatusReminder, routineDefinitionLine } from "./automation-status";
@@ -770,7 +772,6 @@ export const validateSendToUserInput = (value: unknown): void => {
 };
 
 export class AgentMessaging {
-  readonly defaultTimeZone: string;
   readonly agentData: AgentDataStore;
   readonly assets: AssetStore;
 
@@ -780,7 +781,6 @@ export class AgentMessaging {
     agentData?: AgentDataStore,
     assets?: AssetStore
   ) {
-    this.defaultTimeZone = resolveTimeZone();
     this.agentData = agentData ?? new AgentDataStore(prisma);
     this.assets =
       assets ??
@@ -841,7 +841,54 @@ export class AgentMessaging {
     });
   }
 
+  /** The user's zone (Settings override, else the zone their apps detect); turns, routines and the box clock use it. */
+  userTimeZone(db: Prisma.TransactionClient | PrismaClient = this.prisma): Promise<string> {
+    return readUserTimeZone(db);
+  }
+
+  /**
+   * Records the zone an app detected or the Settings override (null clears it). Unpinned routines
+   * follow a change of the zone in effect. The first report pins routines scheduled before the
+   * zone was known, so they keep their moments.
+   */
+  async updateUserTimeZone(
+    tx: Prisma.TransactionClient,
+    update: { detected?: string; override?: string | null }
+  ): Promise<UserTimeZoneView> {
+    const detected = update.detected === undefined ? undefined : canonicalTimeZone(update.detected);
+    const override = update.override ? canonicalTimeZone(update.override) : update.override;
+    if (override === null && update.override)
+      throw new ApiError(400, "invalid_time_zone", `Unknown time zone: ${update.override}`);
+    const read = () => tx.userTimeZoneSettings.findUnique({ where: { id: "global" } });
+    if (!detected && override === undefined) return userTimeZoneView(await read());
+    const merge = (current: Awaited<ReturnType<typeof read>>) => ({
+      detected: detected ?? current?.detected ?? null,
+      override: override === undefined ? (current?.override ?? null) : override,
+    });
+    const unchanged = (current: Awaited<ReturnType<typeof read>>) =>
+      current !== null && merge(current).detected === current.detected && merge(current).override === current.override;
+    // Every message reports its zone; only a change takes the lock.
+    const seen = await read();
+    if (unchanged(seen)) return userTimeZoneView(seen);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('user-time-zone'))`;
+    const current = await read();
+    if (unchanged(current)) return userTimeZoneView(current);
+    const next = merge(current);
+    if (!current) {
+      await pinRoutinesToScheduledZone(tx, (botId, routineId) => this.agentData.writeRoutine(botId, routineId, tx));
+    }
+    const row = await tx.userTimeZoneSettings.upsert({
+      where: { id: "global" },
+      create: { id: "global", ...next },
+      update: next,
+    });
+    const view = userTimeZoneView(row);
+    if (view.timeZone !== userTimeZoneView(current).timeZone) await followUserTimeZone(tx, view.timeZone);
+    return view;
+  }
+
   async enqueueWake(tx: Prisma.TransactionClient, input: WakeInput, preparedAttachmentPaths?: string[]) {
+    const timeZone = resolveTimeZone(input.timeZone ?? (await this.userTimeZone(tx)));
     const bot = await tx.bot.findUnique({
       where: { id: input.botId },
       include: { conversation: true },
@@ -860,7 +907,7 @@ export class AgentMessaging {
         ? input.content
         : timestampUserTurn(input.content, {
             occurredAt: input.occurredAt,
-            timeZone: input.timeZone ?? this.defaultTimeZone,
+            timeZone,
           });
     const attachments = await this.attachmentsForWake(input);
     const attachmentPaths =
@@ -910,7 +957,7 @@ export class AgentMessaging {
           origin: input.origin,
           replyToMessageId: input.replyToMessageId ?? null,
           isFork: input.isFork === true,
-          timeZone: resolveTimeZone(input.timeZone ?? this.defaultTimeZone),
+          timeZone,
           automationContextRunId: input.automationContextRunId,
           taskContextRunId: input.taskContextRunId,
           revival: input.revival,
@@ -1615,13 +1662,6 @@ export class AgentMessaging {
           priority: PRIORITY.group,
           wrapUserContent: false,
           occurredAt: round.triggerMessage.createdAt,
-          timeZone:
-            round.triggerMessage.metadata &&
-            !Array.isArray(round.triggerMessage.metadata) &&
-            typeof round.triggerMessage.metadata === "object" &&
-            typeof (round.triggerMessage.metadata as Record<string, unknown>).timeZone === "string"
-              ? String((round.triggerMessage.metadata as Record<string, unknown>).timeZone)
-              : this.defaultTimeZone,
           ...(triggerMetadata.branched === true
             ? { replyToMessageId: round.triggerMessage.id, isFork: true }
             : {}),
@@ -1845,6 +1885,7 @@ export class AgentMessaging {
 
   /** channelId is the run's channel (null for a home run); undefined renders no pending automation results. */
   async platformPrompt(botId: string, contextSessionId: string, connectorInstructions = "", channelId?: string | null, taskConfigurationSnapshot?: TaskConfiguration): Promise<PlatformPrompt> {
+    const timeZone = await this.userTimeZone();
     const bot = await this.prisma.bot.findUniqueOrThrow({
       where: { id: botId },
       include: {
@@ -1870,7 +1911,7 @@ export class AgentMessaging {
         workerSafetySection(executes),
         `${WORKER_UNTRUSTED_CONTENT_SECTION}\n\n${WORKER_DRAFT_HANDOFF}`,
         USER_IDENTITY_LINE,
-        executes ? renderWorkerTimeSection(this.defaultTimeZone) : "",
+        executes ? renderWorkerTimeSection(timeZone) : "",
         connectorInstructions.trim(),
         executes ? renderWorkerBoxSection({ readOnly: bot.subagentIdentity.readOnly, workingDirectory: bot.defaultDirectory }) : "",
         subagentSpecializationInstructions(type, bot.defaultDirectory),
@@ -2020,7 +2061,7 @@ export class AgentMessaging {
       automations: routineContext.length ? `Scheduled routines:\n${routineContext.join("\n")}` : "You have no scheduled routines.",
       agent_directory: `## Teammates and groups\n${teammates ? TEAMMATES_POINTER : NO_TEAMMATES_SECTION}`,
       mcp_instructions: connectorInstructions,
-    }, agentPrompt.memory, renderAutomationStatusReminder(routines, this.defaultTimeZone, firingRoutineId));
+    }, agentPrompt.memory, renderAutomationStatusReminder(routines, timeZone, firingRoutineId));
     const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
     // The reference order: identity first; the sibling digest after memory and connector
     // instructions after the directory, so per-turn changes sit late in the cached prefix.
@@ -2039,7 +2080,7 @@ export class AgentMessaging {
         agentDataRoot: this.agentData.root,
         botId,
         workingDirectory: bot.defaultDirectory,
-        timeZone: this.defaultTimeZone,
+        timeZone,
       }),
       `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
@@ -2060,7 +2101,7 @@ export class AgentMessaging {
       agentPrompt.skillRender,
       frozen.memory ? renderMemoryContextBlock(frozen.memory.facts) : undefined,
       teammates,
-      formatFriendlyDate(new Date(), this.defaultTimeZone)
+      formatFriendlyDate(new Date(), timeZone)
     );
     const automationResults = !automation && channelId !== undefined ? await this.prisma.automationResult.findMany({
       where: { wakeRunId: null, acknowledgedAt: null, run: { botId, channelId } },
@@ -2312,7 +2353,6 @@ export class AgentMessaging {
         priority: input.priority ? PRIORITY.urgentAgent : PRIORITY.agent,
         includeAttachmentPaths: false,
         occurredAt,
-        timeZone: resolveTimeZone(context.timeZone ?? this.defaultTimeZone),
       });
       return {
         acknowledgement: directAgentAcknowledgement({
@@ -2560,7 +2600,7 @@ export class AgentMessaging {
       }
       if (channel.kind === "group" && context.deliveryId) {
         const buffered = await stageGroupMessage(tx, { ...context, channelId: channel.id, deliveryId: context.deliveryId }, {
-          content, metadata: { kind: "send-message", type: "text", content, ...(replyTarget ? { replyTo: replyTarget.id } : {}), timeZone: resolveTimeZone(context.timeZone ?? this.defaultTimeZone) },
+          content, metadata: { kind: "send-message", type: "text", content, ...(replyTarget ? { replyTo: replyTarget.id } : {}), timeZone: resolveTimeZone(context.timeZone ?? (await this.userTimeZone(tx))) },
         }, GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE);
         return { acknowledgement: { sent: true, queued: true, channel_id: channel.id, channel_type: "group", message_id: buffered.id, message_address: buffered.id }, interruptRunId: null };
       }
@@ -2591,7 +2631,7 @@ export class AgentMessaging {
             address,
             ...(replyTarget ? { replyTo: replyTarget.id } : {}),
             ...(inheritsFork ? { branched: true } : {}),
-            timeZone: resolveTimeZone(context.timeZone ?? this.defaultTimeZone),
+            timeZone: resolveTimeZone(context.timeZone ?? (await this.userTimeZone(tx))),
           }),
         },
       });
@@ -2694,6 +2734,7 @@ export {
   resolveTimeZone,
   timestampUserTurn,
 } from "./timestamps";
+export { readUserTimeZone, userTimeZoneView } from "./user-time-zone";
 export {
   turnOwesReplyReminder,
   turnSystemReminder,

@@ -1416,6 +1416,7 @@ export class WakeWorker {
         subagentType: claimed.subagentType ?? undefined,
         taskConfiguration,
         readOnly: claimed.readOnly,
+        timeZone: await this.messaging.userTimeZone(),
         model: formatPiModelRef(selectedInference),
         reasoning: selectedInference.reasoning,
         fileAttachments: claimed.fileAttachments,
@@ -1943,7 +1944,7 @@ export class WakeWorker {
     if (!exchange) return;
     await this.agentData.recordTurnMemory(claimed.botId, {
       runId: claimed.runId,
-      timeZone: this.messaging.defaultTimeZone,
+      timeZone: await this.messaging.userTimeZone(),
       user: exchange.user,
       assistant: exchange.assistant,
       hidden: !["user", "group"].includes(claimed.origin),

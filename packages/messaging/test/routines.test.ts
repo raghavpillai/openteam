@@ -184,7 +184,7 @@ describe("routine schedules", () => {
           },
         },
       } as never,
-      { defaultTimeZone: "UTC" } as never
+      {} as never
     );
 
     await expect(service.owner(routineId)).resolves.toEqual({ kind: "group", id: channelId });

@@ -170,13 +170,11 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
     const routines = new RoutineService(
       prisma,
       {
-        defaultTimeZone: "UTC",
         enqueueWake: async () => {
           throw new Error("not used by this test");
         },
       },
-      store,
-      "UTC"
+      store
     );
     await expect(
       routines.mutate(botId, crypto.randomUUID(), null, {

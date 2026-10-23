@@ -163,7 +163,7 @@ databaseTest("a routine run reads and changes only its own routine, and may paus
       data: { kind: "bot_dm", name: "main", directKey: `bot:${botId}`, members: { create: { botId, ordinal: 0 } } },
     })).id;
     await store.initializeBot(botId);
-    const routines = new RoutineService(prisma, { defaultTimeZone: "UTC", isTimelineSessionActive: async () => false } as never, store);
+    const routines = new RoutineService(prisma, { isTimelineSessionActive: async () => false } as never, store);
     const state = new DurableStateService(prisma, routines, store, { isTimelineSessionActive: async () => false } as never);
     const service = new InternalToolService(
       prisma, { agentData: store } as never, state, async () => {}, {} as never, {} as never, {} as never, {} as never

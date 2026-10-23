@@ -18,6 +18,7 @@ import {
   parseComputerInferenceRequest,
 } from "@openteam/contracts/service-protocol";
 import { Schema } from "effect";
+import { createBoxClock } from "./box-clock";
 import { BoxStoreSync } from "./box-store-sync";
 import { computerEventStream } from "./computer-event-stream";
 import { BotAgentStore } from "./bot-agent-store";
@@ -36,6 +37,7 @@ const port = Number(process.env.OPENTEAM_COMPUTER_PORT ?? 8790);
 const controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
 const workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
 const readiness = new ComputerReadiness(() => checkAgentWorkspace(workspaceRoot));
+const setBoxClock = createBoxClock();
 let displayCache: { width: number; height: number; until: number } | undefined;
 const screens = new ScreenBroker(undefined, async () => {
   if (displayCache && displayCache.until > Date.now()) return displayCache;
@@ -597,6 +599,7 @@ const server = Bun.serve({
       if (request.method === "POST" && url.pathname === COMPUTER_API_PATHS.turns) {
         const input = Schema.decodeUnknownSync(ComputerTurnRequest)(await request.json());
         safePath(input.cwd);
+        await setBoxClock(input.timeZone);
         const events = await runtime.run(input);
         const body = computerEventStream(events, undefined, {
           onCancel: async () => {

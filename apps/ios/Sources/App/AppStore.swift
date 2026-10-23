@@ -665,6 +665,16 @@ final class AppStore {
       flushPersistence()
     }
   }
+  /// Routines and the bot's computer follow the user's zone; report the one this iPhone detects
+  /// each time the app comes forward, so travel moves them too. The server ignores repeats.
+  private func reportTimeZone() {
+    guard let api else { return }
+    let zone = TimeZone.current.identifier
+    Task {
+      _ = try? await api.request(
+        "/api/v0/time-zone", method: "PATCH", body: .object(["detectedTimeZone": .string(zone)]))
+    }
+  }
   private func startEvents() {
     lifecycle?.cancel()
     guard phase == .ready, foreground, launchComplete || testing else { return }
@@ -673,6 +683,7 @@ final class AppStore {
     let sync = beginStateSync()
     catchUpSync = sync
     awaitingInitialSync = false
+    reportTimeZone()
     lifecycle = Task { [weak self] in
       guard let self else { return }
       await refreshSession(epoch: epoch, sync: sync)

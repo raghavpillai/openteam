@@ -14,6 +14,7 @@ import { uniqueSlug } from "./file-state";
 import { lockGroupExecution } from "./group-supersession";
 import { type AutomationChangedAction, appendAgentTimelineEvent } from "./timeline-events";
 import { timestampUserTurn } from "./timestamps";
+import { readUserTimeZone } from "./user-time-zone";
 
 const MIN_INTERVAL_SECONDS = 5 * 60;
 // The interval is stored in a 32-bit column.
@@ -89,7 +90,6 @@ type StoredSchedule =
     };
 
 interface RoutineWakeHost {
-  defaultTimeZone: string;
   enqueueWake(
     tx: Prisma.TransactionClient,
     input: {
@@ -331,11 +331,11 @@ const durationMilliseconds = (value: string, allowZero = false): number | null =
 
 export const normalizeRoutineSchedule = (
   original: string,
-  installationZone: string,
+  userZone: string,
   options: { enforceMinimum?: boolean } = {}
 ): NormalizedSchedule => {
   try {
-    return parseRoutineSchedule(original, installationZone, options);
+    return parseRoutineSchedule(original, userZone, options);
   } catch (error) {
     if (error instanceof ApiError) throw error;
     // Only schedule parsing is a client error; persistence and execution failures
@@ -350,7 +350,7 @@ export const normalizeRoutineSchedule = (
 
 const parseRoutineSchedule = (
   original: string,
-  installationZone: string,
+  userZone: string,
   options: { enforceMinimum?: boolean } = {}
 ): NormalizedSchedule => {
   const scheduleText = original.trim();
@@ -369,12 +369,12 @@ const parseRoutineSchedule = (
       cronExpression: null,
       intervalSeconds,
       timezoneMode: "installation",
-      timezone: validZone(installationZone),
+      timezone: validZone(userZone),
     };
   }
 
   const zoneMatch = scheduleText.match(/^(?:CRON_TZ|TZ)=([^\s]+)\s+(.+)$/);
-  const timezone = validZone(zoneMatch?.[1] ?? installationZone);
+  const timezone = validZone(zoneMatch?.[1] ?? userZone);
   const rawExpression = zoneMatch?.[2] ?? scheduleText;
   const cronExpression = aliases[rawExpression.toLowerCase()] ?? rawExpression;
   if (cronExpression.trim().split(/\s+/).length !== 5) {
@@ -422,7 +422,7 @@ const assertTimeOnlyTrigger = (trigger: Record<string, unknown>): void => {
 
 export const normalizeRoutineMutationTrigger = (
   input: { schedule?: string; trigger?: unknown },
-  installationZone: string
+  userZone: string
 ): { trigger: Record<string, unknown>; schedule: StoredSchedule } => {
   const parseTrigger = (value: unknown) => {
     try {
@@ -450,13 +450,13 @@ export const normalizeRoutineMutationTrigger = (
   if (cronSchedule !== null) {
     const enforceMinimum = process.env.OPENTEAM_ENFORCE_AUTOMATION_MINIMUM !== "false";
     const normalizedSchedules = cronSchedules(trigger).map((candidate) =>
-      normalizeRoutineSchedule(required(candidate, "trigger.schedule"), installationZone, {
+      normalizeRoutineSchedule(required(candidate, "trigger.schedule"), userZone, {
         enforceMinimum,
       })
     );
     const schedule =
       normalizedSchedules[0] ??
-      normalizeRoutineSchedule(required(cronSchedule, "trigger.schedule"), installationZone, {
+      normalizeRoutineSchedule(required(cronSchedule, "trigger.schedule"), userZone, {
         enforceMinimum,
       });
     const normalizedTrigger =
@@ -481,7 +481,7 @@ export const normalizeRoutineMutationTrigger = (
       schedule,
     };
   }
-  return { trigger, schedule: { scheduleText: `Event: ${String(trigger.type)}`, scheduleKind: "event", cronExpression: null, intervalSeconds: null, timezoneMode: "installation", timezone: installationZone } };
+  return { trigger, schedule: { scheduleText: `Event: ${String(trigger.type)}`, scheduleKind: "event", cronExpression: null, intervalSeconds: null, timezoneMode: "installation", timezone: userZone } };
 };
 
 export const nextRoutineRun = (
@@ -542,17 +542,105 @@ export const nextRoutineTriggerRun = (
     timezone: string;
   },
   after: Date,
-  installationZone = fallback.timezone
+  userZone = fallback.timezone
 ): Date => {
   const schedules = cronSchedules(trigger);
   if (schedules.length === 0) return nextRoutineRun(fallback, after);
   const nextRuns = schedules.map((schedule) =>
     nextRoutineRun(
-      normalizeRoutineSchedule(schedule, installationZone, { enforceMinimum: false }),
+      normalizeRoutineSchedule(schedule, userZone, { enforceMinimum: false }),
       after
     )
   );
   return new Date(Math.min(...nextRuns.map((next) => next.getTime())));
+};
+
+const unpinned = (schedule: string): boolean =>
+  !/^(?:CRON_TZ|TZ)=/.test(schedule) && !/^@every\s/i.test(schedule);
+
+/**
+ * Unpinned schedules run on the user's clock. When the user's zone changes, re-label those
+ * routines and move each upcoming run to the new zone's wall clock; a run already due is left
+ * for dispatch.
+ */
+export const followUserTimeZone = async (
+  tx: Prisma.TransactionClient,
+  zone: string,
+  now = new Date()
+): Promise<void> => {
+  const candidates = await tx.routine.findMany({
+    where: { deletedAt: null, scheduleKind: { not: "event" } },
+    select: { id: true },
+  });
+  for (const { id } of candidates) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${id}`}))`;
+    const routine = await tx.routine.findUnique({ where: { id } });
+    if (!routine || routine.deletedAt) continue;
+    const trigger = routine.trigger as Record<string, unknown>;
+    const follows = routine.timezoneMode === "installation";
+    const moves =
+      routine.scheduleKind === "cron" &&
+      routine.nextRunAt !== null &&
+      routine.nextRunAt > now &&
+      cronSchedules(trigger).some(unpinned);
+    if (!follows && !moves) continue;
+    const schedule = follows ? { ...routine, timezone: zone } : routine;
+    await tx.routine.update({
+      where: { id },
+      data: {
+        ...(follows ? { timezone: zone } : {}),
+        ...(moves ? { nextRunAt: nextRoutineTriggerRun(trigger, schedule, now, zone) } : {}),
+      },
+    });
+  }
+};
+
+/**
+ * Routines scheduled before any app reported the user's zone ran on the zone the install
+ * started with (UTC unless setup chose one). Pin their unpinned schedules to that zone so
+ * they keep firing at the same moments; the user can ask their bot to move one to their clock.
+ */
+export const pinRoutinesToScheduledZone = async (
+  tx: Prisma.TransactionClient,
+  writeFiles: (botId: string, routineId: string) => Promise<void>
+): Promise<void> => {
+  const routines = await tx.routine.findMany({ where: { deletedAt: null, scheduleKind: "cron" } });
+  for (const routine of routines) {
+    const trigger = routine.trigger as Record<string, unknown>;
+    if (!cronSchedules(trigger).some(unpinned)) continue;
+    const pin = (schedule: unknown) =>
+      typeof schedule === "string" && unpinned(schedule) ? `CRON_TZ=${routine.timezone} ${schedule}` : schedule;
+    const pinTrigger = (value: Record<string, unknown>): Record<string, unknown> =>
+      value.type === "cron"
+        ? { ...value, schedule: pin(value.schedule) }
+        : value.type === "group" && Array.isArray(value.listeners)
+          ? {
+              ...value,
+              listeners: value.listeners.map((listener) =>
+                listener && typeof listener === "object" && !Array.isArray(listener) && listener.type === "cron"
+                  ? { ...listener, schedule: pin(listener.schedule) }
+                  : listener
+              ),
+            }
+          : value;
+    const presentation = routine.triggerPresentation as Record<string, unknown> | null;
+    const presentedTrigger =
+      presentation?.version === 1 && presentation.trigger && typeof presentation.trigger === "object"
+        ? (presentation.trigger as Record<string, unknown>)
+        : null;
+    await tx.routine.update({
+      where: { id: routine.id },
+      data: {
+        trigger: jsonInput(pinTrigger(trigger)),
+        scheduleText: String(pin(routine.scheduleText)),
+        timezoneMode: "pinned",
+        ...(presentedTrigger
+          ? { triggerPresentation: jsonInput({ ...presentation, trigger: pinTrigger(presentedTrigger) }) }
+          : {}),
+      },
+    });
+    if (routine.botId) await writeFiles(routine.botId, routine.id);
+  }
 };
 
 const view = (routine: {
@@ -728,16 +816,11 @@ const refoldRoomTurn = async (
 };
 
 export class RoutineService {
-  readonly installationZone: string;
-
   constructor(
     private readonly prisma: PrismaClient,
     private readonly host: RoutineWakeHost,
-    private readonly files?: RoutineFileStore,
-    installationZone = process.env.OPENTEAM_TIME_ZONE ?? "UTC"
-  ) {
-    this.installationZone = validZone(installationZone);
-  }
+    private readonly files?: RoutineFileStore
+  ) {}
 
   private createGroupRound(
     tx: Prisma.TransactionClient,
@@ -1239,7 +1322,8 @@ export class RoutineService {
   ) {
     const name = required(input.name, "name").replace(/\s+/g, " ").slice(0, 80);
     const prompt = required(input.prompt, "prompt");
-    const { schedule, trigger } = normalizeRoutineMutationTrigger(input, this.installationZone);
+    const zone = await readUserTimeZone(this.prisma);
+    const { schedule, trigger } = normalizeRoutineMutationTrigger(input, zone);
     const enabled = input.enabled ?? true;
     return this.prisma.$transaction(async (tx) => {
       if (owner.kind === "bot") {
@@ -1299,7 +1383,7 @@ export class RoutineService {
           enabled,
           nextRunAt:
             enabled && schedule.scheduleKind !== "event"
-              ? nextRoutineTriggerRun(trigger, schedule, now, this.installationZone)
+              ? nextRoutineTriggerRun(trigger, schedule, now, zone)
               : null,
           pausedAt: enabled ? null : now,
         },
@@ -1356,9 +1440,10 @@ export class RoutineService {
           "This routine changed somewhere else. Reload it and try again."
         );
       }
+      const zone = await readUserTimeZone(tx);
       const normalized =
         input.schedule !== undefined || input.trigger !== undefined
-          ? normalizeRoutineMutationTrigger(input, this.installationZone)
+          ? normalizeRoutineMutationTrigger(input, zone)
           : {
               trigger: current.trigger as Record<string, unknown>,
               schedule: {
@@ -1402,7 +1487,7 @@ export class RoutineService {
           revision,
           nextRunAt:
             enabled && schedule.scheduleKind !== "event"
-              ? nextRoutineTriggerRun(trigger, schedule, now, this.installationZone)
+              ? nextRoutineTriggerRun(trigger, schedule, now, zone)
               : null,
           pausedAt: enabled ? null : (current.pausedAt ?? now),
         },
@@ -1510,7 +1595,7 @@ export class RoutineService {
                 current.trigger as Record<string, unknown>,
                 schedule,
                 now,
-                this.installationZone
+                await readUserTimeZone(tx)
               )
             : null,
         pausedAt: enabled ? null : now,
@@ -1633,18 +1718,19 @@ export class RoutineService {
           cronSchedules(routine.trigger as Record<string, unknown>).some((schedule) =>
             /^@every\s/i.test(schedule)
           );
+        const zone = await readUserTimeZone(tx);
         let nextRunAt = nextRoutineTriggerRun(
           routine.trigger as Record<string, unknown>,
           routine,
           hasElapsedInterval ? scheduledFor : now,
-          this.installationZone
+          zone
         );
         while (nextRunAt <= now) {
           nextRunAt = nextRoutineTriggerRun(
             routine.trigger as Record<string, unknown>,
             routine,
             nextRunAt,
-            this.installationZone
+            zone
           );
         }
         await tx.routine.update({
@@ -1800,7 +1886,7 @@ export class RoutineService {
         scheduledFor, completedAt: now, error,
       } });
       await tx.routine.update({ where: { id }, data: {
-        nextRunAt: nextRoutineTriggerRun(routine.trigger as Record<string, unknown>, routine, now, this.installationZone),
+        nextRunAt: nextRoutineTriggerRun(routine.trigger as Record<string, unknown>, routine, now, await readUserTimeZone(tx)),
         lastRunAt: scheduledFor,
         runLedger: appendRoutineRunLedger(routine.runLedger, { id: execution.id, trigger: "schedule", startedAt: now.getTime(), finishedAt: now.getTime(), status: "error", errorKind: error.code }),
       } });

@@ -1,4 +1,5 @@
 import { SmartNotificationSettings } from "./smart-notifications";
+import { TimeZoneSettings } from "./time-zone";
 import { AutoReviewSettingsSection } from "./auto-review";
 import { Copy } from "lucide-react";
 import { lazy, type PropsWithChildren, Suspense, useState } from "react";
@@ -119,6 +120,8 @@ export default function GeneralSettings() {
           </button>
         </div>
       </SettingsGroup>
+
+      <TimeZoneSettings />
 
       <SmartNotificationSettings />
 

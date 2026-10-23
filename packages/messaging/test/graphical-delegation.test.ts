@@ -72,7 +72,7 @@ describe("main-agent graphical delegation instructions", () => {
     ] as const) {
       const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
       Object.assign(messaging, {
-        defaultTimeZone: "Europe/Paris",
+        userTimeZone: async () => "Europe/Paris",
         agentData: { renderWorkerSkillCatalog: async (agent: string) => `<agent_skills>${agent} catalog</agent_skills>` },
         prisma: {
           bot: {
@@ -142,7 +142,7 @@ describe("main-agent graphical delegation instructions", () => {
   test("a read-only worker is told so, and its box section keeps it off the user's computers", async () => {
     const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
     Object.assign(messaging, {
-      defaultTimeZone: "UTC",
+      userTimeZone: async () => "UTC",
       agentData: { renderWorkerSkillCatalog: async () => "" },
       prisma: { bot: { findUniqueOrThrow: async () => ({ id: "child", name: "Worker", instructions: "", defaultDirectory: "/workspace",
         subagentIdentity: { parentBotId: "parent", subagentType: "executor", readOnly: true }, todos: [] }) } },

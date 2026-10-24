@@ -50,7 +50,9 @@ test("profile, memory facts, and skills freeze independently per context epoch",
 
     const originalHome = await store.promptContext(botId, homeContextId);
     const originalGroup = await store.promptContext(botId, groupContextId);
-    expect(originalHome.profileSection).toContain("Snapshot Original");
+    expect(originalHome.profileSection).toBe(
+      'Agent profile:\nTitle: Snapshot Original\nYour agent name is "Snapshot Original". If the user asks for your name, answer with "Snapshot Original".\nDescription: Original description'
+    );
     expect(originalGroup.profileSection).toContain("Snapshot Original");
     expect(await pinned(homeContextId)).toBe("No shared facts recorded yet.\n\nNo facts recorded yet.");
     expect(await pinned(groupContextId)).toBe("No shared facts recorded yet.\n\nNo facts recorded yet.");

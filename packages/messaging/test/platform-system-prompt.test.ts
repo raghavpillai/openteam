@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { AgentMessaging, validateSendToUserInput } from "../src";
 import type { AgentPromptContext } from "../src/agent-data";
 import {
+  PARALLEL_TOOL_CALLS,
   PLATFORM_BASE_SYSTEM_PROMPT,
   renderPlatformBaseSystemPrompt,
   renderPlatformRuntimeInstructions,
@@ -10,6 +11,7 @@ import {
 import { REQUEST_BOX_HELP_TOOL, SEND_TO_USER_TOOL } from "@openteam/contracts";
 import { referenceTool } from "@openteam/contracts/tool-contracts";
 import managedSkills from "../src/prompts/managed-skills.json";
+import { AUTOMATION_RUN_INSTRUCTIONS } from "../src/automation-results";
 
 const mainAgent = (id: string) => {
   const profileSnapshot: AgentPromptContext["profileSnapshot"] = {
@@ -125,6 +127,19 @@ describe("platform prompt integration", () => {
       }
     }
   });
+  test("memory policy follows Time and the prompt ends on the parallel-calls line, as the reference orders them", async () => {
+    const { messaging } = mainAgent("alpha");
+    const { instructions } = await messaging.platformPrompt("alpha", "alpha-context");
+    const time = instructions.indexOf("## Time\n");
+    const memory = instructions.indexOf("## Memory\nalpha's memory policy.");
+    expect(time).toBeGreaterThan(0);
+    expect(memory).toBeGreaterThan(time);
+    expect(memory).toBeLessThan(instructions.indexOf("## Routines"));
+    expect(instructions.split("alpha's memory policy.").length - 1).toBe(1);
+    expect(instructions).not.toContain("Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines.");
+    expect(instructions).toEndWith(`\n\n${PARALLEL_TOOL_CALLS}`);
+  });
+
   test.each([["user", "they replied in chat instead of answering on the card"], ["routine", "no answer is not a yes"]])(
     "an unanswered question is noted once for a %s wake, then treated as closed", async (origin, note) => {
       const { messaging } = mainAgent("alpha");
@@ -298,7 +313,34 @@ describe("platform prompt integration", () => {
     expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("Do not CheckSubagent first or stop children one by one");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("call CheckSubagent with no id, issue StopSubagent for every running child");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("cloud agent");
+  });
 
+  test("widget, connector and escalation rules read as the reference's, once each", () => {
+    const count = (text: string) => PLATFORM_BASE_SYSTEM_PROMPT.split(text).length - 1;
+    for (const line of [
+      "- A widget is its own SendToUser call: type widget, no content. Send any prose first as a separate text call without end_turn. Don't repeat the question or options in that prose; the widget shows them. The widget ends the turn, so it is the last thing you send.",
+      "- Ask one natural question. Every option must be real and verified, with values that read like replies. Don't pad with guesses or offer an option that hands delegated work back to the user.",
+      "- Use style danger for destructive choices, allowCustom for free text, multiSelect when several apply, and dismissOnMoveOn only for a low-stakes question that can become moot.",
+      "Before telling the user a connected connector cannot do something, look up that namespace's live tools with GetDynamicTools (a pattern search is enough), especially when they challenge an earlier claim.",
+      "never use the browser as a side door around a broken connector: report the failure and ask. The exception is identity: when a connector's instructions say it posts as an app, an action that must go out as the user goes through your signed-in browser, with the same confirmation any send needs.",
+      "A person's name is a fact too: an address like jdoe@ does not tell you whether they are Jane, John, or Jordan, so write the handle unless a source gave you the name.",
+      "- You can't watch videos. Send a user's video to a watchVideo subagent",
+    ]) expect(count(line)).toBe(1);
+    expect(count("Escalate in this order")).toBe(1);
+    expect(count("Escalate from existing context")).toBe(0);
+    expect(count("Ask again only to")).toBe(1);
+    expect(count("Run slow or open-ended Shell work")).toBe(1);
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("Honor explicit user instructions to wait");
+  });
+
+  test("an automation run gets its own section after the identity and none of the chat-turn sections", () => {
+    const prompt = renderPlatformBaseSystemPrompt({ automationRun: AUTOMATION_RUN_INSTRUCTIONS });
+    expect(prompt).toStartWith(`You are OpenTeam, a warm, concise desktop assistant.\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\n## User communication style`);
+    for (const heading of ["## How a turn works", "## Showing your work", "## Asking for decisions", "## Threaded replies"]) expect(prompt).not.toContain(heading);
+    expect(prompt).not.toContain("You can pay for the user's purchases");
+    expect(AUTOMATION_RUN_INSTRUCTIONS).toContain("The only cards your work may raise are Auto-review approvals.");
+    expect(AUTOMATION_RUN_INSTRUCTIONS).toContain("- WakeParent is the only way to reach the user or another agent from this run. Call it when");
+    expect(prompt).not.toContain(PARALLEL_TOOL_CALLS);
   });
 
   test("the copied question-widget example passes OpenTeam's real send validation", () => {
@@ -323,7 +365,11 @@ describe("platform prompt integration", () => {
     // Skills are files on the box, so the catalog text is the on-disk one.
     expect(prompt).toContain("It is still on disk, readable, and invocable immediately.");
     expect(prompt).toContain("Managed skills come with OpenTeam, do NOT live in those folders");
-    expect(prompt).not.toContain("A skill's name is the name field");
+    expect(prompt).toContain("A skill's name is the name field in its SKILL.md frontmatter");
+    // The reference's Time section, then its box section with the registered-computer file moves.
+    expect(prompt).toContain("A timestamp that carries its own zone is not box-local.");
+    expect(prompt).toContain("Move data between code and web apps through files on the box.");
+    expect(prompt).toContain("move files across with CopyToBox (their computer into /workspace/uploads or a box_path) and CopyFromBox (your box onto their disk).");
     expect(prompt).toContain("Be aggressive and proactive about routines.");
     expect(prompt).toContain("catch the implicit cases");
     expect(prompt).not.toContain("clearly asks for recurring work");

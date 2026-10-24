@@ -116,7 +116,6 @@ test('commerce skills pay in the purchases order and confirm with the reference 
       expect(`${item.id} ${step}`).toBe(`${item.id} ${next}`);
       next = step + 1;
     }
-    if (item.id === 'routines' || item.id === 'box-desktop') continue;
     expect(item.content).not.toMatch(/site playbook|RequestVirtualCard|Stripe Link|Outlook|GetMcpTools|`order` card|tapping Pay/i);
     if (item.content.includes('When the site wants payment')) {
       expect(item.content).toContain('as the OpenTeam-managed `purchases` skill says');

@@ -241,13 +241,12 @@ const routineWakeContent = (input: {
   firedAt: Date;
   timeZone?: string;
   prompt: string;
-  event?: AutomationEvent;
   provenance?: string;
   kind: "scheduled" | "manual" | "event";
   events?: readonly AutomationEvent[];
 }): string => {
   const trusted = input.provenance === "user" ? "[SAND_TRUSTED_AUTOMATION_PROMPT]" : "";
-  const events = input.events ?? (input.event ? [input.event] : []);
+  const events = input.events ?? [];
   const schedule = input.schedule ?? "scheduled routine";
   const folder = input.folder ?? input.name;
   const firedAt = input.firedAt.toLocaleString("en-US", { timeZone: input.timeZone ?? "UTC", timeZoneName: "short" });
@@ -309,6 +308,18 @@ export const manualRoutineWakeContent = (input: {
   prompt: string;
   provenance: string;
 }): string => routineWakeContent({ ...input, kind: "manual" });
+
+export const eventRoutineWakeContent = (input: {
+  name: string;
+  folder: string;
+  schedule: string;
+  trigger?: unknown;
+  firedAt: Date;
+  timeZone?: string;
+  prompt: string;
+  provenance: string;
+  events: readonly AutomationEvent[];
+}): string => routineWakeContent({ ...input, kind: "event" });
 
 export const appendRoutineRunLedger = (
   current: unknown,
@@ -809,8 +820,7 @@ const eventWake = (
   firedAt: Date
 ) => {
   return {
-    content: routineWakeContent({
-      kind: "event",
+    content: eventRoutineWakeContent({
       name: routine.name,
       folder: routine.slug,
       schedule: routine.scheduleText,

@@ -171,7 +171,7 @@ export function ComputerUpdateSettings() {
               {new URL(API_BASE).host}
             </div>
             <div className="mt-px max-w-[440px] text-[12px] leading-4 text-foreground-secondary">
-              Files and logins stay. Installed apps and packages are removed.
+              Removes apps and packages.
             </div>
             {extraCopy ? (
               <div

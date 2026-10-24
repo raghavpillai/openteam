@@ -32,11 +32,14 @@ struct HomeView: View {
   var body: some View {
     GeometryReader { geometry in
       Group {
-        switch HomeLayout(sizeClass: sizeClass, width: geometry.size.width) {
+        switch HomeLayout(sizeClass: sizeClass) {
         case .stack: stackLayout
-        case let layout: splitLayout(layout)
+        case .split: splitLayout(width: geometry.size.width)
         }
-      }.environment(\.sideChrome, SideChrome(insets: geometry.safeAreaInsets))
+      }
+      // Apple's apps keep horizontal bars on iPhone Duo's inner display and move
+      // controls into the side region only on the outer one.
+      .environment(\.sideChrome, sizeClass == .compact ? SideChrome(insets: geometry.safeAreaInsets) : nil)
     }
     .onChange(of: store.navigation) { _, path in
       // Once the zoomed chat has closed (and zoomed back into its row), later
@@ -115,24 +118,16 @@ struct HomeView: View {
         }
     }
   }
-  /// An unfolded iPhone Duo (or iPad) keeps conversations beside the open chat:
-  /// an avatar rail in portrait, where the chat needs the width, and the full
-  /// list in landscape. The chat's leading button collapses or restores the list.
-  private func splitLayout(_ layout: HomeLayout) -> some View {
+  /// Regular width (iPhone Duo's inner display, iPad, Max iPhones in landscape)
+  /// keeps the conversation list beside the open chat, as Settings does there.
+  /// The chat's leading button hides the list for a full-width chat.
+  private func splitLayout(width: CGFloat) -> some View {
     let selected = store.navigation.last.flatMap { store.channel($0) }
-    let showsList = layout == .rail ? selected == nil : !listHidden
+    let showsList = selected == nil || !listHidden
     return HStack(spacing: 0) {
-      if layout == .rail, selected != nil {
-        ConversationRail(channels: orderedChannels, search: { search = true })
-          .frame(width: 80)
-          .transition(.move(edge: .leading).combined(with: .opacity))
-        NativePalette.separator.frame(width: 0.5).ignoresSafeArea()
-      } else if showsList {
+      if showsList {
         conversationList
-          .frame(width: selected == nil && layout == .rail ? nil : HomeLayout.sidebarWidth)
-          // Beside a chat the list keeps its top bar; the side region belongs to the
-          // screen edge, where the chat's controls are.
-          .transformEnvironment(\.sideChrome) { if selected != nil || layout == .sidebar { $0 = nil } }
+          .frame(width: HomeLayout.sidebarWidth(for: width))
           .transition(.move(edge: .leading).combined(with: .opacity))
         NativePalette.separator.frame(width: 0.5).ignoresSafeArea()
       }
@@ -142,13 +137,11 @@ struct HomeView: View {
           .id(selected.id)
           .environment(
             \.chatLeadingControl,
-            ChatLeadingControl(title: layout == .rail || listHidden ? "Show conversations" : "Hide conversations") {
-              withAnimation(.smooth(duration: 0.3)) {
-                if layout == .rail { store.navigation = [] } else { listHidden.toggle() }
-              }
+            ChatLeadingControl(title: listHidden ? "Show conversations" : "Hide conversations") {
+              withAnimation(.smooth(duration: 0.3)) { listHidden.toggle() }
             })
           .frame(maxWidth: .infinity)
-      } else if layout == .sidebar {
+      } else {
         ContentUnavailableView(
           "No conversation selected", systemImage: "bubble.left.and.bubble.right",
           description: Text("Choose a conversation to start chatting.")
@@ -158,12 +151,6 @@ struct HomeView: View {
     // Lists slide over the page color, not the window, as they collapse.
     .nativeCanvas()
     .environment(\.opensConversationsInPlace, true)
-    .animation(.smooth(duration: 0.3), value: selected == nil)
-  }
-  /// Pins first, then each section's chats in the order the list shows them.
-  private var orderedChannels: [Channel] {
-    store.pins.compactMap { id in visible.first { $0.id == id } }
-      + sections.flatMap { sortedRows(in: $0["id"].string) } + sortedRows(in: "")
   }
   private var conversationList: some View {
     ScrollView {
@@ -576,21 +563,13 @@ extension AppStore {
   }
 }
 
-/// How the home screen uses its space. Compact width stacks, as on the folded
-/// iPhone Duo. Regular width (its inner display in either orientation, iPad,
-/// Max iPhones in landscape) keeps conversations beside the chat: the full list
-/// when the chat still has a comfortable reading width beside it, else a rail.
+/// Compact width (a folded iPhone Duo, any iPhone in portrait) stacks chats over
+/// the list; regular width shows them side by side.
 enum HomeLayout: Equatable {
-  case stack, rail, sidebar
-  static let sidebarWidth: CGFloat = 340
-  static let minimumChatWidth: CGFloat = 420
-  init(sizeClass: UserInterfaceSizeClass?, width: CGFloat) {
-    guard sizeClass == .regular else {
-      self = .stack
-      return
-    }
-    self = width - Self.sidebarWidth >= Self.minimumChatWidth ? .sidebar : .rail
-  }
+  case stack, split
+  init(sizeClass: UserInterfaceSizeClass?) { self = sizeClass == .regular ? .split : .stack }
+  /// About a third of the window, as Settings uses on iPhone Duo and iPad.
+  static func sidebarWidth(for width: CGFloat) -> CGFloat { min(360, max(280, (width * 0.36).rounded())) }
 }
 
 /// iPhone Duo's outer display gives the status bar its own region down one
@@ -674,45 +653,6 @@ private struct ConversationLink<Label: View>: View {
     } else {
       NavigationLink(value: id) { label }.buttonStyle(.plain)
     }
-  }
-}
-
-/// Unfolded in portrait, conversations collapse to avatars so the chat keeps
-/// most of the width.
-private struct ConversationRail: View {
-  @Environment(AppStore.self) private var store
-  let channels: [Channel]
-  var search: () -> Void
-  var body: some View {
-    ScrollView {
-      LazyVStack(spacing: 12) {
-        ForEach(channels) { channel in
-          let selected = store.navigation.last == channel.id
-          Button {
-            guard !selected else { return }
-            NativeHaptics.play(.selection, source: "rail.select")
-            Task { await store.open(channel.id) }
-          } label: {
-            ChannelAvatar(channel: channel, size: 50)
-              .padding(4)
-              .overlay(Circle().stroke(selected ? NativePalette.text : .clear, lineWidth: 2))
-              .overlay(alignment: .topTrailing) {
-                if store.isUnread(channel) && !selected {
-                  Circle().fill(NativePalette.link).frame(width: 12, height: 12)
-                    .overlay(Circle().stroke(NativePalette.background, lineWidth: 2))
-                }
-              }
-              .contentShape(Circle())
-          }.buttonStyle(.plain).accessibilityLabel(channel.name)
-            .accessibilityAddTraits(selected ? .isSelected : [])
-            .accessibilityIdentifier("rail-" + channel.id)
-        }
-      }.padding(.vertical, 10).frame(maxWidth: .infinity)
-    }.scrollIndicators(.hidden).nativeCanvas()
-      .safeAreaInset(edge: .top, spacing: 0) {
-        ChromeButton(title: "Search", symbol: "magnifyingglass", action: search)
-          .accessibilityIdentifier("rail-search").padding(.top, 6).padding(.bottom, 8)
-      }
   }
 }
 

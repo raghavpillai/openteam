@@ -2121,10 +2121,8 @@ export class AgentMessaging {
       agentPrompt.profileSection,
       USER_IDENTITY_LINE,
       frozen.sections.agent_instructions,
-      "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       graphicalDelegationInstructions(taskConfiguration),
-      "Subagents run in the background. Background completion is delivered after your turn ends; continue other work or end your turn instead of polling. Installed plugin agent templates are listed separately when available.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
       renderPlatformRuntimeInstructions({
         agentDataRoot: this.agentData.root,

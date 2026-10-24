@@ -89,10 +89,8 @@ test("the main agent's catalog and workflow list include the skills knowledgeWor
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-  const workflows = renderPlatformBaseSystemPrompt().match(/## Managed workflows\n[^\n]*/)?.[0] ?? "";
-  expect(workflows).toContain("slides");
-  expect(workflows).toContain("slides-executor");
-  expect(workflows).toContain("office-pptx");
+  // The catalog is main's only pointer to these skills, as in the reference.
+  expect(renderPlatformBaseSystemPrompt()).not.toContain("## Managed workflows");
 });
 
 test("knowledgeWork's prompt names no Skill tool", () => {

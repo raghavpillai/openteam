@@ -180,18 +180,15 @@ describe("platform prompt integration", () => {
     expect(prompt.instructions).not.toContain("<available_subagent_models>");
     expect(prompt.instructions).not.toContain("computerUse: browser and desktop work");
   });
-  test("deployment-disabled template sharing is omitted from managed and inline workflows", () => {
+  test("deployment-disabled template sharing is omitted from inline workflows", () => {
     const previous = process.env.OPENTEAM_TEMPLATE_SHARING;
     process.env.OPENTEAM_TEMPLATE_SHARING = "false";
     try {
-      expect(renderPlatformBaseSystemPrompt({ managedSkills: true })).not.toContain(
-        "export-bot-template"
-      );
       expect(renderPlatformBaseSystemPrompt({ managedSkills: false })).not.toContain(
         "CreateBotShareJson"
       );
-      expect(renderPlatformBaseSystemPrompt({ managedSkills: true, sharing: true })).toContain(
-        "export-bot-template"
+      expect(renderPlatformBaseSystemPrompt({ managedSkills: false, sharing: true })).toContain(
+        "CreateBotShareJson"
       );
     } finally {
       if (previous === undefined) delete process.env.OPENTEAM_TEMPLATE_SHARING;

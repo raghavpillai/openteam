@@ -1,4 +1,3 @@
-import managedSkills from "./prompts/managed-skills.json";
 import { join } from "node:path";
 import platformPrompt from "./prompts/platform.json";
 import { INLINE_WORKFLOWS } from "./prompts/inline-workflows";
@@ -56,19 +55,10 @@ export interface PlatformPromptFeatures {
 export function renderPlatformBaseSystemPrompt(features: PlatformPromptFeatures = {}): string {
   const skillified = features.managedSkills ?? process.env.OPENTEAM_MANAGED_SKILLS !== "false";
   const sharing = features.sharing ?? process.env.OPENTEAM_TEMPLATE_SHARING !== "false";
-  const workflows = managedSkills.skills.filter(
-    (skill) =>
-      (features.forms !== false || skill.id !== "in-chat-forms") &&
-      (features.drafts !== false || skill.id !== "send-on-behalf") &&
-      (sharing || skill.id !== "export-bot-template")
-  );
   return [
     features.automationRun ? automationRunBase(features.automationRun) : PLATFORM_BASE_SYSTEM_PROMPT,
-    skillified
-      ? "## Managed workflows\nRead the relevant installed SKILL.md from agent_skills before performing its workflow. " +
-        workflows.map((skill) => skill.id).join(", ") +
-        "."
-      : INLINE_WORKFLOWS,
+    // Skillified, the <agent_skills> catalog in user_info is the only pointer, as in the reference.
+    skillified ? "" : INLINE_WORKFLOWS,
     !skillified && sharing
       ? "When the user requests a reusable bot template, use CreateBotShareJson. Exclude secrets and private account data, and verify the returned artifact before sharing it."
       : "",

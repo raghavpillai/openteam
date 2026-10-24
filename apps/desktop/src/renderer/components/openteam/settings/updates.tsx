@@ -74,7 +74,7 @@ export default function UpdatesSettings() {
 
   const mismatchMessage =
     compatibility === "server-update-required"
-      ? `Server ${server?.currentVersion} cannot support desktop ${clientVersion}. Update the server and computer.`
+      ? `Server ${server?.currentVersion} cannot support desktop ${clientVersion}. Update the connected server in Settings → Computer.`
       : compatibility === "client-update-required"
         ? `Desktop ${clientVersion} is outside server ${server?.currentVersion}'s supported range. Update the desktop app.`
         : compatibility === "unknown" && !serverLoading

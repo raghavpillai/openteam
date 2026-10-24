@@ -1,3 +1,4 @@
+import type { ServerUpdateView } from "@openteam/contracts";
 import type { NotificationPresenceInput, NotificationRouting } from "@openteam/contracts/notification-presence";
 import type {AutomationWebhookInput,AutomationWebhookView} from "@openteam/contracts/automation-webhooks";
 import type { WebProviderCheckInput, WebProvidersInput, WebProvidersView } from "@openteam/contracts/web-search";
@@ -152,6 +153,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     botMemories: (botId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories`),
     deleteBotMemory: (botId: string, memoryId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories/${encodeURIComponent(memoryId)}`, { method: "DELETE" }),
     clearBotMemories: (botId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories`, { method: "DELETE" }),
+    serverUpdateStatus: () => transport.request<ServerUpdateView>("/api/v0/system/update"),
+    updateServer: (targetVersion: string) => transport.request<ServerUpdateView>("/api/v0/system/update", {
+      method: "POST", body: JSON.stringify({ targetVersion }),
+    }),
     systemVersion: () => transport.request<SystemVersionView>("/api/v0/system/version"),
     systemActivity: (signal?: AbortSignal) =>
       transport.request<SystemActivityView>("/api/v0/system/activity", { signal }),

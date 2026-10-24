@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import type { DesktopTailscaleStatus, TailscaleStatus } from "@openteam/contracts/tailscale";
 import { safeErrorMessage } from "@openteam/product-core/redaction";
-import { canManageServer, readManagedInstallation } from "./server-updater";
+import { canManageLocalInstallation, readManagedInstallation } from "./local-installation";
 
 export interface TailscaleRequest {
   serverUrl: string;
@@ -49,7 +49,7 @@ export function canManageTailscale(
   serverUrl: string,
   installation: ReturnType<typeof readManagedInstallation>
 ): boolean {
-  if (canManageServer(serverUrl, installation)) return true;
+  if (canManageLocalInstallation(serverUrl, installation)) return true;
   if (!installation) return false;
   try {
     const env = readFileSync(join(installation.directory, ".env"), "utf8");

@@ -1,3 +1,4 @@
+export type { ServerUpdateView, ServerUpdateRequest, ServerUpdateHeartbeat } from "./server-updates";
 import type { NotificationRouting } from "./notification-presence";
 export type { SystemActivityView } from "./system-activity";
 import { withReferenceContract, referenceTool } from "./tool-contracts";

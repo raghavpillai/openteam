@@ -42,7 +42,7 @@ app
       await delay(120);
     };
     const shot = async (name) =>
-      fs.writeFileSync(path.join(process.argv[3], name + ".png"), (await win.webContents.capturePage()).toPNG());
+      fs.writeFileSync(path.join(process.argv[3], name + ".png"), (await win.webContents.capturePage((name === "connected-server-light" || name === "connected-server-dark") ? { x: 48, y: 16, width: 710, height: 150 } : undefined)).toPNG());
     const button = (value, text) => value.buttons.find((b) => b.text === text);
 
     await win.loadURL(process.argv[2]);
@@ -50,14 +50,23 @@ app
 
     // An update is pending and every bot is idle: Update is offered, nothing to stop.
     await waitFor((v) => v.state === "ready", "pending update with idle bots is ready");
-    await assert((v) => v.text.includes("Update Bot's Computer") && v.text.includes("All assistants update together."), "reference title and description");
+    await assert((v) => v.text.includes("openteam.example") && v.text.includes("Updating may remove packages added inside the bot’s container."), "reference title and description");
     await assert((v) => v.buttons.length === 1 && button(v, "Update")?.disabled === false, "only Update, enabled");
+    await js(`document.documentElement.dataset.theme='light'`);
+    await delay(350);
+    await shot("connected-server-light");
+    await js(`document.documentElement.dataset.theme='dark'`);
+    await delay(350);
+    await shot("connected-server-dark");
+    if (!(await js(`!document.querySelector('input') && !document.body.innerText.includes('SSH') && document.body.innerText.includes('openteam.example')`)))
+      throw new Error("Connected-server card must have no separate SSH configuration");
+    passed++;
     await shot("01-ready");
 
     // The installed release is current.
     await js(`fixture.server({currentVersion:"0.47.0"})`);
     await waitFor((v) => v.state === "up-to-date", "up to date");
-    await assert((v) => v.text.includes("Your computer is on the latest version") && v.buttons.length === 0, "latest-version banner, no buttons");
+    await assert((v) => v.text.includes("Your server is on the latest version") && v.buttons.length === 0, "latest-version banner, no buttons");
     await shot("02-up-to-date");
     await js(`fixture.server({currentVersion:"0.46.0"})`);
     await waitFor((v) => v.state === "ready", "pending again");
@@ -115,6 +124,24 @@ app
       passed += 2;
     });
     await shot("08-updating");
+
+    if (!(await js(`fixture.destinations.every(url=>url==='https://openteam.example/api/v0/system/update') && fixture.payloads.every(body=>JSON.stringify(body)==='{"targetVersion":"0.47.0"}')`)))
+      throw new Error("Updates must target only the selected server through its API");
+    passed++;
+    await js(`fixture.offline=true`);
+    await delay(1800);
+    await assert(v=>v.state==='updating', "maintenance restart preserves update progress");
+    await js(`fixture.offline=false;fixture.server({status:'updated',phase:'complete',currentVersion:'0.47.0'})`);
+    await waitFor(v=>v.state==='up-to-date', "reconnect discovers the completed release");
+    await js(`fixture.server({status:'unavailable',updaterAvailable:false,currentVersion:'0.46.0',message:'Run openteam start on the server to enable updates from the app.'})`);
+    await waitFor(v=>v.state==='unavailable', "missing host updater shows recovery guidance");
+    await assert(v=>v.text.includes('openteam start'), "recovery command names the server host");
+    win.setSize(390, 520);
+    await delay(150);
+    if (!(await js(`document.documentElement.scrollWidth<=innerWidth && !document.querySelector('input')`)))
+      throw new Error("Narrow card must fit without an SSH field");
+    passed++;
+    await shot("connected-server-narrow");
 
     fs.writeFileSync(
       path.join(process.argv[3], "results.json"),

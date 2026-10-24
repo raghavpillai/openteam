@@ -96,23 +96,6 @@ const deliveryJournal = (value: unknown): unknown => {
   return value;
 };
 
-const serverUpdateRequest = (value: unknown) => {
-  const input = record(value, "Server update request");
-  if (
-    typeof input.serverUrl !== "string" ||
-    !input.serverUrl.trim() ||
-    input.serverUrl.length > 2_000
-  ) {
-    throw new Error("Server URL is invalid");
-  }
-  for (const field of ["targetVersion", "sshTarget"] as const) {
-    if (input[field] !== undefined && input[field] !== null && typeof input[field] !== "string") {
-      throw new Error(`Server update ${field} is invalid`);
-    }
-  }
-  return value;
-};
-
 const notificationSnapshot = (value: unknown) => {
   const input = record(value, "Notification snapshot");
   if (!Array.isArray(input.channels) || input.channels.length > 10_000) {
@@ -235,21 +218,7 @@ contextBridge.exposeInMainWorld("openteam", {
       ipcRenderer.on("openteam:desktop-update-progress", handler);
       return () => ipcRenderer.removeListener("openteam:desktop-update-progress", handler);
     },
-    serverStatus: (request: {
-      serverUrl: string;
-      targetVersion?: string | null;
-      sshTarget?: string | null;
-    }) => ipcRenderer.invoke("openteam:updates:server-status", serverUpdateRequest(request)),
-    updateServer: (request: {
-      serverUrl: string;
-      targetVersion?: string | null;
-      sshTarget?: string | null;
-    }) => ipcRenderer.invoke("openteam:updates:update-server", serverUpdateRequest(request)),
-    onServerProgress: (listener: (status: unknown) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, status: unknown) => listener(status);
-      ipcRenderer.on("openteam:server-update-progress", handler);
-      return () => ipcRenderer.removeListener("openteam:server-update-progress", handler);
-    },
+
   },
   microphone: {
     status: () => ipcRenderer.invoke("openteam:microphone:status"),

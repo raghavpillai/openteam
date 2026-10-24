@@ -42,7 +42,7 @@ app
       await delay(120);
     };
     const shot = async (name) =>
-      fs.writeFileSync(path.join(process.argv[3], name + ".png"), (await win.webContents.capturePage((name === "connected-server-light" || name === "connected-server-dark") ? { x: 48, y: 16, width: 710, height: 210 } : undefined)).toPNG());
+      fs.writeFileSync(path.join(process.argv[3], name + ".png"), (await win.webContents.capturePage((name === "connected-server-light" || name === "connected-server-dark") ? { x: 48, y: 16, width: 710, height: 150 } : undefined)).toPNG());
     const button = (value, text) => value.buttons.find((b) => b.text === text);
 
     await win.loadURL(process.argv[2]);
@@ -50,7 +50,7 @@ app
 
     // An update is pending and every bot is idle: Update is offered, nothing to stop.
     await waitFor((v) => v.state === "ready", "pending update with idle bots is ready");
-    await assert((v) => v.text.includes("Update connected server") && v.text.includes("All assistants update together."), "reference title and description");
+    await assert((v) => v.text.includes("openteam.example") && v.text.includes("Files and logins stay. Installed apps and packages are removed."), "reference title and description");
     await assert((v) => v.buttons.length === 1 && button(v, "Update")?.disabled === false, "only Update, enabled");
     await js(`document.documentElement.dataset.theme='light'`);
     await delay(350);
@@ -58,7 +58,7 @@ app
     await js(`document.documentElement.dataset.theme='dark'`);
     await delay(350);
     await shot("connected-server-dark");
-    if (!(await js(`!document.querySelector('input') && !document.body.innerText.includes('SSH') && document.body.innerText.includes('Connected to openteam.example')`)))
+    if (!(await js(`!document.querySelector('input') && !document.body.innerText.includes('SSH') && document.body.innerText.includes('openteam.example')`)))
       throw new Error("Connected-server card must have no separate SSH configuration");
     passed++;
     await shot("01-ready");

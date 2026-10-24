@@ -168,12 +168,10 @@ export function ComputerUpdateSettings() {
         >
           <div className="min-w-0 flex-1">
             <div className="text-[12.5px] leading-[17px] text-foreground">
-              Update connected server
+              {new URL(API_BASE).host}
             </div>
             <div className="mt-px max-w-[440px] text-[12px] leading-4 text-foreground-secondary">
-              Connected to {new URL(API_BASE).host}. Updates this server and the computer your
-              assistants share. Your files and logins stay, but installed apps and packages are
-              removed. All assistants update together.
+              Files and logins stay. Installed apps and packages are removed.
             </div>
             {extraCopy ? (
               <div

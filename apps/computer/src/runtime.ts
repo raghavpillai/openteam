@@ -22,7 +22,6 @@ import {
   type PiModelRef,
   serverInferenceSettings,
   type PiReasoningLevel,
-  SEND_TO_USER_CLOSING_NUDGE_PROMPT,
   SEND_TO_USER_REPLY_NUDGE_PROMPT,
   type ServerInferenceSettings,
 } from "@openteam/contracts";
@@ -53,7 +52,6 @@ import {
 import { textFromContent } from "./runtime/content";
 import { graphicalFinalReport } from "./runtime/graphical-completion";
 import { attachSession, routeEvent, startAgentMessage } from "./runtime/events";
-import { turnEndedOnSilentToolCalls } from "./runtime/turn-shape";
 import { inferenceReasoningOptions, reasoningExtension } from "./runtime/reasoning";
 import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
@@ -75,8 +73,6 @@ import type { ActiveTurn, RuntimeImage, TurnStatus } from "./runtime/types";
 import { ScreenBroker } from "./screen-broker";
 
 export const REPLY_NUDGE_PROMPT = SEND_TO_USER_REPLY_NUDGE_PROMPT;
-
-export const CLOSING_SEND_NUDGE_PROMPT = SEND_TO_USER_CLOSING_NUDGE_PROMPT;
 
 /** Reply nudges a turn that delivered nothing gets before it settles anyway. */
 export const MAX_REPLY_NUDGES = 3;
@@ -829,19 +825,14 @@ export class ComputerRuntime {
           item: { type: "agentMessage", id: graphicalReport.id, text: graphicalReport.text, status: "completed" },
         });
       }
-      // As in the reference: nudge a turn that sent nothing (up to three times), then
-      // one that acknowledged the user and ended on tool calls it never reported.
+      // Nudge a turn that sent nothing, up to three times. As in the reference, a turn that
+      // acknowledged the user and then only dispatched work or saved a memory gets no closing
+      // nudge: the worker's result arrives in a later turn.
       const settledNormally = () => !active.endTurnRequested && !active.pluginAbortController?.signal.aborted &&
         !["aborted", "error"].includes(active.lastStopReason ?? "");
       if (isDeliveryOwed(active.requestSource)) {
         for (let attempt = 0; attempt < MAX_REPLY_NUDGES && active.sentMessageCount === 0 && settledNormally(); attempt++) {
           await session.prompt(REPLY_NUDGE_PROMPT, {
-            source: "rpc",
-            expandPromptTemplates: false,
-          });
-        }
-        if (settledNormally() && turnEndedOnSilentToolCalls(session.messages as Parameters<typeof turnEndedOnSilentToolCalls>[0])) {
-          await session.prompt(CLOSING_SEND_NUDGE_PROMPT, {
             source: "rpc",
             expandPromptTemplates: false,
           });

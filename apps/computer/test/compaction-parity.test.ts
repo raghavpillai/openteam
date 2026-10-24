@@ -24,7 +24,7 @@ import {
   TRANSCRIPT_LOCATION,
   botSummaryPrompt,
 } from "../src/bot-compaction";
-import { SEND_TO_USER_CLOSING_NUDGE_PROMPT, SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
+import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
 
 const roots: string[] = [];
 const coordinators: { coordinator: BotCompactionCoordinator; contextSessionId: string }[] = [];
@@ -113,7 +113,6 @@ test("generation sees the latest correction and skips old summary carriers when 
 test("host nudges and resume prompts are never preserved as the latest user request", () => {
   for (const synthetic of [
     SEND_TO_USER_REPLY_NUDGE_PROMPT,
-    SEND_TO_USER_CLOSING_NUDGE_PROMPT,
     `<system_reminder>\nnote\n</system_reminder>\n${SEND_TO_USER_REPLY_NUDGE_PROMPT}`,
     RESUME_RECORDED_INPUT_PROMPT,
   ]) {

@@ -7,7 +7,6 @@ import { NATIVE_TOOL_NAMES } from "@openteam/contracts";
 import { BROWSER_USE_TOOLS } from "../../src/browser/use";
 import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../../src/bot-compaction";
 import {
-  CLOSING_SEND_NUDGE_PROMPT,
   ComputerRuntime,
   isDeliveryOwed,
   modelVisibleSummaryTools,
@@ -140,9 +139,6 @@ describe("specialized subagent tool surfaces", () => {
   test("uses Bot's exact delivery nudges only for user-facing wake sources", () => {
     expect(REPLY_NUDGE_PROMPT).toContain("ack ≠ delivery");
     expect(REPLY_NUDGE_PROMPT).toEndWith("they just keep seeing silence.");
-    expect(CLOSING_SEND_NUDGE_PROMPT).toEndWith(
-      "continue it and send the result once you have it."
-    );
     for (const source of ["turn", "handoff-resume", "broadcast", "connector"] as const) {
       expect(isDeliveryOwed(source)).toBe(true);
     }

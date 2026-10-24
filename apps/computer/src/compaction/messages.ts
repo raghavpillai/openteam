@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { SEND_TO_USER_CLOSING_NUDGE_PROMPT, SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
+import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
 import { estimateBotTextTokens } from "./token-estimate";
 import type {
   BotArchiveBlob,
@@ -110,7 +110,7 @@ export const isInjectedReminder = (message: BotMessage): boolean => {
 /** Runtime-owned prompts that continue a turn instead of asking for something. */
 export const RESUME_RECORDED_INPUT_PROMPT =
   "[SAND_HIDDEN_PROMPT]Resume work on the previously recorded user input. Its original content is already in the session; avoid repeating completed actions.";
-const SYNTHETIC_USER_TURNS = [SEND_TO_USER_REPLY_NUDGE_PROMPT, SEND_TO_USER_CLOSING_NUDGE_PROMPT];
+const SYNTHETIC_USER_TURNS = [SEND_TO_USER_REPLY_NUDGE_PROMPT];
 
 const isSyntheticUserTurn = (message: BotMessage): boolean => {
   const text = messageText(message).trim();

@@ -372,6 +372,8 @@ describe("platform prompt integration", () => {
     expect(prompt).toContain("A timestamp that carries its own zone is not box-local.");
     expect(prompt).toContain("Move data between code and web apps through files on the box.");
     expect(prompt).toContain("move files across with CopyToBox (their computer into /workspace/uploads or a box_path) and CopyFromBox (your box onto their disk).");
+    // Without this the main agent wipes the shared /workspace as soon as it is asked to.
+    expect(prompt).toContain("- The box is shared with the user's other agents, which may be using it right now. Don't delete files or kill processes you didn't create; /workspace holds their work too, so ask before deleting anything there you didn't make.");
     expect(prompt).toContain("Be aggressive and proactive about routines.");
     expect(prompt).toContain("catch the implicit cases");
     expect(prompt).not.toContain("clearly asks for recurring work");

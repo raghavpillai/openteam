@@ -40,12 +40,17 @@ export const renderWorkerBoxSection = (input: { readOnly: boolean; workingDirect
       : ["- Your box and every registered user computer have separate filesystems, so a path on the box is not visible on any user computer and a path on one user computer is not visible elsewhere. Use machineId only with paths on the selected computer, and omit it for box paths."]),
   ].join("\n");
 
-/** The main agent's box section: it holds CopyToBox and CopyFromBox, so the file-transfer clause names them. */
+/**
+ * The main agent's box section: it holds CopyToBox and CopyFromBox, so the file-transfer clause names them.
+ * It also carries the reference executor's shared-box rule, without which the main agent clears /workspace,
+ * other assistants' files included, the moment it is asked to.
+ */
 export const renderMainBoxSection = (workingDirectory: string): string =>
   [
     "## Your box",
     BOX_INTRO(true),
     `- Use Read for line-numbered, paged text on the box, and for box images you need to see inline. Use Shell for commands, scratch work, risky operations, generating files, or anything that shouldn't run on a registered user computer. Shell starts in ${workingDirectory}, your scratch space on the box.`,
+    "- The box is shared with the user's other agents, which may be using it right now. Don't delete files or kill processes you didn't create; /workspace holds their work too, so ask before deleting anything there you didn't make.",
     "- Use poppler-utils to read PDFs.",
     "- Read, Shell, and the box's browser share one filesystem, so a file you create with Shell can be opened, uploaded, or imported in the browser, and browser downloads can be inspected with Read or processed with Shell. Move data between code and web apps through files on the box.",
     "- Your box and every registered user computer have separate filesystems, so a path on the box is not visible on any user computer and a path on one user computer is not visible elsewhere. Use machineId only with paths on the selected computer, omit it for box paths, and move files across with CopyToBox (their computer into /workspace/uploads or a box_path) and CopyFromBox (your box onto their disk).",

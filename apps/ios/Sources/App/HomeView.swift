@@ -130,6 +130,9 @@ struct HomeView: View {
       } else if showsList {
         conversationList
           .frame(width: selected == nil && layout == .rail ? nil : HomeLayout.sidebarWidth)
+          // Beside a chat the list keeps its top bar; the side region belongs to the
+          // screen edge, where the chat's controls are.
+          .transformEnvironment(\.sideChrome) { if selected != nil || layout == .sidebar { $0 = nil } }
           .transition(.move(edge: .leading).combined(with: .opacity))
         NativePalette.separator.frame(width: 0.5).ignoresSafeArea()
       }

@@ -311,6 +311,11 @@ describe("platform prompt integration", () => {
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("call CheckSubagent with no id, issue StopSubagent for every running child");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("cloud agent");
   });
+  test("an ask to do the work yourself overrides the delegation rule of thumb", () => {
+    const delegation = PLATFORM_BASE_SYSTEM_PROMPT.slice(PLATFORM_BASE_SYSTEM_PROMPT.indexOf("## Delegating and multitasking"));
+    expect(delegation).toContain("Rule of thumb: if an ask would take more than two rounds of tool calls, it must go to an executor.");
+    expect(delegation).toContain("When the user asks you to do the work yourself instead of handing it to a helper, do it inline: that request overrides the rule of thumb above.");
+  });
 
   test("widget, connector and escalation rules read as the reference's, once each", () => {
     const count = (text: string) => PLATFORM_BASE_SYSTEM_PROMPT.split(text).length - 1;

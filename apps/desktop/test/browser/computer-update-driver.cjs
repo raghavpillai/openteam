@@ -50,7 +50,7 @@ app
 
     // An update is pending and every bot is idle: Update is offered, nothing to stop.
     await waitFor((v) => v.state === "ready", "pending update with idle bots is ready");
-    await assert((v) => v.text.includes("openteam.example") && v.text.includes("Removes apps and packages."), "reference title and description");
+    await assert((v) => v.text.includes("openteam.example") && v.text.includes("Updating removes installed apps and packages."), "reference title and description");
     await assert((v) => v.buttons.length === 1 && button(v, "Update")?.disabled === false, "only Update, enabled");
     await js(`document.documentElement.dataset.theme='light'`);
     await delay(350);

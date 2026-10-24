@@ -171,7 +171,7 @@ export function ComputerUpdateSettings() {
               {new URL(API_BASE).host}
             </div>
             <div className="mt-px max-w-[440px] text-[12px] leading-4 text-foreground-secondary">
-              Removes apps and packages.
+              Updating removes installed apps and packages.
             </div>
             {extraCopy ? (
               <div

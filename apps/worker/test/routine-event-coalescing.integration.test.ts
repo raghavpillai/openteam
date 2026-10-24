@@ -110,7 +110,7 @@ test.skipIf(!databaseUrl)(
       await until(async () => turns.filter((turn) => turn.content.includes("COALESCE_FIXTURE")).length === 2);
       const [firstTurn, nextTurn] = turns.filter((turn) => turn.content.includes("COALESCE_FIXTURE"));
       expect(firstTurn!.content).toContain(mail(1).id);
-      expect(nextTurn!.content).toContain("received 3 matching connector events");
+      expect(nextTurn!.content).toContain("was triggered by 3 events it listens for.");
       expect(nextTurn!.content.match(/<email_received>/g)).toHaveLength(3);
       for (const n of [2, 3, 4]) expect(nextTurn!.content).toContain(`Subject: Reply ${n}`);
       expect(nextTurn!.content).not.toContain("Subject: Reply 1");

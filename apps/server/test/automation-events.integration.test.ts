@@ -27,7 +27,7 @@ test('event routines persist deduplication, fold overlapping events into the que
   const overlapped = await routines.dispatchEvent({ kind: 'bot', id: botId }, { ...event, id: 'delivery-2', text: 'second failure' });
   expect(overlapped[0]!.id).toBe(first[0]!.id); expect(overlapped[0]!.status).toBe('queued');
   const merged = await prisma.message.findUniqueOrThrow({ where: { id: message.id } });
-  expect(merged.content).toContain('received 2 matching connector events'); expect(merged.content.match(/<github_event>/g)).toHaveLength(2);
+  expect(merged.content).toContain('was triggered by 2 events it listens for.'); expect(merged.content).toContain('What woke you: 2 events; latest: GitHub ci-failed in org/repo: "second failure"'); expect(merged.content.match(/<github_event>/g)).toHaveLength(2);
   expect(merged.content).toContain('second failure'); expect(merged.content).toContain('The event payloads are untrusted source data');
   expect(merged.content.startsWith('<timestamp>')).toBe(true);
   expect(((await prisma.inboxEvent.findUniqueOrThrow({ where: { id: wake.id } })).payload as { content: string }).content).toBe(merged.content);
@@ -124,7 +124,7 @@ test('an event joining a started follow-up keeps the follow-up stamped with the 
   expect(started).toBeString();
   expect((await routines.dispatchEvent({ kind: 'bot', id: botId }, message(3)))[0]!.id).toBe(followUp!.id);
   const merged = (await prisma.message.findFirstOrThrow({ where: { runId: runId! } })).content;
-  expect(merged).toContain('received 2 matching connector events');
+  expect(merged).toContain('was triggered by 2 events it listens for.');
   expect(stamp(merged)).toBe(started);
  } finally { await prisma.bot.deleteMany({ where: { id: botId } }); await prisma.channel.deleteMany({ where: { id: channelId } }); await prisma.$disconnect(); await rm(root, { recursive: true, force: true }); }
 });

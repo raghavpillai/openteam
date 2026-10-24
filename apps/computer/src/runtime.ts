@@ -61,7 +61,8 @@ import { IdleProviderConnections, InferenceProviderConnections } from "./runtime
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
 import { retryFirstOutputStalls, streamDeadlines, type StreamTimers } from "./runtime/stream-deadlines";
 import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
-import { END_TURN_HOLD_REMINDER, enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
+import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
+import { endTurnHoldExtension } from "./runtime/end-turn-hold";
 import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
 import { DiskPressureMonitor, diskPressureReminderStepPersisted } from "./runtime/disk-pressure";
 
@@ -79,9 +80,6 @@ export const CLOSING_SEND_NUDGE_PROMPT = SEND_TO_USER_CLOSING_NUDGE_PROMPT;
 
 /** Reply nudges a turn that delivered nothing gets before it settles anyway. */
 export const MAX_REPLY_NUDGES = 3;
-
-/** Times one turn may stay open after a closing reply whose sibling call failed, as in the reference. */
-export const END_TURN_HOLD_LIMIT = 2;
 
 export const isDeliveryOwed = (
   requestSource: NonNullable<ComputerTurnRequest["requestSource"]>
@@ -514,22 +512,6 @@ export class ComputerRuntime {
     const previousStop = session.agent.shouldStopAfterTurn;
     session.agent.shouldStopAfterTurn = (context, signal) => {
       if (active.endTurnRequested) {
-        // As in the reference: a call alongside a delivered closing reply failed, so the
-        // turn stays open and the reminder rides on the closing call's own result. A
-        // turn that asked the user something waits for them instead.
-        const failed = (active.failedResponseCalls ?? []).filter((id) => id !== active.endTurnCallId);
-        const closing = context.toolResults.find((result) => result.toolCallId === active.endTurnCallId);
-        if (active.finishResponseCalls && !active.awaitingUser && failed.length && closing &&
-            (active.endTurnHolds ?? 0) < END_TURN_HOLD_LIMIT &&
-            !signal?.aborted && !active.pluginAbortController?.signal.aborted) {
-          active.endTurnHolds = (active.endTurnHolds ?? 0) + 1;
-          active.endTurnRequested = false;
-          active.finishResponseCalls = false;
-          active.endTurnCallId = undefined;
-          const details = (closing.details ?? {}) as { systemReminders?: string[] };
-          closing.details = { ...details, systemReminders: [...(details.systemReminders ?? []), END_TURN_HOLD_REMINDER] };
-          return false;
-        }
         // Pi's post-run loop otherwise drains queued host follow-ups even after
         // its inner loop stops, which would run the model again after delivery.
         session.clearQueue();
@@ -752,6 +734,7 @@ export class ComputerRuntime {
         inferenceMetricsExtension(active.runId),
         pluginComponentsExtension(active),
         untrustedResultsExtension(),
+        endTurnHoldExtension(active),
         directDynamicToolsExtension({
           registered: () => active.session?.getActiveToolNames() ?? this.tools.directToolNames(active),
           cursor: () => this.tools.cursorToolNames(active),

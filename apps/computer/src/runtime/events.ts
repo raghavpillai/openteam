@@ -104,6 +104,7 @@ export function routeEvent(
     // Capture the response's calls before any executes. A send that ends the
     // turn still runs the calls emitted with it, once each; later responses get none.
     active.pendingResponseCalls = new Map();
+    active.responseCallEnds = new Map();
     active.failedResponseCalls = [];
     active.failedResponseSends = new Set();
     if (!active.endTurnRequested) {
@@ -168,6 +169,11 @@ export function routeEvent(
       args: event.args,
       responseCall: active.pendingResponseCalls?.get(event.toolCallId) === JSON.stringify(event.args),
     });
+    if (active.responseCallEnds && !active.responseCallEnds.has(event.toolCallId)) {
+      let settle!: () => void;
+      const ended = new Promise<void>((resolve) => { settle = resolve; });
+      active.responseCallEnds.set(event.toolCallId, { ended, settle });
+    }
     active.queue.push({
       type: "item.started",
       turnId: active.turnId,
@@ -182,6 +188,7 @@ export function routeEvent(
     const failed = event.isError || outcome?.isError === true;
     observeGraphicalToolResult(active, failed, textFromContent(outcome?.content));
     if (stored?.responseCall && failed) active.failedResponseCalls?.push(event.toolCallId);
+    active.responseCallEnds?.get(event.toolCallId)?.settle();
     active.queue.push({
       type: "item.completed",
       turnId: active.turnId,

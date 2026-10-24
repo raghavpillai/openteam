@@ -71,6 +71,8 @@ export interface ActiveTurn {
   pendingResponseCalls?: Map<string, string>;
   /** A closing send, closing reaction, or question ended the turn; the rest of its response still runs. */
   finishResponseCalls?: boolean;
+  /** Calls of the latest assistant response that started, each settled once its result is final. */
+  responseCallEnds?: Map<string, { ended: Promise<void>; settle: () => void }>;
   /** Calls of the latest assistant response that failed. */
   failedResponseCalls?: string[];
   /** SendToUser calls of the latest assistant response that failed. */

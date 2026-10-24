@@ -355,6 +355,10 @@ for (const { closing, failures, thenStop = false } of [
         expect(JSON.stringify(closingResult)).toContain(reminder);
         expect(request.messages.filter((message: any) => message.role === "user")).toHaveLength(1);
       }
+      // The saved session keeps it on that result too.
+      const saved = manager.getEntries().filter((entry: any) => entry.type === "message" && entry.message.role === "toolResult" &&
+        JSON.stringify(entry.message.details?.systemReminders ?? []).includes(reminder));
+      expect(saved.map((entry: any) => entry.message.toolCallId)).toEqual(Array.from({ length: holds }, (_, index) => `reply-${index + 1}`));
       if (thenStop) {
         expect(active.endTurnRequested).toBe(false);
       } else {

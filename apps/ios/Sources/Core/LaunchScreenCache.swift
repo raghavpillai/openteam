@@ -5,25 +5,26 @@ import ImageIO
 /// iOS shows a cached picture of the launch screen before any app code runs,
 /// drawn in the phone's appearance: white in Light mode and black in Dark. With
 /// Day or Night chosen in Settings, a launch whose phone appearance differs
-/// showed that picture, then faded to the app's own color.
+/// showed that picture, then faded to the app's color.
 ///
-/// The pictures are plain fills, cached per appearance and orientation as they
-/// are first needed, in the app's Library. This repaints them in the chosen
-/// appearance, and back to their original fill for System. A picture iOS adds or
-/// replaces later is recorded as an original first. Should iOS stop reading these
+/// The pictures are plain fills, cached per appearance and window size as they
+/// are first needed, in the app's Library (iPad also keeps downscaled copies).
+/// This repaints them in the chosen appearance, and back to their original fill
+/// for System. iOS stretches a picture over the screen, so a small fill does.
+///
+/// Each picture records its original fill on the file itself, so the record
+/// survives clearing local data and is gone when iOS writes the picture again,
+/// which is when its fill must be read anew. Should iOS stop reading these
 /// files, launches look as they did before.
 public enum LaunchScreenCache {
   public enum Appearance: String, Sendable {
     case system, light, dark
   }
 
-  private struct Entry: Codable {
-    /// The fill iOS drew, before any repaint.
-    var originalDark: Bool
-    var dark: Bool
-    var bytes: Int
-    var modified: Date
-  }
+  /// "<original>:<current>", each "dark" or "light".
+  static let attribute = "dev.openteam.launch-fill"
+  /// Side of the square fill written in place of a picture.
+  static let fillSide = 16
 
   /// The folder iOS keeps this app's launch pictures in.
   public static func directory(library: URL, bundleID: String) -> URL {
@@ -33,48 +34,41 @@ public enum LaunchScreenCache {
   /// Repaints each cached picture to match `appearance`. Returns the number of
   /// pictures it rewrote.
   @discardableResult
-  public static func sync(_ appearance: Appearance, directory: URL, manifest: URL) -> Int {
-    let files = FileManager.default
-    guard let names = try? files.contentsOfDirectory(atPath: directory.path) else { return 0 }
-    var entries = (try? JSONDecoder().decode(
-      [String: Entry].self, from: Data(contentsOf: manifest))) ?? [:]
-    entries = entries.filter { names.contains($0.key) }
+  public static func sync(_ appearance: Appearance, directory: URL) -> Int {
+    guard
+      let files = FileManager.default.enumerator(
+        at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+    else { return 0 }
     var rewritten = 0
-    for name in names where name.hasSuffix(".ktx") && !name.hasPrefix(".") {
-      let url = directory.appendingPathComponent(name)
-      guard let stamp = self.stamp(url) else { continue }
-      var entry = entries[name]
-      if entry == nil || entry?.bytes != stamp.bytes || entry?.modified != stamp.modified {
-        // New, or redrawn by iOS since our last write: its fill is the original.
-        guard let image = image(at: url), let dark = isDark(image) else { continue }
-        entry = Entry(originalDark: dark, dark: dark, bytes: stamp.bytes, modified: stamp.modified)
-      }
-      guard var current = entry else { continue }
-      let target = appearance == .dark ? true : appearance == .light ? false : current.originalDark
-      if current.dark != target, let image = image(at: url),
-        write(fill: target, width: image.width, height: image.height, to: url),
-        let written = self.stamp(url)
-      {
-        current.dark = target
-        current.bytes = written.bytes
-        current.modified = written.modified
+    for case let url as URL in files where url.pathExtension == "ktx" {
+      let record = fills(url)
+      // A picture without a record is as iOS drew it.
+      guard let original = record?.original ?? image(at: url).flatMap(isDark) else { continue }
+      let current = record?.current ?? original
+      let target = appearance == .dark ? true : appearance == .light ? false : original
+      if current != target {
+        guard write(fill: target, to: url) else { continue }
         rewritten += 1
       }
-      entries[name] = current
-    }
-    if let data = try? JSONEncoder().encode(entries) {
-      try? files.createDirectory(
-        at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
-      try? data.write(to: manifest, options: .atomic)
+      if record?.original != original || record?.current != target {
+        setFills(url, original: original, current: target)
+      }
     }
     return rewritten
   }
 
-  private static func stamp(_ url: URL) -> (bytes: Int, modified: Date)? {
-    guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-      let bytes = attributes[.size] as? Int, let modified = attributes[.modificationDate] as? Date
-    else { return nil }
-    return (bytes, modified)
+  static func fills(_ url: URL) -> (original: Bool, current: Bool)? {
+    var buffer = [UInt8](repeating: 0, count: 32)
+    let length = getxattr(url.path, attribute, &buffer, buffer.count, 0, 0)
+    guard length > 0 else { return nil }
+    let parts = String(decoding: buffer[..<length], as: UTF8.self).split(separator: ":")
+    guard parts.count == 2 else { return nil }
+    return (parts[0] == "dark", parts[1] == "dark")
+  }
+
+  private static func setFills(_ url: URL, original: Bool, current: Bool) {
+    let value = Array("\(original ? "dark" : "light"):\(current ? "dark" : "light")".utf8)
+    _ = setxattr(url.path, attribute, value, value.count, 0, 0)
   }
 
   private static func image(at url: URL) -> CGImage? {
@@ -95,17 +89,17 @@ public enum LaunchScreenCache {
     return luma < 128
   }
 
-  /// Writes the fill to a temporary file, then swaps it in whole.
-  private static func write(fill dark: Bool, width: Int, height: Int, to url: URL) -> Bool {
-    guard width > 0, height > 0,
+  /// Writes the fill in iOS's image format to a temporary file, then swaps it in whole.
+  private static func write(fill dark: Bool, to url: URL) -> Bool {
+    guard
       let context = CGContext(
-        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+        data: nil, width: fillSide, height: fillSide, bitsPerComponent: 8, bytesPerRow: 0,
         space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
     else { return false }
     let value: CGFloat = dark ? 0 : 1
     context.setFillColor(red: value, green: value, blue: value, alpha: 1)
-    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    context.fill(CGRect(x: 0, y: 0, width: fillSide, height: fillSide))
     guard let image = context.makeImage() else { return false }
     let staged = FileManager.default.temporaryDirectory
       .appendingPathComponent("\(UUID().uuidString).ktx")

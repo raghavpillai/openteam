@@ -49,8 +49,7 @@ struct OpenTeamApp: App {
     let appearance = LaunchScreenCache.Appearance(rawValue: value) ?? .system
     launchScreenQueue.async {
       LaunchScreenCache.sync(
-        appearance, directory: LaunchScreenCache.directory(library: library, bundleID: bundleID),
-        manifest: library.appendingPathComponent("Application Support/launch-screen.json"))
+        appearance, directory: LaunchScreenCache.directory(library: library, bundleID: bundleID))
     }
   }
   private var selectedAppearance: ColorScheme? {

@@ -29,8 +29,28 @@ struct OpenTeamApp: App {
       .tint(accent == "blue" ? NativePalette.link : NativePalette.text)
       .toggleStyle(SwitchToggleStyle(tint: NativePalette.toggle))
       .preferredColorScheme(selectedAppearance)
-      .onChange(of: scenePhase) { _, phase in store.setForeground(phase == .active) }
+      .onChange(of: scenePhase) { _, phase in
+        store.setForeground(phase == .active)
+        // iOS caches a launch picture for a new appearance or orientation at launch.
+        if phase == .background { Self.syncLaunchScreen(appearance) }
+      }
+      .onChange(of: appearance, initial: true) { _, value in Self.syncLaunchScreen(value) }
       .onOpenURL { url in Task { await store.deepLink(url) } }
+    }
+  }
+  private static let launchScreenQueue = DispatchQueue(label: "launch-screen", qos: .utility)
+  /// Keeps the picture iOS shows before launch in the chosen appearance, so a
+  /// forced Day or Night no longer opens on the phone's color first.
+  private static func syncLaunchScreen(_ value: String) {
+    guard
+      let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first,
+      let bundleID = Bundle.main.bundleIdentifier
+    else { return }
+    let appearance = LaunchScreenCache.Appearance(rawValue: value) ?? .system
+    launchScreenQueue.async {
+      LaunchScreenCache.sync(
+        appearance, directory: LaunchScreenCache.directory(library: library, bundleID: bundleID),
+        manifest: library.appendingPathComponent("Application Support/launch-screen.json"))
     }
   }
   private var selectedAppearance: ColorScheme? {

@@ -36,6 +36,26 @@ const object = (v: unknown): v is Record<string, unknown> =>
   Boolean(v) && typeof v === "object" && !Array.isArray(v);
 const positive = (v: unknown, fallback: number) =>
   Number.isSafeInteger(v) && Number(v) > 0 ? Number(v) : fallback;
+/**
+ * The largest prompt the provider accepts: the smallest advertised limit, since
+ * a separate input cap (max_input_tokens, max_prompt_tokens) can sit below the
+ * context length. Compaction thresholds and the output reserve derive from it.
+ */
+export const inputWindow = (limits: readonly unknown[], fallback: number): number => {
+  const known = limits.map((limit) => positive(limit, 0)).filter((limit) => limit > 0);
+  return known.length ? Math.min(...known) : fallback;
+};
+/**
+ * OpenRouter publishes per-endpoint prompt caps (max_prompt_tokens) only on a
+ * model's endpoints listing. Any endpoint may serve a request, so the lowest cap applies.
+ */
+export const openRouterEndpointPromptCap = (body: unknown): number | undefined => {
+  const data = object(body) && object(body.data) ? body.data : undefined;
+  const caps = (Array.isArray(data?.endpoints) ? data.endpoints : [])
+    .map((endpoint) => (object(endpoint) ? positive(endpoint.max_prompt_tokens, 0) : 0))
+    .filter((cap) => cap > 0);
+  return caps.length ? Math.min(...caps) : undefined;
+};
 const validId = (v: unknown): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= 256 && !/[\p{Cc}\p{Cf}]/u.test(v);
 const advertisedInput = (entry: Entry): ChatModel["input"] | undefined => {
@@ -415,8 +435,8 @@ export class ChatProviderRegistry {
               // Live capabilities override stale persisted/bundled model metadata.
               input: advertisedInput(m) ?? existing?.input ?? ["text"],
               cost: existing?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-              contextWindow: positive(
-                m.context_window ?? m.max_input_tokens ?? m.inputTokenLimit,
+              contextWindow: inputWindow(
+                [m.context_window, m.max_input_tokens, m.inputTokenLimit],
                 existing?.contextWindow ?? 128000
               ),
               maxTokens: positive(m.max_tokens ?? m.outputTokenLimit, existing?.maxTokens ?? 16384),
@@ -472,6 +492,10 @@ export class ChatProviderRegistry {
         config.baseUrl.replace(/\/+$/, "") !== model.baseUrl.replace(/\/+$/, "")
       )
         throw new Error("Provider settings changed. Reload the model list and retry.");
+      if (provider.id === "openrouter") {
+        const cap = await this.openRouterPromptCap(model);
+        if (cap) model.contextWindow = Math.min(model.contextWindow, cap);
+      }
       const {
         id,
         name,
@@ -503,15 +527,59 @@ export class ChatProviderRegistry {
           baseUrl,
         },
       ];
-      await mkdir(dirname(this.modelsPath), { recursive: true, mode: 0o700 });
-      const temp = `${this.modelsPath}.${randomUUID()}.tmp`;
-      try {
-        await writeFile(temp, JSON.stringify(document, null, 2) + "\n", { mode: 0o600 });
-        await rename(temp, this.modelsPath);
-      } finally {
-        await rm(temp, { force: true });
+      await this.save(document);
+    }
+  }
+  /**
+   * Bound saved OpenRouter models by their endpoints' current prompt cap, so a model
+   * saved before the cap was published (or checked) compacts in time without re-selection.
+   */
+  async refreshPromptCaps(): Promise<void> {
+    const caps = new Map<string, number>();
+    for (const model of (await configFile(this.modelsPath)).providers?.openrouter?.models ?? []) {
+      if (!validId(model.id) || typeof model.baseUrl !== "string") continue;
+      const cap = await this.openRouterPromptCap({ id: model.id, baseUrl: model.baseUrl });
+      if (cap && cap < positive(model.contextWindow, Infinity)) caps.set(model.id, cap);
+    }
+    if (!caps.size) return;
+    // Re-read so a selection saved during the lookups isn't overwritten.
+    const document = await configFile(this.modelsPath);
+    for (const model of document.providers?.openrouter?.models ?? []) {
+      const cap = caps.get(String(model.id));
+      if (cap) model.contextWindow = Math.min(positive(model.contextWindow, cap), cap);
+    }
+    await this.save(document);
+  }
+  private async save(document: Config): Promise<void> {
+    await mkdir(dirname(this.modelsPath), { recursive: true, mode: 0o700 });
+    const temp = `${this.modelsPath}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temp, JSON.stringify(document, null, 2) + "\n", { mode: 0o600 });
+      await rename(temp, this.modelsPath);
+    } finally {
+      await rm(temp, { force: true });
+    }
+    await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
+  }
+  /** The model's endpoint prompt cap, or nothing when OpenRouter doesn't publish one. */
+  private async openRouterPromptCap(
+    model: Pick<ChatModel, "id" | "baseUrl">
+  ): Promise<number | undefined> {
+    try {
+      const signal = AbortSignal.timeout(8_000);
+      const url = modelsEndpoint(model.baseUrl);
+      url.pathname += `/${model.id.split("/").map(encodeURIComponent).join("/")}/endpoints`;
+      const headers = new Headers({ accept: "application/json" });
+      const apiKey = (await this.runtime().getAuth("openrouter", { signal }))?.auth.apiKey;
+      if (apiKey && apiKey !== KEYLESS_API_KEY) headers.set("authorization", `Bearer ${apiKey}`);
+      const response = await this.fetchImpl(url, { headers, signal, redirect: "error" });
+      if (!response.ok) {
+        await response.body?.cancel();
+        return undefined;
       }
-      await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
+      return openRouterEndpointPromptCap(await responseJson(response));
+    } catch {
+      return undefined;
     }
   }
 }

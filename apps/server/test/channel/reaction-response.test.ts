@@ -49,7 +49,11 @@ describe("channel reaction response", () => {
       idempotencyRecord: { findUnique: async () => null },
       $transaction: async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx),
     };
-    const messaging = { scheduleTranscriptProjection: async () => undefined };
+    const zones: string[] = [];
+    const messaging = {
+      scheduleTranscriptProjection: async () => undefined,
+      updateUserTimeZone: async (_tx: unknown, update: { detected: string }) => void zones.push(update.detected),
+    };
     const service = new ChannelService(
       prisma as never,
       messaging as never,
@@ -71,6 +75,7 @@ describe("channel reaction response", () => {
       metadata: { reactions: [{ by: "me", emoji: "👍" }] },
     });
     expect(result.reacted).toBe(true);
+    expect(zones).toEqual(["UTC"]);
     expect(persistedResponse).not.toHaveProperty("message");
     expect(eventPayload).not.toHaveProperty("message");
   });

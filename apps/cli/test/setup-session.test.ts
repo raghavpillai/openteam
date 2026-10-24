@@ -8,7 +8,7 @@ import {
   type SetupSession,
   type SetupSessionInput,
 } from "../src/setup-session";
-import { SETUP_STAGES, validateTimeZone } from "../src/setup-values";
+import { SETUP_STAGES } from "../src/setup-values";
 import { SELECTABLE_ROW_KINDS } from "../src/ui";
 
 const PASSWORD = "correct horse battery staple";
@@ -16,7 +16,6 @@ const PASSWORD = "correct horse battery staple";
 const environment = (overrides: Record<string, string> = {}) => {
   let contents = createEnvironment({
     version: "1.2.3",
-    timeZone: "UTC",
     workerConcurrency: "8",
   });
   for (const [key, value] of Object.entries(overrides)) {
@@ -140,7 +139,6 @@ describe("interactive setup session", () => {
       ownerUsername: "Sam-Pillai",
       ownerPassword: PASSWORD,
       apiPort: "8787",
-      timeZone: "UTC",
       workerConcurrency: "8",
     });
   });
@@ -212,7 +210,6 @@ describe("interactive setup session", () => {
       "host",
       "httpAck",
       "apiPort",
-      "timeZone",
       "workerConcurrency",
     ]);
     edit(setup, "203.0.113.9");
@@ -291,7 +288,7 @@ describe("interactive setup session", () => {
     const setup = session({ advanced: true, ownerConfigured: true });
     type(setup, "2");
     expect(setup.state.accessMode).toBe("local");
-    expect(rowIds(setup).slice(-3)).toEqual(["apiPort", "timeZone", "workerConcurrency"]);
+    expect(rowIds(setup).slice(-2)).toEqual(["apiPort", "workerConcurrency"]);
     expect(highlighted(setup)).toBe("apiPort");
     edit(setup, "invalid");
     expect(
@@ -302,8 +299,7 @@ describe("interactive setup session", () => {
     press(setup, "u", { ctrl: true });
     type(setup, "9444");
     enter(setup);
-    expect(highlighted(setup)).toBe("timeZone");
-    edit(setup, "Europe/London");
+    expect(highlighted(setup)).toBe("workerConcurrency");
     edit(setup, "4");
     expect(setup.view().title).toBe("2. Account");
 
@@ -313,7 +309,6 @@ describe("interactive setup session", () => {
       accessMode: "local",
       publicUrl: "http://127.0.0.1:9444",
       apiPort: "9444",
-      timeZone: "Europe/London",
       workerConcurrency: "4",
     });
   });
@@ -411,7 +406,6 @@ describe("interactive setup session", () => {
       ownerUsername: "existing.owner",
       ownerPassword: undefined,
       apiPort: "8787",
-      timeZone: "UTC",
       workerConcurrency: "8",
     });
   });
@@ -516,11 +510,4 @@ describe.skipIf(process.platform === "win32" || !python)("setup terminal startup
     expect(code).toBe(0);
     expect(stripVTControlCharacters(output)).toContain('Applied {"attempts":[]}');
   }, 15000);
-});
-
-test("time zones are zone names the box clock can use", () => {
-  for (const zone of ["America/New_York", "Asia/Kolkata", "UTC", "Etc/GMT+5", "America/Argentina/Buenos_Aires"])
-    expect(validateTimeZone(zone)).toBe(zone);
-  for (const zone of ["+05:30", "-0800", "Mars/Olympus", "America/../UTC"])
-    expect(() => validateTimeZone(zone)).toThrow("Enter a valid IANA time zone, such as America/New_York.");
 });

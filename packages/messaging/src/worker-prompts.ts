@@ -3,13 +3,13 @@ import { formatTimeZoneWithOffset, resolveTimeZone } from "./timestamps";
 
 // The reference's worker prompt sections, adapted where they name what this computer lacks.
 
-/** Every worker writes as the user when it acts through their accounts (the reference adds their full name, which OpenTeam does not keep). */
-export const WORKER_USER_IDENTITY_LINE =
+/** The main agent and every worker write as the user when they act through their accounts (the reference adds their full name, which OpenTeam does not keep). */
+export const USER_IDENTITY_LINE =
   "When acting through your user's accounts and apps, such as Slack, speak as them and never refer to them in the third person.";
 
 export const WORKER_READONLY_LINE = "Operate in readonly mode: do not modify anything.";
 
-/** The executor and knowledgeWork Time section; the box clock runs in the user's zone. */
+/** The Time section of the main agent, executors and knowledgeWork; the box clock runs in the user's zone. */
 export const renderWorkerTimeSection = (timeZone: string, now = new Date()): string =>
   [
     "## Time",
@@ -38,6 +38,17 @@ export const renderWorkerBoxSection = (input: { readOnly: boolean; workingDirect
     ...(input.readOnly
       ? []
       : ["- Your box and every registered user computer have separate filesystems, so a path on the box is not visible on any user computer and a path on one user computer is not visible elsewhere. Use machineId only with paths on the selected computer, and omit it for box paths."]),
+  ].join("\n");
+
+/** The main agent's box section: it holds CopyToBox and CopyFromBox, so the file-transfer clause names them. */
+export const renderMainBoxSection = (workingDirectory: string): string =>
+  [
+    "## Your box",
+    BOX_INTRO(true),
+    `- Use Read for line-numbered, paged text on the box, and for box images you need to see inline. Use Shell for commands, scratch work, risky operations, generating files, or anything that shouldn't run on a registered user computer. Shell starts in ${workingDirectory}, your scratch space on the box.`,
+    "- Use poppler-utils to read PDFs.",
+    "- Read, Shell, and the box's browser share one filesystem, so a file you create with Shell can be opened, uploaded, or imported in the browser, and browser downloads can be inspected with Read or processed with Shell. Move data between code and web apps through files on the box.",
+    "- Your box and every registered user computer have separate filesystems, so a path on the box is not visible on any user computer and a path on one user computer is not visible elsewhere. Use machineId only with paths on the selected computer, omit it for box paths, and move files across with CopyToBox (their computer into /workspace/uploads or a box_path) and CopyFromBox (your box onto their disk).",
   ].join("\n");
 
 // The reference's media review prompts, written for a coding agent: here the parent agent is any agent, and the

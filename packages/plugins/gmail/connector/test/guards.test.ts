@@ -44,14 +44,14 @@ test('create_draft unwraps a hard-wrapped plain body before quoting the original
   const original = { id: 'message-1', threadId: 'thread-1', payload: { mimeType: 'text/plain', headers: [
     { name: 'Message-ID', value: '<original@example.com>' }, { name: 'From', value: 'ann@example.com' }, { name: 'Subject', value: 'Proposal' },
   ], body: { data: Buffer.from('Short original line\nsecond line').toString('base64url') } } };
-  const h = harness(gmailTools, [original, { id: 'r1', message: { id: 'm1', threadId: 'thread-1' } }, { id: 'r2', message: { id: 'm2' } }]);
+  const h = harness(gmailTools, [original, { id: 'r1', message: { id: 'm1', threadId: 'thread-1' } }, { emailAddress: 'me@example.com' }, { id: 'r2', message: { id: 'm2' } }]);
   const wrapped = 'Thanks for sending over the revised proposal yesterday. I went through\nthe pricing section with the team this morning and we are aligned on\nthe overall structure.\n\nBest,\nRaghav';
   await h.call('create_draft', { replyToMessageId: 'message-1', body: wrapped });
   expect(await draftText(h.requests[1]!)).toStartWith('Thanks for sending over the revised proposal yesterday. I went through the pricing section with the team this morning and we are aligned on the overall structure.\n\nBest,\nRaghav\n\nOn ');
   expect(await draftText(h.requests[1]!)).toContain('> Short original line\n> second line');
   const html = 'Thanks for sending over the revised proposal yesterday. I went through<br>\nthe pricing section with the team this morning and we are aligned on';
   await h.call('create_draft', { body: html });
-  expect(await draftText(h.requests[2]!)).toBe(html);
+  expect(await draftText(h.requests[3]!)).toBe(html);
 });
 
 test('includeSignature appends the default send-as signature to both parts', async () => {
@@ -104,7 +104,7 @@ test('a thread, message or draft id Gmail cannot find names the id the tool take
   expect(await h.call('label_thread', { threadId: '18f0', labelIds: ['Label_9'] }).catch((error: Error) => error.message)).toBe('Google API 400: Invalid label: Label_9');
 });
 
-test('Gmail serves Google\'s current tool texts, with drafts promising no viewUrl', async () => {
+test('Gmail serves Google\'s current tool texts', async () => {
   const { referenceTools } = await import('../../../_shared/reference');
   const byName = Object.fromEntries(gmailTools().map((tool) => [tool.name, tool]));
   const query = byName.search_threads!.inputSchema.properties.query.description;
@@ -113,11 +113,20 @@ test('Gmail serves Google\'s current tool texts, with drafts promising no viewUr
   expect(byName.create_draft!.inputSchema.properties.includeSignature).toEqual({ type: 'boolean', description: 'Optional. Whether to append the user\'s configured Gmail web signature to the draft. Defaults to false.' });
   for (const reference of referenceTools.gmail) {
     const served = byName[reference.name]!;
-    if (['create_draft', 'update_draft', 'get_draft'].includes(reference.name)) expect(served.description).not.toContain('viewUrl');
-    else expect([reference.name, served.description]).toEqual([reference.name, reference.description]);
+    expect([reference.name, served.description]).toEqual([reference.name, reference.description]);
     for (const [key, property] of Object.entries(reference.inputSchema.properties)) expect(served.inputSchema.properties[key]).toEqual(property);
   }
-  expect(byName.update_draft!.description).toEndWith('Returns a Draft object with the `id` and `threadId` fields populated.\n');
+});
+
+test('drafts carry the Gmail web link Google gives them, and a failed lookup leaves it out', async () => {
+  const saved = { id: 'r-6712453555673774501', message: { id: '1a16a657441ae031', threadId: '1a16a657441ae031' } };
+  const url = 'https://mail.google.com/mail/?authuser=me@example.com#all?compose=thread-f:1879872788208738353%2Bmsg-a:r-6712453555673774501';
+  const h = harness(gmailTools, [saved, { emailAddress: 'me@example.com' }, saved, saved]);
+  expect(await h.call('create_draft', { body: 'Hi' })).toEqual({ id: saved.id, messageId: saved.message.id, threadId: saved.message.threadId, viewUrl: url });
+  expect((await h.call('get_draft', { draftId: saved.id, messageFormat: 'MINIMAL' })).viewUrl).toBe(url);
+  expect((await h.call('get_draft', { draftId: saved.id, messageFormat: 'RAW' })).viewUrl).toBeUndefined();
+  const failed = harness(gmailTools, [saved, () => Response.json({ error: { message: 'unavailable' } }, { status: 503 })]);
+  expect(await failed.call('create_draft', { body: 'Hi' })).toEqual({ id: saved.id, messageId: saved.message.id, threadId: saved.message.threadId });
 });
 
 const savedDraft = (parts: any[]) => ({ id: 'r-1', message: { id: 'm-1', threadId: 'thread-1', payload: { mimeType: 'multipart/mixed', headers: [
@@ -148,12 +157,12 @@ test('update_draft merges like Google: given fields replace, omitted ones stay, 
 });
 
 test('update_draft keeps both bodies when neither is given, and clears the plain one for an HTML-only update', async () => {
-  const h = harness(gmailTools, [savedDraft(savedParts), { id: 'r-1', message: { id: 'm-2' } }, savedDraft(savedParts), { id: 'r-1', message: { id: 'm-3' } }]);
+  const h = harness(gmailTools, [savedDraft(savedParts), { id: 'r-1', message: { id: 'm-2' } }, { emailAddress: 'me@example.com' }, savedDraft(savedParts), { id: 'r-1', message: { id: 'm-3' } }]);
   await h.call('update_draft', { draftId: 'r-1', subject: 'Re: Proposal v2', attachments: [{ filename: 'new.pdf', content: pdf.toString('base64') }] });
   const kept = await PostalMime.parse(Buffer.from(h.requests[1]!.json.message.raw, 'base64url'));
   expect([kept.subject, kept.text, kept.html, kept.attachments.map((a) => a.filename)]).toEqual(['Re: Proposal v2', 'Old body', '<p>Old body</p>', ['new.pdf']]);
   await h.call('update_draft', { draftId: 'r-1', htmlBody: '<p>New</p>' });
-  const html = await PostalMime.parse(Buffer.from(h.requests[3]!.json.message.raw, 'base64url'));
+  const html = await PostalMime.parse(Buffer.from(h.requests[4]!.json.message.raw, 'base64url'));
   expect([html.html, html.text]).toEqual(['<p>New</p>', undefined]);
 });
 

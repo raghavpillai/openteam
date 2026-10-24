@@ -2,13 +2,13 @@
 
 `gmail.json`, `calendar.json` and `drive.json` pin the public `tools/list` responses from:
 
-- https://gmailmcp.googleapis.com/mcp/v1, retrieved September 12, 2026; descriptions and input schemas refreshed October 21, 2026
+- https://gmailmcp.googleapis.com/mcp/v1, refreshed October 23, 2026
 - https://calendarmcp.googleapis.com/mcp/v1, refreshed October 14, 2026
 - https://drivemcp.googleapis.com/mcp/v1, retrieved September 12, 2026
 
 They contain public interface metadata, no credentials or account data. Google provides the definitions; OpenTeam implements the operations against the generally available REST APIs. Reference input names, enums and descriptions are retained, with documented compatibility aliases and local extensions. This does not make the adapters Google's official MCP servers.
 
-The October 21, 2026 Gmail refresh covers the tools the plugin implements, including the newer `update_draft` and `delete_draft`. It was taken from Google's current definitions as a connected client received them, where HTML tags had been stripped from two texts: `htmlBody` keeps only its sentences before the stripped markup, and the attachment `inline` text stays as pinned. Annotations and output schemas still date from September 12. The plugin serves draft texts without the `viewUrl` promise, because Google's draft link format is not known; threads and messages carry Google's Gmail web `viewUrl`.
+The October 23, 2026 Gmail refresh takes every definition, annotation and output schema from the public `tools/list`. `update_draft` and `delete_draft` are listed only to connected clients; their texts were checked against the definitions a connected client received that day and still match the October 21 pin, which has no annotations or output schemas for them. Google's texts arrive with HTML tags stripped from two fields: `htmlBody` keeps only its sentences before the stripped markup, and the attachment `inline` text stays as pinned. Threads, messages and drafts carry Google's Gmail web `viewUrl`; the draft link format was taken from a live draft Google's server created.
 
 Reference documentation: https://developers.google.com/workspace/gmail/api/reference/mcp , https://developers.google.com/workspace/calendar/api/v3/reference/mcp , https://developers.google.com/workspace/drive/api/reference/mcp . Google licenses documentation under CC BY 4.0 and code samples under Apache 2.0; see https://developers.google.com/terms/site-policies . Attribution and provenance must accompany exports that embed these definitions. The generate script includes this notice in Google packages.
 

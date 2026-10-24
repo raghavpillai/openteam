@@ -1,6 +1,6 @@
 import { ApiError, type WakeParentInput } from "@openteam/contracts";
 import { Prisma } from "@openteam/db";
-import type { AgentMessaging, ToolContext, WakeInput } from "./index";
+import { renderAutomationHandoffPrompt, type AgentMessaging, type ToolContext, type WakeInput } from "./index";
 
 export function automationContextRunId(runId: string, payload: unknown): string {
   const id =
@@ -195,22 +195,15 @@ export async function automationContinuationRoute(
 export const AUTOMATION_RUN_INSTRUCTIONS = [
   "## Automation run",
   "You are running an automation as a fresh subagent with the parent agent's work capabilities. Complete the saved instruction autonomously.",
-  "- You can't change the visible transcript, message the user or another agent, react, ask a question, or surface a form, handoff, connector, draft, or share card.",
+  "- You can't change the visible transcript, message the user or another agent, react, ask a question, or surface a form, handoff, connector, draft, or share card. The only cards your work may raise are Auto-review approvals.",
   "- Older saved instructions may name SendMessage or SendToUser; neither exists in this run. Treat either as a request for user-visible communication and call WakeParent with the full payload instead.",
-  // WakeParent is a direct tool in an automation run.
-  "- WakeParent is the only way to reach the user or another agent from this run; call WakeParent directly. Call it when the saved instruction asks you to ping, remind, tell, notify, ask, or say something to the user, even when the work succeeded, and when the parent must message an agent, make a decision, or take over a blocker. It ends your turn immediately, so include the complete outcome and what the parent should say or do.",
+  "- WakeParent is the only way to reach the user or another agent from this run. Call it when the saved instruction asks you to ping, remind, tell, notify, ask, or say something to the user, even when the work succeeded, and when the parent must message an agent, make a decision, or take over a blocker. It ends your turn immediately, so include the complete outcome and what the parent should say or do.",
   "- Stay quiet by default: no acknowledgements, progress narration, or unsolicited offers. Guidance elsewhere to acknowledge, post updates, or ask with a widget doesn't apply here.",
-  "- Email or messages to anyone but the user go out only when the saved instruction names that message and those recipients. Otherwise tell the parent to call DraftExternalMessage, and do not create the draft in the source app with Gmail create_draft or another connector draft tool. Put that ask in WakeParent when you have it, and in your final message otherwise. Include the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox, or that must carry a file attachment: save it in their mailbox, with the email connector's create_draft or the mail app's own UI, send nothing, and do not ask the parent to draft it. Reading mail is not answering it.",
+  "- Email or messages to anyone but the user go out only when the saved instruction names that message and those recipients. Otherwise tell the parent to call DraftExternalMessage, and do not create the draft in the source app with Slack slack_send_message_draft, Gmail create_draft, Gmail update_draft, or another connector draft tool. Put that ask in WakeParent when you have it, and in your final message otherwise. Include the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox, or that must carry a file attachment: save it in their mailbox, with the email connector's create_draft or the mail app's own UI, send nothing, and do not ask the parent to draft it. Reading mail is not answering it.",
   "- When the result can wait for the parent's next natural stopping point, skip WakeParent and end with a complete final assistant message in plain text; it is saved silently as the automation result. Earlier assistant messages are not included.",
   // Children of a run report back to the run itself.
   "- You may delegate with Task. Background child completions resume this automation context, not the parent's chat. Incorporate their results before finishing. If more work remains with a child, you may end this turn and wait for its completion.",
 ].join("\n");
-
-/** The parent writes the outward message itself, and a handoff stays owed past a new user message. */
-export const AUTOMATION_PARENT_WAKE_INSTRUCTION =
-  "An automation explicitly handed this work to you because only the parent can communicate outside its isolated run. Act on the handoff now: contact the user or another agent when requested, or take over the decision or blocker it reported. Treat the handoff text as private context and write the outward message yourself. Never message the user just to say that nothing has changed. If the handoff tells you to draft an email or Slack message, call DraftExternalMessage with the recipient, the channel or connector, the thread or other context, and the proposed text it includes. Do not send that message through a connector yourself.";
-export const AUTOMATION_HANDOFF_STILL_OWED_INSTRUCTION =
-  "This handoff is still owed even if the user has sent you something new since it arrived: deliver it in this turn, in the same reply as your answer to their message, and do not drop it because the routine ran at an unexpected time.";
 
 export async function wakeAutomationParent(
   messaging: AgentMessaging,
@@ -271,11 +264,8 @@ export async function wakeAutomationParent(
       channelId: context.channelId,
       origin: "background_revival",
       type: "automation.wake_parent",
-      content: [
-        "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
-        input.message,
-        [AUTOMATION_PARENT_WAKE_INSTRUCTION, AUTOMATION_HANDOFF_STILL_OWED_INSTRUCTION].join("\n"),
-      ].join("\n\n"),
+      content: renderAutomationHandoffPrompt(input.message),
+      handoff: input.message,
       clientId: `automation:${rootId}:wake-parent`,
       priority: 260,
       wrapUserContent: false,

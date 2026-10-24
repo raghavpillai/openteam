@@ -61,6 +61,9 @@ export const FETCH_PROVIDERS = Object.fromEntries(FETCH_PROVIDER_LIST.map((p) =>
 
 /** Fresh installs read pages with OpenTeam's own fetcher; search stays off until chosen. */
 export const DEFAULT_FETCH_PROVIDER: FetchProvider = "builtin";
+/** The search provider setup recommends: the most accurate results in our search benchmark.
+ * It is only a recommendation; search stays off until the user checks and chooses a provider. */
+export const RECOMMENDED_SEARCH_PROVIDER: SearchProvider = "exa";
 
 export interface WebProviderCheck {
   status: "passed" | "failed";

@@ -20,7 +20,7 @@ Yes. Different bots can work in parallel, up to the server's **tasks at once** s
 
 ## Can different bots use different models?
 
-Not currently. All bots use the model selected in **Settings → Server**. See [model providers](../configuration/models.md#choose-a-model).
+Not currently. All bots use the model selected in **Settings → Model**. See [model providers](../configuration/models.md#choose-a-model).
 
 ## Is a bot using my computer's desktop?
 

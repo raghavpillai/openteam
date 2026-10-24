@@ -43,6 +43,8 @@ const routes = [
   ),
   effectRoute("DELETE", /^\/api\/bots\/([^/]+)$/, ({ app }, id) => app.archiveBot(id)),
   effectRoute("POST", /^\/api\/bots\/([^/]+)\/archive$/, ({ app }, id) => app.archiveBot(id)),
+  effectRoute("POST", /^\/api\/bots\/([^/]+)\/stop$/, ({ app }, id) => app.stopBot(id)),
+  effectRoute("GET", /^\/api\/system\/busy-bots$/, ({ app }) => app.busyBots()),
   bodyRoute(
     "POST",
     /^\/api\/conversations\/([^/]+)\/messages$/,

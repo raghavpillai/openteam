@@ -134,7 +134,8 @@ export function taskUserInfo(config = defaultTaskConfiguration()): string {
       "It runs headless and cannot talk to the user; it reports its result back to you, and you deliver it. It has no browser, desktop, or subagent tools.",
       ...(graphical ? ["It cannot use or dispatch computerUse, so dispatch browser and desktop work to computerUse yourself."] : []),
     ].join(" "),
-    "videoReview and watchVideo: media review.",
+    "videoReview: Analyze videos with an expert visual video model. Pass file paths via the `file_attachments` parameter. Use this to verify your understanding of a video you generated before referencing it in your response. Your prompt should include: (1) what you believe is in the video, (2) questions to verify.",
+    'watchVideo: Describe or analyze videos with an expert video description and analysis model. Use WatchVideo for user-inputted videos; if you generate a video artifact, prefer VideoReview. Use this subagent type to generate a description of user-provided videos, or to ask specific questions about said videos. Pass file paths via the `file_attachments` parameter. ALWAYS start by asking for a video description by asking "Describe what is happening in the attached video, in detail". You may resume the same subagent to ask more specific, detailed follow-up questions. When using, include relevant context about the video, e.g. details from the conversation about what the video may contain and why it is relevant (do not make assumptions, just share what you know). When resuming, you need not re-attach the videos.',
     graphical
       ? [
           "computerUse: Delegate a self-contained browser or desktop task to a background subagent that operates your box's browser and desktop: websites, GUI apps, file dialogs, and drag interactions. It shares the box browser's persistent logins.",

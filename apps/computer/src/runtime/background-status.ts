@@ -10,7 +10,3 @@ export function onlyPendingBackgroundWork(body: unknown): boolean {
   return ["queued", "running"].includes(String(value.run_status)) ||
     (value.run_status === null && value.status !== "running");
 }
-
-/** The host's own receipt for a Task it started in the background. */
-export const startedBackgroundTask = (body: unknown): boolean =>
-  typeof body === "string" && body.startsWith("Subagent is running in the background.");

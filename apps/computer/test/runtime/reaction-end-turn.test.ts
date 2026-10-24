@@ -3,7 +3,7 @@ import { RuntimeTools } from "../../src/runtime/tools";
 
 function fixture(response: Record<string, unknown>) {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
-  const active: any = { runId: "fixture", botId: "fixture", screenBotId: "fixture", sentMessageCount: 0, toolActivityAfterLastSend: true, queue: { push() {} } };
+  const active: any = { runId: "fixture", botId: "fixture", screenBotId: "fixture", sentMessageCount: 0, queue: { push() {} } };
   const calls: any[] = [];
   tools.callControlPlaneTool = async (turn: any, id: string, name: string, args: any) => {
     const originalFetch = globalThis.fetch;
@@ -21,7 +21,7 @@ test("a reaction with end_turn is the whole reply: it counts as delivery and end
   const result = await call("react", { message_address: "t3u", emoji: "👍", end_turn: true });
   expect(result.terminate).toBe(true);
   expect(result.content[0].text).toBe("Reacted 👍 on t3u. (Reactions toggle: react the same emoji again to take it back.)");
-  expect(active).toMatchObject({ endTurnRequested: true, sentMessageCount: 1, toolActivityAfterLastSend: false });
+  expect(active).toMatchObject({ endTurnRequested: true, sentMessageCount: 1 });
   expect(calls[0].args).toMatchObject({ end_turn: true });
   await expect(call("shell", { command: "true" }, "Shell")).rejects.toThrow("turn has ended");
 });

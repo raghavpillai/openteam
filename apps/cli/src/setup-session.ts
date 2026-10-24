@@ -19,7 +19,6 @@ import {
   validatePublicDomain,
   validateProxyHost,
   validatePublicHost,
-  validateTimeZone,
 } from "./setup-values";
 import {
   type MessageTone,
@@ -94,7 +93,6 @@ interface SessionState {
   ownerUsername: string;
   ownerPassword: string | null;
   apiPort: string;
-  timeZone: string;
   workerConcurrency: string;
   /** The last startup-check problem; shown until the next attempt to start. */
   issue: string | null;
@@ -173,7 +171,6 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     ownerUsername: input.currentOwnerUsername || "",
     ownerPassword: null,
     apiPort: input.current.get("OPENTEAM_API_PORT") || String(API_PORT),
-    timeZone: input.current.get("OPENTEAM_TIME_ZONE") || "UTC",
     workerConcurrency: input.current.get("OPENTEAM_WORKER_CONCURRENCY") || "8",
     issue: null,
     editing: null,
@@ -274,7 +271,6 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       rows.push(textRow("apiPort", "API port", state.apiPort));
     }
     if (advanced) {
-      rows.push(textRow("timeZone", "Time zone", state.timeZone));
       rows.push(textRow("workerConcurrency", "Tasks at once", state.workerConcurrency));
     }
     return rows;
@@ -321,7 +317,6 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     if (advanced) {
       rows.push(
         { kind: "field", label: "API port", value: state.apiPort },
-        { kind: "field", label: "Time zone", value: state.timeZone },
         { kind: "field", label: "Tasks at once", value: state.workerConcurrency }
       );
     }
@@ -443,7 +438,6 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       ownerUsername: state.ownerUsername,
       ownerPassword: ownerConfigured ? undefined : (state.ownerPassword ?? undefined),
       apiPort: state.apiPort,
-      timeZone: state.timeZone,
       workerConcurrency: state.workerConcurrency,
     };
   };
@@ -517,11 +511,6 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       case "apiPort":
         store(validateIntegerInRange("API port", 1, 65535), (normalized) => {
           state.apiPort = normalized;
-        });
-        break;
-      case "timeZone":
-        store(validateTimeZone, (normalized) => {
-          state.timeZone = normalized;
         });
         break;
       case "workerConcurrency":

@@ -1,4 +1,5 @@
 import {
+  RECOMMENDED_SEARCH_PROVIDER,
   WEB_PROVIDER_LISTS,
   type WebProviderInfo,
   type WebProviderState,
@@ -13,10 +14,8 @@ import { AnimatedCollapse } from "../../ui/animated-collapse";
 import { LoadingOrb } from "../../ui/loading-orb";
 import { api } from "../../../client/openteam-api";
 import { cn } from "../../../lib/cn";
+import { webProviderIcon as iconFor } from "../../../lib/web-provider-icons";
 import { SettingsGroup, SettingsHeading } from "./ui";
-
-const icons = import.meta.glob<string>("../../../assets/web-providers/*.webp", { eager: true, import: "default" });
-const iconFor = (brand: string) => icons[`../../../assets/web-providers/${brand}.webp`];
 
 const actionButton =
   "inline-flex h-8 items-center gap-1.5 rounded-[8px] bg-black px-3 text-[12px] text-white outline-none hover:opacity-80 disabled:opacity-50 dark:bg-white dark:text-black";
@@ -126,7 +125,8 @@ export default function ProvidersSettings() {
   const openPage = (tool: WebTool | null) => {
     setPage(tool);
     resetDraft(tool, view);
-    setExpanded(new Set());
+    // With search off, the recommended provider opens ready for its key.
+    setExpanded(new Set(tool === "search" && view && !view.search.selected ? [RECOMMENDED_SEARCH_PROVIDER] : []));
     setError(null);
     setApplied(false);
   };
@@ -261,7 +261,12 @@ export default function ProvidersSettings() {
       <>
         <ProviderIcon info={info} />
         <span className="min-w-0 flex-1">
-          <span className="block text-[12.5px] text-foreground">{info.name}</span>
+          <span className="flex items-center gap-1.5 text-[12.5px] text-foreground">
+            <span>{info.name}</span>
+            {tool === "search" && info.id === RECOMMENDED_SEARCH_PROVIDER ? (
+              <span className="rounded-[5px] bg-black/[0.06] px-1.5 py-px text-[10.5px] text-foreground-secondary dark:bg-white/[0.08]">Recommended</span>
+            ) : null}
+          </span>
           <span className={cn("block truncate text-[11.5px]", failed ? toneClass.error : "text-foreground-secondary")} title={failed ?? undefined}>
             {failed ?? info.description}
           </span>

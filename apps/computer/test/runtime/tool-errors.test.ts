@@ -5,7 +5,7 @@ function fixture(respond: (name: string, args: any) => Response) {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
   const active: any = {
     runId: "fixture", botId: "fixture", screenBotId: "fixture", runtimeProfile: "agent", pluginNamespaces: [],
-    sentMessageCount: 0, toolActivityAfterLastSend: true, queue: { push() {} },
+    sentMessageCount: 0, queue: { push() {} },
   };
   const calls: any[] = [];
   tools.callControlPlaneTool = async (turn: any, id: string, name: string, args: any) => {

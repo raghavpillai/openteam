@@ -35,3 +35,13 @@ test("preserves smaller provider output limits and handles odd context sizes", (
   const unknown = { contextWindow: 0, maxTokens: 8_192 };
   expect(withAgentOutputBudget(unknown)).toBe(unknown);
 });
+
+test("the output reserve follows the usable input window", () => {
+  // OpenRouter's gpt-6.1-sol: 1.05M context, 922k prompt cap, 128k output.
+  const capped = withAgentOutputBudget({ contextWindow: 922_000, maxTokens: 128_000 });
+  expect(capped.maxTokens).toBe(92_200);
+  // A request at the compaction trigger still fits the provider's whole context.
+  expect(829_800 + capped.maxTokens).toBeLessThanOrEqual(1_050_000);
+  // Small windows reserve the reference's 10,000 tokens rather than 10%.
+  expect(withAgentOutputBudget({ contextWindow: 32_768, maxTokens: 32_768 }).maxTokens).toBe(10_000);
+});

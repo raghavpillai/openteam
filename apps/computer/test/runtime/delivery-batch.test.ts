@@ -36,7 +36,6 @@ test("closing text preserves an already-issued attachment, once, without allowin
 });
 
 for (const scenario of ["cancelled", "interrupted", "failed", "next-response"] as const) {
-
   test(`delivery grace respects ${scenario}`, async () => {
     const {active, calls, call, tools, batch} = fixture();
     if (scenario === "next-response") batch([]);
@@ -71,15 +70,12 @@ test("queued worker cleanup completes after closing text without creating anothe
   const {active, call, execute, calls} = cleanupFixture();
   await call("summary", {type: "text", content: "Done", end_turn: true});
   await execute();
-  expect(active.toolActivityAfterLastSend).toBe(false);
   expect(active.failedResponseCalls).toEqual([]);
   expect(calls.map(c => c.name)).toEqual(["SendToUser", "StopSubagent"]);
   await expect(execute()).rejects.toThrow("turn has ended");
-  expect(active.toolActivityAfterLastSend).toBe(true);
 });
 
-for (const scenario of ["changed", "new", "failed", "cancelled", "interrupted", "later", "prior-activity", "read-only"] as const) {
-
+for (const scenario of ["changed", "new", "failed", "cancelled", "interrupted", "later", "read-only"] as const) {
   test(`worker cleanup grace respects ${scenario}`, async () => {
     const {active, call, execute, tools, batch} = cleanupFixture();
     await call("summary", {type: "text", content: "Done", end_turn: true});
@@ -88,14 +84,8 @@ for (const scenario of ["changed", "new", "failed", "cancelled", "interrupted", 
     if (scenario === "cancelled") { active.pluginAbortController = new AbortController(); active.pluginAbortController.abort(); }
     if (scenario === "read-only") active.readOnly = true;
     if (scenario === "later") batch([{type: "toolCall", name: "CallDynamicTool", id: "later", arguments: stop}]);
-    if (scenario === "prior-activity") {
-      active.toolActivityAfterLastSend = true;
-      await execute();
-    } else {
-      await expect(execute(scenario === "changed" ? {...stop, arguments: {subagent_id: "other"}} : stop,
-        ["new", "later"].includes(scenario) ? scenario : "stop")).rejects.toThrow();
-    }
-    expect(active.toolActivityAfterLastSend).toBe(true);
+    await expect(execute(scenario === "changed" ? {...stop, arguments: {subagent_id: "other"}} : stop,
+      ["new", "later"].includes(scenario) ? scenario : "stop")).rejects.toThrow();
   });
 }
 
@@ -110,7 +100,6 @@ test("queued cleanup rechecks cancel after mutation wait", async () => {
   release();
   await expect(pending).rejects.toThrow();
   expect(calls.map(c => c.name)).toEqual(["SendToUser"]);
-  expect(active.toolActivityAfterLastSend).toBe(true);
 });
 
 const routine = {action: "create", name: "Check back", prompt: "Check the support case and tell the user in this chat.", schedule: "10 13 18 10 *"};
@@ -147,7 +136,6 @@ test("a call emitted with the closing reply still runs, once, without a new deli
   expect(active.endTurnRequested).toBe(true);
   await run("routine", raw, "UpdateRoutine", routine);
   expect(calls.map(c => [c.id, c.name])).toEqual([["reply", "SendToUser"], ["routine", "UpdateRoutine"]]);
-  expect(active.toolActivityAfterLastSend).toBe(false);
   expect(active.failedResponseCalls).toEqual([]);
   await expect(run("routine", raw, "UpdateRoutine", routine)).rejects.toThrow("turn has ended");
   // A later response gets no grant, even for a call the closing response made.
@@ -162,8 +150,6 @@ test("a call alongside the closing reply that fails is recorded for the model to
   await expect(run("routine", raw, "UpdateRoutine", routine)).rejects.toThrow("UpdateRoutine rejected");
   expect(calls.map(c => c.name)).toEqual(["SendToUser"]);
   expect(active.failedResponseCalls).toEqual(["routine"]);
-  // Without a hold this remains an unreported failure after delivery.
-  expect(active.toolActivityAfterLastSend).toBe(true);
 });
 
 test("a failure before the closing reply in the same response is recorded too", async () => {
@@ -176,7 +162,6 @@ test("a failure before the closing reply in the same response is recorded too", 
   await f.run("reply", f.reply, "SendToUser");
   expect(f.active.endTurnRequested).toBe(true);
   expect(f.active.failedResponseCalls).toEqual(["routine"]);
-  expect(f.active.toolActivityAfterLastSend).toBe(false);
 });
 
 const question = {type: "widget", widget: {prompt: "Check back at 1:10 PM?", options: [{label: "Yes", value: "yes", style: "primary"}]}};
@@ -250,3 +235,40 @@ for (const closing of ["attachment", "reaction"] as const)
     await call("zip", attachment);
     expect(calls.map(x => x.id)).toEqual(["done", "zip"]);
   });
+
+test("every main-agent tool runs in parallel; only graphical controls stay sequential", () => {
+  const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
+  const base = {requestSource: "turn", subagentType: null, readOnly: false, pluginRuntimePackages: [], pluginNamespaces: []};
+  const main = tools.customTools(base);
+  expect(main.map((tool: any) => tool.name)).toContain("SendToUser");
+  expect(main.filter((tool: any) => tool.executionMode !== "parallel")).toEqual([]);
+  const graphical = tools.customTools({...base, subagentType: "computerUse"});
+  expect(graphical.filter((tool: any) => tool.executionMode === "sequential").map((tool: any) => tool.name)).toContain("Computer");
+  expect(graphical.find((tool: any) => tool.name === "Shell").executionMode).toBe("parallel");
+});
+
+test("an ack goes out at once beside other calls, and sends of one response keep call order", async () => {
+  const {active, tools} = fixture();
+  const order: string[] = [];
+  const releases = new Map<string, () => void>();
+  tools.callControlPlaneTool = async (_turn: any, id: string) => {
+    order.push(`start:${id}`);
+    await new Promise<void>((resolve) => releases.set(id, resolve));
+    order.push(`end:${id}`);
+    return {content: [{type: "text", text: "ok"}], details: {}};
+  };
+  const ack = tools.executeOpenTeamTool(active, "ack", "SendToUser", {type: "text", content: "On it"});
+  const second = tools.executeOpenTeamTool(active, "second", "SendToUser", {type: "text", content: "Found it"});
+  const work = tools.executeOpenTeamTool(active, "work", "RecallMemory", {query: "tea"});
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // Both run at once; the second send waits for the first.
+  expect([...order].sort()).toEqual(["start:ack", "start:work"]);
+  releases.get("work")!();
+  await work;
+  releases.get("ack")!();
+  await ack;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(order.slice(2)).toEqual(["end:work", "end:ack", "start:second"]);
+  releases.get("second")!();
+  await second;
+});

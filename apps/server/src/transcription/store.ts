@@ -124,7 +124,7 @@ export class TranscriptionStore {
       );
     } catch {
       throw invalid(
-        "The saved transcription key cannot be decrypted. Save the key again in Server settings."
+        "The saved transcription key cannot be decrypted. Save the key again in Voice notes settings."
       );
     }
   }
@@ -191,7 +191,7 @@ export class TranscriptionStore {
       throw new ApiError(
         503,
         "transcription_not_configured",
-        "Set up transcription in Server settings to use voice notes."
+        "Set up transcription in Voice notes settings to use voice notes."
       );
     const { encryptedApiKey, version: _version, ...rest } = settings;
     return { ...rest, apiKey: encryptedApiKey ? this.decrypt(encryptedApiKey) : null };

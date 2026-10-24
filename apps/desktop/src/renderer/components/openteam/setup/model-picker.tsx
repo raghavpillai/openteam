@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Popover, PopoverAnchor, PopoverContent } from "../../ui/popover";
 import "./model-picker.css";
 
 // Model makers as OpenRouter names them in model ids ("anthropic/claude-…").
@@ -81,12 +82,14 @@ export function ModelPicker({
   providerName,
   disabled = false,
   onChange,
+  variant = "setup",
 }: {
   models: InferenceModelView[];
   value: string;
   providerName: string;
   disabled?: boolean;
   onChange: (modelId: string) => void;
+  variant?: "setup" | "settings";
 }) {
   const listId = useId();
   const options = useMemo(
@@ -138,7 +141,7 @@ export function ModelPicker({
 
   // A press anywhere else closes it.
   useEffect(() => {
-    if (!open) return;
+    if (!open || variant === "settings") return;
     const onPointerDown = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) {
         setOpen(false);
@@ -147,7 +150,7 @@ export function ModelPicker({
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [open]);
+  }, [open, variant]);
 
   // Keep the highlighted model in view while arrowing through a long list.
   useEffect(() => {
@@ -181,103 +184,144 @@ export function ModelPicker({
   };
   const activeId = open && shown[active] ? `${listId}-${active}` : undefined;
 
-  return (
-    <div className="setup-picker" data-open={open || undefined} ref={root}>
-      <button
-        aria-controls={open ? listId : undefined}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-label="Model"
-        className="setup-input setup-picker-trigger"
-        disabled={disabled}
-        onClick={() => (open ? close() : openList())}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-            event.preventDefault();
-            openList();
-          } else if (event.key === "Enter" && !event.repeat) {
-            // Enter keeps meaning the screen's main action; Space or the arrows open the list.
-            event.preventDefault();
-            event.currentTarget.form?.requestSubmit();
-          }
-        }}
-        ref={trigger}
-        role="combobox"
-        type="button"
-      >
-        <span className="setup-picker-value">{selected?.name ?? value}</span>
-        {selected && selected.modelId === recommended ? <em>Recommended</em> : null}
-        {selected && selected.maker !== providerName ? <small>{selected.maker}</small> : null}
-        <ChevronDown aria-hidden="true" className="setup-picker-chevron" />
-      </button>
-      {open ? (
-        // biome-ignore lint/a11y/noStaticElementInteractions: Keys from the filter field and the list bubble here.
-        <div className="setup-picker-pop" onKeyDown={onListKeyDown}>
-          {filterable ? (
-            <div className="setup-picker-filter">
-              <Search aria-hidden="true" className="setup-picker-search" />
-              <input
-                aria-activedescendant={activeId}
-                aria-controls={listId}
-                aria-label="Filter models"
-                autoComplete="off"
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  setActive(0);
-                }}
-                placeholder={`Filter ${options.length} models`}
-                ref={filter}
-                spellCheck={false}
-                value={query}
-              />
-            </div>
-          ) : null}
-          <div
-            aria-activedescendant={filterable ? undefined : activeId}
-            aria-label={`${providerName} models`}
-            className="setup-picker-list"
-            id={listId}
-            ref={list}
-            role="listbox"
-            tabIndex={filterable ? -1 : 0}
-          >
-            {shown.map((option, index) => (
-              <div
-                aria-selected={option.modelId === value}
-                data-active={index === active || undefined}
-                data-index={index}
-                id={`${listId}-${index}`}
-                key={option.modelId}
-                // Focus stays in the filter field or the list, so a press only picks.
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  choose(option);
-                }}
-                onMouseEnter={() => setActive(index)}
-                role="option"
-                tabIndex={-1}
-              >
-                <span className="setup-picker-check">
-                  {option.modelId === value ? (
-                    <Check aria-hidden="true" className="size-3.5" strokeWidth={2.5} />
-                  ) : null}
-                </span>
-                <span className="setup-picker-name">{option.name}</span>
-                {option.modelId === recommended ? <em>Recommended</em> : null}
-                {option.maker !== providerName ? <small>{option.maker}</small> : null}
-              </div>
-            ))}
-            {matches.length > shown.length ? (
-              <div className="setup-picker-note">
-                {matches.length - shown.length} more — keep typing to narrow it down
-              </div>
-            ) : null}
-            {matches.length === 0 ? (
-              <div className="setup-picker-note">No models match “{query}”</div>
-            ) : null}
-          </div>
+  const triggerButton = (
+    <button
+      aria-controls={open ? listId : undefined}
+      aria-expanded={open}
+      aria-haspopup="listbox"
+      aria-label="Model"
+      className={variant === "setup" ? "setup-input setup-picker-trigger" : "setup-picker-trigger"}
+      disabled={disabled}
+      onClick={() => (open ? close() : openList())}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          openList();
+        } else if (event.key === "Enter" && !event.repeat) {
+          // Enter keeps meaning the screen's main action; Space or the arrows open the list.
+          event.preventDefault();
+          if (variant === "settings") open ? close() : openList();
+          else event.currentTarget.form?.requestSubmit();
+        }
+      }}
+      ref={trigger}
+      role="combobox"
+      type="button"
+    >
+      <span className="setup-picker-value">{selected?.name ?? (value || "No models available")}</span>
+      {selected && selected.modelId === recommended ? <em>Recommended</em> : null}
+      {selected && selected.maker !== providerName ? <small>{selected.maker}</small> : null}
+      <ChevronDown aria-hidden="true" className="setup-picker-chevron" />
+    </button>
+  );
+  const menu = (
+    <>
+      {filterable ? (
+        <div className="setup-picker-filter">
+          <Search aria-hidden="true" className="setup-picker-search" />
+          <input
+            aria-activedescendant={activeId}
+            aria-controls={listId}
+            aria-label="Filter models"
+            autoComplete="off"
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setActive(0);
+            }}
+            placeholder={`Filter ${options.length} models`}
+            ref={filter}
+            spellCheck={false}
+            value={query}
+          />
         </div>
       ) : null}
+      <div
+        aria-activedescendant={filterable ? undefined : activeId}
+        aria-label={`${providerName} models`}
+        className="setup-picker-list"
+        id={listId}
+        ref={list}
+        role="listbox"
+        tabIndex={filterable ? -1 : 0}
+      >
+        {shown.map((option, index) => (
+          <div
+            aria-selected={option.modelId === value}
+            data-active={index === active || undefined}
+            data-index={index}
+            id={`${listId}-${index}`}
+            key={option.modelId}
+            // Focus stays in the filter field or the list, so a press only picks.
+            onMouseDown={(event) => {
+              event.preventDefault();
+              choose(option);
+            }}
+            onMouseEnter={() => setActive(index)}
+            role="option"
+            tabIndex={-1}
+          >
+            <span className="setup-picker-check">
+              {option.modelId === value ? (
+                <Check aria-hidden="true" className="size-3.5" strokeWidth={2.5} />
+              ) : null}
+            </span>
+            <span className="setup-picker-name">{option.name}</span>
+            {option.modelId === recommended ? <em>Recommended</em> : null}
+            {option.maker !== providerName ? <small>{option.maker}</small> : null}
+          </div>
+        ))}
+        {matches.length > shown.length ? (
+          <div className="setup-picker-note">
+            {matches.length - shown.length} more — keep typing to narrow it down
+          </div>
+        ) : null}
+        {matches.length === 0 ? (
+          <div className="setup-picker-note">No models match “{query}”</div>
+        ) : null}
+      </div>
+    </>
+  );
+  return (
+    <div
+      className={variant === "settings" ? "setup-picker setup-picker-settings" : "setup-picker"}
+      data-open={open || undefined}
+      ref={root}
+    >
+      {variant === "settings" ? (
+        <Popover open={open} onOpenChange={(next) => (next ? openList() : close(false))}>
+          <PopoverAnchor asChild>{triggerButton}</PopoverAnchor>
+          {open ? (
+            <PopoverContent
+              align="end"
+              aria-label="Choose a model"
+              className="setup-picker-pop setup-picker-settings setup-picker-settings-pop"
+              onOpenAutoFocus={(event) => {
+                event.preventDefault();
+                (filter.current ?? list.current)?.focus({ preventScroll: true });
+              }}
+              onCloseAutoFocus={(event) => event.preventDefault()}
+              onEscapeKeyDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                close();
+              }}
+              onKeyDown={onListKeyDown}
+              sideOffset={6}
+            >
+              {menu}
+            </PopoverContent>
+          ) : null}
+        </Popover>
+      ) : (
+        <>
+          {triggerButton}
+          {open ? (
+            <div className="setup-picker-pop" onKeyDown={onListKeyDown}>
+              {menu}
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

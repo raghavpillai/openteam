@@ -380,10 +380,11 @@ private struct ModelSettingsForm: View {
   @Environment(AppStore.self) private var store
   @Bindable var setup: ModelSetup
   @State private var confirmingDisconnect = false
+  @State private var choosingModel = false
   var body: some View {
     let data = setup.data
     let provider = setup.provider
-    let busy = setup.busy != nil
+    let busy = setup.busy != nil || setup.test == .running
     NativeForm {
       Section {
         Picker(
@@ -396,7 +397,7 @@ private struct ModelSettingsForm: View {
           ForEach(data?.providers ?? []) { candidate in
             Text(candidate.name).tag(candidate.id)
           }
-        }.pickerStyle(.menu).disabled(data == nil || setup.busy == .provider)
+        }.pickerStyle(.menu).disabled(data == nil || busy)
           .accessibilityIdentifier("model-provider-picker")
         HStack(spacing: 12) {
           // The chosen provider's official icon, like an account row.
@@ -426,7 +427,8 @@ private struct ModelSettingsForm: View {
           }
         }
       } footer: {
-        SettingsFooter("The account your bots use to think. Sign-ins and keys stay on your server.")
+        SettingsFooter(
+          "Choose the AI provider and model for all bots on this server. Sign-ins and keys stay on your server.")
       }
       if setup.signingIn {
         Section {
@@ -437,13 +439,12 @@ private struct ModelSettingsForm: View {
       }
       Section {
         if let models = data?.models, !models.isEmpty {
-          Picker(
-            "Model",
-            selection: Binding(get: { setup.modelId }, set: { setup.selectModel($0) })
-          ) {
-            ForEach(models) { model in Text(model.name).tag(model.modelId) }
-          }.pickerStyle(.menu).disabled(provider?.connected != true)
-            .accessibilityIdentifier("model-model-picker")
+          ModelDropdown(
+            models: models, selected: setup.modelId,
+            recommended: data?.recommendedModel?.modelId,
+            disabled: busy || provider?.connected != true,
+            accessibilityID: "model-model-picker", horizontalPadding: 0,
+            search: { choosingModel = true }, choose: { setup.selectModel($0) })
         } else {
           LabeledContent("Model") {
             Text("No models available").foregroundStyle(NativePalette.muted)
@@ -456,7 +457,7 @@ private struct ModelSettingsForm: View {
           ForEach(setup.reasoningLevels.isEmpty ? ["off"] : setup.reasoningLevels, id: \.self) {
             Text(ModelSetupCatalog.reasoningLabel($0)).tag($0)
           }
-        }.pickerStyle(.menu).disabled(setup.selectedModel?.reasoning != true)
+        }.pickerStyle(.menu).disabled(busy || setup.selectedModel?.reasoning != true)
           .accessibilityIdentifier("model-reasoning-picker")
       } footer: {
         SettingsFooter(
@@ -502,7 +503,13 @@ private struct ModelSettingsForm: View {
         }
       }
       if let error = setup.error {
-        Section { InlineFailure(message: error) }
+        Section {
+          InlineFailure(message: error)
+          if data == nil {
+            Button("Try again") { Task { await setup.start() } }
+              .disabled(busy).accessibilityIdentifier("model-retry")
+          }
+        }
       }
     }
     .disabled(setup.busy == .load)
@@ -511,6 +518,12 @@ private struct ModelSettingsForm: View {
       ProviderWebSignInSheet(signIn: signIn) { url in
         Task { await setup.captured(url, for: signIn) }
       }
+    }
+    .sheet(isPresented: $choosingModel) {
+      ModelSearchSheet(
+        models: setup.data?.models ?? [], selected: setup.modelId,
+        recommended: setup.data?.recommendedModel?.modelId
+      ) { setup.selectModel($0) }
     }
     .confirmationDialog(
       "Disconnect \(provider?.name ?? "this provider")?", isPresented: $confirmingDisconnect,

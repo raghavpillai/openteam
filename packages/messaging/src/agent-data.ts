@@ -13,7 +13,7 @@ import {
   type PromptMemoryRecord,
 } from "./memory-rendering";
 import managedSkills from "./prompts/managed-skills.json";
-import { managedSkillAgents, managedSkillIsForMain } from "./managed-skill-agents";
+import { managedSkillAgents } from "./managed-skill-agents";
 import { safePackagePath } from "@openteam/plugin-sdk";
 import { originalSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { pluginSkillsForAgent, renderPluginSkillCatalog, type PluginSkillCache } from "./plugin-skill-catalog";
@@ -110,7 +110,7 @@ import {
   type HeldMemoryExchange,
   type MemoryExchange,
 } from "./memory-learning";
-import { resolveTimeZone } from "./timestamps";
+import { readUserTimeZone } from "./user-time-zone";
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "./memory-prompts";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
@@ -2014,16 +2014,13 @@ export class AgentDataStore {
     const root = join(this.botDirectory(botId), "automations");
     const slugs = await listDirectories(root);
     const seen = new Set<string>();
+    const userZone = await readUserTimeZone(tx);
     for (const slug of slugs) {
       const path = join(root, slug, "automation.json");
       const text = await readText(path, Number.MAX_SAFE_INTEGER);
       if (text === null) continue;
       try {
-        const parsed = await parseAutomationFile(
-          path,
-          text,
-          process.env.OPENTEAM_TIME_ZONE ?? "UTC"
-        );
+        const parsed = await parseAutomationFile(path, text, userZone);
         seen.add(slug);
         const existing = await tx.routine.findUnique({
           where: { botId_slug: { botId, slug } },
@@ -2043,7 +2040,7 @@ export class AgentDataStore {
           cronExpression: null,
           intervalSeconds: null,
           timezoneMode: "installation" as const,
-          timezone: process.env.OPENTEAM_TIME_ZONE ?? "UTC",
+          timezone: userZone,
         };
         const common = {
           name: parsed.name,
@@ -2474,17 +2471,16 @@ export class AgentDataStore {
     });
     const epoch = contextSession.compactionEpoch;
     const announcementKey = `${botId}:${contextSessionId}`;
-
+    // The reference titles the profile with the name; OpenTeam's own title takes that line when set.
     const liveProfile = [
       "Agent profile:",
+      `Title: ${bot.title || bot.name}`,
       `Your agent name is "${bot.name}". If the user asks for your name, answer with "${bot.name}".`,
-      bot.title ? `Title: ${bot.title}` : "",
       bot.description ? `Description: ${bot.description}` : "",
     ]
       .filter(Boolean)
-      .join("\n\n");
+      .join("\n");
     let snapshot = await this.prisma.contextPromptSnapshot.findUnique({ where: { contextSessionId } });
-
     let profileSection: string;
     let identityAnnouncement = "";
     if (!snapshot || snapshot.profileEpoch !== epoch) {
@@ -2775,8 +2771,8 @@ export class AgentDataStore {
     try {
       const cache = JSON.parse(text);
       if (!Array.isArray(cache.skills)) return "";
-      // Skills for a worker type (such as knowledgeWork) stay out of the main agent's catalog.
-      const allowed = new Set(managedSkills.skills.filter(managedSkillIsForMain).map((skill) => skill.id));
+      // The main agent lists every managed skill, including the ones a worker type also carries.
+      const allowed = new Set(managedSkills.skills.map((skill) => skill.id));
       const blocks: string[] = [];
       for (const skill of cache.skills.slice(0, MAX_SAVED_SKILLS)) {
         if (!skill || !allowed.has(skill.id) || typeof skill.name !== "string" ||
@@ -3257,7 +3253,7 @@ export class AgentDataStore {
           exchange,
           earlier,
           occurredAt: input.occurredAt ?? Date.now(),
-          timeZone: input.timeZone ?? resolveTimeZone(),
+          timeZone: input.timeZone ?? (await readUserTimeZone(this.prisma)),
           runId: input.runId,
         });
       } catch (error) {

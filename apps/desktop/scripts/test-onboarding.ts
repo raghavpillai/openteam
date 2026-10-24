@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "vite";
 import { chromium } from "../../computer/node_modules/playwright-core";
+import type { WebProvidersInput, WebProvidersView } from "@openteam/contracts/web-search";
 import { ServerSetupFixture } from "../../ios/scripts/server-setup-fixture";
 
 const repo = resolve(import.meta.dir, "../../..");
@@ -14,6 +15,48 @@ await mkdir(output, { recursive: true });
 let setup = new ServerSetupFixture();
 let methods: string[] = [];
 let failVoiceCheck = false;
+
+/** Search starts off, as on a fresh server. A key containing "bad" fails its check. */
+const searchOff = (): WebProvidersView => ({
+  search: { selected: null, providers: {} },
+  fetch: { selected: "builtin", providers: {} },
+});
+let web = searchOff();
+const searchKeys = new Map<string, string>();
+function webProviders(path: string, method: string, input: unknown): Response | undefined {
+  if (path === "/api/v0/server-settings/web-providers") {
+    if (method === "GET") return Response.json(web);
+    if (method !== "PATCH") return Response.json({ message: "Use PATCH." }, { status: 405 });
+    const search = (input as WebProvidersInput).search ?? {};
+    for (const [id, { apiKey }] of Object.entries(search.providers ?? {})) {
+      if (apiKey === undefined) continue;
+      if (apiKey) searchKeys.set(id, apiKey);
+      else searchKeys.delete(id);
+      web.search.providers[id] = { secretSaved: Boolean(apiKey), ready: Boolean(apiKey), check: null };
+    }
+    if (search.selected !== undefined) {
+      if (search.selected && !searchKeys.has(search.selected)) {
+        return Response.json({ message: "Add the API key first." }, { status: 400 });
+      }
+      web.search.selected = search.selected as WebProvidersView["search"]["selected"];
+    }
+    return Response.json(web);
+  }
+  if (path === "/api/v0/server-settings/web-providers/check" && method === "POST") {
+    const { provider } = input as { provider: string };
+    const key = searchKeys.get(provider);
+    const state = web.search.providers[provider];
+    if (!key || !state) return Response.json({ message: "Add the API key first." }, { status: 400 });
+    const passed = !key.includes("bad");
+    state.check = {
+      status: passed ? "passed" : "failed",
+      message: passed ? "Search returned results." : "The search service refused the key.",
+      checkedAt: new Date().toISOString(),
+    };
+    return Response.json(web);
+  }
+}
+
 const fixture = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
@@ -31,6 +74,7 @@ const fixture = Bun.serve({
       );
     }
     return (
+      webProviders(path, method, input) ??
       setup.handle(path, method, input, url) ??
       Response.json({ message: `Unexpected request: ${method} ${path}` }, { status: 404 })
     );
@@ -55,6 +99,8 @@ try {
   });
   for (const mode of ["light", "dark", "reduced-motion"] as const) {
     setup = new ServerSetupFixture();
+    web = searchOff();
+    searchKeys.clear();
     methods = [];
     const page = await browser.newPage({
       viewport: { width: 1320, height: 860 },
@@ -89,6 +135,19 @@ try {
     await title("You're already connected");
     await page.getByText("OpenRouter · Saved QA model is connected and replying.").waitFor();
     await button("Keep it").click();
+    await title("Let your bots search the web");
+    await page.getByRole("button", { name: /^Search provider: Exa/ }).getByText("Recommended").waitFor();
+    const searchKey = page.getByRole("textbox", { name: "Exa API key" });
+    await searchKey.fill("qa-bad-search-key");
+    await button("Turn on web search").click();
+    await page.getByText("The search service refused the key.").waitFor();
+    assert.equal(web.search.selected, null);
+    assert.equal(web.search.providers.exa?.secretSaved, false);
+    await searchKey.fill("qa-search-key");
+    await button("Turn on web search").click();
+    await title("Web search is on");
+    assert.equal(web.search.selected, "exa");
+    await page.screenshot({ path: join(output, `${mode}-search.png`), animations: "disabled" });
     await title("Talk instead of type?");
     const key = page.getByRole("textbox", { name: "API key" });
     await key.fill("qa-openai-key");
@@ -124,7 +183,7 @@ try {
     await page.getByText("Opened bot: Other QA bot", { exact: true }).waitFor();
     assert.deepEqual(errors, []);
     console.log(
-      `${mode}: saved AI Back/Esc, refused alternative, voice key reset, PUT save/rollback/retry, bot error recovery passed`
+      `${mode}: saved AI Back/Esc, refused alternative, search key rollback, voice key reset, PUT save/rollback/retry, bot error recovery passed`
     );
     await page.close();
   }

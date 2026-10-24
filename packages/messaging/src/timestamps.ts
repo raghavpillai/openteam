@@ -10,12 +10,7 @@ const validTimeZone = (value: string): boolean => {
 };
 
 export function resolveTimeZone(value?: string | null): string {
-  const candidates = value
-    ? [value, FALLBACK_TIME_ZONE]
-    : [process.env.OPENTEAM_TIME_ZONE, FALLBACK_TIME_ZONE];
-  return candidates.find((candidate): candidate is string =>
-    Boolean(candidate && validTimeZone(candidate))
-  )!;
+  return value && validTimeZone(value) ? value : FALLBACK_TIME_ZONE;
 }
 
 const offsetLabel = (date: Date, timeZone: string): string => {

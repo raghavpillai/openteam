@@ -42,6 +42,12 @@
   --setup-glow: #d6c8f8;
   --setup-glow-2: #efd6f6;
 }
+:root[data-setup-tone="search"] {
+  --setup-tint: #e7f5f6;
+  --setup-tint-2: #d3edef;
+  --setup-glow: #a9dde2;
+  --setup-glow-2: #cdeef0;
+}
 :root[data-setup-tone="voice"] {
   --setup-tint: #fbf0e6;
   --setup-tint-2: #f6e2d0;
@@ -65,6 +71,12 @@
   --setup-tint-2: #221b3b;
   --setup-glow: #33245c;
   --setup-glow-2: #3a1f4d;
+}
+:root[data-theme="dark"][data-setup-tone="search"] {
+  --setup-tint: #0c1d20;
+  --setup-tint-2: #11292d;
+  --setup-glow: #14424a;
+  --setup-glow-2: #12363c;
 }
 :root[data-theme="dark"][data-setup-tone="voice"] {
   --setup-tint: #23170d;
@@ -133,7 +145,7 @@
 }
 .setup-progress {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
 }
 .setup-progress span {
@@ -441,8 +453,24 @@
   color: var(--setup-ink);
 }
 .setup-option-icon:has(> .provider-icon),
+.setup-option-icon:has(> .setup-search-tile),
 .setup-option-icon:has(> .setup-more-tile) {
   background: none;
+}
+.setup-search-tile {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+}
+.setup-option-text .setup-tag {
+  margin-left: 8px;
+  border-radius: 6px;
+  background: var(--setup-field);
+  padding: 2px 7px;
+  color: var(--setup-muted);
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: 2px;
 }
 .setup-more-tile {
   display: grid;
@@ -1058,6 +1086,52 @@
   margin-top: 18px;
   color: var(--setup-muted);
   font-size: 13px;
+}
+
+/* Visual: web search. */
+.setup-search-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+.setup-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.setup-search-results li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--setup-field);
+  animation: setup-fade-in 240ms ease-out calc(200ms + var(--i, 0) * 90ms) both;
+}
+.setup-search-results svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: color-mix(in srgb, #12a4b4 80%, var(--setup-ink));
+}
+.setup-search-results span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.setup-search-results strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.setup-search-results small {
+  color: var(--setup-muted);
+  font-size: 11.5px;
 }
 
 /* Visual: voice. */

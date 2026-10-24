@@ -1,5 +1,5 @@
-import { createCipheriv, randomBytes } from "node:crypto";
-import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { createCipheriv, createHash, randomBytes } from "node:crypto";
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CdpConnection, type JsonObject } from "./cdp-connection";
 import { asCookie, type BrowserCookie, cookieKey, cookieMap, cookieParameter } from "./cookies";
@@ -52,6 +52,7 @@ export class BrowserBroker {
   private syncTail: Promise<void> = Promise.resolve();
   private periodicSync: Promise<void> | null = null;
   private saveTail: Promise<void> = Promise.resolve();
+  private savedDigest: string | null = null;
 
   constructor(
     home = process.env.HOME ?? "/home/openteam",
@@ -401,6 +402,7 @@ export class BrowserBroker {
     try {
       const key = await this.key();
       const plaintext = await readBrowserAuthority(this.storePath, key);
+      this.savedDigest = createHash("sha256").update(key).update(plaintext, "utf8").digest("hex");
       const unpacked = JSON.parse(plaintext) as
         | unknown[]
         | { version?: unknown; cookies?: unknown; origins?: unknown };
@@ -443,6 +445,12 @@ export class BrowserBroker {
     // snapshot objects; their nested data is immutable while being saved.
     const snapshot = { version: 2, cookies: persistent, origins: Object.fromEntries(this.origins) };
     const key = await this.key();
+    // Every save uses a fresh IV, so rewriting unchanged state still changes the
+    // file and makes each box-store snapshot keep another full encrypted copy.
+    const hash = createHash("sha256").update(key);
+    for (const chunk of browserJsonChunks(snapshot)) hash.update(chunk, "utf8");
+    const plaintextDigest = hash.digest("hex");
+    if (plaintextDigest === this.savedDigest && (await stat(this.storePath).catch(() => null))) return;
     const iv = randomBytes(12);
     const cipher = createCipheriv("aes-256-gcm", key, iv);
     const temporary = `${this.storePath}.tmp-${randomBytes(6).toString("hex")}`;
@@ -480,6 +488,7 @@ export class BrowserBroker {
         await output.close();
       }
       await rename(temporary, this.storePath);
+      this.savedDigest = plaintextDigest;
     } finally {
       await rm(temporary, { force: true });
     }

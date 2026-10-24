@@ -56,7 +56,9 @@ Run the core, client-contract and default native UI checks against a booted simu
 bash apps/ios/scripts/verify.sh <simulator-udid>
 ```
 
-The script starts fixtures on ports 19997, 19992 and 20070.
+The script starts fixtures on ports 19997, 19992, 20070, 20071 and 20072.
+`ModelSettingsUITests` uses port 20072 to check provider connection, model and reasoning
+saves, failed switches/saves, and persistence after relaunch in light and dark mode.
 `Acceptance` covers routines, edge gestures and the local
 HTTP/HTTPS installation (fixtures 20032, 20043 and 20039). `MotionPerformance`
 covers composer motion and history performance (fixtures 20070 and 19996); run

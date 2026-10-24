@@ -3,62 +3,75 @@ import {
   type TranscriptionSettings,
   type TranscriptionSettingsView,
 } from "@openteam/contracts/transcription";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { requestRuntimeRefresh } from "../../../lib/runtime-refresh";
+import {
+  MODEL_TEST_DEADLINE_MS,
+  requestErrorMessage,
+  withDeadline,
+} from "../../../lib/request-errors";
 import {
   HOSTED_TRANSCRIPTION_ENDPOINTS,
   HOSTED_TRANSCRIPTION_MODELS,
 } from "../../../lib/transcription-providers";
+import { LoadingOrb } from "../../ui/loading-orb";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { primaryButton, secondaryButton } from "../model-setup";
+import { ProviderMark } from "../setup/provider-marks";
 import { InteractiveSwitch, SectionLabel, SettingsGroup, SettingsRow } from "./ui";
+import "./transcription.css";
 
-const inputClass =
-  "h-8 w-[270px] max-w-full rounded-[8px] border border-black/10 bg-background px-2.5 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30 dark:border-white/10";
+const inputClass = "transcription-input";
+
+export default function VoiceNotesSettings() {
+  return <TranscriptionSettingsPanel />;
+}
 
 export function TranscriptionSettingsPanel() {
   const [saved, setSaved] = useState<TranscriptionSettingsView | null>(null);
   const [draft, setDraft] = useState<TranscriptionSettings>(defaultTranscriptionSettings);
   const [apiKey, setApiKey] = useState("");
   const [removeKey, setRemoveKey] = useState(false);
-  const [busy, setBusy] = useState(true);
+  const [busy, setBusy] = useState<"load" | "save" | "check" | null>("load");
   const [message, setMessage] = useState("");
-  // Failures read as errors, not as neutral status text.
   const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let active = true;
-    api
-      .transcriptionSettings()
-      .then((value) => {
-        if (active) {
-          setSaved(value);
-          // A server that never set up voice notes starts from OpenAI, like the setup wizard.
-          const untouched = !value.configured && !value.baseUrl && !value.hasApiKey;
-          setDraft(
-            untouched
-              ? {
-                  ...value,
-                  provider: "openai",
-                  baseUrl: HOSTED_TRANSCRIPTION_ENDPOINTS.openai ?? "",
-                  model: HOSTED_TRANSCRIPTION_MODELS.openai ?? "",
-                }
-              : value
-          );
-        }
-      })
-      .catch(() => {
-        if (!active) return;
-        setFailed(true);
-        setMessage("Could not load transcription settings. Check the server connection.");
-      })
-      .finally(() => {
-        if (active) setBusy(false);
-      });
-    return () => {
-      active = false;
-    };
+  const loadVersion = useRef(0);
+  const load = useCallback(async () => {
+    const version = ++loadVersion.current;
+    setBusy("load");
+    setMessage("");
+    setFailed(false);
+    try {
+      const value = await withDeadline(() => api.transcriptionSettings());
+      if (version !== loadVersion.current) return;
+      setSaved(value);
+      const untouched = !value.configured && !value.baseUrl && !value.hasApiKey;
+      setDraft(
+        untouched
+          ? {
+              ...value,
+              provider: "openai",
+              baseUrl: HOSTED_TRANSCRIPTION_ENDPOINTS.openai ?? "",
+              model: HOSTED_TRANSCRIPTION_MODELS.openai ?? "",
+            }
+          : value
+      );
+      setFailed(false);
+    } catch (error) {
+      if (version !== loadVersion.current) return;
+      setFailed(true);
+      setMessage(requestErrorMessage(error, "Could not load transcription settings. Try again."));
+    } finally {
+      if (version === loadVersion.current) setBusy(null);
+    }
   }, []);
+  useEffect(() => {
+    void load();
+    return () => {
+      loadVersion.current++;
+    };
+  }, [load]);
   const change = <K extends keyof TranscriptionSettings>(
     key: K,
     value: TranscriptionSettings[K]
@@ -69,20 +82,27 @@ export function TranscriptionSettingsPanel() {
   const sameEndpoint = saved?.provider === draft.provider && saved.baseUrl === draft.baseUrl;
   const hasSavedKey = sameEndpoint && saved?.hasApiKey && !removeKey;
   const changed =
-    !saved ||
-    apiKey !== "" ||
-    removeKey ||
-    (["enabled", "provider", "baseUrl", "model", "language"] as const).some(
-      (key) => saved[key] !== draft[key]
-    );
+    saved &&
+    (apiKey !== "" ||
+      removeKey ||
+      (["enabled", "provider", "baseUrl", "model", "language"] as const).some(
+        (key) => saved[key] !== draft[key]
+      ));
   const save = async () => {
-    setBusy(true);
+    if (!saved) return;
+    setBusy("save");
     setMessage("");
     try {
-      const value = await api.updateTranscriptionSettings({
-        ...draft,
-        ...(apiKey ? { apiKey } : removeKey ? { apiKey: null } : {}),
-      });
+      const key = apiKey.trim();
+      const value = await withDeadline(() =>
+        api.updateTranscriptionSettings({
+          ...draft,
+          baseUrl: draft.baseUrl.trim(),
+          model: draft.model.trim(),
+          language: draft.language.trim(),
+          ...(key ? { apiKey: key } : removeKey ? { apiKey: null } : {}),
+        })
+      );
       setSaved(value);
       setDraft(value);
       setApiKey("");
@@ -96,174 +116,228 @@ export function TranscriptionSettingsPanel() {
       );
     } catch (error) {
       setFailed(true);
-      setMessage(error instanceof Error ? error.message : "Could not save transcription settings.");
+      setMessage(requestErrorMessage(error, "Could not save transcription settings. Try again."));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
   const check = async () => {
-    setBusy(true);
+    setBusy("check");
     setMessage("");
     try {
-      const result = await api.checkTranscription();
+      const result = await withDeadline(() => api.checkTranscription(), MODEL_TEST_DEADLINE_MS);
       setFailed(result.level === "fail");
       setMessage(result.detail);
-    } catch {
+    } catch (error) {
       setFailed(true);
-      setMessage("Could not check transcription. Check the server connection.");
+      setMessage(requestErrorMessage(error, "Could not check transcription. Try again."));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
   return (
-    <>
-      <SectionLabel>Transcription</SectionLabel>
-      <fieldset disabled={busy} className="min-w-0">
+    <div className="transcription-settings">
+      <p className="mb-5 text-[13px] leading-5 text-foreground-secondary">
+        Turn recordings into text you can review before sending. Shared by all apps connected to
+        this server.
+      </p>
+      {!saved ? (
         <SettingsGroup>
-          <SettingsRow
-            title="Voice notes"
-            description="Record a message, then let your server transcribe it. Applies to desktop and iPhone."
-            control={
-              <InteractiveSwitch
-                label="Enable voice notes"
-                checked={draft.enabled}
-                onChange={(value) => change("enabled", value)}
-              />
-            }
-          />
-          <SettingsRow
-            title="Provider"
-            control={
-              <Select
-                value={draft.provider}
-                onValueChange={(value) => {
-                  const provider = value as TranscriptionSettings["provider"];
-                  setDraft((current) => ({
-                    ...current,
-                    provider,
-                    baseUrl: HOSTED_TRANSCRIPTION_ENDPOINTS[provider] ?? "",
-                    model: HOSTED_TRANSCRIPTION_MODELS[provider] ?? "",
-                  }));
-                  setApiKey("");
-                  setRemoveKey(false);
-                  setMessage("");
-                }}
-              >
-                <SelectTrigger
-                  aria-label="Transcription provider"
-                  className="h-7 w-[270px] max-w-full rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 text-[12px] shadow-none dark:border-white/[0.07] dark:bg-white/[0.07]"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="deepgram">Deepgram</SelectItem>
-                  <SelectItem value="openai-compatible">Custom / OpenAI-compatible</SelectItem>
-                </SelectContent>
-              </Select>
-            }
-          />
-          <SettingsRow
-            title="Base URL"
-            description="The address your OpenTeam server uses to reach the audio service."
-            control={
-              <input
-                className={inputClass}
-                aria-label="Transcription base URL"
-                disabled={draft.provider !== "openai-compatible"}
-                value={draft.baseUrl}
-                placeholder="http://audio-server:8000/v1"
-                onChange={(e) => change("baseUrl", e.target.value)}
-              />
-            }
-          />
-          <SettingsRow
-            title="Model"
-            control={
-              <input
-                className={inputClass}
-                aria-label="Transcription model"
-                value={draft.model}
-                placeholder="Model ID"
-                onChange={(e) => change("model", e.target.value)}
-              />
-            }
-          />
-          <SettingsRow
-            title="API key"
-            description={
-              hasSavedKey
-                ? "A key is saved. Leave blank to keep it."
-                : "Required for OpenAI and Deepgram; optional for private services."
-            }
-            control={
-              <input
-                className={inputClass}
-                type="password"
-                autoComplete="new-password"
-                aria-label="Transcription API key"
-                value={apiKey}
-                placeholder={hasSavedKey ? "Key saved" : "API key"}
-                onChange={(e) => {
-                  setApiKey(e.target.value);
-                  setMessage("");
-                }}
-              />
-            }
-          />
-          {saved?.hasApiKey && sameEndpoint ? (
+          <div
+            className="flex min-h-[72px] items-center gap-2 py-4 text-[13px] text-foreground-secondary"
+            role={failed ? "alert" : "status"}
+          >
+            {busy ? (
+              <>
+                <LoadingOrb aria-hidden size={16} /> Loading voice notes…
+              </>
+            ) : (
+              <>
+                <span className="flex-1">{message}</span>
+                <button className={secondaryButton} onClick={() => void load()} type="button">
+                  Try again
+                </button>
+              </>
+            )}
+          </div>
+        </SettingsGroup>
+      ) : (
+        <fieldset disabled={Boolean(busy)} className="min-w-0">
+          <SettingsGroup>
             <SettingsRow
-              title="Remove saved key"
+              title="Voice notes"
+              description="Enable transcription for recorded messages on desktop and iPhone."
               control={
                 <InteractiveSwitch
-                  label="Remove transcription API key"
-                  checked={removeKey}
-                  onChange={setRemoveKey}
+                  label="Enable voice notes"
+                  checked={draft.enabled}
+                  onChange={(value) => change("enabled", value)}
                 />
               }
             />
-          ) : null}
-          <SettingsRow
-            title="Language"
-            description="Leave blank for automatic detection, or enter a language code such as en."
-            control={
-              <input
-                className={inputClass}
-                aria-label="Transcription language"
-                value={draft.language}
-                placeholder="Automatic"
-                onChange={(e) => change("language", e.target.value)}
+          </SettingsGroup>
+          <SectionLabel>Transcription service</SectionLabel>
+          <SettingsGroup className="transcription-fields">
+            <SettingsRow
+              title="Provider"
+              className="transcription-setting-row"
+              control={
+                <Select
+                  value={draft.provider}
+                  onValueChange={(value) => {
+                    const provider = value as TranscriptionSettings["provider"];
+                    setDraft((current) => ({
+                      ...current,
+                      provider,
+                      baseUrl: HOSTED_TRANSCRIPTION_ENDPOINTS[provider] ?? "",
+                      model: HOSTED_TRANSCRIPTION_MODELS[provider] ?? "",
+                    }));
+                    setApiKey("");
+                    setRemoveKey(false);
+                    setMessage("");
+                  }}
+                >
+                  <SelectTrigger
+                    aria-label="Transcription provider"
+                    className="transcription-input"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="openai">
+                      <span className="flex items-center gap-2">
+                        <ProviderMark id="openai" /> OpenAI
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="deepgram">
+                      <span className="flex items-center gap-2">
+                        <ProviderMark id="deepgram" /> Deepgram
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="openai-compatible">Custom / OpenAI-compatible</SelectItem>
+                  </SelectContent>
+                </Select>
+              }
+            />
+            {draft.provider === "openai-compatible" ? (
+              <SettingsRow
+                title="Base URL"
+                className="transcription-setting-row"
+                description="An audio service reachable from your OpenTeam server."
+                control={
+                  <input
+                    className={inputClass}
+                    aria-label="Transcription base URL"
+                    inputMode="url"
+                    spellCheck={false}
+                    value={draft.baseUrl}
+                    placeholder="http://audio-server:8000/v1"
+                    onChange={(e) => change("baseUrl", e.target.value)}
+                  />
+                }
               />
-            }
-          />
-          <div className="flex items-center justify-end gap-2 border-t border-black/[0.065] py-3 dark:border-white/[0.07]">
+            ) : null}
+            <SettingsRow
+              title="Model"
+              className="transcription-setting-row"
+              control={
+                <input
+                  className={inputClass}
+                  aria-label="Transcription model"
+                  spellCheck={false}
+                  value={draft.model}
+                  placeholder="Model ID"
+                  onChange={(e) => change("model", e.target.value)}
+                />
+              }
+            />
+          </SettingsGroup>
+          <SectionLabel>Credentials and language</SectionLabel>
+          <SettingsGroup className="transcription-fields">
+            <SettingsRow
+              title="API key"
+              className="transcription-setting-row"
+              description={
+                hasSavedKey
+                  ? "A key is saved. Leave blank to keep it."
+                  : "Separate from chat sign-in. Keys stay on your server."
+              }
+              control={
+                <input
+                  className={inputClass}
+                  type="password"
+                  autoComplete="new-password"
+                  aria-label="Transcription API key"
+                  value={apiKey}
+                  placeholder={hasSavedKey ? "Key saved" : "API key"}
+                  onChange={(e) => {
+                    setApiKey(e.target.value);
+                    if (e.target.value) setRemoveKey(false);
+                    setMessage("");
+                  }}
+                />
+              }
+            />
+            {saved.hasApiKey && sameEndpoint ? (
+              <SettingsRow
+                title="Remove saved key"
+                control={
+                  <InteractiveSwitch
+                    label="Remove transcription API key"
+                    checked={removeKey}
+                    onChange={(value) => {
+                      setRemoveKey(value);
+                      if (value) setApiKey("");
+                      setMessage("");
+                    }}
+                  />
+                }
+              />
+            ) : null}
+            <SettingsRow
+              title="Language"
+              className="transcription-setting-row"
+              description="Leave blank to detect automatically, or use a code such as en."
+              control={
+                <input
+                  className={inputClass}
+                  aria-label="Transcription language"
+                  spellCheck={false}
+                  value={draft.language}
+                  placeholder="Automatic"
+                  onChange={(e) => change("language", e.target.value)}
+                />
+              }
+            />
+          </SettingsGroup>
+          <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               className={secondaryButton}
-              disabled={busy || changed || !saved?.configured}
+              disabled={Boolean(busy) || Boolean(changed) || !saved.configured}
               onClick={() => void check()}
             >
-              Test connection
+              {busy === "check" ? <LoadingOrb aria-hidden size={14} /> : null} Test connection
             </button>
             <button
               type="button"
               className={primaryButton}
-              disabled={busy || !changed}
+              disabled={Boolean(busy) || !changed}
               onClick={() => void save()}
             >
-              Save transcription
+              {busy === "save" ? <LoadingOrb aria-hidden inverse size={14} /> : null} Save
             </button>
           </div>
-        </SettingsGroup>
-      </fieldset>
-      {message ? (
-        <p
-          role={failed ? "alert" : "status"}
-          className={`px-2 py-2 text-[12px] ${failed ? "text-red-600 dark:text-red-400" : "text-foreground-secondary"}`}
-        >
-          {message}
-        </p>
-      ) : null}
-    </>
+          {message ? (
+            <p
+              role={failed ? "alert" : "status"}
+              className={`mt-3 text-[12px] leading-5 ${failed ? "text-red-600 dark:text-red-400" : "text-foreground-secondary"}`}
+            >
+              {message}
+            </p>
+          ) : null}
+        </fieldset>
+      )}
+    </div>
   );
 }

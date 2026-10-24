@@ -8,6 +8,8 @@ struct ChatView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.chatLeadingControl) private var leadingControl
+  @Environment(\.sideChrome) private var sideChrome
   let channel: Channel
   @State private var details = false
   @State private var duplicatedChannel: String?
@@ -140,9 +142,10 @@ struct ChatView: View {
       }
     }
     .nativeCanvas()
-    .chatFloatingBars(top: { header }, bottom: {
+    .chatFloatingBars(top: { if sideChrome == nil { header } else { titleBar } }, bottom: {
       if !showsLoadError { ComposerView(channel: channel).disabled(!didPositionHistory) }
     })
+    .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
     .toolbar(.hidden, for: .navigationBar).background(NativeBackGesture().frame(width: 0, height: 0))
     .navigationDestination(isPresented: $details) {
       ConversationDetails(channelID: channel.id, onDuplicate: { duplicatedChannel = $0 })
@@ -324,23 +327,52 @@ struct ChatView: View {
     } else { scrollRequest = HistoryScrollRequest(id: id, animated: false) }
     store.focusedMessage = nil
   }
-  var header: some View {
-    HStack(spacing: 8) {
+  @ViewBuilder private var leadingButton: some View {
+    if let leadingControl {
+      ChatChromeButton(title: leadingControl.title, symbol: "sidebar.left", symbolSize: 17,
+        symbolWeight: .regular, regularInLightMode: true) { leadingControl.action() }
+        .accessibilityIdentifier("chat-sidebar")
+    } else {
       ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
         regularInLightMode: true) { dismiss() }
         .accessibilityIdentifier(
           "chat-back")
-      Button {
-        details = true
-      } label: {
-        HStack(spacing: 9) {
-          ChannelAvatar(channel: channel, size: 27, groupStyle: .inline)
-          Text(store.channel(channel.id)?.name ?? channel.name).font(.body.weight(.medium))
-            .lineLimit(1)
-        }.padding(.leading, 10).padding(.trailing, 14).padding(.vertical, 8)
-          .frame(minHeight: 44).nativeChatGlass()
-      }.buttonStyle(.plain).accessibilityIdentifier("conversation-details")
-        .frame(maxWidth: .infinity)
+    }
+  }
+  /// Beside a side region the conversation's name stays a horizontal title, as
+  /// text does in system bars, and its buttons move to the region.
+  private var titleBar: some View {
+    HStack {
+      titleButton
+      Spacer(minLength: 0)
+    }.padding(.horizontal, 14).padding(.vertical, 6).foregroundStyle(NativePalette.text)
+  }
+  private var sideControls: some View {
+    VStack(spacing: 12) {
+      leadingButton
+      if let bot = store.computerBot(for: channel) {
+        ChatChromeButton(title: "Computer", symbol: "display", symbolSize: 16) {
+          computerBot = bot
+        }.accessibilityValue(bot.name)
+      }
+    }.foregroundStyle(NativePalette.text)
+  }
+  private var titleButton: some View {
+    Button {
+      details = true
+    } label: {
+      HStack(spacing: 9) {
+        ChannelAvatar(channel: channel, size: 27, groupStyle: .inline)
+        Text(store.channel(channel.id)?.name ?? channel.name).font(.body.weight(.medium))
+          .lineLimit(1)
+      }.padding(.leading, 10).padding(.trailing, 14).padding(.vertical, 8)
+        .frame(minHeight: 44).nativeChatGlass()
+    }.buttonStyle(.plain).accessibilityIdentifier("conversation-details")
+  }
+  var header: some View {
+    HStack(spacing: 8) {
+      leadingButton
+      titleButton.frame(maxWidth: .infinity)
       // Equal side slots keep the pill on the screen's center, including groups
       // without a Computer action. Long names truncate within the middle slot.
       Group {

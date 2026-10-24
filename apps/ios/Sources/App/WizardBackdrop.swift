@@ -20,6 +20,8 @@ enum WizardScene: Equatable {
   case connecting(kind: ProviderMark.Kind, connected: Bool, waiting: Bool)
   /// `single`: the key is for one provider (OpenRouter), shown on its own.
   case key(provider: String, typed: Bool, accepted: Bool, single: Bool)
+  /// The search service on offer (or chosen, once `on`).
+  case search(brand: String, name: String, on: Bool)
   case voice(on: Bool)
   case bot(avatar: FirstBot.Avatar, name: String, role: BotRole, shuffles: Int)
   case bots([BotGroupArt.Member])
@@ -36,6 +38,7 @@ enum WizardScene: Equatable {
     case .browser: .init(x: -120, y: -94, size: 48, tilt: -14)
     case .connecting: .init(x: -66, y: -60, size: 46, tilt: -14)
     case .key: .init(x: -140, y: -70, size: 46, tilt: -14)
+    case .search: .init(x: -150, y: -96, size: 46, tilt: -14)
     case .voice: .init(x: -142, y: -64, size: 46, tilt: -14)
     case .bot: .init(x: -102, y: -25, size: 92, tilt: 0, shown: false)
     case .bots: .init(x: 0, y: -10, size: 92, tilt: 0, shown: false)
@@ -208,6 +211,7 @@ struct WizardSceneArt: View {
           ConnectingArt(kind: kind, connected: connected, waiting: waiting)
         case .key(let provider, let typed, let accepted, let single):
           KeyArt(provider: provider, typed: typed, accepted: accepted, single: single)
+        case .search(let brand, let name, let on): SearchArt(brand: brand, name: name, on: on)
         case .voice(let on): VoiceArt(on: on)
         case .bot(let avatar, let name, let role, let shuffles):
           BotPreviewArt(avatar: avatar, name: name, role: role, shuffles: shuffles)

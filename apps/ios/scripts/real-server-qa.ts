@@ -30,7 +30,6 @@ const env = {
   OPENTEAM_ASSET_ROOT: join(runtimeRoot, "assets"),
   OPENTEAM_PI_AGENT_DIR: "/home/box/.pi/agent",
   OPENTEAM_BOX_STORE_ROOT: "/box-store", OPENTEAM_BOX_COPY_IN: "false",
-  OPENTEAM_TIME_ZONE: "America/New_York",
   OPENTEAM_WORKER_CONCURRENCY: "2",
 };
 // A simulator token must never be dispatched to the real APNs service.
@@ -75,7 +74,7 @@ try {
   // This database belongs exclusively to this harness; never reset a live owner.
   if (await prisma.user.count()) throw new Error("QA database already has an owner; use the running harness instead of resetting credentials.");
   await run(["bun", "apps/server/src/main.ts", "owner-credentials"], JSON.stringify({ operation: "setup", username, password }));
-  const keys = ["OPENTEAM_CONTROL_TOKEN", "OPENTEAM_SERVER_URL", "OPENTEAM_AGENT_DATA_ROOT", "OPENTEAM_AGENT_DATA_CANONICAL_ROOT", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_PI_AGENT_DIR", "OPENTEAM_BOX_STORE_ROOT", "OPENTEAM_BOX_COPY_IN", "OPENTEAM_TIME_ZONE"];
+  const keys = ["OPENTEAM_CONTROL_TOKEN", "OPENTEAM_SERVER_URL", "OPENTEAM_AGENT_DATA_ROOT", "OPENTEAM_AGENT_DATA_CANONICAL_ROOT", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_PI_AGENT_DIR", "OPENTEAM_BOX_STORE_ROOT", "OPENTEAM_BOX_COPY_IN"];
   await run(["bun", "build", "apps/computer/src/main.ts", "apps/computer/src/provider-cli.ts", "--outdir", join(root, "computer-build"), "--target", "bun", "--external", "@earendil-works/pi-coding-agent", "--external", "playwright-core"]);
   await run(["docker", "run", "-d", "--rm", "--name", computerName,
     ...(dockerNetwork ? ["--network", dockerNetwork] : []),

@@ -7,7 +7,7 @@ export {
   renderQuietSubagentRevivalPrompt,
 } from "./quiet-revival";
 import { automationContextRoutine, quietRoutineOriginNote, renderQuietRevivalBatchPrompt } from "./quiet-revival";
-import { mediaReviewPrompt, renderWorkerBoxSection, renderWorkerTimeSection, WORKER_READONLY_LINE, WORKER_USER_IDENTITY_LINE } from "./worker-prompts";
+import { mediaReviewPrompt, renderWorkerBoxSection, renderWorkerTimeSection, WORKER_READONLY_LINE, USER_IDENTITY_LINE } from "./worker-prompts";
 import { attachmentContext } from "./attachment-context";
 import { listSiblingThreads, renderOtherActiveConversations } from "./sibling-threads";
 import { nextMessageAddress, resolveMessageAddress } from "./message-address";
@@ -35,6 +35,7 @@ import {
   type SubagentType,
   TODO_MAX_ITEMS,
   type TranscriptEventView,
+  type UserTimeZoneView,
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { fromPrisma, type PgBoss } from "pg-boss";
@@ -49,17 +50,19 @@ import {
   resolveGroupResponderIds,
   rotateGroupResponders,
 } from "./group-routing";
-import { appendRoutineRunLedger } from "./routines";
+import { appendRoutineRunLedger, followUserTimeZone, pinRoutinesToScheduledZone } from "./routines";
 import { groupMessageCount, stageGroupMessage, settleGroupOutbox } from "./group-outbox";
 import { groupRoutineState } from "./group-routine-state";
 import { lockGroupExecution, lockGroupRound, lockGroupDelivery } from "./group-supersession";
 export { lockGroupExecution, supersedeGroupUserTurns } from "./group-supersession";
 export { groupRoutineState } from "./group-routine-state";
 import {
+  PARALLEL_TOOL_CALLS,
   renderPlatformBaseSystemPrompt,
   renderPlatformRuntimeInstructions,
 } from "./platform-system-prompt";
 import { formatFriendlyDate, resolveTimeZone, timestampUserTurn } from "./timestamps";
+import { canonicalTimeZone, readUserTimeZone, userTimeZoneView } from "./user-time-zone";
 import { renderAgentSkillsSection } from "./skill-catalog";
 import type { AutomationStatusReceipt, MemoryContextReceipt, PromptSectionReceipt } from "./prompt-sections";
 import { renderAutomationStatusReminder, routineDefinitionLine } from "./automation-status";
@@ -157,12 +160,16 @@ export const renderAgentSkillsUserInfo = (skillRender: string, memoryContext?: s
     .filter(Boolean)
     .join("\n\n");
 
-export const SUBAGENT_REVIVAL_INSTRUCTION =
-  'Pick the work back up: review the result(s), then either keep going or wrap up. If this result is genuinely new and relevant to the user, or the user asked to be told when this finished, tell them with a SendToUser. Lead with the concrete thing that finished, not a bare pronoun like "That" (they cannot see the background task). If it is stale, irrelevant, already handled, or a duplicate, and the user was not waiting on it, just stay silent and end the turn with no SendToUser rather than narrating it. Keep your status current, and clear it once everything is done and you\'re idle. If the handoff tells you to draft an email or Slack message, call DraftExternalMessage with the recipient, the channel or connector, the thread or other context, and the proposed text it includes. Do not send that message through a connector yourself.';
+const PARENT_DRAFT_EXTERNAL_MESSAGE_HANDOFF =
+  "If the handoff tells you to draft an email or Slack message, call DraftExternalMessage with the recipient, the channel or connector, the thread or other context, and the proposed text it includes. Do not send that message through a connector yourself.";
 
-/** Graphical reports open with a Status line; it decides whether resuming the worker can help. */
-export const graphicalRevivalInstruction = (subagentType: string): string =>
-  `A ${subagentType} report opens with its Status. \`Status: done\`: relay what it found. \`Status: blocked\`: never resume that subagent. When the block is a sign-in, captcha, payment or confirmation, use the in-chat form or the box handoff; otherwise tell the user with a SendToUser what is needed. \`Status: partial\`: resume it only when the report names a concrete next step and you add something it didn't have, such as a new URL, a value from the user or a different site, and at most once per goal in this conversation. Otherwise tell the user with a SendToUser what it found and what is still missing.`;
+export const SUBAGENT_REVIVAL_INSTRUCTION =
+  'Pick the work back up: review the result(s), then either keep going or wrap up. If this result is genuinely new and relevant to the user, or the user asked to be told when this finished, tell them with a SendToUser. Lead with the concrete thing that finished, not a bare pronoun like "That" (they cannot see the background task). If it is stale, irrelevant, already handled, or a duplicate, and the user was not waiting on it, just stay silent and end the turn with no SendToUser rather than narrating it. Keep your status current, and clear it once everything is done and you\'re idle. ' +
+  PARENT_DRAFT_EXTERNAL_MESSAGE_HANDOFF;
+
+/** A computerUse report opens with a Status line; it decides whether resuming the worker can help. */
+export const COMPUTER_USE_REVIVAL_INSTRUCTION =
+  "A computerUse report opens with its Status. `Status: done`: relay what it found. `Status: blocked`: never resume that subagent. When the block is a sign-in, captcha, payment or confirmation, use the in-chat form or the box handoff; otherwise tell the user with a SendToUser what is needed. `Status: partial`: resume it only when the report names a concrete next step and you add something it didn't have, such as a new URL, a value from the user or a different site, and at most once per goal in this conversation. Otherwise tell the user with a SendToUser what it found and what is still missing.";
 
 export const renderSubagentRevivalPrompt = (input: {
   title: string;
@@ -178,7 +185,7 @@ export const renderSubagentRevivalPrompt = (input: {
     input.result.trim(),
     "",
     SUBAGENT_REVIVAL_INSTRUCTION,
-    ...(input.subagentType === "computerUse" ? [graphicalRevivalInstruction(input.subagentType)] : []),
+    ...(input.subagentType === "computerUse" ? [COMPUTER_USE_REVIVAL_INSTRUCTION] : []),
   ].join("\n");
 };
 
@@ -227,6 +234,28 @@ export const describeHeldDuration = (heldForMs: number): string => {
   return hours < 48 ? `${hours} hours` : `${Math.round(hours / 24)} days`;
 };
 
+const describeHeldNote = (heldForMs: number): string =>
+  `(This finished about ${describeHeldDuration(heldForMs)} ago and reached you only now, so it may be out of date.)`;
+
+const AUTOMATION_PARENT_WAKE_REASON =
+  "An automation explicitly handed this work to you because only the parent can communicate outside its isolated run.";
+const AUTOMATION_PARENT_WAKE_ACTIONS =
+  "contact the user or another agent when requested, or take over the decision or blocker it reported. Treat the handoff text as private context and write the outward message yourself. Never message the user just to say that nothing has changed. ";
+const AUTOMATION_HANDOFF_STILL_OWED_INSTRUCTION =
+  "This handoff is still owed even if the user has sent you something new since it arrived: deliver it in this turn, in the same reply as your answer to their message, and do not drop it because the routine ran at an unexpected time.";
+
+/** A routine's WakeParent handoff; one that waited for the agent to be free says how long and may be stale. */
+export const renderAutomationHandoffPrompt = (handoff: string, heldForMs?: number): string =>
+  [
+    "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
+    "",
+    heldForMs === undefined ? handoff : `${handoff}\n${describeHeldNote(heldForMs)}`,
+    "",
+    ...(heldForMs === undefined
+      ? [`${AUTOMATION_PARENT_WAKE_REASON} Act on the handoff now: ${AUTOMATION_PARENT_WAKE_ACTIONS}${PARENT_DRAFT_EXTERNAL_MESSAGE_HANDOFF}`, AUTOMATION_HANDOFF_STILL_OWED_INSTRUCTION]
+      : [`${AUTOMATION_PARENT_WAKE_REASON} It reached you late, so act on a handoff only while it still matters: ${AUTOMATION_PARENT_WAKE_ACTIONS}${PARENT_DRAFT_EXTERNAL_MESSAGE_HANDOFF}`, HELD_REVIVAL_NOTE]),
+  ].join("\n");
+
 /** Completions delivered in one turn, as the reference batches them; a late one says how long it waited. */
 export const renderRevivalBatchPrompt = (completions: ReadonlyArray<RevivalCompletion & { heldForMs?: number }>): string => {
   const held = completions.some((completion) => completion.heldForMs !== undefined);
@@ -236,12 +265,13 @@ export const renderRevivalBatchPrompt = (completions: ReadonlyArray<RevivalCompl
     "",
     completions
       .map(({ block, heldForMs }) =>
-        heldForMs === undefined ? block : `${block}\n(This finished about ${describeHeldDuration(heldForMs)} ago and reached you only now, so it may be out of date.)`
+        heldForMs === undefined ? block : `${block}\n${describeHeldNote(heldForMs)}`
       )
       .join("\n\n"),
     "",
     SUBAGENT_REVIVAL_INSTRUCTION,
     ...(held ? [HELD_REVIVAL_NOTE] : []),
+    ...(completions.some((completion) => completion.subagentType === "computerUse") ? [COMPUTER_USE_REVIVAL_INSTRUCTION] : []),
     ...notes.map((note) => `\n${note}`),
   ].join("\n");
 };
@@ -371,7 +401,7 @@ export const renderTeammatesUserInfo = (input: {
 };
 
 // Routine runs hold their own automation lease, never the foreground one, so a priority
-// message already runs beside them instead of waiting; the reference acknowledgement still names them.
+// message runs beside them instead of interrupting them.
 const PRIORITY_INTERRUPTIBLE_ORIGINS: ReadonlySet<string> = new Set(["event", "background_revival", "broadcast"]);
 
 export const directAgentAcknowledgement = (input: {
@@ -380,7 +410,7 @@ export const directAgentAcknowledgement = (input: {
 }): string => {
   const name = compactName(input.targetName);
   const prefix = input.priority
-    ? `Sent to ${name} as a priority message — it jumps their queue and interrupts any routine or background work they are running; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that.`
+    ? `Sent to ${name} as a priority message — it jumps their queue, interrupts any background work they are running, and doesn't wait for a running routine; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that.`
     : `Sent to ${name}.`;
   return `${prefix} This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now.`;
 };
@@ -680,6 +710,8 @@ export interface WakeInput {
   taskContextRunId?: string;
   includeAttachmentPaths?: boolean;
   revival?: RevivalCompletion;
+  /** A WakeParent handoff, re-rendered as late when the wake waits for the agent. */
+  handoff?: string;
   /** The run this typed message superseded; it gets the unfinished-tasks reminder when that run had dispatched. */
   interruptedRunId?: string;
 }
@@ -784,7 +816,6 @@ export const validateSendToUserInput = (value: unknown): void => {
 };
 
 export class AgentMessaging {
-  readonly defaultTimeZone: string;
   readonly agentData: AgentDataStore;
   readonly assets: AssetStore;
 
@@ -794,7 +825,6 @@ export class AgentMessaging {
     agentData?: AgentDataStore,
     assets?: AssetStore
   ) {
-    this.defaultTimeZone = resolveTimeZone();
     this.agentData = agentData ?? new AgentDataStore(prisma);
     this.assets =
       assets ??
@@ -855,7 +885,54 @@ export class AgentMessaging {
     });
   }
 
+  /** The user's zone (Settings override, else the zone their apps detect); turns, routines and the box clock use it. */
+  userTimeZone(db: Prisma.TransactionClient | PrismaClient = this.prisma): Promise<string> {
+    return readUserTimeZone(db);
+  }
+
+  /**
+   * Records the zone an app detected or the Settings override (null clears it). Unpinned routines
+   * follow a change of the zone in effect. The first report pins routines scheduled before the
+   * zone was known, so they keep their moments.
+   */
+  async updateUserTimeZone(
+    tx: Prisma.TransactionClient,
+    update: { detected?: string; override?: string | null }
+  ): Promise<UserTimeZoneView> {
+    const detected = update.detected === undefined ? undefined : canonicalTimeZone(update.detected);
+    const override = update.override ? canonicalTimeZone(update.override) : update.override;
+    if (override === null && update.override)
+      throw new ApiError(400, "invalid_time_zone", `Unknown time zone: ${update.override}`);
+    const read = () => tx.userTimeZoneSettings.findUnique({ where: { id: "global" } });
+    if (!detected && override === undefined) return userTimeZoneView(await read());
+    const merge = (current: Awaited<ReturnType<typeof read>>) => ({
+      detected: detected ?? current?.detected ?? null,
+      override: override === undefined ? (current?.override ?? null) : override,
+    });
+    const unchanged = (current: Awaited<ReturnType<typeof read>>) =>
+      current !== null && merge(current).detected === current.detected && merge(current).override === current.override;
+    // Every message reports its zone; only a change takes the lock.
+    const seen = await read();
+    if (unchanged(seen)) return userTimeZoneView(seen);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('user-time-zone'))`;
+    const current = await read();
+    if (unchanged(current)) return userTimeZoneView(current);
+    const next = merge(current);
+    if (!current) {
+      await pinRoutinesToScheduledZone(tx, (botId, routineId) => this.agentData.writeRoutine(botId, routineId, tx));
+    }
+    const row = await tx.userTimeZoneSettings.upsert({
+      where: { id: "global" },
+      create: { id: "global", ...next },
+      update: next,
+    });
+    const view = userTimeZoneView(row);
+    if (view.timeZone !== userTimeZoneView(current).timeZone) await followUserTimeZone(tx, view.timeZone);
+    return view;
+  }
+
   async enqueueWake(tx: Prisma.TransactionClient, input: WakeInput, preparedAttachmentPaths?: string[]) {
+    const timeZone = resolveTimeZone(input.timeZone ?? (await this.userTimeZone(tx)));
     const bot = await tx.bot.findUnique({
       where: { id: input.botId },
       include: { conversation: true },
@@ -874,7 +951,7 @@ export class AgentMessaging {
         ? input.content
         : timestampUserTurn(input.content, {
             occurredAt: input.occurredAt,
-            timeZone: input.timeZone ?? this.defaultTimeZone,
+            timeZone,
           });
     const attachments = await this.attachmentsForWake(input);
     const attachmentPaths =
@@ -924,10 +1001,11 @@ export class AgentMessaging {
           origin: input.origin,
           replyToMessageId: input.replyToMessageId ?? null,
           isFork: input.isFork === true,
-          timeZone: resolveTimeZone(input.timeZone ?? this.defaultTimeZone),
+          timeZone,
           automationContextRunId: input.automationContextRunId,
           taskContextRunId: input.taskContextRunId,
           revival: input.revival,
+          handoff: input.handoff,
           interruptedRunId: input.interruptedRunId,
         }),
         priority: input.priority,
@@ -1629,13 +1707,6 @@ export class AgentMessaging {
           priority: PRIORITY.group,
           wrapUserContent: false,
           occurredAt: round.triggerMessage.createdAt,
-          timeZone:
-            round.triggerMessage.metadata &&
-            !Array.isArray(round.triggerMessage.metadata) &&
-            typeof round.triggerMessage.metadata === "object" &&
-            typeof (round.triggerMessage.metadata as Record<string, unknown>).timeZone === "string"
-              ? String((round.triggerMessage.metadata as Record<string, unknown>).timeZone)
-              : this.defaultTimeZone,
           ...(triggerMetadata.branched === true
             ? { replyToMessageId: round.triggerMessage.id, isFork: true }
             : {}),
@@ -1859,7 +1930,7 @@ export class AgentMessaging {
 
   /** channelId is the run's channel (null for a home run); undefined renders no pending automation results. */
   async platformPrompt(botId: string, contextSessionId: string, connectorInstructions = "", channelId?: string | null, taskConfigurationSnapshot?: TaskConfiguration, wakeOrigin?: string): Promise<PlatformPrompt> {
-
+    const timeZone = await this.userTimeZone();
     const bot = await this.prisma.bot.findUniqueOrThrow({
       where: { id: botId },
       include: {
@@ -1884,8 +1955,8 @@ export class AgentMessaging {
         ].join("\n"),
         workerSafetySection(executes),
         `${WORKER_UNTRUSTED_CONTENT_SECTION}\n\n${WORKER_DRAFT_HANDOFF}`,
-        WORKER_USER_IDENTITY_LINE,
-        executes ? renderWorkerTimeSection(this.defaultTimeZone) : "",
+        USER_IDENTITY_LINE,
+        executes ? renderWorkerTimeSection(timeZone) : "",
         connectorInstructions.trim(),
         executes ? renderWorkerBoxSection({ readOnly: bot.subagentIdentity.readOnly, workingDirectory: bot.defaultDirectory }) : "",
         subagentSpecializationInstructions(type, bot.defaultDirectory),
@@ -2041,39 +2112,42 @@ export class AgentMessaging {
       automations: routineContext.length ? `Scheduled routines:\n${routineContext.join("\n")}` : "You have no scheduled routines.",
       agent_directory: `## Teammates and groups\n${teammates ? TEAMMATES_POINTER : NO_TEAMMATES_SECTION}`,
       mcp_instructions: connectorInstructions,
-    }, agentPrompt.memory, renderAutomationStatusReminder(routines, this.defaultTimeZone, firingRoutineId));
+    }, agentPrompt.memory, renderAutomationStatusReminder(routines, timeZone, firingRoutineId));
     const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
     // The reference order: identity first; the sibling digest after memory and connector
     // instructions after the directory, so per-turn changes sit late in the cached prefix.
     const instructions = [
       renderPlatformBaseSystemPrompt({ ...(automation ? { automationRun: AUTOMATION_RUN_INSTRUCTIONS } : {}) }),
       agentPrompt.profileSection,
+      USER_IDENTITY_LINE,
       frozen.sections.agent_instructions,
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       graphicalDelegationInstructions(taskConfiguration),
       "Subagents run in the background. Background completion is delivered after your turn ends; continue other work or end your turn instead of polling. Installed plugin agent templates are listed separately when available.",
-
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
       renderPlatformRuntimeInstructions({
         agentDataRoot: this.agentData.root,
         botId,
         workingDirectory: bot.defaultDirectory,
-        timeZone: this.defaultTimeZone,
+        timeZone,
+        memoryPolicy: agentPrompt.memory.policy,
       }),
       `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
-      agentPrompt.memory.policy,
       renderOtherActiveConversations(siblings),
       frozen.sections.automations,
       frozen.sections.mcp_instructions,
-
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
         : "No connector platform is marked disconnected.",
       agentPrompt.warnings.length > 0
         ? `Agent-data filesystem warnings. Invalid settings/skill/automation edits were preserved and fallback values may be active; fix them before relying on those edits:\n${agentPrompt.warnings.map((warning) => `- ${warning}`).join("\n")}`
         : "",
+      automation
+        ? `Use cursor.ReadTranscript with in="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.`
+        : "",
+      PARALLEL_TOOL_CALLS,
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -2081,7 +2155,7 @@ export class AgentMessaging {
       agentPrompt.skillRender,
       frozen.memory ? renderMemoryContextBlock(frozen.memory.facts) : undefined,
       teammates,
-      formatFriendlyDate(new Date(), this.defaultTimeZone)
+      formatFriendlyDate(new Date(), timeZone)
     );
     const automationResults = !automation && channelId !== undefined ? await this.prisma.automationResult.findMany({
       where: { wakeRunId: null, acknowledgedAt: null, run: { botId, channelId } },
@@ -2093,8 +2167,7 @@ export class AgentMessaging {
       select: { runId: true, routine: { select: { name: true, slug: true } } },
     })).flatMap((execution) => execution.runId ? [[execution.runId, execution.routine] as const] : []) : []);
     return {
-      instructions: automation ? `${instructions}\n\nUse cursor.ReadTranscript with in="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
-
+      instructions,
       instructionsUpdate: [frozen.update, frozen.memory?.update].filter(Boolean).join("\n\n") || null,
       automationStatus: frozen.automationStatus?.note ?? null,
       ambientContext: automation ? null : [
@@ -2107,7 +2180,6 @@ export class AgentMessaging {
         }),
       ].filter(Boolean).join("\n\n") || null,
       acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, memory: frozen.memory?.receipt, automationStatus: frozen.automationStatus?.receipt, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, unansweredMessageIds: automation ? [] : unansweredIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
-
         const metadata = message.metadata as Record<string, unknown>;
         return typeof metadata.outcomeId === "string" && typeof metadata.outcomeText === "string" ? [{ messageId: message.id, outcomeId: metadata.outcomeId }] : [];
       }) },
@@ -2352,7 +2424,6 @@ export class AgentMessaging {
         priority: input.priority ? PRIORITY.urgentAgent : PRIORITY.agent,
         includeAttachmentPaths: false,
         occurredAt,
-        timeZone: resolveTimeZone(context.timeZone ?? this.defaultTimeZone),
       });
       return {
         acknowledgement: directAgentAcknowledgement({
@@ -2602,7 +2673,7 @@ export class AgentMessaging {
       }
       if (channel.kind === "group" && context.deliveryId) {
         const buffered = await stageGroupMessage(tx, { ...context, channelId: channel.id, deliveryId: context.deliveryId }, {
-          content, metadata: { kind: "send-message", type: "text", content, ...(replyTarget ? { replyTo: replyTarget.id } : {}), timeZone: resolveTimeZone(context.timeZone ?? this.defaultTimeZone) },
+          content, metadata: { kind: "send-message", type: "text", content, ...(replyTarget ? { replyTo: replyTarget.id } : {}), timeZone: resolveTimeZone(context.timeZone ?? (await this.userTimeZone(tx))) },
         }, GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE);
         return { acknowledgement: { sent: true, queued: true, channel_id: channel.id, channel_type: "group", message_id: buffered.id, message_address: buffered.id }, interruptRunId: null };
       }
@@ -2633,7 +2704,7 @@ export class AgentMessaging {
             address,
             ...(replyTarget ? { replyTo: replyTarget.id } : {}),
             ...(inheritsFork ? { branched: true } : {}),
-            timeZone: resolveTimeZone(context.timeZone ?? this.defaultTimeZone),
+            timeZone: resolveTimeZone(context.timeZone ?? (await this.userTimeZone(tx))),
           }),
         },
       });
@@ -2736,6 +2807,7 @@ export {
   resolveTimeZone,
   timestampUserTurn,
 } from "./timestamps";
+export { readUserTimeZone, userTimeZoneView } from "./user-time-zone";
 export {
   turnOwesReplyReminder,
   turnSystemReminder,

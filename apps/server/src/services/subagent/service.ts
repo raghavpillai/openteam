@@ -7,6 +7,7 @@ import {
   normalizePiReasoningLevel,
   type StopSubagentInput,
   SubagentType,
+  type BusyBotsView,
   type TaskInput,
 } from "@openteam/contracts";
 import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
@@ -15,7 +16,7 @@ import { type AgentDataStore, type AgentMessaging, PRIORITY, type ToolContext } 
 import { Effect, Schema } from "effect";
 import { fromPrisma } from "pg-boss";
 import type { RunService } from "../run-service";
-import { appendEvent, type ComputerFetch, hashRequest, stopSubagentShells, toJson } from "../service-utils";
+import { appendEvent, type ComputerFetch, hashRequest, serviceEffect, stopSubagentShells, toJson } from "../service-utils";
 import { taskInference, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { normalizeSubagentTypeName, parentOnlyDispatchNotice, subagentTitle, withSiteDispatchNotes } from "@openteam/contracts/subagent-dispatch";
 
@@ -76,7 +77,7 @@ const agentIdLine = (id: string) =>
   `Agent ID: ${botSubagentId(id)} (can be used with the \`resume\` parameter to send a follow-up after it completes)`;
 
 export const subagentBackgroundResult = (id: string): string =>
-  `Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\n\n${agentIdLine(id)}`;
+  `Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\nDo NOT try to predict the subagent's response before it replies.\n\n${agentIdLine(id)}`;
 
 const failedTaskMessage = (status: string, error: Prisma.JsonValue | null): string => {
   const message = error && typeof error === "object" && !Array.isArray(error) && typeof error.message === "string" ? error.message : undefined;
@@ -283,6 +284,93 @@ export class SubagentService {
     });
   }
 
+  /**
+   * The user stopping a run, as the reference's agent-run interrupt: a worker's turn stops that
+   * worker (its shells end and it won't report back, as with StopSubagent); a bot's turn stops
+   * along with every subagent the bot has running.
+   */
+  stopRun = (runId: string) =>
+    serviceEffect(async () => {
+      const run = await this.prisma.run.findUnique({ where: { id: runId }, select: { botId: true, status: true } });
+      if (!run) throw new ApiError(404, "run_not_found", "Run not found");
+      const callId = `user-stop:${runId}`;
+      const worker = await this.prisma.subagent.findFirst({
+        where: { childBotId: run.botId, currentRunId: runId, status: { in: [...ACTIVE_STATUSES] } },
+      });
+      if (worker) {
+        await this.stopOne(worker.parentBotId, callId, worker);
+        const current = await this.prisma.run.findUnique({ where: { id: runId }, select: { status: true } });
+        return { ok: true, status: current?.status ?? "cancelled" };
+      }
+      const result = await Effect.runPromise(this.runs.cancel(runId));
+      if (["queued", "running"].includes(run.status)) await this.stopRunningSubagents(run.botId, callId);
+      return result;
+    });
+
+  /**
+   * The reference's escape from a pending update: every turn the bot has queued or running stops
+   * as the user's stop above, then every subagent it still has running, so nothing reports back
+   * or is redone. Nothing is posted to the chat.
+   */
+  stopBot = (botId: string) =>
+    serviceEffect(async () => {
+      const bot = await this.prisma.bot.findUnique({ where: { id: botId }, select: { id: true } });
+      if (!bot) throw new ApiError(404, "bot_not_found", "Bot not found");
+      const runs = await this.prisma.run.findMany({
+        where: { botId, status: { in: ["queued", "running"] } },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+      });
+      await Promise.allSettled(runs.map((run) => Effect.runPromise(this.stopRun(run.id))));
+      const workers = await this.stopRunningSubagents(botId, `user-stop:bot:${botId}`);
+      return { hadActiveRun: runs.length > 0 || workers.length > 0 };
+    });
+
+  /**
+   * The bots with work in progress, longest-running first, which an update waits for. A subagent's
+   * turn counts for the bot that launched it, as the user can only stop that bot.
+   */
+  busyBots = () =>
+    serviceEffect(async (): Promise<BusyBotsView> => {
+      const [runs, subagents] = await Promise.all([
+        this.prisma.run.findMany({
+          where: { status: { in: ["queued", "running"] } },
+          select: { id: true, botId: true },
+          orderBy: { createdAt: "asc" },
+        }),
+        this.prisma.subagent.findMany({
+          where: { status: { in: [...ACTIVE_STATUSES] } },
+          select: { childBotId: true },
+          orderBy: { createdAt: "asc" },
+        }),
+      ]);
+      const parentOf = new Map<string, string>();
+      let unresolved = [...new Set([...runs.map((run) => run.botId), ...subagents.map((row) => row.childBotId)])];
+      while (unresolved.length > 0) {
+        const links = await this.prisma.subagent.findMany({
+          where: { childBotId: { in: unresolved } },
+          select: { childBotId: true, parentBotId: true },
+        });
+        for (const link of links) parentOf.set(link.childBotId, link.parentBotId);
+        unresolved = links.map((link) => link.parentBotId).filter((id) => !parentOf.has(id));
+      }
+      const root = (botId: string) => {
+        let id = botId;
+        for (let depth = 0; parentOf.has(id) && depth < 16; depth++) id = parentOf.get(id)!;
+        return id;
+      };
+      const runIds = new Map<string, string[]>();
+      for (const run of runs) runIds.set(root(run.botId), [...(runIds.get(root(run.botId)) ?? []), run.id]);
+      for (const row of subagents) if (!runIds.has(root(row.childBotId))) runIds.set(root(row.childBotId), []);
+      const names = new Map(
+        (await this.prisma.bot.findMany({ where: { id: { in: [...runIds.keys()] } }, select: { id: true, name: true } }))
+          .map((bot) => [bot.id, bot.name]),
+      );
+      return {
+        bots: [...runIds].map(([botId, ids]) => ({ botId, name: names.get(botId) ?? "", runIds: ids })),
+      };
+    });
+
   async stop(parentBotId: string, callId: string, input: StopSubagentInput) {
     if (input.all === true) return this.stopAll(parentBotId, callId);
     const subagent = await this.runningOwned(parentBotId, input.subagent_id);
@@ -410,6 +498,9 @@ export class SubagentService {
     });
     if (!stopped) {
       const current = await this.prisma.subagent.findUnique({ where: { id: subagent.id } });
+      // The worker may record the cancelled turn as stopped before this transaction does.
+      if (current?.status === "stopped" && current.currentRunId === subagent.currentRunId)
+        return { stopped: true, subagent_id: botSubagentId(subagent.id), status: "stopped" };
       return { stopped: false, subagent_id: botSubagentId(subagent.id), status: current?.status ?? "unavailable" };
     }
     return { stopped: true, subagent_id: botSubagentId(subagent.id), status: "stopped" };

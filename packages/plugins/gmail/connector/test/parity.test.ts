@@ -39,7 +39,8 @@ test('Gmail supports empty/HTML-only drafts and rejects injected headers before 
   expect(parsed.html).toContain('Only HTML ✓');
   await expect(h.call('create_draft', { to: ['a@example.com\r\nBcc: other@example.com'] })).rejects.toThrow('newlines');
   await expect(h.call('create_draft', { attachments: [{ filename: 'x', content: 'invalid!' }] })).rejects.toThrow("Not called: the attachment x is incomplete or isn't a valid attachment file");
-  expect(h.requests).toHaveLength(1);
+  // The second request is the one-time account lookup for the draft's link.
+  expect(h.requests.map((request) => request.url.pathname)).toEqual(['/drafts', '/profile']);
 });
 
 test('Gmail decodes MIME text and headers, supplies HTML-to-text, and honors metadata privacy', async () => {

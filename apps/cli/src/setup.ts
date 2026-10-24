@@ -43,7 +43,6 @@ import {
   validateProxyHost,
   validatePublicDomain,
   validatePublicHost,
-  validateTimeZone,
 } from "./setup-values";
 import {
   assertOwnServer,
@@ -92,7 +91,6 @@ export const APP_DOWNLOADS = [
 ] as const;
 
 const SETUP_KEYS = [
-  "OPENTEAM_TIME_ZONE",
   "OPENTEAM_WORKER_CONCURRENCY",
   "OPENTEAM_API_PORT",
   "OPENTEAM_ACCESS_MODE",
@@ -499,7 +497,6 @@ export const collectSetupConfiguration = async (
   }
 
   let apiPort = current.get("OPENTEAM_API_PORT") || String(API_PORT);
-  let timeZone = current.get("OPENTEAM_TIME_ZONE") || "UTC";
   let workerConcurrency = current.get("OPENTEAM_WORKER_CONCURRENCY") || "8";
   if (advanced) {
     apiPort = await ask(
@@ -508,7 +505,6 @@ export const collectSetupConfiguration = async (
       apiPort,
       validateIntegerInRange("API port", 1, 65535)
     );
-    timeZone = await ask(prompter, "Time zone", timeZone, validateTimeZone);
     workerConcurrency = await ask(
       prompter,
       "Tasks at once",
@@ -538,14 +534,12 @@ export const collectSetupConfiguration = async (
     ownerUsername,
     ownerPassword,
     apiPort,
-    timeZone,
     workerConcurrency,
   };
 };
 
 const updateEnvironment = (contents: string, configuration: SetupConfiguration): string => {
   const values: Record<(typeof SETUP_KEYS)[number], string> = {
-    OPENTEAM_TIME_ZONE: configuration.timeZone,
     OPENTEAM_WORKER_CONCURRENCY: configuration.workerConcurrency,
     OPENTEAM_API_PORT: configuration.apiPort,
     OPENTEAM_ACCESS_MODE: configuration.accessMode,

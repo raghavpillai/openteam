@@ -71,7 +71,7 @@ const localRedirect = (value: string | undefined): string | null => {
 
 /**
  * Connects a model provider, chooses a model, and proves it works with one real
- * request. Shared by onboarding and Settings → Server.
+ * request. Shared by onboarding and Settings → Model.
  */
 export function useModelSetup() {
   const [data, setData] = useState<ServerSettingsView | null>(null);
@@ -264,7 +264,6 @@ export function useModelSetup() {
     cancelSignIn();
     setError(null);
     setTest({ status: "idle" });
-    setProviderId(nextProviderId);
     setBusy("provider");
     try {
       await load(nextProviderId);
@@ -422,7 +421,10 @@ export function useModelSetup() {
     changed,
     selectProvider,
     selectModel,
-    setReasoning,
+    setReasoning: (value: PiReasoningLevel) => {
+      setReasoning(value);
+      setTest({ status: "idle" });
+    },
     connect,
     respond,
     cancelSignIn,

@@ -11,7 +11,7 @@ import type { ComputerEventQueue } from "../computer-event-queue";
 import type { DynamicToolDefinition } from "../dynamic-tool-gateway";
 import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 
-export type TurnStatus = "completed" | "failed" | "interrupted";
+export type TurnStatus = "completed" | "failed" | "interrupted" | "cancelled";
 
 export interface ActiveTurn {
   taskConfiguration?: TaskConfiguration;
@@ -53,16 +53,11 @@ export interface ActiveTurn {
   currentAssistantId: string | null;
   currentReasoningId: string | null;
   startedItems: Set<string>;
-  toolArgs: Map<string, { toolName: string; args: unknown; responseCall?: boolean; afterEndTurn?: boolean }>;
+  toolArgs: Map<string, { toolName: string; args: unknown; responseCall?: boolean }>;
   lastStopReason: string | null;
   lastErrorMessage: string | null;
   lastGraphicalSurface?: "browser" | "computer";
   sentMessageCount: number;
-  toolActivityAfterLastSend: boolean;
-  /** Call order of the latest response; delivery bookkeeping follows it although its calls run in parallel. */
-  responseCallOrder?: Map<string, number>;
-  responseActivity?: Set<number>;
-  responseLastSendIndex?: number;
   /** SendToUser calls of a response go out one after another, in call order. */
   sendChain?: Promise<unknown>;
   initialUserStarted: boolean;
@@ -82,9 +77,9 @@ export interface ActiveTurn {
   failedResponseSends?: Set<string>;
   /** This turn showed a question or handed the box back; it waits on the user and is never held open. */
   awaitingUser?: boolean;
+  /** The closing send or reaction; a hold's reminder rides on its result. */
+  endTurnCallId?: string;
   endTurnHolds?: number;
-  /** A failed call kept a closing send from ending the turn; its reply already went out. */
-  endTurnHeld?: boolean;
   acknowledgedCardOutcomes?: Set<string>;
   /** computerUse only: failure classes of the current run of failed calls. */
   toolFailureStreak?: string[];
@@ -96,6 +91,8 @@ export interface ActiveTurn {
   diskPressureReminded?: boolean;
   /** A typed message superseded this run; calls it cut off say so. */
   interruptedByUserAt?: number;
+  /** Stopped through the cancel-run API (the user's stop or StopSubagent): the turn settles as cancelled. */
+  stopped?: boolean;
   /** Auto-review for this turn: the user's settings, and the classifier call on this turn's model. */
   autoReview?: import("./auto-review").TurnAutoReview;
   autoReviewComplete?: import("../auto-review/classifier").ClassifierCompletion;

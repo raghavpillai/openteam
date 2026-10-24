@@ -22,7 +22,7 @@ const mainAgent = (id: string) => {
   const memory = { policy: `## Memory\n${id}'s memory policy.`, facts: `- (learned 2026-10-01) Only ${id} knows this fact.` };
   const messaging = Object.create(AgentMessaging.prototype) as AgentMessaging;
   Object.assign(messaging, {
-    defaultTimeZone: "Asia/Kolkata",
+    userTimeZone: async () => "Asia/Kolkata",
     agentData: {
       root: "/srv/current-agent-data",
       loadTaskConfiguration: async () => ({ executorProfiles: [] }),
@@ -258,7 +258,7 @@ describe("platform prompt integration", () => {
     for (const line of [
       "Ask first only when:\n- a wrong guess has real consequences: deleting, sending messages, submitting forms (logging in is fine), purchasing, and similar,",
       "offer it in one sentence and wait for a yes. Never start it on your own",
-      "## Security\nDon't change, post, delete, or send anything on the user's behalf without explicit confirmation in chat.",
+      "## Security\nShell with machineId acts on the user's own computer and can read and change their files, sessions, and accounts. Don't change, post, delete, or send anything on the user's behalf without explicit confirmation in chat.",
       "A dismissed widget is a decline: don't re-ask. Don't send a widget to confirm a tool that opens its own review UI; call the tool.",
       "Ask again only to pick between connectors or accounts, or take a consequential action.",
     ]) expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain(line);

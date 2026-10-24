@@ -323,8 +323,12 @@ export const isValidBotEarlyThreshold = (
   threshold > 0 &&
   threshold < maxTokens;
 
+// The reference starts once fewer than 10,000 tokens or 10% of the window remain.
+export const BOT_CONTEXT_UNUSED_TOKENS = 10_000;
+
 export const botBackgroundThreshold = (maxTokens: number, earlyThreshold?: number): number =>
   Math.min(
+    maxTokens - BOT_CONTEXT_UNUSED_TOKENS,
     Math.ceil(maxTokens * BOT_CONTEXT_COMPACTION_RATIO),
     isValidBotEarlyThreshold(earlyThreshold, maxTokens) ? earlyThreshold : Infinity
   );
@@ -390,7 +394,15 @@ export const estimateBotMessageTokens = (message: BotMessage): number => {
         ["image", "image_url"].includes(String((part as Record<string, unknown>).type))
       )
         return tokens + 1_200;
-      return tokens + estimateBotTextTokens(typeof part === "string" ? part : canonicalJson(part));
+      // As in the reference, a text part counts its text, not its escaped JSON.
+      const text =
+        typeof part === "string"
+          ? part
+          : part && typeof part === "object" && (part as Record<string, unknown>).type === "text" &&
+              typeof (part as Record<string, unknown>).text === "string"
+            ? ((part as Record<string, unknown>).text as string)
+            : canonicalJson(part);
+      return tokens + estimateBotTextTokens(text);
     }, 0)
   );
 };

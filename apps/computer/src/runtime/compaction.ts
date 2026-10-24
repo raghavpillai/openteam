@@ -29,7 +29,6 @@ import type { ActiveTurn } from "./types";
 import { communicationReminder, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder, promptFingerprint } from "./prompt-context";
 import { compactRepeatedDiscovery } from "./discovery-context";
 import { DISK_PRESSURE_REMINDER } from "./disk-pressure";
-import { graphicalProgressReminder } from "./graphical-completion";
 
 const TOO_MANY_MEDIA_MARKERS = [
   "request contained too many images or documents",
@@ -144,21 +143,6 @@ export function compactionExtension(
             };
         }
         await acknowledgeToolOutcomes?.(event.messages as BotMessage[]);
-        // The SDK's model projection can omit custom-entry metadata. Count from
-        // the durable tape so a checkpoint resets the cadence on later steps.
-        const graphicalReminder = graphicalProgressReminder(readPiMessages(), active);
-        if (graphicalReminder && active.session) {
-          await active.session.sendCustomMessage(
-            {
-              customType: "openteam-graphical-progress",
-              content: graphicalReminder,
-              display: false,
-              details: { origin: "host" },
-            },
-            { triggerTurn: false }
-          );
-          event.messages = [...event.messages, active.session.messages.at(-1)!];
-        }
         if (active.diskPressureEpisode != null && !active.diskPressureReminded && active.session) {
           active.diskPressureReminded = true;
           await active.session.sendCustomMessage(

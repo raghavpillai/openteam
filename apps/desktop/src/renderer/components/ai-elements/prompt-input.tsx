@@ -38,6 +38,7 @@ import { ImageAttachment } from "../openteam/image-attachment";
 import { MentionEditor } from "../openteam/mention-editor";
 import type { VoiceMemoMode } from "../openteam/voice-memo/voice-memo-layer";
 import { Button } from "../ui/button";
+import "./composer-motion.css";
 import {
   BotArrowUpIcon,
   BotCloseIcon,
@@ -67,7 +68,7 @@ const loadVoiceMemoLayer = () =>
 const VoiceMemoLayer = lazy(loadVoiceMemoLayer);
 // Recording collapses an expanded composer back to its single-line pill.
 const VOICE_SURFACE = { height: 44, radius: 22 };
-const VOICE_EXIT_MS = 220;
+const VOICE_EXIT_MS = 460;
 
 interface PendingAttachment {
   id: string;
@@ -982,25 +983,31 @@ export function PromptInput({
                 />
               </div>
               <div
-                className="absolute bottom-[7px] right-2 z-10 flex items-center gap-2"
+                className="absolute bottom-[7px] right-2 z-10 flex items-center"
+                data-composer-actions
+                data-has-payload={hasPayload ? "true" : "false"}
                 ref={trailingRef}
               >
                 {
                   <>
-                    {hasPayload && (
+                    <span className="composer-dictation-slot">
                       <Button
+                        aria-hidden={!hasPayload}
                         aria-label={
-                          voice.available
-                            ? "Record voice note"
-                            : "Set up transcription in Server settings to use voice notes"
+                          !hasPayload
+                            ? undefined
+                            : voice.available
+                              ? "Record voice note"
+                              : "Set up transcription in Voice notes settings to use voice notes"
                         }
                         title={
                           voice.available
                             ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
-                            : "Set up transcription in Server settings"
+                            : "Set up transcription in Voice notes settings"
                         }
-                        className={VOICE_ACTION_CLASS}
-                        disabled={!voice.available || blocked}
+                        className={cn("composer-dictation-action", VOICE_ACTION_CLASS)}
+                        disabled={!hasPayload || !voice.available || blocked}
+                        tabIndex={hasPayload ? undefined : -1}
                         onClick={recordFromButton}
                         onMouseDown={(event) => event.preventDefault()}
                         size="icon"
@@ -1009,23 +1016,26 @@ export function PromptInput({
                       >
                         <BotMicIcon className="size-3.5 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
                       </Button>
-                    )}
+                    </span>
                     <Button
                       aria-label={
                         hasPayload
                           ? "Send message"
                           : voice.available
                             ? "Record voice note"
-                            : "Set up transcription in Server settings to use voice notes"
+                            : "Set up transcription in Voice notes settings to use voice notes"
                       }
                       title={
                         !hasPayload && !voice.available
-                          ? "Set up transcription in Server settings"
+                          ? "Set up transcription in Voice notes settings"
                           : !hasPayload
                             ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
                             : undefined
                       }
-                      className={cn("relative", hasPayload ? SEND_ACTION_CLASS : VOICE_ACTION_CLASS)}
+                      className={cn(
+                        "composer-primary-action relative",
+                        hasPayload ? SEND_ACTION_CLASS : VOICE_ACTION_CLASS
+                      )}
                       disabled={
                         blocked || (hasPayload && sendDisabled) || (!hasPayload && !voice.available)
                       }

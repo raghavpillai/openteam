@@ -8,17 +8,19 @@ Some settings apply to one device, some to one bot, and some to your whole serve
 | --- | --- |
 | **General** | Your account and sign out, theme, microphone |
 | **Computer** | Whether bots can use this computer, other connected computers, the bot screen size, and Mac access |
-| **Server** | Model provider, model and reasoning, event subscriptions, and transcription |
+| **Model** | AI provider and account, model, reasoning effort, and connection test |
+| **Voice notes** | Transcription provider, model, API key, language, and connection test |
+| **Server** | Server activity and remote access |
 | **Providers** | Which service bots use for [web search and page fetching](web-search.md), and those services' API keys |
 | **Updates** | Desktop app and server updates |
 
-**Server** and **Providers** settings apply to every bot and every app connected to your server; changing the model there changes it for all bots. Theme, microphone, **Execution on this computer**, and Mac access apply only to the device you're using. The bot screen size and the list of connected computers apply to your whole server.
+**Model**, **Voice notes**, **Server**, and **Providers** settings apply to every bot and every app connected to your server; changing the model there changes it for all bots. Theme, microphone, **Execution on this computer**, and Mac access apply only to the device you're using. The bot screen size and the list of connected computers apply to your whole server.
 
 Each bot also has its own settings. Open the bot and select its name at the top of the conversation to change its name, label, avatar, and description.
 
 ## iPhone settings
 
-The iPhone app's **Settings** covers plugins, appearance, notifications, and your account. You can also unhide conversations and see your server's status. Change server settings such as the model on desktop.
+The iPhone app's **Settings → Model** lets you connect an AI provider and choose and test the model and reasoning effort for every bot on your server. These are the same settings as **Settings → Model** on desktop. Settings also covers voice notes, web providers, plugins, appearance, notifications, your account, hidden conversations, and server status.
 
 ## Notifications
 

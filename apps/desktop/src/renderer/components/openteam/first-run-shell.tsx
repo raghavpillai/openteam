@@ -117,11 +117,11 @@ function EmptyFrame() {
             display: "grid",
             maxWidth: wide ? undefined : 440,
             margin: wide ? undefined : "0 auto",
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
             gap: 6,
           }}
         >
-          {[0, 1, 2, 3].map((index) => (
+          {[0, 1, 2, 3, 4].map((index) => (
             <span
               key={index}
               style={{ height: 4, borderRadius: 4, background: index === 0 ? ink : line }}

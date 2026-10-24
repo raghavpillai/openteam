@@ -48,7 +48,7 @@ struct SettingsView: View {
         Section {
           NavigationLink(value: SettingsRoute.model) {
             serverRow(
-              "Model", detail: "The account your bots think with",
+              "Model", detail: "AI provider and model for all bots",
               status: modelStatus)
           }.accessibilityIdentifier("model-settings")
           NavigationLink(value: SettingsRoute.voiceNotes) {

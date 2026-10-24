@@ -1,0 +1,33 @@
+.transcription-settings {
+  container-type: inline-size;
+}
+.transcription-input {
+  height: 32px;
+  width: 270px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  padding: 0 10px;
+  color: var(--foreground);
+  font-size: 12px;
+  box-shadow: none;
+  outline: none;
+}
+.transcription-input:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 30%, transparent);
+}
+@container (max-width: 480px) {
+  .transcription-setting-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding-block: 12px;
+  }
+  .transcription-setting-row > div:last-child {
+    min-width: 0;
+  }
+  .transcription-input {
+    width: 100%;
+  }
+}

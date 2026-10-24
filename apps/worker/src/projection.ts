@@ -386,6 +386,8 @@ export class Projection {
             ? "completed"
             : event.status === "interrupted"
               ? "interrupted"
+              : event.status === "cancelled"
+                ? "cancelled"
               : event.status === "failed"
                 ? "failed"
                 : "interrupted";

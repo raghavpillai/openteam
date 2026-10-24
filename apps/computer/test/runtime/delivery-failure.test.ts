@@ -1,165 +1,109 @@
 import { expect, test } from "bun:test";
-import { ComputerRuntime } from "../../src/runtime";
+import { CLOSING_SEND_NUDGE_PROMPT, ComputerRuntime, MAX_REPLY_NUDGES, REPLY_NUDGE_PROMPT } from "../../src/runtime";
 import { routeEvent } from "../../src/runtime/events";
 
-test("a rejected attachment after end_turn is not reported as successful delivery", async () => {
+const user = (text: string) => ({ role: "user", content: [{ type: "text", text }] });
+const call = (id: string, name: string, args: unknown = {}) => ({ role: "assistant", content: [{ type: "toolCall", id, name, arguments: args }] });
+const result = (id: string, isError = false) => ({ role: "toolResult", toolCallId: id, isError, content: [] });
+const ack = [call("ack", "SendToUser", { content: "On it." }), result("ack")];
+const task = [call("task", "CallDynamicTool", { namespace: "cursor", toolName: "Task", arguments: { prompt: "x" } }), result("task")];
+
+function fixture(options: { sent?: number; endTurn?: boolean; requestSource?: string; messages: any[]; onPrompt?: (prompt: string, active: any) => void }) {
   const runtime = new ComputerRuntime() as any;
   const events: any[] = [];
-  let prompts = 0;
+  const prompts: string[] = [];
   const active: any = {
     contextSessionId: "fixture", runId: "fixture", turnId: "fixture", botId: "fixture",
-    runtimeProfile: "agent", requestSource: "turn", instructions: "fixture",
-    modelRef: { providerId: "fixture", modelId: "fixture" },
-    sentMessageCount: 0, toolActivityAfterLastSend: false, lastStopReason: "stop",
-    attachmentTempDirectories: [], toolArgs: new Map(),
+    runtimeProfile: "agent", subagentType: null, requestSource: options.requestSource ?? "turn",
+    modelRef: { providerId: "fixture", modelId: "fixture" }, instructions: "fixture",
+    sentMessageCount: options.sent ?? 0, endTurnRequested: options.endTurn, lastStopReason: "stop",
+    attachmentTempDirectories: [], toolArgs: new Map(), pluginAbortController: new AbortController(),
     queue: { push: (event: any) => events.push(event), end() {} },
   };
+  const messages = [user("<timestamp>now</timestamp>\n<user_query>do it</user_query>"), ...options.messages];
   active.session = {
-    async prompt() {
-      prompts++;
-      // The summary was delivered with end_turn before its queued attachment.
+    async prompt(prompt: string) {
+      if (prompts.length || prompt !== "fixture") prompts.push(prompt);
+      else prompts.push("turn");
+      if (prompt !== "fixture") messages.push(user(prompt));
+      options.onPrompt?.(prompt, active);
+    },
+    getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [], messages,
+  };
+  runtime.compaction = { beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {} };
+  runtime.cleanup = async () => {};
+  return { runtime, active, events, prompts, messages };
+}
+
+test("a rejected attachment after end_turn settles the turn without a nudge or a failure", async () => {
+  const { runtime, active, events, prompts } = fixture({
+    messages: [],
+    onPrompt: (_prompt, active) => {
       active.sentMessageCount = 1;
       active.endTurnRequested = true;
       routeEvent(undefined, active, { type: "tool_execution_start", toolCallId: "zip", toolName: "SendToUser", args: { type: "attachment", url: "file:///workspace/result.zip" } } as any);
       routeEvent(undefined, active, { type: "tool_execution_end", toolCallId: "zip", toolName: "SendToUser", isError: true, result: { content: [{ type: "text", text: "The turn has ended after delivery; wait for the next user message." }] } } as any);
     },
-    getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [], messages: [],
-  };
-  runtime.compaction = { beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {} };
-  runtime.cleanup = async () => {};
+  });
   await runtime.execute(active, "fixture", []);
-  expect(events.find(event => event.type === "turn.completed")).toMatchObject({ status: "failed" });
-  expect(events.find(event => event.type === "turn.completed").error.message).toContain("A response was delivered");
-  // Honor end_turn: surface the failure, without executing more work or retrying delivery.
-  expect(prompts).toBe(1);
+  expect(events.find((event) => event.type === "turn.completed")).toMatchObject({ status: "completed" });
+  expect(prompts).toEqual(["turn"]);
 });
 
-for (const scenario of ["pending", "pending-schema", "failed-schema", "other-work-schema", "completed", "failed-check", "other-work", "never-sent"] as const) {
-  test(`background status polling preserves delivery obligation: ${scenario}`, async () => {
-    const runtime = new ComputerRuntime() as any;
-    const events: any[] = [];
-    let calls = 0;
-    const active: any = {
-      contextSessionId: "fixture", runId: "fixture", turnId: "fixture", botId: "fixture",
-      runtimeProfile: "agent", subagentType: null, requestSource: "turn",
-      modelRef: {providerId: "fixture", modelId: "fixture"}, instructions: "fixture",
-      sentMessageCount: scenario === "never-sent" ? 0 : 1,
-      toolActivityAfterLastSend: scenario.startsWith("other-work"), lastStopReason: "stop",
-      attachmentTempDirectories: [], toolArgs: new Map(),
-      queue: {push: (e: any) => events.push(e), end() {}},
-    };
-    active.session = {
-      async prompt() {
-        calls++;
-        if (scenario.includes("schema")) {
-          routeEvent(undefined, active, {type: "tool_execution_start", toolCallId: "schema", toolName: "GetDynamicTools", args: {namespace: "cursor", toolName: "CheckSubagent"}} as any);
-          routeEvent(undefined, active, {type: "tool_execution_end", toolCallId: "schema", toolName: "GetDynamicTools", isError: scenario === "failed-schema", result: {content: [], details: {namespaceCount: 1}}} as any);
-        }
-        routeEvent(undefined, active, {type: "tool_execution_start", toolCallId: "poll", toolName: "CallDynamicTool", args: {namespace: "cursor", toolName: "CheckSubagent", arguments: {subagent_id: "fixture"}}} as any);
-        routeEvent(undefined, active, {type: "tool_execution_end", toolCallId: "poll", toolName: "CallDynamicTool", isError: scenario === "failed-check", result: {content: [], details: {tool: "CheckSubagent", pendingBackgroundWork: scenario !== "completed"}}} as any);
-      },
-      getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [], messages: [],
-    };
-    runtime.compaction = {beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {}};
-    runtime.cleanup = async () => {};
-    await runtime.execute(active, "fixture", []);
-    expect(events.find(e => e.type === "turn.completed").status).toBe(["pending", "pending-schema"].includes(scenario) ? "completed" : "failed");
-    expect(calls).toBe(["pending", "pending-schema"].includes(scenario) ? 1 : 2);
-  });
-}
-
-for (const scenario of ["never-sent", "progress-only", "recovered", "delivered", "automation", "cancelled", "cancelled-between-steps", "cancelled-throws", "provider-throws"] as const) {
-  test(`turn settlement after delivery ${scenario}`, async () => {
-    const runtime = new ComputerRuntime() as any;
-    const events: any[] = [];
-    let calls=0;
-    let settlements=0;
-    const active:any={
-      contextSessionId:"fixture",runId:"fixture",turnId:"fixture",botId:"fixture",
-      runtimeProfile:"agent",subagentType:null,requestSource:scenario==="automation"?"automation":"turn",
-      modelRef:{providerId:"fixture",modelId:"fixture"},instructions:"fixture",
-      sentMessageCount:["progress-only","delivered"].includes(scenario)?1:0,
-      toolActivityAfterLastSend:scenario==="progress-only",endTurnRequested:scenario==="delivered",
-      lastStopReason:scenario==="cancelled"?"aborted":"stop",attachmentTempDirectories:[],
-      pluginAbortController: new AbortController(),
-      queue:{push:(e:any)=>events.push(e),end(){}},
-    };
-    active.session={
-      async prompt(){calls++;if(scenario==="provider-throws") throw new Error("Provider unavailable");if(scenario.startsWith("cancelled-") ) { active.endTurnRequested=true; active.pluginAbortController.abort(); if(scenario==="cancelled-throws") throw new DOMException("Aborted", "AbortError"); }if(calls===2&&scenario==="recovered"){active.sentMessageCount=1;active.toolActivityAfterLastSend=false;active.endTurnRequested=true;}},
-      getContextUsage:()=>undefined,getAllTools:()=>[],getActiveToolNames:()=>[],messages:[],
-    };
-    runtime.compaction={beginUserQuery:async()=>{},settleAtTurnEnd:async()=>{ settlements++; return null; },parkBackground(){}};
-    let cleaned = false;
-    runtime.cleanup=async()=>{ cleaned = true; };
-    active.queue.push = (event: any) => {
-      if (event.type === "turn.completed") expect(cleaned).toBe(true);
-      events.push(event);
-    };
-    await runtime.execute(active,"fixture",[]);
-    const completion=events.find(e=>e.type==="turn.completed");
-    expect(completion.status).toBe(["never-sent","progress-only","provider-throws"].includes(scenario)?"failed":scenario.startsWith("cancelled")?"interrupted":"completed");
-    if(completion.status==="failed") expect(completion.error.message).toContain(scenario==="provider-throws"?"Provider unavailable":scenario==="progress-only"?"A response was delivered":"without delivering");
-    if(scenario==="provider-throws") expect(events.some(e=>e.type==="runtime.error")).toBe(true);
-    expect(calls).toBe(["never-sent","progress-only","recovered"].includes(scenario)?2:1);
-    if(scenario.startsWith("cancelled")) { expect(settlements).toBe(0); expect(events.some(e=>e.type==="runtime.error")).toBe(false); }
-  });
-}
-
-for (const scenario of ["background", "default-background", "foreground", "failed", "not-started"] as const) {
-  test(`a Task dispatched after an acknowledgement owes no closing send only while it runs: ${scenario}`, async () => {
-    const runtime = new ComputerRuntime() as any;
-    const events: any[] = [];
-    let calls = 0;
-    const active: any = {
-      contextSessionId: "fixture", runId: "fixture", turnId: "fixture", botId: "fixture",
-      runtimeProfile: "agent", subagentType: null, requestSource: "turn",
-      modelRef: {providerId: "fixture", modelId: "fixture"}, instructions: "fixture",
-      sentMessageCount: 1, toolActivityAfterLastSend: false, lastStopReason: "stop",
-      attachmentTempDirectories: [], toolArgs: new Map(),
-      queue: {push: (e: any) => events.push(e), end() {}},
-    };
-    const args = {description: "Check the case", prompt: "Check it.", subagent_type: "computerUse",
-      ...(scenario === "background" ? {run_in_background: true} : scenario === "foreground" ? {run_in_background: false} : {})};
-    active.session = {
-      async prompt() {
-        calls++;
-        if (calls > 1) return;
-        routeEvent(undefined, active, {type: "tool_execution_start", toolCallId: "task", toolName: "Task", args} as any);
-        routeEvent(undefined, active, {type: "tool_execution_end", toolCallId: "task", toolName: "Task", isError: scenario === "failed",
-          result: {content: [], details: {tool: "Task", pendingBackgroundWork: scenario !== "not-started"}}} as any);
-      },
-      getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [], messages: [],
-    };
-    runtime.compaction = {beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {}};
-    runtime.cleanup = async () => {};
-    await runtime.execute(active, "fixture", []);
-    // Task always runs in the background; the retired flag cannot make it foreground.
-    const running = ["background", "default-background", "foreground"].includes(scenario);
-    expect(events.find(e => e.type === "turn.completed").status).toBe(running ? "completed" : "failed");
-    expect(calls).toBe(running ? 1 : 2);
-  });
-}
-
-test("a held closing reply that the model then leaves as is settles as delivered without a nudge", async () => {
-  const runtime = new ComputerRuntime() as any;
-  const events: any[] = [];
-  let prompts = 0;
-  const active: any = {
-    contextSessionId: "fixture", runId: "fixture", turnId: "fixture", botId: "fixture",
-    runtimeProfile: "agent", subagentType: null, requestSource: "turn",
-    modelRef: {providerId: "fixture", modelId: "fixture"}, instructions: "fixture",
-    sentMessageCount: 1, toolActivityAfterLastSend: false, lastStopReason: "stop",
-    attachmentTempDirectories: [], toolArgs: new Map(), endTurnHeld: true,
-    queue: {push: (e: any) => events.push(e), end() {}},
-  };
-  active.session = {
-    // After the hold the model retried the failed call and stopped without another send.
-    async prompt() { prompts++; active.toolActivityAfterLastSend = true; },
-    getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [], messages: [],
-  };
-  runtime.compaction = {beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {}};
-  runtime.cleanup = async () => {};
+test("a turn that never sends is nudged up to three times and still settles as completed", async () => {
+  const { runtime, active, events, prompts } = fixture({ messages: [] });
   await runtime.execute(active, "fixture", []);
-  expect(events.find(e => e.type === "turn.completed").status).toBe("completed");
-  expect(prompts).toBe(1);
+  expect(MAX_REPLY_NUDGES).toBe(3);
+  expect(prompts).toEqual(["turn", REPLY_NUDGE_PROMPT, REPLY_NUDGE_PROMPT, REPLY_NUDGE_PROMPT]);
+  expect(events.find((event) => event.type === "turn.completed")).toMatchObject({ status: "completed" });
+});
+
+test("reply nudges stop once something is delivered", async () => {
+  const { runtime, active, prompts } = fixture({
+    messages: [],
+    onPrompt: (prompt, active) => { if (prompt === REPLY_NUDGE_PROMPT) { active.sentMessageCount = 1; active.endTurnRequested = true; } },
+  });
+  await runtime.execute(active, "fixture", []);
+  expect(prompts).toEqual(["turn", REPLY_NUDGE_PROMPT]);
+});
+
+test("an acknowledgement followed only by unreported tool calls gets the closing nudge once", async () => {
+  const { runtime, active, events, prompts } = fixture({ sent: 1, messages: [...ack, ...task, { role: "assistant", content: [] }] });
+  await runtime.execute(active, "fixture", []);
+  expect(prompts).toEqual(["turn", CLOSING_SEND_NUDGE_PROMPT]);
+  expect(events.find((event) => event.type === "turn.completed")).toMatchObject({ status: "completed" });
+});
+
+for (const [name, messages] of [
+  ["a later send reported the work", [...ack, ...task, call("started", "SendToUser", { content: "Started." }), result("started")]],
+  ["the acknowledgement went out with the dispatch", [{ role: "assistant", content: [...ack[0]!.content, ...task[0]!.content] }, result("ack"), result("task")]],
+  ["the first tool step was not an acknowledgement", [call("schema", "GetDynamicTools", { namespace: "cursor" }), result("schema"), ...ack, ...task]],
+] as const) {
+  test(`no closing nudge when ${name}`, async () => {
+    const { runtime, active, prompts } = fixture({ sent: 1, messages: [...messages] });
+    await runtime.execute(active, "fixture", []);
+    expect(prompts).toEqual(["turn"]);
+  });
+}
+
+test("routine runs and cancelled turns get no nudge", async () => {
+  for (const variant of ["automation", "cancelled"] as const) {
+    const { runtime, active, events, prompts } = fixture({
+      requestSource: variant === "automation" ? "automation" : "turn",
+      messages: [...ack, ...task],
+      sent: 1,
+      onPrompt: (_prompt, active) => { if (variant === "cancelled") active.pluginAbortController.abort(); },
+    });
+    await runtime.execute(active, "fixture", []);
+    expect(prompts).toEqual(["turn"]);
+    expect(events.find((event) => event.type === "turn.completed").status).toBe(variant === "cancelled" ? "interrupted" : "completed");
+  }
+});
+
+test("a provider failure still fails the turn", async () => {
+  const { runtime, active, events } = fixture({ messages: [], onPrompt: () => { throw new Error("Provider unavailable"); } });
+  await runtime.execute(active, "fixture", []);
+  const completion = events.find((event) => event.type === "turn.completed");
+  expect(completion.status).toBe("failed");
+  expect(completion.error.message).toContain("Provider unavailable");
 });

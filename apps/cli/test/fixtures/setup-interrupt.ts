@@ -22,7 +22,7 @@ writeFileAtomic(paths.compose, "name: openteam\nservices:\n  server:\n    image:
 writeFileAtomic(
   paths.environment,
   replaceEnvironmentValue(
-    createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" }),
+    createEnvironment({ version: "1.2.3", workerConcurrency: "8" }),
     "OPENTEAM_API_PORT",
     port
   )
@@ -80,7 +80,6 @@ try {
         ownerUsername: "owner",
         ownerPassword: "correct horse battery staple",
         apiPort: port,
-        timeZone: "UTC",
         workerConcurrency: "8",
       }),
     }

@@ -168,7 +168,6 @@ const localConfiguration = (input: {
     composeProfiles: "direct",
     ownerUsername: input.currentOwnerUsername ?? "openteam",
     apiPort,
-    timeZone: "UTC",
     workerConcurrency: "8",
   };
 };
@@ -216,7 +215,7 @@ const createSetupFixture = (options: { authenticated?: boolean; owner?: boolean 
   });
   servers.push(server);
   const environment = replaceEnvironmentValue(
-    createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" }),
+    createEnvironment({ version: "1.2.3", workerConcurrency: "8" }),
     "OPENTEAM_API_PORT",
     String(server.port)
   );
@@ -304,7 +303,7 @@ describe("interactive setup", () => {
     const current = parseEnvironment(
       replaceEnvironmentValue(
         replaceEnvironmentValue(
-          createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" }),
+          createEnvironment({ version: "1.2.3", workerConcurrency: "8" }),
           "OPENTEAM_ACCESS_MODE",
           "private"
         ),
@@ -333,7 +332,6 @@ describe("interactive setup", () => {
       ownerUsername: "Sam-Pillai",
       ownerPassword: "correct horse battery staple",
       apiPort: "8787",
-      timeZone: "UTC",
       workerConcurrency: "8",
     });
     expect(prompter.prompts).toEqual([
@@ -348,7 +346,7 @@ describe("interactive setup", () => {
 
   test("advanced setup validates server settings with the connection", async () => {
     const current = parseEnvironment(
-      createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
+      createEnvironment({ version: "1.2.3", workerConcurrency: "8" })
     );
     const prompter = new AnswerPrompter([
       "private",
@@ -356,8 +354,6 @@ describe("interactive setup", () => {
       "openteam.lan",
       "invalid",
       "9444",
-      "Mars/Olympus",
-      "Europe/London",
       "0",
       "4",
       "sam",
@@ -379,7 +375,6 @@ describe("interactive setup", () => {
       ownerUsername: "sam",
       ownerPassword: "correct horse battery staple",
       apiPort: "9444",
-      timeZone: "Europe/London",
       workerConcurrency: "4",
     });
     expect(
@@ -389,7 +384,7 @@ describe("interactive setup", () => {
 
   test("interactive menus never ask about models or providers", async () => {
     const current = parseEnvironment(
-      createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
+      createEnvironment({ version: "1.2.3", workerConcurrency: "8" })
     );
     const prompter = new SelectionPrompter([], ["local"]);
 
@@ -404,7 +399,7 @@ describe("interactive setup", () => {
 
   test("fresh setup reviews the detected private network", async () => {
     const current = parseEnvironment(
-      createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
+      createEnvironment({ version: "1.2.3", workerConcurrency: "8" })
     );
     const prompter = new AnswerPrompter([
       "",
@@ -431,7 +426,7 @@ describe("interactive setup", () => {
 
   test("reconfiguration keeps the existing owner and does not ask for a password", async () => {
     const current = parseEnvironment(
-      createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
+      createEnvironment({ version: "1.2.3", workerConcurrency: "8" })
     );
     const prompter = new AnswerPrompter([""]);
 
@@ -449,7 +444,7 @@ describe("interactive setup", () => {
 
   test("public HTTP requires acknowledgement and keeps screen viewers off the Internet", async () => {
     const current = parseEnvironment(
-      createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
+      createEnvironment({ version: "1.2.3", workerConcurrency: "8" })
     );
     const prompter = new AnswerPrompter(["5", "no", "5", "yes", "203.0.113.9", "", "", ""]);
 
@@ -512,7 +507,6 @@ describe("interactive setup", () => {
     const prompter = new AnswerPrompter([
       "2",
       "",
-      "Europe/London",
       "4",
       "Sam-Pillai",
       "correct horse battery staple",
@@ -533,7 +527,6 @@ describe("interactive setup", () => {
     const updatedContents = readFileSync(fixture.paths.environment, "utf8");
     const updated = parseEnvironment(updatedContents);
     const before = parseEnvironment(fixture.environment);
-    expect(updated.get("OPENTEAM_TIME_ZONE")).toBe("Europe/London");
     expect(updated.get("OPENTEAM_WORKER_CONCURRENCY")).toBe("4");
     expect(updated.get("OPENTEAM_CONTROL_TOKEN")).toBe(before.get("OPENTEAM_CONTROL_TOKEN"));
     expect(updated.get("OPENTEAM_POSTGRES_PASSWORD")).toBe(
@@ -744,7 +737,7 @@ describe("interactive setup", () => {
         rejected.paths,
         invalid,
         { presentation: silentPresentation },
-        sessionPrompter({ timeZone: "Europe/London" })
+        sessionPrompter({ workerConcurrency: "4" })
       )
     ).rejects.toThrow("new configuration is invalid");
     expect(readFileSync(rejected.paths.environment, "utf8")).toBe(rejected.environment);
@@ -758,7 +751,7 @@ describe("interactive setup", () => {
         failing.paths,
         runner,
         { presentation: silentPresentation },
-        sessionPrompter({ timeZone: "Europe/London" })
+        sessionPrompter({ workerConcurrency: "4" })
       )
     ).rejects.toThrow("previous configuration was restored");
     expect(readFileSync(failing.paths.environment, "utf8")).toBe(failing.environment);
@@ -774,7 +767,7 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation },
-      sessionPrompter({ ownerPassword: "correct horse battery staple", timeZone: "Europe/London" })
+      sessionPrompter({ ownerPassword: "correct horse battery staple", workerConcurrency: "4" })
     ).catch((failure: unknown) => failure);
 
     expect(error).toMatchObject({ exitCode: 130 });
@@ -783,8 +776,8 @@ describe("interactive setup", () => {
     );
     // The next run offers the same answers.
     expect(
-      parseEnvironment(readFileSync(fixture.paths.environment, "utf8")).get("OPENTEAM_TIME_ZONE")
-    ).toBe("Europe/London");
+      parseEnvironment(readFileSync(fixture.paths.environment, "utf8")).get("OPENTEAM_WORKER_CONCURRENCY")
+    ).toBe("4");
     expect(runner.index("up")).toBe(-1);
     expect(existsSync(fixture.paths.updateLock)).toBe(false);
   });
@@ -821,7 +814,7 @@ describe("interactive setup", () => {
         fixture.paths,
         runner,
         { presentation: silentPresentation },
-        sessionPrompter({ timeZone: "Europe/London" })
+        sessionPrompter({ workerConcurrency: "4" })
       )
     ).rejects.toMatchObject({
       exitCode: 130,
@@ -844,7 +837,7 @@ describe("interactive setup", () => {
         { presentation: silentPresentation },
         sessionPrompter({
           ownerPassword: "correct horse battery staple",
-          timeZone: "Europe/London",
+          workerConcurrency: "4",
         })
       )
     ).rejects.toThrow(
@@ -866,7 +859,7 @@ describe("interactive setup", () => {
         sessionPrompter({
           ownerUsername: "sam",
           ownerPassword: "correct horse battery staple",
-          timeZone: "Europe/London",
+          workerConcurrency: "4",
         })
       )
     );
@@ -881,7 +874,7 @@ describe("interactive setup", () => {
         existing.paths,
         rerun,
         { presentation: silentPresentation },
-        sessionPrompter({ timeZone: "Europe/London" })
+        sessionPrompter({ workerConcurrency: "4" })
       )
     );
     expect(rerun.calls.find((call) => call.args.includes("up"))?.args).not.toContain(

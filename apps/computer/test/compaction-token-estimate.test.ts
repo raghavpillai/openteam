@@ -71,6 +71,14 @@ test("Unicode and literal special-token strings are counted; image bytes are exc
   expect(withImage("small")).toBe(withImage("x".repeat(1_000_000)));
 });
 
+test("text parts count their raw text, not the JSON-escaped form", () => {
+  const text = 'He said "go"\n\tthen\\left.\n'.repeat(2_000);
+  const asPart = estimateBotContextTokens("", [{ role: "toolResult", content: [{ type: "text", text }] }]);
+  const asString = estimateBotContextTokens("", [{ role: "toolResult", content: text }]);
+  expect(asPart).toBe(asString);
+  expect(asPart).toBeLessThan(estimateBotContextTokens("", [{ role: "toolResult", content: JSON.stringify({ type: "text", text }) }]));
+});
+
 test("dense appended results wait for compaction before the next model step", async () => {
   const root = await mkdtemp(join(tmpdir(), "dense-capacity-"));
   try {

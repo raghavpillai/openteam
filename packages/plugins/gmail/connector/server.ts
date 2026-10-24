@@ -1,7 +1,7 @@
 import { GoogleApi, page, segment, servePlugin, string, tool, ToolNotes, type Args, type Tool } from '../../_shared/google';
 import { compact, mapConcurrent, referenceTool, referenceTools } from '../../_shared/reference';
 import { assertAttachmentsComplete, searchCoverageNote, unwrappedBody, withIdNote } from './guards';
-import { draftMime, gmailViewUrl, headersOf, normalizeMessage, plainHtml } from './messages';
+import { draftMime, gmailDraftUrl, gmailViewUrl, headersOf, normalizeMessage, plainHtml } from './messages';
 
 /** Matches the server's HOST_ONLY_TOOL_META: OpenTeam calls the tool, Bots never see it. */
 const HOST_ONLY = { 'openteam/hostOnly': true };
@@ -13,19 +13,6 @@ const colors: Record<string, any> = Object.fromEntries(colorSchema.enum.slice(1)
   const hex = colorSchema['x-google-enum-descriptions'][i + 1].match(/#[0-9a-f]{6}/g);
   return [key, { backgroundColor: hex[0], textColor: hex[1] }];
 }));
-// Drafts carry no viewUrl here: Google's draft link format is not known, so these texts don't promise one.
-// Throws when a refreshed pin no longer holds the text.
-const adapted = (text: string, from: string, to: string) => {
-  if (!text.includes(from)) throw new Error(`Gmail reference text changed: ${from}`);
-  return text.replace(from, to);
-};
-const reference = (name: string) => referenceTools.gmail.find(t => t.name === name)! as any;
-const DRAFT_RESULT = ['Returns a Draft object with the `id`, `threadId`, and `viewUrl` fields populated.', 'Returns a Draft object with the `id` and `threadId` fields populated.'] as const;
-const draftTexts = {
-  create_draft: adapted(reference('create_draft').description, ...DRAFT_RESULT),
-  update_draft: adapted(reference('update_draft').description, ...DRAFT_RESULT),
-  get_draft: adapted(reference('get_draft').description, ', including its `viewUrl` for viewing and editing in the Gmail Web UI.', '.'),
-};
 /** Google's search_threads shows a thread's newest messages only; get_thread has them all. */
 const SEARCH_THREAD_MESSAGES = 5;
 const filled = (value: unknown) => (Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.length > 0);
@@ -59,7 +46,6 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
     return format === 'RAW' ? m : linked(m, await account());
   };
   const thread = async (id: string, format = 'FULL_CONTENT', options: { newest?: number; account?: Promise<string | undefined> } = {}) => {
-    if (format === 'RAW') throw new Error('RAW format is only available for individual messages or drafts');
     const t = await api.request(`/threads/${segment(id)}`, { format: 'full' });
     const messages = (t.messages ?? []).filter((m: any) => !m.labelIds?.includes('DRAFT'));
     const as = await (options.account ?? account());
@@ -72,7 +58,13 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
   };
   const draft = async (id: string, format = 'FULL_CONTENT') => {
     const d = await api.request(`/drafts/${segment(id)}`, { format: format === 'RAW' ? 'raw' : 'full' });
-    return { ...normalizeMessage(await hydrate(d.message ?? {}), format), id: d.id, messageId: d.message?.id };
+    const m = normalizeMessage(await hydrate(d.message ?? {}), format);
+    return compact({ ...m, id: d.id, messageId: d.message?.id, viewUrl: format === 'RAW' ? undefined : gmailDraftUrl(await account(), d.message?.threadId, d.id) });
+  };
+  /** A written draft as Google returns it; the link lookup can't fail the write. */
+  const written = async (d: any, threadId?: string) => {
+    const thread = d.message?.threadId ?? threadId;
+    return compact({ id: d.id, messageId: d.message?.id, threadId: thread, viewUrl: gmailDraftUrl(await account(), thread, d.id) });
   };
   /** The signature Gmail web adds for the default send-as address. */
   const defaultSignature = async (): Promise<string | undefined> => {
@@ -122,7 +114,7 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
     }, { properties: { maxResults: page.maxResults } }),
     ref('get_message', withIdNote('message', a => message(a.messageId, a.messageFormat))),
     ref('get_thread', withIdNote('thread', a => thread(a.threadId, a.messageFormat))),
-    ref('get_draft', withIdNote('draft', a => draft(a.draftId, a.messageFormat)), { description: draftTexts.get_draft }),
+    ref('get_draft', withIdNote('draft', a => draft(a.draftId, a.messageFormat))),
     ref('list_drafts', async a => {
       const d = await api.request('/drafts', { q: a.query, pageToken: a.pageToken, maxResults: a.pageSize ?? a.maxResults ?? 20 });
       return compact({ drafts: d.drafts?.length ? await mapConcurrent(d.drafts, (d: any) => draft(d.id, a.view === 'DRAFT_VIEW_FULL' ? 'FULL_CONTENT' : 'METADATA_ONLY')) : undefined, nextPageToken: d.nextPageToken || undefined });
@@ -141,8 +133,8 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
       const mime = draftMime(a, original);
       const d = await api.request('/drafts', {}, 'POST', { message: compact(mime) });
       // The insert result is authoritative; a subsequent read must not make a successful write appear failed.
-      return compact({ id: d.id, messageId: d.message?.id, threadId: d.message?.threadId ?? mime.threadId });
-    }, { risk: 'write', description: draftTexts.create_draft, properties: { threadId: string('Legacy thread ID; use replyToMessageId for a correctly threaded reply') } }),
+      return written(d, mime.threadId);
+    }, { risk: 'write', properties: { threadId: string('Legacy thread ID; use replyToMessageId for a correctly threaded reply') } }),
     ref('update_draft', withIdNote('draft', async input => {
       const a = unwrappedBody(input);
       assertAttachmentsComplete(a.attachments);
@@ -159,8 +151,8 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
         attachments: a.attachments, inReplyTo: h['in-reply-to'], references: h.references, threadId: saved.threadId,
       });
       const d = await api.request(`/drafts/${segment(a.draftId)}`, {}, 'PUT', { id: a.draftId, message: compact(mime) });
-      return compact({ id: d.id, messageId: d.message?.id, threadId: d.message?.threadId ?? mime.threadId });
-    }), { risk: 'write', description: draftTexts.update_draft }),
+      return written(d, mime.threadId);
+    }), { risk: 'write' }),
     ref('delete_draft', withIdNote('draft', a => api.request(`/drafts/${segment(a.draftId)}`, {}, 'DELETE')), { risk: 'destructive' }),
     ref('update_message_labels', withIdNote('message', a => api.request(`/messages/${segment(a.messageId)}/modify`, {}, 'POST', { addLabelIds: a.addLabelIds ?? [], removeLabelIds: a.removeLabelIds ?? [] })), { risk: 'write' }),
   ];

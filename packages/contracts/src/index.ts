@@ -1332,6 +1332,8 @@ export const ComputerTurnRequest = Schema.Struct({
   subagentType: Schema.optional(SubagentType),
   taskConfiguration: Schema.optional(Schema.Unknown),
   readOnly: Schema.optional(Schema.Boolean),
+  /** The user's IANA time zone; the computer sets the box clock to it before the turn runs. */
+  timeZone: Schema.optional(Schema.String),
   /** Auto-review settings for the turn; scopeBotId is the user's bot whose cards share the one-pending limit. */
   autoReview: Schema.optional(Schema.Struct({
     enabled: Schema.Boolean,
@@ -1348,6 +1350,20 @@ export const ComputerTurnRequest = Schema.Struct({
   pluginRuntimePackages: Schema.optional(Schema.Array(Schema.Unknown)),
 });
 export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
+
+/** Apps report the zone their device detects; Settings sets or clears (null) an override. */
+export const UpdateUserTimeZoneInput = Schema.Struct({
+  detectedTimeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
+  overrideTimeZone: Schema.optional(Schema.NullOr(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)))),
+});
+export type UpdateUserTimeZoneInput = typeof UpdateUserTimeZoneInput.Type;
+
+export interface UserTimeZoneView {
+  detectedTimeZone: string | null;
+  overrideTimeZone: string | null;
+  /** The zone in effect: the override, else the detected zone, else UTC. */
+  timeZone: string;
+}
 
 export const ShellCompletionInput = Schema.Struct({
   automationRunId: Schema.optional(Schema.String),
@@ -1765,6 +1781,16 @@ export interface MarkChannelReadView {
 /** Lightweight readiness poll that does not rebuild client or channel projections. */
 export interface ClientRuntimeView {
   runtime: ClientSnapshot["runtime"];
+}
+
+/** A user's stop of everything a bot is doing: its turns and the subagents it has running. */
+export interface BotStopView {
+  hadActiveRun: boolean;
+}
+
+/** Bots with turns or subagents in progress, longest-running first; an update waits for none. */
+export interface BusyBotsView {
+  bots: Array<{ botId: string; name: string; runIds: string[] }>;
 }
 
 /** Public release metadata used by clients before loading version-sensitive API surfaces. */

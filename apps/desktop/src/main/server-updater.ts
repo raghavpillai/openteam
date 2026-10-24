@@ -8,6 +8,11 @@ import { isOpenTeamVersion } from "@openteam/contracts/version-compatibility";
 import { redactSensitiveText, safeErrorMessage } from "@openteam/product-core/redaction";
 
 const UPDATE_EVENT_PREFIX = "@@OPENTEAM_UPDATE@@";
+/**
+ * The update refuses, changing nothing, while a bot is working. It goes through the environment
+ * so the CLI release an installed one stages for the update honours it too.
+ */
+const WHEN_IDLE_ENV = "OPENTEAM_UPDATE_WHEN_IDLE";
 const MAX_ERROR_OUTPUT = 12_000;
 export const MAX_UPDATE_PROGRESS_LINE = 128 * 1024;
 
@@ -626,6 +631,8 @@ export class ServerUpdater {
       "-o",
       "ServerAliveCountMax=4",
       remoteTarget ?? "",
+      "env",
+      `${WHEN_IDLE_ENV}=1`,
       ...remoteOpenTeamCommand(
         ["update", ...(targetVersion ? ["--version", targetVersion] : []), "--json-progress"],
         useDefaultInstallPath
@@ -642,7 +649,7 @@ export class ServerUpdater {
           {
             env: {
               ...environment,
-              ...(local ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+              ...(local ? { ELECTRON_RUN_AS_NODE: "1", [WHEN_IDLE_ENV]: "1" } : {}),
               PATH: [...new Set(pathEntries)].join(delimiter),
             },
             stdio: ["ignore", "pipe", "pipe"],

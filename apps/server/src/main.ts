@@ -206,6 +206,11 @@ const server = Bun.serve<VncConnection>({
         if(path === "/api/internal/machines/observe" && request.method === "POST")return json(await app.machines.observe(await request.json()));
         return json({error:{code:"not_found",message:"Not found"}},404);
       }
+      if (request.method === "GET" && path === "/api/internal/busy-bots") {
+        // `openteam update --when-idle` asks with the installation's control token before it stops anything.
+        if (!authorizedInternal(request)) return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        return json(await run(app.busyBots()));
+      }
       if (path === "/api/internal/plugins/host-components" || /^\/api\/internal\/plugins\/[^/]+\/host-refresh$/.test(path)) {
         // The CLI refreshes plugin host parts after an update with the installation's control token.
         if (!authorizedInternal(request))

@@ -14,7 +14,6 @@ test.skipIf(!databaseUrl)("interval and weekday routines can be created, test-ru
   const service = new RoutineService(
     prisma,
     {
-      defaultTimeZone: "America/New_York",
       enqueueWake: async () => { throw new Error("Group routines must enter the room"); },
       createGroupRound: async (tx, input) => {
         const seed = await tx.channelMessage.findUniqueOrThrow({ where: { id: input.triggerMessageId } });
@@ -23,13 +22,18 @@ test.skipIf(!databaseUrl)("interval and weekday routines can be created, test-ru
       },
       advanceRound: async () => {},
     },
-    undefined,
-    "America/New_York"
+    undefined
   );
   const routineIds: string[] = [];
   const executionIds: string[] = [];
 
+  const previousZone = await prisma.userTimeZoneSettings.findUnique({ where: { id: "global" } });
   try {
+    await prisma.userTimeZoneSettings.upsert({
+      where: { id: "global" },
+      create: { id: "global", detected: "America/New_York" },
+      update: { detected: "America/New_York", override: null },
+    });
     await prisma.channel.create({
       data: { id: channelId, kind: "group", name: "Routine time lifecycle test" },
     });
@@ -119,6 +123,8 @@ test.skipIf(!databaseUrl)("interval and weekday routines can be created, test-ru
     });
     await prisma.bot.deleteMany({where:{id:botId}});
     await prisma.channel.deleteMany({ where: { id: channelId } });
+    if (previousZone) await prisma.userTimeZoneSettings.update({ where: { id: "global" }, data: previousZone });
+    else await prisma.userTimeZoneSettings.deleteMany({ where: { id: "global" } });
     await prisma.$disconnect();
   }
 });

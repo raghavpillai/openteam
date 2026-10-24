@@ -1,7 +1,6 @@
 import { applyArgumentAliases, normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
-import { onlyPendingBackgroundWork, startedBackgroundTask } from "./background-status";
+import { onlyPendingBackgroundWork } from "./background-status";
 import { markDelivered } from "./events";
-
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import { stageAttachment } from "../attachment-staging";
@@ -638,7 +637,6 @@ export class RuntimeTools {
         writers.delete(run);
         if (!writers.size) this.stepFileWriters.delete(active.runId);
       }
-
     }
   }
 
@@ -807,7 +805,6 @@ export class RuntimeTools {
     if (tool === "UpdateRoutine") {
       const refused = await this.autoReview.reviewRoutineWrite(active, callId, args as Record<string, any>, signal);
       if (refused !== undefined) return { content: [{ type: "text", text: `Not saved: ${refused}` }], details: { tool } };
-
     }
 
     return this.callControlPlaneTool(active, callId, tool, args, signal);
@@ -1420,9 +1417,10 @@ export class RuntimeTools {
       typeof body === "object" &&
       ((body as Record<string, unknown>).reacted === true || (body as Record<string, unknown>).removed === true)
     ) {
-      markDelivered(active, callId);
+      markDelivered(active);
       active.endTurnRequested = true;
       active.finishResponseCalls = true;
+      active.endTurnCallId = callId;
     }
     if (
       [
@@ -1437,7 +1435,7 @@ export class RuntimeTools {
       !Array.isArray(body) &&
       (body as Record<string, unknown>).sent === true
     ) {
-      markDelivered(active, callId);
+      markDelivered(active);
       const input = args as { end_turn?: boolean; type?: string };
       const question = tool === SEND_TO_USER_TOOL.name && isQuestionSend(input);
       // end_turn closes the turn only when no earlier send in this response failed.
@@ -1446,7 +1444,7 @@ export class RuntimeTools {
       if (question || closes || [REQUEST_BOX_HELP_TOOL.name, "RequestUserForm"].includes(tool)) {
         // A question or closing send still runs the rest of its response; a form or box handoff stops it.
         if (question || closes) active.finishResponseCalls = true;
-
+        if (closes) active.endTurnCallId = callId;
         active.endTurnRequested = true;
       }
     }
@@ -1469,7 +1467,6 @@ export class RuntimeTools {
       details: {
         tool,
         ...(tool === "CheckSubagent" ? {pendingBackgroundWork: onlyPendingBackgroundWork(body)} : {}),
-        ...(tool === "Task" ? {pendingBackgroundWork: startedBackgroundTask(body)} : {}),
         ...(tool === "TodoWrite" && body && typeof body === "object" && "todos" in body
           ? { todos: body.todos, ...(todoCleanupReminder(body.todos) ? { systemReminders: [todoCleanupReminder(body.todos)] } : {}) }
           : {}),
@@ -1877,7 +1874,6 @@ export class RuntimeTools {
             .catch((error) => { throw connectorCallError(error, resolved.namespace, input.toolName, options); })
         : await resolved.tool.execute(active, callId, resolved.arguments, signal);
       return result;
-
     };
     if (
       input.namespace === "cursor" &&

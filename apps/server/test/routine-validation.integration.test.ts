@@ -17,7 +17,6 @@ test.skipIf(!databaseUrl)(
       DATABASE_URL: databaseUrl,
       OPENTEAM_WORKSPACE_ROOT: root,
       OPENTEAM_AGENT_DATA_ROOT: join(root, "data"),
-      OPENTEAM_TIME_ZONE: "UTC",
       OPENTEAM_ENFORCE_AUTOMATION_MINIMUM: "true",
     };
     const previous = Object.fromEntries(

@@ -161,7 +161,7 @@ async function run() {
   const reports: string[] = [];
   render(false);
   await pause(80);
-  const disabled = button("Set up transcription in Server settings to use voice notes")!;
+  const disabled = button("Set up transcription in Voice notes settings to use voice notes")!;
   assert(disabled?.disabled, "Microphone must be disabled before setup");
   disabled.click();
   await pause();
@@ -510,7 +510,7 @@ async function run() {
   root.render(<ThreadTray {...threadProps} transcriptionConfigured={false} />);
   await pause(100);
   assert(
-    button("Set up transcription in Server settings to use voice notes")?.disabled,
+    button("Set up transcription in Voice notes settings to use voice notes")?.disabled,
     "Unconfigured thread mic was enabled"
   );
   root.render(<ThreadTray {...threadProps} transcriptionConfigured />);
@@ -568,20 +568,14 @@ async function run() {
   root.render(<ServerSettings />);
   await pause();
   assert(
-    document.body.textContent?.includes(
-      "Manage voice notes and transcription settings on your OpenTeam server."
-    ),
-    "Server transcription configuration note missing"
-  );
-  assert(
     !document.querySelector('input, [role="combobox"]') &&
       !textButton("Save transcription") &&
       !textButton("Test connection") &&
       !textButton("Apply"),
-    "Server settings still exposes configuration controls"
+    "Server settings still exposes transcription controls"
   );
   assert(configurationCalls.length === 0, "Server settings accessed configuration APIs");
-  reports.push("server settings directs configuration to the server without controls or API calls");
+  reports.push("Server settings leaves transcription in its dedicated Voice notes section");
   return { reports, uploads };
 }
 run()

@@ -57,6 +57,7 @@ export interface CliOptions {
   tail?: string;
   service?: string;
   jsonProgress: boolean;
+  whenIdle: boolean;
   username?: string;
   password: boolean;
   providerId?: string;
@@ -136,6 +137,7 @@ const commandFlags: Record<CommandName, ReadonlySet<string>> = {
     "--allow-prerelease",
     "--allow-unsigned",
     "--json-progress",
+    "--when-idle",
   ]),
   stop: new Set(),
   start: new Set(),
@@ -211,6 +213,7 @@ const emptyOptions = (command: CliOptions["command"], helpTopic?: HelpTopic): Cl
   noSetup: false,
   follow: false,
   jsonProgress: false,
+  whenIdle: false,
   password: false,
 });
 
@@ -507,6 +510,10 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     }
     if (flag === "--json-progress") {
       options.jsonProgress = true;
+      continue;
+    }
+    if (flag === "--when-idle") {
+      options.whenIdle = true;
       continue;
     }
     if (flag === "--password") {

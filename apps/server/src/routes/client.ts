@@ -4,6 +4,7 @@ import {
   RegisterPushDeviceInput,
   UpdateNotificationPresenceInput,
   UpdateNotificationPreferencesInput,
+  UpdateUserTimeZoneInput,
   type SearchCategory,
   UploadAssetInput,
 } from "@openteam/contracts";
@@ -53,6 +54,12 @@ export async function clientRoutes(context: RouteContext): Promise<Response | un
   if (path === "/api/notification-preferences" && request.method === "PATCH") {
     const input = await parseBody(request, UpdateNotificationPreferencesInput);
     return json(await run(app.notifications.updatePreferences(input.smartEnabled)));
+  }
+  if (path === "/api/time-zone" && request.method === "GET") {
+    return json(await app.userTimeZone(), 200, { "cache-control": "no-store" });
+  }
+  if (path === "/api/time-zone" && request.method === "PATCH") {
+    return json(await app.updateUserTimeZone(await parseBody(request, UpdateUserTimeZoneInput)));
   }
   if (request.method === "GET" && path === "/api/notification-state") {
     return json(await run(app.notifications.snapshot()), 200, { "cache-control": "no-store" });

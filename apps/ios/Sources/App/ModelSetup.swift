@@ -84,7 +84,6 @@ import SwiftUI
     cancelSignIn()
     error = nil
     test = .idle
-    choice.providerId = id
     busy = .provider
     do { try await load(id) } catch { failed(error, "Could not load this provider's models") }
     busy = nil

@@ -1266,6 +1266,15 @@ model NotificationPresence {
   @@index([authSessionId])
 }
 
+/// The user's time zone. The apps report the zone their device detects; an override chosen in
+/// Settings wins. Routines, the box clock and the prompt's Time section all use override ?? detected.
+model UserTimeZoneSettings {
+  id        String   @id @default("global")
+  detected  String?
+  override  String?
+  updatedAt DateTime @updatedAt
+}
+
 model NotificationPreferences {
   id String @id @default("global")
   smartEnabled Boolean @default(true)

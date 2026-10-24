@@ -106,7 +106,6 @@ export const PROGRESS_REMINDER =
 export const END_TURN_HOLD_REMINDER =
   "<system_reminder>\nYour turn did not end. This end_turn call succeeded, but a call alongside it failed; see that call's result. If the failure matters to the user, fix it without resending what already went out. Otherwise, stop.\n</system_reminder>";
 
-
 /** Sent once per turn after a response is cut off at the output limit, as in the reference. */
 export const OUTPUT_LIMIT_REMINDER =
   "<system_reminder>Your response was cut off because it exceeded the output token limit. Please break your work into smaller pieces. Continue from where you left off.</system_reminder>";
@@ -199,6 +198,5 @@ export function communicationReminder(
   const calls = callsSinceLastSend(messages);
   if (calls > ACK_THRESHOLD && !acknowledgedSinceTurnStart(messages)) return { kind: "ack", content: ACK_REMINDER };
   if (calls > PROGRESS_THRESHOLD) return { kind: "progress", content: PROGRESS_REMINDER };
-
   return null;
 }

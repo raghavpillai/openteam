@@ -53,6 +53,7 @@ import {
 import { textFromContent } from "./runtime/content";
 import { graphicalFinalReport } from "./runtime/graphical-completion";
 import { attachSession, routeEvent, startAgentMessage } from "./runtime/events";
+import { turnEndedOnSilentToolCalls } from "./runtime/turn-shape";
 import { inferenceReasoningOptions, reasoningExtension } from "./runtime/reasoning";
 import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
@@ -76,7 +77,10 @@ export const REPLY_NUDGE_PROMPT = SEND_TO_USER_REPLY_NUDGE_PROMPT;
 
 export const CLOSING_SEND_NUDGE_PROMPT = SEND_TO_USER_CLOSING_NUDGE_PROMPT;
 
-/** Times one turn may stay open after a closing reply whose sibling call failed. */
+/** Reply nudges a turn that delivered nothing gets before it settles anyway. */
+export const MAX_REPLY_NUDGES = 3;
+
+/** Times one turn may stay open after a closing reply whose sibling call failed, as in the reference. */
 export const END_TURN_HOLD_LIMIT = 2;
 
 export const isDeliveryOwed = (
@@ -151,6 +155,8 @@ export class ComputerRuntime {
         allowModelNetwork: false,
       });
       this.started = true;
+      // Saved windows predating the provider's published input cap pick it up in the background.
+      void this.inferenceProviders.refreshPromptCaps().catch(() => {});
     }
     await this.refreshAuthentication();
   }
@@ -296,7 +302,6 @@ export class ComputerRuntime {
       lastStopReason: null,
       lastErrorMessage: null,
       sentMessageCount: 0,
-      toolActivityAfterLastSend: false,
       initialUserStarted: false,
       initialUserClientId: request.clientMessageId,
       pluginNamespaces: request.dynamicNamespaces ?? [],
@@ -481,11 +486,12 @@ export class ComputerRuntime {
    * reference; an undispatched run goes on and the message queues behind it, unless the
    * message carries the run's plain-text input for recovery. Returns whether it cancelled.
    */
-  async cancel(runId: string, reason?: "user_message" | "parent_message", options: { recovery?: boolean } = {}): Promise<boolean> {
+  async cancel(runId: string, reason?: "user_message" | "parent_message" | "stop", options: { recovery?: boolean } = {}): Promise<boolean> {
     const active = this.activeByRun.get(runId);
     if (!active) throw new Error("Run is not actively executing");
     if (reason === "user_message" && !active.initialUserStarted && !options.recovery) return false;
-    // A parent's message to its worker interrupts it at once; the reference words the cut-off calls the same way.
+    // The reference words every call a stop or a newer message cuts off as interrupted by the user.
+    if (reason === "stop") active.stopped = true;
     if (reason) active.interruptedByUserAt ??= Date.now();
     active.endTurnRequested = true;
     active.pluginAbortController?.abort();
@@ -506,38 +512,26 @@ export class ComputerRuntime {
 
   private bindTurnStop(active: ActiveTurn, session: AgentSession): void {
     const previousStop = session.agent.shouldStopAfterTurn;
-    session.agent.shouldStopAfterTurn = async (context, signal) => {
+    session.agent.shouldStopAfterTurn = (context, signal) => {
       if (active.endTurnRequested) {
-        // A closing send covers its successful sibling calls even when parallel
-        // execution started them before the send reached the host.
-        active.toolActivityAfterLastSend = Boolean(active.failedResponseCalls?.length) ||
-          [...(active.responseActivity ?? [])].some((index) => !Number.isFinite(index));
-        // A call alongside a delivered closing reply failed. Keep the turn open
-        // so the model sees that result; the reply itself already went out.
-        // A turn that asked the user something waits for them instead.
-        if (active.finishResponseCalls && !active.awaitingUser && active.failedResponseCalls?.length &&
+        // As in the reference: a call alongside a delivered closing reply failed, so the
+        // turn stays open and the reminder rides on the closing call's own result. A
+        // turn that asked the user something waits for them instead.
+        const failed = (active.failedResponseCalls ?? []).filter((id) => id !== active.endTurnCallId);
+        const closing = context.toolResults.find((result) => result.toolCallId === active.endTurnCallId);
+        if (active.finishResponseCalls && !active.awaitingUser && failed.length && closing &&
             (active.endTurnHolds ?? 0) < END_TURN_HOLD_LIMIT &&
             !signal?.aborted && !active.pluginAbortController?.signal.aborted) {
           active.endTurnHolds = (active.endTurnHolds ?? 0) + 1;
-          active.endTurnHeld = true;
           active.endTurnRequested = false;
           active.finishResponseCalls = false;
-          active.failedResponseCalls = [];
-          active.toolActivityAfterLastSend = false;
-          await session.sendCustomMessage({
-            customType: "openteam-end-turn-hold",
-            content: END_TURN_HOLD_REMINDER,
-            display: false,
-            details: { origin: "host" },
-          }, { deliverAs: "steer" });
+          active.endTurnCallId = undefined;
+          const details = (closing.details ?? {}) as { systemReminders?: string[] };
+          closing.details = { ...details, systemReminders: [...(details.systemReminders ?? []), END_TURN_HOLD_REMINDER] };
           return false;
         }
-        // Only a hold the model could act on excuses later undelivered work.
-        active.endTurnHeld = false;
-        // Pi's post-run loop otherwise drains queued steering even after its
-        // inner loop stops. Leave these inputs unacknowledged in the durable
-        // server inbox so they are promoted into a separate user turn.
-
+        // Pi's post-run loop otherwise drains queued host follow-ups even after
+        // its inner loop stops, which would run the model again after delivery.
         session.clearQueue();
         return true;
       }
@@ -852,15 +846,18 @@ export class ComputerRuntime {
           item: { type: "agentMessage", id: graphicalReport.id, text: graphicalReport.text, status: "completed" },
         });
       }
-      if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested && !active.endTurnHeld &&
-          !active.pluginAbortController?.signal.aborted &&
-          !["aborted", "error"].includes(active.lastStopReason ?? "")) {
-        if (active.sentMessageCount === 0) {
+      // As in the reference: nudge a turn that sent nothing (up to three times), then
+      // one that acknowledged the user and ended on tool calls it never reported.
+      const settledNormally = () => !active.endTurnRequested && !active.pluginAbortController?.signal.aborted &&
+        !["aborted", "error"].includes(active.lastStopReason ?? "");
+      if (isDeliveryOwed(active.requestSource)) {
+        for (let attempt = 0; attempt < MAX_REPLY_NUDGES && active.sentMessageCount === 0 && settledNormally(); attempt++) {
           await session.prompt(REPLY_NUDGE_PROMPT, {
             source: "rpc",
             expandPromptTemplates: false,
           });
-        } else if (active.toolActivityAfterLastSend) {
+        }
+        if (settledNormally() && turnEndedOnSilentToolCalls(session.messages as Parameters<typeof turnEndedOnSilentToolCalls>[0])) {
           await session.prompt(CLOSING_SEND_NUDGE_PROMPT, {
             source: "rpc",
             expandPromptTemplates: false,
@@ -878,15 +875,6 @@ export class ComputerRuntime {
       else if (active.lastStopReason === "error") {
         status = "failed";
         error = { message: active.lastErrorMessage ?? "Pi turn failed" };
-      } else if (isDeliveryOwed(active.requestSource) && !active.endTurnHeld &&
-        (active.sentMessageCount === 0 || active.toolActivityAfterLastSend)) {
-        // A model finishing is not proof that SendToUser reached the server.
-        // end_turn prevents further work, but cannot certify a later rejected
-        // attachment as delivered. Surface that failure without restarting it.
-        status = "failed";
-        error = { message: active.sentMessageCount === 0
-          ? "Turn ended without delivering its final response to the user"
-          : "A response was delivered, but the turn ended with subsequent tool activity that was not reported to the user" };
       }
     } catch (caught) {
       if (active.pluginAbortController?.signal.aborted) {
@@ -904,6 +892,8 @@ export class ComputerRuntime {
         });
       }
     } finally {
+      // A stop settles as cancelled, so the run it ends is never read as cut off and redone.
+      if (active.stopped && status === "interrupted") status = "cancelled";
       if (active.diskPressureReminded && active.diskPressureEpisode != null && active.session &&
         diskPressureReminderStepPersisted(active.session.messages as Array<{ role: string }>))
         await this.diskPressure.commit(active.botId, active.diskPressureEpisode);

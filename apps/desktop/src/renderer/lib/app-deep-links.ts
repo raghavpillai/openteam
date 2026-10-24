@@ -3,7 +3,7 @@ import { APP_SETTINGS_ANCHORS } from "@openteam/contracts/app-deep-links";
 export const SETTINGS_ANCHORS = APP_SETTINGS_ANCHORS;
 
 export type SettingsAnchor = (typeof SETTINGS_ANCHORS)[number];
-export type SettingsView = "general" | "computer" | "server" | "providers" | "updates";
+export type SettingsView = "general" | "computer" | "model" | "voice" | "server" | "providers" | "updates";
 export const OPENTEAM_DEEP_LINK_EVENT = "openteam:deep-link";
 
 const settingsAnchorSet = new Set<string>(SETTINGS_ANCHORS);
@@ -12,11 +12,11 @@ const viewByAnchor: Record<SettingsAnchor, SettingsView> = {
   theme: "general",
   microphone: "general",
   computers: "computer",
-  "inference-provider": "server",
-  "inference-model": "server",
-  "inference-reasoning": "server",
+  "inference-provider": "model",
+  "inference-model": "model",
+  "inference-reasoning": "model",
   "update-status": "updates",
-  "server-update": "updates",
+  "server-update": "computer",
   "tailscale-https": "server",
   "automatic-updates": "updates",
   "web-search-provider": "providers",

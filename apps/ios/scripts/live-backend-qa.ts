@@ -130,7 +130,6 @@ const env = {
   OPENTEAM_AUTH_URL: actual,
   OPENTEAM_PORT: "20005",
   OPENTEAM_SERVER_HOST: "127.0.0.1",
-  OPENTEAM_TIME_ZONE: "America/New_York",
 };
 for (const p of [
   env.OPENTEAM_WORKSPACE_ROOT,

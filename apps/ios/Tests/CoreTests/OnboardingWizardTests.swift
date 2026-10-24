@@ -5,15 +5,18 @@ import XCTest
 
 final class OnboardingWizardTests: XCTestCase {
   func testStagesAndSteps() {
-    XCTAssertEqual(WizardStage.allCases.map(\.title), ["Server", "AI model", "Voice", "First bot"])
+    XCTAssertEqual(WizardStage.allCases.map(\.title), ["Server", "AI model", "Web search", "Voice", "First bot"])
     XCTAssertEqual(WizardStep.health.stage, .server)
     XCTAssertEqual(
       [WizardStep.choose, .method, .signIn, .apiKey, .test].map(\.stage),
       [.model, .model, .model, .model, .model])
+    XCTAssertEqual(WizardStep.search.stage, .search)
     XCTAssertEqual(WizardStep.voice.stage, .voice)
     XCTAssertEqual(WizardStep.bot.stage, .bot)
-    XCTAssertEqual(WizardStep.afterModel(voiceConfigured: false), .voice)
-    XCTAssertEqual(WizardStep.afterModel(voiceConfigured: true), .bot)
+    XCTAssertEqual(WizardStep.afterModel(searchConfigured: false, voiceConfigured: true), .search)
+    XCTAssertEqual(WizardStep.afterModel(searchConfigured: true, voiceConfigured: false), .voice)
+    XCTAssertEqual(WizardStep.afterModel(searchConfigured: true, voiceConfigured: true), .bot)
+    XCTAssertEqual(WizardStep.afterSearch(voiceConfigured: false), .voice)
   }
 
   func testGuessesTheProviderFromTheKeyPrefix() {

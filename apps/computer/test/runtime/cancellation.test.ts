@@ -17,6 +17,18 @@ test("cancellation is accepted during session setup and signals pending work", a
   await expect(runtime.cancel("missing")).rejects.toThrow("not actively executing");
 });
 
+test("a stop through the cancel-run API marks the turn stopped, so it settles as cancelled", async () => {
+  const runtime = new ComputerRuntime();
+  const internals = runtime as unknown as { activeByRun: Map<string, ActiveTurn> };
+  const active = { session: null, pluginAbortController: new AbortController(), initialUserStarted: true } as unknown as ActiveTurn;
+  internals.activeByRun.set("stop", active);
+  expect(await runtime.cancel("stop", "stop")).toBe(true);
+  expect(active.pluginAbortController!.signal.aborted).toBe(true);
+  expect(active.stopped).toBe(true);
+  // As in the reference, its cut-off calls read as interrupted by the user.
+  expect(active.interruptedByUserAt).toBeNumber();
+});
+
 test("calls cut off because a typed message superseded the run say the user interrupted them", async () => {
   const { RuntimeTools } = await import("../../src/runtime/tools");
   const runtime = new ComputerRuntime();

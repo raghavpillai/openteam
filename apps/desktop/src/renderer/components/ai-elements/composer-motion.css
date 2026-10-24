@@ -1,0 +1,50 @@
+/* Reserve the second mic's space continuously so typing/clearing a draft
+   stretches the action group instead of inserting a new flex item in one frame. */
+.composer-dictation-slot {
+  position: relative;
+  flex-shrink: 0;
+  width: 0;
+  height: 28px;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    width 520ms cubic-bezier(0.22, 1.2, 0.36, 1),
+    opacity 140ms ease;
+}
+[data-has-payload="true"] > .composer-dictation-slot {
+  width: 36px;
+  opacity: 1;
+  pointer-events: auto;
+}
+.composer-dictation-action {
+  position: absolute;
+  left: 0;
+  translate: 24px 0;
+  transition: translate 520ms cubic-bezier(0.22, 1.2, 0.36, 1);
+}
+[data-has-payload="true"] .composer-dictation-action {
+  translate: 0 0;
+}
+.composer-primary-action {
+  transition:
+    background-color 280ms ease,
+    color 220ms ease,
+    scale 320ms cubic-bezier(0.22, 1.35, 0.36, 1);
+}
+.composer-primary-action > svg {
+  transition-timing-function: cubic-bezier(0.22, 1.35, 0.36, 1);
+  transition-duration: 420ms;
+}
+.composer-primary-action:active {
+  scale: 0.9;
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-dictation-slot,
+  .composer-primary-action,
+  .composer-primary-action > svg {
+    transition: none;
+  }
+  .composer-dictation-action {
+    transition: none;
+  }
+}

@@ -1,12 +1,13 @@
 import Foundation
 
-/// The four stages the first-run wizard shows at the top, in order.
+/// The five stages the first-run wizard shows at the top, in order.
 public enum WizardStage: Int, CaseIterable, Sendable, Comparable {
-  case server, model, voice, bot
+  case server, model, search, voice, bot
   public var title: String {
     switch self {
     case .server: return "Server"
     case .model: return "AI model"
+    case .search: return "Web search"
     case .voice: return "Voice"
     case .bot: return "First bot"
     }
@@ -17,17 +18,21 @@ public enum WizardStage: Int, CaseIterable, Sendable, Comparable {
 /// The screens after sign-in (W3–W7). W0–W2 are the sign-in screens; W8 is the chat.
 public enum WizardStep: String, Hashable, Sendable {
   /// `method`: ChatGPT or Claude, by plan (a sign-in) or by API key.
-  case health, choose, method, signIn, apiKey, test, voice, bot
+  case health, choose, method, signIn, apiKey, test, search, voice, bot
   public var stage: WizardStage {
     switch self {
     case .health: return .server
     case .choose, .method, .signIn, .apiKey, .test: return .model
+    case .search: return .search
     case .voice: return .voice
     case .bot: return .bot
     }
   }
-  /// The step after a working model: voice notes, unless they're already set up.
-  public static func afterModel(voiceConfigured: Bool) -> Self {
+  /// The step after a working model: web search, then voice notes, skipping what's set up.
+  public static func afterModel(searchConfigured: Bool, voiceConfigured: Bool) -> Self {
+    searchConfigured ? afterSearch(voiceConfigured: voiceConfigured) : .search
+  }
+  public static func afterSearch(voiceConfigured: Bool) -> Self {
     voiceConfigured ? .bot : .voice
   }
 }

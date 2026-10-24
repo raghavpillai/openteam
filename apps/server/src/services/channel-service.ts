@@ -207,6 +207,7 @@ export class ChannelService {
           orderBy: { createdAt: "asc" },
         });
         const sourceMachineId = input.sourceMachineId && await tx.hostMachine.findUnique({ where: { machineId: input.sourceMachineId }, select: { machineId: true } }) ? input.sourceMachineId : undefined;
+        if (input.timeZone) await this.messaging.updateUserTimeZone(tx, { detected: input.timeZone });
         const address = await nextMessageAddress(tx, channel.id, "user");
         const visibleMessage = await tx.channelMessage.create({
           data: {
@@ -237,7 +238,6 @@ export class ChannelService {
           attachments: input.attachments,
           clientId: input.clientId,
           occurredAt: visibleMessage.createdAt,
-          timeZone: input.timeZone,
           ...(input.isFork ? { replyToMessageId: visibleMessage.id, isFork: true } : {}),
         }, preparedAttachmentPaths);
         await this.messaging.scheduleTranscriptProjection(tx, [conversation.botId]);
@@ -345,6 +345,7 @@ export class ChannelService {
         });
         await dismissMoveOnWidgets(tx, channelId);
         const sourceMachineId = input.sourceMachineId && await tx.hostMachine.findUnique({ where: { machineId: input.sourceMachineId }, select: { machineId: true } }) ? input.sourceMachineId : undefined;
+        if (input.timeZone) await this.messaging.updateUserTimeZone(tx, { detected: input.timeZone });
         const address = await nextMessageAddress(tx, channelId, "user");
         const message = await tx.channelMessage.create({
           data: {
@@ -470,6 +471,7 @@ export class ChannelService {
           data: { metadata: toJson(metadata) },
         });
 
+        if (input.timeZone) await this.messaging.updateUserTimeZone(tx, { detected: input.timeZone });
         let runId: string | null = null;
         if (
           !removed &&
@@ -486,7 +488,6 @@ export class ChannelService {
             clientId: `reaction:${message.id}:${input.clientId}`,
             priority: PRIORITY.user,
             occurredAt: new Date(),
-            timeZone: input.timeZone,
           });
           runId = wake.run.id;
         }

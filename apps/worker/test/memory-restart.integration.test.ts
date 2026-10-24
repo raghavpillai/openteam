@@ -107,7 +107,6 @@ databaseTest(
       "OPENTEAM_CONTROL_TOKEN",
       "OPENTEAM_WORKSPACE_ROOT",
       "OPENTEAM_AGENT_DATA_ROOT",
-      "OPENTEAM_TIME_ZONE",
     ] as const;
     const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
     const until = async (check: () => Promise<boolean>) => {
@@ -124,10 +123,10 @@ databaseTest(
         OPENTEAM_CONTROL_TOKEN: "synthetic-control",
         OPENTEAM_WORKSPACE_ROOT: root,
         OPENTEAM_AGENT_DATA_ROOT: join(root, "data"),
-        OPENTEAM_TIME_ZONE: "Europe/Paris",
       });
       app = new AppService();
       await Effect.runPromise(app.boot());
+      await app.updateUserTimeZone({ detectedTimeZone: "Europe/Paris" });
       await app.agentData.writeInferenceSettings({ providerId: "openai-codex", modelId: "gpt-5.6-sol", reasoning: "medium" });
       worker = {
         async start() {

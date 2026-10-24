@@ -6,7 +6,6 @@ import { parse as yaml } from 'yaml';
 import managed from '../src/prompts/managed-skills.json';
 import { AgentDataStore } from '../src/agent-data';
 import { buildGroupTurnPrompt } from '../src/index';
-import { managedSkillIsForMain } from '../src/managed-skill-agents';
 import { normalizeMemoryContent } from '../src/memory-facts';
 import { referenceTool } from '@openteam/contracts/tool-contracts';
 import { AUTOMATION_TRIGGER_SHAPE_LINES } from '@openteam/contracts/reference-main-parsers';
@@ -184,6 +183,25 @@ test('grocery and post-purchase work have their own skills', () => {
   expect(orders).not.toMatch(/shipment card|alert email/);
 });
 
+test('commerce skills match the current reference text where it applies here', () => {
+  const order = 'in its order: saved logins first, then any connected password manager, and only then the Secure Form or handing over the screen.';
+  for (const id of ['in-chat-forms', 'no-connector-fallback']) expect(skill(id)).toContain(`Sign in as the Authentication section of your instructions says, ${order}`);
+  for (const id of ['shopping', 'grocery-shopping']) expect(skill(id)).toContain('## Cart only');
+  expect(skill('shopping')).toContain('## Should I buy it?');
+  expect(skill('shopping')).toContain('- Give that widget an option for the user to check out themselves.');
+  const orders = skill('orders-and-returns');
+  for (const part of ['## Proof', '## Deal watch', '## What the user usually buys', '7. Confirm a refund only from a refund email or the store\'s order page.']) expect(orders).toContain(part);
+  expect(description('orders-and-returns')).toContain('because every update has to link its source.');
+  expect(skill('purchases')).toContain('`Spendlog YYYYMM: YYYY-MM-DD | store | item | $total | order number`');
+  expect(skill('purchases')).toContain('- Never promise a refund, a reimbursement, or a guarantee');
+  expect(skill('scheduling')).toContain('with scope thisAndFollowing on that occurrence');
+  // Slack listeners hear only channels the bound Slack app is in; no panel flags them here.
+  expect(skill('routines')).toContain('only hears channels the Slack app registered in the server\'s automation webhook settings is actually in.');
+  expect(skill('routines')).not.toContain('Routine panel');
+  // Wallets, product cards and checkout sheets stay out.
+  for (const id of ['shopping', 'grocery-shopping', 'orders-and-returns', 'purchases']) expect(skill(id)).not.toMatch(/X Money|Shop Pay|Checkout sheet|wallet's own/);
+});
+
 test('forms, sending, skill and template skills follow the tools as they work here', () => {
   const forms = skill('in-chat-forms');
   expect(forms).toContain('A value the user already sent in chat needs no form');
@@ -299,7 +317,7 @@ test('active skills materialize and appear in metadata without injecting full bo
       expect(await readFile(entry.filePath,'utf8')).toBe(skill.content);
     }
     const rendered=await (store as any).renderManagedSkills();
-    for(const skill of managed.skills.filter(managedSkillIsForMain))expect(rendered).toContain(`<agent_skill fullPath="${join(root,'data/managed-skills',skill.id,'SKILL.md')}">`);
+    for(const skill of managed.skills)expect(rendered).toContain(`<agent_skill fullPath="${join(root,'data/managed-skills',skill.id,'SKILL.md')}">`);
     expect(rendered).not.toContain('function tfs(');
   }finally{await rm(root,{recursive:true,force:true});}
 });

@@ -34,7 +34,13 @@ Staged screenshots for the iMessage guide use the same method, with fictional pe
 - `openteam-imessage-business-reply.png`: a text reply in a fictional airline's Messages for Business chat.
 - `openteam-imessage-unanswered-routine.png`: a weekday routine that summarizes unanswered texts and suggests replies.
 
-Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG on a 1,000 px canvas, rendered at 2× and scaled to 1600 px wide. Numbers come from the source code. Each post's v0 to v5 frames share one template, so each component stays in the same place as the design grows:
+Staged screenshots for the Claude Duet comparison use the same method, with fictional people, businesses, invoices and `example.com` addresses, captured on 2026-10-21:
+
+- `openteam-morning-brief-routine.png`: a bot creating a weekday 7:30 AM morning-brief routine from a chat request, with the routine panel open.
+- `openteam-morning-brief-chat.png`: the routine's morning brief of meetings, emails, an invoice and a Slack request that need attention.
+- `openteam-email-draft-approval.png`: an email reply draft card waiting for Send, with the Needs approval setting.
+
+Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG on a 1,000 px canvas, rendered at 2× and scaled to 1600 px wide. Numbers come from the source code. Each post's version frames share one template, so each component stays in the same place as the design grows:
 
 - `memory-design-overview.png`: the memory design's steps, and the first step compared with the final design.
 - `memory-design-v0.png` to `memory-design-v5.png`: the memory design at each step.
@@ -42,6 +48,16 @@ Diagrams and charts for the engineering posts were drawn for this blog in HTML a
 - `agent-messaging-overview.png`: the messaging design's steps, and the first step compared with the final design.
 - `agent-messaging-v0.png` to `agent-messaging-v5.png`: bot-to-bot messaging at each step.
 - `agent-messaging-room.png`, `agent-messaging-delivery.png`, `agent-messaging-priorities.png`, `agent-messaging-patterns.png`: a group chat round, the delivery path, mailbox priorities and the three communication patterns.
+- `bot-computer-overview.png`: the bot computer design's steps, and the first step compared with the final design.
+- `bot-computer-v0.png` to `bot-computer-v7.png`: a bot's computer at each step.
+- `bot-computer-anatomy.png`: the final computer container, the server's VNC proxy and the apps.
+
+Diagrams for the Claude Duet comparison use the same method. Claude Duet facts come from Anthropic's announcement and help center on 2026-10-21; OpenTeam facts come from its docs and code:
+
+- `claude-duet-scorecard.png`: where Claude Duet and OpenTeam differ.
+- `claude-duet-where-each-runs.png`: where each agent runs and holds your data.
+- `claude-duet-morning-brief.png`: an OpenTeam morning-brief routine from schedule to sent reply.
+- `claude-duet-urgent-email-timing.png`: Duet's interval checks next to an OpenTeam email-triggered routine.
 
 ## Third-party images
 
@@ -52,6 +68,7 @@ Diagrams and charts for the engineering posts were drawn for this blog in HTML a
 | `call4me-ai-call-assistant.png` | call4me's share card for its AI call assistant | [call4.me/ai-call-assistant](https://call4.me/ai-call-assistant) (`/og/assistant.png`) | call4me | Vendor image |
 | `claude-cowork-web-and-mobile-approvals.png` | Cowork tasks on iPhone and web, with an approval prompt | [claude.com article, 2026-07-07](https://claude.com/resources/articles/cowork-web-mobile) | Anthropic | Vendor screenshot |
 | `claude-cowork-built-in-browser.jpg` | Cowork's built-in browser beside the chat | [claude.com/product/cowork](https://claude.com/product/cowork) | Anthropic | Vendor screenshot |
+| `claude-duet-app-screens.png` | Duet's morning brief, email approval and payment approval, three product-page phone mockups placed side by side without edits | [claude.com/product/claude-duet](https://claude.com/product/claude-duet), retrieved 2026-10-21 | Anthropic | Vendor screenshot |
 | `grok-bot-multi-bot-handoff.jpg` | An orchestrator bot messaging other bots and creating a routine | [x.ai Grok Bot guide](https://x.ai/bot/guides/grok-bot-for-mobile-app-development) | SpaceXAI LLC (xAI) | Vendor screenshot |
 | `grok-bot-approval-prompt.jpg` | A support bot asking to approve its write actions | [x.ai Grok Bot guide](https://x.ai/bot/guides/grok-bot-for-support) | SpaceXAI LLC (xAI) | Vendor screenshot |
 | `meta-muse-browser-task.png` | Muse booking cinema seats in its own browser | [muse.ai](https://muse.ai/) (`/images/landing/browser.webp`) | Meta | Vendor screenshot |

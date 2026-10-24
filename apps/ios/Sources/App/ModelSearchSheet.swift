@@ -8,6 +8,8 @@ struct ModelDropdown: View {
   let selected: String
   var recommended: String?
   var disabled = false
+  var accessibilityID = "wizard-model-menu"
+  var horizontalPadding: CGFloat = 16
   /// Opens the searchable sheet, which the page owns so it outlives this row.
   let search: () -> Void
   let choose: (String) -> Void
@@ -37,7 +39,7 @@ struct ModelDropdown: View {
     .accessibilityElement(children: .combine)
     .accessibilityLabel("Model, \(current?.name ?? selected)")
     .accessibilityHint(long ? "Search \(models.count) models" : "Choose from \(models.count) models")
-    .accessibilityIdentifier("wizard-model-menu")
+    .accessibilityIdentifier(accessibilityID)
   }
 
   @ViewBuilder private func item(_ model: InferenceModel) -> some View {
@@ -75,7 +77,7 @@ struct ModelDropdown: View {
         .contentTransition(.opacity)
       Image(systemName: symbol).font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
     }
-    .padding(.horizontal, 16).frame(minHeight: 56).contentShape(Rectangle())
+    .padding(.horizontal, horizontalPadding).frame(minHeight: 56).contentShape(Rectangle())
     .animation(.smooth, value: selected)
   }
 }

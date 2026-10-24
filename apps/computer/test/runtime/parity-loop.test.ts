@@ -349,15 +349,17 @@ for (const { closing, failures, thenStop = false } of [
         expect(text.split(reminder).length - 1).toBe(index + 1);
         expect(text).toContain("Schedule rejected");
       }
-      expect(manager.getEntries().filter((entry: any) => entry.type === "custom_message" && entry.customType === "openteam-end-turn-hold")).toHaveLength(holds);
+      // As in the reference, the reminder rides on the closing call's own result, not a separate message.
+      for (const [index, request] of requests.slice(1).entries()) {
+        const closingResult = request.messages.find((message: any) => message.role === "tool" && message.tool_call_id === `reply-${index + 1}`);
+        expect(JSON.stringify(closingResult)).toContain(reminder);
+        expect(request.messages.filter((message: any) => message.role === "user")).toHaveLength(1);
+      }
       if (thenStop) {
         expect(active.endTurnRequested).toBe(false);
-        expect(active.endTurnHeld).toBe(true);
       } else {
-        expect(active.endTurnRequested).toBe(true);
         // A clean close, one past the hold limit, or a question settles like any end_turn.
-        expect(active.endTurnHeld).toBe(false);
-        expect(active.toolActivityAfterLastSend).toBe(failures > (closing === "question" ? 0 : 2));
+        expect(active.endTurnRequested).toBe(true);
         expect(active.awaitingUser === true).toBe(closing === "question");
       }
     } finally {

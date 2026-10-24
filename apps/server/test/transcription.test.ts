@@ -222,7 +222,7 @@ describe("voice-note provider requests", () => {
     );
     await expect(denied.transcribe(audio())).rejects.toMatchObject({
       code: "transcription_provider_error",
-      message: "The transcription provider rejected the API key. Check Server settings.",
+      message: "The transcription provider rejected the API key. Check Voice notes settings.",
     });
     const empty = new TranscriptionService(
       config,

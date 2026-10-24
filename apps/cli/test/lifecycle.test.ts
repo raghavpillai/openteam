@@ -26,6 +26,7 @@ import {
 } from "../src/lifecycle";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import type { SetupPrompter } from "../src/setup";
+import { UPDATE_BUSY_MESSAGE } from "../src/update-gate";
 import { readUpdateState } from "../src/update-safety";
 
 class HealthyDockerRunner implements CommandRunner {
@@ -119,13 +120,15 @@ afterEach(() => {
   }
 });
 
-const fixture = (inference = "missing") => {
+const fixture = (inference = "missing", activity?: (request: Request) => Response) => {
   const directory = mkdtempSync(join(tmpdir(), "openteam-cli-lifecycle-"));
   temporaryDirectories.push(directory);
   const paths = installationPaths(directory);
   const server = Bun.serve({
     port: 0,
-    fetch() {
+    fetch(request) {
+      if (activity && new URL(request.url).pathname === "/api/v0/internal/busy-bots")
+        return activity(request);
       const version = parseEnvironment(readFileSync(paths.environment, "utf8")).get(
         "OPENTEAM_VERSION"
       );
@@ -682,6 +685,81 @@ describe("installed lifecycle", () => {
       "verifying",
       "complete",
     ]);
+  });
+
+  test("--when-idle refuses while a bot is working, before it downloads or stops anything", async () => {
+    let authorization: string | null = null;
+    const { paths } = fixture("missing", (request) => {
+      authorization = request.headers.get("authorization");
+      return Response.json({ bots: [{ botId: "b", name: "Chief of Staff", runIds: ["r"] }] });
+    });
+    const previousCompose = readFileSync(paths.compose, "utf8");
+    const runner = new HealthyDockerRunner();
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await expect(
+        updateCommand(
+          paths,
+          parseArguments(["update", "--version", "1.3.0", "--when-idle", ...releaseFixture()]),
+          runner
+        )
+      ).rejects.toThrow(UPDATE_BUSY_MESSAGE);
+    } finally {
+      log.mockRestore();
+    }
+    const token = parseEnvironment(readFileSync(paths.environment, "utf8")).get("OPENTEAM_CONTROL_TOKEN");
+    expect(String(authorization)).toBe(`Bearer ${token}`);
+    expect(runner.calls.some((call) => call.args.includes("pull"))).toBe(false);
+    expect(runner.calls.some((call) => call.args.includes("stop"))).toBe(false);
+    expect(readFileSync(paths.compose, "utf8")).toBe(previousCompose);
+    expect(readManifest(paths)?.version).toBe("1.2.3");
+  });
+
+  test("--when-idle checks again after the download and stops nothing if a bot started working", async () => {
+    let checks = 0;
+    const { paths } = fixture("missing", () =>
+      Response.json({ bots: ++checks > 1 ? [{ botId: "b", name: "Scout", runIds: [] }] : [] })
+    );
+    const previousCompose = readFileSync(paths.compose, "utf8");
+    const runner = new HealthyDockerRunner();
+    const messages: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...values) => {
+      messages.push(values.map(String).join(" "));
+    });
+    try {
+      await expect(
+        updateCommand(
+          paths,
+          parseArguments(["update", "--version", "1.3.0", "--when-idle", "--json-progress", ...releaseFixture()]),
+          runner
+        )
+      ).rejects.toThrow(UPDATE_BUSY_MESSAGE);
+    } finally {
+      log.mockRestore();
+    }
+    expect(checks).toBe(2);
+    expect(runner.calls.some((call) => call.args.includes("pull"))).toBe(true);
+    expect(runner.calls.some((call) => call.args.includes("stop"))).toBe(false);
+    expect(messages.some((message) => message.includes('"phase":"rolling-back"'))).toBe(false);
+    expect(messages).toContain("Still working: Scout");
+    expect(existsSync(`${paths.compose}.next`)).toBe(false);
+    expect(readFileSync(paths.compose, "utf8")).toBe(previousCompose);
+  });
+
+  test("--when-idle updates once every bot is done", async () => {
+    const { paths } = fixture("missing", () => Response.json({ bots: [] }));
+    const runner = new HealthyDockerRunner();
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", "--when-idle", ...releaseFixture()]),
+        runner
+      );
+    } finally {
+      log.mockRestore();
+    }
+    expect(readManifest(paths)?.version).toBe("1.3.0");
   });
 
   test("restores configuration and reports rollback when an update fails", async () => {

@@ -223,7 +223,7 @@ describe("execute tells a computer outage from a reported failure", () => {
       }),
       loadTaskConfiguration: async () => defaultTaskConfiguration(),
     };
-    worker.messaging = { platformPrompt: async () => ({ instructions: "" }) };
+    worker.messaging = { platformPrompt: async () => ({ instructions: "" }), userTimeZone: async () => "UTC" };
     worker.projection = { apply: async () => {} };
     worker.pushNotifications = { drain: async () => {} };
     worker.fail = async (_claimed: unknown, error: unknown, interrupted: boolean) => {

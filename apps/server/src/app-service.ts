@@ -1,7 +1,7 @@
 import { ApnsSettingsStore } from "@openteam/db/apns-settings";
 import { MachineService } from "./services/machine-service";
 import { AutomationWebhooksService } from "./services/automation-webhooks";
-import { ApiError, type UploadAssetInput } from "@openteam/contracts";
+import { ApiError, type UpdateUserTimeZoneInput, type UploadAssetInput } from "@openteam/contracts";
 import { createPrismaClient, Prisma, type PrismaClient } from "@openteam/db";
 import {
   AgentDataStore,
@@ -10,6 +10,7 @@ import {
   AssetStore,
   type RoutineMutationInput,
   RoutineService,
+  userTimeZoneView,
 } from "@openteam/messaging";
 import { Effect } from "effect";
 import { join, resolve } from "node:path";
@@ -379,6 +380,17 @@ export class AppService {
 
   botTranscript = forwardServiceMethod(() => this.bots.transcript);
 
+  userTimeZone = async () =>
+    userTimeZoneView(await this.prisma.userTimeZoneSettings.findUnique({ where: { id: "global" } }));
+
+  updateUserTimeZone = (input: UpdateUserTimeZoneInput) =>
+    this.prisma.$transaction((tx) =>
+      this.messaging.updateUserTimeZone(tx, {
+        ...(input.detectedTimeZone !== undefined ? { detected: input.detectedTimeZone } : {}),
+        ...(input.overrideTimeZone !== undefined ? { override: input.overrideTimeZone } : {}),
+      })
+    );
+
   listRoutines = (botId: string) => serviceEffect(() => this.routines.list(botId));
 
   listGroupRoutines = (channelId: string) =>
@@ -576,7 +588,11 @@ export class AppService {
 
   setMcpInstructions = forwardServiceMethod(() => this.plugins.setInstructions);
 
-  cancelRun = forwardServiceMethod(() => this.runs.cancel);
+  cancelRun = forwardServiceMethod(() => this.subagents.stopRun);
+
+  stopBot = forwardServiceMethod(() => this.subagents.stopBot);
+
+  busyBots = forwardServiceMethod(() => this.subagents.busyBots);
 
 
   snapshot = forwardServiceMethod(() => this.snapshots.full);

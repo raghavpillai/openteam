@@ -18,7 +18,7 @@ const model: any = {
   api: "openai-completions",
   name: "Lifecycle",
   baseUrl: "https://offline.invalid/v1",
-  contextWindow: 10000,
+  contextWindow: 100_000,
   maxTokens: 1000,
   reasoning: false,
   input: ["text"],
@@ -111,9 +111,9 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
             {
               choices: [{ index: 0, delta: {}, finish_reason: tool ? "tool_calls" : "stop" }],
               usage: {
-                prompt_tokens: tool ? 9000 : 500,
+                prompt_tokens: tool ? 90_000 : 500,
                 completion_tokens: 10,
-                total_tokens: tool ? 9010 : 510,
+                total_tokens: tool ? 90_010 : 510,
               },
             },
           ];
@@ -148,7 +148,7 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
               content: [
                 {
                   type: "text",
-                  text: `Tool result ${round}` + (timing === "capacity" ? "x".repeat(8000) : ""),
+                  text: `Tool result ${round}` + (timing === "capacity" ? "x".repeat(48_000) : ""),
                 },
               ],
               details: {},
@@ -185,7 +185,6 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           requestSource: "agent",
           resetSelfSummaryCount: true,
           sentMessageCount: 1,
-          toolActivityAfterLastSend: false,
           assistantOrdinal: 0,
           startedItems: new Set(),
           toolArgs: new Map(),
@@ -310,9 +309,9 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
             {
               choices: [{ index: 0, delta: {}, finish_reason: tool ? "tool_calls" : "stop" }],
               usage: {
-                prompt_tokens: tool ? 9000 : 500,
+                prompt_tokens: tool ? 90_000 : 500,
                 completion_tokens: 10,
-                total_tokens: tool ? 9010 : 510,
+                total_tokens: tool ? 90_010 : 510,
               },
             },
           ];
@@ -345,7 +344,6 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
             await releaseTool.promise;
             // Model a successful terminal delivery, not only an end-turn flag.
             currentActive.sentMessageCount++;
-            currentActive.toolActivityAfterLastSend = false;
             currentActive.endTurnRequested = true;
             return {
               content: [{ type: "text", text: `Tool result ${round}` }],
@@ -382,7 +380,6 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
           requestSource: "turn",
           resetSelfSummaryCount: true,
           sentMessageCount: 1,
-          toolActivityAfterLastSend: false,
           assistantOrdinal: 0,
           startedItems: new Set(),
           toolArgs: new Map(),
@@ -440,7 +437,7 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
               (e: any) => e.type === "custom" && e.customType === "openteam-compaction-usage"
             );
           expect(measurements).toHaveLength(round - 1);
-          expect((measurements.at(-1) as any).data.inputTokens).toBe(9000);
+          expect((measurements.at(-1) as any).data.inputTokens).toBe(90_000);
           expect((measurements.at(-1) as any).data.source).toBe("provider");
         }
         releaseSummary.resolve();

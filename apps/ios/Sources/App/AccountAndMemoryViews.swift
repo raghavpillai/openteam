@@ -48,11 +48,11 @@ struct NativePreferencesView: View {
           "Language",
           value: Locale.current.localizedString(
             forLanguageCode: Locale.current.language.languageCode?.identifier ?? "en") ?? "System")
-        LabeledContent("Time zone", value: TimeZone.current.identifier)
+        NavigationLink("Timezone") { TimeZoneSettingsView() }
         Button("Open iOS Settings", systemImage: "arrow.up.right") {
           openURL(URL(string: UIApplication.openSettingsURLString)!)
         }
-        Text("OpenTeam follows your iPhone’s language, text size and time zone.").font(.footnote)
+        Text("OpenTeam follows your iPhone’s language and text size. Your bots use your timezone for routines and their computer’s clock.").font(.footnote)
           .foregroundStyle(NativePalette.muted)
       }
     }.navigationTitle("Preferences").navigationBarTitleDisplayMode(.inline)

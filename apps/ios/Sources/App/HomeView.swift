@@ -127,12 +127,9 @@ struct HomeView: View {
     let showsList = selected == nil || !listHidden
     return HStack(spacing: 0) {
       if showsList {
-        // A gray card beside the chat, as sidebars float in system apps.
+        // A gray column, edge to edge, beside the chat; the open chat is a card on it.
         conversationList
           .environment(\.canvasColor, NativePalette.sidebar)
-          .background(NativePalette.sidebar)
-          .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-          .padding([.leading, .vertical], 8)
           .frame(width: HomeLayout.sidebarWidth(for: width))
           .transition(.move(edge: .leading).combined(with: .opacity))
       }

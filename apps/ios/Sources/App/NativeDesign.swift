@@ -36,9 +36,9 @@ enum NativePalette {
   static let assistant = surface
   static let user = color("0E0E0E", "545454")
   static let separator = color("E4E4E4", "343434")
-  /// The conversation list's card beside a chat, and its open conversation.
+  /// The conversation list's column beside a chat, and its open conversation's card.
   static let sidebar = color("EEEEEF", "1E1E1F")
-  static let sidebarSelection = color("DFDFE1", "2E2E30")
+  static let sidebarSelection = color("FFFFFF", "2E2E30")
   static let code = color("E5E5E5", "2C2C2C")
   static let selection = code
   // Reference action fill: RGB 1/108/236. iOS 26's default blue is brighter.

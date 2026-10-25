@@ -32,7 +32,7 @@ test("a dispatch whose prompt names a tool the child lacks carries the reminder 
 test("run_in_background: false still dispatches in the background, as in the reference", async () => {
   const result: string = await accepted({ description: "Flights", prompt: "Find flights.", subagent_type: "executor", run_in_background: false });
   expect(result).toBe(
-    "Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\nDo NOT try to predict the subagent's response before it replies.\n\nAgent ID: sand-subagent-child (can be used with the `resume` parameter to send a follow-up after it completes)"
+    "Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\n\nAgent ID: sand-subagent-child (can be used with the `resume` parameter to send a follow-up after it completes)"
   );
 });
 

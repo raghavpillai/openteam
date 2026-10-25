@@ -136,11 +136,7 @@ export function renderControlResult(
       )[args.action];
       const owner = result.owner?.kind === "group" ? ` Owner: group "${result.owner.name ?? result.owner.id}" (${result.owner.id}).` : "";
       const summary = `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update", "resume"].includes(args.action) ? `: ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.${owner}`;
-      const next = args.action === "delete" ? ""
-        : typeof result.next_run_at === "string" ? `\nNext scheduled occurrence: ${localTime(result.next_run_at, result.timezone)}. Use this saved time if reporting the next run; do not calculate or guess a different time.`
-        : result.next_run_at === null ? `\nNext scheduled occurrence: none${result.enabled === false ? " (paused)" : ""}.`
-        : "";
-      return `${summary}${next}${result.delivery_nudge ? "\nGive the user a concise summary of what this routine does and where its result goes." : ""}`;
+      return `${summary}${result.delivery_nudge ? "\nGive the user a concise summary of what this routine does and where its result goes." : ""}`;
     }
     if (result.target === "avatar" && result.cleared)
       return "Cleared your picture. It is back to the default.";
@@ -226,16 +222,6 @@ function sendsLocalFileSnapshot(args: Record<string, any>): boolean {
     path = decodeURIComponent(new URL(path).pathname);
   } catch {}
   return !PICTURE_OR_VIDEO.test(path);
-}
-
-/** A saved time in the routine's zone, labeled with that zone. */
-function localTime(iso: string, timeZone: unknown): string {
-  const options = { timeZoneName: "short" } as const;
-  try {
-    return new Date(iso).toLocaleString("en-US", typeof timeZone === "string" && timeZone ? { ...options, timeZone } : options);
-  } catch {
-    return new Date(iso).toLocaleString("en-US", options);
-  }
 }
 
 const SHELLS_NOT_COVERED = "Background shell commands you started yourself are not covered: terminate those with their reported PIDs.";

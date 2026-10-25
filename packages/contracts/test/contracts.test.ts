@@ -831,16 +831,15 @@ describe("API contracts", () => {
     );
     expect(renderControlResult("UpdateRoutine", { target: "routine", name: "Brief", folder: "brief", next_run_at: null, enabled: false }, {
       action: "pause", id: "brief",
-    })).toBe('Paused routine "Brief" (folder brief).\nNext scheduled occurrence: none (paused).');
+    })).toBe('Paused routine "Brief" (folder brief).');
     const created = { target: "routine", name: "Brief", folder: "brief", enabled: true, timezone: "America/Los_Angeles",
       trigger: { type: "cron", schedule: "0 8 * * *" }, next_run_at: "2026-10-22T15:00:00.000Z" };
     expect(renderControlResult("UpdateRoutine", { ...created, delivery_nudge: true }, { action: "create" })).toBe([
       'Saved routine "Brief" (folder brief): Every day at 8:00 AM.',
-      "Next scheduled occurrence: 10/22/2026, 8:00:00 AM PDT. Use this saved time if reporting the next run; do not calculate or guess a different time.",
       "Give the user a concise summary of what this routine does and where its result goes.",
     ].join("\n"));
-    // A routine run gets no nudge; resuming reads like an update; deleting names no next run.
-    expect(renderControlResult("UpdateRoutine", created, { action: "update", id: "brief" })).toStartWith('Updated routine "Brief" (folder brief): Every day at 8:00 AM.\nNext');
+    // A routine run gets no nudge; resuming reads like an update; the receipt names no next run, as in the reference.
+    expect(renderControlResult("UpdateRoutine", created, { action: "update", id: "brief" })).toBe('Updated routine "Brief" (folder brief): Every day at 8:00 AM.');
     expect(renderControlResult("UpdateRoutine", created, { action: "update", id: "brief" })).not.toContain("Give the user");
     expect(renderControlResult("UpdateRoutine", created, { action: "resume", id: "brief" }).split("\n")[0]).toBe('Updated routine "Brief" (folder brief): Every day at 8:00 AM.');
     expect(renderControlResult("UpdateRoutine", { ...created, enabled: false, next_run_at: null }, { action: "delete", id: "brief" })).toBe('Deleted routine "Brief" (folder brief).');

@@ -8,7 +8,6 @@ export { validateProcessSecretName } from "./process-secrets";
 import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, TASK_ATTACHMENT_LIMIT_MESSAGE, isTaskMediaPath } from "./media-input";
 import cursorToolsDocument from "./cursor-tools.json";
 export * from "./user-forms";
-export * from "./auto-review";
 export { formatUserFormReceipt } from "./user-form-receipts";
 import nativeToolsDocument from "./native-tools.json";
 import type { ClientCapabilities } from "./capabilities";
@@ -623,9 +622,6 @@ export const ShellToolInput = Schema.Struct({
   description: Schema.optional(Schema.String),
   working_directory: Schema.optional(Schema.String),
   machineId: Schema.optional(Schema.String),
-  // Auto-review's approval retry, offered while Auto-review is on.
-  request_smart_mode_approval: Schema.optional(Schema.Boolean),
-  smart_mode_block_reason: Schema.optional(Schema.String),
 });
 export type ShellToolInput = typeof ShellToolInput.Type;
 
@@ -656,11 +652,6 @@ export const CallDynamicToolInput = Schema.Struct({
   namespace: Schema.String,
   toolName: Schema.String,
   arguments: Schema.optional(Schema.Union(Schema.Record({ key: Schema.String, value: Schema.Unknown }), Schema.String)),
-  mcpDetails: Schema.optional(Schema.Struct({
-    description: Schema.optional(Schema.String),
-    requestSmartModeApproval: Schema.optional(Schema.Boolean),
-    smartModeBlockReason: Schema.optional(Schema.String),
-  })),
 });
 export type CallDynamicToolInput = typeof CallDynamicToolInput.Type;
 
@@ -1333,13 +1324,6 @@ export const ComputerTurnRequest = Schema.Struct({
   readOnly: Schema.optional(Schema.Boolean),
   /** The user's IANA time zone; the computer sets the box clock to it before the turn runs. */
   timeZone: Schema.optional(Schema.String),
-  /** Auto-review settings for the turn; scopeBotId is the user's bot whose cards share the one-pending limit. */
-  autoReview: Schema.optional(Schema.Struct({
-    enabled: Schema.Boolean,
-    allowRules: Schema.Array(Schema.String),
-    askFirstRules: Schema.Array(Schema.String),
-    scopeBotId: Schema.String,
-  })),
   model: Schema.String,
   reasoning: Schema.Literal(...PI_REASONING_LEVELS),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),

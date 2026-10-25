@@ -220,8 +220,9 @@ export default function Home() {
               <span>in control.</span>
             </h2>
             <p>
-              Choose what workers can do on their own and when they should ask you. Approve a step
-              once or set rules for future work, and provide sensitive information privately.
+              Workers check with you before they delete, send or post. Review each email as a draft
+              before it goes out, or always allow trusted recipients, and provide sensitive information
+              privately.
             </p>
           </div>
           <div className="ot-control-stage">

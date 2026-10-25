@@ -11,7 +11,7 @@ import { streamSimple } from "@earendil-works/pi-ai/api/openai-codex-responses";
 import { type AgentSession, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { ComputerRuntime } from "../../src/runtime";
 import { inferCompaction } from "../../src/runtime/compaction";
-import { inferenceReasoningOptions, lowestReasoningLevel } from "../../src/runtime/reasoning";
+import { inferenceReasoningOptions } from "../../src/runtime/reasoning";
 import type { ActiveTurn } from "../../src/runtime/types";
 
 const model: Model<"openai-codex-responses"> = {
@@ -102,16 +102,6 @@ describe("Codex reasoning request semantics", () => {
     expect(
       inferenceReasoningOptions({ ...model, reasoning: false }, "off").onPayload
     ).toBeUndefined();
-  });
-
-  test("the lowest level is none where the catalog maps off, else the lowest level above it", async () => {
-    const capture = captureRequests();
-    await streamSimple(model, context, { ...capture.options, ...inferenceReasoningOptions(model, lowestReasoningLevel(model)) }).result();
-    expect(capture.requests[0]).toMatchObject({ reasoning: { effort: "none" } });
-    // A dynamic model without capability metadata may reject none, so it gets minimal.
-    expect(lowestReasoningLevel({ ...model, thinkingLevelMap: undefined })).toBe("minimal");
-    expect(lowestReasoningLevel({ ...model, thinkingLevelMap: { off: null, minimal: null } })).toBe("low");
-    expect(lowestReasoningLevel({ ...model, reasoning: false })).toBe("off");
   });
 
   test("memory inference and compaction also send explicit none", async () => {

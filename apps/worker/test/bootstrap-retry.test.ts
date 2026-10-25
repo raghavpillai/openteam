@@ -215,7 +215,6 @@ describe("execute tells a computer outage from a reported failure", () => {
       subagent: { findUnique: async () => null },
     };
     worker.agentData = {
-      loadAutoReviewSettings: async () => ({ enabled: true, allowRules: [], askFirstRules: [] }),
       loadInferenceSettings: async () => ({
         providerId: "openai",
         modelId: "gpt-5",

@@ -94,7 +94,6 @@ import { FetchProviderClient } from "../fetch-provider";
 import { serverSearchConfiguration, serverFetchConfiguration } from "../search-settings";
 import { UserFormHost, type FormBrowser, type FormPageBinding } from "../user-form-host";
 import { boxHelpPage } from "../box-help-page";
-import { AutoReviewGate, withApprovalRetryParameters } from "./auto-review";
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@openteam/shell-jobs";
 
@@ -271,8 +270,6 @@ const interruptibleByUser = <T extends { name: string; execute: (...args: any[])
 });
 
 export class RuntimeTools {
-  /** Auto-review: the safety check and approval cards for risky actions. */
-  readonly autoReview = new AutoReviewGate((active, callId, tool, args, signal) => this.privateControl(active, callId, tool, args, signal));
   private readonly stepFileWriters = new Map<string, Set<Promise<unknown>>>();
   /** Box shells a stopped subagent left running in the background end with it. */
   stopBackgroundShells(botId: string) { return this.nativeToolExecutor.stopBackgroundShells(botId); }
@@ -513,8 +510,6 @@ export class RuntimeTools {
           `You cannot do that from here, so report the status ${active.requestSource === "automation" ? "with WakeParent" : "in your result"} instead of retrying.`
         );
       const visibleDescription = description;
-      // Auto-review adds the approval-retry parameters while it is on, as the reference does in enforce mode.
-      if (this.autoReview.enabled(active)) tool = withApprovalRetryParameters(tool);
       return defineTool({
         name: tool.name,
         label: tool.name,
@@ -704,12 +699,9 @@ export class RuntimeTools {
     }
     if (tool === SHELL_TOOL.name) {
       assertShellWait(active, args, "ms");
-      // The approval retry fields are for Auto-review; the command runs without them.
-      const { request_smart_mode_approval: requestApproval, smart_mode_block_reason: blockReason, ...shellInput } =
-        Schema.decodeUnknownSync(ShellToolInput)(args);
+      const shellInput = Schema.decodeUnknownSync(ShellToolInput)(args);
       assertGraphicalShellBoundary(shellInput.command, active.subagentType);
       if (shellInput.machineId && active.subagentType) throw new Error("Graphical subagents cannot target the user's local computer");
-      await this.autoReview.reviewShell(active, callId, { ...shellInput, request_smart_mode_approval: requestApproval, smart_mode_block_reason: blockReason }, active.cwd, signal);
       if (shellInput.machineId) {
         return (async () => {
           const result = await this.nativeToolExecutor.externalShell(shellInput, signal);
@@ -817,10 +809,6 @@ export class RuntimeTools {
         return this.executeOpenTeamTool(active, callId, input.toolName, decodeDynamicArguments(input.arguments), signal).catch(referenceError);
       return this.callDynamicTool(active, callId, input, signal, afterEndTurn).catch(referenceError);
     }
-    if (tool === "UpdateRoutine") {
-      const refused = await this.autoReview.reviewRoutineWrite(active, callId, args as Record<string, any>, signal);
-      if (refused !== undefined) return { content: [{ type: "text", text: `Not saved: ${refused}` }], details: { tool } };
-    }
 
     return this.callControlPlaneTool(active, callId, tool, args, signal);
   }
@@ -841,7 +829,6 @@ export class RuntimeTools {
     const input = Schema.decodeUnknownSync(ComputerUseInput)(
       normalizeMainToolArguments("Computer", args)
     );
-    await this.autoReview.reviewComputer(active, callId, input, signal);
     const { then = [], description: _description, ...first } = input;
     const requestedActions = [first, ...then];
     const needsDesktopObservation = active.lastGraphicalSurface !== "computer" &&
@@ -927,8 +914,6 @@ export class RuntimeTools {
     this.browserSessionScreens.set(active.botId, active.screenBotId);
     browser.configureUploads(this.workspaceRoot, [this.agentDir]);
     browser.registerPrivateValues([...(this.privateBrowserValues.get(active.screenBotId) ?? [])]);
-    if (this.autoReview.enabled(active) && args && typeof args === "object")
-      await this.autoReview.reviewBrowser(active, callId, toolName, args as Record<string, any>, browser.currentPageUrl(), signal);
     const result = await browser.execute(toolName, args, signal);
     active.lastGraphicalSurface = "browser";
     return result;
@@ -1897,23 +1882,8 @@ export class RuntimeTools {
         throw report ? new Error(report) : error;
       }
     }, signal);
-    // External MCP calls get Auto-review; first-party tools run natively with their own approvals.
-    if (resolved.namespace.kind === "mcp") {
-      const descriptor = active.pluginNamespaces.find((namespace) => namespace.name === input.namespace)?.tools.find((tool) => tool.name === resolved.tool.name);
-      await this.autoReview.reviewMcp(active, callId, {
-        namespace: input.namespace,
-        serverDisplayName: input.namespace,
-        toolName: resolved.tool.name,
-        arguments: (resolved.arguments && typeof resolved.arguments === "object" ? resolved.arguments : {}) as Record<string, unknown>,
-        toolDescription: resolved.tool.description,
-        inputSchema: resolved.tool.inputSchema,
-        ...(descriptor?.readOnly === undefined ? {} : { readOnlyHint: descriptor.readOnly }),
-        ...(input.mcpDetails ? { details: input.mcpDetails } : {}),
-      }, signal);
-    }
     const invoke = async () => {
       signal?.throwIfAborted();
-      if (resolved.namespace.kind === "mcp") this.autoReview.assertNoPending(active);
       if (afterEndTurn) active.pluginAbortController?.signal.throwIfAborted();
       if (active.endTurnRequested && !afterEndTurn)
         throw new Error("The turn has ended; wait for the next user message");

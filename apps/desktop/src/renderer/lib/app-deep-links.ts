@@ -21,8 +21,6 @@ const viewByAnchor: Record<SettingsAnchor, SettingsView> = {
   "automatic-updates": "updates",
   "web-search-provider": "providers",
   "web-fetch-provider": "providers",
-  "auto-review": "general",
-  "auto-review-rules": "general",
 };
 
 export type OpenTeamDeepLink =

@@ -269,7 +269,7 @@
   },
   "UpdateRoutine": {
     "name": "UpdateRoutine",
-    "description": "Read, create, or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are in the latest <automation_status> reminder, which shows no prompts.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once, except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting). Read the Cursor-managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create needs name, prompt, and schedule or trigger; update takes only the fields to change; get returns the saved prompt, trigger, and timing.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/\"@every 2h\"), at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.\nYour routines are kept on the server: they can't listen to Slack DMs, and an Origin listener fires only for pr-opened, pr-pushed, pr-merged, and pr-comment across a whole repo (no pr or userAllowlist).\nA change may ask the user to confirm on a card; don't ask first, and don't retry a denied write. A change you suggest to save usage waits for the user's yes.",
+    "description": "Read, create, or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are in the latest <automation_status> reminder, which shows no prompts.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once, except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting). Read the Cursor-managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create needs name, prompt, and schedule or trigger; update takes only the fields to change; get returns the saved prompt, trigger, and timing.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/\"@every 2h\"), at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.\nYour routines are kept on the server: they can't listen to Slack DMs, and an Origin listener fires only for pr-opened, pr-pushed, pr-merged, and pr-comment across a whole repo (no pr or userAllowlist).\nA change you suggest to save usage waits for the user's yes.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -431,7 +431,7 @@
   },
   "CallDynamicTool": {
     "name": "CallDynamicTool",
-    "description": "Invoke one tool from a dynamic namespace, e.g. an MCP server. IMPORTANT: Always call GetDynamicTools for this namespace/tool before calling to ensure correct parameters. Set mcpDetails only for tools from external MCP namespaces; omit it for first-party tools in the cursor namespace.\n\nExample:\n{\n  \"namespace\": \"my-namespace\",\n  \"toolName\": \"search\",\n  \"mcpDetails\": { \"description\": \"Search the public docs for the example API\" },\n  \"arguments\": { \"query\": \"example\", \"limit\": 10 }\n}",
+    "description": "Invoke one tool from a dynamic namespace, e.g. an MCP server. IMPORTANT: Always call GetDynamicTools for this namespace/tool before calling to ensure correct parameters.\n\nExample:\n{\n  \"namespace\": \"my-namespace\",\n  \"toolName\": \"search\",\n  \"arguments\": { \"query\": \"example\", \"limit\": 10 }\n}",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -442,19 +442,6 @@
         "toolName": {
           "description": "Name of the tool to invoke.",
           "type": "string"
-        },
-        "mcpDetails": {
-          "description": "MCP-specific call metadata. Set this only when invoking a tool from an external MCP namespace; omit it for first-party tools in the cursor namespace.",
-          "properties": {
-            "description": {
-              "description": "Short plain-language description of what this call will do. One sentence naming the outcome and where it applies (channel, page, file, or service) when known. Do not include tool names, argument keys, or JSON.",
-              "type": "string"
-            }
-          },
-          "required": [
-            "description"
-          ],
-          "type": "object"
         },
         "arguments": {
           "description": "Arguments to pass to the tool, as described by the tool descriptor.",

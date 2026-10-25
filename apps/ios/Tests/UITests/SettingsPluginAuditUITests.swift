@@ -116,7 +116,7 @@ import XCTest
     find(app.buttons["sign-out"], app)
     capture("01-settings-bottom", app)
     app.buttons["More preferences"].tap()
-    XCTAssertTrue(app.buttons["Auto-review rules"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["Organize conversations"].waitForExistence(timeout: 8))
     capture("preferences", app)
     app.navigationBars.buttons.firstMatch.tap()
     find(haptics, app)

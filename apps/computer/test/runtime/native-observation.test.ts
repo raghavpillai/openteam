@@ -10,8 +10,6 @@ test("stopping a native call prevents the rest of its action batch", async () =>
   const controller = new AbortController();
   const applied: string[] = [];
   const runtime: any = Object.create(RuntimeTools.prototype);
-  // Auto-review off: these tests exercise the native tools themselves.
-  runtime.autoReview = { reviewComputer: async () => {}, reviewBrowser: async () => {}, reviewShell: async () => {}, reviewMcp: async () => {}, assertNoPending() {} };
   Object.assign(runtime, {
     workspaceRoot: workspace,
     screens: {
@@ -40,8 +38,6 @@ test("native screenshot observation does not request a browser launch", async ()
   const events: string[] = [];
   const frame = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4AWP4////fwAJ+wP92PZgeAAAAABJRU5ErkJggg==", "base64");
   const runtime: any = Object.create(RuntimeTools.prototype);
-  // Auto-review off: these tests exercise the native tools themselves.
-  runtime.autoReview = { reviewComputer: async () => {}, reviewBrowser: async () => {}, reviewShell: async () => {}, reviewMcp: async () => {}, assertNoPending() {} };
   Object.assign(runtime, {
     workspaceRoot: workspace,
     screens: {
@@ -59,8 +55,6 @@ test("native screenshot observation does not request a browser launch", async ()
 
 test("explicit browser operation retains intentional launch path", async () => {
   const runtime: any=Object.create(RuntimeTools.prototype);
-  // Auto-review off: these tests exercise the native tools themselves.
-  runtime.autoReview = { reviewComputer: async () => {}, reviewBrowser: async () => {}, reviewShell: async () => {}, reviewMcp: async () => {}, assertNoPending() {} };
   const browser={connected:true};const events:string[]=[];
   Object.assign(runtime, {
     screens:{browserEndpointForAgent:async()=>{events.push("launch");return "new-endpoint";}},
@@ -76,8 +70,6 @@ test("Screenshot and Computer results use the reference sentences and prefix fai
   const frame = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4AWP4////fwAJ+wP92PZgeAAAAABJRU5ErkJggg==", "base64");
   let fail = false;
   const runtime: any = Object.create(RuntimeTools.prototype);
-  // Auto-review off: these tests exercise the native tools themselves.
-  runtime.autoReview = { reviewComputer: async () => {}, reviewBrowser: async () => {}, reviewShell: async () => {}, reviewMcp: async () => {}, assertNoPending() {} };
   Object.assign(runtime, {
     workspaceRoot: workspace,
     screens: {

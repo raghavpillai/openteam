@@ -14,8 +14,6 @@ describe("OpenTeam deep-link routing parity", () => {
     }
     expect(settingsViewForAnchor("update-status")).toBe("updates");
     expect(parseOpenTeamDeepLink("openteam://app/v1/settings?id=local-execution")).toBeNull();
-    expect(settingsViewForAnchor("auto-review")).toBe("general");
-    expect(settingsViewForAnchor("auto-review-rules")).toBe("general");
     for (const anchor of ["inference-provider", "inference-model", "inference-reasoning"] as const) {
       expect(settingsViewForAnchor(anchor)).toBe("model");
     }

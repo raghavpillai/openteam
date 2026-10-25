@@ -45,8 +45,6 @@ test("switching from browser to desktop returns a fresh frame before any pointer
   const root = await mkdtemp(join(tmpdir(), "coordinate-guard-"));
   const calls: any[] = [];
   const runtime = Object.create(RuntimeTools.prototype) as any;
-  // Auto-review off: these tests exercise the native tools themselves.
-  runtime.autoReview = { reviewComputer: async () => {}, reviewBrowser: async () => {}, reviewShell: async () => {}, reviewMcp: async () => {}, assertNoPending() {} };
   runtime.workspaceRoot = root;
   const frame = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j8l0AAAAASUVORK5CYII=", "base64");
   runtime.screens = { actComputerUse: async (_bot: string, _cwd: string, actions: unknown) => { calls.push(actions); return frame; } };

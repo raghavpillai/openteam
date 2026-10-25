@@ -62,6 +62,10 @@ BEGIN
     -- Receipts of the removed SendFeedback tool.
     DELETE FROM "IdempotencyRecord" WHERE "scope" = 'feedback-send';
   END IF;
+  IF to_regclass('"ChannelMessage"') IS NOT NULL THEN
+    -- Approval cards of the removed Auto-review.
+    DELETE FROM "ChannelMessage" WHERE "metadata"->>'type' = 'approval';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
       WHERE t.typnamespace = current_schema()::regnamespace AND t.typname = 'MemoryScope'
         AND e.enumlabel NOT IN ('agent', 'user')) THEN
@@ -99,6 +103,8 @@ BEGIN
   END IF;
 END $$;
 DROP TYPE IF EXISTS "InboxDeliveryMode";
+-- Auto-review's settings and Allow / Ask first rules.
+DROP TABLE IF EXISTS "AutoReviewSettings";
 `;
 
 const retireUnusedStorage = async () => {

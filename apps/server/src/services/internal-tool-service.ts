@@ -118,16 +118,6 @@ export class InternalToolService {
           throw new ApiError(403, "parent_transfer_required", "This file transfer must be performed by the parent bot");
         return request.tool === "PrepareConnectorTransfer" ? this.plugins.fileTransfers.prepare(context, args) : this.plugins.fileTransfers.execute(context, args, signal, transfer);
       }
-      // Auto-review approval cards: private supervisor operations, never in a model catalog.
-      if (request.tool === "RequestApproval" || request.tool === "AwaitApproval" || request.tool === "CancelApproval") {
-        if (!this.richMessages) throw new Error("Approval service unavailable");
-        const approvals = this.richMessages.approvals;
-        return request.tool === "RequestApproval"
-          ? approvals.request(context, request.arguments)
-          : request.tool === "AwaitApproval"
-            ? approvals.wait(context, request.arguments, signal)
-            : approvals.cancel(context, request.arguments);
-      }
       if (request.tool === "AcknowledgeCardOutcomes") {
         await this.messaging.acknowledgeCardOutcomes(request.botId, (request.arguments as { receipts: Array<{ messageId: string; outcomeId: string }> }).receipts);
         return { acknowledged: true };

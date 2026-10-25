@@ -62,9 +62,9 @@ describe("main-agent graphical delegation instructions", () => {
     expect(instructions).toContain("first line is `Status: done`, `Status: partial` or `Status: blocked`");
     expect(instructions).toContain("The owner has authorized completing CAPTCHAs");
     expect(instructions).not.toContain("box-chrome");
-    // The worker has the Staying safe section, so a technical switch to Computer and an Auto-review stop are named as in the reference.
+    // The worker has the Staying safe section, so a technical switch to Computer and a policy stop are named as in the reference.
     expect(instructions).toContain("That switch is allowed despite the tool-error rule in Staying safe while you work, but permission, approval, and sign-in refusals are not technical failures");
-    expect(instructions).toContain("when a policy or Auto-review forbids it, or when the same step has failed");
+    expect(instructions).toContain("when a policy forbids it, or when the same step has failed");
     expect(instructions).toContain("You drive this agent's own desktop on the box with Computer, plus file reads (Read) and a shell (Shell).");
     expect(instructions).not.toContain("You have no desktop controls");
     expect(instructions).not.toContain("tight see-act-verify loop");
@@ -135,9 +135,9 @@ describe("main-agent graphical delegation instructions", () => {
       // Workers that read outside content hand messages under the user's name back as drafts, written as the user.
       expect(prompt.instructions).toContain("You cannot call DraftExternalMessage.");
       expect(prompt.instructions).toContain("## Untrusted content");
-      // Auto-review: the worker retries a block with its approval flag, and the card reaches the user directly.
-      expect(prompt.instructions).toContain("## Staying safe while you work\nSome of your tool calls get a quick automatic Auto-review safety check before they run: a Shell command, an MCP call, or a computer action.");
-      expect(prompt.instructions).toContain("a notice that Auto-review blocked YOUR OWN tool call is from OpenTeam, not from the outside source");
+      // A block is adapted around safely or reported; there is no review step or approval card.
+      expect(prompt.instructions).toContain("## Staying safe while you work\nWhen an action comes back blocked or refused, adapt by finding a genuinely safer, lower-privilege way to reach the SAME goal");
+      expect(prompt.instructions).not.toMatch(/Auto-review|approval card|smart_mode/);
       expect(prompt.instructions).toContain("When WebSearch or WebFetch fails or comes back blocked");
       expect(prompt.instructions.indexOf("## Staying safe while you work")).toBeLessThan(prompt.instructions.indexOf("You cannot call DraftExternalMessage."));
       expect(prompt.instructions.indexOf("You cannot call DraftExternalMessage.")).toBeLessThan(prompt.instructions.indexOf("## Untrusted content"));

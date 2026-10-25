@@ -32,16 +32,6 @@ export function inferenceReasoningOptions(
   };
 }
 
-/**
- * The least reasoning a model accepts, for short structured calls like the Auto-review classifier.
- * "off" only when the catalog maps it to a provider value (Codex "none"); a model without that mapping may
- * reject "none" or fall back to its default effort, so it gets the lowest level Pi clamps "minimal" to.
- */
-export function lowestReasoningLevel(model: Model<Api>): PiReasoningLevel {
-  if (!model.reasoning || typeof model.thinkingLevelMap?.off === "string") return "off";
-  return clampThinkingLevel(model, "minimal");
-}
-
 export function reasoningExtension(
   model: Model<Api>,
   requested: PiReasoningLevel

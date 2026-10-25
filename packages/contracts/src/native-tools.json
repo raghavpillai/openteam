@@ -879,14 +879,6 @@
             "description": "Exact connected-computer id returned by ListMachines. Omit to run on the agent's isolated box.",
             "type": "string"
           },
-          "request_smart_mode_approval": {
-            "description": "Set to true when immediately retrying the exact same command after Auto-review blocks it and you decide the user should approve it through the native approval card.",
-            "type": "boolean"
-          },
-          "smart_mode_block_reason": {
-            "description": "Provide the exact block reason returned by Auto-review in the prior rejection. Required when request_smart_mode_approval is true so the approval card shows the original classifier reason without re-running the classifier.",
-            "type": "string"
-          },
           "working_directory": {
             "description": "The absolute path to the working directory to execute the command in (defaults to current directory)",
             "type": "string"

@@ -95,9 +95,6 @@ export interface ActiveTurn {
   interruptedByUserAt?: number;
   /** Stopped through the cancel-run API (the user's stop or StopSubagent): the turn settles as cancelled. */
   stopped?: boolean;
-  /** Auto-review for this turn: the user's settings, and the classifier call on this turn's model. */
-  autoReview?: import("./auto-review").TurnAutoReview;
-  autoReviewComplete?: import("../auto-review/classifier").ClassifierCompletion;
 }
 
 export interface RuntimeDynamicTool extends DynamicToolDefinition {

@@ -104,8 +104,6 @@ export async function channelRoutes(context: RouteContext): Promise<Response | u
   const templateMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/bot-template(?:\/(recipe))?$/);
   if (templateMatch?.[1] && request.method === "GET" && templateMatch[2]) return json(await app.sharedTemplateRecipe(decodeURIComponent(templateMatch[1])));
   if (templateMatch?.[1] && request.method === "POST" && !templateMatch[2]) return json(await run(app.mutateSharedTemplate(decodeURIComponent(templateMatch[1]), await request.json())));
-  const approvalMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/approval$/);
-  if (request.method === "POST" && approvalMatch?.[1]) return json(await run(app.answerApproval(decodeURIComponent(approvalMatch[1]), await request.json())));
   const draftMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/external-draft$/);
   if (request.method === "POST" && draftMatch?.[1]) return json(await run(app.mutateExternalDraft(decodeURIComponent(draftMatch[1]), await request.json())));
   const formMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/user-form(?:\/(prefill))?$/);

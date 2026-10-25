@@ -52,7 +52,7 @@ import {
 import { textFromContent } from "./runtime/content";
 import { graphicalFinalReport } from "./runtime/graphical-completion";
 import { attachSession, routeEvent, startAgentMessage } from "./runtime/events";
-import { inferenceReasoningOptions, lowestReasoningLevel, reasoningExtension } from "./runtime/reasoning";
+import { inferenceReasoningOptions, reasoningExtension } from "./runtime/reasoning";
 import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
 import { IdleProviderConnections, InferenceProviderConnections } from "./runtime/provider-connections";
@@ -67,7 +67,6 @@ import { DiskPressureMonitor, diskPressureReminderStepPersisted } from "./runtim
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath, existingContextSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
-import { classifierCompletion } from "./runtime/auto-review";
 import { pluginComponentsExtension } from "./runtime/plugin-components";
 import type { ActiveTurn, RuntimeImage, TurnStatus } from "./runtime/types";
 import { ScreenBroker } from "./screen-broker";
@@ -303,15 +302,6 @@ export class ComputerRuntime {
       pluginAbortController: new AbortController(),
       readOnly: request.readOnly ?? false,
       attachmentTempDirectories: [],
-      ...(request.autoReview
-        ? {
-            autoReview: { ...request.autoReview, allowRules: [...request.autoReview.allowRules], askFirstRules: [...request.autoReview.askFirstRules] },
-            autoReviewComplete: classifierCompletion((context, signal) => {
-              const model = this.resolveModel(modelRef);
-              return this.requireModelRuntime().completeSimple(model, context as never, { signal, ...inferenceReasoningOptions(model, lowestReasoningLevel(model)) }) as never;
-            }),
-          }
-        : {}),
     };
     this.activeByRun.set(active.runId, active);
     this.activeByContext.set(active.contextSessionId, active);

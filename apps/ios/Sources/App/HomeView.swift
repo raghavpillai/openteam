@@ -26,6 +26,7 @@ struct HomeView: View {
   @State private var sectionName = ""
   @State private var deletingSection: JSON?
   @State private var listHidden = false
+  @State private var barRegions = BarRegions.none
   @Environment(\.horizontalSizeClass) private var sizeClass
   private var visible: [Channel] { store.channels.filter { !store.isHidden($0) } }
   private var sections: [JSON] { store.sidebar["sections"].array }
@@ -39,9 +40,12 @@ struct HomeView: View {
       }
       // Apple's apps keep horizontal bars on iPhone Duo's inner display and move
       // controls into the side region only on the outer one.
-      .environment(\.sideChrome, sizeClass == .compact ? SideChrome(insets: geometry.safeAreaInsets) : nil)
-      .environment(\.topBarClearance, SideChrome.topBarClearance(for: geometry.safeAreaInsets))
+      .environment(
+        \.sideChrome, sizeClass == .compact ? SideChrome(regions: barRegions, insets: geometry.safeAreaInsets) : nil
+      )
+      .environment(\.topBarClearance, SideChrome.topBarClearance(barRegions, insets: geometry.safeAreaInsets))
     }
+    .readingBarRegions { barRegions = $0 }
     .onChange(of: store.navigation) { _, path in
       // Once the zoomed chat has closed (and zoomed back into its row), later
       // opens push as usual.
@@ -286,7 +290,7 @@ struct HomeView: View {
       ChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
         .accessibilityIdentifier("search-button")
       newMenu.frame(width: 44, height: 44).nativeGlass()
-    }.foregroundStyle(NativePalette.text).padding(.horizontal, 18).modifier(TopBarClearance(6)).padding(
+    }.foregroundStyle(NativePalette.text).padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(
       .bottom, 10
     )
   }
@@ -574,29 +578,28 @@ enum HomeLayout: Equatable {
 
 /// iPhone Duo's outer display gives the status bar its own region down one
 /// side, and apps put their controls in that region below it, as Apple's apps
-/// and system toolbars do. The safe area shows the region: a short top inset and
-/// one deep horizontal inset. Phones in landscape have equal side insets and
-/// keep their top bars.
+/// and system toolbars do. The region's edge and span come from iOS, so the
+/// controls move when the status area grows, as with a Live Activity.
 struct SideChrome: Equatable {
   var edge: HorizontalEdge
   /// The region's width, which the controls center in.
   var width: CGFloat
-  /// Space from the safe area's top to below the status block.
+  /// Space from the safe area's top and bottom to the region's usable span.
   var controlsTop: CGFloat
-  /// Height of the status block (camera, time, connectivity) atop the region,
-  /// measured on a folded iPhone Duo.
-  static let statusHeight: CGFloat = 166
-  /// Room above top bars when the status bar isn't across the top (iPhone Duo):
-  /// system bars there center their controls level with the clock, about 47
-  /// points down. Phones and iPads with a top status bar need none.
-  static func topBarClearance(for insets: EdgeInsets) -> CGFloat {
-    insets.top < 24 ? max(0, 20 - insets.top) : 0
+  var controlsBottom: CGFloat
+  /// Top bars' padding above their controls.
+  static let topBarPadding: CGFloat = 6
+  /// Room above top bars where iOS places top bars lower than the safe area, as
+  /// on iPhone Duo, where they center level with the clock beside it.
+  static func topBarClearance(_ regions: BarRegions, insets: EdgeInsets) -> CGFloat {
+    max(0, regions.top - insets.top - topBarPadding)
   }
-  init?(insets: EdgeInsets) {
-    guard insets.top < 24, abs(insets.leading - insets.trailing) > 16 else { return nil }
-    edge = insets.trailing > insets.leading ? .trailing : .leading
-    width = max(insets.leading, insets.trailing)
-    controlsTop = max(0, Self.statusHeight - insets.top)
+  init?(regions: BarRegions, insets: EdgeInsets) {
+    guard let edge = regions.sideEdge, regions.sideWidth > 0 else { return nil }
+    self.edge = edge
+    width = regions.sideWidth
+    controlsTop = max(0, regions.sideTop - insets.top)
+    controlsBottom = max(0, regions.sideBottom - insets.bottom)
   }
 }
 
@@ -613,7 +616,8 @@ struct SideChromeBar<Top: View, Side: View>: ViewModifier {
       // Without a top bar, content still starts level with the clock.
       content.safeAreaPadding(.top, top == nil ? 0 : clearance)
         .overlay(alignment: chrome.edge == .trailing ? .topTrailing : .topLeading) {
-          side.frame(width: chrome.width).padding(.top, chrome.controlsTop).padding(.bottom, 8)
+          side.frame(width: chrome.width).padding(.top, chrome.controlsTop)
+            .padding(.bottom, chrome.controlsBottom + 8)
             .frame(maxHeight: .infinity, alignment: .top)
             .offset(x: chrome.edge == .trailing ? chrome.width : -chrome.width)
         }

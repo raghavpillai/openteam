@@ -16,8 +16,13 @@ export interface CatalogNamespace {
   name: string;
   description?: string;
   namespaceStatus?: string;
-  tools: Array<{ name: string }>;
+  /** A first-party tool given with its schema is preloaded: the catalog carries its full descriptor, so it needs no lookup. */
+  tools: Array<{ name: string; description?: string; inputSchema?: unknown }>;
 }
+
+/** First-party tools whose schema rides in the catalog. Every browser and worker task starts with Task,
+ * and looking up its schema first cost the main agent a model round trip before each dispatch. */
+export const PRELOADED_TOOL_NAMES: ReadonlySet<string> = new Set(["Task"]);
 
 const catalogAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
@@ -29,13 +34,18 @@ const catalogAttribute = (value: string) => value.replace(/&/g, "&amp;").replace
 export function renderDynamicToolCatalog(namespaces: readonly CatalogNamespace[]): string | null {
   const entries = catalogEntries(namespaces);
   if (!entries.length) return null;
+  const preloaded = namespaces
+    .filter((namespace) => namespace.name === "cursor")
+    .flatMap((namespace) => namespace.tools.filter((tool) => PRELOADED_TOOL_NAMES.has(tool.name) && tool.inputSchema !== undefined))
+    .map((tool) => JSON.stringify({ namespace: "cursor", tool: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
   return [
     "<dynamic_tool_catalog>",
-    "These dynamic tool namespaces were available when this conversation started. Availability may have changed, so use `GetDynamicTools` to check current state before calling `CallDynamicTool`.",
+    `These dynamic tool namespaces were available when this conversation started. Availability may have changed, so use \`GetDynamicTools\` to check current state before calling \`CallDynamicTool\`${preloaded.length ? ", except for the tools in <preloaded_tool_schemas>, which you can call with `CallDynamicTool` directly" : ""}.`,
     "",
     "<dynamic_tool_namespaces>",
     ...entries,
     "</dynamic_tool_namespaces>",
+    ...(preloaded.length ? ["<preloaded_tool_schemas>", ...preloaded, "</preloaded_tool_schemas>"] : []),
     "</dynamic_tool_catalog>",
   ].join("\n");
 }

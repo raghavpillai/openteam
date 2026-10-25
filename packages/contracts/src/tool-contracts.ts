@@ -373,6 +373,19 @@ adaptDescription("Task", [
     "Its prompt must be self-contained: the goal, the context and exact values it needs, and what to report back. Quote each exact value as the user gave it (a name 'Jo Park', a note 'Leave it at the door'), so sentence punctuation is never read as part of it.",
   ],
 ]);
+// Task's schema is preloaded in the user_info catalog, so it is called without a lookup.
+adaptDescription("GetDynamicTools", [
+  [
+    "Always call this tool to discover a tool's schema before calling it with CallDynamicTool.",
+    "Always call this tool to discover a tool's schema before calling it with CallDynamicTool, unless the schema is already in <preloaded_tool_schemas>.",
+  ],
+]);
+adaptDescription("CallDynamicTool", [
+  [
+    "IMPORTANT: Always call GetDynamicTools for this namespace/tool before calling to ensure correct parameters.",
+    "IMPORTANT: Always call GetDynamicTools for this namespace/tool before calling to ensure correct parameters, unless its schema is already in <preloaded_tool_schemas>.",
+  ],
+]);
 
 // Connections are ready, need sign-in, or failed; there are no per-turn grants.
 adaptDescription("GetDynamicTools", [

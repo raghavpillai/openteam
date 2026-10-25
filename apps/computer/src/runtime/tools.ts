@@ -85,6 +85,7 @@ import {
 } from "../native-tool-executor";
 import type { ScreenBroker } from "../screen-broker";
 import { dynamicCatalog } from "./dynamic-catalog";
+import { PRELOADED_TOOL_NAMES } from "./prompt-context";
 import { firstPartyNamespaceDescription, taskToolContract } from "@openteam/contracts/tool-contracts";
 import { subagentUsesParentConnectors, taskToolEnabled } from "@openteam/contracts/task-configuration";
 import { WebTools } from "../web-tools";
@@ -476,11 +477,13 @@ export class RuntimeTools {
   }
 
   contextCatalog(active: ActiveTurn) {
-    return this.dynamicCatalog(active).map(({ name, description, namespaceStatus, tools }) => ({
-      name,
-      description,
-      namespaceStatus,
-      tools: tools.map(({ name }) => ({ name })),
+    return this.dynamicCatalog(active).map((namespace) => ({
+      name: namespace.name,
+      description: namespace.description,
+      namespaceStatus: namespace.namespaceStatus,
+      tools: namespace.tools.map(({ name, description, inputSchema }) =>
+        namespace.name === "cursor" && PRELOADED_TOOL_NAMES.has(name) ? { name, description, inputSchema } : { name }
+      ),
     }));
   }
 

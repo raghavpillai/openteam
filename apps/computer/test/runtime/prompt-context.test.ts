@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { platform, release } from "node:os";
+import { RuntimeTools } from "../../src/runtime/tools";
+import type { ActiveTurn } from "../../src/runtime/types";
 import {
   communicationReminder,
   enrichUserInfo,
@@ -198,4 +200,24 @@ test("a reply cut off at the output limit gets one reminder to continue in small
   await runtime.execute(active, "Write the report.", []);
   expect(prompts).toEqual(["Write the report.", OUTPUT_LIMIT_REMINDER]);
   expect(OUTPUT_LIMIT_REMINDER).toBe("<system_reminder>Your response was cut off because it exceeded the output token limit. Please break your work into smaller pieces. Continue from where you left off.</system_reminder>");
+});
+
+test("Task's schema rides in the catalog, so the first dispatch needs no lookup", () => {
+  const task = { name: "Task", description: "Start a subagent.", inputSchema: { type: "object", properties: { prompt: { type: "string" } } } };
+  const catalog = renderDynamicToolCatalog([{ name: "cursor", description: "First-party tools.", tools: [{ name: "TodoWrite" }, task] }])!;
+  expect(catalog).toContain("before calling `CallDynamicTool`, except for the tools in <preloaded_tool_schemas>, which you can call with `CallDynamicTool` directly.");
+  expect(catalog).toContain([
+    "</dynamic_tool_namespaces>",
+    "<preloaded_tool_schemas>",
+    JSON.stringify({ namespace: "cursor", tool: "Task", description: task.description, inputSchema: task.inputSchema }),
+    "</preloaded_tool_schemas>",
+    "</dynamic_tool_catalog>",
+  ].join("\n"));
+
+  const tools = new RuntimeTools({} as never, "http://127.0.0.1", "fixture", "/tmp", "/tmp");
+  const turn = { requestSource: "turn", runtimeProfile: "agent", subagentType: null, pluginNamespaces: [] } as unknown as ActiveTurn;
+  const cursor = tools.contextCatalog(turn).find((namespace) => namespace.name === "cursor")!;
+  const preloaded = cursor.tools.filter((tool) => tool.inputSchema !== undefined);
+  expect(preloaded.map((tool) => tool.name)).toEqual(["Task"]);
+  expect(JSON.stringify(preloaded[0]!.inputSchema)).toContain("subagent_type");
 });

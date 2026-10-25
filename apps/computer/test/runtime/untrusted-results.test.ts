@@ -101,3 +101,14 @@ test("the finished-todos reminder follows the fenced TodoWrite list, outside the
   const parts = (fenced as unknown as { content: Array<{ text: string }> }).content;
   expect(parts.map((part) => part.text).slice(-2)).toEqual(["</cursor_untrusted_data_1337>", reminder]);
 });
+
+test("a cursor tool that was never found is answered by CallDynamicTool, a found one by itself", () => {
+  const call = (id: string, toolName: string) => ({ type: "toolCall", id, name: "CallDynamicTool", arguments: { namespace: "cursor", toolName } });
+  const output = fenceToolResults([
+    { role: "assistant", content: [call("miss", "NoSuchTool"), call("hit", "WebFetch")] },
+    { role: "toolResult", toolName: "CallDynamicTool", toolCallId: "miss", isError: true, content: [{ type: "text", text: 'Error: Built-in tool "NoSuchTool" not found in namespace "cursor". Available tools: AwaitShell. Use GetDynamicTools to discover their schemas.' }] },
+    { role: "toolResult", toolName: "CallDynamicTool", toolCallId: "hit", isError: true, content: [{ type: "text", text: "Error fetching URL https://x.invalid/: getaddrinfo ENOTFOUND" }] },
+  ]);
+  expect(texts(output[1])[0]).toBe('<cursor_untrusted_data_1337 source="CallDynamicTool">');
+  expect(texts(output[2])[0]).toBe('<cursor_untrusted_data_1337 source="WebFetch">');
+});

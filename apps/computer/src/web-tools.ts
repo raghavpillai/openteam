@@ -14,6 +14,11 @@ export const truncateWebContent = (content: string, maxSize = WEB_INLINE_CHARACT
   return `${content.slice(0, maxSize)}\n\n...[${linesTruncated} line${linesTruncated === 1 ? "" : "s"} truncated]`;
 };
 
+/** A failed fetch reads "Error fetching URL <url>: <reason>", with no "Error: " in front, as in the reference. */
+export class WebFetchFailure extends Error {
+  override name = "WebFetchFailure";
+}
+
 export class WebTools {
   constructor(
     private readonly searchProvider = new SearchProviderClient(),
@@ -26,7 +31,7 @@ export class WebTools {
       if (signal?.aborted) throw error;
       // Throw so the agent runtime and persisted trace classify this as a failed tool call,
       // rather than a successful fetch with no page content.
-      throw new Error(`Error fetching URL ${url}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new WebFetchFailure(`Error fetching URL ${url}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   private async fetchContent(url: string, signal?: AbortSignal) {

@@ -118,7 +118,7 @@ describe("OpenTeam dynamic tool gateway", () => {
 
   test("unknown tools and namespaces name what is available", () => {
     expect(() => resolveDynamicTool(catalog(), { namespace: "cursor", toolName: "Nope" })).toThrow(
-      'Built-in tool "Nope" not found in namespace "cursor". Available tools: SendToAgent, Computer. Use GetDynamicTools to discover their schemas.'
+      'Built-in tool "Nope" not found in namespace "cursor". Available tools: Computer, SendToAgent. Use GetDynamicTools to discover their schemas.'
     );
     expect(() => resolveDynamicTool(catalog(), { namespace: "slack", toolName: "post" })).toThrow(
       new DynamicLookupMiss("MCP server does not exist: slack. Available servers: gmail")

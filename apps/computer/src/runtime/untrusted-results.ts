@@ -41,7 +41,9 @@ export function fenceToolResults<T extends { role: string }>(messages: readonly 
     // As in the reference: nothing to fence, or the runtime's own unknown-tool answer.
     if (!result.content.length || (result.isError && result.content.length === 1 && result.content[0]!.text?.startsWith("Tool not found: ")))
       return message;
-    const source = sources.get(result.toolCallId ?? "") ?? result.toolName;
+    // A cursor tool that was never found has no result of its own: CallDynamicTool answers, as in the reference.
+    const unserved = result.isError && /^Error: (?:Built-in tool "[^"]*" not found in namespace|No built-in tools are available in namespace) /.test(result.content[0]?.text ?? "");
+    const source = (unserved ? undefined : sources.get(result.toolCallId ?? "")) ?? result.toolName;
     const confine = carriesPageText(source);
     const body: Array<{ type: string; text?: string }> = [];
     // Host reminders follow the fence: fenced text claiming to be from the system is forged.

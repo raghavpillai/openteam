@@ -200,7 +200,7 @@ export const resolveDynamicTool = <Tool extends DynamicToolDefinition>(
   if (!tool) {
     if (namespace.kind !== "first-party")
       throw new DynamicLookupMiss(`Tool ${input.toolName} was not found. Use GetDynamicTools to discover available servers and their tools.`);
-    const names = namespace.tools.map((candidate) => candidate.name);
+    const names = namespace.tools.map((candidate) => candidate.name).sort((a, b) => a.localeCompare(b));
     throw new Error(names.length
       ? `Built-in tool "${input.toolName}" not found in namespace "${namespace.name}". Available tools: ${names.join(", ")}. Use GetDynamicTools to discover their schemas.`
       : `No built-in tools are available in namespace "${namespace.name}".`);

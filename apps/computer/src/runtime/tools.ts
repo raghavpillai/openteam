@@ -165,10 +165,12 @@ const connectorCallError = (
 const AUTHENTICATE_GUIDANCE =
   "Call AuthenticateMcpServer on it instead of refetching this descriptor; it is already installed, so never propose installing it.";
 
-/** GetDynamicTools and CallDynamicTool failures read `Error: <message>`, as the reference renders them. */
+/** GetDynamicTools and CallDynamicTool failures read `Error: <message>`, as the reference renders them;
+ * a failed WebFetch keeps its own "Error fetching URL" text. */
 const referenceError = (error: unknown): never => {
   const message = error instanceof Error ? error.message : String(error);
-  const wrapped = new Error(message.startsWith("Error: ") ? message : `Error: ${message}`, { cause: error });
+  const plain = message.startsWith("Error: ") || (error instanceof Error && error.name === "WebFetchFailure");
+  const wrapped = new Error(plain ? message : `Error: ${message}`, { cause: error });
   if (error instanceof Error) wrapped.name = error.name;
   throw wrapped;
 };

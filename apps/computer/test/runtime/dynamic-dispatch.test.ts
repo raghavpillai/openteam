@@ -128,6 +128,14 @@ test("connector call failures are classified like the reference's", async () => 
   } finally { globalThis.fetch = original; }
 });
 
+test("a failed WebFetch reads Error fetching URL, without a leading Error:, as in the reference", async () => {
+  const tools = runtimeTools();
+  tools.webTools.fetchContent = async () => { throw new Error("getaddrinfo ENOTFOUND"); };
+  const url = "https://missing.invalid/";
+  const error = await tools.executeOpenTeamTool(turn(), "f", "CallDynamicTool", { namespace: "cursor", toolName: "WebFetch", arguments: { url } }).then(() => null, (e: Error) => e);
+  expect(error?.message).toBe(`Error fetching URL ${url}: getaddrinfo ENOTFOUND`);
+});
+
 test("ListMachines is looked up in the cursor namespace and lists the registered computers", async () => {
   const tools = runtimeTools();
   tools.nativeToolExecutor.listMachines = async () => ({ content: [{ type: "text", text: '{"machines":[]}' }], details: {} });

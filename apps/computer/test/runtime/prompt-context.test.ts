@@ -22,7 +22,6 @@ test("runtime context describes actual tools and preserves saved skill catalog",
     "<user_info>\n<agent_skills>test skill</agent_skills>\n</user_info>",
     {
       cwd: "/workspace/task",
-      transcriptPath: "/private/session.jsonl",
       catalog: renderDynamicToolCatalog([{ name: "test", description: "test namespace", tools: [{ name: "Lookup" }] }]),
     }
   );
@@ -45,7 +44,7 @@ test("main user_info follows the reference layout and leaves transcripts to Read
     "<teammates>\nroster\n</teammates>",
     "<agent_skills>\ncatalog\n</agent_skills>",
   ].join("\n\n");
-  const input = { cwd: "/workspace/task", transcriptPath: "/private/session.jsonl", catalog: renderDynamicToolCatalog([{ name: "test", tools: [{ name: "Lookup" }] }]) };
+  const input = { cwd: "/workspace/task", catalog: renderDynamicToolCatalog([{ name: "test", tools: [{ name: "Lookup" }] }]) };
   const text = enrichUserInfo(base, input);
   expect(text).toStartWith(
     `<user_info>\nOS Version: ${platform()} ${release()}\n\nShell: /bin/bash\n\nThe Linux computer supports passwordless sudo for system changes and package installation.\n\n` +
@@ -56,11 +55,13 @@ test("main user_info follows the reference layout and leaves transcripts to Read
   expect(order.every((at, index) => at > (order[index - 1] ?? -1))).toBe(true);
   expect(text).toContain("</memory_context>\n\n<available_subagent_types>\n");
   expect(text).toContain("</available_subagent_types>\n\n<teammates>");
-  for (const gone of ["Is directory a git repo", "<agent_transcripts>", "/private/session.jsonl"]) expect(text).not.toContain(gone);
-  const worker = enrichUserInfo("<user_info>\n<agent_skills>\ncatalog\n</agent_skills>\n</user_info>", { ...input, subagent: true });
+  for (const gone of ["Is directory a git repo", "<agent_transcripts>"]) expect(text).not.toContain(gone);
+  // A worker's user_info is the reference's too: the date, its skills, then its tool catalog, and no transcript block.
+  const worker = enrichUserInfo("<user_info>\nToday's date: Wednesday Oct 21, 2026\n</user_info>\n\n<agent_skills>\ncatalog\n</agent_skills>", { ...input, subagent: true });
   expect(worker).toContain("Workspace Path: /workspace/task\nIf editing a git workspace");
-  expect(worker).toContain("\n\n<agent_skills>");
-  expect(worker).toContain("<agent_transcripts>\nPast conversation transcripts: /private/session.jsonl.");
+  expect(worker).toContain("Today's date: Wednesday Oct 21, 2026\n</user_info>\n\n<agent_skills>");
+  expect(worker).toEndWith("</dynamic_tool_catalog>");
+  expect(worker).not.toContain("<agent_transcripts>");
   expect(worker).not.toContain("<available_subagent_types>");
 });
 

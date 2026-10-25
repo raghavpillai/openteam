@@ -61,7 +61,10 @@ describe("main-agent graphical delegation instructions", () => {
     expect(instructions).toContain("first line is `Status: done`, `Status: partial` or `Status: blocked`");
     expect(instructions).toContain("The owner has authorized completing CAPTCHAs");
     expect(instructions).not.toContain("box-chrome");
-    expect(instructions).not.toContain("Auto-review");
+    // The worker has the Staying safe section, so a technical switch to Computer and an Auto-review stop are named as in the reference.
+    expect(instructions).toContain("That switch is allowed despite the tool-error rule in Staying safe while you work, but permission, approval, and sign-in refusals are not technical failures");
+    expect(instructions).toContain("when a policy or Auto-review forbids it, or when the same step has failed");
+    expect(instructions).toContain("You drive this agent's own desktop on the box with Computer, plus file reads (Read) and a shell (Shell).");
     expect(instructions).not.toContain("You have no desktop controls");
     expect(instructions).not.toContain("tight see-act-verify loop");
   });
@@ -103,9 +106,13 @@ describe("main-agent graphical delegation instructions", () => {
       expect(prompt.instructions).not.toContain("Parent profile");
       expect(prompt.instructions).not.toContain(PLATFORM_BASE_SYSTEM_PROMPT);
       expect(prompt.instructions).not.toContain("## How a turn works");
-      // knowledgeWork's own skills sit in its user_info block, like the main agent's.
+      // Executors and knowledgeWork open with the reference's user_info; knowledgeWork's own skills follow it, like the main agent's.
       expect(prompt.instructions).not.toContain("<agent_skills>");
-      if (subagentType === "knowledgeWork") expect(prompt.userInfo).toBe("<user_info>\n<agent_skills>knowledgeWork catalog</agent_skills>\n</user_info>");
+      const userInfo = /^<user_info>\nToday's date: \w+ \w+ \d+, \d{4}\n<\/user_info>/;
+      if (subagentType === "knowledgeWork") {
+        expect(prompt.userInfo).toMatch(userInfo);
+        expect(prompt.userInfo).toEndWith("</user_info>\n\n<agent_skills>knowledgeWork catalog</agent_skills>");
+      } else if (subagentType === "executor") expect(prompt.userInfo).toMatch(new RegExp(`${userInfo.source}$`));
       else expect(prompt.userInfo).toBeNull();
       // Workers get what they need in their task: no memory, history or todo tools.
       for (const name of ["ReadTranscript", "ReadAgentActivity", "RecallMemory", "TodoWrite"]) expect(prompt.instructions).not.toContain(name);
@@ -122,15 +129,21 @@ describe("main-agent graphical delegation instructions", () => {
       expect(prompt.instructions).toContain(`running as the ${subagentType} subagent`);
       expect(prompt.instructions).toContain("## Installed plugin skills\n\nSkill declared for this worker");
       expect(prompt.instructions).toContain("Only that final assistant message is relayed");
-      expect(prompt.instructions).toContain("Subagent instructions:\nChild-only instructions");
+      expect(prompt.instructions).not.toContain("Subagent instructions:");
+      expect(prompt.instructions).not.toContain("Child-only instructions");
       // Workers that read outside content hand messages under the user's name back as drafts, written as the user.
       expect(prompt.instructions).toContain("You cannot call DraftExternalMessage.");
       expect(prompt.instructions).toContain("## Untrusted content");
       // Auto-review: the worker retries a block with its approval flag, and the card reaches the user directly.
       expect(prompt.instructions).toContain("## Staying safe while you work\nSome of your tool calls get a quick automatic Auto-review safety check before they run: a Shell command, an MCP call, or a computer action.");
       expect(prompt.instructions).toContain("a notice that Auto-review blocked YOUR OWN tool call is from OpenTeam, not from the outside source");
-      expect(prompt.instructions.includes("When WebSearch or WebFetch fails or comes back blocked")).toBe(executes);
-      expect(prompt.instructions.indexOf("## Staying safe while you work")).toBeLessThan(prompt.instructions.indexOf("## Untrusted content"));
+      expect(prompt.instructions).toContain("When WebSearch or WebFetch fails or comes back blocked");
+      expect(prompt.instructions.indexOf("## Staying safe while you work")).toBeLessThan(prompt.instructions.indexOf("You cannot call DraftExternalMessage."));
+      expect(prompt.instructions.indexOf("You cannot call DraftExternalMessage.")).toBeLessThan(prompt.instructions.indexOf("## Untrusted content"));
+      expect(prompt.instructions).toContain("Gmail create_draft, Gmail update_draft, or another connector draft tool. Tell the parent to call DraftExternalMessage. Put that ask in WakeParent when you have it");
+      // Only the executor carries the send rules.
+      expect(prompt.instructions.includes("## Irreversible and externally visible actions\nThese need the user's explicit approval")).toBe(subagentType === "executor");
+      expect(prompt.instructions.includes("so do not ask follow-up questions. Do the work the rules below allow")).toBe(subagentType === "executor");
       expect(prompt.instructions).toContain("When acting through your user's accounts and apps, such as Slack, speak as them and never refer to them in the third person.");
       // Executors keep the box clock and machines straight; the browser worker works on its desktop only.
       expect(prompt.instructions.includes("## Time\nThe user lives in Europe/Paris (currently UTC+")).toBe(executes);
@@ -138,7 +151,7 @@ describe("main-agent graphical delegation instructions", () => {
       expect(prompt.instructions).toContain("## Your box");
       expect(prompt.instructions).not.toContain("CopyToBox");
       // As in the reference, an executor's prompt ends with its box section: no extra verification brief.
-      if (executes) expect(prompt.instructions).toEndWith("omit it for box paths.\n\nSubagent instructions:\nChild-only instructions");
+      if (executes) expect(prompt.instructions).toEndWith("omit it for box paths.");
       expect(prompt.instructions).not.toMatch(/Preserve every requested success criterion|A background process starting is not proof/);
     }
   });
@@ -152,7 +165,7 @@ describe("main-agent graphical delegation instructions", () => {
         subagentIdentity: { parentBotId: "parent", subagentType: "executor", readOnly: true }, todos: [] }) } },
     });
     const prompt = await AgentMessaging.prototype.platformPrompt.call(messaging as unknown as AgentMessaging, "child", "child-context", "");
-    expect(prompt.instructions).toContain("just do the work and report what you found or did.\nOperate in readonly mode: do not modify anything.");
+    expect(prompt.instructions).toContain("and anything you stopped short of.\nOperate in readonly mode: do not modify anything.");
     expect(prompt.instructions).toContain("- The user's own computers are out of reach in this run");
     expect(prompt.instructions).not.toContain("ListMachines");
     expect(prompt.instructions).toContain("The user lives in UTC (currently UTC+0)");

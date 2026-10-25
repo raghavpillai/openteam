@@ -63,7 +63,6 @@ export function enrichUserInfo(
   base: string,
   input: {
     cwd: string;
-    transcriptPath: string;
     /** The rendered <dynamic_tool_catalog>, pinned for the compaction epoch. */
     catalog: string | null;
     taskConfiguration?: TaskConfiguration;
@@ -84,8 +83,6 @@ export function enrichUserInfo(
   const at = roster ? context.search(/\n\n<(?:teammates|agent_skills)>/) : -1;
   return [
     !roster ? context : at < 0 ? `${context}\n\n${roster}` : `${context.slice(0, at)}\n\n${roster}${context.slice(at)}`,
-    // The main agent reads past conversations with ReadTranscript, never the files.
-    ...(input.subagent ? [`<agent_transcripts>\nPast conversation transcripts: ${input.transcriptPath}. Read relevant prior context when needed; do not cite internal transcript IDs to the user.\n</agent_transcripts>`] : []),
     input.catalog ?? [],
   ].flat().join("\n\n");
 }

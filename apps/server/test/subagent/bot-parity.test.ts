@@ -21,10 +21,8 @@ describe("OpenTeam-compatible subagent launch semantics", () => {
     expect(subagentTaskContent(input)).toBe(input.prompt);
     expect(subagentTaskContent(input)).not.toContain("Background task");
     expect(subagentTaskContent(input)).not.toContain("user_visible_high_level_summary");
-    expect(subagentTaskWake(input)).toEqual({
-      content: input.prompt,
-      wrapUserContent: false,
-    });
+    // The wake wraps it in <timestamp> and <user_query>, as a typed turn.
+    expect(subagentTaskWake(input)).toEqual({ content: input.prompt });
   });
 
   test("a computerUse task that names OpenTable or Resy carries the site's notes", () => {

@@ -47,9 +47,9 @@ export const subagentActivity = (items: ActivityItem[]): string[] => {
 export const subagentTaskContent = (input: TaskInput, type: SubagentType = input.subagent_type ?? "executor"): string =>
   type === "computerUse" ? withSiteDispatchNotes(input.prompt) : input.prompt;
 
+/** A task or resume opens the worker's turn like a typed message: the reference's <timestamp> and <user_query>. */
 export const subagentTaskWake = (input: TaskInput, type?: SubagentType) => ({
   content: subagentTaskContent(input, type),
-  wrapUserContent: false as const,
 });
 
 const STEER_HEADER = "[Steering message from the parent agent that dispatched you]";
@@ -548,7 +548,7 @@ export class SubagentService {
           name,
           title: `Subagent (${type})`,
           description: `Background subagent owned by ${parent.name}`,
-          instructions: this.childInstructions(),
+          instructions: "",
           icon: avatar.shape,
           color: avatar.color,
           notificationsEnabled: false,
@@ -726,13 +726,6 @@ export class SubagentService {
       });
       return { subagent: updated, attempt };
     });
-  }
-
-  private childInstructions(): string {
-    return [
-      "You are running as a subagent under a parent agent.",
-      "Do not spawn additional subagents. Nested subagents are unavailable.",
-    ].join("\n");
   }
 
   private async owned(parentBotId: string, id: string) {

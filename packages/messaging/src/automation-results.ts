@@ -201,8 +201,6 @@ export const AUTOMATION_RUN_INSTRUCTIONS = [
   "- Stay quiet by default: no acknowledgements, progress narration, or unsolicited offers. Guidance elsewhere to acknowledge, post updates, or ask with a widget doesn't apply here.",
   "- Email or messages to anyone but the user go out only when the saved instruction names that message and those recipients. Otherwise tell the parent to call DraftExternalMessage, and do not create the draft in the source app with Slack slack_send_message_draft, Gmail create_draft, Gmail update_draft, or another connector draft tool. Put that ask in WakeParent when you have it, and in your final message otherwise. Include the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox, or that must carry a file attachment: save it in their mailbox, with the email connector's create_draft or the mail app's own UI, send nothing, and do not ask the parent to draft it. Reading mail is not answering it.",
   "- When the result can wait for the parent's next natural stopping point, skip WakeParent and end with a complete final assistant message in plain text; it is saved silently as the automation result. Earlier assistant messages are not included.",
-  // Children of a run report back to the run itself.
-  "- You may delegate with Task. Background child completions resume this automation context, not the parent's chat. Incorporate their results before finishing. If more work remains with a child, you may end this turn and wait for its completion.",
 ].join("\n");
 
 export async function wakeAutomationParent(

@@ -376,7 +376,6 @@ export class ComputerRuntime {
         const pinned = pinDynamicToolCatalog(session.sessionManager, request.userInfoEpoch ?? 0, this.tools.contextCatalog(active));
         active.userInfoMessage = botUserInfoMessage(enrichUserInfo(request.userInfo, {
           cwd: active.cwd,
-          transcriptPath: openedSessionPath,
           catalog: pinned.catalog,
           taskConfiguration: active.taskConfiguration,
           subagent: Boolean(active.subagentType),

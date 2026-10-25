@@ -273,9 +273,11 @@ const routineWakeContent = (input: {
   const selfContained = input.kind === "manual"
     ? "Keep it self-contained, since the user asked to run this now, but typed nothing new."
     : `Keep it self-contained, since ${input.kind === "event" ? "the event asked for this" : "the schedule asked for this"}, not the user just now.`;
+  // The hidden and trusted markers open the cue's line, as in the reference.
+  const [cue, ...rest] = opening;
   return [
-    `[SAND_HIDDEN_PROMPT]${trusted}`,
-    ...opening,
+    `[SAND_HIDDEN_PROMPT]${trusted}${cue}`,
+    ...rest,
     "What you saved to do each time:",
     input.prompt,
     `Carry it out now${input.kind === "event" ? `, acting on the triggering event${events.length === 1 ? "" : "s"} above` : ""}. ${selfContained}`,

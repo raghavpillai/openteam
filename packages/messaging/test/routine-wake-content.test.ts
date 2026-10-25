@@ -16,8 +16,7 @@ describe("scheduled routine wake content", () => {
     });
     expect(content).not.toContain("<automation_trigger_info>");
     expect(content).toBe([
-      "[SAND_HIDDEN_PROMPT]",
-      '[routine] "Daily audit" (folder daily-audit) is due. Trigger: Every day at 12:00 AM (0 0 * * *), fired 8/28/2026, 11:00:00 AM UTC.',
+      '[SAND_HIDDEN_PROMPT][routine] "Daily audit" (folder daily-audit) is due. Trigger: Every day at 12:00 AM (0 0 * * *), fired 8/28/2026, 11:00:00 AM UTC.',
       "This is your own routine firing on schedule, not a message the user just typed.",
       "What you saved to do each time:",
       "Inspect the queue.",
@@ -58,7 +57,7 @@ describe("scheduled routine wake content", () => {
         provenance: "user",
       })
     ).toStartWith(
-      '[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]\n[routine] "Daily audit" (folder daily-audit) was run on demand. Trigger: Every day at 12:00 AM (0 0 * * *), started 8/28/2026, 11:00:00 AM UTC.\nThe user pressed Run now on this routine in the app; this is that run, not a message they typed.'
+      '[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT][routine] "Daily audit" (folder daily-audit) was run on demand. Trigger: Every day at 12:00 AM (0 0 * * *), started 8/28/2026, 11:00:00 AM UTC.\nThe user pressed Run now on this routine in the app; this is that run, not a message they typed.'
     );
   });
 });

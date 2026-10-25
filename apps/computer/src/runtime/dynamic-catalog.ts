@@ -145,6 +145,19 @@ export const PLUGIN_MANAGEMENT_TOOLS = [
   },
 ].map(tool => ({ ...tool, inputSchema: pluginToolSchemas[tool.name as keyof typeof pluginToolSchemas] }));
 
+const NEVER_POLL_SUBAGENT_BULLET =
+  "\n- NEVER USE THIS TO POLL OR WAIT VACUOUSLY FOR A SUBAGENT LAUNCHED WITH THE Task TOOL — rely on the end-of-turn completion notification instead (it is delivered as soon as the subagent finishes; guessing a wait time is inefficient).";
+const SHORT_WAIT_SLICES = "prefer slices of 60–270s, which keep the prompt cache warm.";
+/** As in the reference: only an agent with Task is told not to poll its subagents, and a worker whose
+ * single wait may run past 20 minutes is also offered long slices. */
+function awaitShellDescription(active: ActiveTurn): string {
+  let description = AWAIT_SHELL_TOOL.description;
+  if (active.runtimeProfile === "subagent") description = description.replace(NEVER_POLL_SUBAGENT_BULLET, "");
+  if (active.subagentType === "computerUse")
+    description = description.replace(SHORT_WAIT_SLICES, "prefer slices of 60–270s (keeps prompt cache warm) or 1200s+ (one cache miss buys a long wait).");
+  return description;
+}
+
 export function dynamicCatalog(
   callControlPlaneTool: RuntimeDynamicToolCaller,
   executeTodoWrite: RuntimeDynamicTool["execute"],
@@ -326,6 +339,7 @@ export function dynamicCatalog(
     ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
     : cursorTools).map(withReferenceContract).flatMap(tool => {
       if (tool.name === "Task") return [{ ...tool, ...taskToolContract(active.taskConfiguration) }];
+      if (tool.name === AWAIT_SHELL_TOOL.name) return [{ ...tool, description: awaitShellDescription(active) }];
       if (tool.name !== "UploadFile" && tool.name !== "DownloadFile") return [tool];
       // Offered only when a connected service can receive or serve files.
       const operation = tool.name === "UploadFile" ? "upload" : "download";

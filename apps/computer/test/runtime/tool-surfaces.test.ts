@@ -339,6 +339,20 @@ describe("specialized subagent tool surfaces", () => {
     for (const name of ["Shell", "Read", "AwaitShell"]) expect(schemas[name].properties.machineId, name).toBeUndefined();
   });
 
+  test("only an agent with Task is told not to poll subagents with AwaitShell; computerUse may wait in long slices", () => {
+    const runtime = runtimeTools() as any;
+    const awaitText = (subagentType: string | null) => {
+      const turn = workerTurn(subagentType);
+      const direct = runtime.customTools(turn).find((tool: any) => tool.name === "AwaitShell");
+      return direct?.description ?? runtime.dynamicCatalog(turn)[0].tools.find((tool: any) => tool.name === "AwaitShell").description;
+    };
+    const never = "NEVER USE THIS TO POLL OR WAIT VACUOUSLY FOR A SUBAGENT LAUNCHED WITH THE Task TOOL";
+    expect(awaitText(null)).toContain(never);
+    for (const subagentType of ["executor", "knowledgeWork", "computerUse"]) expect(awaitText(subagentType)).not.toContain(never);
+    expect(awaitText("computerUse")).toContain("prefer slices of 60\u2013270s (keeps prompt cache warm) or 1200s+ (one cache miss buys a long wait).");
+    expect(awaitText("executor")).toContain("prefer slices of 60\u2013270s, which keep the prompt cache warm.");
+  });
+
   test("normal agents target hosts with machineId on Shell and Read", () => {
     const names = toolNames(null);
     expect(names).toEqual(NATIVE_TOOL_NAMES);

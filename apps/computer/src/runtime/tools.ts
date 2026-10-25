@@ -486,8 +486,10 @@ export class RuntimeTools {
 
   private readonly privateBrowserValues = new Map<string, Set<string>>();
   private readonly browserUseSessions = new Map<string, BrowserUseSession>();
+  private readonly browserConnects = new Map<string, Promise<BrowserUseSession>>();
 
   customTools(active: ActiveTurn) {
+    this.prewarmBrowser(active);
     return this.definedTools(active).map((tool) => interruptibleByUser(active, tool));
   }
 
@@ -874,6 +876,42 @@ export class RuntimeTools {
     };
   }
 
+  /** Connects the bot's browser on first use, launching Chromium if needed; concurrent callers share one connect. */
+  private browserSession(active: ActiveTurn): Promise<BrowserUseSession> {
+    const pending = this.browserConnects.get(active.botId);
+    if (pending) return pending;
+    const connect = (async () => {
+      const endpoint = await this.screens.browserEndpointForAgent(active.screenBotId, active.cwd);
+      let browser = this.browserUseSessions.get(active.botId);
+      if (!browser?.connected) {
+        // Reuse only the trusted parent desktop, never a process-wide endpoint.
+        // Sequential workers retain tab state and bounded console history.
+        browser = [...this.browserUseSessions.entries()].find(([id, session]) =>
+          session.connected && this.browserSessionScreens.get(id) === active.screenBotId)?.[1] ?? browser;
+      }
+      if (!browser?.connected) {
+        browser = browser ? await browser.reconnect(endpoint) : await BrowserUseSession.connect(
+          endpoint,
+          join(this.workspaceRoot, "shared", "screenshots")
+        );
+        this.browserUseSessions.set(active.botId, browser);
+        this.browserSessionScreens.set(active.botId, active.screenBotId);
+      }
+      return browser;
+    })().finally(() => this.browserConnects.delete(active.botId));
+    this.browserConnects.set(active.botId, connect);
+    return connect;
+  }
+
+  /** A computerUse worker almost always starts in the browser, so connect while its first model call runs:
+   * the cold launch and attach otherwise sit between that call and the first action's review. */
+  prewarmBrowser(active: ActiveTurn): void {
+    if (active.subagentType !== "computerUse" || this.browserConnects.has(active.botId)) return;
+    const live = [...this.browserUseSessions.entries()].some(([id, session]) =>
+      session.connected && (id === active.botId || this.browserSessionScreens.get(id) === active.screenBotId));
+    if (!live) this.browserSession(active).catch(() => undefined);
+  }
+
   private async callBrowserUse(
     active: ActiveTurn,
     toolName: string,
@@ -881,22 +919,7 @@ export class RuntimeTools {
     signal?: AbortSignal,
     callId = toolName
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const endpoint = await this.screens.browserEndpointForAgent(active.screenBotId, active.cwd);
-    let browser = this.browserUseSessions.get(active.botId);
-    if (!browser?.connected) {
-      // Reuse only the trusted parent desktop, never a process-wide endpoint.
-      // Sequential workers retain tab state and bounded console history.
-      browser = [...this.browserUseSessions.entries()].find(([id, session]) =>
-        session.connected && this.browserSessionScreens.get(id) === active.screenBotId)?.[1] ?? browser;
-    }
-    if (!browser?.connected) {
-      browser = browser ? await browser.reconnect(endpoint) : await BrowserUseSession.connect(
-        endpoint,
-        join(this.workspaceRoot, "shared", "screenshots")
-      );
-      this.browserUseSessions.set(active.botId, browser);
-      this.browserSessionScreens.set(active.botId, active.screenBotId);
-    }
+    const browser = await this.browserSession(active);
     this.browserUseSessions.set(active.botId, browser);
     this.browserSessionScreens.set(active.botId, active.screenBotId);
     browser.configureUploads(this.workspaceRoot, [this.agentDir]);

@@ -27,6 +27,9 @@ struct HomeView: View {
   @State private var deletingSection: JSON?
   @State private var listHidden = false
   @State private var barRegions = BarRegions.none
+  /// The conversation list's width beside a chat, as last dragged; 0 until then.
+  @AppStorage("sidebarWidth") private var draggedSidebarWidth: Double = 0
+  @State private var dragStartWidth: CGFloat?
   @Environment(\.horizontalSizeClass) private var sizeClass
   private var visible: [Channel] { store.channels.filter { !store.isHidden($0) } }
   private var sections: [JSON] { store.sidebar["sections"].array }
@@ -129,12 +132,15 @@ struct HomeView: View {
   private func splitLayout(width: CGFloat) -> some View {
     let selected = store.navigation.last.flatMap { store.channel($0) }
     let showsList = selected == nil || !listHidden
+    let range = HomeLayout.sidebarRange(for: width)
+    let listWidth = draggedSidebarWidth > 0
+      ? min(range.upperBound, max(range.lowerBound, draggedSidebarWidth)) : HomeLayout.sidebarWidth(for: width)
     return HStack(spacing: 0) {
       if showsList {
         // A gray column, edge to edge, beside the chat; the open chat is a card on it.
         conversationList
           .environment(\.canvasColor, NativePalette.sidebar)
-          .frame(width: HomeLayout.sidebarWidth(for: width))
+          .frame(width: listWidth)
           .transition(.move(edge: .leading).combined(with: .opacity))
       }
       if let selected {
@@ -152,6 +158,30 @@ struct HomeView: View {
           "No conversation selected", systemImage: "bubble.left.and.bubble.right",
           description: Text("Choose a conversation to start chatting.")
         ).frame(maxWidth: .infinity, maxHeight: .infinity).nativeCanvas()
+      }
+    }
+    // Above both columns, so neither scroll view takes the drag.
+    .overlay(alignment: .leading) {
+      if showsList {
+        SidebarResizeHandle(
+          width: listWidth, range: range, dragging: dragStartWidth != nil,
+          onDrag: { translation in
+            let start = dragStartWidth ?? listWidth
+            dragStartWidth = start
+            draggedSidebarWidth = min(range.upperBound, max(range.lowerBound, start + translation))
+          },
+          onEnd: { translation in
+            // Dragging well past the narrowest width hides the list beside a
+            // chat; it comes back at the width it had before.
+            let start = dragStartWidth ?? listWidth
+            if selected != nil, start + translation < range.lowerBound - 80 {
+              draggedSidebarWidth = start
+              withAnimation(.smooth(duration: 0.3)) { listHidden = true }
+            }
+            dragStartWidth = nil
+          },
+          onSet: { draggedSidebarWidth = $0 })
+          .offset(x: listWidth - SidebarResizeHandle.hitWidth / 2)
       }
     }
     // Lists slide over the page color, not the window, as they collapse.
@@ -574,6 +604,45 @@ enum HomeLayout: Equatable {
   init(sizeClass: UserInterfaceSizeClass?) { self = sizeClass == .regular ? .split : .stack }
   /// About a third of the window, as Settings uses on iPhone Duo and iPad.
   static func sidebarWidth(for width: CGFloat) -> CGFloat { min(360, max(280, (width * 0.36).rounded())) }
+  /// How far the list can be dragged: never under 240 pt, never over half the window.
+  static func sidebarRange(for width: CGFloat) -> ClosedRange<CGFloat> {
+    240...max(sidebarWidth(for: width), min(480, (width / 2).rounded()))
+  }
+}
+
+/// The conversation list's trailing edge, which drags to resize it, as split
+/// views' column dividers do. A double tap returns it to its usual width.
+private struct SidebarResizeHandle: View {
+  static let hitWidth: CGFloat = 20
+  var width: CGFloat
+  var range: ClosedRange<CGFloat>
+  var dragging: Bool
+  var onDrag: (CGFloat) -> Void
+  var onEnd: (CGFloat) -> Void
+  var onSet: (Double) -> Void
+  var body: some View {
+    Capsule()
+      .fill(NativePalette.muted.opacity(dragging ? 0.6 : 0.25))
+      .frame(width: dragging ? 5 : 4, height: 36)
+      .frame(width: Self.hitWidth)
+      .frame(maxHeight: .infinity)
+      .contentShape(Rectangle())
+      .highPriorityGesture(
+        DragGesture(minimumDistance: 2, coordinateSpace: .global)
+          .onChanged { onDrag($0.translation.width) }
+          .onEnded { onEnd($0.translation.width) }
+      )
+      .onTapGesture(count: 2) { onSet(0) }
+      .animation(.snappy(duration: 0.15), value: dragging)
+      .accessibilityElement()
+      .accessibilityLabel("Conversation list width")
+      .accessibilityValue("\(Int(width)) points")
+      .accessibilityIdentifier("sidebar-resize")
+      .accessibilityAdjustableAction { direction in
+        let step: CGFloat = direction == .increment ? 40 : -40
+        onSet(Double(min(range.upperBound, max(range.lowerBound, width + step))))
+      }
+  }
 }
 
 /// iPhone Duo's outer display gives the status bar its own region down one

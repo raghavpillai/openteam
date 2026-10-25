@@ -2706,7 +2706,7 @@
           },
           "minItems": 1,
           "maxItems": 9,
-          "description": "Up to 9 more actions to run in this same call, in order, right after the primary action. Each entry takes the same fields as the primary action. The whole sequence shares one 2000ms settle and returns one screenshot of the final screen, so batching is several times faster than a call per action. Batch only steps you already know without seeing the screen between them; when a step depends on what the previous one rendered, make separate calls. Allowed here: click, move, drag, type, key, scroll, wait."
+          "description": "Up to 9 more actions to run in this same call, in order, right after the primary action. Each entry takes the same fields as the primary action. The whole sequence shares one 500ms settle and returns one screenshot of the final screen, so batching is several times faster than a call per action. Batch only steps you already know without seeing the screen between them; when a step depends on what the previous one rendered, make separate calls. Allowed here: click, move, drag, type, key, scroll, wait."
         },
         "description": {
           "type": "string",

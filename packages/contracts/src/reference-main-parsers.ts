@@ -770,7 +770,7 @@ function refineHoldClick(args, ctx) {
 
 var SAND_COMPUTER_MAX_FOLLOW_UP_ACTIONS = 9;
 
-var COMPUTER_USE_SCREENSHOT_SETTLE_DELAY_MS = 2e3;
+var COMPUTER_USE_SCREENSHOT_SETTLE_DELAY_MS = 500;
 
 function buildFollowUpParameter() {
   const allowed = FOLLOW_UP_ACTIONS;

@@ -42,6 +42,7 @@ const VIEWER_PORT_BASE = 6200;
 const BROWSER_DEBUG_PORT_BASE = 9300;
 
 const TAKEOVER_TTL_MS = 45_000;
+const COMPUTER_SETTLE_MS = 500;
 
 const ENDPOINT_STARTUP_TIMEOUT_MS = 10_000;
 
@@ -264,8 +265,9 @@ export class ScreenBroker {
         await performComputerUseAction(action, env, signal);
       }, signal);
       const finalAction = actions.at(-1)?.action;
+      // The batch shares one settle before its screenshot, the 500 ms the Computer tool advertises.
       if (finalAction && finalAction !== "wait" && finalAction !== "screenshot") {
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise((resolve) => setTimeout(resolve, COMPUTER_SETTLE_MS));
       }
       try {
         return await captureDesktop(session.display, env, signal);

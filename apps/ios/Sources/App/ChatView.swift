@@ -345,7 +345,8 @@ struct ChatView: View {
     HStack {
       titleButton
       Spacer(minLength: 0)
-    }.padding(.horizontal, 14).padding(.vertical, 6).foregroundStyle(NativePalette.text)
+    }.padding(.horizontal, 14).modifier(TopBarClearance(6)).padding(.bottom, 6)
+      .foregroundStyle(NativePalette.text)
   }
   private var sideControls: some View {
     VStack(spacing: 12) {
@@ -385,7 +386,8 @@ struct ChatView: View {
           Color.clear.accessibilityHidden(true)
         }
       }.frame(width: 44, height: 44)
-    }.padding(.horizontal, 18).padding(.vertical, 6).foregroundStyle(NativePalette.text)
+    }.padding(.horizontal, 18).modifier(TopBarClearance(6)).padding(.bottom, 6)
+      .foregroundStyle(NativePalette.text)
   }
   func timestamp(_ date: Date) -> String {
     let formatter = DateFormatter()

@@ -36,6 +36,9 @@ enum NativePalette {
   static let assistant = surface
   static let user = color("0E0E0E", "545454")
   static let separator = color("E4E4E4", "343434")
+  /// The conversation list's card beside a chat, and its open conversation.
+  static let sidebar = color("EEEEEF", "1E1E1F")
+  static let sidebarSelection = color("DFDFE1", "2E2E30")
   static let code = color("E5E5E5", "2C2C2C")
   static let selection = code
   // Reference action fill: RGB 1/108/236. iOS 26's default blue is brighter.
@@ -157,23 +160,24 @@ struct NativeChatGlass: ViewModifier {
 /// opacity as content scrolls.
 private struct ChromeFade: View {
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.canvasColor) private var canvas
   var edge: VerticalEdge
   var body: some View {
     LinearGradient(
       stops: [
-        .init(color: NativePalette.background, location: 0),
+        .init(color: canvas, location: 0),
         .init(
-          color: NativePalette.background.opacity(edge == .top ? 0.85 : 0.9),
+          color: canvas.opacity(edge == .top ? 0.85 : 0.9),
           location: edge == .top ? 0.20 : 0.18),
         .init(
-          color: NativePalette.background.opacity(
+          color: canvas.opacity(
             edge == .top ? 0.48 : 0.35),
           location: edge == .top ? 0.55 : 0.65),
         // Both themes fade before the floating header, independently of its glass.
         .init(
-          color: NativePalette.background.opacity(edge == .top ? 0.04 : 0),
+          color: canvas.opacity(edge == .top ? 0.04 : 0),
           location: edge == .top ? 0.85 : 1),
-        .init(color: NativePalette.background.opacity(0), location: 1),
+        .init(color: canvas.opacity(0), location: 1),
       ],
       startPoint: edge == .top ? .top : .bottom,
       endPoint: edge == .top ? .bottom : .top
@@ -360,7 +364,7 @@ extension View {
   /// Extend only the page color under the keyboard's transparent rounded corners.
   /// Content continues to avoid the keyboard, keeping fields and controls reachable.
   func nativeCanvas() -> some View {
-    background { NativePalette.background.ignoresSafeArea() }
+    modifier(NativeCanvas())
   }
 
   func nativeGlass(radius: CGFloat = 22, darkTint: Double = 0.11) -> some View {
@@ -383,6 +387,18 @@ extension View {
     presentationDetents([.fraction(0.95), .large]).presentationDragIndicator(.hidden)
       .presentationCornerRadius(34).presentationBackground(NativePalette.background)
   }
+}
+
+/// The page color behind a screen and its edge fades; a card sets its own.
+private struct NativeCanvas: ViewModifier {
+  @Environment(\.canvasColor) private var canvas
+  func body(content: Content) -> some View { content.background { canvas.ignoresSafeArea() } }
+}
+extension EnvironmentValues {
+  @Entry var canvasColor: Color = NativePalette.background
+  /// Extra space above top bars when the status bar sits beside them, as on
+  /// iPhone Duo, so their controls line up with the clock like system bars do.
+  @Entry var topBarClearance: CGFloat = 0
 }
 
 struct ChromeButton: View {

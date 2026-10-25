@@ -40,6 +40,7 @@ struct HomeView: View {
       // Apple's apps keep horizontal bars on iPhone Duo's inner display and move
       // controls into the side region only on the outer one.
       .environment(\.sideChrome, sizeClass == .compact ? SideChrome(insets: geometry.safeAreaInsets) : nil)
+      .environment(\.topBarClearance, SideChrome.topBarClearance(for: geometry.safeAreaInsets))
     }
     .onChange(of: store.navigation) { _, path in
       // Once the zoomed chat has closed (and zoomed back into its row), later
@@ -126,10 +127,14 @@ struct HomeView: View {
     let showsList = selected == nil || !listHidden
     return HStack(spacing: 0) {
       if showsList {
+        // A gray card beside the chat, as sidebars float in system apps.
         conversationList
+          .environment(\.canvasColor, NativePalette.sidebar)
+          .background(NativePalette.sidebar)
+          .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+          .padding([.leading, .vertical], 8)
           .frame(width: HomeLayout.sidebarWidth(for: width))
           .transition(.move(edge: .leading).combined(with: .opacity))
-        NativePalette.separator.frame(width: 0.5).ignoresSafeArea()
       }
       if let selected {
         NavigationStack { ChatView(channel: selected) }
@@ -284,20 +289,14 @@ struct HomeView: View {
       ChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
         .accessibilityIdentifier("search-button")
       newMenu.frame(width: 44, height: 44).nativeGlass()
-    }.foregroundStyle(NativePalette.text).padding(.horizontal, 18).padding(.top, 6).padding(
+    }.foregroundStyle(NativePalette.text).padding(.horizontal, 18).modifier(TopBarClearance(6)).padding(
       .bottom, 10
     )
   }
-  /// The same controls in the side region below the status bar: the account on
-  /// its own, then search and creation sharing one glass capsule.
+  /// The same controls in the side region: search and creation in one glass
+  /// capsule below the status bar, the account at the bottom.
   var sideHeader: some View {
     VStack(spacing: 12) {
-      Button {
-        settings = SettingsSheet()
-      } label: {
-        AccountMark(name: store.userName, size: 42).padding(3).nativeGlass()
-      }
-      .buttonStyle(.plain).accessibilityLabel("Settings").accessibilityIdentifier("settings-button")
       VStack(spacing: 0) {
         Button {
           search = true
@@ -311,6 +310,14 @@ struct HomeView: View {
         LoadingOrb(size: 20).frame(width: 48, height: 48).accessibilityLabel("Syncing state")
           .accessibilityIdentifier("syncing-state")
       }
+      Spacer(minLength: 0)
+      // The account sits at the foot of the region, like a tab bar's last item.
+      Button {
+        settings = SettingsSheet()
+      } label: {
+        AccountMark(name: store.userName, size: 42).padding(3).nativeGlass()
+      }
+      .buttonStyle(.plain).accessibilityLabel("Settings").accessibilityIdentifier("settings-button")
     }.foregroundStyle(NativePalette.text)
   }
   private var newMenu: some View {
@@ -371,11 +378,7 @@ struct HomeView: View {
             hide: { Task { await store.hide(channel, hidden: true) } }
           ) {
             ConversationLink(id: channel.id) {
-              ChannelRow(channel: channel)
-                .matchedTransitionSource(id: channel.id, in: zoom) { source in
-                  source.background(NativePalette.background)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                }
+              ChannelRow(channel: channel).modifier(ZoomSource(id: channel.id, namespace: zoom))
             }
               .accessibilityIdentifier("channel-" + channel.id)
               .contextMenu {
@@ -586,6 +589,12 @@ struct SideChrome: Equatable {
   /// Height of the status block (camera, time, connectivity) atop the region,
   /// measured on a folded iPhone Duo.
   static let statusHeight: CGFloat = 166
+  /// Room above top bars when the status bar isn't across the top (iPhone Duo):
+  /// system bars there center their controls level with the clock, about 47
+  /// points down. Phones and iPads with a top status bar need none.
+  static func topBarClearance(for insets: EdgeInsets) -> CGFloat {
+    insets.top < 24 ? max(0, 20 - insets.top) : 0
+  }
   init?(insets: EdgeInsets) {
     guard insets.top < 24, abs(insets.leading - insets.trailing) > 16 else { return nil }
     edge = insets.trailing > insets.leading ? .trailing : .leading
@@ -598,21 +607,51 @@ struct SideChrome: Equatable {
 /// one. Content keeps the safe area, so it stays clear of that region.
 struct SideChromeBar<Top: View, Side: View>: ViewModifier {
   @Environment(\.sideChrome) private var chrome
+  @Environment(\.topBarClearance) private var clearance
   /// Without one, the screen draws its own top bar.
   var top: Top?
   var side: Side
   func body(content: Content) -> some View {
     if let chrome {
-      content.overlay(alignment: chrome.edge == .trailing ? .topTrailing : .topLeading) {
-        side.frame(width: chrome.width).padding(.top, chrome.controlsTop)
-          .offset(x: chrome.edge == .trailing ? chrome.width : -chrome.width)
-      }
+      // Without a top bar, content still starts level with the clock.
+      content.safeAreaPadding(.top, top == nil ? 0 : clearance)
+        .overlay(alignment: chrome.edge == .trailing ? .topTrailing : .topLeading) {
+          side.frame(width: chrome.width).padding(.top, chrome.controlsTop).padding(.bottom, 8)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .offset(x: chrome.edge == .trailing ? chrome.width : -chrome.width)
+        }
     } else if let top {
       content.fadingTopBar { top }
     } else {
       content
     }
   }
+}
+
+/// A row the first bot's chat zooms out of, drawn over the list's own color.
+private struct ZoomSource: ViewModifier {
+  @Environment(\.canvasColor) private var canvas
+  @Environment(\.opensConversationsInPlace) private var inPlace
+  var id: String
+  var namespace: Namespace.ID
+  func body(content: Content) -> some View {
+    // Beside a chat nothing zooms, and the source's fill would cover the selection.
+    if inPlace {
+      content
+    } else {
+      content.matchedTransitionSource(id: id, in: namespace) { source in
+        source.background(canvas).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+      }
+    }
+  }
+}
+
+/// Top padding for a top bar plus any clearance the screen needs above it.
+struct TopBarClearance: ViewModifier {
+  @Environment(\.topBarClearance) private var clearance
+  var base: CGFloat
+  init(_ base: CGFloat) { self.base = base }
+  func body(content: Content) -> some View { content.padding(.top, base + clearance) }
 }
 
 /// The chat's leading header button when the chat shares the window with the
@@ -645,7 +684,7 @@ private struct ConversationLink<Label: View>: View {
       } label: {
         label.background {
           if highlightsSelection, store.navigation.last == id {
-            RoundedRectangle(cornerRadius: 18).fill(NativePalette.surface).padding(.horizontal, -10)
+            RoundedRectangle(cornerRadius: 18).fill(NativePalette.sidebarSelection).padding(.horizontal, -10)
           }
         }
       }.buttonStyle(.plain)
@@ -1041,6 +1080,7 @@ struct SearchView: View {
 /// its gestures. Keep the same deliberate Pin/Hide actions as the RN inbox.
 private struct ConversationSwipeRow<Content: View>: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.canvasColor) private var canvas
   let pinned: Bool
   let pin: () -> Void
   let hide: () -> Void
@@ -1057,7 +1097,7 @@ private struct ConversationSwipeRow<Content: View>: View {
         swipeButton("Hide", "eye.slash", NativePalette.destructive, action: hide)
           .opacity(offset < 0 ? 1 : 0).allowsHitTesting(offset < 0).accessibilityHidden(offset >= 0)
       }.padding(.horizontal, 8)
-      content().background(NativePalette.background).offset(x: offset)
+      content().background(canvas).offset(x: offset)
         .gesture(
           MessageReplyGesture(
             allowsLeftward: true,

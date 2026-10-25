@@ -271,7 +271,7 @@ export class DurableStateService {
       return { target: "routine", action: "get", refused: "a routine run can only read the routine that started it." };
     const routine = await this.routines.detailOwner(owner, id).catch((error: unknown) => {
       if (error instanceof ApiError && error.code === "routine_not_found")
-        throw new ApiError(404, "routine_not_found", `no routine with folder "${id}" exists. Your routines and their folder ids are listed under Scheduled routines in your prompt.`);
+        throw new ApiError(404, "routine_not_found", `no routine with folder "${id}" exists. Your routines and their folder ids are in the latest <automation_status> reminder.`);
       throw error;
     });
     return {

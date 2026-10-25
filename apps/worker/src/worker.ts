@@ -40,6 +40,7 @@ import {
   renderQuietRevivalBatchPrompt,
   renderAutomationHandoffPrompt,
   renderRevivalBatchPrompt,
+  retimestampUserTurn,
   quietRoutineOriginNote,
   automationContextRoutine,
   automationBackgroundWorkRunning,
@@ -271,6 +272,13 @@ export const routineRevivalContext = (wake: RevivalWake): string | null =>
  * the claimed wake's own prompt.
  */
 export const revivalBatch = <T extends RevivalWake>(claimed: T, pending: readonly T[], now = Date.now()): { content: string; folded: T[] } | null => {
+  const batch = revivalBatchContent(claimed, pending, now);
+  // The batch keeps the claimed wake's <timestamp> and <user_query> framing.
+  const previous = (claimed.payload as { content?: unknown } | null)?.content;
+  return batch && { ...batch, content: retimestampUserTurn(typeof previous === "string" ? previous : "", batch.content) };
+};
+
+const revivalBatchContent = <T extends RevivalWake>(claimed: T, pending: readonly T[], now: number): { content: string; folded: T[] } | null => {
   if (claimed.type === "automation.wake_parent") {
     if (claimed.status !== "pending") return null;
     const handoff = (claimed.payload as { handoff?: unknown } | null)?.handoff;
@@ -2156,7 +2164,6 @@ export class WakeWorker {
       },
       clientId: `subagent:${subagent.id}:${status}:${subagent.currentRunId}`,
       priority: 260,
-      wrapUserContent: false,
     });
   }
 }

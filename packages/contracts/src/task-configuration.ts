@@ -126,19 +126,20 @@ export function taskUserInfo(config = defaultTaskConfiguration()): string {
   const graphical = config.graphicalAvailable !== false;
   return [
     "<available_subagent_types>",
+    "Available subagent_types and a quick description of what they do:",
     [
-      "executor: Your workhorse: a background subagent with your full work toolset (Shell, box tools, web and MCP tools) that executes one stream of work while you stay available to the user.",
+      "- executor: Your workhorse: a background subagent with your full work toolset (Shell, box tools, web and MCP tools) that executes one stream of work while you stay available to the user.",
       "Reuse or resume an idle executor for new work in the same workstream. Typically you'll use one or two active executors; four is a soft maximum unless the user is explicitly multitasking or requests parallel threads.",
       "It starts with no context. The dispatch prompt must be self-contained: the goal, the specifics, relevant conversation context, any of your memories or user preferences that matter, explicit success criteria, and what to report back.",
       BACKGROUND_TASK,
       "It runs headless and cannot talk to the user; it reports its result back to you, and you deliver it. It has no browser, desktop, or subagent tools.",
       ...(graphical ? ["It cannot use or dispatch computerUse, so dispatch browser and desktop work to computerUse yourself."] : []),
     ].join(" "),
-    "videoReview: Analyze videos with an expert visual video model. Pass file paths via the `file_attachments` parameter. Use this to verify your understanding of a video you generated before referencing it in your response. Your prompt should include: (1) what you believe is in the video, (2) questions to verify.",
-    'watchVideo: Describe or analyze videos with an expert video description and analysis model. Use WatchVideo for user-inputted videos; if you generate a video artifact, prefer VideoReview. Use this subagent type to generate a description of user-provided videos, or to ask specific questions about said videos. Pass file paths via the `file_attachments` parameter. ALWAYS start by asking for a video description by asking "Describe what is happening in the attached video, in detail". You may resume the same subagent to ask more specific, detailed follow-up questions. When using, include relevant context about the video, e.g. details from the conversation about what the video may contain and why it is relevant (do not make assumptions, just share what you know). When resuming, you need not re-attach the videos.',
+    "- videoReview: Analyze videos with an expert visual video model. Pass file paths via the `file_attachments` parameter. Use this to verify your understanding of a video you generated before referencing it in your response. Your prompt should include: (1) what you believe is in the video, (2) questions to verify.",
+    '- watchVideo: Describe or analyze videos with an expert video description and analysis model. Use WatchVideo for user-inputted videos; if you generate a video artifact, prefer VideoReview. Use this subagent type to generate a description of user-provided videos, or to ask specific questions about said videos. Pass file paths via the `file_attachments` parameter. ALWAYS start by asking for a video description by asking "Describe what is happening in the attached video, in detail". You may resume the same subagent to ask more specific, detailed follow-up questions. When using, include relevant context about the video, e.g. details from the conversation about what the video may contain and why it is relevant (do not make assumptions, just share what you know). When resuming, you need not re-attach the videos.',
     graphical
       ? [
-          "computerUse: Delegate a self-contained browser or desktop task to a background subagent that operates your box's browser and desktop: websites, GUI apps, file dialogs, and drag interactions. It shares the box browser's persistent logins.",
+          "- computerUse: Delegate a self-contained browser or desktop task to a background subagent that operates your box's browser and desktop: websites, GUI apps, file dialogs, and drag interactions. It shares the box browser's persistent logins.",
           "Display is 1280×800. Computer click/move/scroll x,y are pixels in that space (origin top-left); never emit coordinates outside 0..1279 × 0..799.",
           BACKGROUND_TASK,
           "It runs headless and cannot ask follow-ups, so give it a tightly-scoped, self-contained task, the smallest concrete step rather than a sprawling goal, with the specifics it needs (site, account, exact values), explicit success criteria and stopping point, and what to report back; break a big goal into several narrow dispatches, and if one runs long or loops, steer it with MessageSubagent or stop it with StopSubagent.",
@@ -149,7 +150,7 @@ export function taskUserInfo(config = defaultTaskConfiguration()): string {
           "A press-and-hold I'm-human button is a mouse hold, not a human step: it holds it with Computer click holdDurationMs until the widget completes.",
         ].join(" ")
       : "Browser and desktop workers are unavailable on this computer.",
-    "knowledgeWork: A higher-powered executor for five kinds of work, and only these: (1) slides and decks (`.pptx`, Google Slides); (2) spreadsheets (`.xlsx`, `.csv`, Google Sheets); (3) written documents (`.docx`, Google Docs, Notion pages); (4) emails; (5) Slack messages. Use it when a skill names it or the deliverable is one of these. Email and Slack messages under the user's name still come back to you to draft. It starts with no context, so give it everything it needs in the prompt. " +
+    "- knowledgeWork: A higher-powered executor for five kinds of work, and only these: (1) slides and decks (`.pptx`, Google Slides); (2) spreadsheets (`.xlsx`, `.csv`, Google Sheets); (3) written documents (`.docx`, Google Docs, Notion pages); (4) emails; (5) Slack messages. Use it when a skill names it or the deliverable is one of these. Email and Slack messages under the user's name still come back to you to draft. It starts with no context, so give it everything it needs in the prompt. " +
       BACKGROUND_TASK +
       " It runs headless and cannot talk to the user; it reports its result back to you, and you deliver it.",
     "</available_subagent_types>",

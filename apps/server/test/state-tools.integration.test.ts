@@ -215,7 +215,7 @@ databaseTest("a routine run reads and changes only its own routine, and may paus
     });
     expect(await call({ action: "get", id: String(other.folder) }, turn.id)).toMatchObject({ name: "Evening wrap", enabled: false });
     await expect(call({ action: "get", id: "missing" }, turn.id)).rejects.toThrow(
-      'no routine with folder "missing" exists. Your routines and their folder ids are listed under Scheduled routines in your prompt.'
+      'no routine with folder "missing" exists. Your routines and their folder ids are in the latest <automation_status> reminder.'
     );
     expect(await call({ action: "create", name: "Allowed", prompt: "x", schedule: "0 9 * * *" }, turn.id)).toMatchObject({ created: true, delivery_nudge: true });
     expect(await call({ action: "pause", id: String(own.folder) }, turn.id)).not.toHaveProperty("delivery_nudge");

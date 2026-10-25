@@ -42,7 +42,7 @@ const summarizeLastRun = (runs: readonly LedgerRun[], timeZone: string): string 
   return `last run ${formatTimestamp(last.startedAt, timeZone)} (${last.status === "ok" ? "succeeded" : "failed"})`;
 };
 
-/** The static half of a routine's line, frozen in the system prompt with the rest of the Routines section. */
+/** The definition half of a routine's line in the <automation_status> reminder. */
 export const routineDefinitionLine = (routine: RoutineStatusSource): string => {
   const trigger = routine.trigger as { type?: unknown } | null;
   let described: string;
@@ -57,8 +57,11 @@ export const routineDefinitionLine = (routine: RoutineStatusSource): string => {
 
 const AUTOMATION_STATUS_HEADER =
   "Current routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.";
+const AUTOMATION_DEFINITIONS_HEADER =
+  "Current routines and their runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.";
 
-/** Per-turn runtime status, as the reference's <automation_status> reminder. The firing routine's own run is left out. */
+/** Per-turn definitions and runtime status, as the reference's <automation_status> reminder for the main agent and
+ * its routine runs. The firing routine's own run is left out. */
 export const renderAutomationStatusReminder = (
   routines: readonly RoutineStatusSource[],
   timeZone: string,
@@ -70,9 +73,9 @@ export const renderAutomationStatusReminder = (
       (run) => routine.id === undefined || routine.id !== firingRoutineId || run.status !== "running"
     );
     const next = routine.enabled && routine.nextRunAt ? `next run ${formatTimestamp(routine.nextRunAt, timeZone)}; ` : "";
-    return `- ${routine.name} (folder ${routine.slug}): ${next}${summarizeLastRun(runs, timeZone)}`;
+    return `${routineDefinitionLine(routine)}; ${next}${summarizeLastRun(runs, timeZone)}`;
   });
-  return ["<system_reminder>", "<automation_status>", AUTOMATION_STATUS_HEADER, ...lines, "</automation_status>", "</system_reminder>"].join("\n");
+  return ["<system_reminder>", "<automation_status>", AUTOMATION_DEFINITIONS_HEADER, ...lines, "</automation_status>", "</system_reminder>"].join("\n");
 };
 
 export const AUTOMATION_STATUS_CLEARED = [

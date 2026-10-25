@@ -3,11 +3,15 @@ import { describe, expect, test } from "bun:test";
 import { AgentMessaging, validateSendToUserInput } from "../src";
 import type { AgentPromptContext } from "../src/agent-data";
 import {
+  DELEGATING_SECTION,
   PARALLEL_TOOL_CALLS,
   PLATFORM_BASE_SYSTEM_PROMPT,
+  ROUTINES_SECTION,
+  renderAgentProfileFiles,
   renderPlatformBaseSystemPrompt,
-  renderPlatformRuntimeInstructions,
+  renderSkillsSection,
 } from "../src/platform-system-prompt";
+import { renderMainBoxSection, renderWorkerTimeSection } from "../src/worker-prompts";
 import { REQUEST_BOX_HELP_TOOL, SEND_TO_USER_TOOL } from "@openteam/contracts";
 import { referenceTool } from "@openteam/contracts/tool-contracts";
 import managedSkills from "../src/prompts/managed-skills.json";
@@ -99,19 +103,15 @@ describe("platform prompt integration", () => {
   });
 
   test("all feature combinations retain supported media and explicit provider setup guidance", () => {
-    const flags = [
-      "managedSkills",
-      "forms",
-      "drafts",
-      "sharing",
-      "eventRoutines",
-    ] as const;
-    for (let mask = 0; mask < 32; mask++) {
+    const flags = ["managedSkills", "sharing"] as const;
+    for (let mask = 0; mask < 4; mask++) {
       const features = Object.fromEntries(
         flags.map((name, bit) => [name, Boolean(mask & (1 << bit))])
       );
       const prompt = renderPlatformBaseSystemPrompt(features);
-      expect(prompt).toContain("download it to your computer and attach the saved file");
+      expect(prompt).toContain("Download web images to your box and attach the file instead of making the client load a remote URL.");
+      // One copy of the send rules, in the reference's place.
+      expect(prompt.split("## Never send email or messages unasked").length - 1).toBe(1);
       expect(prompt).toContain("Web search is not configured");
       expect(prompt).toContain("Web fetch is turned off");
       expect(prompt).not.toContain("Use watchVideo");
@@ -238,7 +238,7 @@ describe("platform prompt integration", () => {
     const prompt = await messaging.platformPrompt("alpha", "alpha-context", "\n\n## Installed plugin skills\n\nPlugin skill text");
     const text = prompt.instructions;
     expect(text).toStartWith(`${renderPlatformBaseSystemPrompt()}\n\nYou are alpha.`);
-    const order = ["alpha's memory policy.", "## Other active conversations", "You have no scheduled routines.", "## Installed plugin skills"].map((part) => text.indexOf(part));
+    const order = ["alpha's memory policy.", "## Other active conversations", "## Routines\n", "## Skills\n", "## Teammates and groups\n", "## Installed plugin skills", "## Your box\n", "## The box desktop\n"].map((part) => text.indexOf(part));
     expect(order.every((at, index) => at > (order[index - 1] ?? 0))).toBe(true);
     for (const gone of ["<available_subagent_types>", "task queue", "Book flights", "hiddenFromSidebar="]) expect(text).not.toContain(gone);
     expect(prompt.todoUpdate).toBe("- **PENDING**: Book flights (id: t1)");
@@ -260,7 +260,7 @@ describe("platform prompt integration", () => {
       expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain(unsupported);
     }
     expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("end_turn to true");
-    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("CopyToBox");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("Read, Shell, and AwaitShell act on the box unless you pass a machineId from ListMachines.");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("AwaitShell");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("Completion notifications arrive on their own");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("image-generation tools");
@@ -304,15 +304,15 @@ describe("platform prompt integration", () => {
   });
 
   test("a stop request starts with StopSubagent all: true, which also reaches peers", () => {
-    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain(
+    expect(DELEGATING_SECTION).toContain(
       "Your first tool call for it is StopSubagent with all: true; that one call stops every running child (computerUse, executor, and all other Task children, plus anything they started) and delivers a stop to every peer agent you handed work to (each then stops its own subagents the same way)"
     );
-    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("Do not CheckSubagent first or stop children one by one");
-    expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("call CheckSubagent with no id, issue StopSubagent for every running child");
-    expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("cloud agent");
+    expect(DELEGATING_SECTION).toContain("Do not CheckSubagent first or stop children one by one");
+    expect(DELEGATING_SECTION).not.toContain("call CheckSubagent with no id, issue StopSubagent for every running child");
+    expect(`${PLATFORM_BASE_SYSTEM_PROMPT}\n${DELEGATING_SECTION}`).not.toContain("cloud agent");
   });
   test("an ask to do the work yourself overrides the delegation rule of thumb", () => {
-    const delegation = PLATFORM_BASE_SYSTEM_PROMPT.slice(PLATFORM_BASE_SYSTEM_PROMPT.indexOf("## Delegating and multitasking"));
+    const delegation = DELEGATING_SECTION;
     expect(delegation).toContain("Rule of thumb: if an ask would take more than two rounds of tool calls, it must go to an executor.");
     expect(delegation).toContain("When the user asks you to do the work yourself instead of handing it to a helper, do it inline: that request overrides the rule of thumb above.");
   });
@@ -338,7 +338,7 @@ describe("platform prompt integration", () => {
   test("an automation run gets its own section after the identity and none of the chat-turn sections", () => {
     const prompt = renderPlatformBaseSystemPrompt({ automationRun: AUTOMATION_RUN_INSTRUCTIONS });
     expect(prompt).toStartWith(`You are OpenTeam, a warm, concise desktop assistant.\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\n## User communication style`);
-    for (const heading of ["## How a turn works", "## Showing your work", "## Asking for decisions", "## Threaded replies"]) expect(prompt).not.toContain(heading);
+    for (const heading of ["## How a turn works", "## Files and visuals", "## Asking for decisions", "## Threaded replies"]) expect(prompt).not.toContain(heading);
     expect(prompt).not.toContain("You can pay for the user's purchases");
     expect(AUTOMATION_RUN_INSTRUCTIONS).toContain("The only cards your work may raise are Auto-review approvals.");
     expect(AUTOMATION_RUN_INSTRUCTIONS).toContain("- WakeParent is the only way to reach the user or another agent from this run. Call it when");
@@ -355,18 +355,19 @@ describe("platform prompt integration", () => {
   });
 
   test("deployment context resolves timezone and paths without captured account defaults", () => {
-    const prompt = renderPlatformRuntimeInstructions({
-      agentDataRoot: "/var/lib/openteam/",
-      botId: "current-bot",
-      workingDirectory: "/work/current-project",
-      timeZone: "not-a-timezone",
-    });
-    expect(prompt).toContain("/var/lib/openteam/agents/current-bot");
-    expect(prompt).toContain("/var/lib/openteam/workflows/<slug>/SKILL.md");
+    const prompt = [
+      renderAgentProfileFiles({ agentDataRoot: "/var/lib/openteam/", botId: "current-bot" }),
+      renderWorkerTimeSection("not-a-timezone"),
+      ROUTINES_SECTION,
+      renderSkillsSection("/var/lib/openteam/"),
+      renderMainBoxSection("/work/current-project"),
+    ].join("\n\n");
+    expect(prompt).toContain("/var/lib/openteam/agents/current-bot/profile.json");
+    expect(prompt).toContain("User-created skills live as files at /var/lib/openteam/workflows: one subfolder per skill");
     expect(prompt).toContain("The user lives in UTC (currently UTC+0), and the box clock is set to that zone, so `date`, file mtimes, and other box-local times already read in the user's time.");
     // Skills are files on the box, so the catalog text is the on-disk one.
     expect(prompt).toContain("It is still on disk, readable, and invocable immediately.");
-    expect(prompt).toContain("Managed skills come with OpenTeam, do NOT live in those folders");
+    expect(prompt).toContain("Managed skills are supplied by OpenTeam, do NOT live in those folders");
     expect(prompt).toContain("A skill's name is the name field in its SKILL.md frontmatter");
     // The reference's Time section, then its box section with the registered-computer file moves.
     expect(prompt).toContain("A timestamp that carries its own zone is not box-local.");
@@ -376,11 +377,12 @@ describe("platform prompt integration", () => {
     expect(prompt).toContain("- The box is shared with the user's other agents, which may be using it right now. Don't delete files or kill processes you didn't create; /workspace holds their work too, so ask before deleting anything there you didn't make.");
     expect(prompt).toContain("Be aggressive and proactive about routines.");
     expect(prompt).toContain("catch the implicit cases");
+    expect(prompt).toContain("Your routines are in the latest <automation_status> reminder; with none, you have none.");
     expect(prompt).not.toContain("clearly asks for recurring work");
 
     expect(prompt).not.toContain("/home/box");
     expect(prompt).not.toContain("UTC-7");
-    expect(renderPlatformRuntimeInstructions({ agentDataRoot: "/data", botId: "b", workingDirectory: "/w", timeZone: "Asia/Kolkata" }))
+    expect(renderWorkerTimeSection("Asia/Kolkata"))
       .toContain("The user lives in Asia/Kolkata (currently UTC+5:30), and the box clock is set to that zone");
   });
 });

@@ -319,11 +319,6 @@ adaptArgument("SendToAgent", "target_id", [["Use an id from your teammates list,
 contracts.SendToAgent!.inputSchema.required = contracts.SendToAgent!.inputSchema.required.filter((key: string) => key !== "priority");
 
 adaptDescription("UpdateRoutine", [
-  // The routine list lives in the frozen prompt section, not a per-turn reminder.
-  [
-    "are in the latest <automation_status> reminder, which shows no prompts.",
-    "are listed under Scheduled routines in your prompt, which shows no prompts.",
-  ],
   // There are no meeting tools.
   [", except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting).", "."],
   ["Read the Cursor-managed `routines` skill", "Read the managed `routines` skill"],

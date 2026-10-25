@@ -29,6 +29,10 @@ describe("channel message interaction prompts", () => {
     expect(formatUserPrompt("t19u", "")).toBe("[t19u]");
   });
 
+  test("puts the message address on its own line above the text, as the reference does", () => {
+    expect(formatUserPrompt("t0u", "Please run echo hello for me.")).toBe("[t0u]\nPlease run echo hello for me.");
+  });
+
   test("quotes the replied-to message after the new user address", () => {
     expect(
       formatUserPrompt("t18u", "What user prompt do you see?", {

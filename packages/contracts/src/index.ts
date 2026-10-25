@@ -1072,7 +1072,8 @@ export const SEND_TO_USER_TOOL = nativeTool("SendToUser");
 export const REACT_TO_MESSAGE_TOOL = nativeTool("ReactToMessage");
 export const SHELL_TOOL = nativeTool("Shell");
 export const READ_TOOL = nativeTool("Read");
-export const LIST_MACHINES_TOOL = nativeTool("ListMachines");
+/** Looked up in the cursor namespace, as in the reference, rather than called directly. */
+export const LIST_MACHINES_TOOL = { type: "function" as const, ...referenceTool("ListMachines") };
 export const GET_DYNAMIC_TOOLS_TOOL = nativeTool("GetDynamicTools");
 export const CALL_DYNAMIC_TOOL_TOOL = nativeTool("CallDynamicTool");
 

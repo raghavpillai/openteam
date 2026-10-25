@@ -2,10 +2,12 @@ import {expect, test} from "bun:test";
 import {parseReadTranscriptInput} from "@openteam/contracts/read-transcript";
 import {boundTranscriptValue, transcriptToolProjection} from "../src/read-transcript";
 test("strict bounded selectors and cursors", () => {
-  expect(parseReadTranscriptInput({})).toEqual({in:"this", limit:30, before:undefined});
-  expect(parseReadTranscriptInput({in:" "})).toEqual({in:"this", limit:30, before:undefined});
+  expect(parseReadTranscriptInput({})).toEqual({in:"session", limit:30, before:undefined});
+  expect(parseReadTranscriptInput({in:" "})).toEqual({in:"session", limit:30, before:undefined});
+  expect(parseReadTranscriptInput({in:"session"})).toEqual({in:"session", limit:30, before:undefined});
+  expect(parseReadTranscriptInput({in:" this "})).toEqual({in:"session", limit:30, before:undefined});
   expect(parseReadTranscriptInput({in:" worker ",before:0,limit:200}).in).toBe("worker");
-  expect(()=>parseReadTranscriptInput({in:"all"})).toThrow("ReadTranscript reads one transcript at a time: pass in=this or one id.");
+  expect(()=>parseReadTranscriptInput({in:"all"})).toThrow("ReadTranscript reads one transcript at a time: omit `in` for this session, or pass one id.");
   // The three retired ids are unknown fields now.
   for(const input of [{limit:0},{limit:201},{limit:1.2},{before:-1},{before:Infinity},{agent_id:"a"},{session_id:"b"},{subagent_id:"c"},{in:[]},{extra:true},{toString:1},[]]) expect(()=>parseReadTranscriptInput(input)).toThrow();
 });

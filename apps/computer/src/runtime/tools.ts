@@ -231,10 +231,21 @@ export const workerTopLevelTools = (
   active: Pick<ActiveTurn, "subagentType" | "readOnly"> & Partial<Pick<ActiveTurn, "requestSource" | "runtimeProfile">>
 ): readonly string[] => {
   if (active.requestSource === "automation" && active.runtimeProfile !== "subagent") return [WAKE_PARENT_TOOL.name];
-  if (active.subagentType === "executor" || active.subagentType === "knowledgeWork")
-    return active.readOnly ? ["AwaitShell", "WebSearch", "WebFetch"] : ["AwaitShell", "WebSearch", "WebFetch", "UploadFile", "DownloadFile"];
+  // File transfers stay in the cursor namespace, as in the reference's Task worker manifest.
+  if (active.subagentType === "executor" || active.subagentType === "knowledgeWork") return ["AwaitShell", "WebSearch", "WebFetch"];
   if (active.subagentType === "computerUse") return ["AwaitShell"];
   return [];
+};
+
+/** The reference's order for directly callable tools (its tool builders' order); others keep their place after these. */
+const DIRECT_TOOL_ORDER = [
+  WAKE_PARENT_TOOL.name, SEND_TO_USER_TOOL.name, REACT_TO_MESSAGE_TOOL.name, "ListSections", "RecallMemory",
+  UPDATE_MEMORY_TOOL.name, UPDATE_ROUTINE_TOOL.name, "WebSearch", "WebFetch", SHELL_TOOL.name, READ_TOOL.name,
+  "AwaitShell", SCREENSHOT_TOOL.name, GET_DYNAMIC_TOOLS_TOOL.name, CALL_DYNAMIC_TOOL_TOOL.name,
+];
+const directToolRank = (name: string) => {
+  const rank = DIRECT_TOOL_ORDER.indexOf(name);
+  return rank === -1 ? DIRECT_TOOL_ORDER.length : rank;
 };
 
 /** Calls that can create a file a Read in the same step is waiting for. */
@@ -598,7 +609,7 @@ export class RuntimeTools {
     return [
       ...availableNativeTools.map((tool) => native(tool)),
       ...topLevelTools(),
-    ];
+    ].sort((a, b) => directToolRank(a.name) - directToolRank(b.name));
   }
 
   private async executeOpenTeamTool(
@@ -763,9 +774,6 @@ export class RuntimeTools {
           part.type === "text" ? { ...part, text: redactSecrets(part.text, secrets) } : part
         ),
       };
-    }
-    if (tool === LIST_MACHINES_TOOL.name) {
-      return this.nativeToolExecutor.listMachines(signal);
     }
     if (tool === SCREENSHOT_TOOL.name) {
       const frame = await this.screens.screenshot(active.botId, active.cwd, signal).catch((error) => {
@@ -1532,7 +1540,7 @@ export class RuntimeTools {
     return this.fullDynamicCatalog(active).map((namespace) => {
       if (namespace.name !== "cursor" || !topLevel.length) return namespace;
       const tools = namespace.tools.filter((tool) => !topLevel.includes(tool.name));
-      return { ...namespace, tools, description: firstPartyNamespaceDescription(tools.map((tool) => tool.name)) };
+      return { ...namespace, tools, description: firstPartyNamespaceDescription(tools.map((tool) => tool.name), { worker: active.runtimeProfile === "subagent" }) };
     });
   }
 
@@ -1704,6 +1712,18 @@ export class RuntimeTools {
                 : this.webTools.search(args as string, signal),
           };
         }),
+        // Registered computers are listed on demand, as in the reference; box-scoped and read-only agents stay on the box.
+        ...(active.readOnly || active.subagentType === "computerUse"
+          ? []
+          : [{
+              name: LIST_MACHINES_TOOL.name,
+              description: LIST_MACHINES_TOOL.description,
+              inputSchema: LIST_MACHINES_TOOL.inputSchema,
+              source: "first-party" as const,
+              decodeArguments: (args: unknown) => args ?? {},
+              execute: (_turn: ActiveTurn, _callId: string, _args: unknown, signal?: AbortSignal) =>
+                this.nativeToolExecutor.listMachines(signal),
+            }]),
         ...(active.runtimeProfile === "subagent"
           ? []
           : ["CopyToBox", "CopyFromBox"].map((name): RuntimeDynamicTool => {

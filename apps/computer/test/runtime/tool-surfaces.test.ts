@@ -200,14 +200,15 @@ describe("specialized subagent tool surfaces", () => {
     expect(names).toContain("CallDynamicTool");
     expect(names).not.toContain("Screenshot");
     const firstParty = (runtimeTools() as any).dynamicCatalog(workerTurn("executor")).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
-    expect(firstParty).toEqual([]);
+    expect(firstParty.sort()).toEqual(["DownloadFile", "ListMachines", "UploadFile"]);
   });
 
   test("executor and knowledgeWork call the web and shell-wait tools directly", async () => {
     const runtime = runtimeTools() as any;
     for (const subagentType of ["executor", "knowledgeWork"]) {
       const names = toolNames(subagentType);
-      expect(names).toEqual(expect.arrayContaining(["Shell", "Read", "AwaitShell", "WebSearch", "WebFetch"]));
+      // In the reference's order: its tool builders put the web tools before Shell.
+      expect(names).toEqual(["WebSearch", "WebFetch", "Shell", "Read", "AwaitShell", "GetDynamicTools", "CallDynamicTool"]);
       expect(names).not.toContain("Screenshot");
       const cursor = runtime.dynamicCatalog(workerTurn(subagentType)).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
       expect(cursor).not.toContain("WebSearch");
@@ -249,17 +250,24 @@ describe("specialized subagent tool surfaces", () => {
     const header = "First-party tools built into you, listed first: they are trusted and core to your job, so prefer one over an external namespace that covers the same need. Read a tool's schema with GetDynamicTools, then call it with CallDynamicTool in the cursor namespace.\n\nHere are some crucial instructions:\n";
     const main = cursor(workerTurn(null)).description;
     expect(main).toStartWith(header);
-    for (const line of ["- ReadAgentActivity: Summarize", "- ReadTranscript: Read your full transcript", "- request_box_help: Hand your box's desktop", "- Task: Spawn subagents natively.", "- UploadFile: Send a box file to Google Drive or Gmail."])
+    for (const line of ["- ReadAgentActivity: Summarize", "- ReadTranscript: Read the transcripts of your conversations, your subagents, and the user's other bots.", "- request_box_help: Hand your box's desktop", "- Task: Spawn subagents natively.", "- UploadFile: Send a box file to Google Drive or Gmail."])
       expect(main).toContain(line);
     expect(main.indexOf("- request_box_help:")).toBeLessThan(main.indexOf("- RequestUserForm:"));
-    // An executor calls its file tools directly, so its cursor namespace has nothing to cue.
-    expect(cursor(workerTurn("executor")).description).toBe(header.split("\n\n")[0]);
+    // The main agent looks ListMachines up without a cue; an executor gets the worker cues.
+    expect(cursor(workerTurn(null)).tools.map((tool: any) => tool.name)).toContain("ListMachines");
+    expect(main).not.toContain("- ListMachines:");
+    expect(cursor(workerTurn("executor")).description).toBe(header + [
+      "- DownloadFile: Fetch a Drive or Gmail file onto the box. Not for URLs or box files.",
+      "- ListMachines: List the user's computers and the machineId that points Read, Shell, or AwaitShell at one.",
+      "- UploadFile: Send a box file to the user's Google Drive or Gmail.",
+    ].join("\n"));
     // With nothing to send files to or fetch them from, neither tool is offered.
     const bare = cursor(workerTurn(null, { pluginNamespaces: [{ ...driveNamespace, name: "linear", fileTransfers: undefined }] }));
     expect(bare.tools.map((tool: any) => tool.name)).not.toContain("UploadFile");
     expect(bare.tools.map((tool: any) => tool.name)).not.toContain("DownloadFile");
     expect(bare.description).not.toContain("UploadFile");
-    expect(cursor(workerTurn("executor", { pluginNamespaces: [] }))).toMatchObject({ tools: [], description: header.split("\n\n")[0] });
+    expect(cursor(workerTurn("executor", { pluginNamespaces: [] }))).toMatchObject({ tools: [expect.objectContaining({ name: "ListMachines" })] });
+    expect(cursor(workerTurn("executor", { pluginNamespaces: [], readOnly: true }))).toMatchObject({ tools: [], description: header.split("\n\n")[0] });
   });
 
   test("routine runs and connector workers upload and download files; graphical and media workers cannot", () => {
@@ -267,12 +275,12 @@ describe("specialized subagent tool surfaces", () => {
     const cursor = (overrides: Record<string, unknown>) =>
       runtime.dynamicCatalog({ pluginNamespaces: [driveNamespace], ...overrides }).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
     expect(cursor({ runtimeProfile: "agent", requestSource: "automation" })).toEqual(expect.arrayContaining(["UploadFile", "DownloadFile"]));
-    // Executors and knowledgeWork call them directly, like the reference's statically offered tools.
+    // Executors and knowledgeWork look them up, as the reference's Task worker manifest has them.
     for (const subagentType of ["executor", "knowledgeWork"])
       for (const requestSource of ["agent", "automation"]) {
         const turn = workerTurn(subagentType, { requestSource });
-        expect(runtime.customTools(turn).map((tool: any) => tool.name)).toEqual(expect.arrayContaining(["UploadFile", "DownloadFile"]));
-        expect(cursor(turn)).not.toContain("UploadFile");
+        expect(runtime.customTools(turn).map((tool: any) => tool.name)).not.toContain("UploadFile");
+        expect(cursor(turn)).toEqual(expect.arrayContaining(["UploadFile", "DownloadFile", "ListMachines"]));
       }
     for (const subagentType of ["computerUse", "videoReview", "watchVideo"]) {
       const worker = cursor({ runtimeProfile: "subagent", subagentType });
@@ -303,7 +311,7 @@ describe("specialized subagent tool surfaces", () => {
       for (const name of ["RecallMemory", "ReadTranscript", "ReadAgentActivity"]) expect(names, subagentType).not.toContain(name);
     }
     for (const subagentType of ["executor", "knowledgeWork"]) {
-      expect(cursor("subagent", subagentType).map((tool) => tool.name)).toEqual([]);
+      expect(cursor("subagent", subagentType).map((tool) => tool.name).sort()).toEqual(["DownloadFile", "ListMachines", "UploadFile"]);
     }
     const main = cursor("agent");
     expect(main.map((tool) => tool.name)).toEqual(expect.arrayContaining(["ReadTranscript", "ReadAgentActivity"]));
@@ -334,7 +342,7 @@ describe("specialized subagent tool surfaces", () => {
   test("normal agents target hosts with machineId on Shell and Read", () => {
     const names = toolNames(null);
     expect(names).toEqual(NATIVE_TOOL_NAMES);
-    expect(names).toContain("ListMachines");
+    expect(names).not.toContain("ListMachines");
     expect(names).toContain("Shell");
     expect(names).toContain("Read");
   });
@@ -905,7 +913,7 @@ test('a readonly worker lists and greps with Shell on the box, reads only throug
       { connectionId: 'c1', name: 'whoami', description: '', inputSchema: { type: 'object' }, source: 'custom/custom', readOnly: true },
       { connectionId: 'c1', name: 'send_message', description: '', inputSchema: { type: 'object' }, source: 'gmail/gmail' },
     ] }] });
-  expect(runtime.customTools(readonly).map((tool: any) => tool.name)).toEqual(['Shell', 'Read', 'GetDynamicTools', 'CallDynamicTool', 'AwaitShell', 'WebSearch', 'WebFetch']);
+  expect(runtime.customTools(readonly).map((tool: any) => tool.name)).toEqual(['WebSearch', 'WebFetch', 'Shell', 'Read', 'AwaitShell', 'GetDynamicTools', 'CallDynamicTool']);
   expect(runtime.dynamicCatalog(readonly).find((namespace: any) => namespace.name === 'cursor').tools.map((tool: any) => tool.name)).toEqual([]);
   await expect(runtime.executeOpenTeamTool(readonly, 'call-1', 'Shell', { command: 'ls', machineId: 'mac' })).rejects.toThrow("Read-only agents cannot access the user's computer");
   const calls: string[] = [];

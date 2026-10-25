@@ -51,7 +51,7 @@ export async function readTranscript(db: PrismaClient, context: {botId: string; 
     let channelIds: string[] = [];
     let worker = false;
     // An id is tried as a dispatched subagent, then one of this agent's conversations, then an owned agent.
-    const id = input.in === "this" ? undefined : input.in.replace(/^sand-subagent-/, "");
+    const id = input.in === "session" ? undefined : input.in.replace(/^sand-subagent-/, "");
     if (id !== undefined && !uuid.test(id)) throw unavailable();
     const child = id && await tx.subagent.findFirst({where: {id, parentBotId: context.botId}, select: {childBotId: true}});
     if (child) {

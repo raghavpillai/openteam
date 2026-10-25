@@ -201,6 +201,14 @@
       }
     },
     {
+      "name": "ListSections",
+      "description": "List the user's current sidebar sections, including each section's stable id and display name. Use a returned id with CreateAgent to place a new teammate in that section. If there are no custom sections, CreateAgent should omit section_id.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "RecallMemory",
       "description": "Search your durable memory for facts that are not in the memory section of your prompt: older journal entries, notes that have aged out of the recent slice, and shared user facts recorded by any of this user's assistants.\nRead-only. Results list each fact with its date, memory type and, for shared facts, which assistant learned it.\nTo add or drop a fact use UpdateMemory. Prefer this tool over grepping memory folders.",
       "parameters": {
@@ -221,14 +229,6 @@
         "required": [
           "query"
         ]
-      }
-    },
-    {
-      "name": "ListSections",
-      "description": "List the user's current sidebar sections, including each section's stable id and display name. Use a returned id with CreateAgent to place a new teammate in that section. If there are no custom sections, CreateAgent should omit section_id.",
-      "parameters": {
-        "type": "object",
-        "properties": {}
       }
     },
     {
@@ -856,14 +856,6 @@
         "required": [
           "action"
         ]
-      }
-    },
-    {
-      "name": "ListMachines",
-      "description": "Lists the user's connected computers and the exact machineId used to target one with Shell or Read. This operation is read-only; never guess a machine id.",
-      "parameters": {
-        "properties": {},
-        "type": "object"
       }
     },
     {

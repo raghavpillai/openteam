@@ -336,7 +336,7 @@ export function dynamicCatalog(
   return [
     {
       name: "cursor",
-      description: firstPartyNamespaceDescription(firstPartyTools.map((tool) => tool.name)),
+      description: firstPartyNamespaceDescription(firstPartyTools.map((tool) => tool.name), { worker: active.runtimeProfile === "subagent" }),
       kind: "first-party",
       namespaceStatus: "ready",
       tools: firstPartyTools,

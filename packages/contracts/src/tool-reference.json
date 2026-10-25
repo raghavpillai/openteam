@@ -269,7 +269,7 @@
   },
   "UpdateRoutine": {
     "name": "UpdateRoutine",
-    "description": "Read, create, or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are in the latest <automation_status> reminder, which shows no prompts.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once, except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting). Read the Cursor-managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create: name, prompt, and schedule or trigger. get: id; returns the saved prompt, trigger, and timing. update: id plus only the fields to change. pause, resume, delete: id.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/\"@every 2h\"), at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.\nA change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.",
+    "description": "Read, create, or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are in the latest <automation_status> reminder, which shows no prompts.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once, except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting). Read the Cursor-managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create needs name, prompt, and schedule or trigger; update takes only the fields to change; get returns the saved prompt, trigger, and timing.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/\"@every 2h\"), at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.\nYour routines are kept on the server: they can't listen to Slack DMs, and an Origin listener fires only for pr-opened, pr-pushed, pr-merged, and pr-comment across a whole repo (no pr or userAllowlist).\nA change may ask the user to confirm on a card; don't ask first, and don't retry a denied write. A change you suggest to save usage waits for the user's yes.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -291,13 +291,12 @@
         },
         "name": {
           "type": "string",
-          "minLength": 1,
-          "description": "Required on create."
+          "minLength": 1
         },
         "prompt": {
           "type": "string",
           "minLength": 1,
-          "description": "What to do each time it fires, written to your future self as an intent, not a frozen tool recipe. Required on create."
+          "description": "What to do each time it fires, written to your future self as an intent, not a frozen tool recipe."
         },
         "schedule": {
           "type": "string",
@@ -327,7 +326,6 @@
           "required": [
             "type"
           ],
-          "additionalProperties": {},
           "description": "An event listener instead of schedule. Fields depend on type; see Trigger shapes in the routines skill."
         },
         "enabled": {
@@ -471,7 +469,7 @@
   },
   "AddMcpServer": {
     "name": "AddMcpServer",
-    "description": "Add an MCP server that isn't in the catalog to the user's Cursor account. Before adding a server by URL, run SearchPlugins for it: when the catalog has a plugin for the same service, install that plugin with InstallPlugin instead, because a plugin signs in as the user while a keyless custom server can share the provider's anonymous rate limit with every other user. Use this when the user gives you a link or a launch command for a server that SearchPlugins doesn't know. Only call this after the user agrees to add it. Confirm with a question widget first, since it changes the user's account configuration and the server can run commands or reach external services on their behalf. Provide EITHER a remote `url` OR a local `command` with `args` (and `env` for secrets), not both. For a remote server's credentials, use `headers` for static bearer/API-key auth, or `auth` for an OAuth provider that publishes a pre-registered client ID (its `CLIENT_ID`, optional `CLIENT_SECRET`, and `scopes`) instead of supporting dynamic client registration. A remote server runs on the backend; a `command` server runs on your computer, which has node, npm, bun, python3, and uv, so `npx -y <pkg>` and `uvx <pkg>` both work. Install anything else it needs with Shell first. That command also runs in this user's other agents, so say so when you confirm. Ask the user for the exact endpoint or command and any secrets rather than guessing; if you only have a link, open it first (WebFetch) to find the connection details. Newly added tools become available to you on your next message.",
+    "description": "Add an MCP server that isn't in the catalog to the user's Cursor account. Before adding a server by URL, run SearchPlugins for it: when the catalog has a plugin for the same service, install that plugin with InstallPlugin instead, because a plugin signs in as the user while a keyless custom server can share the provider's anonymous rate limit with every other user. Use this when the user gives you a link or a launch command for a server that SearchPlugins doesn't know. Only call this after the user agrees to add it. Confirm with a question widget first, since it changes the user's account configuration and the server can run commands or reach external services on their behalf. Provide EITHER a remote `url` OR a local `command` with `args` (and `env` for secrets), not both. For a remote server's credentials, use `headers` for static bearer/API-key auth, or `auth` for an OAuth provider that publishes a pre-registered client ID (its `CLIENT_ID`, optional `CLIENT_SECRET`, and `scopes`) instead of supporting dynamic client registration. For a remote server whose certificate a private CA signed, pass that CA's PEM text as `tls.caBundle` rather than suggesting a local proxy such as `mcp-remote`. A remote server runs on the backend; a `command` server runs on your computer, which has node, npm, bun, python3, and uv, so `npx -y <pkg>` and `uvx <pkg>` both work. Install anything else it needs with Shell first. That command also runs in this user's other agents, so say so when you confirm. Ask the user for the exact endpoint or command and any secrets rather than guessing; if you only have a link, open it first (WebFetch) to find the connection details. Newly added tools become available to you on your next message.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -513,6 +511,20 @@
             "CLIENT_ID"
           ],
           "description": "Optional OAuth client settings for a remote server whose provider does not support dynamic client registration and instead publishes a pre-registered client ID. Use `headers` for static bearer/API-key auth; use `auth` only for OAuth. Remote servers only. Never combine with `command`."
+        },
+        "tls": {
+          "type": "object",
+          "properties": {
+            "caBundle": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The PEM text of the CA certificate(s) that signed the server's certificate, starting with -----BEGIN CERTIFICATE-----. Never a file path."
+            }
+          },
+          "required": [
+            "caBundle"
+          ],
+          "description": "Optional, for a remote server whose certificate is signed by a private CA. It is trusted only for this server. Remote servers only. Never combine with `command`."
         },
         "command": {
           "type": "string",
@@ -1053,7 +1065,7 @@
   },
   "ListMachines": {
     "name": "ListMachines",
-    "description": "List the user's registered machines with their machineId, label, kind (desktop, ios, or android), and current local-exec connection status. Pass a desktop's machineId to Shell, Read, or AwaitShell to use that machine instead of the box, or to CopyToBox and CopyFromBox for file transfers; a phone never takes those tools. Only a connected phone lists deviceLocalTools, each on-device tool with its state: ready, needs_permission (the phone can still ask for the OS permission), denied (only the phone's Settings app can grant it), or unavailable. A call to a tool still missing its permission posts a permission card in the chat for the user to tap; a phone without deviceLocalTools offers none right now. Messages the user sends from their desktop app carry a \"[Sent from machine <machineId>]\" note naming the machine they are on; when they don't say which machine to use, default to the one their latest message was sent from.",
+    "description": "List the user's registered machines with their machineId, label, kind (desktop, ios, or android), and current local-exec connection status. Pass a desktop's machineId to Shell, Read, or AwaitShell to use that machine instead of the box, or to CopyToBox and CopyFromBox for file transfers; a phone never takes those tools. A connected phone, or a connected desktop that offers an on-device tool such as location, lists deviceLocalTools, each on-device tool with its state: ready, needs_permission (the machine can still ask for the OS permission), denied (only the machine's Settings app can grant it), or unavailable. A call to a tool still missing its permission posts a permission card in the chat for the user to tap; a machine without deviceLocalTools offers none right now. Messages the user sends from their desktop app carry a \"[Sent from machine <machineId>]\" note naming the machine they are on; when they don't say which machine to use, default to the one their latest message was sent from.",
     "inputSchema": {
       "type": "object",
       "properties": {}
@@ -1392,7 +1404,7 @@
   },
   "SearchPlugins": {
     "name": "SearchPlugins",
-    "description": "Search the plugins the user could install (or already has): marketplace plugins bundling connectors and skills. Say what you're looking for in natural language and results come back ranked by relevance, each with its STABLE plugin id, install state, and what it includes. Use this to discover a capability (Linear, Notion, writing Word documents, …) that GetDynamicTools does not already list, or to check whether a plugin is installed. Using a connector GetDynamicTools already lists needs no search: it has the connector's identifier, status, and tools. Inspect one result with GetPlugin. This is read-only and never needs the user's permission.",
+    "description": "Search the plugins the user could install (or already has): marketplace plugins bundling connectors and skills. Say what you're looking for in natural language and results come back ranked by relevance, each with its STABLE plugin id, install state, and what it includes. Use this to discover a capability (Linear, Notion, writing Word documents, …) that GetDynamicTools does not already list, or to check whether a plugin is installed. Using a connector GetDynamicTools already lists needs no search: it has the connector's identifier, status, and tools. Inspect one result with GetPlugin. If the requested plugin remains uninstalled, relay its listed add link; if absent or unmatched, relay the Connect Apps fallback. Never invent a URL. This is read-only and never needs the user's permission.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1405,14 +1417,14 @@
   },
   "SendToAgent": {
     "name": "SendToAgent",
-    "description": "Send a message to ANOTHER of your user's agents, OR post into a GROUP chat you belong to, by its id (not the user, whom you reach with SendToUser). This is FIRE-AND-FORGET and asynchronous, like texting: it returns a delivery acknowledgement right away. priority is REQUIRED and decides how a 1:1 message reaches its recipient. priority=true wakes them now. Use it when they should act on the message or someone is waiting on their reply (a task, a question you or the user needs answered, a handoff, a STOP or change of plan). priority=false does NOT wake them. The message is held for the start of their next turn, possibly much later. Use it for anything informational: a status update, FYI, acknowledgement, thanks, or a reply nobody is waiting for. When in doubt whether someone is waiting, use true. Group posts always land immediately. It does NOT return their reply, and you must not wait or poll for one in this turn. Send it and move on. Any reply arrives later as its own message. A priority reply wakes you on a fresh turn, and an informational one is handed to you at your next turn. Get agent ids from your teammates list or ListAgents, and group ids from ListGroups. To include image(s), such as a screenshot, chart, or photo the other agent needs, pass images: [{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}] (file:// or https://). Never paste an image as a markdown ![](...) in the message text. Use it deliberately and sparingly. Waking another agent or a whole group is a real side effect, so treat it like messaging on the user's behalf. Message someone or post to a group only when it truly serves the user's goal, not because one was mentioned or complained about, and don't spam a group. Never relay the user's private or unfiltered words (especially a complaint or criticism) verbatim; if relaying is warranted, paraphrase the actionable point diplomatically, not their tone. If you're unsure the user wants this sent, handle it yourself or ask first. Keep the message purposeful, professional, and minimal. One clearly relevant recipient can be normal work; messaging SEVERAL agents about the same effort (or posting it to a group) is a fan-out that wakes every recipient, and their replies land back in the user's chats and rooms, so fan out only when the user explicitly asked you to contact those agents. Otherwise propose it first with a question widget and wait for a yes, and never fan out \"meanwhile\" while you're waiting on the user for data or a decision.",
+    "description": "Send a message to ANOTHER of your user's agents, OR post into a GROUP chat you belong to, by its id (not the user, whom you reach with SendToUser). This is FIRE-AND-FORGET and asynchronous, like texting: it returns a delivery acknowledgement right away. priority is REQUIRED and decides how a 1:1 message reaches its recipient. priority=true wakes them now. Use it when they should act on the message or someone is waiting on their reply (a task, a question you or the user needs answered, a handoff, a STOP or change of plan). priority=false does NOT wake them. The message is held for the start of their next turn, possibly much later. Use it for anything informational: a status update, FYI, acknowledgement, thanks, or a reply nobody is waiting for. When in doubt whether someone is waiting, use true. Group posts always land immediately. It does NOT return their reply, and you must not wait or poll for one in this turn. Send it and move on. Any reply arrives later as its own message. A priority reply wakes you on a fresh turn, and an informational one is handed to you at your next turn. To include image(s), such as a screenshot, chart, or photo the other agent needs, pass images: [{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}] (file:// or https://). Never paste an image as a markdown ![](...) in the message text. Use it deliberately and sparingly. Waking another agent or a whole group is a real side effect, so treat it like messaging on the user's behalf. Message someone or post to a group only when it truly serves the user's goal, not because one was mentioned or complained about, and don't spam a group. Never relay the user's private or unfiltered words (especially a complaint or criticism) verbatim; if relaying is warranted, paraphrase the actionable point diplomatically, not their tone. If you're unsure the user wants this sent, handle it yourself or ask first. Keep the message purposeful, professional, and minimal. One clearly relevant recipient can be normal work; messaging SEVERAL agents about the same effort (or posting it to a group) is a fan-out that wakes every recipient, and their replies land back in the user's chats and rooms, so fan out only when the user explicitly asked you to contact those agents. Otherwise propose it first with a question widget and wait for a yes, and never fan out \"meanwhile\" while you're waiting on the user for data or a decision.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "target_id": {
           "type": "string",
           "minLength": 1,
-          "description": "The id of the target, either another agent or a GROUP you belong to. Use an id from your teammates list, ListAgents, or ListGroups, not a name."
+          "description": "The id of the target, either another agent or a GROUP you belong to, not a name."
         },
         "message": {
           "type": "string",
@@ -2934,13 +2946,13 @@
   },
   "ReadTranscript": {
     "name": "ReadTranscript",
-    "description": "Read a full transcript: every user message, your replies, your reasoning, and each tool call with its input and result, one JSON object per line, oldest first. With no in it reads this conversation, including what was compacted out of your context, so use it to recall what you did in an earlier turn or routine run. Don't mention reading your own transcripts; say you're remembering things instead. Pass in=<id> for a Task subagent you dispatched, another agent the same user owns, or another of your conversations. Returns the newest messages first; page back with `before`.",
+    "description": "Read a full transcript: every user message, your replies, your reasoning, and each tool call with its input and result, one JSON object per line, oldest first. With no in it reads this conversation, including what was compacted out of your context, so use it to recall what you did in an earlier turn or routine run. Don't mention reading your own transcripts; say you're remembering things instead. Pass in=<id> for a Task subagent you dispatched, another agent the same user owns, or another of your conversations. Another of your conversations shows only what was said there, not its reasoning or tool calls. Returns the newest messages first; page back with `before`.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "in": {
           "type": "string",
-          "description": "Which transcript to read: \"this\" (the default) for this conversation, or the id of another of your conversations (a session_id from the other active conversations list), of another agent the same user owns (from your agent directory), or of a background subagent you dispatched with Task (the Agent ID from its result)."
+          "description": "Which transcript to read: \"session\" (the default) for this session, or the id of another of your sessions (a session_id from the other active conversations list), of another agent the same user owns (from your agent directory), or of a background subagent you dispatched with Task (the Agent ID from its result). Each Slack thread, Slack DM and app chat is its own session, and what you said in one won't appear in another."
         },
         "limit": {
           "type": "integer",

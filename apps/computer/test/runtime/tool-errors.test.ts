@@ -55,7 +55,7 @@ test("first-party lookups match argument keys and enum values loosely before dec
     ["GetPlugin", { arguments: { plugin_id: "gmail" } }, { plugin_id: "gmail" }],
     ["UninstallPlugin", { pluginId: "x" }, { plugin_id: "x" }],
     ["SearchPlugins", { Query: "mail" }, { query: "mail" }],
-    ["ReadTranscript", { In: "this", LIMIT: 5 }, { in: "this", limit: 5 }],
+    ["ReadTranscript", { In: "this", LIMIT: 5 }, { in: "session", limit: 5 }],
     ["UpdateSkill", { action: "Write", name: "x", description: "use this when", body: "b" }, { action: "write", name: "x", description: "use this when", body: "b" }],
   ];
   // The fixture's empty reply may not render; only what reached the tool host matters here.

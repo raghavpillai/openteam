@@ -213,12 +213,12 @@ adaptDescription("Shell", [["require the user's local-tool approval.", "execute 
 adaptDescription("Read", [["requires the user's local-tool approval.", "executes directly."]]);
 // The apps show the command itself, never this label.
 adaptArgument("Shell", "description", [['; shown to the user after the word "Ran".', "."]]);
-// Only desktops register as machines; phones have no on-device tools here.
+// Only desktops register as machines, and no machine offers on-device tools here.
 adaptDescription("ListMachines", [
   ["machineId, label, kind (desktop, ios, or android), and current", "machineId, label, and current"],
   ["Pass a desktop's machineId", "Pass a returned machineId"],
   [
-    "; a phone never takes those tools. Only a connected phone lists deviceLocalTools, each on-device tool with its state: ready, needs_permission (the phone can still ask for the OS permission), denied (only the phone's Settings app can grant it), or unavailable. A call to a tool still missing its permission posts a permission card in the chat for the user to tap; a phone without deviceLocalTools offers none right now.",
+    "; a phone never takes those tools. A connected phone, or a connected desktop that offers an on-device tool such as location, lists deviceLocalTools, each on-device tool with its state: ready, needs_permission (the machine can still ask for the OS permission), denied (only the machine's Settings app can grant it), or unavailable. A call to a tool still missing its permission posts a permission card in the chat for the user to tap; a machine without deviceLocalTools offers none right now.",
     ".",
   ],
 ]);
@@ -308,14 +308,11 @@ adaptDescription("SendToAgent", [
     "Any reply arrives later as its own message. A priority reply wakes you on a fresh turn, and an informational one is handed to you at your next turn.",
     "Any reply arrives later as its own message that wakes you on a fresh turn.",
   ],
-  // Teammate and group ids are in the <teammates> block.
-  ["Get agent ids from your teammates list or ListAgents, and group ids from ListGroups.", "Get agent and group ids from your teammates list."],
 ]);
 adaptArgument("SendToAgent", "priority", [[
   "REQUIRED. Is this message actionable for the recipient? true: they should act on it, or someone is waiting on their reply (a task, a question you or the user needs answered, a handoff, a STOP or change of plan). It is delivered now and wakes them. false: informational only (a status update, FYI, acknowledgement, thanks, or a reply nobody is waiting for). It is held and read at the start of their next turn, whenever that is, without waking them. Ignored for groups, which always post immediately.",
   "When true (1:1 only; ignored for groups), mark the message urgent: it jumps the recipient's queue and interrupts other background work, but never a user turn or another agent's message already in progress, which it follows right after. Use it for a STOP, a change of plan, or anything time-critical. Default false: it waits its turn, but still runs ahead of routines and other background work.",
 ]]);
-adaptArgument("SendToAgent", "target_id", [["Use an id from your teammates list, ListAgents, or ListGroups, not a name.", "Use an id from your teammates list, not a name."]]);
 contracts.SendToAgent!.inputSchema.required = contracts.SendToAgent!.inputSchema.required.filter((key: string) => key !== "priority");
 
 adaptDescription("UpdateRoutine", [
@@ -329,6 +326,11 @@ adaptDescription("UpdateRoutine", [
   ["Read the Cursor-managed `routines` skill", "Read the managed `routines` skill"],
   // There is no timing field; get returns the saved schedule with the trigger.
   ["returns the saved prompt, trigger, and timing.", "returns the saved prompt and trigger."],
+  // Routine triggers are OpenTeam's own event adapters, not the reference's server-kept listeners.
+  [
+    "\nYour routines are kept on the server: they can't listen to Slack DMs, and an Origin listener fires only for pr-opened, pr-pushed, pr-merged, and pr-comment across a whole repo (no pr or userAllowlist).",
+    "",
+  ],
   // A clock time the user names is saved as named (decided for self-hosted installs).
   [
     'at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.',
@@ -434,6 +436,11 @@ adaptDescription("InstallPlugin", [
   ],
 ]);
 adaptDescription("UninstallPlugin", [[" Plugins required by the user's team cannot be uninstalled.", ""]]);
+// Search results carry no add links or Connect Apps page; a missing plugin is installed with InstallPlugin.
+adaptDescription("SearchPlugins", [[" If the requested plugin remains uninstalled, relay its listed add link; if absent or unmatched, relay the Connect Apps fallback. Never invent a URL.", ""]]);
+// Remote MCP servers are reached with the system's trusted certificates; there is no per-server CA bundle.
+adaptDescription("AddMcpServer", [[" For a remote server whose certificate a private CA signed, pass that CA's PEM text as `tls.caBundle` rather than suggesting a local proxy such as `mcp-remote`.", ""]]);
+delete contracts.AddMcpServer!.inputSchema.properties.tls;
 
 // Email connectors have no send tool of their own in OpenTeam: every email goes through the card,
 // and the user's per-Bot approval settings can send a card at once.
@@ -492,12 +499,16 @@ adaptDescription("ReadTranscript", [
     "Read a full transcript: every user message, your replies, your reasoning, and each tool call with its input and result, one JSON object per line, oldest first.",
     "Read a transcript's observable history: user messages, your replies, and your tool calls with their observable results.",
   ],
+  // Another of this agent's own conversations is read with its tool calls, like this one.
+  [" Another of your conversations shows only what was said there, not its reasoning or tool calls.", ""],
   [
     "Returns the newest messages first; page back with `before`.",
     "Returns the newest rows in chronological order; page back by passing the result's next_before as `before`. Private reasoning, system instructions, form values, and privileged tool payloads are excluded. Large text keeps its beginning and end with an explicit truncation notice; a smaller limit allows more text per row.",
   ],
 ]);
 adaptArgument("ReadTranscript", "before", [["Use the `before` value from the previous result.", "Use the `next_before` value from the previous result."]]);
+// There are no Slack threads or DMs: each app chat and group chat is its own session.
+adaptArgument("ReadTranscript", "in", [[" Each Slack thread, Slack DM and app chat is its own session, and what you said in one won't appear in another.", ""]]);
 // There are no team-shared bots or Slack threads.
 adaptDescription("ReadAgentActivity", [[
   "It sees only bots this user owns (team-shared and group bots are out of scope), only each bot's main conversation (never DM or Slack threads), and never this bot itself.",
@@ -555,7 +566,7 @@ const FIRST_PARTY_HINTS: Readonly<Record<string, string>> = {
   DownloadFile: "Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).",
   MessageSubagent: "Send a new instruction into a running background subagent.",
   ReadAgentActivity: "Summarize what the user's other bots did lately: last messages, open todos, unanswered questions.",
-  ReadTranscript: "Read your full transcript, a subagent's, or another owned agent's, with tool calls.",
+  ReadTranscript: "Read the transcripts of your conversations, your subagents, and the user's other bots.",
   RemapUserFormTargets: "Only after a RequestUserForm receipt says a field's value is HELD: remap its new target.",
   request_box_help: "Hand your box's desktop to the user for a sign-in or manual step.",
   RequestUserForm: "Show the user an in-chat form; the host fills the box browser with their answers.",
@@ -570,11 +581,22 @@ const FIRST_PARTY_HINTS: Readonly<Record<string, string>> = {
   UploadFile: "Send a box file to Google Drive or Gmail.",
 };
 
+/** A Task worker's own cues: it works on the box, and only it is told what ListMachines points at. */
+const WORKER_FIRST_PARTY_HINTS: Readonly<Record<string, string>> = {
+  // OpenTeam transfers files with Google Drive and Gmail only.
+  UploadFile: "Send a box file to the user's Google Drive or Gmail.",
+  DownloadFile: "Fetch a Drive or Gmail file onto the box. Not for URLs or box files.",
+  CopyToBox: "Copy a file from one of the user's computers onto the box.",
+  CopyFromBox: "Copy a file from the box onto one of the user's computers.",
+  ListMachines: "List the user's computers and the machineId that points Read, Shell, or AwaitShell at one.",
+};
+
 /** The cursor namespace's instructions, with a cue only for tools this agent actually has. */
-export function firstPartyNamespaceDescription(toolNames: readonly string[]): string {
+export function firstPartyNamespaceDescription(toolNames: readonly string[], options: { worker?: boolean } = {}): string {
+  const hints = options.worker ? WORKER_FIRST_PARTY_HINTS : FIRST_PARTY_HINTS;
   const lines = [...toolNames]
     .sort((a, b) => a.localeCompare(b))
-    .flatMap((name) => (FIRST_PARTY_HINTS[name] ? [`- ${name}: ${FIRST_PARTY_HINTS[name]}`] : []));
+    .flatMap((name) => (hints[name] ? [`- ${name}: ${hints[name]}`] : []));
   return lines.length
     ? [FIRST_PARTY_CATALOG_HEADER, "", "Here are some crucial instructions:", ...lines].join("\n")
     : FIRST_PARTY_CATALOG_HEADER;

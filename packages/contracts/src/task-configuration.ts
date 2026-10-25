@@ -150,7 +150,8 @@ export function taskUserInfo(config = defaultTaskConfiguration()): string {
           "A press-and-hold I'm-human button is a mouse hold, not a human step: it holds it with Computer click holdDurationMs until the widget completes.",
         ].join(" ")
       : "Browser and desktop workers are unavailable on this computer.",
-    "- knowledgeWork: A higher-powered executor for five kinds of work, and only these: (1) slides and decks (`.pptx`, Google Slides); (2) spreadsheets (`.xlsx`, `.csv`, Google Sheets); (3) written documents (`.docx`, Google Docs, Notion pages); (4) emails; (5) Slack messages. Use it when a skill names it or the deliverable is one of these. Email and Slack messages under the user's name still come back to you to draft. It starts with no context, so give it everything it needs in the prompt. " +
+    // Past the reference: a small single file is quicker to make inline than through a worker.
+    "- knowledgeWork: A higher-powered executor for five kinds of work, and only these: (1) slides and decks (`.pptx`, Google Slides); (2) spreadsheets (`.xlsx`, `.csv`, Google Sheets); (3) written documents (`.docx`, Google Docs, Notion pages); (4) emails; (5) Slack messages. Use it when a skill names it or the deliverable is one of these, except a small file you can make yourself in one or two Shell calls (a short budget sheet, a one-page memo): make that yourself. Email and Slack messages under the user's name still come back to you to draft. It starts with no context, so give it everything it needs in the prompt. " +
       BACKGROUND_TASK +
       " It runs headless and cannot talk to the user; it reports its result back to you, and you deliver it.",
     "</available_subagent_types>",

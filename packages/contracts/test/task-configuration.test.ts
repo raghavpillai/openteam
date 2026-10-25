@@ -102,7 +102,8 @@ test("the roster names one graphical worker for browser and desktop work", () =>
   expect(info).toContain("dispatch browser and desktop work to computerUse yourself.");
   expect(info).not.toContain("browserUse");
   expect(info).toContain("knowledgeWork: A higher-powered executor for five kinds of work, and only these:");
-  expect(info).toContain("Use it when a skill names it or the deliverable is one of these.");
+  // Deliberately past the reference: small single-file deliverables stay with the main agent (perf bench t03, t02).
+  expect(info).toContain("Use it when a skill names it or the deliverable is one of these, except a small file you can make yourself in one or two Shell calls (a short budget sheet, a one-page memo): make that yourself.");
   const headless = taskUserInfo({ ...config, graphicalAvailable: false });
   expect(headless).toContain("Browser and desktop workers are unavailable on this computer.");
   expect(headless).not.toContain("dispatch browser and desktop work to computerUse");

@@ -318,6 +318,11 @@ describe("platform prompt integration", () => {
     expect(delegation).toContain("When the user asks you to do the work yourself instead of handing it to a helper, do it inline: that request overrides the rule of thumb above.");
   });
 
+  test("a question the turn needs is its opening reply, ahead of any acknowledgement", () => {
+    // Past the reference: without it the bot acknowledges, then asks; a decision still goes in a widget.
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("When you can't start without details only the user has, that opening reply is the question itself: ask for them once, in prose, and end the turn, with no acknowledgement first. A decision still goes in a widget (see Asking for decisions).");
+  });
+
   test("widget, connector and escalation rules read as the reference's, once each", () => {
     const count = (text: string) => PLATFORM_BASE_SYSTEM_PROMPT.split(text).length - 1;
     for (const line of [
@@ -385,7 +390,7 @@ describe("platform prompt integration", () => {
     expect(prompt).toContain("Move data between code and web apps through files on the box.");
     expect(prompt).toContain("move files across with CopyToBox (their computer into /workspace/uploads or a box_path) and CopyFromBox (your box onto their disk).");
     // Without this the main agent wipes the shared /workspace as soon as it is asked to.
-    expect(prompt).toContain("- The box is shared with the user's other agents, which may be using it right now. Don't delete files or kill processes you didn't create; /workspace holds their work too, so ask before deleting anything there you didn't make.");
+    expect(prompt).toContain("- The box is shared with the user's other agents, which may be using it right now. Don't delete files or kill processes you didn't create; /workspace holds their work too, so ask before deleting anything there you didn't make, even when the user asks you to clear or empty it: list what's there, say whose it may be, and wait for a yes.");
     expect(prompt).toContain("Be aggressive and proactive about routines.");
     expect(prompt).toContain("catch the implicit cases");
     expect(prompt).toContain("Your routines are in the latest <automation_status> reminder; with none, you have none.");

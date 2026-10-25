@@ -250,7 +250,7 @@ test('every tool a managed skill names exists under that name', async () => {
 });
 
 test('catalog has valid skill metadata and excludes retired workflows',()=>{
-  expect(managed.skills).toHaveLength(26);
+  expect(managed.skills).toHaveLength(25);
   expect(new Set(managed.skills.map(s=>s.id)).size).toBe(managed.skills.length);
   for(const item of managed.skills){
     const front=yaml(item.content.split('---')[1]!);

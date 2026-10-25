@@ -33,9 +33,10 @@ describe("main-agent graphical delegation instructions", () => {
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
       "delegate every browser and desktop interaction to a background computerUse subagent."
     );
-    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
-      "Before your first desktop or browser dispatch in a task, Read the managed `box-desktop` skill first and follow it."
-    );
+    // The desktop guidance is inline, so the first browser dispatch needs no skill Read.
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain("When you delegate to a computerUse subagent:");
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain("put that exact URL in the task");
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("box-desktop");
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("browserUse");
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
       "You cannot click, type, or scroll there yourself"

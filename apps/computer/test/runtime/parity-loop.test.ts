@@ -339,9 +339,9 @@ for (const { closing, failures, thenStop = false } of [
       const holds = closing === "question" ? 0 : thenStop ? 1 : Math.min(failures, 2);
       expect(requests).toHaveLength(1 + holds);
       expect(active.endTurnHolds ?? 0).toBe(holds);
-      // Every call the closing response made reached the host, in order.
+      // Every call the closing response made reached the host; the calls run in parallel, so in either order.
       const responses = thenStop ? 1 : 1 + holds;
-      expect(host.map((call) => call.tool)).toEqual(Array.from({ length: responses }, () => [CLOSINGS[closing].name, "UpdateRoutine"]).flat());
+      expect(host.map((call) => call.tool).sort()).toEqual(Array.from({ length: responses }, () => [CLOSINGS[closing].name, "UpdateRoutine"]).flat().sort());
       const reminder = "Your turn did not end. This end_turn call succeeded, but a call alongside it failed";
       expect(JSON.stringify(requests[0])).not.toContain(reminder);
       for (const [index, request] of requests.slice(1).entries()) {

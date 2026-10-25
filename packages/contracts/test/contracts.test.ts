@@ -550,7 +550,8 @@ describe("API contracts", () => {
   test("tool texts follow the newest reference, minus what OpenTeam does not have", () => {
     const routine = referenceTool("UpdateRoutine");
     expect(routine.description).toContain("- create needs name, prompt, and schedule or trigger; update takes only the fields to change; get returns the saved prompt and trigger.");
-    expect(routine.description).toContain("don't retry a denied write. A change you suggest to save usage waits for the user's yes.");
+    expect(routine.description).toEndWith("\nA change you suggest to save usage waits for the user's yes.");
+    expect(routine.description).not.toContain("confirm on a card");
     expect(routine.description).not.toContain("kept on the server");
     expect(routine.inputSchema.properties.name.description).toBeUndefined();
     expect(routine.inputSchema.properties.prompt.description).not.toContain("Required on create");

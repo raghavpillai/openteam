@@ -14,14 +14,13 @@ export const messageAddress = (message: ReplyTarget): string => {
   return typeof metadata.address === "string" ? metadata.address : message.id;
 };
 
-export const formatUserPrompt = (address: string, content: string, reply?: ReplyTarget | null) => {
-  if (!reply) return content ? `[${address}] ${content}` : `[${address}]`;
-  return [
+/** As in the reference, the address and each leading note sit on their own line above the message. */
+export const formatUserPrompt = (address: string, content: string, reply?: ReplyTarget | null) =>
+  [
     `[${address}]`,
-    `[In reply to ${messageAddress(reply)}: ${JSON.stringify(reply.content)}]`,
+    ...(reply ? [`[In reply to ${messageAddress(reply)}: ${JSON.stringify(reply.content)}]`] : []),
     ...(content ? [content] : []),
   ].join("\n");
-};
 
 export const formatDirectMentionContext = (
   content: string,

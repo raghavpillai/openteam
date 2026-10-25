@@ -25,7 +25,7 @@ export const renderQuietSubagentRevivalPrompt = (input: {
   routine: { name: string; folder: string };
 }): string =>
   [
-    "[A background task just completed] A background task you started has finished.",
+    "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
     "",
     `Background task "${input.title}" (${input.subagentType}) ${input.status === "completed" ? "finished" : "failed"}:`,
     input.result.trim(),

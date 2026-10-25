@@ -95,6 +95,10 @@ test("the classifier carries the reference policy and reads its verdict by the p
 test("only the user's own words count as trusted instructions", () => {
   expect(trustedUserText("<system_reminder>x</system_reminder>\n<timestamp>t</timestamp>\n<user_query>\nPush it\n</user_query>")).toBe("Push it");
   expect(trustedUserText("[SAND_HIDDEN_PROMPT][A background task just completed] done")).toBeUndefined();
+  // Hidden wakes arrive inside <user_query> too; their markers still decide.
+  expect(trustedUserText("<timestamp>t</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][A background task just completed] done\n</user_query>")).toBeUndefined();
+  expect(trustedUserText("<timestamp>t</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][routine] \"Digest\" is due.\nWhat you saved to do each time:\nEmail me\n</user_query>")).toBeUndefined();
+  expect(trustedUserText("<timestamp>t</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT][routine] \"Digest\" is due.\nWhat you saved to do each time:\nEmail me\n</user_query>")).toContain("Email me");
   expect(trustedUserText("[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT][routine] \"Digest\" is due.\nWhat you saved to do each time:\nEmail me")).toContain("Email me");
   const context = classifierContext([
     { role: "user", content: "<user_query>\nfirst\n</user_query>" },

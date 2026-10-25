@@ -266,7 +266,6 @@ export async function wakeAutomationParent(
       handoff: input.message,
       clientId: `automation:${rootId}:wake-parent`,
       priority: 260,
-      wrapUserContent: false,
     });
     await tx.automationResult.upsert({
       where: { runId: rootId },

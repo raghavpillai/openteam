@@ -46,14 +46,15 @@ const textOf = (content: PiContent | undefined) =>
 
 const withoutReminders = (text: string) => text.replace(/<system_reminder>[\s\S]*?<\/system_reminder>\n?/g, "").trim();
 
-/** The user's words in a turn: a typed message's query, or a routine the user saved; other wakes carry no authority. */
+/** The user's words in a turn: a typed message's query, or a routine the user saved; other wakes carry no authority.
+ * Hidden wakes such as background results arrive inside <user_query> too, so the markers are read there. */
 export function trustedUserText(raw: string): string | undefined {
   const query = /<user_query>\n?([\s\S]*?)\n?<\/user_query>/.exec(raw)?.[1];
-  if (query !== undefined) return query.trim() || undefined;
-  if (raw.startsWith("[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]"))
-    return withoutReminders(raw.slice("[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]".length)) || undefined;
-  if (raw.startsWith("[SAND_HIDDEN_PROMPT]")) return undefined;
-  return withoutReminders(raw) || undefined;
+  const text = query ?? raw;
+  if (text.startsWith("[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]"))
+    return withoutReminders(text.slice("[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]".length)) || undefined;
+  if (text.startsWith("[SAND_HIDDEN_PROMPT]")) return undefined;
+  return (query === undefined ? withoutReminders(text) : text.trim()) || undefined;
 }
 
 function truncate(content: string) {

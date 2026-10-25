@@ -74,6 +74,12 @@ export function formatTurnTimestamp(
   return `${calendarDate}, ${time} (${offsetLabel(date, timeZone)})`;
 }
 
+/** New content for a wake that keeps the turn's original timestamp; unwrapped content stays unwrapped. */
+export function retimestampUserTurn(previous: string, content: string): string {
+  const timestamp = /^<timestamp>([^<]*)<\/timestamp>\n<user_query>\n/.exec(previous)?.[1];
+  return timestamp === undefined ? content : `<timestamp>${timestamp}</timestamp>\n<user_query>\n${content}\n</user_query>`;
+}
+
 export function timestampUserTurn(
   content: string,
   options: { occurredAt?: Date | string; timeZone?: string | null } = {}

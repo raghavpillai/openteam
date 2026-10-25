@@ -730,9 +730,10 @@ describe("API contracts", () => {
     // A routine write the Auto-review classifier blocks waits on an approval card.
     expect(UPDATE_ROUTINE_TOOL.description).toContain("A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.");
     expect(UPDATE_ROUTINE_TOOL.description).toContain("- create needs name, prompt, and schedule or trigger; update takes only the fields to change; get returns the saved prompt and trigger.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.");
-    expect(UPDATE_ROUTINE_TOOL.description).toContain("folder ids are listed under Scheduled routines in your prompt, which shows no prompts.");
+    // The routine list rides on the per-turn reminder, as in the reference.
+    expect(UPDATE_ROUTINE_TOOL.description).toContain("are in the latest <automation_status> reminder, which shows no prompts.");
     expect(UPDATE_ROUTINE_TOOL.description).toEndWith("A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write. A change you suggest to save usage waits for the user's yes.");
-    expect(UPDATE_ROUTINE_TOOL.description).not.toMatch(/Cursor|JoinMeeting|automation_status|timing/);
+    expect(UPDATE_ROUTINE_TOOL.description).not.toMatch(/Cursor|JoinMeeting|Scheduled routines|timing/);
     // The schema names trigger types only; the skill and the invalid-trigger reply carry the shapes.
     const listener = {
       type: "object",

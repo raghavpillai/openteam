@@ -78,7 +78,8 @@ test('a routine run hands a recurring auth failure to its parent', () => {
 
 test('the in-chat-forms catalog line leaves connected credentials to autonomous sign-in', () => {
   // Credentials and codes from connected sources are entered without a form, so the catalog line must not demand one.
-  expect(description('in-chat-forms')).toContain('REQUIRED before any typed web step whose value you cannot get from the user\'s connected sources (login, checkout address or card, phone, OTP)');
+  expect(description('in-chat-forms')).toContain('REQUIRED before any typed web step that needs a login, card, OTP, or other private value the user types and you cannot get from their connected sources');
+  expect(description('in-chat-forms')).toContain('Ask in chat for names, addresses, phones, emails, and preferences.');
 });
 
 test('no-connector-fallback points logins at the Authentication section, not a missing skill', () => {
@@ -119,7 +120,7 @@ test('commerce skills pay in the purchases order and confirm with the reference 
     expect(item.content).not.toMatch(/site playbook|RequestVirtualCard|Stripe Link|Outlook|GetMcpTools|`order` card|tapping Pay/i);
     if (item.content.includes('When the site wants payment')) {
       expect(item.content).toContain('as the OpenTeam-managed `purchases` skill says');
-      expect(item.content).toContain('when several are saved, ask which one in the confirmation widget.');
+      expect(item.content).toContain("First, a payment method already saved on the site's own account. Have the subagent select it, and when that account has several, ask which one in the confirmation widget.");
       expect(item.content).toContain("never tell them you can't take their card, and never predict that the form can't reach card inputs embedded from a payment provider. Last, when the host refuses the form");
     }
   }
@@ -142,7 +143,8 @@ test('commerce skills pay in the purchases order and confirm with the reference 
     ['accommodation-booking', '- Then hand the confirm or pay click to the user with `request_box_help` and one instruction ("Confirm and pay for your Airbnb stay").'],
     ['restaurant-booking', 'so the one confirmation you owe them is the go/no-go before you place it.'],
     ['job-search', '- Never submit an application, send a connection request, or message a recruiter without that yes.'],
-    ['orders-and-returns', '4. Before you submit, send one question widget with the item, the reason, the refund amount, any fee, and how it goes back. A dismissed widget is a no.'],
+    ['orders-and-returns', '4. Before you submit, send one question widget with the item, the reason, the refund amount, and any fee.'],
+    ['orders-and-returns', 'With only one way, name it in the prompt. A dismissed widget is a no.'],
     ['orders-and-returns', 'Before you click cancel, send a question widget with the item and the order number.'],
     ['scheduling', 'Changing an event that already has attendees is load-bearing. Fetch it, read who is on it, and confirm with a widget before writing.'],
     ['purchases', 'You never spend on your own: nothing is created or charged unless they approve that exact purchase, and each purchase needs its own approval.'],
@@ -189,7 +191,7 @@ test('commerce skills match the current reference text where it applies here', (
   expect(skill('shopping')).toContain('## Should I buy it?');
   expect(skill('shopping')).toContain('- Give that widget an option for the user to check out themselves.');
   const orders = skill('orders-and-returns');
-  for (const part of ['## Proof', '## Deal watch', '## What the user usually buys', '7. Confirm a refund only from a refund email or the store\'s order page.']) expect(orders).toContain(part);
+  for (const part of ['## Proof', '## Deal watch', '## What the user usually buys', '8. Confirm a refund only from a refund email or the store\'s order page.']) expect(orders).toContain(part);
   expect(description('orders-and-returns')).toContain('because every update has to link its source.');
   expect(skill('purchases')).toContain('`Spendlog YYYYMM: YYYY-MM-DD | store | item | $total | order number`');
   expect(skill('purchases')).toContain('- Never promise a refund, a reimbursement, or a guarantee');
@@ -232,7 +234,7 @@ test('every tool a managed skill names exists under that name', async () => {
     'AgentMail', 'ContentType', 'DejaVu', 'DevTools', 'DoorDash', 'GitHub', 'GitLab', 'LibreOffice', 'LinkedIn', 'OpenTable', 'OpenTeam',
     'PagerDuty', 'PartName', 'PowerPoint', 'PptxGenJS', 'SaaS', 'TheFork', 'WhatsApp', 'YouTube',
     // Prompt blocks, stock states and routine wake blocks, not tools.
-    'user_info', 'agent_skills', 'in_stock', 'out_of_stock', 'made_to_order', 'github_event', 'linear_event', 'microsoft_teams_message',
+    'user_info', 'agent_skills', 'automation_status', 'in_stock', 'out_of_stock', 'made_to_order', 'github_event', 'linear_event', 'microsoft_teams_message',
     'origin_event', 'pagerduty_event', 'sentry_event', 'slack_message', 'webhook_event', 'email_received',
   ]);
   const unknown: string[] = [];

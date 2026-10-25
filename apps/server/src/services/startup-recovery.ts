@@ -119,7 +119,6 @@ export async function recover(
             },
             clientId: `subagent:${subagent.id}:failed:${subagent.currentRunId}`,
             priority: 260,
-            wrapUserContent: false,
           });
         }
       }

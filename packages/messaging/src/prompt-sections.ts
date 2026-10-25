@@ -90,7 +90,8 @@ export function preparePromptSections(
     const previous = snapshot.announcedRender ?? snapshot.render;
     // Connector instructions are refreshed at the next summary, as in Grok's
     // stable-prefix path; they do not produce user-role change notes.
-    if (name !== "mcp_instructions" && previous !== render) {
+    // The routines entry only remembers the delivered <automation_status>, which carries the definitions.
+    if (name !== "mcp_instructions" && name !== "automations" && previous !== render) {
       receipts.push({ name, epoch, render: snapshot.render, previous, next: render });
     }
   }

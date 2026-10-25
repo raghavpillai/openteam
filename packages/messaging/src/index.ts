@@ -7,7 +7,7 @@ export {
   renderQuietSubagentRevivalPrompt,
 } from "./quiet-revival";
 import { automationContextRoutine, quietRoutineOriginNote, renderQuietRevivalBatchPrompt } from "./quiet-revival";
-import { mediaReviewPrompt, renderWorkerBoxSection, renderWorkerTimeSection, WORKER_READONLY_LINE, USER_IDENTITY_LINE } from "./worker-prompts";
+import { mediaReviewPrompt, renderMainBoxSection, renderWorkerBoxSection, renderWorkerTimeSection, WORKER_READONLY_LINE, USER_IDENTITY_LINE } from "./worker-prompts";
 import { attachmentContext } from "./attachment-context";
 import { listSiblingThreads, renderOtherActiveConversations } from "./sibling-threads";
 import { nextMessageAddress, resolveMessageAddress } from "./message-address";
@@ -57,15 +57,19 @@ import { lockGroupExecution, lockGroupRound, lockGroupDelivery } from "./group-s
 export { lockGroupExecution, supersedeGroupUserTurns } from "./group-supersession";
 export { groupRoutineState } from "./group-routine-state";
 import {
+  AUTOMATION_DELEGATING_SECTION,
+  DELEGATING_SECTION,
   PARALLEL_TOOL_CALLS,
+  ROUTINES_SECTION,
+  renderAgentProfileFiles,
   renderPlatformBaseSystemPrompt,
-  renderPlatformRuntimeInstructions,
+  renderSkillsSection,
 } from "./platform-system-prompt";
-import { formatFriendlyDate, resolveTimeZone, timestampUserTurn } from "./timestamps";
+import { formatFriendlyDate, resolveTimeZone, retimestampUserTurn, timestampUserTurn } from "./timestamps";
 import { canonicalTimeZone, readUserTimeZone, userTimeZoneView } from "./user-time-zone";
 import { renderAgentSkillsSection } from "./skill-catalog";
 import type { AutomationStatusReceipt, MemoryContextReceipt, PromptSectionReceipt } from "./prompt-sections";
-import { renderAutomationStatusReminder, routineDefinitionLine } from "./automation-status";
+import { renderAutomationStatusReminder } from "./automation-status";
 import { renderMemoryContextBlock } from "./memory-rendering";
 
 export type { BotFileTarget } from "./agent-data";
@@ -179,7 +183,7 @@ export const renderSubagentRevivalPrompt = (input: {
 }): string => {
   const outcome = input.status === "completed" ? "finished" : "failed";
   return [
-    "[A background task just completed] A background task you started has finished.",
+    "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
     "",
     `Background task "${input.title}" (${input.subagentType}) ${outcome}:`,
     input.result.trim(),
@@ -887,7 +891,7 @@ export class AgentMessaging {
       const block = routine ? `${shellCompletionBlock(input)}\n${quietRoutineOriginNote(routine)}` : shellCompletionBlock(input);
       await this.enqueueWake(tx, {
         botId: bot.id, channelId: channel.id, ...route, type: "shell.completed",
-        clientId, priority: 50, wrapUserContent: false,
+        clientId, priority: 50,
         content: routine ? renderQuietRevivalBatchPrompt([block]) : renderShellCompletionPrompt(input),
         revival: { block, subagentType: "shell" },
       });
@@ -2114,43 +2118,39 @@ export class AgentMessaging {
           : {};
       return metadata.type === "widget" && metadata.widgetDismissed === true ? [message.id] : [];
     });
-    // Definitions are frozen with the section; next and last runs ride on the per-turn <automation_status>.
-    const routineContext = routines.map(routineDefinitionLine);
+    // As in the reference, the per-turn <automation_status> carries each routine's definition and runs.
     const firingRoutineId = automation && context?.scopeId
       ? (await this.prisma.routineExecution.findUnique({ where: { runId: context.scopeId }, select: { routineId: true } }))?.routineId
       : null;
     const frozen = await this.agentData.preparePlatformSections(botId, contextSessionId, agentPrompt.compactionEpoch, {
       agent_instructions: bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
-      automations: routineContext.length ? `Scheduled routines:\n${routineContext.join("\n")}` : "You have no scheduled routines.",
+      automations: "",
       agent_directory: `## Teammates and groups\n${teammates ? TEAMMATES_POINTER : NO_TEAMMATES_SECTION}`,
       mcp_instructions: connectorInstructions,
     }, agentPrompt.memory, renderAutomationStatusReminder(routines, timeZone, firingRoutineId));
     const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
-    // The reference order: identity first; the sibling digest after memory and connector
-    // instructions after the directory, so per-turn changes sit late in the cached prefix.
+    // The reference order: base, Untrusted content, Agent profile, user line, Delegating, Time,
+    // memory, other conversations, Routines, Skills, channels, Teammates, connector instructions,
+    // Your box, The box desktop, so per-turn changes sit late in the cached prefix.
     const instructions = [
       renderPlatformBaseSystemPrompt({ ...(automation ? { automationRun: AUTOMATION_RUN_INSTRUCTIONS } : {}) }),
-      agentPrompt.profileSection,
+      [agentPrompt.profileSection, renderAgentProfileFiles({ agentDataRoot: this.agentData.root, botId })].join("\n"),
       USER_IDENTITY_LINE,
       frozen.sections.agent_instructions,
-      A2A_PLATFORM_INSTRUCTIONS,
-      graphicalDelegationInstructions(taskConfiguration),
-      "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
-      renderPlatformRuntimeInstructions({
-        agentDataRoot: this.agentData.root,
-        botId,
-        workingDirectory: bot.defaultDirectory,
-        timeZone,
-        memoryPolicy: agentPrompt.memory.policy,
-      }),
-      `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
-      frozen.sections.agent_directory,
+      automation ? AUTOMATION_DELEGATING_SECTION : DELEGATING_SECTION,
+      renderWorkerTimeSection(timeZone),
+      agentPrompt.memory.policy,
       renderOtherActiveConversations(siblings),
-      frozen.sections.automations,
-      frozen.sections.mcp_instructions,
+      ROUTINES_SECTION,
+      renderSkillsSection(this.agentData.root),
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
-        : "No connector platform is marked disconnected.",
+        : "",
+      // OpenTeam's peer messages and rooms; the reference keeps its rules in SendToAgent and the room wake.
+      `${frozen.sections.agent_directory}\n\n${A2A_PLATFORM_INSTRUCTIONS}`,
+      frozen.sections.mcp_instructions,
+      renderMainBoxSection(bot.defaultDirectory),
+      graphicalDelegationInstructions(taskConfiguration),
       agentPrompt.warnings.length > 0
         ? `Agent-data filesystem warnings. Invalid settings/skill/automation edits were preserved and fallback values may be active; fix them before relying on those edits:\n${agentPrompt.warnings.map((warning) => `- ${warning}`).join("\n")}`
         : "",
@@ -2815,6 +2815,7 @@ export {
 export {
   formatTurnTimestamp,
   resolveTimeZone,
+  retimestampUserTurn,
   timestampUserTurn,
 } from "./timestamps";
 export { readUserTimeZone, userTimeZoneView } from "./user-time-zone";

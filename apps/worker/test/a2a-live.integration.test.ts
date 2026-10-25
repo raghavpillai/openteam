@@ -344,10 +344,10 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     // Routine status is a turn note in the reminder block ahead of the query, in the installation zone.
     expect(probeTurn?.content).toStartWith(`<system_reminder>
 <automation_status>
-Current routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.
-- parity-probe-handwritten (folder parity-probe-handwritten): never run
-- parity-probe-harmless (folder parity-probe-harmless): last run 8/27/2026, 7:51:55 PM UTC (succeeded)
-</automation_status>`);
+Current routines and their runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.
+- parity-probe-handwritten [`);
+    expect(probeTurn?.content).toContain("; folder parity-probe-handwritten; never run\n- parity-probe-harmless [");
+    expect(probeTurn?.content).toContain("; folder parity-probe-harmless; last run 8/27/2026, 7:51:55 PM UTC (succeeded)\n</automation_status>");
     expect(probeTurn?.content).toContain("</system_reminder>\n<timestamp>");
     expect(probeTurn?.content).toContain(
       `</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: Source (id: ${sourceId}).`

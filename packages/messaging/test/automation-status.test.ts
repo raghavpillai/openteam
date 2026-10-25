@@ -30,9 +30,9 @@ describe("routine definitions and runtime status", () => {
     expect(renderAutomationStatusReminder([digest, vendor], "America/Los_Angeles")).toBe([
       "<system_reminder>",
       "<automation_status>",
-      "Current routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.",
-      "- Morning digest (folder morning-digest): next run 10/20/2026, 6:05:37 PM PDT; last run 10/19/2026, 5:05:37 PM PDT (succeeded)",
-      "- Vendor replies (folder vendor-replies): never run",
+      "Current routines and their runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.",
+      "- Morning digest [enabled]: Weekdays at 8:47 AM (47 8 * * 1-5); folder morning-digest; next run 10/20/2026, 6:05:37 PM PDT; last run 10/19/2026, 5:05:37 PM PDT (succeeded)",
+      "- Vendor replies [enabled]: When email arrives at me+vendor@mail.example; folder vendor-replies; never run",
       "</automation_status>",
       "</system_reminder>",
     ].join("\n"));
@@ -66,8 +66,8 @@ describe("routine definitions and runtime status", () => {
     expect(turnSystemReminder([live, "<instructions_update>\nx\n</instructions_update>"])).toBe([
       "<system_reminder>",
       "<automation_status>",
-      "Current routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.",
-      "- Vendor replies (folder vendor-replies): never run",
+      "Current routines and their runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.",
+      "- Vendor replies [enabled]: When email arrives at me+vendor@mail.example; folder vendor-replies; never run",
       "</automation_status>",
       "",
       "<instructions_update>\nx\n</instructions_update>",

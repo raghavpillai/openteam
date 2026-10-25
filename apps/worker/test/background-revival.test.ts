@@ -54,12 +54,14 @@ test("background subagent completion revives the parent with Bot's dedicated sou
     origin: "background_revival",
     type: "subagent.completed",
     priority: 260,
-    wrapUserContent: false,
     revival: { block: 'Background task "Check that the release checklist passes on main and report any failing step." (executor) finished:\nRelease checks passed.', subagentType: "executor" },
   });
   expect((calls[0] as { content: string }).content).toContain(
     'Background task "Check that the release checklist passes on main and report any failing step." (executor) finished:\nRelease checks passed.'
   );
+  // Like any turn, the revival is timestamped and wrapped in <user_query> as a hidden wake.
+  expect(calls[0]).not.toHaveProperty("wrapUserContent");
+  expect((calls[0] as { content: string }).content).toStartWith("[SAND_HIDDEN_PROMPT][A background task just completed] ");
 });
 
 test("a task a routine started reports back to the routine as quiet work nobody is waiting on", async () => {
@@ -88,7 +90,7 @@ test("a task a routine started reports back to the routine as quiet work nobody 
   );
   expect(calls[0]!.content).toBe(
     [
-      "[A background task just completed] A background task you started has finished.",
+      "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
       "",
       'Background task "Check the price of the blue kettle" (computerUse) finished:',
       "Status: done\nStill $49.",
@@ -132,6 +134,26 @@ test("results ready together in one channel are claimed as one revival, and late
   expect(revivalBatch(others[0]!, [first, shell], now)).toBeNull();
   // A claim retried after a lost lease keeps the content it was given the first time.
   expect(revivalBatch({ ...first, status: "processing" }, [shell], now)).toBeNull();
+});
+
+test("a batched revival keeps the claimed wake's timestamp and user_query framing", () => {
+  const now = Date.parse("2026-10-21T12:00:00Z");
+  const wake = (id: string, content?: string) => ({
+    id,
+    type: "subagent.completed",
+    status: "pending",
+    createdAt: new Date(now - 5000),
+    payload: { ...(content ? { content } : {}), revival: { block: `block ${id}`, subagentType: "executor" } },
+    run: { origin: "background_revival" as const, channelId: "dm" },
+  });
+  const first = wake("a", "<timestamp>Wednesday, Oct 21, 2026, 8:00 AM (UTC-4)</timestamp>\n<user_query>\nsingle a\n</user_query>");
+  const batch = revivalBatch(first, [first, wake("b")], now);
+  expect(batch?.content).toBe(
+    `<timestamp>Wednesday, Oct 21, 2026, 8:00 AM (UTC-4)</timestamp>\n<user_query>\n${renderRevivalBatchPrompt([
+      { block: "block a", subagentType: "executor" },
+      { block: "block b", subagentType: "executor" },
+    ])}\n</user_query>`
+  );
 });
 
 test("a routine's handoff that waited for the agent is re-rendered as late", () => {

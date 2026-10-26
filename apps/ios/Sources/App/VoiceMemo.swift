@@ -1269,15 +1269,21 @@ struct VoiceGlowBackdrop: View {
     return options
   }()
 
-  /// The display's corner radius, which the glow's bottom corners follow.
-  @State private var cornerRadius: CGFloat = 55
+  /// The display's bottom corner radii, which the glow's corners follow. They
+  /// differ on iPhone Duo's outer display, squarer on the hinge side.
+  @State private var corners = DisplayCorners(left: 55, right: 55)
 
   var body: some View {
     // Use the phone-sized host and the mobile preset’s natural reach and falloff.
+    // The glow traces the tighter corner and the display's own shape clips the other.
     Color.clear
       .voiceGlow(type: .mobile, levelProvider: { memo.glowLevel() }, motion: { memo.glowMotion() },
-        active: memo.glowActive && !reduceMotion, cornerRadius: cornerRadius, options: Self.options)
-      .background(DisplayCornerProbe { cornerRadius = $0 })
+        active: memo.glowActive && !reduceMotion, cornerRadius: min(corners.left, corners.right),
+        options: Self.options)
+      .clipShape(UnevenRoundedRectangle(
+        bottomLeadingRadius: corners.left, bottomTrailingRadius: corners.right, style: .continuous))
+      .environment(\.layoutDirection, .leftToRight)
+      .background(DisplayCornerProbe { corners = $0 })
       // Beside a sidebar the chat column clips what's in it, so while the glow
       // shows it reaches past the column to the screen's edges.
       .background(UnclippedAncestors(active: memo.glowActive))
@@ -1335,16 +1341,21 @@ private struct UnclippedAncestors: UIViewRepresentable {
   }
 }
 
-/// Reports the radius of the screen corners a window-sized view sits in: 55 pt on
-/// most iPhones, and each of iPhone Duo's displays' own.
+struct DisplayCorners: Equatable {
+  var left: CGFloat
+  var right: CGFloat
+}
+
+/// Reports the radii of the bottom screen corners a window-sized view sits in: 55 pt
+/// on most iPhones, and each of iPhone Duo's displays' own, which can differ by side.
 private struct DisplayCornerProbe: UIViewRepresentable {
-  var update: (CGFloat) -> Void
+  var update: (DisplayCorners) -> Void
   func makeUIView(context: Context) -> ProbeView { ProbeView() }
   func updateUIView(_ view: ProbeView, context: Context) { view.update = update }
 
   final class ProbeView: UIView {
-    var update: ((CGFloat) -> Void)?
-    private var last: CGFloat?
+    var update: ((DisplayCorners) -> Void)?
+    private var last: DisplayCorners?
     override init(frame: CGRect) {
       super.init(frame: frame)
       isUserInteractionEnabled = false
@@ -1354,11 +1365,12 @@ private struct DisplayCornerProbe: UIViewRepresentable {
     override func layoutSubviews() {
       super.layoutSubviews()
       guard #available(iOS 26, *), window != nil else { return }
-      let radius = effectiveRadius(corner: [.bottomLeft, .bottomRight])
-      guard radius > 0, radius != last else { return }
-      last = radius
+      let corners = DisplayCorners(
+        left: effectiveRadius(corner: .bottomLeft), right: effectiveRadius(corner: .bottomRight))
+      guard corners.left > 0 || corners.right > 0, corners != last else { return }
+      last = corners
       let update = update
-      DispatchQueue.main.async { update?(radius) }
+      DispatchQueue.main.async { update?(corners) }
     }
   }
 }

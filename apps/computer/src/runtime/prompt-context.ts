@@ -21,8 +21,10 @@ export interface CatalogNamespace {
 }
 
 /** First-party tools whose schema rides in the catalog. Every browser and worker task starts with Task,
- * and looking up its schema first cost the main agent a model round trip before each dispatch. */
-export const PRELOADED_TOOL_NAMES: ReadonlySet<string> = new Set(["Task"]);
+ * and looking up its schema first cost the main agent a model round trip before each dispatch. A quick
+ * lookup starts with WebSearch or WebFetch; with their schemas a lookup away, the main agent handed even
+ * one-question research to an executor. */
+export const PRELOADED_TOOL_NAMES: ReadonlySet<string> = new Set(["Task", "WebFetch", "WebSearch"]);
 
 const catalogAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 

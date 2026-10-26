@@ -202,7 +202,7 @@ test("a reply cut off at the output limit gets one reminder to continue in small
   expect(OUTPUT_LIMIT_REMINDER).toBe("<system_reminder>Your response was cut off because it exceeded the output token limit. Please break your work into smaller pieces. Continue from where you left off.</system_reminder>");
 });
 
-test("Task's schema rides in the catalog, so the first dispatch needs no lookup", () => {
+test("Task's and the web tools' schemas ride in the catalog, so a dispatch or a quick lookup needs no schema lookup", () => {
   const task = { name: "Task", description: "Start a subagent.", inputSchema: { type: "object", properties: { prompt: { type: "string" } } } };
   const catalog = renderDynamicToolCatalog([{ name: "cursor", description: "First-party tools.", tools: [{ name: "TodoWrite" }, task] }])!;
   expect(catalog).toContain("before calling `CallDynamicTool`, except for the tools in <preloaded_tool_schemas>, which you can call with `CallDynamicTool` directly.");
@@ -218,6 +218,9 @@ test("Task's schema rides in the catalog, so the first dispatch needs no lookup"
   const turn = { requestSource: "turn", runtimeProfile: "agent", subagentType: null, pluginNamespaces: [] } as unknown as ActiveTurn;
   const cursor = tools.contextCatalog(turn).find((namespace) => namespace.name === "cursor")!;
   const preloaded = cursor.tools.filter((tool) => tool.inputSchema !== undefined);
-  expect(preloaded.map((tool) => tool.name)).toEqual(["Task"]);
-  expect(JSON.stringify(preloaded[0]!.inputSchema)).toContain("subagent_type");
+  expect(preloaded.map((tool) => tool.name).sort()).toEqual(["Task", "WebFetch", "WebSearch"]);
+  expect(JSON.stringify(preloaded.find((tool) => tool.name === "Task")!.inputSchema)).toContain("subagent_type");
+  // A quick lookup is one call away too: without these schemas the main agent handed one-question research to an executor.
+  expect(JSON.stringify(preloaded.find((tool) => tool.name === "WebSearch")!.inputSchema)).toContain("search_term");
+  expect(JSON.stringify(preloaded.find((tool) => tool.name === "WebFetch")!.inputSchema)).toContain("url");
 });

@@ -134,7 +134,7 @@ After you paste a key, the server connects to the provider, loads the models the
 
 ![The OpenTeam desktop app reading It works!: OpenRouter's Auto Router answered the server's test message with OK in 1.3 seconds, with Auto Router selected and marked Recommended in the model menu](/blog/images/openteam-install-model-test.png "The model passed a real test message. The menu lists the models the key allows. Sample data. Image: OpenTeam.")
 
-The model menu starts on the provider's recommended model, such as OpenRouter's Auto Router, which picks a model for each request. All bots on a server share this one model. You can change it later in **Settings → Server** on desktop, or **Settings → Model** on iPhone.
+The model menu starts on the provider's recommended model, such as OpenRouter's Auto Router, which picks a model for each request. All bots on a server share this one model. You can change it later in **Settings → Model** on desktop or iPhone.
 
 **Running a local model?** Add it on the host first with `openteam provider add`, and it appears under **More providers**. The [model provider docs](/docs/configuration/models) show the command for Ollama and other OpenAI-compatible servers.
 

@@ -118,7 +118,7 @@ The `--api` option also accepts `openai-responses`, `anthropic-messages` and `go
 
 ## Step 3: Choose the model in the app
 
-On a new server, the app's first-run setup asks you to choose your bots' AI. Endpoints you added with `openteam provider add` appear under **More providers**, labeled "OpenAI-compatible endpoints". On a server that's already set up, open **Settings → Server** on the desktop, or **Settings → Model** on iPhone. Choose the provider and model, then **Apply**. The app saves the choice and sends a short test message.
+On a new server, the app's first-run setup asks you to choose your bots' AI. Endpoints you added with `openteam provider add` appear under **More providers**, labeled "OpenAI-compatible endpoints". On a server that's already set up, open **Settings → Model** on desktop or iPhone. Choose the provider and model, then **Apply**. The app saves the choice and sends a short test message.
 
 ![OpenTeam's Model settings with Ollama as the provider, the model qwen3.5-agent:latest, reasoning effort Off, and Test and Apply buttons](/blog/images/openteam-local-models-settings.png "The Model settings on the desktop app, pointed at Ollama. Captured from our test server. Image: OpenTeam.")
 

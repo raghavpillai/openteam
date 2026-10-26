@@ -87,16 +87,16 @@ test("discovered file tools move real box bytes over the private bridge and retu
     expect(refused.content[0].text).toContain("only sends files under");
     expect(refused.details.outcome.kind).toBe("source_refused");
     expect(calls).toHaveLength(4);
-    // Workers that use the parent's connectors hold both file tools directly; graphical and media workers have neither.
+    // Workers that use the parent's connectors discover both file tools too; graphical and media workers have neither.
     active.runtimeProfile = "subagent";
     for (const subagentType of ["executor", "knowledgeWork"]) {
       active.subagentType = subagentType;
+      expect((runtime.customTools(active) as any[]).map((tool) => tool.name)).not.toContain("UploadFile");
       for (const name of ["UploadFile", "DownloadFile"])
-        await expect(get.execute(`${subagentType}-discover-${name}`, { namespace: "cursor", toolName: name })).rejects.toThrow(`Tool "${name}" is already available directly`);
-      const direct = runtime.customTools(active) as any[];
-      const workerUpload = await direct.find((tool) => tool.name === "UploadFile").execute(`${subagentType}-upload`, { connection: "Fixture Drive", sourcePath });
+        expect(JSON.stringify(await get.execute(`${subagentType}-discover-${name}`, { namespace: "cursor", toolName: name }))).toContain("eligible-drive");
+      const workerUpload = await invoke.execute(`${subagentType}-upload`, { namespace: "cursor", toolName: "UploadFile", arguments: { connection: "Fixture Drive", sourcePath } });
       expect(workerUpload.content[0].text).toContain("Uploaded");
-      const workerDownload = await direct.find((tool) => tool.name === "DownloadFile").execute(`${subagentType}-download`, { connection: "Fixture Drive", source: { fileId: "file-1" } });
+      const workerDownload = await invoke.execute(`${subagentType}-download`, { namespace: "cursor", toolName: "DownloadFile", arguments: { connection: "Fixture Drive", source: { fileId: "file-1" } } });
       expect(workerDownload.content[0].text).toContain("Downloaded");
     }
     expect(calls).toHaveLength(12);

@@ -1269,14 +1269,97 @@ struct VoiceGlowBackdrop: View {
     return options
   }()
 
+  /// The display's corner radius, which the glow's bottom corners follow.
+  @State private var cornerRadius: CGFloat = 55
+
   var body: some View {
     // Use the phone-sized host and the mobile preset’s natural reach and falloff.
     Color.clear
-      // `.mobile` is tuned for the bottom of a phone screen; 55 pt matches its corners.
       .voiceGlow(type: .mobile, levelProvider: { memo.glowLevel() }, motion: { memo.glowMotion() },
-        active: memo.glowActive && !reduceMotion, cornerRadius: 55, options: Self.options)
+        active: memo.glowActive && !reduceMotion, cornerRadius: cornerRadius, options: Self.options)
+      .background(DisplayCornerProbe { cornerRadius = $0 })
+      // Beside a sidebar the chat column clips what's in it, so while the glow
+      // shows it reaches past the column to the screen's edges.
+      .background(UnclippedAncestors(active: memo.glowActive))
       .allowsHitTesting(false)
       .accessibilityHidden(true)
+  }
+}
+
+/// Lifts clipping from the views around this one while `active`, restoring it a
+/// moment after, once the glow has faded. Transitions keep their clipping.
+private struct UnclippedAncestors: UIViewRepresentable {
+  var active: Bool
+  func makeUIView(context: Context) -> ProbeView { ProbeView() }
+  func updateUIView(_ view: ProbeView, context: Context) { view.active = active }
+
+  final class ProbeView: UIView {
+    private var lifted: [UIView] = []
+    private var restore: DispatchWorkItem?
+    var active = false {
+      didSet {
+        guard active != oldValue else { return }
+        restore?.cancel()
+        if active {
+          lift()
+        } else {
+          let work = DispatchWorkItem { [weak self] in self?.reclip() }
+          restore = work
+          DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
+        }
+      }
+    }
+    override init(frame: CGRect) {
+      super.init(frame: frame)
+      isUserInteractionEnabled = false
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func willMove(toWindow newWindow: UIWindow?) {
+      super.willMove(toWindow: newWindow)
+      if newWindow == nil { reclip() }
+    }
+    private func lift() {
+      var view = superview
+      while let current = view, !(current is UIWindow) {
+        if current.clipsToBounds, !(current is UIScrollView) {
+          current.clipsToBounds = false
+          lifted.append(current)
+        }
+        view = current.superview
+      }
+    }
+    private func reclip() {
+      lifted.forEach { $0.clipsToBounds = true }
+      lifted = []
+    }
+  }
+}
+
+/// Reports the radius of the screen corners a window-sized view sits in: 55 pt on
+/// most iPhones, and each of iPhone Duo's displays' own.
+private struct DisplayCornerProbe: UIViewRepresentable {
+  var update: (CGFloat) -> Void
+  func makeUIView(context: Context) -> ProbeView { ProbeView() }
+  func updateUIView(_ view: ProbeView, context: Context) { view.update = update }
+
+  final class ProbeView: UIView {
+    var update: ((CGFloat) -> Void)?
+    private var last: CGFloat?
+    override init(frame: CGRect) {
+      super.init(frame: frame)
+      isUserInteractionEnabled = false
+      if #available(iOS 26, *) { cornerConfiguration = .corners(radius: .containerConcentric()) }
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      guard #available(iOS 26, *), window != nil else { return }
+      let radius = effectiveRadius(corner: [.bottomLeft, .bottomRight])
+      guard radius > 0, radius != last else { return }
+      last = radius
+      let update = update
+      DispatchQueue.main.async { update?(radius) }
+    }
   }
 }
 

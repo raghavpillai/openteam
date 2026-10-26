@@ -62,10 +62,13 @@ struct ComposerView: View {
           let frame = composer.frame(in: .global)
           let bottom = window?.bounds.maxY ?? frame.maxY
           let height = window?.bounds.height ?? composer.size.height
+          // The whole window's width, beside a sidebar too, so the glow's rounded
+          // corners are the screen's own rather than the chat column's.
+          let width = window?.bounds.width ?? composer.size.width
+          let midX = window.map { $0.bounds.midX - frame.minX } ?? composer.size.width / 2
           VoiceGlowBackdrop(memo: memo)
-            .frame(width: composer.size.width, height: height)
-            .position(x: composer.size.width / 2,
-              y: composer.size.height + max(0, bottom - frame.maxY) - height / 2)
+            .frame(width: width, height: height)
+            .position(x: midX, y: composer.size.height + max(0, bottom - frame.maxY) - height / 2)
         }
       }
       .background {

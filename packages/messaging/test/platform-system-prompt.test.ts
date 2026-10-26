@@ -319,7 +319,7 @@ describe("platform prompt integration", () => {
 
   test("a question the turn needs is its opening reply, ahead of any acknowledgement", () => {
     // Past the reference: without it the bot acknowledges, then asks; a decision still goes in a widget.
-    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("When you can't start without details only the user has, that opening reply is the question itself: ask for them once, in prose, and end the turn, with no acknowledgement first. A decision still goes in a widget (see Asking for decisions).");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("When you can't start without details only the user has, that opening reply is the question itself: ask for them once, in prose, and end the turn, with no acknowledgement first and before reading any skill. A decision still goes in a widget (see Asking for decisions).");
   });
 
   test("widget, connector and escalation rules read as the reference's, once each", () => {

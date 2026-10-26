@@ -38,13 +38,14 @@ struct HomeView: View {
       Group {
         switch HomeLayout(sizeClass: sizeClass) {
         case .stack: stackLayout
-        case .split: splitLayout(width: geometry.size.width)
+        case .split: splitLayout(width: geometry.size.width, fold: HomeLayout.fold(in: geometry))
         }
       }
-      // Apple's apps keep horizontal bars on iPhone Duo's inner display and move
-      // controls into the side region only on the outer one.
+      // Folded, screens move their controls into the side region; unfolded,
+      // only a chat's trailing control goes there, below the status bar.
       .environment(
-        \.sideChrome, sizeClass == .compact ? SideChrome(regions: barRegions, insets: geometry.safeAreaInsets) : nil
+        \.sideChrome,
+        SideChrome(regions: barRegions, insets: geometry.safeAreaInsets, holdsAllControls: sizeClass == .compact)
       )
       .environment(\.topBarClearance, SideChrome.topBarClearance(barRegions, insets: geometry.safeAreaInsets))
     }
@@ -129,17 +130,25 @@ struct HomeView: View {
   /// Regular width (iPhone Duo's inner display, iPad, Max iPhones in landscape)
   /// keeps the conversation list beside the open chat, as Settings does there.
   /// The chat's leading button hides the list for a full-width chat.
-  private func splitLayout(width: CGFloat) -> some View {
+  private func splitLayout(width: CGFloat, fold: CGRect?) -> some View {
     let selected = store.navigation.last.flatMap { store.channel($0) }
     let showsList = selected == nil || !listHidden
     let range = HomeLayout.sidebarRange(for: width)
-    let listWidth = draggedSidebarWidth > 0
-      ? min(range.upperBound, max(range.lowerBound, draggedSidebarWidth)) : HomeLayout.sidebarWidth(for: width)
+    // Partly folded, the columns meet at the fold, as Notes' do, so neither
+    // spans it; each keeps its content clear of the fold's band.
+    let foldInset = (fold?.width ?? 0) / 2
+    let draggedWidth: CGFloat = draggedSidebarWidth > 0
+      ? min(range.upperBound, max(range.lowerBound, CGFloat(draggedSidebarWidth)))
+      : HomeLayout.sidebarWidth(for: width)
+    let listWidth: CGFloat = fold?.midX ?? draggedWidth
     return HStack(spacing: 0) {
       if showsList {
         // A gray column, edge to edge, beside the chat; the open chat is a card on it.
         conversationList
           .environment(\.canvasColor, NativePalette.sidebar)
+          // The list never reaches the side region beside a chat.
+          .environment(\.sideChrome, nil)
+          .safeAreaPadding(.trailing, foldInset)
           .frame(width: listWidth)
           .transition(.move(edge: .leading).combined(with: .opacity))
       }
@@ -152,6 +161,7 @@ struct HomeView: View {
             ChatLeadingControl(title: listHidden ? "Show conversations" : "Hide conversations") {
               withAnimation(.smooth(duration: 0.3)) { listHidden.toggle() }
             })
+          .safeAreaPadding(.leading, showsList ? foldInset : 0)
           .frame(maxWidth: .infinity)
       } else {
         ContentUnavailableView(
@@ -161,8 +171,9 @@ struct HomeView: View {
       }
     }
     // Above both columns, so neither scroll view takes the drag.
+    .animation(.smooth(duration: 0.3), value: fold)
     .overlay(alignment: .leading) {
-      if showsList {
+      if showsList, fold == nil {
         SidebarResizeHandle(
           width: listWidth, range: range, dragging: dragStartWidth != nil,
           onDrag: { translation in
@@ -604,6 +615,12 @@ enum HomeLayout: Equatable {
   init(sizeClass: UserInterfaceSizeClass?) { self = sizeClass == .regular ? .split : .stack }
   /// About a third of the window, as Settings uses on iPhone Duo and iPad.
   static func sidebarWidth(for width: CGFloat) -> CGFloat { min(360, max(280, (width * 0.36).rounded())) }
+  /// The fold's band while iPhone Duo is partly folded, when it divides the inner display.
+  static func fold(in geometry: GeometryProxy) -> CGRect? {
+    guard #available(iOS 27.1, *) else { return nil }
+    return geometry.reservedRegions(kind: .division)
+      .first { $0.isActive && $0.frame.height > $0.frame.width }?.frame
+  }
   /// How far the list can be dragged: never under 240 pt, never over half the window.
   static func sidebarRange(for width: CGFloat) -> ClosedRange<CGFloat> {
     240...max(sidebarWidth(for: width), min(480, (width / 2).rounded()))
@@ -622,7 +639,8 @@ private struct SidebarResizeHandle: View {
   var onSet: (Double) -> Void
   var body: some View {
     Capsule()
-      .fill(NativePalette.muted.opacity(dragging ? 0.6 : 0.25))
+      // Shown only while it drags, as the edge itself is the affordance.
+      .fill(NativePalette.muted.opacity(dragging ? 0.6 : 0))
       .frame(width: dragging ? 5 : 4, height: 36)
       .frame(width: Self.hitWidth)
       .frame(maxHeight: .infinity)
@@ -651,8 +669,12 @@ private struct SidebarResizeHandle: View {
 /// controls move when the status area grows, as with a Live Activity.
 struct SideChrome: Equatable {
   var edge: HorizontalEdge
-  /// The region's width, which the controls center in.
+  /// The region's width.
   var width: CGFloat
+  /// How far from the screen's edge controls center, in line with the status bar.
+  var center: CGFloat
+  /// Folded, the region takes every control; unfolded, a chat's trailing one.
+  var holdsAllControls: Bool
   /// Space from the safe area's top and bottom to the region's usable span.
   var controlsTop: CGFloat
   var controlsBottom: CGFloat
@@ -663,10 +685,12 @@ struct SideChrome: Equatable {
   static func topBarClearance(_ regions: BarRegions, insets: EdgeInsets) -> CGFloat {
     max(0, regions.top - insets.top - topBarPadding)
   }
-  init?(regions: BarRegions, insets: EdgeInsets) {
+  init?(regions: BarRegions, insets: EdgeInsets, holdsAllControls: Bool) {
     guard let edge = regions.sideEdge, regions.sideWidth > 0 else { return nil }
     self.edge = edge
     width = regions.sideWidth
+    center = regions.sideCenter > 0 ? regions.sideCenter : regions.sideWidth / 2
+    self.holdsAllControls = holdsAllControls
     controlsTop = max(0, regions.sideTop - insets.top)
     controlsBottom = max(0, regions.sideBottom - insets.bottom)
   }
@@ -685,10 +709,12 @@ struct SideChromeBar<Top: View, Side: View>: ViewModifier {
       // Without a top bar, content still starts level with the clock.
       content.safeAreaPadding(.top, top == nil ? 0 : clearance)
         .overlay(alignment: chrome.edge == .trailing ? .topTrailing : .topLeading) {
+          // Centered where iOS centers bar controls, under the status bar's items.
+          let shift = chrome.width + chrome.width / 2 - chrome.center
           side.frame(width: chrome.width).padding(.top, chrome.controlsTop)
             .padding(.bottom, chrome.controlsBottom + 8)
             .frame(maxHeight: .infinity, alignment: .top)
-            .offset(x: chrome.edge == .trailing ? chrome.width : -chrome.width)
+            .offset(x: chrome.edge == .trailing ? shift : -shift)
         }
     } else if let top {
       content.fadingTopBar { top }

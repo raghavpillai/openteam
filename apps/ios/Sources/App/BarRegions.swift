@@ -9,20 +9,51 @@ struct BarRegions: Equatable {
   var sideEdge: HorizontalEdge?
   /// The side region's width and its usable span, from the screen's top and bottom.
   var sideWidth: CGFloat = 0
+  /// How far from the screen's edge iOS centers bar controls, in line with the
+  /// status bar above them.
+  var sideCenter: CGFloat = 0
   var sideTop: CGFloat = 0
   var sideBottom: CGFloat = 0
   /// Where a top bar's region begins, from the screen's top.
   var top: CGFloat = 0
 
   static let none = BarRegions()
-  /// Height of the top bar the regions are measured for.
-  static let topBarExtent: CGFloat = 44
+  /// Size of the bars the regions are measured for: a row or column of controls.
+  static let barExtent: CGFloat = 44
 }
 
 extension View {
   /// Reports the window's bar regions now and whenever they change.
   func readingBarRegions(_ update: @escaping (BarRegions) -> Void) -> some View {
     modifier(BarRegionsReader(update: update))
+  }
+}
+
+extension View {
+  /// Tracks whether iOS lays toolbars out vertically here, as on iPhone Duo's
+  /// outer display, where only standard toolbar items move into the side bar.
+  func readingVerticalBar(_ isVertical: Binding<Bool>) -> some View {
+    modifier(VerticalBarReader(isVertical: isVertical))
+  }
+}
+
+private struct VerticalBarReader: ViewModifier {
+  @Binding var isVertical: Bool
+  func body(content: Content) -> some View {
+    if #available(iOS 27.1, *) {
+      content.modifier(VerticalBarEdgeObserver(isVertical: $isVertical))
+    } else {
+      content
+    }
+  }
+}
+
+@available(iOS 27.1, *)
+private struct VerticalBarEdgeObserver: ViewModifier {
+  @Environment(\.toolbarVerticalEdge) private var edge
+  @Binding var isVertical: Bool
+  func body(content: Content) -> some View {
+    content.onChange(of: edge != nil, initial: true) { _, vertical in isVertical = vertical }
   }
 }
 
@@ -92,7 +123,7 @@ private struct BarRegionProbe: UIViewRepresentable {
 
     private var sideRegion: UIView.LayoutRegion? {
       guard let window, let edge, sideWidth(window) > 0 else { return nil }
-      return .bar(onEdge: edge == .trailing ? .trailing : .leading, extent: sideWidth(window))
+      return .bar(onEdge: edge == .trailing ? .trailing : .leading, extent: BarRegions.barExtent)
     }
     private func sideWidth(_ window: UIWindow) -> CGFloat {
       let insets = window.safeAreaInsets
@@ -103,7 +134,7 @@ private struct BarRegionProbe: UIViewRepresentable {
       NSLayoutConstraint.deactivate(pins)
       pins = []
       guard let window else { return }
-      let top = window.layoutGuide(for: .bar(onEdge: UIRectEdge.top, extent: BarRegions.topBarExtent))
+      let top = window.layoutGuide(for: .bar(onEdge: UIRectEdge.top, extent: BarRegions.barExtent))
       pins += [
         topMarker.topAnchor.constraint(equalTo: top.topAnchor),
         topMarker.bottomAnchor.constraint(equalTo: top.bottomAnchor),
@@ -125,13 +156,14 @@ private struct BarRegionProbe: UIViewRepresentable {
 
     func report() {
       guard let window else { return }
-      var regions = BarRegions(top: window.edgeInsets(for: .bar(onEdge: UIRectEdge.top, extent: BarRegions.topBarExtent)).top)
+      var regions = BarRegions(top: window.edgeInsets(for: .bar(onEdge: UIRectEdge.top, extent: BarRegions.barExtent)).top)
       if let region = sideRegion {
         let insets = window.edgeInsets(for: region)
         regions.sideEdge = edge
         regions.sideWidth = sideWidth(window)
         regions.sideTop = insets.top
         regions.sideBottom = insets.bottom
+        regions.sideCenter = (edge == .leading ? insets.left : insets.right) + BarRegions.barExtent / 2
       }
       guard regions != last else { return }
       last = regions

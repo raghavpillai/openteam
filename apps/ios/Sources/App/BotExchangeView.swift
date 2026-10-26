@@ -3,6 +3,7 @@ import SwiftUI
 struct BotExchangeView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.sideChrome) private var sideChrome
   let channel: Channel
   let peer: BotExchangePeer
   @State private var ready = false
@@ -33,13 +34,12 @@ struct BotExchangeView: View {
           .accessibilityIdentifier("exchange-read-only")
           .frame(maxWidth: .infinity).padding(.top, 4)
       })
+      .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
       .background(NativeBackGesture().frame(width: 0, height: 0))
   }
   private var header: some View {
     HStack(spacing: 8) {
-      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
-        regularInLightMode: true) { dismiss() }
-        .accessibilityIdentifier("exchange-back")
+      if sideChrome?.holdsAllControls != true { backButton }
       HStack(spacing: -9) {
         if let source { MessageBotMark(bot: source, size: 29) }
         if let peerBot {
@@ -49,7 +49,16 @@ struct BotExchangeView: View {
       }.padding(.leading, 8).accessibilityElement(children: .ignore)
         .accessibilityLabel((source?.name ?? channel.name) + " and " + peer.name)
       Spacer()
-    }.padding(.horizontal, 18).padding(.vertical, 6)
+    }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+  }
+  private var backButton: some View {
+    ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
+      regularInLightMode: true) { dismiss() }
+      .accessibilityIdentifier("exchange-back").foregroundStyle(NativePalette.text)
+  }
+  /// Folded, Back moves into the side region, as in the conversation.
+  @ViewBuilder private var sideControls: some View {
+    if sideChrome?.holdsAllControls == true { backButton }
   }
   private var rows: [NativeHistoryItem] {
     var result: [NativeHistoryItem] = []

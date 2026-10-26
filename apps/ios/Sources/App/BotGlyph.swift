@@ -101,6 +101,10 @@ private struct RobotSurface: UIViewRepresentable {
     CATransaction.setDisableActions(true)
     root.position = .zero
     root.transform = CATransform3DMakeScale(bounds.width / 108, bounds.height / 108, 1)
+    // Each display reports its own scale; layers built off screen catch up here.
+    for (layer, _, _, _) in inkLayers where layer.contentsScale != traitCollection.displayScale {
+      layer.contentsScale = traitCollection.displayScale
+    }
     CATransaction.commit()
   }
   override func didMoveToWindow() {
@@ -191,7 +195,7 @@ private struct RobotSurface: UIViewRepresentable {
       shape.lineWidth = node.strokeWidth
       shape.lineCap = CAShapeLayerLineCap(rawValue: node.strokeLinecap)
       shape.lineJoin = CAShapeLayerLineJoin(rawValue: node.strokeLinejoin)
-      shape.contentsScale = UIScreen.main.scale
+      shape.contentsScale = traitCollection.displayScale
       inkLayers.append(
         (shape, node.tag == "line" ? "none" : node.fill, node.stroke, node.strokeWidth))
       layer = shape

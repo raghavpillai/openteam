@@ -4,6 +4,7 @@ struct PluginListView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   @State private var settings: JSON = .null
+  @State private var verticalBar = false
   @State private var query = ""
   @State private var category = "All"
   @State private var selected: JSON?
@@ -53,15 +54,26 @@ struct PluginListView: View {
       .navigationDestination(item: $selected) { plugin in
         PluginDetailView(plugin: plugin, installed: installed(plugin) != nil, onChange: load)
       }
-      .toolbar { catalogToolbar }.task { await load() }.refreshable { await load() }
+      .toolbar { catalogToolbar }.readingVerticalBar($verticalBar)
+      .task { await load() }.refreshable { await load() }
   }
   @ToolbarContentBuilder private var catalogToolbar: some ToolbarContent {
 
-        ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
-        if #available(iOS 26.0, *) {
+        if verticalBar {
+          // A standard item, so iOS can move Back into the side bar; the title
+          // stays a horizontal heading, as text does.
+          ToolbarItem(placement: .topBarLeading) {
+            Button(action: back) { Label("Back", systemImage: "chevron.left") }
+          }
+          ToolbarItem(placement: .principal) {
+            Text(title).font(.system(size: 17, weight: .medium)).fixedSize()
+          }
+        } else if #available(iOS 26.0, *) {
+          ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
           ToolbarItem(placement: .topBarLeading) { catalogHeading }
             .sharedBackgroundVisibility(.hidden)
         } else {
+          ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
           ToolbarItem(placement: .topBarLeading) { catalogHeading }
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -75,12 +87,14 @@ struct PluginListView: View {
           }.accessibilityIdentifier("installed-plugins")
         }
         }
+  private var title: String { installedOnly ? "Installed" : "Plugins" }
+  private func back() {
+    if installedOnly { installedOnly = false } else { dismiss() }
+  }
   private var catalogHeading: some View {
     HStack(spacing: 14) {
-      ChromeButton(title: "Back", symbol: "chevron.left") {
-        if installedOnly { installedOnly = false } else { dismiss() }
-      }
-      Text(installedOnly ? "Installed" : "Plugins")
+      ChromeButton(title: "Back", symbol: "chevron.left", action: back)
+      Text(title)
         .font(.system(size: 17, weight: .medium)).fixedSize()
     }.fixedSize()
   }

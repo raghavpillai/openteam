@@ -142,7 +142,7 @@ struct ChatView: View {
       }
     }
     .nativeCanvas()
-    .chatFloatingBars(top: { if sideChrome == nil { header } else { titleBar } }, bottom: {
+    .chatFloatingBars(top: { if sideChrome?.holdsAllControls == true { titleBar } else { header } }, bottom: {
       if !showsLoadError { ComposerView(channel: channel).disabled(!didPositionHistory) }
     })
     .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
@@ -350,13 +350,17 @@ struct ChatView: View {
   }
   private var sideControls: some View {
     VStack(spacing: 12) {
-      leadingButton
-      if let bot = store.computerBot(for: channel) {
-        ChatChromeButton(title: "Computer", symbol: "display", symbolSize: 16) {
-          computerBot = bot
-        }.accessibilityValue(bot.name)
-      }
+      if sideChrome?.holdsAllControls == true { leadingButton }
+      computerButton
     }.foregroundStyle(NativePalette.text)
+  }
+  @ViewBuilder private var computerButton: some View {
+    if let bot = store.computerBot(for: channel) {
+      ChatChromeButton(title: "Computer", symbol: "display", symbolSize: 16) {
+        // Freeze the target for this presentation even if another bot replies.
+        computerBot = bot
+      }.accessibilityValue(bot.name)
+    }
   }
   private var titleButton: some View {
     Button {
@@ -376,12 +380,10 @@ struct ChatView: View {
       titleButton.frame(maxWidth: .infinity)
       // Equal side slots keep the pill on the screen's center, including groups
       // without a Computer action. Long names truncate within the middle slot.
+      // Beside a side region, Computer sits in it, below the status bar.
       Group {
-        if let bot = store.computerBot(for: channel) {
-          ChatChromeButton(title: "Computer", symbol: "display", symbolSize: 16) {
-            // Freeze the target for this presentation even if another bot replies.
-            computerBot = bot
-          }.accessibilityValue(bot.name)
+        if sideChrome == nil, store.computerBot(for: channel) != nil {
+          computerButton
         } else {
           Color.clear.accessibilityHidden(true)
         }
@@ -964,6 +966,7 @@ struct ThreadView: View {
 struct ThreadPage: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.sideChrome) private var sideChrome
   let root: Message
   let channel: Channel
   var initialFocus: String?
@@ -980,6 +983,17 @@ struct ThreadPage: View {
   private var draftKey: String { channel.id + (branchesReplies ? ":thread:" : ":reply:") + root.id }
   private var messages: [Message] {
     ThreadProjection.messages(root: root, in: store.messages(channel.id), includeInlineReplies: !branchesReplies)
+  }
+  private var backButton: some View {
+    ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
+      regularInLightMode: true) {
+      UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+      dismiss()
+    }.accessibilityIdentifier("thread-back").foregroundStyle(NativePalette.text)
+  }
+  /// Folded, Back moves into the side region, as in the conversation.
+  @ViewBuilder private var sideControls: some View {
+    if sideChrome?.holdsAllControls == true { backButton }
   }
   var body: some View {
     ZStack {
@@ -1000,19 +1014,16 @@ struct ThreadPage: View {
       .messageModalHost(modals).nativeCanvas().toolbar(.hidden, for: .navigationBar)
       .chatFloatingBars(top: {
         HStack {
-          ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
-            regularInLightMode: true) {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            dismiss()
-          }.accessibilityIdentifier("thread-back")
+          if sideChrome?.holdsAllControls != true { backButton }
           Spacer()
-        }.padding(.horizontal, 18).padding(.vertical, 6)
+        }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
       }, bottom: {
         ComposerView(channel: channel, draftKey: draftKey,
           threadRootID: branchesReplies ? root.id : nil,
           replyRootID: branchesReplies ? nil : root.id, focusOnAppear: true, focusRequest: focusRequest)
           .disabled(!ready)
       })
+      .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
       .navigationDestination(item: $exchange) { BotExchangeView(channel: channel, peer: $0) }
       .navigationDestination(isPresented: $details) { ConversationDetails(channelID: channel.id) }
       .background(NativeBackGesture().frame(width: 0, height: 0))

@@ -383,6 +383,15 @@ extension View {
       safeAreaInset(edge: edge, spacing: 0, content: content)
     }
   }
+  /// Grouped cards' side margins. Section margins stay inside the safe area, so
+  /// cards end before a side bar like iPhone Duo's; scroll content margins don't.
+  @ViewBuilder func listCardMargins(_ length: CGFloat) -> some View {
+    if #available(iOS 26, *) {
+      listSectionMargins(.horizontal, length)
+    } else {
+      contentMargins(.horizontal, length, for: .scrollContent)
+    }
+  }
   func referenceSheet() -> some View {
     presentationDetents([.fraction(0.95), .large]).presentationDragIndicator(.hidden)
       .presentationCornerRadius(34).presentationBackground(NativePalette.background)

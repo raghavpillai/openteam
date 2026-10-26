@@ -10,6 +10,7 @@ struct SettingsView: View {
   @AppStorage("accent") private var accent = "black"
   @AppStorage("haptics") private var haptics = true
   @State private var signOut = false
+  @State private var verticalBar = false
   @State private var path: [SettingsRoute]
   init(initialRoute: SettingsRoute? = nil) {
     _path = State(initialValue: initialRoute.map { [$0] } ?? [])
@@ -118,7 +119,7 @@ struct SettingsView: View {
       }.listStyle(.insetGrouped)
         // The reference's cards begin 16 points inside the inset sheet, with
         // less top/row padding than the system's default grouped list.
-        .contentMargins(.horizontal, 16, for: .scrollContent)
+        .listCardMargins(16)
         .contentMargins(.top, 20, for: .scrollContent)
         .listSectionSpacing(28)
         .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
@@ -129,7 +130,11 @@ struct SettingsView: View {
           }
         }
         .toolbar {
-          ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
+          // With Close in iPhone Duo's side bar, the title fills the top bar
+          // as on every settings page; elsewhere the sheet keeps it hidden.
+          if !verticalBar {
+            ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
+          }
           ToolbarItem(placement: .cancellationAction) {
             Button { dismiss() } label: {
               Image(systemName: "xmark").foregroundStyle(.primary)
@@ -137,6 +142,7 @@ struct SettingsView: View {
               .accessibilityIdentifier("sheet-close")
           }
         }
+        .readingVerticalBar($verticalBar)
         .confirmationDialog(
           "Sign out of this server?", isPresented: $signOut, titleVisibility: .visible
         ) {
@@ -376,7 +382,7 @@ struct ConversationDetails: View {
           }
         }
       }.disabled(saving).listSectionSpacing(16)
-        .contentMargins(.horizontal, 24, for: .scrollContent)
+        .listCardMargins(24)
         .environment(\.defaultMinListRowHeight, 50)
         .navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)

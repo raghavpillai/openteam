@@ -21,6 +21,7 @@ struct ComposerView: View {
   @State private var camera = false
   @State private var uploading = false
   @StateObject private var memo = VoiceMemoController()
+  @Environment(\.chatColumnLeading) private var columnLeading
   /// The idle pill's height, where the gooey merge starts from.
   @State private var pillHeight: CGFloat = 44
   @State private var pluginMentions: [JSON] = []
@@ -62,11 +63,13 @@ struct ComposerView: View {
           let frame = composer.frame(in: .global)
           let bottom = window?.bounds.maxY ?? frame.maxY
           let height = window?.bounds.height ?? composer.size.height
-          // The whole window's width, beside a sidebar too, so the glow's rounded
-          // corners are the screen's own rather than the chat column's.
-          let width = window?.bounds.width ?? composer.size.width
-          let midX = window.map { $0.bounds.midX - frame.minX } ?? composer.size.width / 2
-          VoiceGlowBackdrop(memo: memo)
+          // From the chat column's leading edge to the screen's trailing edge, under
+          // any side bar, so the glow's rounded corners are the screen's own; beside a
+          // sidebar it stops square at the column instead of covering the list.
+          let leading = window == nil ? frame.minX : columnLeading
+          let width = (window?.bounds.width ?? frame.maxX) - leading
+          let midX = leading + width / 2 - frame.minX
+          VoiceGlowBackdrop(memo: memo, squareLeading: columnLeading > 0)
             .frame(width: width, height: height)
             .position(x: midX, y: composer.size.height + max(0, bottom - frame.maxY) - height / 2)
         }

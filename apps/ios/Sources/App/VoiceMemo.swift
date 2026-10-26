@@ -1256,6 +1256,8 @@ struct VoiceBarSurface: View, @preconcurrency Animatable {
 /// It rises with the voice and sweeps while transcribing.
 struct VoiceGlowBackdrop: View {
   @ObservedObject var memo: VoiceMemoController
+  /// Beside a sidebar the glow starts at the chat column, mid-screen, with a square corner.
+  var squareLeading = false
   @VoiceMotionPreference private var reduceMotion
   /// The level is already normalised like the waveform's bars, so no extra gain: the glow
   /// rises and falls with the same syllables instead of pinning at full.
@@ -1274,14 +1276,15 @@ struct VoiceGlowBackdrop: View {
   @State private var corners = DisplayCorners(left: 55, right: 55)
 
   var body: some View {
+    let left = squareLeading ? 0 : corners.left
     // Use the phone-sized host and the mobile preset’s natural reach and falloff.
     // The glow traces the tighter corner and the display's own shape clips the other.
     Color.clear
       .voiceGlow(type: .mobile, levelProvider: { memo.glowLevel() }, motion: { memo.glowMotion() },
-        active: memo.glowActive && !reduceMotion, cornerRadius: min(corners.left, corners.right),
+        active: memo.glowActive && !reduceMotion, cornerRadius: min(left, corners.right),
         options: Self.options)
       .clipShape(UnevenRoundedRectangle(
-        bottomLeadingRadius: corners.left, bottomTrailingRadius: corners.right, style: .continuous))
+        bottomLeadingRadius: left, bottomTrailingRadius: corners.right, style: .continuous))
       .environment(\.layoutDirection, .leftToRight)
       .background(DisplayCornerProbe { corners = $0 })
       // Beside a sidebar the chat column clips what's in it, so while the glow
@@ -1339,6 +1342,11 @@ private struct UnclippedAncestors: UIViewRepresentable {
       lifted = []
     }
   }
+}
+
+extension EnvironmentValues {
+  /// Where the open chat's column starts in the window, beside a sidebar; 0 otherwise.
+  @Entry var chatColumnLeading: CGFloat = 0
 }
 
 struct DisplayCorners: Equatable {

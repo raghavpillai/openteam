@@ -162,6 +162,7 @@ struct HomeView: View {
               withAnimation(.smooth(duration: 0.3)) { listHidden.toggle() }
             })
           .safeAreaPadding(.leading, showsList ? foldInset : 0)
+          .environment(\.chatColumnLeading, showsList ? listWidth : 0)
           .frame(maxWidth: .infinity)
       } else {
         ContentUnavailableView(

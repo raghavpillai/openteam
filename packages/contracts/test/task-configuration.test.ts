@@ -78,7 +78,7 @@ test("default Task contract matches the captured combined-worker catalog exactly
   // Past the reference, exact values go in quotes.
   expected.description = expected.description.replace(
     "and what to report back.",
-    "and what to report back. Quote each exact value as the user gave it (a name 'Jo Park', a note 'Leave it at the door'), so sentence punctuation is never read as part of it."
+    "and what to report back. Quote each exact value as the user gave it, so sentence punctuation is never read as part of it."
   );
   expect(taskToolContract()).toEqual(expected);
   expect(taskUserInfo()).not.toContain("available_subagent_models");
@@ -133,8 +133,8 @@ test("invalid and ambiguous profile configurations cannot be saved", () => {
 });
 
 test("a Task prompt quotes each exact value, so sentence punctuation never joins it", () => {
-  // Unquoted, "instructions Ring twice." reaches the worker with its period, and the parent resumes it to fix the field.
+  // Unquoted, a value at the end of a sentence reaches the worker with its period, and the parent resumes it to fix the field.
   expect(taskToolContract().description).toContain(
-    "Quote each exact value as the user gave it (a name 'Jo Park', a note 'Leave it at the door'), so sentence punctuation is never read as part of it."
+    "Quote each exact value as the user gave it, so sentence punctuation is never read as part of it."
   );
 });

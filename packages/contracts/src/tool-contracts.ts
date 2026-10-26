@@ -365,12 +365,12 @@ adaptArgument("StopSubagent", "all", [
   ],
 ]);
 
-// Unquoted, a value at the end of a sentence picks up its period ("instructions Ring twice."), and the
-// worker types it that way; the parent then spends a whole resume correcting the field.
+// Unquoted, a value at the end of a sentence picks up its period, and the worker types it that way; the
+// parent then spends a whole resume correcting the field.
 adaptDescription("Task", [
   [
     "Its prompt must be self-contained: the goal, the context and exact values it needs, and what to report back.",
-    "Its prompt must be self-contained: the goal, the context and exact values it needs, and what to report back. Quote each exact value as the user gave it (a name 'Jo Park', a note 'Leave it at the door'), so sentence punctuation is never read as part of it.",
+    "Its prompt must be self-contained: the goal, the context and exact values it needs, and what to report back. Quote each exact value as the user gave it, so sentence punctuation is never read as part of it.",
   ],
 ]);
 // Task's schema is preloaded in the user_info catalog, so it is called without a lookup.

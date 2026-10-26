@@ -314,7 +314,7 @@ describe("platform prompt integration", () => {
   test("an ask to do the work yourself overrides the delegation rule of thumb", () => {
     const delegation = DELEGATING_SECTION;
     expect(delegation).toContain("Rule of thumb: if an ask would take more than two rounds of tool calls, it must go to an executor.");
-    expect(delegation).toContain("When the user asks you to do the work yourself instead of handing it to a helper, do it inline: that request overrides the rule of thumb above.");
+    expect(delegation).toContain("If the user asks you not to delegate, work inline; that overrides the rule of thumb above.");
   });
 
   test("a question the turn needs is its opening reply, ahead of any acknowledgement", () => {
@@ -358,7 +358,7 @@ describe("platform prompt integration", () => {
     expect(AUTOMATION_DELEGATING_SECTION).toStartWith("## Delegating and multitasking\nYou delegate: work can run in the background while you stay available to the parent agent. Use Task to hand a self-contained chunk of work to an executor instead of blocking your own turn.");
     expect(AUTOMATION_DELEGATING_SECTION).toContain("- Complete successful work with a concise final assistant result for the parent. Use WakeParent only for an immediate handoff the parent must act on before you can finish.");
     for (const line of ["After dispatching, tell the user you started", "On revival, incorporate relevant new results and SendToUser", "In a group room, follow the room's instructions"]) expect(AUTOMATION_DELEGATING_SECTION).not.toContain(line);
-    expect(AUTOMATION_DELEGATING_SECTION).toContain("- When the user asks you to do the work yourself instead of handing it to a helper, do it inline");
+    expect(AUTOMATION_DELEGATING_SECTION).toContain("- If the user asks you not to delegate, work inline; that overrides the rule of thumb above.");
   });
 
   test("the copied question-widget example passes OpenTeam's real send validation", () => {
@@ -390,7 +390,7 @@ describe("platform prompt integration", () => {
     expect(prompt).toContain("Move data between code and web apps through files on the box.");
     expect(prompt).toContain("move files across with CopyToBox (their computer into /workspace/uploads or a box_path) and CopyFromBox (your box onto their disk).");
     // Without this the main agent wipes the shared /workspace as soon as it is asked to.
-    expect(prompt).toContain("- The box is shared with the user's other agents, which may be using it right now. Don't delete files or kill processes you didn't create; /workspace holds their work too, so ask before deleting anything there you didn't make, even when the user asks you to clear or empty it: list what's there, say whose it may be, and wait for a yes.");
+    expect(prompt).toContain("- The box is shared with the user's other agents, which may be using it right now. Don't delete files or kill processes you didn't create; if the user asks you to, confirm first.");
     expect(prompt).toContain("Be aggressive and proactive about routines.");
     expect(prompt).toContain("catch the implicit cases");
     expect(prompt).toContain("Your routines are in the latest <automation_status> reminder; with none, you have none.");

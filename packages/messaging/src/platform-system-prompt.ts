@@ -49,7 +49,7 @@ const AUTOMATION_DELEGATION_LINES = [
 /** The delegation section a run gets in place of the main one; the main agent's "do it yourself" rule stays. */
 export const AUTOMATION_DELEGATING_SECTION = [
   ...AUTOMATION_DELEGATION_LINES,
-  ...DELEGATING_SECTION.split("\n").filter((line) => line.startsWith("- When the user asks you to do the work yourself")),
+  ...DELEGATING_SECTION.split("\n").filter((line) => line.startsWith("- If the user asks you not to delegate")),
 ].join("\n");
 
 const automationSection = (id: string, text: string): string => {

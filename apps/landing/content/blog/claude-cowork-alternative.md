@@ -86,7 +86,7 @@ Your model provider still sees what each task sends it, including file contents.
 
 ### Claude through an API key, or another model
 
-You choose one model for the whole server in **Settings → Server**. The options are an Anthropic, OpenAI or OpenRouter API key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([docs](/docs/configuration/models)). Every bot uses that model; you can't give each bot its own.
+You choose one model for the whole server in **Settings → Model**. The options are an Anthropic, OpenAI or OpenRouter API key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([docs](/docs/configuration/models)). Every bot uses that model; you can't give each bot its own.
 
 With an Anthropic key you pay API rates per token. By default, Anthropic doesn't use inputs or outputs from its commercial products, including the API, to train its models ([Anthropic](https://privacy.claude.com/en/articles/7996868-is-my-data-used-for-model-training)). To keep model requests on your own hardware, point OpenTeam at a local server:
 
@@ -161,7 +161,7 @@ Not on Pro or Max for new tasks. Anthropic removed that option on October 6, 202
 
 ### Can I use Claude models with OpenTeam?
 
-Yes, with an Anthropic API key. Paste it during setup or in **Settings → Server**, and every bot uses the Claude model you pick, billed at Anthropic's API rates.
+Yes, with an Anthropic API key. Paste it during setup or in **Settings → Model**, and every bot uses the Claude model you pick, billed at Anthropic's API rates.
 
 ## Try OpenTeam
 

@@ -87,7 +87,7 @@ As in Grok Bot, you sign in once on any bot's screen and every bot is signed in.
 
 ### Your model, your team, your schedules
 
-One model serves every bot, chosen in **Settings → Server**: an OpenAI, Anthropic or OpenRouter key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([models](/docs/configuration/models)). Bots can't each have their own model.
+One model serves every bot, chosen in **Settings → Model**: an OpenAI, Anthropic or OpenRouter key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([models](/docs/configuration/models)). Bots can't each have their own model.
 
 Group chats hold up to six bots that take turns, with at most three rounds and ten bot replies per message you send. Bots also message each other directly, create teammates and delegate to subagents. Routines run on up to eight schedules, at most every five minutes, or on events ([routines](/docs/usage/routines)). Bundled plugins include Gmail, Google Calendar, Google Drive, GitHub, Linear, Notion, Slack, Granola and 1Password, plus custom MCP servers.
 

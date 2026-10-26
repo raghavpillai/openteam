@@ -90,7 +90,7 @@ When you send a message, the server stores it in PostgreSQL and queues a wake jo
 
 ![A bot's desktop with Chromium showing a sample date parser fix with a one-line diff and 24 passing tests](/screenshots/linux-code-review.png "A sample code review page opened from the shared /workspace folder, captured September 12, 2026. Image: OpenTeam.")
 
-One model serves every bot on the server, chosen in **Settings → Server**. Connect OpenAI, Anthropic or OpenRouter with an API key, or any OpenAI-compatible endpoint, including local servers such as Ollama, LM Studio and vLLM.
+One model serves every bot on the server, chosen in **Settings → Model**. Connect OpenAI, Anthropic or OpenRouter with an API key, or any OpenAI-compatible endpoint, including local servers such as Ollama, LM Studio and vLLM.
 
 Three commands cover day-to-day operation. `openteam status` shows the version and the health of each service. `openteam doctor` checks your setup and sends a real request to your model. `openteam update` backs up the database first and rolls back if the new version doesn't start. [How hosting works](/docs/overview/architecture) explains what needs to stay on.
 

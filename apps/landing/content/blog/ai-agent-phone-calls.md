@@ -16,7 +16,7 @@ We build OpenTeam; call4me is a separate hosted service. The call4me facts below
 ## What you need
 
 - An OpenTeam server and the desktop app, for macOS on Apple silicon or Linux x64 ([quickstart](/docs/getting-started/quickstart)).
-- A model that handles tool calls reliably, chosen in **Settings → Server → Model and reasoning**. One model serves every bot ([models](/docs/configuration/models)).
+- A model that handles tool calls reliably, chosen in **Settings → Model**. One model serves every bot ([models](/docs/configuration/models)).
 - A call4me account with prepaid credits, from $10. Sign in with Google or X; the first sign-in creates the account.
 - An API key from your [call4me account page](https://call4.me/account).
 - Your own phone number in your call4me calling profile, if you want to listen in or take over.

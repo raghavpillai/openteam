@@ -159,7 +159,7 @@ No. OpenTeam bots act directly, with no approval prompts, while Hermes checks da
 
 ### Can I use OpenTeam with a local model?
 
-Yes. Point it at any OpenAI-compatible endpoint, such as Ollama, LM Studio or vLLM, or use an OpenAI, Anthropic or OpenRouter API key. One model serves every bot on the server, chosen in **Settings → Server**. Hermes runs local models too, and lets each bot use a different one.
+Yes. Point it at any OpenAI-compatible endpoint, such as Ollama, LM Studio or vLLM, or use an OpenAI, Anthropic or OpenRouter API key. One model serves every bot on the server, chosen in **Settings → Model**. Hermes runs local models too, and lets each bot use a different one.
 
 ### Does OpenTeam have a Windows app?
 

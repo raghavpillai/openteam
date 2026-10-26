@@ -3,6 +3,7 @@ title: A Hermes Agent alternative that ships as a team, desktops included
 seoTitle: Hermes Agent alternative: an AI team with a desktop per bot
 description: Hermes Agent now has bots and group chats. OpenTeam, a self-hosted Hermes Agent alternative, runs them on a server with a desktop per bot. Where each wins.
 date: 2026-10-11
+updated: 2026-10-26
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam desktop app on macOS with three bots in the sidebar, a research chat, the bot's live screen preview and a weekday routine
@@ -57,7 +58,7 @@ Hermes facts come from its README, docs and release notes as of October 11, 2026
 | License | MIT | GPL-3.0 |
 | Where it runs | Laptop, server, VPS or Hermes Cloud | Docker on a macOS, Windows or Linux host |
 | Computer per agent | Xfce desktop per bot on Linux or in a sandbox, off by default | Linux desktop, Chromium and terminal per bot, always on |
-| Where commands run | Your machine by default; sandboxes optional | Inside one hardened container |
+| Where commands run | Your machine by default; sandboxes optional | Inside one Docker container, with sudo |
 | Models | Any provider; per bot and per session | Any provider or local endpoint; one for all bots |
 | Multi-agent | Group chats of 2–6 bots, bot-to-bot messages, subagents | Group chats of up to 6 bots, bot-to-bot messages, subagents |
 | Group chat rounds run in | Hermes Desktop (gateway support pending) | The server |
@@ -85,7 +86,7 @@ Routines are saved instructions that run on a schedule (up to eight schedules ea
 
 Each bot gets a persistent Linux desktop: XFCE at 1280×800, with Chromium and a terminal. You can watch any bot's screen live and [take over](/docs/usage/computer). When a site wants a CAPTCHA, a 2FA code or a payment, the bot posts a card asking you to step in, then continues when you hand back. There's nothing to install or switch on per bot.
 
-Up to 100 desktops run in one hardened container, with Linux capabilities dropped and a read-only filesystem. Isolation between bots is by convention: they share one Unix user inside that container. Hermes is candid about the same trade-off, calling its screens "work surfaces, not security boundaries". Bots touch your own computer only if you connect it through the desktop app.
+Up to 100 desktops run in one Docker container, where bots can use passwordless `sudo` to install packages ([computer](/docs/usage/computer)). Isolation between bots is by convention: they share one Unix user inside that container. Hermes is candid about the same trade-off, calling its screens "work surfaces, not security boundaries". Bots touch your own computer only if you connect it through the desktop app.
 
 ![A bot's Linux desktop with a vendor comparison report open in Chromium](/screenshots/linux-vendor-review.png "A bot's own desktop with a report it saved to /workspace. Sample data, captured September 2026. Image: OpenTeam.")
 

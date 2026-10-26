@@ -53,6 +53,20 @@ Screenshots for the local-models guide are real captures, not staged. They come 
 - `openteam-local-models-settings.png`: Settings → Server → Model with Ollama as the provider and the `qwen3.5-agent:latest` model.
 - `openteam-local-models-chat.png`: a bot's first turns on the local model, including its repeated greetings.
 
+Screenshots for the iPhone Duo guide come from the shipping iPhone app, built in Debug from the commit of the TestFlight beta testers had on 2026-10-24 with Xcode 27.1, and run in Xcode's iPhone Duo simulator (iOS 27.1) against a local fixture server with fictional bots and conversations. The bot desktop in the computer view is the 2026-09-12 capture `/screenshots/linux-vendor-review.png`, streamed through a local VNC fixture. Captured on 2026-10-26 and framed in a plain device outline:
+
+- `iphone-duo-openteam-unfolded.png`: the inner display, with the conversation list beside a Researcher chat.
+- `iphone-duo-openteam-folded.png`: the outer display, with the conversation list and a group chat.
+- `iphone-duo-openteam-computer.png`: a bot's computer on the inner display with the Take control menu open.
+
+Screenshots for the tested roundup of open-source Grok Bot alternatives are real captures from our own test on 2026-10-26. Each project was installed on one Mac with its own install path, used with test accounts, bots named Scout and Ada and one OpenRouter model, and captured from the running app (headless Playwright or the app's debugging port). Each shows the project's own interface, credited to the project in the caption:
+
+- `rakazo-bot-screen-panel.png`: Rakazo (Apache-2.0), `edge` images at commit `ccbfe31`, with Scout's chat beside its screen panel.
+- `mausbot-bot-handoff.png`: MausBot (Apache-2.0 core), Mac app v0.1.127, with Scout handing work to Ada.
+- `open-duet-team-panel.png`: Open Duet (Apache-2.0), 0.4.1 from source at commit `743d014`, with its My team panel open.
+- `openteam-two-bot-handoff.png`: the OpenTeam desktop app on an isolated test server, with the test bots' real replies.
+- `nightly-openbot-sign-in.png`: nightly-labs OpenBot (PolyForm Noncommercial 1.0.0), Mac app v0.51.1, at its required sign-in screen.
+
 Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG on a 1,000 px canvas, rendered at 2× and scaled to 1600 px wide. Numbers come from the source code. Each post's version frames share one template, so each component stays in the same place as the design grows:
 
 - `memory-design-overview.png`: the memory design's steps, and the first step compared with the final design.
@@ -72,6 +86,13 @@ Diagrams for the Claude Duet comparison use the same method. Claude Duet facts c
 - `claude-duet-morning-brief.png`: an OpenTeam morning-brief routine from schedule to sent reply.
 - `claude-duet-urgent-email-timing.png`: Duet's interval checks next to an OpenTeam email-triggered routine.
 
+Diagrams for the iPhone Duo guide and the Meta Muse safety explainer use the same method. iPhone Duo facts come from Apple's newsroom and developer pages; Muse facts come from Meta's newsroom, engineering post, help center and privacy policy, checked on 2026-10-25; OpenTeam facts come from its docs and code:
+
+- `iphone-duo-openteam-layouts.png`: where the iPhone app's controls sit folded, unfolded and unfolded in portrait.
+- `meta-muse-what-it-can-reach.png`: what Muse's cloud VM holds and what it can reach once connected.
+- `meta-muse-vs-self-hosted-data.png`: where data goes with Muse and with a self-hosted OpenTeam server.
+- `roundup-test-scorecard.png`: the results of the 2026-10-26 install and task test, from our test logs.
+
 ## Third-party images
 
 **Repo license**: committed in the project's own repository under that license. **Vendor screenshot**: published by the vendor on its own site, with no stated license; used for commentary and credited in the caption.
@@ -87,6 +108,7 @@ Diagrams for the Claude Duet comparison use the same method. Claude Duet facts c
 | `meta-muse-browser-task.png` | Muse booking cinema seats in its own browser | [muse.ai](https://muse.ai/) (`/images/landing/browser.webp`) | Meta | Vendor screenshot |
 | `openai-dots-chat-and-cloud-computer.png` | A dot fixing a bug in chat beside its cloud browser | [OpenAI dots launch post, 2026-09-29](https://openai.com/index/introducing-dots/) | OpenAI | Vendor screenshot |
 | `meta-muse-approval-prompt.png` | Muse asking before it places an order | [muse.ai](https://muse.ai/) (`/images/landing/approvals.webp`) | Meta | Vendor screenshot |
+| `meta-muse-is-muse-safe-faq.png` | The expanded "Is Muse safe?" answer in Muse's FAQ, cropped to the question and answer | [ai.meta.com/muse](https://ai.meta.com/muse/), retrieved 2026-10-26 | Meta | Vendor screenshot |
 | `openclaw-control-ui-chat.png` | OpenClaw's Control UI chat with Skill Workshop | [OpenClaw blog, 2026-06-03](https://openclaw.ai/blog/openclaw-agent-skill-workshop) | OpenClaw | Vendor screenshot |
 | `openclaw-whatsapp-chat.jpg` | Chatting with OpenClaw in WhatsApp | [openclaw/openclaw `docs/whatsapp-openclaw.jpg`](https://github.com/openclaw/openclaw/blob/main/docs/whatsapp-openclaw.jpg) | OpenClaw contributors | MIT |
 | `hermes-agent-desktop-app.jpg` | The Hermes Agent desktop app | [nousresearch.com](https://nousresearch.com/) | Nous Research | Vendor screenshot |

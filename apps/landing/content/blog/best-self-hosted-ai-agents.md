@@ -3,6 +3,7 @@ title: The best self-hosted AI agents in 2026
 seoTitle: Best self-hosted AI agents in 2026, and who each one is for
 description: OpenClaw, Hermes Agent, goose, NanoClaw, Agent Zero, Eigent, MausBot and OpenTeam: eight self-hosted AI agents compared on license, models and setup.
 date: 2026-10-12
+updated: 2026-10-26
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam desktop app with a Research bot's chat, a live preview of its Linux screen, and a weekday routine
@@ -159,7 +160,7 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 
 ![The OpenTeam desktop app: a bot's chat, a live preview of its Linux screen, and a routine](/blog/images/openteam-desktop.png "The Research bot's own Linux screen sits at top right, its routine below. Sample data. Image: OpenTeam.")
 
-**Trade-offs.** It's young: v0.0.0 shipped on October 6, 2026, and the community is small. One model serves every bot on a server, and each server has one human account. Desktop apps cover only macOS on Apple silicon and Linux x64, the iPhone app is a TestFlight beta, and there's no Android app. Bots act without approval prompts; the guardrails are a hardened container, Gmail drafts instead of sends, and a handoff for CAPTCHAs, 2FA and payments. Bots share one Unix user in that container, so isolation between them is by convention.
+**Trade-offs.** It's young: v0.0.0 shipped on October 6, 2026, and the community is small. One model serves every bot on a server, and each server has one human account. Desktop apps cover only macOS on Apple silicon and Linux x64, the iPhone app is a TestFlight beta, and there's no Android app. Bots act without approval prompts; the guardrails are Gmail drafts instead of sends and a handoff for CAPTCHAs, 2FA and payments. Bots share one Docker container, with passwordless `sudo`, and one Unix user, so isolation between them is by convention.
 
 **License and cost.** GPL-3.0 and free. You pay for the machine, the model provider (OpenAI, Anthropic, OpenRouter or a local server) and any services you connect.
 

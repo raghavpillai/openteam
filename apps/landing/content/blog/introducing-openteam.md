@@ -3,6 +3,7 @@ title: Introducing OpenTeam: AI agents that each get their own computer
 seoTitle: Introducing OpenTeam: an open-source Grok Bot alternative
 description: OpenTeam v0.0.0 is the first release of our open-source, self-hosted Grok Bot alternative. What each bot gets, how it works, and what it can't do yet.
 date: 2026-10-06
+updated: 2026-10-26
 category: Announcements
 image: /blog/images/openteam-desktop-mobile.png
 imageAlt: The OpenTeam desktop app and iPhone app showing the same chat with a Research bot that compared three vendors and set up a weekday pricing check
@@ -103,7 +104,7 @@ This is a first release from a young project with a small community. Check these
 - **Desktop apps for two platforms.** The desktop app is for macOS on Apple silicon and Linux x64. The server runs on Windows and Intel Macs, but there's no desktop app for them.
 - **iPhone in beta, no Android.** The iPhone app is a public TestFlight beta and needs iOS 18. There's no Android app.
 - **No approval step.** Bots browse, run commands and call plugins without asking first. If you connect your own Mac or Linux computer through the desktop app, they run commands there directly too. The guardrails are isolated execution in a container, Gmail drafts that stay unsent, handoff cards, and password forms the model can't read.
-- **Bots aren't isolated from each other.** All desktops share one container (dropped Linux capabilities, read-only filesystem) and one Unix user. Separate screens are a convention, not a security boundary. Every bot can use every installed plugin and connected account; only private skills can be limited to chosen bots.
+- **Bots aren't isolated from each other.** All desktops share one container and one Unix user, and bots can use passwordless `sudo` in it. Separate screens are a convention, not a security boundary. Every bot can use every installed plugin and connected account; only private skills can be limited to chosen bots.
 - **It needs a machine that stays on.** If the host sleeps, bots and routines stop until it wakes.
 - **Remote access is your job.** The default Private network mode serves the apps on your local network, and bot screen ports 6200–6299 are open there too. To connect from elsewhere, use a VPN such as [Tailscale](https://tailscale.com) instead of exposing the server without HTTPS. See [remote access](/docs/configuration/remote-access).
 - **Full backups are manual.** `openteam update` saves the database, not workspace files, sign-ins or attachments. The [backup guide](/docs/manage/backups) covers the rest.

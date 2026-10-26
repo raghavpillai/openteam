@@ -3,6 +3,7 @@ title: A Claude Cowork alternative that runs on your own server
 seoTitle: Claude Cowork alternative that runs on your own server
 description: Since October 6, new Claude Cowork tasks on Pro and Max run on Anthropic's servers. OpenTeam is a self-hosted Claude Cowork alternative. Where each wins.
 date: 2026-10-07
+updated: 2026-10-26
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam macOS app with a Research bot's chat, a live preview of the bot's Linux screen, and a weekday routine
@@ -72,7 +73,7 @@ OpenTeam's first public release, v0.0.0, shipped on October 6 ([GitHub](https://
 
 Every bot has a persistent Linux desktop (XFCE, 1280×800) with Chromium and a terminal. You can watch its screen live from the app and take over when it needs you, for example at a CAPTCHA, a 2FA prompt or a payment page ([docs](/docs/usage/computer)).
 
-Where Cowork gives each session a fresh sandbox, OpenTeam keeps each bot's computer between tasks. Up to 100 desktops run in one hardened container with dropped Linux capabilities and a read-only filesystem. Isolation between bots is by convention: they share one Unix user inside that container.
+Where Cowork gives each session a fresh sandbox, OpenTeam keeps each bot's computer between tasks. Up to 100 desktops run in one Docker container, where bots can use passwordless `sudo` to install packages. It shares your server's kernel and isn't a separate VM boundary ([computer](/docs/usage/computer)). Isolation between bots is by convention: they share one Unix user inside that container.
 
 ![A bot's Linux desktop with a sample vendor comparison open in Chromium and a dock with the browser and terminal](/screenshots/linux-vendor-review.png "A bot's own Linux desktop, captured September 12, 2026, with sample data. Image: OpenTeam.")
 

@@ -22,6 +22,7 @@ describe("browser authority recovery set", () => {
       mkdir(join(home, ".openteam", "browser-profile-authority", "current"), {
         recursive: true,
       }),
+      mkdir(join(home, ".openteam", "browser-authority.parts"), { recursive: true }),
       mkdir(join(home, ".pki", "nssdb"), { recursive: true }),
       mkdir(join(home, ".pi", "agent"), { recursive: true }),
       mkdir(sandRoot, { recursive: true }),
@@ -30,6 +31,7 @@ describe("browser authority recovery set", () => {
     await Promise.all([
       writeFile(join(home, ".openteam", "browser-authority.key"), "encrypted-key"),
       writeFile(join(home, ".openteam", "browser-authority.json.enc"), "encrypted-state"),
+      writeFile(join(home, ".openteam", "browser-authority.parts", "a".repeat(64)), "encrypted-part"),
       writeFile(
         join(home, ".openteam", "browser-profile-authority", "current", "manifest.json"),
         "{}"
@@ -47,5 +49,15 @@ describe("browser authority recovery set", () => {
       paths.has("home/box/.openteam/browser-profile-authority/current/manifest.json")
     ).toBeTrue();
     expect(paths.has("home/box/.pki/nssdb/cert9.db")).toBeTrue();
+    expect(paths.has(`home/box/.openteam/browser-authority.parts/${"a".repeat(64)}`)).toBeTrue();
+
+    // Browser-only snapshots pick up new parts and drop removed ones.
+    await rm(join(home, ".openteam", "browser-authority.parts", "a".repeat(64)));
+    await writeFile(join(home, ".openteam", "browser-authority.parts", "b".repeat(64)), "next-part");
+    const browserOnly = await sync.snapshotOut({ all: false, chrome: true });
+    const parts = browserOnly.files
+      .map((file) => file.path)
+      .filter((path) => path.includes("browser-authority.parts/"));
+    expect(parts).toEqual([`home/box/.openteam/browser-authority.parts/${"b".repeat(64)}`]);
   });
 });

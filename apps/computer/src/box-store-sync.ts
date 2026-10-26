@@ -1,4 +1,9 @@
-import { collectBoxStoreBlobsLocked, withBoxStoreOperation } from "./box-store/garbage-collection";
+import {
+  boxStoreFreeSpaceShortfall,
+  collectBoxStoreBlobsLocked,
+  PRESSURE_RETENTION_MS,
+  withBoxStoreOperation,
+} from "./box-store/garbage-collection";
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, readdir, readFile, rename, rm, stat, utimes } from "node:fs/promises";
@@ -36,6 +41,7 @@ export class BoxStoreSync {
   private readonly workspaceRoot: string;
   private readonly hasLiveAgentHandle: (agentId: string) => boolean;
   private lastBlobCollection = 0;
+  private collectionPressure = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private periodic: ReturnType<typeof setInterval> | null = null;
   private scheduledRun: Promise<void> | null = null;
@@ -245,10 +251,18 @@ export class BoxStoreSync {
       } finally {
         // Collect after failed snapshots too: on a full disk every snapshot
         // fails, and collection is the only thing that frees space.
-        if (Date.now() - this.lastBlobCollection >= 60 * 60_000) {
+        // Collection is hourly, and every few minutes while unreferenced
+        // blobs are over budget or the disk is low.
+        const elapsed = Date.now() - this.lastBlobCollection;
+        if (
+          elapsed >= 60 * 60_000 ||
+          (elapsed >= PRESSURE_RETENTION_MS &&
+            (this.collectionPressure || (await boxStoreFreeSpaceShortfall(this.storeRoot)) > 0))
+        ) {
           try {
             const collection = await collectBoxStoreBlobsLocked(this.storeRoot);
             this.lastBlobCollection = Date.now();
+            this.collectionPressure = collection.pressure;
             if (collection.deleted) console.info(JSON.stringify({event: "box_store.collection", ...collection}));
           } catch (error) {
             // Snapshot publication remains valid even if optional maintenance fails.
@@ -424,6 +438,10 @@ export class BoxStoreSync {
         logical: "home/box/.openteam/browser-authority.json.enc",
       },
       {
+        path: join(this.home, ".openteam", "browser-authority.parts"),
+        logical: "home/box/.openteam/browser-authority.parts",
+      },
+      {
         path: join(this.home, ".openteam", "browser-profile-authority"),
         logical: "home/box/.openteam/browser-profile-authority",
       },
@@ -467,7 +485,7 @@ export class BoxStoreSync {
       for (const source of sources) {
         if (
           /^home\/box\/chrome-profile(?:-\d+)?$/.test(source.logical) ||
-          /^home\/box\/\.openteam\/browser-(?:authority(?:\.key|\.json\.enc)?|profile-authority)$/.test(
+          /^home\/box\/\.openteam\/browser-(?:authority(?:\.key|\.json\.enc|\.parts)?|profile-authority)$/.test(
             source.logical
           ) ||
           source.logical === "home/box/.pki/nssdb"
@@ -477,7 +495,7 @@ export class BoxStoreSync {
       }
       for (const file of manifest.files) {
         const match = file.path.match(
-          /^(home\/box\/(?:chrome-profile(?:-\d+)?|\.openteam\/browser-(?:authority(?:\.key|\.json\.enc)?|profile-authority)|\.pki\/nssdb))(?:\/|$)/
+          /^(home\/box\/(?:chrome-profile(?:-\d+)?|\.openteam\/browser-(?:authority(?:\.key|\.json\.enc|\.parts)?|profile-authority)|\.pki\/nssdb))(?:\/|$)/
         );
         if (match?.[1]) prefixes.add(match[1]);
       }

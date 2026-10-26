@@ -1,10 +1,17 @@
-import { createCipheriv, createHash, randomBytes } from "node:crypto";
-import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CdpConnection, type JsonObject } from "./cdp-connection";
 import { asCookie, type BrowserCookie, cookieKey, cookieMap, cookieParameter } from "./cookies";
 import { browserJsonChunks, browserJsonExceeds } from "./json-chunks";
 import { readBrowserAuthority } from "./authority-reader";
+import {
+  authorityPartName,
+  joinAuthorityParts,
+  PART_NAME,
+  splitAuthorityParts,
+  writeEncryptedAuthority,
+} from "./authority-parts";
 import {
   BROWSER_STATE_EXPORT_EXPRESSION,
   BROWSER_STATE_IMPORT_FUNCTION,
@@ -47,6 +54,8 @@ export class BrowserBroker {
   private readonly stateDirectory: string;
   private readonly keyPath: string;
   private readonly storePath: string;
+  private readonly partsDirectory: string;
+  private previousParts = new Set<string>();
   private loaded = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private syncTail: Promise<void> = Promise.resolve();
@@ -61,6 +70,7 @@ export class BrowserBroker {
     this.stateDirectory = join(home, ".openteam");
     this.keyPath = join(this.stateDirectory, "browser-authority.key");
     this.storePath = join(this.stateDirectory, "browser-authority.json.enc");
+    this.partsDirectory = join(this.stateDirectory, "browser-authority.parts");
   }
 
   attach(botId: string, port: number, profileDirectory = "", attempts = 1): Promise<void> {
@@ -416,11 +426,25 @@ export class BrowserBroker {
         if (cookie) this.cookies.set(cookieKey(cookie), cookie);
       }
       if (!Array.isArray(unpacked) && unpacked.origins && typeof unpacked.origins === "object") {
+        const readPart = async (name: string): Promise<unknown> => {
+          const part = await readBrowserAuthority(join(this.partsDirectory, name), key);
+          if (authorityPartName(key, [part]) !== name) throw new Error("Browser authority part mismatch");
+          this.previousParts.add(name);
+          return JSON.parse(part);
+        };
         for (const [origin, value] of Object.entries(unpacked.origins)) {
           if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-          const state = value as BrowserOriginState;
+          const state: Record<string, unknown> = {};
+          for (const [field, item] of Object.entries(value)) {
+            try {
+              state[field] = await joinAuthorityParts(item, readPart);
+            } catch {
+              // Restore never touches a storage area whose saved copy is
+              // incomplete; the browser keeps its own data for it.
+            }
+          }
           if (state.origin === origin && originForUrl(origin) === origin)
-            this.origins.set(origin, state);
+            this.origins.set(origin, state as BrowserOriginState);
         }
       }
     } catch {
@@ -443,55 +467,54 @@ export class BrowserBroker {
     );
     // Freeze map membership before the first await. Reconciliation replaces
     // snapshot objects; their nested data is immutable while being saved.
-    const snapshot = { version: 2, cookies: persistent, origins: Object.fromEntries(this.origins) };
+    const origins = [...this.origins];
     const key = await this.key();
+    const parts = new Map<string, unknown>();
+    const snapshot = {
+      version: 3,
+      cookies: persistent,
+      origins: Object.fromEntries(
+        origins.map(([origin, state]) => [origin, splitAuthorityParts(state, key, parts).value])
+      ),
+    };
+    await mkdir(this.partsDirectory, { recursive: true, mode: 0o700 });
+    const existing = new Set(
+      (await readdir(this.partsDirectory)).filter((name) => PART_NAME.test(name))
+    );
+    for (const [name, value] of parts) {
+      if (existing.has(name)) continue;
+      await writeEncryptedAuthority(
+        join(this.partsDirectory, name),
+        browserJsonChunks(value),
+        key,
+        this.stateDirectory,
+        "browser-authority.part"
+      );
+    }
     // Every save uses a fresh IV, so rewriting unchanged state still changes the
-    // file and makes each box-store snapshot keep another full encrypted copy.
+    // file and makes each box-store snapshot keep another encrypted copy.
     const hash = createHash("sha256").update(key);
     for (const chunk of browserJsonChunks(snapshot)) hash.update(chunk, "utf8");
     const plaintextDigest = hash.digest("hex");
-    if (plaintextDigest === this.savedDigest && (await stat(this.storePath).catch(() => null))) return;
-    const iv = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", key, iv);
-    const temporary = `${this.storePath}.tmp-${randomBytes(6).toString("hex")}`;
-    try {
-      const output = await open(temporary, "wx", 0o600);
-      try {
-        // GCM's tag is available only after final(). Reserve its fixed-width
-        // base64 slot, then patch it before atomic publication. The legacy
-        // envelope stays readable by older builds; no plaintext reaches disk.
-        const prefix = `{"iv":${JSON.stringify(iv.toString("base64"))},"tag":"`;
-        await output.writeFile(`${prefix}${" ".repeat(24)}","data":"`);
-        let carry: Buffer = Buffer.alloc(0);
-        const append = async (encrypted: Buffer) => {
-          const bytes = carry.length ? Buffer.concat([carry, encrypted]) : encrypted;
-          const end = bytes.length - (bytes.length % 3);
-          if (end) await output.writeFile(bytes.subarray(0, end).toString("base64"));
-          carry = Buffer.from(bytes.subarray(end));
-        };
-        for (const chunk of browserJsonChunks(snapshot)) {
-          await append(cipher.update(chunk, "utf8"));
-        }
-        await append(cipher.final());
-        if (carry.length) await output.writeFile(carry.toString("base64"));
-        await output.writeFile('"}');
-        const tag = Buffer.from(cipher.getAuthTag().toString("base64"));
-        let offset = 0;
-        while (offset < tag.length) {
-          const { bytesWritten } = await output.write(
-            tag, offset, tag.length - offset, Buffer.byteLength(prefix) + offset
-          );
-          if (!bytesWritten) throw new Error("Unable to write browser authority authentication tag");
-          offset += bytesWritten;
-        }
-      } finally {
-        await output.close();
-      }
-      await rename(temporary, this.storePath);
+    if (plaintextDigest !== this.savedDigest || !(await stat(this.storePath).catch(() => null))) {
+      await writeEncryptedAuthority(
+        this.storePath,
+        browserJsonChunks(snapshot),
+        key,
+        this.stateDirectory,
+        "browser-authority.json.enc"
+      );
       this.savedDigest = plaintextDigest;
-    } finally {
-      await rm(temporary, { force: true });
     }
+    // A box-store snapshot can read the index and the parts directory at
+    // slightly different times, so the previous index's parts stay one more
+    // generation.
+    for (const name of existing) {
+      if (!parts.has(name) && !this.previousParts.has(name)) {
+        await rm(join(this.partsDirectory, name), { force: true });
+      }
+    }
+    this.previousParts = new Set(parts.keys());
   }
 
   private async key(): Promise<Buffer> {

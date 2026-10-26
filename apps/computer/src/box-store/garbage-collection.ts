@@ -1,9 +1,17 @@
 import { Database } from "bun:sqlite";
-import { chmod, lstat, mkdir, readdir, readFile, unlink } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, statfs, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicWrite, manifestEtag, type BoxStoreManifest } from "./manifest";
 
 export const BLOB_RETENTION_MS = 24 * 60 * 60_000;
+/** Unreferenced blobs may stay for the full retention period only while they
+ * fit this budget and the disk keeps MINIMUM_FREE_BYTES (or 10% if smaller). */
+export const UNREFERENCED_BUDGET_BYTES = 4 * 1024 ** 3;
+export const MINIMUM_FREE_BYTES = 5 * 1024 ** 3;
+/** Under pressure, the oldest candidates go once they have been unreferenced
+ * this long. Snapshots and restores hold the operations lock while they use
+ * blobs, so this floor is not what keeps an in-flight snapshot safe. */
+export const PRESSURE_RETENTION_MS = 15 * 60_000;
 const HASH = /^[a-f0-9]{64}$/;
 // Retention clocks that a full disk kept from reaching the candidate file.
 const unsavedCandidates = new Map<string, Record<string, number>>();
@@ -56,13 +64,38 @@ export interface BlobCollectionResult {
   candidateBytes: number;
   deleted: number;
   deletedBytes: number;
+  /** Unreferenced bytes exceeded the budget or free space was low. */
+  pressure: boolean;
+}
+
+export interface BlobCollectionLimits {
+  unreferencedBudgetBytes?: number;
+  minimumFreeBytes?: number;
+  freeBytes?: (root: string) => Promise<{ free: number; total: number }>;
+}
+
+const diskSpace = async (root: string): Promise<{ free: number; total: number }> => {
+  const info = await statfs(root);
+  return { free: info.bavail * info.bsize, total: info.blocks * info.bsize };
+};
+
+/** Free-space shortfall below the collection floor, in bytes (0 when none). */
+export async function boxStoreFreeSpaceShortfall(root: string, limits: BlobCollectionLimits = {}): Promise<number> {
+  try {
+    const { free, total } = await (limits.freeBytes ?? diskSpace)(root);
+    return Math.max(0, Math.min(limits.minimumFreeBytes ?? MINIMUM_FREE_BYTES, total / 10) - free);
+  } catch {
+    return 0;
+  }
 }
 
 /** Caller must hold withBoxStoreOperation. A blob's age is NOT its retention
  * clock: the clock starts only when a successful scan observes it unreferenced.
  * Every conflict manifest remains a recovery root until explicitly resolved. */
-export async function collectBoxStoreBlobsLocked(root: string, now = Date.now()): Promise<BlobCollectionResult> {
-  const result: BlobCollectionResult = {scanned: 0, candidates: 0, candidateBytes: 0, deleted: 0, deletedBytes: 0};
+export async function collectBoxStoreBlobsLocked(
+  root: string, now = Date.now(), limits: BlobCollectionLimits = {},
+): Promise<BlobCollectionResult> {
+  const result: BlobCollectionResult = {scanned: 0, candidates: 0, candidateBytes: 0, deleted: 0, deletedBytes: 0, pressure: false};
   const current = await readOptional(join(root, "manifest.json"));
   if (current === null) return result; // An uninitialized store is not an empty snapshot.
   const references = new Set(manifestReferences(current));
@@ -80,6 +113,7 @@ export async function collectBoxStoreBlobsLocked(root: string, now = Date.now())
     throw new Error("Refusing blob collection: invalid candidate state");
   }
   const candidates: Record<string, number> = {};
+  const pending: Array<{name: string; path: string; firstSeen: number; size: number}> = [];
   const blobs = join(root, "blobs");
   for (const entry of await readdir(blobs, {withFileTypes: true})) {
     if (!HASH.test(entry.name) || !entry.isFile()) continue;
@@ -97,8 +131,28 @@ export async function collectBoxStoreBlobsLocked(root: string, now = Date.now())
       result.deletedBytes += info.size;
     } else {
       candidates[entry.name] = firstSeen;
+      pending.push({name: entry.name, path, firstSeen, size: info.size});
       result.candidates += 1;
       result.candidateBytes += info.size;
+    }
+  }
+  // Snapshot churn must not fill the disk while it waits out the full
+  // retention period: reclaim the longest-unreferenced blobs first.
+  const budget = limits.unreferencedBudgetBytes ?? UNREFERENCED_BUDGET_BYTES;
+  let shortfall = await boxStoreFreeSpaceShortfall(root, limits);
+  result.pressure = result.candidateBytes > budget || shortfall > 0;
+  if (result.pressure) {
+    pending.sort((left, right) => left.firstSeen - right.firstSeen);
+    for (const blob of pending) {
+      if (result.candidateBytes <= budget && shortfall <= 0) break;
+      if (now - blob.firstSeen < PRESSURE_RETENTION_MS) break;
+      await unlink(blob.path);
+      delete candidates[blob.name];
+      result.candidates -= 1;
+      result.candidateBytes -= blob.size;
+      result.deleted += 1;
+      result.deletedBytes += blob.size;
+      shortfall -= blob.size;
     }
   }
   try {

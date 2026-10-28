@@ -3,6 +3,12 @@ import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { api } from "../../../client/openteam-api";
 import { SectionLabel, SettingsGroup } from "./ui";
 
+const MESSAGES_LABELS: Record<string, string> = {
+  ready: "Messages on",
+  needs_permission: "Messages needs Full Disk Access",
+  off: "Messages off",
+};
+
 export function MachineSettings() {
   const [machines, setMachines] = useState<Awaited<ReturnType<typeof api.machines>>>([]);
   const [display,setDisplay]=useState({width:1280,height:800});
@@ -31,10 +37,9 @@ export function MachineSettings() {
       <p className="py-2 text-xs text-foreground-secondary">Connect the OpenTeam desktop app to this server on each computer. It joins automatically and stays listed when offline. </p>
       {local && !local.connected && <p role="status" className="py-2 text-xs text-foreground-secondary">{local.error ?? (local.configured ? "Connecting this computer…" : "Sign in to connect this computer.")}</p>}
       {machines.map(machine => <div key={machine.machineId} className="flex items-center gap-3 py-2 text-xs">
-        <div className="min-w-0 flex-1"><div>{machine.label}{local?.machineId === machine.machineId ? " (this computer)" : ""} · {!machine.enabled ? "Disabled" : machine.connected ? "Online" : "Offline"}</div><div className="truncate text-foreground-secondary">{machine.transport === "relay" ? "Desktop app connection" : machine.bridgeUrl}</div></div>
-        {machine.transport === "relay"
-          ? <button type="button" disabled={busy} onClick={() => void change(() => api.setMachineEnabled(machine.machineId, !machine.enabled))}>{machine.enabled ? "Disable" : "Enable"}</button>
-          : <button type="button" disabled={busy} onClick={() => void change(() => api.removeMachine(machine.machineId))}>Remove</button>}
+        <div className="min-w-0 flex-1"><div>{machine.label}{local?.machineId === machine.machineId ? " (this computer)" : ""} · {!machine.enabled ? "Disabled" : machine.connected ? "Online" : "Offline"}</div><div className="truncate text-foreground-secondary">{machine.transport === "relay" ? `Desktop app connection${MESSAGES_LABELS[machine.messages] ? ` · ${MESSAGES_LABELS[machine.messages]}` : ""}` : machine.bridgeUrl}</div></div>
+        {machine.transport === "relay" && <button type="button" disabled={busy} onClick={() => void change(() => api.setMachineEnabled(machine.machineId, !machine.enabled))}>{machine.enabled ? "Disable" : "Enable"}</button>}
+        {local?.machineId !== machine.machineId && <button type="button" disabled={busy} onClick={() => void change(() => api.removeMachine(machine.machineId))}>Remove</button>}
       </div>)}
       <details className="animated-disclosure text-xs"><summary>Connect a bridge manually</summary>
       <form className="flex gap-2 py-2" onSubmit={event => { event.preventDefault(); void change(async () => { await api.registerMachine(address); setAddress(""); }); }}>

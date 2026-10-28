@@ -56,7 +56,18 @@ Bots don't get a view of your screen or control of your mouse and keyboard. They
 
 Bots execute commands, transfers, and available native tools directly on enrolled computers. To stop access, disable the computer under **Settings → Computer → Computers** or close the desktop app.
 
-Your computer may ask you to grant OpenTeam permissions, such as access to Contacts. To read Messages, turn on Full Disk Access for OpenTeam in **System Settings → Privacy & Security**; macOS doesn't ask for this one.
+Your computer may ask you to grant OpenTeam permissions, such as access to Contacts.
+
+### Messages on a Mac
+
+Bots can use Messages only on a Mac where you turn it on:
+
+1. On that Mac, open **Settings → Computer** in the desktop app and turn on **Use Messages**.
+2. Grant the permissions it lists. **Full Disk Access** lets bots search your texts; macOS doesn't ask for this one, so choose **Open System Settings** and turn on OpenTeam. **Automation** lets bots send through Messages, and **Contacts** lets them find people by name.
+
+Before a bot sends a text, an approval card shows the recipient, the text and the Mac it goes out from. Choose **Send**, **Discard**, or **Always allow** to let bots text that person from that Mac without asking. **Send Without Asking** skips the card for every text. You can turn it off, or remove allowed recipients, under **Settings → Computer → Messages**. Turning Messages off and on again clears both.
+
+With Messages on for more than one Mac, a bot uses the Mac you last wrote from, or the only one that's online. A Mac goes offline when it sleeps or its app closes, so closing a MacBook moves Messages to another Mac that's awake. **Settings → Computer → Computers** shows which Macs have Messages on.
 
 Keep the desktop app open while a bot works on your computer. When you give a task, say which computer you mean, because the bot's Linux computer and your own computer have different files.
 

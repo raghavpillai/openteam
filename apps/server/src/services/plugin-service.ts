@@ -1089,44 +1089,6 @@ export class PluginService {
       );
   };
 
-  hostComponents = () => Effect.runPromise(this.management.hostComponents());
-
-  /**
-   * Record how the CLI's refresh of a plugin's host part went, where the plugin's activity shows it. A refreshed part
-   * restarts the plugin's working connections so they pick up its tools; after a failure they keep the previous part.
-   */
-  hostRefreshed = async (pluginKey: string, refreshed: boolean, detail?: string) => {
-    const installation = await this.prisma.pluginInstallation.findFirst({
-      where: { pluginKey, status: "installed" },
-      select: { id: true, name: true, version: true },
-    });
-    if (!installation) return { restarted: [] };
-    await this.prisma.pluginActivity.create({
-      data: {
-        installationId: installation.id,
-        kind: refreshed ? "plugin.host_refreshed" : "plugin.host_refresh_failed",
-        summary: refreshed
-          ? `Refreshed ${installation.name} ${installation.version} on the OpenTeam host`
-          : `Couldn't refresh ${installation.name} on the OpenTeam host. Run openteam update --force there to retry${detail ? ` (${detail})` : ""}`,
-        metadata: detail ? { detail } : {},
-      },
-    });
-    if (!refreshed) return { restarted: [] };
-    const connections = await this.prisma.pluginConnection.findMany({
-      where: { installationId: installation.id, status: { in: ["ready", "error"] } },
-      select: { id: true },
-    });
-    const restarted: Array<{ connectionId: string; status?: string; error?: string }> = [];
-    for (const { id } of connections)
-      restarted.push(
-        await Effect.runPromise(this.restart(id)).then(
-          (result) => ({ connectionId: id, status: String((result as { status?: unknown }).status ?? "ready") }),
-          (error) => ({ connectionId: id, error: error instanceof Error ? error.message : String(error) })
-        )
-      );
-    return { restarted };
-  };
-
   private async restartConnection(connectionId: string, sessionId: string | null) {
       await this.connectionStops.get(connectionId);
       const connection = await this.connectionOrThrow(connectionId);

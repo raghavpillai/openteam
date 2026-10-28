@@ -2,13 +2,16 @@ import { DESKTOP_MESSAGES_TOOLS } from "@openteam/contracts/desktop-capability-n
 import type { MacMessages } from "./messages";
 import { ChromeCookies } from "./chrome-cookies";
 import type { NativeActionReceipts } from "./action-receipts";
+import type { MessagesAccess } from "./messages-access";
 export class HostCapabilities {
   private readonly cookies: ChromeCookies;
   constructor(
     private messages?: MacMessages,
     cookies?: ChromeCookies,
     private readonly platform = process.platform,
-    private readonly receipts?: NativeActionReceipts
+    private readonly receipts?: NativeActionReceipts,
+    /** Messages requests run only while this Mac's own setting allows them. */
+    private readonly messagesGate?: { enabled: () => Promise<boolean>; access?: MessagesAccess }
   ) {
     this.cookies = cookies ?? new ChromeCookies();
   }
@@ -36,13 +39,18 @@ export class HostCapabilities {
       return this.cookies.collect(botId, args.origins, signal);
     if (!(DESKTOP_MESSAGES_TOOLS as readonly string[]).includes(tool))
       throw new Error("Unknown desktop capability");
-    const { MacMessages, validateMessageSend } = await import("./messages");
+    if (this.messagesGate && !await this.messagesGate.enabled())
+      throw new Error("Messages is turned off in the user's settings on this Mac (OpenTeam Settings → Computer → Messages), so nothing was read or sent. Do not retry while it stays off.");
+    const { MacMessages } = await import("./messages");
+    const { validateMessageSend } = await import("@openteam/contracts/messages-send");
     const messages = this.messages ??= new MacMessages();
     if (tool === "SendIMessage") {
-      validateMessageSend(args);
+      const send = validateMessageSend(args);
       if (!this.receipts) throw new Error("Durable send receipts are unavailable");
       signal?.throwIfAborted();
-      return this.receipts.execute(botId, callId, args, () => messages.execute(tool, args, signal));
+      const result = await this.receipts.execute(botId, callId, send, () => messages.execute(tool, send, signal));
+      this.messagesGate?.access?.noteAutomation("granted");
+      return result;
     }
     signal?.throwIfAborted();
     const result = await messages.execute(tool, args, signal);

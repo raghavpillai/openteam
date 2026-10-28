@@ -60,7 +60,6 @@ import {
   writeUpdateState,
   type PersistedUpdateState,
 } from "./update-safety";
-import { refreshPluginHostComponents } from "./plugin-host";
 import { assertNoAgentWorking, UpdateBusyError, updateWaitsForIdle } from "./update-gate";
 
 export const UPDATE_PROGRESS_PREFIX = "@@OPENTEAM_UPDATE@@";
@@ -572,23 +571,9 @@ const updateCommandUnlocked = async (
       `Update failed and the previous Compose configuration was restored${recoveryDetail}${databaseRecoveryError ? `; database restore also failed: ${databaseRecoveryError}` : ""}: ${cause}`
     );
   }
-  // Plugin parts installed on this machine, outside the containers, follow the release they shipped with.
-  const refreshed = await refreshPluginHostComponents(paths, project, runner, {
-    onRefresh: (name) => report("verifying", `Refreshing ${name} on this machine`, target),
-  }).catch(() => []);
-  for (const result of refreshed) {
-    if (result.outcome === "refreshed") console.log(`Refreshed ${result.name} on this machine.`);
-    else
-      console.warn(
-        `OpenTeam updated, but ${result.name} could not be refreshed on this machine (${result.detail}). Run openteam update --force to retry.`
-      );
-  }
-  const stale = refreshed.filter((result) => result.outcome === "failed").map((result) => result.name);
-  const completion = `${
-    cliPromotion
-      ? `OpenTeam and its command-line tools are now running ${target}`
-      : `OpenTeam is now running ${target}`
-  }${stale.length ? `, but ${stale.join(" and ")} could not be refreshed on this machine; run openteam update --force to retry` : ""}`;
+  const completion = cliPromotion
+    ? `OpenTeam and its command-line tools are now running ${target}`
+    : `OpenTeam is now running ${target}`;
   report("complete", completion, target);
   console.log(`${completion}.`);
 };

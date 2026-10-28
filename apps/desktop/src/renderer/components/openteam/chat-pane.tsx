@@ -409,7 +409,7 @@ const MessageRow = memo(function MessageRow({
   const userReactionSet = ownReactionEmojiSet(message);
   const display = messageDisplayProjection(message);
   const isWidget = messageMetadata(message).type === "widget";
-  const isDraftCard = messageMetadata(message).type === "external-draft";
+  const isDraftCard = messageMetadata(message).type === "external-draft" || messageMetadata(message).type === "imessage-send";
   const { attachments, stagedAttachments, displayContent, files: fileAttachments } = display;
   const stagedImageAttachments = stagedAttachments.filter(
     (attachment) => attachment.kind === "image" && attachment.previewUri

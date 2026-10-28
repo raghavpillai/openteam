@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { SectionLabel, SettingsGroup } from "./ui";
 import { MachineSettings } from "./machines";
+import { MessagesSettings } from "./messages";
 import { ComputerUpdateSettings } from "./computer-update";
 
 export default function ComputerSettings() {
@@ -83,6 +84,7 @@ export default function ComputerSettings() {
           </div>
         </div>
       </SettingsGroup>
+      {computer ? <MessagesSettings computer={computer} onComputerChange={setComputer} /> : null}
       <MachineSettings />
       <ComputerUpdateSettings />
       {permissionError ? (

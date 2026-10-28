@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { createCipheriv, createHash, pbkdf2Sync } from "node:crypto";
 import { Database } from "bun:sqlite";
 import { ChromeCookies, decryptChromeCookie } from "../../src/main/host/chrome-cookies";
-import { MacMessages, validateMessageSend } from "../../src/main/host/messages";
+import { MacMessages } from "../../src/main/host/messages";
+import { validateMessageSend } from "@openteam/contracts/messages-send";
 import { nativeCommand } from "../../src/main/host/native-command";
 import { HostCapabilities } from "../../src/main/host/capabilities";
 
@@ -134,4 +135,17 @@ test("the cookie tool dispatches by its current name with parsed origins; the ol
   await expect(host.handle({ tool: "RequestCookieOriginApproval", botId: "bot", arguments: { origins: "example.com" } })).rejects.toThrow();
   await expect(host.handle({ tool: "import_chrome_cookies", botId: "bot", arguments: {} })).rejects.toThrow("Unknown desktop capability");
   expect(requests).toHaveLength(1);
+});
+
+test("Messages requests run only while this Mac's own setting allows them", async () => {
+  let enabled = false;
+  let reads = 0;
+  const messages = { execute: async () => { reads++; return { kind: "items", items: [] }; }, people: async () => ({}) };
+  const host = new HostCapabilities(messages as unknown as MacMessages, undefined, "darwin", undefined, { enabled: async () => enabled });
+  const request = { tool: "ChatItems", botId: "bot-1", arguments: { chatGuid: "any;-;+15555550100" } };
+  await expect(host.handle(request)).rejects.toThrow("Messages is turned off in the user's settings on this Mac");
+  expect(reads).toBe(0);
+  enabled = true;
+  await expect(host.handle(request)).resolves.toMatchObject({ kind: "items" });
+  expect(reads).toBe(1);
 });

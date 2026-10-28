@@ -31,6 +31,9 @@ export async function settingsRoutes(context: RouteContext): Promise<Response | 
     return json(await app.machines.setEnabled(decodeURIComponent(machine[1]), input.enabled));
   }
   if(machine?.[1] && request.method === "DELETE")return json(await app.machines.remove(decodeURIComponent(machine[1])));
+  const messages=path.match(/^\/api\/server-settings\/machines\/([^/]+)\/messages$/);
+  if(messages?.[1] && request.method === "GET")return json(await app.machines.messagesSettings(decodeURIComponent(messages[1])));
+  if(messages?.[1] && request.method === "PATCH")return json(await app.machines.updateMessagesSettings(decodeURIComponent(messages[1]), await request.json()));
   if(path === "/api/server-settings/automation-webhooks") {
     if(request.method === "GET")return json(await app.automationWebhooks.list());
     if(request.method === "POST")return json(await app.automationWebhooks.save(await request.json()));

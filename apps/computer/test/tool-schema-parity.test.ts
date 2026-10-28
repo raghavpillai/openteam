@@ -52,7 +52,8 @@ describe("captured tool contract wiring", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
     // File transfers are offered beside a connected file service.
     const drive = { name: "google-drive", description: "Google Drive (default)", namespaceStatus: "ready", tools: [], fileTransfers: { upload: true, download: true } };
-    const base = { runtimeProfile: "agent", pluginNamespaces: [drive] } as unknown as ActiveTurn;
+    // Messages tools are listed while a connected Mac has Messages on.
+    const base = { runtimeProfile: "agent", pluginNamespaces: [drive], messagesAvailable: true } as unknown as ActiveTurn;
     const catalog = [
       base,
       { ...base, requestSource: "automation" },

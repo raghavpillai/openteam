@@ -314,6 +314,7 @@ export class ComputerRuntime {
       }
       // Routine runs can't message the user, so they neither own forms nor use up the low-disk reminder.
       if (!active.subagentType && active.requestSource !== "automation") {
+        active.messagesAvailable = await this.tools.messagesAvailable();
         await this.tools.userForms.beginTurn(active.botId, active.runId);
         active.diskPressureEpisode = await this.diskPressure.claim(active.botId).catch(() => null);
       }

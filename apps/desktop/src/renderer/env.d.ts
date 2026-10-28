@@ -46,7 +46,8 @@ interface Window {
     };
     computer: {
       get: () => Promise<OpenTeamComputerSettings>;
-      update: (request: { machineLabel: string }) => Promise<OpenTeamComputerSettings>;
+      update: (request: { machineLabel?: string; messagesEnabled?: boolean }) => Promise<OpenTeamComputerSettings>;
+      messagesPermissions: (request?: "fullDiskAccess" | "automation" | "contacts") => Promise<OpenTeamMessagesPermissions | null>;
     };
     files: {
       downloadAll: (
@@ -125,6 +126,14 @@ interface OpenTeamComputerSettings {
     machineId: string;
     label: string;
   };
+  messagesEnabled: boolean;
+  messagesSupported: boolean;
+}
+
+interface OpenTeamMessagesPermissions {
+  fullDiskAccess: boolean;
+  automation: "granted" | "denied" | "notAsked" | "unknown";
+  contacts: "granted" | "denied" | "notAsked" | "unknown";
 }
 
 interface OpenTeamUpdateStatus {

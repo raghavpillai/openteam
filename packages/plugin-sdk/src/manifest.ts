@@ -312,28 +312,6 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
       throw new Error("Invalid installation instructions");
     for (const step of plugin.installationSteps) requireText(step, "installation step", 4000);
   }
-  if (plugin.host !== undefined) {
-    const host = objectValue(plugin.host);
-    const marker = host.installedMarker;
-    if (
-      typeof marker !== "string" ||
-      !marker ||
-      marker.length > 300 ||
-      marker.startsWith("/") ||
-      marker.split("/").some((part) => !part || part === "." || part === "..")
-    )
-      throw new Error(`Invalid host component marker: ${plugin.key}`);
-    const command = host.refreshCommand;
-    if (
-      !Array.isArray(command) ||
-      !command.length ||
-      command.length > 20 ||
-      command.some((part) => typeof part !== "string" || !part || part.length > 500)
-    )
-      throw new Error(`Invalid host component command: ${plugin.key}`);
-    if (command.some((part) => /\{(?!computerContainer\})[^}]*\}/.test(part)))
-      throw new Error(`Unknown host component placeholder: ${plugin.key}`);
-  }
   validateFields(plugin.setupFields ?? [], true);
   for (const setup of [plugin.setup, ...plugin.connections.map((connection) => connection.setup)]) {
     if (!setup) continue;

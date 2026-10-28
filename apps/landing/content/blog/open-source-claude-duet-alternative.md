@@ -127,7 +127,7 @@ Bots share a `/workspace` folder and website sign-ins: sign in to a site once, o
 
 This is where Duet stops by design: it doesn't text other people, doesn't make calls and can't see your computer. OpenTeam bots can do all three.
 
-- **Texts.** With the desktop app on your Mac, bots can read and send Messages, iMessage and SMS, and start new conversations. For a Mac that stays on, the iMessage (SSH) plugin can reply in existing chats once you turn replies on. Our [guide to an AI iMessage assistant](/blog/ai-imessage-assistant) covers both paths.
+- **Texts.** With the desktop app on your Mac and Messages turned on, bots can read and send Messages, iMessage and SMS, and start new conversations. Each text waits on an approval card unless you allow that person. Our [guide to an AI iMessage assistant](/blog/ai-imessage-assistant) covers setup.
 - **Phone calls.** Add [call4me](https://call4.me/) as a custom MCP server and a bot can phone a business for you, at $0.25 a minute. See [how to make phone calls from OpenTeam](/blog/ai-agent-phone-calls).
 - **Your own computer.** The desktop app connects your Mac or Linux PC, so bots can run commands, read your files and copy them to and from their `/workspace`. On a Mac they can also read your contacts and import your Chrome sign-ins into their browser.
 

@@ -69,6 +69,18 @@ export function renderControlResult(
     if (result.delivery === "pending") return `Draft ${where} ${card} ${result.note}`;
     return `Draft ${where} ${card} Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
   }
+  if (name === "SendIMessage" && result.sent) {
+    const to = args.to ? `${args.recipientName ? `${args.recipientName} (${args.to})` : args.to}` : args.chatId;
+    const where = `text to ${to} from ${result.machine}`;
+    const id = result.message_id ? ` (card id: ${result.message_id})` : "";
+    if (result.delivery === "sent")
+      return `Sent the ${where} without an approval card: the user allowed it on that Mac${id}. ${result.result?.verified === true ? "It already appears in the chat." : "verified: false means it hasn't appeared in the chat yet, not that it failed; never resend it."}`;
+    if (result.delivery === "failed") return `Nothing was sent: the Mac refused the ${where} (${result.error})${id}.`;
+    if (result.delivery === "unknown") return `The ${where} started sending, but its outcome is unknown${id}. Check the chat with ChatItems before discussing another attempt; never resend it automatically.`;
+    const card = result.in_dm ? "in your own 1:1 chat with the user, not in this room (a room cannot hold approval cards); tell the room where it is" : "in the chat";
+    if (result.delivery === "pending") return `The ${where} could not go out automatically (${result.error}), so it waits on an approval card ${card}${id}. Nothing has been sent.`;
+    return `Raised an approval card for the ${where} ${card}${id}. Nothing has been sent: the user presses Send or Discard on the card, and you're told the outcome. Don't send it again or another way.`;
+  }
   if (name === "RequestUserForm" && result.sent)
     return "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only, never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back."
       + (typeof result.preflightNote === "string" ? `\n\n${result.preflightNote}` : "");

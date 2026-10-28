@@ -2,6 +2,7 @@
 // Generated from the September 12 tool source: schema construction and pure normalization only.
 import { z as external_exports } from "zod";
 import { parseToolArguments } from "./tool-arguments";
+import { MESSAGES_MACHINE_ID_DESCRIPTION } from "./desktop-capability-names";
 import * as import_node_path165 from "node:path";
 const import_node_path166 = import_node_path165;
 class SandToolInputError extends Error {}
@@ -241,7 +242,9 @@ function normalizeDestinationPath(raw) {
   }
   return normalized;
 }
-const schemas = { FindContacts:findContactsParameters, FindIMessageChats:findChatsParameters, ChatItems:chatItemsParameters, SearchIMessages:searchParameters, IMessageActivity:activityParameters, FetchIMessageAttachment:fetchAttachmentParameters, SendIMessage:sendParameters, CheckIMessagePermissions:checkPermissionsParameters, RequestCookieOriginApproval:chromeCookieImportParameters, UploadFile:external_exports.preprocess(explainMissingUploadSourcePath, uploadFileParameters), DownloadFile:external_exports.preprocess(explainWrongDownloadFileCall, downloadFileParameters) };
+// Deployment extension: a user can connect several Macs, so each Messages tool may name one.
+const onMachine = (schema) => schema.extend({ machineId: external_exports.string().trim().min(1).optional().describe(MESSAGES_MACHINE_ID_DESCRIPTION) });
+const schemas = { FindContacts:onMachine(findContactsParameters), FindIMessageChats:onMachine(findChatsParameters), ChatItems:onMachine(chatItemsParameters), SearchIMessages:onMachine(searchParameters), IMessageActivity:onMachine(activityParameters), FetchIMessageAttachment:onMachine(fetchAttachmentParameters), SendIMessage:onMachine(sendParameters), CheckIMessagePermissions:onMachine(checkPermissionsParameters), RequestCookieOriginApproval:chromeCookieImportParameters, UploadFile:external_exports.preprocess(explainMissingUploadSourcePath, uploadFileParameters), DownloadFile:external_exports.preprocess(explainWrongDownloadFileCall, downloadFileParameters) };
 export function parseReferenceArguments(name: string, raw: unknown): Record<string, any> {
  const schema = schemas[name]; if(!schema) throw new Error('No reference parser: '+name);
  const args = parseToolArguments(schema, raw);

@@ -181,7 +181,8 @@ contextBridge.exposeInMainWorld("openteam", {
   },
   computer: {
     get: () => ipcRenderer.invoke("openteam:computer:get"),
-    update: (request: { machineLabel: string }) => ipcRenderer.invoke("openteam:computer:update", request),
+    update: (request: { machineLabel?: string; messagesEnabled?: boolean }) => ipcRenderer.invoke("openteam:computer:update", request),
+    messagesPermissions: (request?: "fullDiskAccess" | "automation" | "contacts") => ipcRenderer.invoke("openteam:computer:messages-permissions", request ?? null),
   },
   files: {
     downloadAll: (files: Array<{ fileName: string; url: string }>) =>

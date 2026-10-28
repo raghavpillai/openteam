@@ -10,7 +10,7 @@ describe("OpenTeam marketplace", () => {
     const source = new OpenTeamMarketplaceSource(undefined, bundledOpenTeamMarketplace);
     const plugins = await source.plugins();
 
-    expect(plugins).toHaveLength(16);
+    expect(plugins).toHaveLength(15);
     expect(plugins.find(plugin => plugin.key === "1password")?.components).toEqual(["skills"]);
     expect(plugins.map((plugin) => plugin.key)).not.toContain("openteam-utility-lab");
     expect(plugins.map((plugin) => plugin.key)).not.toContain("onedrive");
@@ -28,6 +28,7 @@ describe("OpenTeam marketplace", () => {
     expect(plugins.map((plugin) => plugin.key)).not.toContain("atlassian");
     expect(plugins.map((plugin) => plugin.key)).not.toContain("asana");
     expect(plugins.map((plugin) => plugin.key)).not.toContain("research-playbook");
+    expect(plugins.map((plugin) => plugin.key)).not.toContain("imessage-ssh");
     // Upstream packages pin their own revision; unpinned packages use the catalog revision.
     expect(plugins.map((plugin) => plugin.sourceRevision)).toEqual(
       bundledOpenTeamMarketplace.plugins.map((plugin) => plugin.sourceRevision ?? bundledOpenTeamMarketplace.revision)

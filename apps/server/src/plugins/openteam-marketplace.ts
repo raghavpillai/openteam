@@ -30,7 +30,7 @@ const isPluginDefinition = (value: unknown): value is PluginDefinition => {
 
 export const bundledOpenTeamMarketplace: OpenTeamMarketplaceManifest = {
   schemaVersion: 1,
-  revision: "2026.09.24.3",
+  revision: "2026.10.28.1",
   plugins: pluginCatalog,
 };
 

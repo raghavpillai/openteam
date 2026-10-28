@@ -37,15 +37,17 @@ struct RichMessageCard: View {
   private var state: String {
     meta["cardState"].string.isEmpty ? "pending" : meta["cardState"].string
   }
+  /// Drafts and text approvals share the reference draft card's frame.
+  private var isDraftLike: Bool { type == "external-draft" || type == "imessage-send" }
   private var supported: Bool {
     return [
       "widget", "secret-request", "computer-handoff", "user-form", "external-draft",
-      "bot-template",
+      "imessage-send", "bot-template",
     ].contains(type)
   }
   var body: some View {
     if supported {
-      VStack(alignment: .leading, spacing: type == "widget" ? 12.25 : type == "external-draft" ? 10 : 13) {
+      VStack(alignment: .leading, spacing: type == "widget" ? 12.25 : isDraftLike ? 10 : 13) {
         if let failure { InlineFailure(message: failure) }
         switch type {
         case "widget": widget
@@ -53,11 +55,12 @@ struct RichMessageCard: View {
         case "computer-handoff": handoff
         case "user-form": form
         case "external-draft": externalDraft
+        case "imessage-send": imessageSend
         case "bot-template": sharedTemplate
         default: EmptyView()
         }
-      }.padding(type == "widget" ? 14 : type == "external-draft" ? 12 : 16).background(
-        NativePalette.surface, in: RoundedRectangle(cornerRadius: type == "external-draft" ? 16 : 18)
+      }.padding(type == "widget" ? 14 : isDraftLike ? 12 : 16).background(
+        NativePalette.surface, in: RoundedRectangle(cornerRadius: isDraftLike ? 16 : 18)
       )
       .animation(type == "widget" && !reduceMotion ? .easeOut(duration: 0.24) : nil,
         value: meta["respondedValue"])
@@ -556,6 +559,58 @@ struct RichMessageCard: View {
       }
     }
   }
+  /// "Send this message?": a bot's text waits until the user sends it from the named Mac.
+  @ViewBuilder var imessageSend: some View {
+    let send = meta["imessage"]
+    let machine = send["machineLabel"].string.isEmpty ? "your Mac" : send["machineLabel"].string
+    let recipient = send["recipientLabel"].string
+    let handle = send["recipientName"].string.isEmpty ? "" : send["to"].string
+    let sending = state == "sending" || draftSending
+    HStack(spacing: 8) {
+      Text(verbatim: "Send this message?").font(.system(size: 15, weight: .medium)).kerning(-0.15)
+        .foregroundStyle(DraftPalette.text).lineLimit(1)
+      Spacer(minLength: 0)
+      DraftStatusBadge(state: sending ? "sending" : state)
+    }
+    if state == "pending" || state == "sending" {
+      let width = Self.labelWidth(["From", "To"])
+      VStack(alignment: .leading, spacing: 0) {
+        DraftRow(label: "From", width: width) { DraftValue(machine) }
+        DraftRow(label: "To", width: width) { DraftValue(handle.isEmpty ? recipient : recipient + " (" + handle + ")") }
+        Text(verbatim: send["text"].string).font(.system(size: 16)).foregroundStyle(DraftPalette.text)
+          .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+      }
+      .background(DraftPalette.panel, in: RoundedRectangle(cornerRadius: 10))
+      .clipShape(RoundedRectangle(cornerRadius: 10))
+      DraftNote("The message will be sent from " + machine)
+      if !meta["sendError"].string.isEmpty { DraftNote(meta["sendError"].string, alert: true) }
+      HStack(spacing: 8) {
+        Button {
+          act("imessage-send", body: ["action": .string("send")])
+        } label: {
+          HStack(spacing: 6) {
+            if sending { LoadingOrb(size: 14, label: "Sending") }
+            Text(sending ? "Sending…" : "Send")
+          }
+        }.buttonStyle(DraftButtonStyle(primary: true, sending: sending)).disabled(sending)
+        Button("Discard") { act("imessage-send", body: ["action": .string("cancel")]) }
+          .buttonStyle(DraftButtonStyle(primary: false, sending: false)).disabled(sending)
+        Spacer(minLength: 0)
+        if send["allowable"].bool, !send["to"].string.isEmpty {
+          Button("Always allow " + recipient) { act("imessage-send", body: ["action": .string("allow")]) }
+            .font(.system(size: 14)).foregroundStyle(DraftPalette.tertiary).lineLimit(1).disabled(sending)
+        }
+      }
+    } else {
+      let summary = state == "unknown"
+        ? "The send was interrupted — check Messages on " + machine + " to see whether it went out"
+        : (state == "sent" ? "Sent to " : "To ") + recipient + " — “" + send["text"].string + "”"
+      Text(verbatim: summary).font(.system(size: 15)).kerning(-0.15)
+        .foregroundStyle(DraftPalette.secondary).lineLimit(1).truncationMode(.tail)
+      if meta["sentUnder"].bool { DraftNote("Sent without asking, as allowed on " + machine) }
+      if state == "failed", !meta["sendError"].string.isEmpty { DraftNote(meta["sendError"].string, alert: true) }
+    }
+  }
   @ViewBuilder var sharedTemplate: some View {
     let template = meta["template"]
     Text(template["recipe"]["profile"]["name"].string).font(.headline)
@@ -619,7 +674,7 @@ struct RichMessageCard: View {
       requestID = UUID().uuidString
     }
     if payload["clientId"] == nil { payload["clientId"] = .string(requestID) }
-    if suffix == "external-draft", body["action"]?.string == "send" { draftSending = true }
+    if suffix == "external-draft" || suffix == "imessage-send", ["send", "allow"].contains(body["action"]?.string ?? "") { draftSending = true }
     Task {
       defer {
         busy = false
@@ -634,7 +689,7 @@ struct RichMessageCard: View {
           store.persist()
         }
         // A draft reports its outcome in the returned card (sent, reopened with an error, unchanged).
-        guard suffix == "external-draft"
+        guard suffix == "external-draft" || suffix == "imessage-send"
           || WidgetMutationReceipt.accepted(result, action: suffix, clientID: payload["clientId"]?.string ?? "", value: payload["value"] ?? .null) else {
           NativeHaptics.play(.error, source: "rich-action.result")
           failure = "This action is no longer available. The card has been refreshed."

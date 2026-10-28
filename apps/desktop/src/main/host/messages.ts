@@ -9,6 +9,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, join, sep } from "node:path";
 import { readFile, realpath, stat, mkdtemp, rm } from "node:fs/promises";
 import { nativeCommand, sqliteRows, sqlText, type NativeCommand } from "./native-command";
+import { validateMessageSend } from "@openteam/contracts/messages-send";
 
 const APPLE_EPOCH = Date.UTC(2001, 0, 1);
 function required(args: Record<string, any>, key: string): string {
@@ -16,18 +17,6 @@ function required(args: Record<string, any>, key: string): string {
     throw new Error(`${key} is required and must be at most 16000 characters`);
   return args[key];
 }
-export function validateMessageSend(args: Record<string, any>) {
-  if (typeof args.text !== "string" || args.text.length === 0) throw new Error("text is required");
-  if (Boolean(args.to) === Boolean(args.chatId))
-    throw new Error("Provide exactly one of to or chatId");
-  if (args.to && !/^\+[1-9]\d{6,14}$/.test(args.to) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args.to))
-    throw new Error("Recipient must be an E.164 number or email from Contacts");
-  if (args.chatId && !/^(?:iMessage|SMS);[+-];[^\r\n]+$/.test(args.chatId))
-    throw new Error("Use a chat GUID from FindIMessageChats");
-  if (args.service !== undefined && !["auto", "iMessage", "SMS"].includes(args.service))
-    throw new Error("Invalid message service");
-}
-
 export class MacMessages {
   constructor(
     private readonly run: NativeCommand = nativeCommand,

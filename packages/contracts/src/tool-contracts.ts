@@ -2,6 +2,7 @@ import reference from "./tool-reference.json";
 import native from "./native-tools.json";
 import { APP_SETTINGS_ANCHORS } from "./app-deep-links";
 import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
+import { DESKTOP_MESSAGES_TOOLS, MESSAGES_MACHINE_ID_DESCRIPTION } from "./desktop-capability-names";
 import { defaultTaskConfiguration, taskTypeNames, type TaskConfiguration } from "./task-configuration";
 
 export interface ToolContract {
@@ -213,13 +214,13 @@ adaptDescription("Shell", [["require the user's local-tool approval.", "execute 
 adaptDescription("Read", [["requires the user's local-tool approval.", "executes directly."]]);
 // The apps show the command itself, never this label.
 adaptArgument("Shell", "description", [['; shown to the user after the word "Ran".', "."]]);
-// Only desktops register as machines, and no machine offers on-device tools here.
+// Only desktops register as machines; a Mac reports its Messages state instead of on-device tools.
 adaptDescription("ListMachines", [
   ["machineId, label, kind (desktop, ios, or android), and current", "machineId, label, and current"],
   ["Pass a desktop's machineId", "Pass a returned machineId"],
   [
     "; a phone never takes those tools. A connected phone, or a connected desktop that offers an on-device tool such as location, lists deviceLocalTools, each on-device tool with its state: ready, needs_permission (the machine can still ask for the OS permission), denied (only the machine's Settings app can grant it), or unavailable. A call to a tool still missing its permission posts a permission card in the chat for the user to tap; a machine without deviceLocalTools offers none right now.",
-    ".",
+    ". Each machine also lists `messages`, the state of the Messages tools on it: ready, needs_permission (Messages is on, but macOS has not given the app Full Disk Access yet), off (only that Mac's desktop app Settings can turn it on), or unavailable (not a Mac, or its app predates Messages). Pass a machine's machineId to a Messages tool to use that Mac.",
   ],
 ]);
 // File copies stream with no size cap.
@@ -499,16 +500,10 @@ draft.properties.waitForReview = {
     "Set true when the user asked to see, edit or approve this message before it goes out (\"draft ...\", \"let me check it first\"). The card then waits for their Send even if they allowed these recipients for you. Omit it otherwise.",
 };
 
-// Sends run directly on the Mac, with no approval card.
-adaptDescription("SendIMessage", [[
-  "Every call raises an approval card the user must accept, unless the user has allowed that recipient, or every send, on their computer; send once and report the result.",
-  "The send executes directly; send once and report the result.",
-]]);
-adaptArgument("SendIMessage", "recipientName", [[
-  "Only a `to` send shows it, on the approval card beside the handle; a `chatId` card shows a one-to-one chat's handle or \"Group chat\", never a name. So to text one person whose handle and name you have, send with `to` and this, even if you found their chat.",
-  "Only used with `to`.",
-]]);
-adaptDescription("CheckIMessagePermissions", [[" A declined approval card is not a permission problem.", ""]]);
+// A user can connect several Macs: every Messages tool may name the one it runs on.
+for (const name of DESKTOP_MESSAGES_TOOLS) {
+  contracts[name]!.inputSchema.properties.machineId = { type: "string", minLength: 1, description: MESSAGES_MACHINE_ID_DESCRIPTION };
+}
 
 // Transcripts carry observable history only, paged by next_before.
 adaptDescription("ReadTranscript", [
@@ -575,19 +570,27 @@ const FIRST_PARTY_CATALOG_HEADER =
 const FIRST_PARTY_HINTS: Readonly<Record<string, string>> = {
   AuthenticateMcpServer: "Start authentication for a connector that needs auth.",
   AwaitShell: "Use to sleep and check shell progress. Never sleep using shell.",
+  ChatItems: "Read a conversation out of the user's Messages history.",
+  CheckIMessagePermissions: "Check which Messages grants the user's Mac has given.",
   CheckSubagent: "Inspect a running background subagent's status and recent actions.",
   CopyFromBox: "Copy a file from your box onto the user's computer.",
   CopyToBox: "Copy a file from the user's computer onto your box.",
   DisconnectChannel: "Disconnect one of your connected channels.",
   // OpenTeam transfers files with Google Drive and Gmail only.
   DownloadFile: "Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).",
+  FetchIMessageAttachment: "Fetch one attachment out of a Messages conversation.",
+  FindContacts: "Look up a person by name in the user's Contacts on their Mac.",
+  FindIMessageChats: "Find a chat in the user's Messages app on their Mac.",
+  IMessageActivity: "Count Messages activity per chat over a time window.",
   MessageSubagent: "Send a new instruction into a running background subagent.",
   ReadAgentActivity: "Summarize what the user's other bots did lately: last messages, open todos, unanswered questions.",
   ReadTranscript: "Read the transcripts of your conversations, your subagents, and the user's other bots.",
   RemapUserFormTargets: "Only after a RequestUserForm receipt says a field's value is HELD: remap its new target.",
   request_box_help: "Hand your box's desktop to the user for a sign-in or manual step.",
   RequestUserForm: "Show the user an in-chat form; the host fills the box browser with their answers.",
+  SearchIMessages: "Search the text of the user's Messages history.",
   SearchPlugins: "Search installable plugins/connectors when a task needs a service.",
+  SendIMessage: "Send a message from the user's Mac, as the user.",
   StopSubagent: "Abort a running background subagent.",
   // No cloud subagents in OpenTeam.
   Task: "Spawn subagents natively.",

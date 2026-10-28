@@ -30,9 +30,6 @@ Staged screenshots for the Google Docs, Sheets and Slides guide use the same met
 Staged screenshots for the iMessage guide use the same method, with fictional people, businesses and conversations, captured on 2026-10-19:
 
 - `openteam-imessage-catch-up-chat.png`: a bot summarizing texts since the morning, then replying in an existing conversation.
-- `openteam-imessage-ssh-account.png`, `openteam-imessage-ssh-tools.png`: the iMessage (SSH) plugin's account settings with a Mac SSH address, and its tool list with sending turned on.
-- `openteam-imessage-business-reply.png`: a text reply in a fictional airline's Messages for Business chat.
-- `openteam-imessage-unanswered-routine.png`: a weekday routine that summarizes unanswered texts and suggests replies.
 
 Staged screenshots for the Claude Duet comparison use the same method, with fictional people, businesses, invoices and `example.com` addresses, captured on 2026-10-21:
 

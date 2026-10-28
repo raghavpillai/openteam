@@ -225,6 +225,7 @@ export const messageDisplayProjection = (message: ChannelMessageView): MessageDi
     metadata.type === "bot-template" ||
     metadata.type === "user-form" ||
     metadata.type === "external-draft" ||
+    metadata.type === "imessage-send" ||
     metadata.type === "widget" ||
     metadata.type === "secret-request" ||
     metadata.type === "computer-handoff" ||

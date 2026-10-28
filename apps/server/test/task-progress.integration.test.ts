@@ -524,6 +524,16 @@ test.skipIf(!url)(
     })
 );
 
+test.skipIf(!url)("a recorded user stop fences the timer if the host dies before stopping its children", () => fixture(async f => {
+  const check = new Date(Date.now() + 1000);
+  await reportTaskProgress(f.db, f.messaging, f.context, { ...f.progress, state: "waiting", checkAt: check.toISOString() });
+  await f.park();
+  await f.db.run.update({ where: { id: f.parent.run.id }, data: { status: "cancelled", error: { code: "cancelled_by_user" } } });
+  expect(await dispatchTaskContinuations(f.db, f.messaging, new Date(check.getTime() + 1))).toBe(0);
+  expect(await f.db.subagent.findUnique({ where: { id: f.sub.id } })).toMatchObject({ status: "stopped", nextCheckAt: null });
+  expect((await f.db.subagentAttempt.findUniqueOrThrow({ where: { id: f.attempt.id } })).status).toBe("stopped");
+}));
+
 test.skipIf(!url)("unchanged wait checks stay quiet and preserve the known deadline", () =>
   fixture(async (f) => {
     const deadline = new Date(Date.now() + 7200_000).toISOString();

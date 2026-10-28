@@ -492,7 +492,7 @@ export class SubagentService {
           where: {
             subagentId: subagent.id,
             childRunId: subagent.currentRunId,
-            status: { in: ["provisioning", "queued", "running"] },
+            status: { in: ["provisioning", "queued", "running", "waiting"] },
           },
           data: { status: "stopped", stoppedAt, completedAt: stoppedAt },
         });
@@ -700,6 +700,10 @@ export class SubagentService {
         clientId: `subagent:${subagent.id}:resume:${context.callId}`,
         priority: 350,
       });
+      if (current.status === "waiting") await tx.subagentAttempt.updateMany({ where: { subagentId: subagent.id, childRunId: current.currentRunId, status: "waiting" }, data: { status: "completed", completedAt: new Date() } });
+      const priorProgress = taskProgress(current.progress);
+      const resumedProgress = priorProgress ? { ...priorProgress, state: "working" as const, runId: wake.run.id, revision: current.progressRevision + 1 } : null;
+      if (resumedProgress) { delete resumedProgress.checkAt; delete resumedProgress.blockSource; delete resumedProgress.toolError; }
       const description = input.description.trim() || subagent.description;
       const attempt = await tx.subagentAttempt.create({
         data: {
@@ -726,7 +730,7 @@ export class SubagentService {
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
           status: "queued",
           nextCheckAt: null,
-          progress: taskProgress(current.progress) ? { ...JSON.parse(JSON.stringify(current.progress)), state: "working", runId: wake.run.id, revision: current.progressRevision + 1, checkAt: undefined } : Prisma.DbNull,
+          progress: resumedProgress ? toJson(resumedProgress) : Prisma.DbNull,
           progressRevision: current.progressRevision + 1,
           recoveryAttempts: 0,
           result: null,

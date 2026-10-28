@@ -66,7 +66,7 @@ export class RunService {
       await this.prisma.$transaction(async (tx) => {
         const updated = await tx.run.updateMany({
           where: { id: runId, status: { in: ["queued", "running"] } },
-          data: { status: "cancelled", completedAt: new Date() },
+          data: { status: "cancelled", completedAt: new Date(), error: { code: "cancelled_by_user", message: "The user stopped this turn" } },
         });
         if (updated.count) await appendEvent(tx, "run.cancel_requested", runId, { runId });
       });

@@ -27,6 +27,128 @@ export const taskProgressContext = (value: unknown): string => {
   return p ? renderTaskProgressContext(p) : "";
 };
 
+/** Shared with queue claims so server startup cannot invalidate a freshly
+ * claimed turn while it is reconciling the old runtime's work. */
+export const TASK_RECOVERY_LOCK = "openteam-runtime-recovery";
+
+async function parentCancelled(
+  tx: Prisma.TransactionClient,
+  sub: { id: string; parentRunId: string; currentRunId: string | null }
+) {
+  const parent = await tx.run.findUnique({
+    where: { id: sub.parentRunId },
+    select: { status: true, error: true },
+  });
+  if (
+    parent?.status !== "cancelled" ||
+    (parent.error as { code?: string } | null)?.code !== "cancelled_by_user"
+  )
+    return false;
+  const now = new Date();
+  await tx.subagent.update({
+    where: { id: sub.id },
+    data: { status: "stopped", stoppedAt: now, completedAt: now, nextCheckAt: null },
+  });
+  if (sub.currentRunId) {
+    await tx.subagentAttempt.updateMany({
+      where: {
+        subagentId: sub.id,
+        childRunId: sub.currentRunId,
+        status: { in: ["provisioning", "queued", "running", "waiting"] },
+      },
+      data: { status: "stopped", stoppedAt: now, completedAt: now },
+    });
+    await tx.run.updateMany({
+      where: { id: sub.currentRunId, status: { in: ["queued", "running", "interrupted"] } },
+      data: { status: "cancelled", completedAt: now, error: { code: "cancelled_by_user" } },
+    });
+  }
+  return true;
+}
+
+export async function recoverTaskInterruption(
+  tx: Prisma.TransactionClient,
+  messaging: AgentMessaging,
+  subagentId: string,
+  runId: string,
+  attemptId: string,
+  error: Prisma.InputJsonValue
+): Promise<boolean> {
+  await tx.$queryRaw`SELECT id FROM "Subagent" WHERE id = ${subagentId}::uuid FOR UPDATE`;
+  const sub = await tx.subagent.findUnique({ where: { id: subagentId } });
+  if (
+    !sub ||
+    sub.currentRunId !== runId ||
+    !["provisioning", "queued", "running"].includes(sub.status)
+  )
+    return true;
+  if (await parentCancelled(tx, sub)) return true;
+  const progress = taskProgress(sub.progress);
+  if (!progress?.remaining.length) return false;
+  if (sub.recoveryAttempts >= 3) {
+    const blocked: TaskProgress = {
+      ...progress,
+      state: "blocked",
+      runId,
+      revision: sub.progressRevision + 1,
+      blockSource: "runtime",
+      summary:
+        "Three automatic recovery attempts did not finish this task; its remaining obligations need a decision.",
+      nextAction:
+        "Explain the repeated interruptions and ask for a decision before another attempt.",
+    };
+    delete (blocked as { checkAt?: string }).checkAt;
+    await tx.subagent.update({
+      where: { id: sub.id },
+      data: {
+        status: "waiting",
+        progress: json(blocked),
+        progressRevision: blocked.revision,
+        nextCheckAt: null,
+      },
+    });
+    await tx.subagentAttempt.update({
+      where: { id: attemptId },
+      data: { status: "waiting", error, completedAt: null },
+    });
+    await notifyTaskProgress(tx, messaging, sub, blocked, `recovery-limit:${blocked.revision}`);
+    return true;
+  }
+  const pending: TaskProgress = {
+    ...progress,
+    state: "waiting",
+    runId,
+    revision: sub.progressRevision + 1,
+    summary:
+      "A runtime interruption left action outcomes uncertain. Reconcile live state before continuing.",
+    reconciliationRequired: true,
+    checkAt: new Date(Date.now() + 1000).toISOString(),
+  };
+  await tx.subagent.update({
+    where: { id: subagentId },
+    data: {
+      status: "waiting",
+      recoveryAttempts: { increment: 1 },
+      progress: json(pending),
+      progressRevision: pending.revision,
+      nextCheckAt: new Date(pending.checkAt!),
+    },
+  });
+  await tx.subagentAttempt.update({
+    where: { id: attemptId },
+    data: { status: "waiting", error, completedAt: null },
+  });
+  await tx.event.create({
+    data: {
+      topic: "subagent.recovery_scheduled",
+      entityId: sub.id,
+      payload: { runId, recoveryAttempts: sub.recoveryAttempts + 1 },
+    },
+  });
+  await notifyTaskProgress(tx, messaging, sub, pending, `recovery:${pending.revision}`);
+  return true;
+}
+
 export async function notifyTaskProgress(
   tx: Prisma.TransactionClient,
   messaging: AgentMessaging,
@@ -46,6 +168,11 @@ export async function notifyTaskProgress(
     where: { id: subagent.parentRunId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
   });
+  if (
+    source?.status === "cancelled" &&
+    (source.error as { code?: string } | null)?.code === "cancelled_by_user"
+  )
+    return null;
   const sourceContext = (
     source?.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined
   )?.taskContextRunId;
@@ -205,6 +332,7 @@ export async function dispatchTaskContinuations(
       await tx.$queryRaw`SELECT id FROM "Subagent" WHERE id = ${id}::uuid FOR UPDATE`;
       const sub = await tx.subagent.findUnique({ where: { id } });
       if (!sub || sub.status !== "waiting" || !sub.nextCheckAt || sub.nextCheckAt > now) return 0;
+      if (await parentCancelled(tx, sub)) return 0;
       const progress = taskProgress(sub.progress);
       if (!progress || !sub.currentRunId) return 0;
       if (sub.deadlineAt && sub.deadlineAt <= now) {
@@ -248,6 +376,17 @@ export async function dispatchTaskContinuations(
         clientId: key,
         priority: 350,
         content: `Continue the same delegated task after its recorded wait.\nOriginal scope and approval context:\n${sub.prompt}\n\n${taskProgressContext(progress)}\n\nNext authorized step: ${progress.nextAction}\nInspect the current state first. A previous send or submit may already have succeeded. Do not repeat it without reconciliation, do not expand approval, and report a new wait with a new milestone key.`,
+      });
+      const priorAttempt = await tx.subagentAttempt.findUnique({
+        where: { childRunId: sub.currentRunId },
+        select: { error: true },
+      });
+      await tx.subagentAttempt.updateMany({
+        where: { subagentId: id, childRunId: sub.currentRunId, status: "waiting" },
+        data: {
+          status: priorAttempt?.error ? "failed" : "completed",
+          completedAt: previous.completedAt ?? now,
+        },
       });
       await tx.subagentAttempt.create({
         data: {
@@ -344,7 +483,7 @@ export async function settleTaskProgress(
     if (!saved.count) return true;
     await tx.subagentAttempt.update({
       where: { id: attemptId },
-      data: { status: "completed", completedAt: new Date() },
+      data: { status: "waiting", completedAt: null },
     });
     await tx.event.create({
       data: {

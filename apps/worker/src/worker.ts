@@ -1,4 +1,4 @@
-import { settleTaskProgress, dispatchTaskContinuations, taskProgress, notifyTaskProgress } from "@openteam/messaging";
+import { settleTaskProgress, dispatchTaskContinuations, taskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
 import {
   publishMessageNotification,
   turnOwesReplyReminder,
@@ -19,6 +19,7 @@ import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
 import { formatPiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
 import { selectTaskConfiguration, parseTaskConfiguration, subagentUsesParentConnectors, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
 import { finalizeInterruptedItems } from "./interrupted-progress";
+import { dispatchComputerTurn } from "./runtime-dispatch";
 import { subagentTitle } from "@openteam/contracts/subagent-dispatch";
 import {
   COMPUTER_API_PATHS,
@@ -1107,6 +1108,7 @@ export class WakeWorker {
     const staleAt = new Date(Date.now() - LEASE_MS);
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtext(${TASK_RECOVERY_LOCK}))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${botId}`}))`;
         // A crash can land between the terminal run event and lease cleanup.
         // Such a lease must not block fresh input until its heartbeat expires.
@@ -1431,18 +1433,16 @@ export class WakeWorker {
         dynamicNamespaces: pluginContext.dynamicNamespaces,
         pluginRuntimePackages: pluginContext.pluginRuntimePackages,
       } satisfies ComputerTurnRequest;
-      const beforeStart = await this.prisma.run.findUnique({ where: { id: claimed.runId }, select: { status: true } });
-      if (beforeStart?.status === "cancelled") throw new Error("Run was cancelled before runtime dispatch");
       const streamAbort = new AbortController();
-      const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.turns}`, {
+      const response = await dispatchComputerTurn(this.prisma, claimed.runId, (dispatchSignal) => fetch(`${this.computerUrl}${COMPUTER_API_PATHS.turns}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.controlToken}`,
           "content-type": "application/json",
         },
         body: JSON.stringify(turnRequest),
-        signal: AbortSignal.any([streamAbort.signal, AbortSignal.timeout(24 * 60 * 60_000)]),
-      });
+        signal: AbortSignal.any([streamAbort.signal, dispatchSignal, AbortSignal.timeout(24 * 60 * 60_000)]),
+      }));
       if (!response.ok || !response.body) {
         throw new Error(`Computer rejected turn: ${response.status} ${await response.text()}`);
       }
@@ -1968,8 +1968,8 @@ export class WakeWorker {
     if (
       !subagent ||
       !attempt ||
-      ["completed", "failed", "stopped"].includes(subagent.status) ||
-      ["completed", "failed", "stopped"].includes(attempt.status)
+      ["completed", "failed", "stopped", "waiting"].includes(subagent.status) ||
+      ["completed", "failed", "stopped", "waiting"].includes(attempt.status)
     ) {
       return;
     }
@@ -2045,8 +2045,8 @@ export class WakeWorker {
     if (
       !subagent ||
       !attempt ||
-      ["completed", "failed", "stopped"].includes(subagent.status) ||
-      ["completed", "failed", "stopped"].includes(attempt.status)
+      ["completed", "failed", "stopped", "waiting"].includes(subagent.status) ||
+      ["completed", "failed", "stopped", "waiting"].includes(attempt.status)
     ) {
       return;
     }
@@ -2068,20 +2068,7 @@ export class WakeWorker {
       });
       return;
     }
-    const progress = taskProgress(subagent.progress);
-    const recoveryCount = subagent.recoveryAttempts;
-    if (interrupted && progress?.remaining.length && recoveryCount < 3) {
-      const pending = { ...progress, state: "waiting" as const,
-        runId: claimed.runId, revision: subagent.progressRevision + 1,
-        summary: "A runtime interruption left action outcomes uncertain. Reconcile live state before continuing.",
-        reconciliationRequired: true,
-        checkAt: new Date(Date.now() + 1000).toISOString() };
-      const recovered = await tx.subagent.updateMany({ where: { id: subagent.id, currentRunId: claimed.runId, status: { notIn: ["completed", "failed", "stopped"] } }, data: { status: "waiting", recoveryAttempts: { increment: 1 }, progress: JSON.parse(JSON.stringify(pending)), progressRevision: pending.revision, nextCheckAt: new Date(pending.checkAt) } });
-      if (!recovered.count) return;
-      await tx.subagentAttempt.update({ where: { id: attempt.id }, data: { status: "failed", error: details, completedAt: new Date() } });
-      await notifyTaskProgress(tx, this.messaging, subagent, pending, `recovery:${pending.revision}`);
-      return;
-    }
+    if (interrupted && await recoverTaskInterruption(tx, this.messaging, subagent.id, claimed.runId, attempt.id, details)) return;
     // A run the computer never settled reads as interrupted; a reported failure gives its error.
     const result = interrupted ? SUBAGENT_INTERRUPTED_RESULT : String(details.message ?? "");
     const failed = await tx.subagent.updateMany({

@@ -251,6 +251,29 @@ test.skipIf(!db)(
       );
       await until(
         async () =>
+          (await app!.prisma.subagent.count({
+            where: {
+              parentBotId: parentId,
+              description: "Export reconciliation",
+              status: "waiting",
+            },
+          })) === 1
+      );
+      const interrupted = await app!.prisma.subagent.findFirstOrThrow({
+        where: { parentBotId: parentId, description: "Export reconciliation" },
+      });
+      // A late callback cannot close a task already fenced for reconciliation.
+      await app!.prisma.$transaction((tx) =>
+        (worker as any).completeSubagent(tx, {
+          botId: interrupted.childBotId,
+          runId: interrupted.currentRunId,
+        })
+      );
+      expect(
+        (await app!.prisma.subagent.findUniqueOrThrow({ where: { id: interrupted.id } })).status
+      ).toBe("waiting");
+      await until(
+        async () =>
           (await app!.prisma.channelMessage.count({
             where: { senderBotId: parentId, content: "Export workflow finished." },
           })) === 1

@@ -1,4 +1,4 @@
-export { initialTaskProgress, settleTaskProgress, reportTaskProgress, dispatchTaskContinuations, taskProgress, taskProgressContext, notifyTaskProgress } from "./task-progress";
+export { initialTaskProgress, settleTaskProgress, reportTaskProgress, dispatchTaskContinuations, taskProgress, taskProgressContext, notifyTaskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "./task-progress";
 import { taskProgressContext } from "./task-progress";
 export { readTranscript } from "./read-transcript";
 export { readAgentActivity } from "./read-agent-activity";

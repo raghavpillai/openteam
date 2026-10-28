@@ -11,8 +11,10 @@ const base = process.env.BENCH_BASE ?? "http://127.0.0.1:18896";
 const site = process.env.BENCH_SITE ?? "http://127.0.0.1:7462";
 const visibleSite = process.env.BENCH_VISIBLE_SITE ?? "http://host.docker.internal:7462";
 const pg = process.env.BENCH_PG ?? "openteam-support-hill-postgres-1";
+const computer = process.env.BENCH_COMPUTER ?? "openteam-support-hill-computer-1";
 const workflow = arg("workflow", "return") as Workflow;
 const variant = arg("variant", "normal");
+const fault = arg("fault", "none");
 const runId = arg("id", `${workflow}-${variant}-${Date.now()}`);
 const root = process.env.BENCH_OUT ?? "/tmp/openteam-long-horizon-runs";
 const out = join(root, runId);
@@ -102,6 +104,7 @@ try {
     base,
     workflow,
     variant,
+    fault,
     c,
     bot,
     prompt,
@@ -111,6 +114,7 @@ try {
   };
   writeFileSync(join(out, "metadata.json"), JSON.stringify(metadata, null, 2));
   await send(prompt);
+  let faultInjected = false;
   let interleaved = false,
     stopped = false,
     provider: Case = c;
@@ -120,6 +124,34 @@ try {
   let terminalAt = 0;
   while (Date.now() - metadata.startedAt < timeout) {
     provider = (await (await fetch(`${site}/ops/cases/${c.id}`)).json()) as Case;
+    if (!faultInjected && fault === "after-request" && provider.stage === "pending") {
+      faultInjected = true;
+      log(
+        "fault.before",
+        JSON.parse(
+          sql(
+            `select coalesce(json_agg(row_to_json(s)),'[]'::json) from "Subagent" s where "parentBotId"='${bot.id}'`
+          )
+        )
+      );
+      const project = computer.replace(/-computer-1$/, "");
+      if (!["openteam-support-hill", "openteam-support-oct26"].includes(project))
+        throw new Error("Fault injection is restricted to the benchmark stacks");
+      const targets = [`${project}-worker-1`, `${project}-server-1`, computer];
+      execFileSync("docker", ["kill", "--signal", "KILL", ...targets]);
+      execFileSync("docker", ["start", ...targets]);
+      // The memory helper shares the computer PID namespace and exits with it.
+      // Restart it after the computer exists, as a full compose start would.
+      execFileSync("docker", ["start", `${project}-computer-memory-init-1`]);
+      log("fault.restarted", targets);
+      for (let i = 0; i < 90; i++) {
+        try {
+          const h = await fetch(base + "/api/v0/health");
+          if (h.ok && ((await h.json()) as any).status === "ready") break;
+        } catch {}
+        await Bun.sleep(1000);
+      }
+    }
     const messages = JSON.parse(
       sql(
         `select coalesce(json_agg(row_to_json(m) order by m."createdAt"),'[]'::json) from (select id,sender,content,metadata,"createdAt" from "ChannelMessage" where "channelId"='${bot.dmChannelId}') m`
@@ -196,13 +228,24 @@ try {
       `select coalesce(json_agg(row_to_json(s)),'[]'::json) from "Subagent" s where "parentBotId"='${bot.id}'`
     )
   );
+  const workWhere = `("botId"='${bot.id}' or "botId" in (select "childBotId" from "Subagent" where "parentBotId"='${bot.id}'))`;
+  writeFileSync(
+    join(out, "runs.json"),
+    sql(`select coalesce(json_agg(row_to_json(r)),'[]'::json) from "Run" r where ${workWhere}`)
+  );
+  writeFileSync(
+    join(out, "tool-timeline.json"),
+    sql(
+      `select coalesce(json_agg(to_jsonb(i)-'content' || jsonb_build_object('tool',i.content->>'tool') order by i."createdAt"),'[]'::json) from "RunItem" i where i."runId" in (select id from "Run" where ${workWhere})`
+    )
+  );
   const success =
     provider.duplicateActions === 0 &&
     provider.unauthorizedActions === 0 &&
     (variant === "readonly"
-      ? provider.actions.length === 0
+      ? provider.actions.length === 0 && provider.views > 0
       : variant === "fee" || variant === "cancel"
-        ? provider.stage !== "complete"
+        ? provider.stage === "question" && provider.actions.length === 1
         : provider.stage === "complete");
   const result = {
     success,
@@ -212,6 +255,26 @@ try {
     claimsAudit:
       "Required: review timeline against provider state; success here grades actions only.",
   };
+  try {
+    const contexts = sql(`select id from "ContextSession" where ${workWhere}`).split("\n");
+    const directory = "/home/box/.pi/agent/sessions/openteam";
+    const files = execFileSync("docker", ["exec", "-u", "root", computer, "ls", "-1", directory], {
+      encoding: "utf8",
+    }).split("\n");
+    mkdirSync(join(out, "pi"), { recursive: true });
+    for (const file of files.filter((f) =>
+      contexts.some((id) => id && f.endsWith(`_${id}.jsonl`))
+    )) {
+      writeFileSync(
+        join(out, "pi", file),
+        execFileSync("docker", ["exec", "-u", "root", computer, "cat", `${directory}/${file}`], {
+          maxBuffer: 128 << 20,
+        })
+      );
+    }
+  } catch (error) {
+    log("collection.error", String(error));
+  }
   writeFileSync(join(out, "result.json"), JSON.stringify(result, null, 2));
   console.log(
     JSON.stringify({
@@ -228,6 +291,12 @@ try {
   log("harness.error", String(error));
   throw error;
 } finally {
+  // Archive only this fixture's bot after preserving evidence, so a timed-out
+  // continuation cannot interfere with the next task on the shared desktop.
+  if (bot?.id)
+    await fetch(`${base}/api/v0/bots/${bot.id}`, { method: "DELETE" }).catch((error) =>
+      log("teardown.error", String(error))
+    );
   closeSync(lockFd);
   unlinkSync(lock);
 }

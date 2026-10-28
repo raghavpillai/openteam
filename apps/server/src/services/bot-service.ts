@@ -360,7 +360,7 @@ export class BotService {
         select: { id: true, childBotId: true, currentRunId: true, status: true },
       });
       const activeChildren = children.filter((child) =>
-        ["provisioning", "queued", "running"].includes(child.status)
+        ["provisioning", "queued", "running", "waiting"].includes(child.status)
       );
       await Promise.all(
         activeChildren.flatMap((child) =>
@@ -418,15 +418,15 @@ export class BotService {
           await tx.subagent.updateMany({
             where: {
               id: child.id,
-              status: { in: ["provisioning", "queued", "running"] },
+              status: { in: ["provisioning", "queued", "running", "waiting"] },
             },
-            data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
+            data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt, nextCheckAt: null },
           });
           if (attempt) {
             await tx.subagentAttempt.updateMany({
               where: {
                 id: attempt.id,
-                status: { in: ["provisioning", "queued", "running"] },
+                status: { in: ["provisioning", "queued", "running", "waiting"] },
               },
               data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
             });

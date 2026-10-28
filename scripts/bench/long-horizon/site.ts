@@ -14,6 +14,7 @@ export type Case = {
   readyAt?: number;
   receipt?: string;
   actions: string[];
+  views: number;
   duplicateActions: number;
   unauthorizedActions: number;
   questionAt?: number;
@@ -37,7 +38,7 @@ export function startSite(options: { root: string; port?: number }) {
   const refresh = (c: Case) => {
     if (c.stage === "pending" && c.readyAt! <= Date.now()) {
       c.stage = "question";
-      c.questionAt = Date.now();
+      c.questionAt = c.readyAt;
       event(c, "question.available");
     }
     return c;
@@ -63,6 +64,7 @@ export function startSite(options: { root: string; port?: number }) {
           readonly: input.readonly ?? false,
           stage: "new",
           actions: [],
+          views: 0,
           duplicateActions: 0,
           unauthorizedActions: 0,
         };
@@ -76,6 +78,10 @@ export function startSite(options: { root: string; port?: number }) {
       if (!c) return new Response("Not found", { status: 404 });
       refresh(c);
       const action = parts[2];
+      if (req.method === "GET") {
+        c.views = (c.views ?? 0) + 1;
+        event(c, "case.viewed");
+      }
       if (req.method === "POST") {
         if (c.readonly) {
           c.unauthorizedActions++;

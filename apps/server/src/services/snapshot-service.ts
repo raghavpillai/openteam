@@ -327,7 +327,7 @@ export class SnapshotService {
         this.prisma.subagentAttempt.findMany({
           where: {
             parentChannelId: { in: channelIds },
-            status: { in: ["provisioning", "queued", "running"] },
+            status: { in: ["provisioning", "queued", "running", "waiting"] },
           },
           include: {
             subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
@@ -529,7 +529,7 @@ export class SnapshotService {
         this.prisma.subagentAttempt.findMany({
           where: {
             parentChannelId: channelId,
-            status: { in: ["provisioning", "queued", "running"] },
+            status: { in: ["provisioning", "queued", "running", "waiting"] },
           },
           include: {
             subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
@@ -540,7 +540,7 @@ export class SnapshotService {
         this.prisma.subagentAttempt.findMany({
           where: {
             parentChannelId: channelId,
-            status: { notIn: ["provisioning", "queued", "running"] },
+            status: { notIn: ["provisioning", "queued", "running", "waiting"] },
           },
           include: {
             subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },

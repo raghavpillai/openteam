@@ -35,18 +35,22 @@ struct HomeView: View {
   private var sections: [JSON] { store.sidebar["sections"].array }
   var body: some View {
     GeometryReader { geometry in
+      let systemChrome = SideChrome(
+        regions: barRegions, insets: geometry.safeAreaInsets, holdsAllControls: sizeClass == .compact)
+      // In rotations without a right-hand system region, reserve a column so
+      // these controls stay on the right without covering the conversation.
+      let reservesRightColumn = barRegions.hasHinge && systemChrome?.edge != .trailing
+      let chrome = reservesRightColumn
+        ? SideChrome(rightColumnHoldingAllControls: sizeClass == .compact) : systemChrome
+      let rightColumnWidth = reservesRightColumn ? SideChrome.rightColumnWidth : 0
       Group {
         switch HomeLayout(sizeClass: sizeClass) {
         case .stack: stackLayout
-        case .split: splitLayout(width: geometry.size.width, fold: HomeLayout.fold(in: geometry))
+        case .split: splitLayout(width: geometry.size.width - rightColumnWidth, fold: HomeLayout.fold(in: geometry))
         }
       }
-      // Folded, screens move their controls into the side region; unfolded,
-      // only a chat's trailing control goes there, below the status bar.
-      .environment(
-        \.sideChrome,
-        SideChrome(regions: barRegions, insets: geometry.safeAreaInsets, holdsAllControls: sizeClass == .compact)
-      )
+      .modifier(SideChromeBar(top: EmptyView?.none, side: sideActions))
+      .environment(\.sideChrome, chrome)
       .environment(\.topBarClearance, SideChrome.topBarClearance(barRegions, insets: geometry.safeAreaInsets))
     }
     .readingBarRegions { barRegions = $0 }
@@ -280,6 +284,8 @@ struct HomeView: View {
         contentWidth = $0
       }
       .scrollClipDisabled()
+      .padding(.trailing, sizeClass == .compact && barRegions.hasHinge && barRegions.sideEdge != .trailing
+        ? SideChrome.rightColumnWidth : 0)
       .modifier(SideChromeBar(top: header, side: sideHeader))
       .toolbar(.hidden, for: .navigationBar)
       .refreshable { await store.refresh() }
@@ -342,16 +348,17 @@ struct HomeView: View {
         .accessibilityIdentifier("syncing-state")
       }
       Spacer()
-      ChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
-        .accessibilityIdentifier("search-button")
-      newMenu.frame(width: 44, height: 44).nativeGlass()
+      if !barRegions.hasHinge && barRegions.sideEdge == nil {
+        ChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
+          .accessibilityIdentifier("search-button")
+        newMenu.frame(width: 44, height: 44).nativeGlass()
+      }
     }.foregroundStyle(NativePalette.text).padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(
       .bottom, 10
     )
   }
-  /// The same controls in the side region: search and creation in one glass
-  /// capsule below the status bar, the account at the bottom.
-  var sideHeader: some View {
+  /// Shared by the list and open chat, including when the list is hidden.
+  private var sideActions: some View {
     VStack(spacing: 12) {
       VStack(spacing: 0) {
         Button {
@@ -362,6 +369,12 @@ struct HomeView: View {
         }.buttonStyle(.plain).accessibilityLabel("Search").accessibilityIdentifier("search-button")
         newMenu.frame(width: 48, height: 50)
       }.padding(.vertical, 2).nativeGlass(radius: 24)
+      Spacer(minLength: 0)
+    }.foregroundStyle(NativePalette.text)
+  }
+  /// The folded conversation list keeps its account control at the foot.
+  var sideHeader: some View {
+    VStack(spacing: 12) {
       if store.syncingState {
         LoadingOrb(size: 20).frame(width: 48, height: 48).accessibilityLabel("Syncing state")
           .accessibilityIdentifier("syncing-state")
@@ -682,12 +695,15 @@ private struct SidebarResizeHandle: View {
 /// and system toolbars do. The region's edge and span come from iOS, so the
 /// controls move when the status area grows, as with a Live Activity.
 struct SideChrome: Equatable {
+  static let rightColumnWidth: CGFloat = 72
+  /// Reserve this width inside the page when UIKit provides no right-side region.
+  var contentInset: CGFloat = 0
   var edge: HorizontalEdge
   /// The region's width.
   var width: CGFloat
   /// How far from the screen's edge controls center, in line with the status bar.
   var center: CGFloat
-  /// Folded, the region takes every control; unfolded, a chat's trailing one.
+  /// Whether the compact chat uses a title-only top bar.
   var holdsAllControls: Bool
   /// Space from the safe area's top and bottom to the region's usable span.
   var controlsTop: CGFloat
@@ -708,6 +724,15 @@ struct SideChrome: Equatable {
     controlsTop = max(0, regions.sideTop - insets.top)
     controlsBottom = max(0, regions.sideBottom - insets.bottom)
   }
+  init(rightColumnHoldingAllControls holdsAllControls: Bool) {
+    edge = .trailing
+    width = Self.rightColumnWidth
+    center = width / 2
+    self.holdsAllControls = holdsAllControls
+    controlsTop = Self.topBarPadding
+    controlsBottom = 0
+    contentInset = width
+  }
 }
 
 /// Places screen controls in a top bar, or in the side region when there is
@@ -724,7 +749,7 @@ struct SideChromeBar<Top: View, Side: View>: ViewModifier {
       content.safeAreaPadding(.top, top == nil ? 0 : clearance)
         .overlay(alignment: chrome.edge == .trailing ? .topTrailing : .topLeading) {
           // Centered where iOS centers bar controls, under the status bar's items.
-          let shift = chrome.width + chrome.width / 2 - chrome.center
+          let shift = chrome.contentInset > 0 ? 0 : chrome.width + chrome.width / 2 - chrome.center
           side.frame(width: chrome.width).padding(.top, chrome.controlsTop)
             .padding(.bottom, chrome.controlsBottom + 8)
             .frame(maxHeight: .infinity, alignment: .top)

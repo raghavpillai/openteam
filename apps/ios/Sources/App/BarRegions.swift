@@ -5,6 +5,8 @@ import UIKit
 /// (iOS 27.1). On iPhone Duo they follow the status bar, the camera, the
 /// Dynamic Island and Live Activities, which change height while the app runs.
 struct BarRegions: Equatable {
+  /// Hinge availability keeps the controls on the same edge after rotation.
+  var hasHinge = false
   /// The edge iOS puts vertical bars on, if any.
   var sideEdge: HorizontalEdge?
   /// The side region's width and its usable span, from the screen's top and bottom.
@@ -94,12 +96,18 @@ private struct BarRegionProbe: UIViewRepresentable {
     var edge: HorizontalEdge? { didSet { if edge != oldValue { pin() } } }
     var update: ((BarRegions) -> Void)?
     private var last: BarRegions?
+    private var hasHinge = false
     private let topMarker = Marker(), sideMarker = Marker()
     private var pins: [NSLayoutConstraint] = []
 
     override init(frame: CGRect) {
       super.init(frame: frame)
       isHidden = true
+      addInteraction(UIHingeInteraction { [weak self] _, update in
+        guard let self, hasHinge != (update.hinge != nil) else { return }
+        hasHinge = update.hinge != nil
+        report()
+      })
       for marker in [topMarker, sideMarker] {
         marker.translatesAutoresizingMaskIntoConstraints = false
         marker.onLayout = { [weak self] in self?.report() }
@@ -157,6 +165,7 @@ private struct BarRegionProbe: UIViewRepresentable {
     func report() {
       guard let window else { return }
       var regions = BarRegions(top: window.edgeInsets(for: .bar(onEdge: UIRectEdge.top, extent: BarRegions.barExtent)).top)
+      regions.hasHinge = hasHinge
       if let region = sideRegion {
         let insets = window.edgeInsets(for: region)
         regions.sideEdge = edge

@@ -37,7 +37,7 @@ enum NativePalette {
   static let user = color("0E0E0E", "545454")
   static let separator = color("E4E4E4", "343434")
   /// The conversation list's column beside a chat, and its open conversation's card.
-  static let sidebar = color("F5F5F6", "1E1E1F")
+  static let sidebar = color("F5F5F6", "181819")
   static let sidebarSelection = color("FFFFFF", "2E2E30")
   static let code = color("E5E5E5", "2C2C2C")
   static let selection = code

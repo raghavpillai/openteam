@@ -87,6 +87,10 @@ export class CdpConnection {
     };
   }
 
+  get closed(): boolean {
+    return this.socket.readyState === WebSocket.CLOSING || this.socket.readyState === WebSocket.CLOSED;
+  }
+
   close(): void {
     this.socket.close();
     this.failPending(new Error("Browser CDP disconnected"));

@@ -191,6 +191,8 @@ export function environment(home: string, session: ScreenSession): NodeJS.Proces
   const environment = sanitizedAgentEnvironment(process.env);
   return {
     ...environment,
+    NODE_PATH: AGENT_SEARCH_PATHS.NODE_PATH,
+    BUN_INSTALL_BIN: AGENT_SEARCH_PATHS.BUN_INSTALL_BIN,
     OPENTEAM_AGENT_PATH: AGENT_SEARCH_PATHS.PATH,
     HOME: home,
     OPENTEAM_DESKTOP_ID: session.botId,

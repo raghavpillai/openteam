@@ -1,12 +1,13 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { installsPaths, readPackageSnapshot, readReplayStatus, runCommand, type CommandRunner, type InstallsPaths, type ReplayStatus } from "../apt-packages";
+import { installsPaths, readPackageSnapshot, readRecord, readReplayStatus, runCommand, type CommandRunner, type InstallsPaths, type ReplayStatus } from "../apt-packages";
 
 export const INSTALL_NOTICE_TYPE = "openteam-installs";
 
-/** What the last start couldn't bring back, leaving out packages installed again since. */
-export function installNotice(status: ReplayStatus, installed: Record<string, string>, log: string): string | null {
-  const failed = status.failed.filter(({ name }) => !(name in installed));
-  const pending = status.pending.filter((name) => !(name in installed));
+/** What the last start couldn't bring back, leaving out packages installed again or forgotten since. */
+export function installNotice(status: ReplayStatus, installed: Record<string, string>, log: string, recorded?: ReadonlySet<string>): string | null {
+  const current = (name: string) => !(name in installed) && (!recorded || recorded.has(name));
+  const failed = status.failed.filter(({ name }) => current(name));
+  const pending = status.pending.filter(current);
   const { python, node } = status.languages ?? {};
   const lines: string[] = [];
   if (failed.length)
@@ -54,8 +55,8 @@ export class InstallNotice {
     const status = await readReplayStatus(this.paths);
     if (status?.state !== "done" || (!status.failed.length && !status.pending.length && !status.languages)) return null;
     if ((await this.ledger(status.id)).bots.has(botId)) return null;
-    const { installed } = await readPackageSnapshot(this.run);
-    const content = installNotice(status, installed, this.paths.log);
+    const [{ installed }, record] = await Promise.all([readPackageSnapshot(this.run), readRecord(this.paths)]);
+    const content = installNotice(status, installed, this.paths.log, new Set(Object.keys(record)));
     return content ? { episode: status.id, content } : null;
   }
 

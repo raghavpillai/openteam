@@ -396,7 +396,7 @@ describe("platform prompt integration", () => {
     expect(prompt).toContain("A timestamp that carries its own zone is not box-local.");
     expect(prompt).toContain("Move data between code and web apps through files on the box.");
     // Recreating the computer keeps the home, workspace and /usr/local volumes and reinstalls apt packages, nothing else.
-    expect(prompt).toContain("Restarts and updates of the box keep your home folder, /workspace and /usr/local (where sudo pip, sudo npm -g and make install put things), and reinstall apt packages at start, including ones from apt sources or .deb files you added;");
+    expect(prompt).toContain("Restarts and updates of the box keep your home folder, /workspace and /usr/local (where sudo pip, sudo npm -g and make install put things; commands there run by name, but the system's own tools of the same name come first), and reinstall apt packages at start, including ones from apt sources or .deb files you added;");
     expect(prompt).toContain("move files across with CopyToBox (their computer into /workspace/uploads or a box_path) and CopyFromBox (your box onto their disk).");
     // Without this the main agent wipes the shared /workspace as soon as it is asked to.
     expect(prompt).toContain("- The box is shared with the user's other agents, which may be using it right now. Don't delete files or kill processes you didn't create; if the user asks you to, confirm first.");

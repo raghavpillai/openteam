@@ -360,8 +360,10 @@ test("each bot hears once what the last start couldn't bring back", async () => 
   await notice.commit("bot-a", claimed!.episode);
   expect(await new InstallNotice(join(fake.root, "told.json"), fake.paths, fake.run).claim("bot-a")).toBeNull();
   expect(await notice.claim("bot-b")).not.toBeNull();
+  // A package installed again, or forgotten, is left out; with none left, nobody else is told.
   fake.installed.vanished = "1";
-  fake.installed.glow = "1";
+  expect((await notice.claim("bot-b"))?.content).not.toContain("vanished");
+  await forgetPackages(["glow"], { paths: fake.paths });
   expect(await notice.claim("bot-b")).toBeNull();
 });
 

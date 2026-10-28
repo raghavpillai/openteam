@@ -175,6 +175,10 @@ RUN chmod 0755 \
 # packages, which are recorded and reinstalled at start (apps/computer/src/apt-packages.ts).
 COPY docker/apt-keep-installs.conf /etc/apt/apt.conf.d/90openteam-keep-installs
 COPY docker/dpkg-keep-installs.cfg /etc/dpkg/dpkg.cfg.d/openteam-keep-installs
+# Like bot shells (apps/computer/src/agent-process.ts), sudo finds the image's tools before a
+# same-named copy in /usr/local.
+RUN printf 'Defaults secure_path="/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin"\n' > /etc/sudoers.d/openteam-paths \
+  && chmod 0440 /etc/sudoers.d/openteam-paths
 ENV PATH=/usr/lib/openteam/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ENV NODE_PATH=/usr/lib/openteam/node/lib/node_modules
 ENV BUN_INSTALL_BIN=/home/box/.bun/bin

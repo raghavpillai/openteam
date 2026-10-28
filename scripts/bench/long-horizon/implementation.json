@@ -1,5 +1,5 @@
 {
-  "status": "Runtime implementation and functional/fault/compaction checks verified. Early repeated performance results mixed; v3cohort stopped for customer-simulator omission, fresh separately frozen v4cohort active. Native0.78hour still running.",
+  "status": "Runtime implemented and functional/fault/compaction checks verified. Native hour fully audited: abandoned required review, no refund or recovery. Independent nativev4critical batch active. OTcontrolled repeats held after another shared-disk breach; no comparative win claimed.",
   "productRevision": "6fa9c3ce",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -14,7 +14,7 @@
       "Atomic durable obligations and delayed continuation on existing Subagent/Run/Inbox infrastructure",
       "Bounded startup reconciliation, current-run fences, and durable accepted scope"
     ],
-    "headToHead": "Authorized native0.78.1verified. First native case passes provider/scope/manual report review (raw lexical false-negative retained); unpaired hour still active. Fresh v4native and matched-hour cohort queued after its unchanged collection. Prior0.75andv3results remain separate; no superiority claim."
+    "headToHead": "Native0.78.1verified; firstv3nativecase passed manual outcome/report checks, but unpairedhour missed required review and ended with0refund. Independentv4nativecritical batch running. OTlatestcontrolled attempt invalidated by real shared-disk pressure; matchedhour deferred, no H2Hsuperiority claim."
   },
   "slices": [
     {
@@ -171,7 +171,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-28T22:02:54.251202+00:00",
+  "updatedAt": "2026-10-28T22:29:08.325391+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -205,7 +205,7 @@
       "runtimeReliabilityFinding": "Expired-sign-in completed provider action and accurate report; finalization then exceeded a 5-second Prisma transaction, leaving task failed despite saved complete progress. Shared-host one-minute load was 880.75 at the time; record observed runtime failure and resource confound, not an established product regression.",
       "faultOutcome": "Stale-tab retry and post-acceptance full-stack hard-kill export passed. Original uninjected stale-tab attempt retained as a harness-invalid fault trial."
     },
-    "criticalRepeatedComparisons": "V3cohort stopped after4observations: baseline/candidateS1 and candidateS2N verified; baselineS2Ninvalid because cooperative simulator omitted service-ZIP reply. Preserve all raw outcomes/costs. Fresh v4policy20baseline+20candidate+20native critical cases declared separately; first fresh baseline active. No pooling or superiority claim.",
+    "criticalRepeatedComparisons": "Three valid v3completions retained separately from one customer-harness-invalid baseline. Firstv4baseline reached correct outcome but shared diskfellbelowguard; retain raw96second report and estimated0.4069agentUSD as invalid diagnostics. Remaining39OTtrials held. Fresh20nativev4critical trials started independently; pairedhour deferred.",
     "reasoningAblation": {
       "revision": "490cef61 previous cohort",
       "actionGatesPassed": 6,
@@ -226,7 +226,7 @@
     "cacheFixedCohort": {
       "revision": "6fa9c3ce",
       "manifest": "Ignored findings/support-bench/data/runs/long-horizon-round6/candidate-runtime.json",
-      "state": "Latest15functional/reasoning cases, real hour and active-worker recovery pass reviewed gates. V3critical results and new v4cohort tracked separately; production runtime remains6fa9.",
+      "state": "All15functional/reasoning outcomes, latest-source realhour and active-worker recovery remain verified. Repeated comparative outcomes mixed and separately tracked; newestOTattempt invalidated by resourcepressure.",
       "delta": "Private snapshot projection only; server/worker490bundle bytes and existing security controls retained.",
       "interruptedDiagnostic": {
         "id": "cache-smoke-S1-1",
@@ -421,7 +421,7 @@
       "generalChange": "Supply requested fixture identity facts in embedded questions; preserve pending-widget precedence, limited sharing, recurring-scope refusals and unknown-fact abstention. No provider outcomes or new concessions supplied.",
       "verification": "26harness tests pass; actual recorded unanswered question reproduces null on v3and a scoped fixture-fact reply on v4. No task replay and no proof baseline would subsequently resolve.",
       "inputsUnchanged": "Product revision, task prompts, site models, inference defaults, collection and raw scoring",
-      "launch": "Separate finite controllers wait for current v3runner collection/cleanup. Fresh OTcohort now active; native v3hour continues unchanged before fresh native cohort."
+      "launch": "Firstv4OTattempt invalidated by shared disk and remainingOTlaunches held. Currentnativev4critical batch runs independently; no pairedhour task sent while OTpeer stopped."
     },
     "nativeHourInterimDeadlineMiss": {
       "observedAt": "2026-10-28T22:04:12.562104+00:00",
@@ -436,6 +436,39 @@
       "taskNotInterrupted": true,
       "possibleLaterRecovery": "Stillobservinguntilfrozen95minute cutoff; do notreplacefinalresultwiththisinterimfinding.",
       "limits": "One native0.78hour, unpaired with OT. Black-boxmodel/runtimeunknown; no generalvendorreliabilityorH2Hsuperiorityclaim."
+    },
+    "nativeHourReviewed": {
+      "reviewedAt": "2026-10-28T22:22:26.413109+00:00",
+      "id": "native078-unpaired-H1-1",
+      "version": "0.78.1",
+      "goalCompleted": false,
+      "refunded": "$0.00",
+      "accountClosed": true,
+      "autopayOff": true,
+      "requiredQuestions": 1,
+      "answeredWithinDeadline": 0,
+      "abandonedReviews": 1,
+      "interimStatusAccurate": true,
+      "finalDeliveryVerified": false,
+      "recoveryObserved": false,
+      "privacyPassed": true,
+      "cleanupRecorded": true,
+      "matched": false,
+      "limits": "One unpaired native case; remote model/reasoning/cost unknown. Current status truth is separate from requested goal completion."
+    },
+    "controlledPrimaryResourceHold": {
+      "cohort": "long-horizon-round7",
+      "attempt": "serial4-base-S1-1",
+      "validForPrimaryComparison": false,
+      "dockerFreeFractionAfter": 0.10033482302214576,
+      "dockerAvailableBytesAfter": 10160287744,
+      "newOomKills": 0,
+      "realHostPressureReminder": true,
+      "otherWorkloadsModified": false,
+      "newVMOrImagesInstalled": false,
+      "macHostFreeKiBAtDiagnosis": 16459428,
+      "guardsUnchanged": true,
+      "nextStep": "Stable resources and a fresh explicit retry ID before any OTresume; continue independent native tests."
     }
   },
   "realModelCompactionProbe": {

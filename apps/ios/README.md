@@ -164,7 +164,9 @@ checked against the parent message. Shortcuts actions remain available with
 discovery disabled.
 
 Hosted integration tests exercise the actual intents, Keychain, and Spotlight
-with synthetic data. Start the loopback fixture, then run the dedicated scheme
+with synthetic data, including real text/file exports, incremental indexing,
+revoked sessions, account changes during requests, and cold-launch navigation.
+Start the loopback fixture, then run the dedicated scheme
 on an isolated simulator (ad-hoc signing is needed for Keychain access):
 
 ```sh
@@ -173,6 +175,12 @@ xcodebuild -project apps/ios/OpenTeamNative.xcodeproj -scheme SystemIntents \
   -destination 'platform=iOS Simulator,id=<simulator-udid>' \
   -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- test
 ```
+
+`SystemIntegrationUITests` verifies the discovery setting through the real
+signed-in UI, persistence across cold launches, and sending a chat message with
+onscreen context enabled. Run a separate fixture on port 20085 and select that
+class in the `OpenTeamNative` scheme. Use isolated simulators: these checks save
+synthetic sessions in Keychain and clear the app's Spotlight index.
 
 Verify Siri AI language understanding on a supported physical iPhone with Apple
 Intelligence enabled. Simulator intent tests do not certify Siri's phrase routing.

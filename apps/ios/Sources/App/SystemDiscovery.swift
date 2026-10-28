@@ -74,6 +74,13 @@ final class SystemDiscovery {
     await queued?.value
   }
 
+  /// Wait for scheduled work without changing the index. Tests use this to
+  /// verify that the user action itself performed cleanup or reconciliation.
+  func waitForPendingUpdates() async {
+    await debounce?.value
+    await queued?.value
+  }
+
   func setEnabled(_ enabled: Bool, session: SessionRecord, state: SavedState) {
     let scope = SystemEntityID.scope(server: session.server, userID: session.userID)
     UserDefaults.standard.set(enabled, forKey: "system-discovery-" + scope)

@@ -21,8 +21,14 @@ struct SystemIntentClient {
     do { bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self) }
     catch let failure as APIError where failure.unauthorized {
       // A revoked session may be discovered by a background intent before the
-      // app's own lifecycle has resumed to clear its system-visible content.
-      SystemDiscovery.shared.clear()
+      // app resumes. Invalidate that session too, otherwise a later cached-state
+      // donation could repopulate the index using the revoked credentials.
+      // An account changed while the request was in flight must be preserved.
+      if let current = try SecureSession.read(), current.server == session.server,
+        current.userID == session.userID, current.token == session.token {
+        SystemDiscovery.shared.clear(removeTransfers: true)
+        try SecureSession.clear()
+      }
       throw failure
     }
     let client = Self(session: session, api: api, bootstrap: bootstrap)
@@ -153,16 +159,17 @@ struct SystemIntentClient {
 
   func attachment(_ value: String) async throws -> (Message, Asset) {
     let id = try identifier(value, kind: .attachment)
-    // Attachment local IDs encode both parent message and asset; assets are never
+    // Content-addressed assets can have multiple filenames in one message.
+    // Encode the parent message, asset, and filename; assets are never
     // exported just because a caller supplies a valid server asset identifier.
     guard let data = Data(base64Encoded: id.localID),
-      let parts = try? JSONDecoder().decode([String].self, from: data), parts.count == 2 else {
+      let parts = try? JSONDecoder().decode([String].self, from: data), parts.count == 3 else {
       throw APIError("This attachment is no longer available.")
     }
     let messageID = SystemEntityID(scope: scope, kind: .message,
       channelID: id.channelID, localID: parts[0]).value
     guard let message = try await messages(for: [messageID]).first,
-      let asset = message.attachments.first(where: { $0.assetId == parts[1] }) else {
+      let asset = message.attachments.first(where: { $0.assetId == parts[1] && $0.fileName == parts[2] }) else {
       throw APIError("This attachment is no longer available.")
     }
     return (message, asset)

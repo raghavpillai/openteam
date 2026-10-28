@@ -147,6 +147,8 @@ print(directory)
 system_ref = reference(system_target, 'OpenTeamSystemTests.xctest')
 system_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text()
 system_scheme = system_scheme.replace(f'{test_ref}<SkippedTests>', f'{system_ref}<SkippedTests>')
+system_scheme = system_scheme.replace('shouldUseLaunchSchemeArgsEnv="YES"', 'shouldUseLaunchSchemeArgsEnv="NO"', 1)
+system_scheme = system_scheme.replace('</Testables></TestAction>', '</Testables><EnvironmentVariables><EnvironmentVariable key="OPENTEAM_SYSTEM_TEST_HOST" value="1" isEnabled="YES"/></EnvironmentVariables></TestAction>')
 (schemes / 'SystemIntents.xcscheme').write_text(system_scheme)
 
 visual_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<SkippedTests><Test Identifier="LiveBackendUITests"/><Test Identifier="QAAuditUITests"/><Test Identifier="SettingsPluginAuditUITests"/><Test Identifier="NativePushUITests"/></SkippedTests>', '<SelectedTests><Test Identifier="SelectedUITests"/></SelectedTests>')

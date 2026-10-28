@@ -160,6 +160,7 @@ struct TeamSiriMessage: IndexedEntity, Transferable {
   }
   var attributeSet: CSSearchableItemAttributeSet {
     let attributes = CSSearchableItemAttributeSet(contentType: .text)
+    attributes.title = String((body ?? AttributedString("")).characters.prefix(160))
     attributes.contentDescription = String((body ?? AttributedString("")).characters.prefix(16_000))
     attributes.contentCreationDate = date
     return attributes

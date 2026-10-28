@@ -179,7 +179,7 @@ struct TeamAttachmentEntity: AppEntity, Transferable {
   @Property(title: "File name") var fileName: String
   var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(fileName)") }
   init(_ asset: Asset, message: Message, scope: String) {
-    let localID = (try! JSONEncoder().encode([message.id, asset.assetId])).base64EncodedString()
+    let localID = (try! JSONEncoder().encode([message.id, asset.assetId, asset.fileName])).base64EncodedString()
     id = SystemEntityID(scope: scope, kind: .attachment, channelID: message.channelId, localID: localID).value
     fileName = asset.fileName
   }

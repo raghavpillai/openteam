@@ -6,7 +6,7 @@ import XCTest
 /// Run on an isolated simulator with parity-server.ts on port 20084. These tests
 /// call the actual intent implementations, using only synthetic accounts/data.
 @MainActor
-final class SystemIntentTests: XCTestCase {
+class SystemIntentFixture: XCTestCase {
   let server = "http://127.0.0.1:20084"
   var session: SessionRecord {
     SessionRecord(server: server, token: nil, userID: "auth-disabled", userName: "Fixture", mode: "disabled")
@@ -14,12 +14,16 @@ final class SystemIntentTests: XCTestCase {
   var scope: String { SystemEntityID.scope(server: server, userID: session.userID) }
 
   override func setUp() async throws {
-    continueAfterFailure = false
+    continueAfterFailure = true
+    XCTAssertEqual(ProcessInfo.processInfo.environment["OPENTEAM_SYSTEM_TEST_HOST"], "1")
     _ = try await API(server: server).request("/__qa/reset", method: "POST", body: .object([:]))
     UserDefaults.standard.removeObject(forKey: LocalDataReset.pendingKey)
     UserDefaults.standard.set(false, forKey: "system-discovery-" + scope)
     try SecureSession.save(session)
     await SystemDiscovery.shared.clearAndWait()
+    let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("OpenTeam")
+    try DiskStore(directory: root, scope: scope).clear()
   }
 
   override func tearDown() async throws {
@@ -27,7 +31,10 @@ final class SystemIntentTests: XCTestCase {
     try SecureSession.clear()
     UserDefaults.standard.removeObject(forKey: "system-discovery-" + scope)
   }
+}
 
+@MainActor
+final class SystemIntentTests: SystemIntentFixture {
   func testTaskIntentSendsInstructionsAndReturnsAcceptedMessage() async throws {
     let client = try await SystemIntentClient.connect()
     let bot = try XCTUnwrap(client.bootstrap.bots.first)
@@ -182,7 +189,7 @@ final class SystemIntentTests: XCTestCase {
     }
     XCTAssertFalse(titles.isEmpty, "Spotlight did not return the donated entities")
     store.setSystemDiscoveryEnabled(false)
-    await SystemDiscovery.shared.clearAndWait()
+    await SystemDiscovery.shared.waitForPendingUpdates()
     XCTAssertNil(UserDefaults.standard.data(forKey: "system-discovery-manifest"))
     XCTAssertFalse(SystemDiscovery.enabled(scope: scope))
     titles = try await Self.indexedTitles()

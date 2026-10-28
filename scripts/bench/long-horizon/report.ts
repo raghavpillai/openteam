@@ -68,10 +68,12 @@ if (import.meta.main) {
           continue;
         }
         const score = read(join(folder, "score.json")), subs = optional(join(folder, "subagents-at-end.json")) ?? [];
+        const metadata = optional(join(folder, "metadata.json"));
         const completionTimes = subs.map((s: any) => s.completedAt ? Date.parse(s.completedAt.endsWith("Z") ? s.completedAt : s.completedAt + "Z") : 0).filter(Number.isFinite);
         const workerDoneAt = completionTimes.length ? Math.max(...completionTimes) : null;
         const claimsAudit = optional(join(folder, "claims-audit.json"));
-        rows.push({ id, scenario: task.scenario, score, audit: auditSupport(result),
+        rows.push({ id, scenario: task.scenario, revision: metadata?.revision ?? null,
+          models: metadata?.models ?? null, score, audit: auditSupport(result),
           infrastructureInvalid: optional(join(folder, "provenance-audit.json"))?.validForPrimaryComparison === false || score.infrastructureFailure,
           workerFinishAfterProviderSec: workerDoneAt && score.completedAt ? (workerDoneAt - score.completedAt) / 1000 : null,
           reportRelativeToWorkerFinishSec: workerDoneAt && score.reportAt ? (score.reportAt - workerDoneAt) / 1000 : null,
@@ -80,7 +82,14 @@ if (import.meta.main) {
           usage: optional(join(folder, "usage.json")), claimsAudit });
       }
     }
-    arms[arm] = { completedAt: pipeline.completedAt ?? null, summary: summarizeTrials(rows),
+    arms[arm] = { completedAt: pipeline.completedAt ?? null,
+      plannedTrials: pipeline.tasks.length,
+      earlyStoppedAt: pipeline.earlyStoppedAt ?? null,
+      earlyStopReason: pipeline.earlyStopReason ?? null,
+      remainingUnrun: pipeline.remainingUnrun ?? null,
+      criticalCompletedAt: pipeline.criticalCompletedAt ?? null,
+      waitingForGrok: pipeline.waitingForGrok ?? null,
+      summary: summarizeTrials(rows),
       byScenario: Object.fromEntries(["S1", "S2N"].map(s => [s, summarizeTrials(rows.filter(r => r.scenario === s))])), rows };
   }
   const hourPair = Object.fromEntries(["grok", "candidate"].flatMap(arm => {
@@ -88,7 +97,7 @@ if (import.meta.main) {
     return result ? [[arm, { id, score: optional(join(folder, "score.json")), audit: auditSupport(result),
       claimsAudit: optional(join(folder, "claims-audit.json")), usage: optional(join(folder, "usage.json")) }]] : [];
   }));
-  const report = { generatedAt: new Date().toISOString(), arms, hourPair,
+  const report = { generatedAt: new Date().toISOString(), cohort: process.argv[3] ?? "long-horizon-round3", arms, hourPair,
     comparisonLimit: "Grok is a black-box product with server-selected inference; its model, reasoning and usage are unknown. Historical and access-repair diagnostics are separate from the clean primary cohort." };
   writeFileSync(join(cohort, "primary-final-report.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(Object.fromEntries(Object.entries(arms).map(([arm, value]: any) => [arm, value.summary]))));

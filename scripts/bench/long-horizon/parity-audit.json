@@ -1,6 +1,6 @@
 {
   "auditedAt": "2026-10-28",
-  "productRevision": "490cef61",
+  "productRevision": "6fa9c3ce",
   "referenceBuild": "Captured Grok snapshots October19\u201321; observed live desktop 0.75.0. Required 0.78.1 update is pending user approval.",
   "method": "Revisit the historical G1\u2013G14 gap list against the current source and real-loop tests. Prompt/catalog assertions establish surface parity only; live outcomes are reported separately.",
   "areas": [
@@ -126,5 +126,10 @@
     "source": "Local installed and staged application coordinator bundles, SHA-256 recorded in ignored findings/grok-staged-review-2026-10-28/static-parity-review.json",
     "finding": "Both expose task-list and running-subagent metadata; staged bundle includes tool-name entries. Client schemas do not reveal cloud waiting/continuation semantics. No basis for claiming identical internals.",
     "privacy": "Only application code/package metadata read; no user settings, session databases or credentials copied. App not restarted. No vendor code added to product repository."
+  },
+  "cachePreservation": {
+    "observed": "Source490moving tail snapshot prevented conversation-prefix reuse in two live support trials; high estimated cost retained.",
+    "change": "Private host snapshots now persist in existing Pi transcript on change. They are hidden from UI and do not start another turn.",
+    "verification": "Actual serialized provider requests preserve prior prefix, including when snapshot advances; latest state and scope remain in four consecutive compactions. Fresh live cost validation pending."
   }
 }

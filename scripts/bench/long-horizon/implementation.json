@@ -1,6 +1,6 @@
 {
-  "status": "implemented; final live validation in progress",
-  "productRevision": "490cef61",
+  "status": "Implemented; cache-prefix regression fixed and request-level regression verified. Fresh versioned live validation in progress.",
+  "productRevision": "6fa9c3ce",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
     "preserved": [
@@ -88,7 +88,7 @@
     },
     "architecture": "passed",
     "computer": {
-      "passed": 756,
+      "passed": 757,
       "skipped": 68,
       "failed": 0
     },
@@ -121,6 +121,21 @@
     "worker": {
       "passed": 119,
       "skipped": 27,
+      "failed": 0
+    },
+    "taskSnapshotCacheRegression": {
+      "before": "Real serialized-provider-request prefix check failed on490 moving snapshot",
+      "after": {
+        "passed": 10,
+        "assertions": 205,
+        "files": 3,
+        "scope": "Cache-prefix regression, task-progress tool behavior, four-compaction lifecycle checks"
+      },
+      "mechanism": "Append a private transcript snapshot on change or after compaction removed it; unchanged record does not move on later requests or trigger a new turn."
+    },
+    "benchmarkAnalysis": {
+      "passed": 17,
+      "assertions": 53,
       "failed": 0
     }
   },
@@ -170,15 +185,15 @@
     },
     "latestRevisionHeldout": {
       "cohort": "final3",
-      "revision": "490cef61",
+      "revision": "490cef61 previous cohort",
       "actionsAndTranscriptReviewed": 9,
       "remaining": "Twenty candidate critical repetitions in progress; prospective matched Grok H1 pending approved native app restart.",
       "runtimeReliabilityFinding": "Expired-sign-in completed provider action and accurate report; finalization then exceeded a 5-second Prisma transaction, leaving task failed despite saved complete progress. Shared-host one-minute load was 880.75 at the time; record observed runtime failure and resource confound, not an established product regression.",
       "faultOutcome": "Stale-tab retry and post-acceptance full-stack hard-kill export passed. Original uninjected stale-tab attempt retained as a harness-invalid fault trial."
     },
-    "criticalRepeatedComparisons": "Running20 baseline and prospectively20 candidate; new Grok version needs approved mandatory app restart. Fixed stacks and time offsets limit causal comparisons.",
+    "criticalRepeatedComparisons": "Unchanged bf7 baseline20 continues. Old490candidate stopped after2complete trials for confirmed cache defect; both quality outcomes and $5.94/$6.24 estimated costs retained. Fresh6fa9cohort repeats workflow/fault/ablation checks before20new critical trials. Grok native restart approval pending.",
     "reasoningAblation": {
-      "revision": "490cef61",
+      "revision": "490cef61 previous cohort",
       "actionGatesPassed": 6,
       "fullClaimsPassed": 5,
       "workerReasoningVerified": true,
@@ -191,7 +206,23 @@
       "expectedActionGatesPassed": 15,
       "fullClaimsPassed": 14,
       "unplannedRuntimeFailure": "One expired finalization transaction under severe shared-host pressure; retained separately from provider/claim result.",
-      "hardGatePolicy": "Do not describe action-only passes as complete semantic or runtime reliability passes."
+      "hardGatePolicy": "Do not describe action-only passes as complete semantic or runtime reliability passes.",
+      "revision": "490cef61 previous cohort"
+    },
+    "cacheFixedCohort": {
+      "revision": "6fa9c3ce",
+      "manifest": "Ignored findings/support-bench/data/runs/long-horizon-round5/candidate-runtime.json",
+      "state": "Fresh15workflow/fault/ablation checks running, then20new support trials. No live cost improvement claimed before measurements.",
+      "delta": "Only private task snapshot projection changed; model/customer policy/prompts/security controls frozen. Server/worker490bundle bytes retained."
+    },
+    "progressPrivacy": {
+      "previousGenericCases": 15,
+      "previousGenericCallsChecked": 40,
+      "knownFixturePasswordMatches": 0,
+      "previousSupportCases": 2,
+      "previousSupportCallsChecked": 14,
+      "knownFixturePasswordPinOperatorKeyMatches": 0,
+      "limits": "Exact known fake-account values only; not a general secret detector or proof about all channels."
     }
   }
 }

@@ -1,0 +1,79 @@
+{
+  "status": "implemented; final live validation in progress",
+  "productRevision": "73b5b731",
+  "reference": {
+    "source": "Captured Grok runtime/prompts/tools snapshots from October 19–21, 2026, plus support trace comparisons",
+    "preserved": [
+      "Parent owns user-facing delivery",
+      "WakeParent terminates automation; it is not a worker progress checkpoint",
+      "Completion revival and bounded partial-task redispatch rules",
+      "Quiet unchanged watches and finite waiting intent"
+    ],
+    "extensions": [
+      "ReportTaskProgress is a separate nonterminal milestone tool",
+      "Atomic durable obligations and delayed continuation on existing Subagent/Run/Inbox infrastructure",
+      "Bounded startup reconciliation, current-run fences, and durable accepted scope"
+    ],
+    "headToHead": "Unavailable: prior Grok attempts did not verify account access. No superiority claim."
+  },
+  "slices": [
+    {
+      "name": "Scoped authorization",
+      "implementation": "Preserve destination, purpose, original task, accepted chronological steering, and hard read-only limits across resume/restart/compaction. Existing email/Slack drafting rules retain their destinations.",
+      "tests": ["apps/server/test/task-progress.integration.test.ts", "apps/computer/test/runtime/compaction-lifecycle.test.ts"],
+      "liveCases": ["read-only", "fee", "changed appointment terms", "scope narrowed during wait"]
+    },
+    {
+      "name": "Progress without worker termination",
+      "implementation": "Meaningful evidence-backed milestones atomically commit with an idempotency receipt and parent wake. Working continues; waiting/blocked ends only the current turn after a successful save.",
+      "tests": ["apps/computer/test/runtime/task-progress.test.ts", "apps/server/test/task-progress.integration.test.ts"],
+      "liveCases": ["synchronous support", "asynchronous review", "private export"]
+    },
+    {
+      "name": "Durable ownership and waiting",
+      "implementation": "Waiting is visible and stoppable, releases graphical capacity, retains original lineage, records next action/check/deadline, and resumes through the existing worker queue.",
+      "tests": ["apps/server/test/task-progress.integration.test.ts", "apps/worker/test/task-continuation.integration.test.ts"],
+      "liveCases": ["delayed return", "appointment confirmation", "unrelated user question", "cancellation", "expired sign-in", "one-hour dependency"]
+    },
+    {
+      "name": "Safe reconciliation",
+      "implementation": "Current-run checks reject stale reports/completions. Recovery stops old Pi contexts before redrive, fences claims/initial dispatch, preserves ownership, and requires live-state reconciliation before uncertain external effects.",
+      "tests": ["apps/server/test/startup-task-recovery.integration.test.ts", "apps/worker/test/runtime-dispatch.integration.test.ts", "apps/computer/test/runtime/cancellation.test.ts"],
+      "liveCases": ["accepted request with HTTP 504", "full stack hard kill", "server-only restart", "midpoint restart during one-hour wait"]
+    },
+    {
+      "name": "Work and latency",
+      "implementation": "Report verified milestones before optional evidence polish, preserve required verification and follow-ups, and park outside dependencies instead of spending model calls on unchanged polling.",
+      "measurement": "Provider state and timestamps, delayed-question response, parent relay, browser/model calls, provider-estimated cost. Same-code low/medium reasoning is a separate exploratory ablation, not a changed default."
+    }
+  ],
+  "verification": {
+    "typechecks": { "passed": 15, "total": 15 },
+    "architecture": "passed",
+    "computer": { "passed": 756, "skipped": 68, "failed": 0 },
+    "serverAndWorker": { "passed": 461, "skipped": 155, "failed": 0 },
+    "targetedLifecycleAndScope": { "passed": 62, "failed": 0 },
+    "startupAndDispatchFence": { "passed": 7, "failed": 0 },
+    "queueFaultInjection": { "passed": 1, "assertions": 16 },
+    "messaging": { "passed": 267, "failed": 1, "failure": "Filesystem-watcher test also fails on unchanged baseline with populated managed skill catalog" },
+    "limits": "Targeted integration results overlap broader suite counts; do not sum them. Skipped environment-dependent tests were not executed. Virtual-time and fake-computer queue tests do not establish live-model behavior."
+  },
+  "reproduce": {
+    "bun": "1.4.2",
+    "fixture": "bun scripts/bench/long-horizon/site.ts",
+    "fixtureTests": "bun test scripts/bench/long-horizon",
+    "runExample": "BENCH_REVISION=<deployed-product-sha> bun scripts/bench/long-horizon/run.ts --workflow export --variant normal --fault server-only --id <unique-id>",
+    "liveHour": "BENCH_DELAY_MS=3600000 BENCH_TIMEOUT_MS=4500000 BENCH_FAULT_AFTER_MS=1800000 bun scripts/bench/long-horizon/run.ts --workflow return --variant expiredsignin --fault after-request --id <unique-id>",
+    "audit": "bun scripts/bench/long-horizon/audit.ts <run-folder>/result.json",
+    "usage": "bun scripts/bench/long-horizon/usage.ts <run-folder>",
+    "notes": "Configure only isolated benchmark stacks and inference using existing local credentials. The runner refuses concurrent use of a stack and requires at least 10 GiB and 21% free Docker disk. Real support-case harness, frozen manifests, and retained raw evidence live in the existing ignored findings/support-bench directory."
+  },
+  "limitations": [
+    "Third-party browser effects are reconciled, not guaranteed exactly once",
+    "Older binaries cannot decode waiting rows: drain or stop parked tasks before rollback",
+    "Repeated trials are exploratory with fixed stacks and wall-clock offsets",
+    "Provider-backed action scores still require semantic transcript and authorization review",
+    "Prior invalid infrastructure and harness trials are retained and excluded from frozen comparisons",
+    "Cost estimates may omit cancelled or missing provider responses"
+  ]
+}

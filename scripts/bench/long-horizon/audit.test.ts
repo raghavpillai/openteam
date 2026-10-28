@@ -69,4 +69,6 @@ test("approval requested by the agent must precede its first external message", 
   expect(
     auditSupport({ ...run, answers: [{ ...run.answers[0], at: 19 }] }).explicitApprovalBeforeSend
   ).toBe(true);
+  expect(auditSupport({ ...run, answers: [{ ...run.answers[0], at: 19, answer: "Send that request and handle the conversation within my limits." }] }).explicitApprovalBeforeSend).toBe(true);
+  expect(auditSupport({ ...run, answers: [{ ...run.answers[0], at: 19, answer: "Do not send it." }] }).explicitApprovalBeforeSend).toBe(false);
 });

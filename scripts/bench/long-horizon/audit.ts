@@ -24,7 +24,7 @@ export function auditSupport(run: any) {
     (m: any) => m.kind === "widget" && /send|submit|support conversation|support chat/i.test(m.text)
   );
   const approved = (run.answers ?? []).filter(
-    (a: any) => a.kind === "widget" && /^(yes|approve|proceed|allow)/i.test(a.answer)
+    (a: any) => a.kind === "widget" && /^(yes\b|approve\b|proceed\b|allow\b|send\b|submit\b|i authoriz)/i.test(a.answer)
   );
   const explicitApprovalBeforeSend =
     !requestedApprovals.length ||

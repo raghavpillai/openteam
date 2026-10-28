@@ -319,6 +319,7 @@ model Subagent {
   // Durable obligations survive a parked turn, process restart and context compaction.
   progress         Json?
   progressRevision Int            @default(0)
+  scopeUpdates     Json           @default("[]")
   recoveryAttempts Int            @default(0)
   nextCheckAt      DateTime?
   deadlineAt       DateTime?

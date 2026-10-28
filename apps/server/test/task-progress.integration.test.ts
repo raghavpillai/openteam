@@ -10,6 +10,7 @@ import {
   reportTaskProgress,
   dispatchTaskContinuations,
   settleTaskProgress,
+  recoverTaskInterruption,
   automationBackgroundWorkRunning,
   type ToolContext,
 } from "@openteam/messaging";
@@ -237,7 +238,8 @@ test.skipIf(!url)(
       expect(String(result)).toContain("Subagent is running");
       const current = await f.db.subagent.findUniqueOrThrow({ where: { id: f.sub.id } });
       expect(current.nextCheckAt).toBeNull();
-      expect(current.prompt).toContain("inspect only");
+      expect(JSON.stringify(current.scopeUpdates)).toContain("inspect only");
+      expect(current.prompt).toContain("Do not add fees");
       expect(current.currentRunId).not.toBe(f.child.run.id);
       expect(
         await dispatchTaskContinuations(f.db, f.messaging, new Date(check.getTime() + 1))
@@ -524,15 +526,149 @@ test.skipIf(!url)(
     })
 );
 
-test.skipIf(!url)("a recorded user stop fences the timer if the host dies before stopping its children", () => fixture(async f => {
-  const check = new Date(Date.now() + 1000);
-  await reportTaskProgress(f.db, f.messaging, f.context, { ...f.progress, state: "waiting", checkAt: check.toISOString() });
-  await f.park();
-  await f.db.run.update({ where: { id: f.parent.run.id }, data: { status: "cancelled", error: { code: "cancelled_by_user" } } });
-  expect(await dispatchTaskContinuations(f.db, f.messaging, new Date(check.getTime() + 1))).toBe(0);
-  expect(await f.db.subagent.findUnique({ where: { id: f.sub.id } })).toMatchObject({ status: "stopped", nextCheckAt: null });
-  expect((await f.db.subagentAttempt.findUniqueOrThrow({ where: { id: f.attempt.id } })).status).toBe("stopped");
-}));
+test.skipIf(!url)(
+  "a recorded user stop fences the timer if the host dies before stopping its children",
+  () =>
+    fixture(async (f) => {
+      const check = new Date(Date.now() + 1000);
+      await reportTaskProgress(f.db, f.messaging, f.context, {
+        ...f.progress,
+        state: "waiting",
+        checkAt: check.toISOString(),
+      });
+      await f.park();
+      await f.db.run.update({
+        where: { id: f.parent.run.id },
+        data: { status: "cancelled", error: { code: "cancelled_by_user" } },
+      });
+      expect(
+        await dispatchTaskContinuations(f.db, f.messaging, new Date(check.getTime() + 1))
+      ).toBe(0);
+      expect(await f.db.subagent.findUnique({ where: { id: f.sub.id } })).toMatchObject({
+        status: "stopped",
+        nextCheckAt: null,
+      });
+      expect(
+        (await f.db.subagentAttempt.findUniqueOrThrow({ where: { id: f.attempt.id } })).status
+      ).toBe("stopped");
+    })
+);
+
+test.skipIf(!url)(
+  "accepted parent scope survives a lost turn and retrying old steering cannot restore superseded instructions",
+  () =>
+    fixture(async (f) => {
+      await reportTaskProgress(f.db, f.messaging, f.context, f.progress);
+      const service = new SubagentService(
+        f.db,
+        f.messaging,
+        {} as never,
+        f.root,
+        async () => Response.json({ ok: true }),
+        f.store
+      );
+      const narrow = {
+        subagent_id: f.sub.id,
+        message:
+          "New user scope: read-only now. Do not send the outstanding document or accept a fee.",
+      };
+      await service.message(f.parent.bot.id, "narrow-scope", narrow);
+      const first = await f.db.subagent.findUniqueOrThrow({ where: { id: f.sub.id } });
+      await f.db.run.update({
+        where: { id: first.currentRunId! },
+        data: { status: "running", inputDeliveredAt: new Date() },
+      });
+      await service.message(f.parent.bot.id, "further-scope", {
+        subagent_id: f.sub.id,
+        message: "Also verify the existing receipt title. Keep the read-only restriction.",
+      });
+      const latest = await f.db.subagent.findUniqueOrThrow({ where: { id: f.sub.id } });
+      await service.message(f.parent.bot.id, "narrow-scope", narrow);
+      expect(await f.db.subagent.findUnique({ where: { id: f.sub.id } })).toMatchObject({
+        currentRunId: latest.currentRunId,
+        scopeUpdates: latest.scopeUpdates,
+        progressRevision: latest.progressRevision,
+      });
+      await f.db.run.update({
+        where: { id: latest.currentRunId! },
+        data: { status: "interrupted" },
+      });
+      const attempt = await f.db.subagentAttempt.findUniqueOrThrow({
+        where: { childRunId: latest.currentRunId! },
+      });
+      await f.db.$transaction((tx) =>
+        recoverTaskInterruption(tx, f.messaging, f.sub.id, latest.currentRunId!, attempt.id, {
+          code: "runtime_restart",
+        })
+      );
+      expect(await dispatchTaskContinuations(f.db, f.messaging, new Date(Date.now() + 2000))).toBe(
+        1
+      );
+      const wake = await f.db.inboxEvent.findFirstOrThrow({
+        where: { botId: f.child.bot.id, type: "subagent.continue" },
+      });
+      expect(JSON.stringify(wake.payload)).toContain("Do not send the outstanding document");
+      expect(JSON.stringify(wake.payload)).toContain("Also verify the existing receipt title");
+      expect(
+        (await f.messaging.platformPrompt(f.child.bot.id, crypto.randomUUID())).instructions
+      ).toContain("read-only now");
+    })
+);
+
+test.skipIf(!url)(
+  "a new goal resumed after completion gets fresh obligations and can narrow hard read-only scope",
+  () =>
+    fixture(async (f) => {
+      await reportTaskProgress(f.db, f.messaging, f.context, {
+        ...f.progress,
+        state: "complete",
+        remaining: [],
+      });
+      await f.db.subagent.update({
+        where: { id: f.sub.id },
+        data: {
+          status: "completed",
+          fileAttachments: ["/workspace/shared/receipt.png"],
+          scopeUpdates: [{ callId: "prior", runId: f.child.run.id, message: "Prior goal context" }],
+        },
+      });
+      await f.db.run.update({ where: { id: f.child.run.id }, data: { status: "completed" } });
+      await f.db.subagentAttempt.update({
+        where: { id: f.attempt.id },
+        data: { status: "completed" },
+      });
+      const service = new SubagentService(
+        f.db,
+        f.messaging,
+        {} as never,
+        f.root,
+        async () => Response.json({ ok: true }),
+        f.store
+      );
+      await service.task(
+        {
+          ...f.context,
+          botId: f.parent.bot.id,
+          conversationId: f.parent.bot.conversation!.id,
+          channelId: f.parent.channel.id,
+          runId: f.parent.run.id,
+          callId: crypto.randomUUID(),
+        },
+        {
+          resume: f.sub.id,
+          description: "Inspect a new dependency",
+          prompt: "Inspect the private download availability; read-only, do not submit or share.",
+          read_only: true,
+        }
+      );
+      const resumed = await f.db.subagent.findUniqueOrThrow({ where: { id: f.sub.id } });
+      expect(resumed).toMatchObject({ readOnly: true });
+      expect(resumed.fileAttachments).toEqual(["/workspace/shared/receipt.png"]);
+      expect((resumed.scopeUpdates as unknown[]).length).toBe(2);
+      expect((resumed.progress as { remaining: string[] }).remaining.length).toBeGreaterThan(0);
+      expect(JSON.stringify(resumed.scopeUpdates)).toContain("do not submit or share");
+    })
+);
 
 test.skipIf(!url)("unchanged wait checks stay quiet and preserve the known deadline", () =>
   fixture(async (f) => {

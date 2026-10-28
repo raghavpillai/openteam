@@ -1,4 +1,4 @@
-import { initialTaskProgress, taskProgress } from "@openteam/messaging";
+import { initialTaskProgress, taskProgress, taskScopeUpdates } from "@openteam/messaging";
 import {
   ApiError,
   formatPiModelRef,
@@ -228,6 +228,13 @@ export class SubagentService {
     const dispatch = await this.prisma.$transaction(async (tx) => {
       // Serialized with the worker's claim, so a pending turn is never rewritten after the worker read it.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${subagent.childBotId}`}))`;
+      const receiptScope = `subagent-steer:${subagent.id}`;
+      const requestHash = hashRequest(input);
+      const receipt = await tx.idempotencyRecord.findUnique({ where: { scope_key: { scope: receiptScope, key: callId } } });
+      if (receipt) {
+        if (receipt.requestHash !== requestHash) throw new ApiError(409, "idempotency_conflict", "This steering call id was reused for different instructions");
+        return receipt.response as { runId: string; interruptRunId: string | null };
+      }
       const run = await tx.run.findUnique({ where: { id: currentRunId } });
       if (!run || !["queued", "running"].includes(run.status)) return null;
       const attempt = await tx.subagentAttempt.findUnique({ where: { childRunId: run.id } });
@@ -235,8 +242,24 @@ export class SubagentService {
       // Locks the row against a racing completion; a worker that finished or moved on gets nothing.
       const current = await tx.subagent.updateMany({ where: { id: subagent.id, currentRunId: run.id, status: "running" }, data: { currentRunId: run.id } });
       if (current.count === 0) return null;
-      const accepted = (runId: string, interruptedRunId: string | null) =>
-        appendEvent(tx, "subagent.message_accepted", subagent.id, { parentBotId, subagentId: subagent.id, runId, interruptedRunId, callId });
+      const persistScope = async (nextRunId: string) => {
+        const row = await tx.subagent.findUniqueOrThrow({ where: { id: subagent.id } });
+        const updates = taskScopeUpdates(row.scopeUpdates);
+        if (!updates.some(update => update.callId === callId)) {
+          updates.push({ callId, runId: nextRunId, message: input.message.trim() });
+        }
+        if (JSON.stringify(updates).length > 64000) throw new ApiError(409, "task_scope_full", "The steering history is full. Stop and start a fresh task with its complete current approved scope and limits before adding more instructions.");
+        const previous = taskProgress(row.progress);
+        const progress = { ...(previous?.remaining.length ? previous : initialTaskProgress(nextRunId)), state: "working" as const, runId: nextRunId, revision: row.progressRevision + 1, reconciliationRequired: true, nextAction: "Apply the newest parent steering and reconcile remaining work within the updated scope." };
+        delete progress.checkAt; delete progress.blockSource; delete progress.toolError;
+        await tx.subagent.update({ where: { id: row.id }, data: { scopeUpdates: toJson(updates), nextCheckAt: null, progress: toJson(progress), progressRevision: progress.revision } });
+      };
+      const accepted = async (runId: string, interruptRunId: string | null) => {
+        await appendEvent(tx, "subagent.message_accepted", subagent.id, { parentBotId, subagentId: subagent.id, runId, interruptedRunId: interruptRunId, callId });
+        const response = { runId, interruptRunId };
+        await tx.idempotencyRecord.create({ data: { scope: receiptScope, key: callId, requestHash, status: "completed", response, expiresAt: new Date(Date.now() + 30 * 86400_000) } });
+        return response;
+      };
       const undelivered = run.inputDeliveredAt ? null : await tx.inboxEvent.findFirst({ where: { runId: run.id } });
       const payload = (undelivered?.payload ?? {}) as Record<string, unknown> & { content?: unknown; messageId?: unknown };
       const earlier = typeof payload.content === "string" ? payload.content : "";
@@ -246,8 +269,8 @@ export class SubagentService {
         if (replaced.count > 0) {
           // The child's transcript shows the message the model gets.
           if (typeof payload.messageId === "string") await tx.message.update({ where: { id: payload.messageId }, data: { content } });
-          await accepted(run.id, null);
-          return { runId: run.id, interruptRunId: null };
+          await persistScope(run.id);
+          return accepted(run.id, null);
         }
       }
       const channelId = run.channelId;
@@ -264,8 +287,8 @@ export class SubagentService {
       });
       await tx.subagentAttempt.update({ where: { id: attempt.id }, data: { childRunId: wake.run.id } });
       await tx.subagent.update({ where: { id: subagent.id }, data: { currentRunId: wake.run.id } });
-      await accepted(wake.run.id, run.id);
-      return { runId: wake.run.id, interruptRunId: run.id };
+      await persistScope(wake.run.id);
+      return accepted(wake.run.id, run.id);
     });
     if (!dispatch) return this.noRunningSubagentMessage(parentBotId, input.subagent_id);
     if (dispatch.interruptRunId) await this.interruptForMessage(dispatch.interruptRunId);
@@ -278,7 +301,7 @@ export class SubagentService {
     if (run?.status === "running")
       await this.computerFetch(COMPUTER_API_PATHS.turnCancel(runId), {
         method: "POST",
-        body: JSON.stringify({ reason: "parent_message" }),
+        body: JSON.stringify({ reason: "parent_message", recovery: true }),
       }).catch(() => undefined);
     await this.prisma.run.updateMany({
       where: { id: runId, status: { in: ["queued", "running"] } },
@@ -702,7 +725,10 @@ export class SubagentService {
       });
       if (current.status === "waiting") await tx.subagentAttempt.updateMany({ where: { subagentId: subagent.id, childRunId: current.currentRunId, status: "waiting" }, data: { status: "completed", completedAt: new Date() } });
       const priorProgress = taskProgress(current.progress);
-      const resumedProgress = priorProgress ? { ...priorProgress, state: "working" as const, runId: wake.run.id, revision: current.progressRevision + 1 } : null;
+      const scopeUpdates = [...taskScopeUpdates(current.scopeUpdates), { callId: context.callId, runId: wake.run.id, message: input.prompt }];
+      if (JSON.stringify(scopeUpdates).length > 64000) throw new ApiError(409, "task_scope_full", "The steering history is full. Start a fresh task with its complete current approved scope and limits.");
+      const fileAttachments = (input.file_attachments ?? current.fileAttachments) as Prisma.InputJsonValue;
+      const resumedProgress = priorProgress?.remaining.length ? { ...priorProgress, state: "working" as const, runId: wake.run.id, revision: current.progressRevision + 1 } : { ...initialTaskProgress(wake.run.id), revision: current.progressRevision + 1 };
       if (resumedProgress) { delete resumedProgress.checkAt; delete resumedProgress.blockSource; delete resumedProgress.toolError; }
       const description = input.description.trim() || subagent.description;
       const attempt = await tx.subagentAttempt.create({
@@ -714,7 +740,7 @@ export class SubagentService {
           childRunId: wake.run.id,
           description,
           prompt: input.prompt,
-          fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
+          fileAttachments,
           status: "queued",
         },
       });
@@ -726,10 +752,13 @@ export class SubagentService {
           launchCallId: context.callId,
           currentRunId: wake.run.id,
           description,
-          prompt: input.prompt,
-          fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
+          prompt: current.prompt,
+          fileAttachments,
           status: "queued",
           nextCheckAt: null,
+          scopeUpdates: toJson(scopeUpdates),
+          readOnly: current.readOnly || input.read_only === true,
+          deadlineAt: priorProgress?.remaining.length ? current.deadlineAt : null,
           progress: resumedProgress ? toJson(resumedProgress) : Prisma.DbNull,
           progressRevision: current.progressRevision + 1,
           recoveryAttempts: 0,

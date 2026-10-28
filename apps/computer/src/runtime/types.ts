@@ -67,6 +67,9 @@ export interface ActiveTurn {
   lastPromptFingerprint?: string;
   connectorInstructions?: string;
   endTurnRequested?: boolean;
+  /** Recovery waits for ownership and provider resources to be released. */
+  contextReleased?: Promise<void>;
+  resolveContextReleased?: () => void;
   /** Unexecuted calls of the latest assistant response; each may run once after its closing send. */
   pendingResponseCalls?: Map<string, string>;
   /** A closing send, closing reaction, or question ended the turn; the rest of its response still runs. */

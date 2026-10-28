@@ -1,5 +1,6 @@
 export { initialTaskProgress, settleTaskProgress, reportTaskProgress, dispatchTaskContinuations, taskProgress, taskProgressContext, notifyTaskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "./task-progress";
-import { taskProgressContext } from "./task-progress";
+import { taskProgressContext, taskScopeContext } from "./task-progress";
+export { taskScopeContext, taskScopeUpdates } from "./task-progress";
 export { readTranscript } from "./read-transcript";
 export { readAgentActivity } from "./read-agent-activity";
 export {
@@ -1986,6 +1987,7 @@ export class AgentMessaging {
         connectorInstructions.trim(),
         executes ? renderWorkerBoxSection({ readOnly: bot.subagentIdentity.readOnly, workingDirectory: bot.defaultDirectory }) : "",
         subagentSpecializationInstructions(type, bot.defaultDirectory),
+        taskScopeContext(bot.subagentIdentity.scopeUpdates, bot.subagentIdentity.progress ? bot.subagentIdentity.prompt : undefined),
         taskProgressContext(bot.subagentIdentity.progress),
       ]
         .filter(Boolean)

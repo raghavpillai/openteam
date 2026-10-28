@@ -5,15 +5,18 @@ import { SubagentService, subagentSteerPrompt } from "../../src/services/subagen
 const fixture = (runStatus: "running" | "queued" = "running", inputDeliveredAt: Date | null = new Date()) => {
   const runs: Record<string, any> = { "turn-1": { id: "turn-1", status: runStatus, channelId: "child-dm", inputDeliveredAt } };
   const attempt: any = { id: "attempt", childRunId: "turn-1" };
-  const subagent: any = { id: "child", childBotId: "child-bot", parentBotId: "parent", status: "running", currentRunId: "turn-1" };
+  const subagent: any = { id: "child", childBotId: "child-bot", parentBotId: "parent", status: "running", currentRunId: "turn-1", progressRevision: 0, scopeUpdates: [] };
   const inbox: any[] = [{ id: "inbox-turn-1", runId: "turn-1", type: "subagent.task", status: runStatus === "running" ? "processing" : "pending", payload: { messageId: "message-turn-1", content: "Compare the two plans." } }];
   const messages: Record<string, string> = { "message-turn-1": "Compare the two plans." };
   const events: any[] = [];
   const locks: string[] = [];
   const cancels: Array<{ path: string; body: unknown }> = [];
   const wakes: any[] = [];
+  const receipts = new Map<string, any>();
   const db: any = {
+    idempotencyRecord: { findUnique: async ({ where }: any) => receipts.get(where.scope_key.key) ?? null, create: async ({ data }: any) => { receipts.set(data.key, data); return data; } },
     subagent: {
+      findUniqueOrThrow: async () => subagent,
       findFirst: async () => subagent,
       findMany: async () => [],
       update: async ({ data }: any) => Object.assign(subagent, data),
@@ -79,7 +82,7 @@ test("MessageSubagent interrupts the running worker turn and starts a new worker
   // The task's completion now comes from the new turn; the old one is cut off with the reference's reason.
   expect(f.attempt.childRunId).toBe("turn-2");
   expect(f.subagent.currentRunId).toBe("turn-2");
-  expect(f.cancels).toEqual([{ path: "/v1/turns/turn-1/cancel", body: { reason: "parent_message" } }]);
+  expect(f.cancels).toEqual([{ path: "/v1/turns/turn-1/cancel", body: { reason: "parent_message", recovery: true } }]);
   expect(f.runs["turn-1"]).toMatchObject({ status: "cancelled", error: { code: "superseded_by_parent", message: "Steering message from the parent agent." } });
   expect(result).toEqual({ delivered: true, subagent_id: "sand-subagent-child", run_id: "turn-2" });
 

@@ -259,7 +259,11 @@ export class ComputerRuntime {
     }
 
     const queue = new ComputerEventQueue();
+    let resolveContextReleased!: () => void;
+    const contextReleased = new Promise<void>(resolve => { resolveContextReleased = resolve; });
     const active: ActiveTurn = {
+      contextReleased,
+      resolveContextReleased,
       taskConfiguration: request.taskConfiguration === undefined ? defaultTaskConfiguration() : parseTaskConfiguration(request.taskConfiguration),
       runId: request.runId,
       botId: request.botId,
@@ -479,6 +483,7 @@ export class ComputerRuntime {
     active.endTurnRequested = true;
     active.pluginAbortController?.abort();
     await active.session?.abort();
+    if (options.recovery) await active.contextReleased;
     return true;
   }
 
@@ -915,15 +920,19 @@ export class ComputerRuntime {
     this.activeByContext.delete(active.contextSessionId);
     active.unsubscribe?.();
     active.unsubscribe = null;
-    const session = active.session;
-    if (session) {
-      const preserveProviderResources = preserveConnection && active.modelRef.providerId === "openai-codex";
-      session.dispose({ preserveProviderResources });
-      if (preserveProviderResources) this.providerConnections.retain(session.sessionId);
-    } else {
-      this.providerConnections.dispose(active.contextSessionId);
+    try {
+      const session = active.session;
+      if (session) {
+        const preserveProviderResources = preserveConnection && active.modelRef.providerId === "openai-codex";
+        session.dispose({ preserveProviderResources });
+        if (preserveProviderResources) this.providerConnections.retain(session.sessionId);
+      } else {
+        this.providerConnections.dispose(active.contextSessionId);
+      }
+    } finally {
+      active.session = null;
+      active.resolveContextReleased?.();
     }
-    active.session = null;
   }
 }
 

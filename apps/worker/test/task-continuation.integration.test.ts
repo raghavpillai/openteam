@@ -326,6 +326,26 @@ test.skipIf(!db)(
         );
         documentReady = true;
         await boot();
+        const midpoint = Math.max(0, waiting.nextCheckAt!.getTime() - Date.now() - 1800_000);
+        for (let left = midpoint; left > 0; left -= 30_000) await Bun.sleep(Math.min(left, 30_000));
+        await worker!.stop();
+        worker = undefined;
+        await Effect.runPromise(app!.close());
+        app = undefined;
+        await boot();
+        console.log(`TASK_SOAK midpoint restart ${new Date().toISOString()}`);
+        await Effect.runPromise(
+          app!.sendMessage(bot.conversationId, {
+            clientId: crypto.randomUUID(),
+            content: "UNRELATED question after the midpoint restart",
+          })
+        );
+        await until(
+          async () =>
+            (await app!.prisma.channelMessage.count({
+              where: { senderBotId: parentId, content: "Unrelated question answered." },
+            })) === 2
+        );
         const pause = Math.max(0, waiting.nextCheckAt!.getTime() - Date.now() - 30_000);
         for (let left = pause; left > 0; left -= 30_000) await Bun.sleep(Math.min(left, 30_000));
         expect(

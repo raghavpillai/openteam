@@ -22,6 +22,7 @@ import {
   stopProcesses,
   tcpPortAccepts,
   viewerHttpResponds,
+  waitForProcessExit,
 } from "./screen/processes";
 import type { ScreenSession, ScreenStatus } from "./screen/types";
 import { streamScreenFrames } from "./screen/frame-stream";
@@ -70,6 +71,7 @@ export class ScreenBroker {
   private readonly inputRevisions = new WeakMap<ScreenSession, number>();
   private readonly activeAgentInput = new WeakMap<ScreenSession, AbortController>();
   private readonly readySessions = new Map<string, Promise<ScreenSession>>();
+  private readonly profilePublishes = new Set<Promise<void>>();
 
   constructor(
     private readonly home = process.env.HOME ?? "/home/box",
@@ -327,6 +329,26 @@ export class ScreenBroker {
     session.agentInputPaused = paused;
     if (paused) await this.interruptAgentInput(session);
     return this.statusFor(session);
+  }
+
+  /**
+   * Closes every bot browser before the computer exits. Docker only signals
+   * the gateway, and a Chromium killed with the container never publishes its
+   * profile, so its next launch would restore an older copy.
+   */
+  async shutdown(): Promise<void> {
+    const browsers = [...this.sessions.values()].flatMap(({ botId, browserProcess }) =>
+      browserProcess && !processHasExited(browserProcess) ? [{ botId, browserProcess }] : []
+    );
+    // Share the latest sign-in state while the browsers can still answer.
+    await Promise.all(browsers.map(({ botId }) => this.browserBroker.detach(botId)));
+    const processes = browsers.map(({ browserProcess }) => browserProcess);
+    for (const browser of processes) browser.kill("SIGTERM");
+    await waitForProcessExit(processes, 5_000);
+    const survivors = processes.filter((browser) => !processHasExited(browser));
+    for (const browser of survivors) browser.kill("SIGKILL");
+    await waitForProcessExit(survivors, 1_000);
+    await Promise.allSettled(this.profilePublishes);
   }
 
   async destroy(botId: string): Promise<void> {
@@ -640,9 +662,11 @@ export class ScreenBroker {
       session.browserProcess = child;
       child.once("exit", () => {
         if (session.browserProcess === child) session.browserProcess = null;
-        void this.browserBroker
+        const published = this.browserBroker
           .detach(session.botId)
           .then(() => this.profileAuthority.publish(session.profileDirectory));
+        this.profilePublishes.add(published);
+        void published.finally(() => this.profilePublishes.delete(published));
       });
       void this.browserBroker.attach(
         session.botId,

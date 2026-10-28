@@ -81,6 +81,8 @@ services:
     labels: *openteam-labels
     image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-computer:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
     cgroup: private
+    # Shutdown closes bot browsers and saves their profiles before exiting.
+    stop_grace_period: 30s
     mem_limit: ${OPENTEAM_COMPUTER_MEMORY_LIMIT:-12g}
     memswap_limit: ${OPENTEAM_COMPUTER_MEMORY_LIMIT:-12g}
     hostname: openteam

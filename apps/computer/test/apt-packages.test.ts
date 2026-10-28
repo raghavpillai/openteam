@@ -7,6 +7,7 @@ import {
   captureSources,
   classifyOrigin,
   forgetPackages,
+  imagePackagePins,
   installFailureReason,
   installsPaths,
   installTarget,
@@ -121,7 +122,7 @@ test("dpkg's command line names the local .debs to keep", () => {
 });
 
 test("apt errors read as reasons a bot can act on", () => {
-  expect(installFailureReason("E: Unable to correct problems, you have held broken packages.")).toBe("it needs versions of packages the computer's image provides that differ from the image's");
+  expect(installFailureReason("E: Unable to correct problems, you have held broken packages.")).toBe("its dependencies can't be met without replacing packages the computer's image provides");
   expect(installFailureReason("Reading...\nE: Sub-process /usr/bin/dpkg returned an error code (1)\n")).toBe("apt failed: Sub-process /usr/bin/dpkg returned an error code (1)");
   expect(unfetchedUrls("Hit:1 http://deb.debian.org/debian trixie InRelease\nErr:2 https://cli.github.com/packages stable InRelease\n  Could not resolve 'cli.github.com'\nW: Failed to fetch https://cli.github.com/packages/dists/stable/InRelease  Could not resolve\n"))
     .toEqual(["https://cli.github.com/packages", "https://cli.github.com/packages/dists/stable/InRelease"]);
@@ -146,15 +147,12 @@ async function fakeSystem(installed: Record<string, string>, repos: FakeRepo, op
   const auto = new Set<string>();
   const extendedStates = join(root, "extended_states");
   const calls: string[] = [];
-  const selections = new Map<string, string>();
   const configured = async () => new Set((await readdirDeep(system(""))).flatMap((file) => parseSourceFile(String(file.text))));
   const run: CommandRunner = async (command, args) => {
     const line = [command, ...args].join(" ");
     calls.push(line);
     if (command === "dpkg-query" && args[0] === "-W") return { code: 0, output: Object.entries(installed).map(([name, version]) => `ii \t${name}\t${version}\n`).join("") };
     if (command === "dpkg-query" && args[0] === "-S") return { code: 1, output: args.slice(1).map((path) => `dpkg-query: no path found matching pattern ${path}`).join("\n") };
-    if (command === "dpkg" && args[0] === "--get-selections") return { code: 0, output: Object.keys(installed).map((name) => `${name}\t${selections.get(name) ?? "install"}`).join("\n") };
-    if (command === "sh") { for (const entry of String(args[3]).split("\n")) { const [name, state] = entry.split(" "); selections.set(name!, state!); } return { code: 0, output: "" }; }
     if (command === "dpkg" || command === "cp") return { code: 0, output: "" };
     const sources = await configured();
     const offered = (name: string) => (repos[name] ?? []).filter((entry) => sources.has(`${entry.uri} ${entry.suite}`) && !(options.offlineNetwork && !(options.cached?.has(name))));
@@ -186,7 +184,7 @@ async function fakeSystem(installed: Record<string, string>, repos: FakeRepo, op
     targets.forEach((target, index) => (installed[names[index]!] = target.includes("=") ? target.split("=")[1]! : repos[names[index]!]?.[0]?.version ?? "1"));
     return { code: 0, output: "installed" };
   };
-  return { root, paths, image, system, run, calls, installed, auto, selections, extendedStates, writeStates: () => writeFile(extendedStates, [...auto].map((name) => `Package: ${name}\nAuto-Installed: 1\n`).join("\n")) };
+  return { root, paths, image, system, run, calls, installed, auto, extendedStates, writeStates: () => writeFile(extendedStates, [...auto].map((name) => `Package: ${name}\nAuto-Installed: 1\n`).join("\n")) };
 }
 const basenameOf = (path: string) => path.split("/").pop()!.split("_")[0]!;
 async function readdirDeep(directory: string): Promise<Array<{ path: string; text: Buffer }>> {
@@ -250,7 +248,7 @@ test("kept sources come back where they are missing, and only a finished replay 
   expect(await restoreSources(options)).toEqual([]);
 });
 
-test("replay installs offline when it can, from its own lists otherwise, and holds the image's packages meanwhile", async () => {
+test("replay installs offline when it can, and from its own lists otherwise", async () => {
   const fake = await fakeSystem({ bash: "5", curl: "8", jq: "1" }, { cowsay: [{ version: "3", uri: DEBIAN, suite: "trixie" }], jq: [{ version: "1", uri: DEBIAN, suite: "trixie" }], sl: [{ version: "5", uri: DEBIAN, suite: "trixie" }] }, { cached: new Set(["cowsay"]) });
   await writeFile(fake.paths.packages, JSON.stringify({ packages: { cowsay: {}, jq: {}, sl: {} } }));
   const options = { paths: fake.paths, image: fake.image, run: fake.run, systemPath: fake.system, log: () => {} };
@@ -264,10 +262,28 @@ test("replay installs offline when it can, from its own lists otherwise, and hol
   expect(apt[1]).toEndWith("-q update");
   expect(apt[2]).toEndWith("install sl");
   expect(fake.calls[0]).toBe("dpkg --configure -a");
-  expect(fake.calls.filter((call) => call.startsWith("sh -c"))).toEqual([
-    expect.stringContaining("bash hold\ncurl hold"),
-    expect.stringContaining("bash install\ncurl install"),
-  ]);
+  // With no source a bot added, there is nothing to pin.
+  expect(fake.calls.some((call) => call.includes("Dir::Etc::Preferences"))).toBe(false);
+});
+
+test("while a bot's sources are configured, the image's packages can't come from them", async () => {
+  expect(imagePackagePins(["bash", "curl"], ["cli.github.com"])).toBe(
+    "Explanation: OpenTeam replay: the image's packages never come from a source a bot added.\nPackage: bash curl\nPin: origin \"cli.github.com\"\nPin-Priority: -1\n"
+  );
+  const fake = await fakeSystem({ bash: "5" }, { jq: [{ version: "1", uri: DEBIAN, suite: "trixie" }] });
+  await writeFile(fake.system("etc/apt/sources.list.d/gh.list"), `deb ${GH} stable main\n`);
+  await writeFile(fake.paths.packages, JSON.stringify({ packages: { jq: {} } }));
+  let pins = "";
+  const run: CommandRunner = async (command, args, options) => {
+    const preferences = args.find((arg) => arg.startsWith("Dir::Etc::Preferences="));
+    if (preferences && !pins) pins = await readFile(preferences.split("=")[1]!, "utf8");
+    return fake.run(command, args, options);
+  };
+  expect((await replayRecordedPackages({ paths: fake.paths, image: fake.image, run, systemPath: fake.system, log: () => {} })).restored).toEqual(["jq"]);
+  expect(pins).toContain('Pin: origin "cli.github.com"');
+  expect(pins).not.toContain("deb.debian.org");
+  // The pins last only for the replay.
+  expect(await stat(fake.paths.pins).catch(() => null)).toBeNull();
 });
 
 test("a package from a bot's source comes back from that source after its source is restored", async () => {
@@ -289,7 +305,7 @@ test("one package that can't come back doesn't slow the rest, is marked once per
   const status = await replayRecordedPackages(options);
   expect(status.restored.sort()).toEqual(["a", "b", "c", "d"]);
   expect(Object.fromEntries(status.failed.map(({ name, reason }) => [name, reason]))).toEqual({
-    conflict: "it needs versions of packages the computer's image provides that differ from the image's",
+    conflict: "its dependencies can't be met without replacing packages the computer's image provides",
     vanished: "no apt source the computer has offers it any more",
     glow: "it was installed from a .deb file that was not kept",
     gh: `its apt source (${GH} stable) no longer offers it`,

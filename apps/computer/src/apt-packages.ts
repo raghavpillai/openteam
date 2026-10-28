@@ -6,8 +6,8 @@
  * packages a bot installed beyond the image's own set, where each came from, the apt sources and
  * keys a bot added, and the .deb files it installed by hand. Package lists and downloads stay in
  * the volume too. When the computer starts, the entrypoint replays the record in the background:
- * offline from the kept .debs first, then from the network. The image's own packages are held
- * meanwhile, so a replay never replaces or removes them, and a package that can't come back is
+ * offline from the kept .debs first, then from the network. Meanwhile the image's own packages
+ * can't be removed or come from a source a bot added, and a package that can't come back is
  * tried again only once the image changes.
  */
 import { spawn } from "node:child_process";
@@ -28,7 +28,7 @@ export const installsPaths = (root = INSTALLS_ROOT) => ({
   replayLists: join(root, "apt", "replay-lists"),
   local: join(root, "apt", "local"),
   sources: join(root, "apt", "sources"),
-  holds: join(root, "apt", "holds"),
+  pins: join(root, "apt", "replay-pins"),
   image: join(root, "image.json"),
   status: join(root, "replay.json"),
   log: join(root, "replay.log"),
@@ -499,7 +499,7 @@ const SIMULATE_TIMEOUT_MS = 60_000;
 /** The first apt error, said the way a bot can act on. */
 export function installFailureReason(output: string): string {
   if (/held broken packages|Held packages were changed/i.test(output))
-    return "it needs versions of packages the computer's image provides that differ from the image's";
+    return "its dependencies can't be met without replacing packages the computer's image provides";
   const error = output.split("\n").map((line) => line.trim()).find((line) => line.startsWith("E: ") || line.startsWith("dpkg: error"));
   return error ? `apt failed: ${error.replace(/^E: /, "").slice(0, 200)}` : "apt could not install it";
 }
@@ -521,7 +521,7 @@ export interface ReplayOptions extends AptOptions {
 
 /**
  * Reinstalls the recorded packages the computer is missing. First it finishes an interrupted dpkg
- * run and puts back the bots' apt sources, then holds the image's packages. Each pass resolves
+ * run and puts back the bots' apt sources, then pins the image's packages. Each pass resolves
  * what apt can install (a package from a bot's source only at a version that source has) and
  * installs it in one run; a package that breaks the run is found with a dry run and set aside, so
  * it doesn't hold up the rest. Passes go offline, then online with fresh lists, then online once
@@ -544,7 +544,6 @@ export async function replayRecordedPackages(options: ReplayOptions = {}): Promi
 
   // A computer killed mid-install leaves dpkg half done, and every later apt run fails until this runs.
   await attempt("finish an interrupted dpkg run", "dpkg", ["--configure", "-a"], OFFLINE_TIMEOUT_MS);
-  await releaseHolds(paths, run);
   const restoredSources = await restoreSources(options);
   if (restoredSources.length) transcript.push(`restored apt sources: ${restoredSources.join(" ")}`);
 
@@ -558,7 +557,7 @@ export async function replayRecordedPackages(options: ReplayOptions = {}): Promi
   const pending: string[] = [];
   if (todo.length) {
     await writeFile(paths.log, `${status.startedAt} reinstalling ${todo.join(" ")}\n`);
-    await holdImagePackages(paths, image, run);
+    const pins = await pinImagePackages(paths, image, systemPath);
     try {
       const pass = async (label: string, lists: readonly string[], download: boolean) => {
         const policy = await policies(run, todo.filter((name) => !record[name]!.deb), lists);
@@ -594,12 +593,12 @@ export async function replayRecordedPackages(options: ReplayOptions = {}): Promi
       const settle = async () => { const now = await installed(); todo = todo.filter((name) => !(name in now) && !failed.has(name)); };
 
       // Offline, from the .debs and lists kept in the volume.
-      await pass("offline", [], false);
+      await pass("offline", pins, false);
       await settle();
       if (todo.length) {
         // The replay refreshes its own copy of the lists: apt can't wait for the lists lock, so a
         // bot's `apt-get update` would fail while the replay held the shared one.
-        const lists = ["-o", `Dir::State::Lists=${paths.replayLists}`, "-o", "Dir::Cache::pkgcache=", "-o", "Dir::Cache::srcpkgcache="];
+        const lists = [...pins, "-o", `Dir::State::Lists=${paths.replayLists}`, "-o", "Dir::Cache::pkgcache=", "-o", "Dir::Cache::srcpkgcache="];
         await rm(paths.replayLists, { recursive: true, force: true });
         await mkdir(join(paths.replayLists, "partial"), { recursive: true });
         await run("cp", ["-a", `${paths.lists}/.`, paths.replayLists]);
@@ -627,7 +626,7 @@ export async function replayRecordedPackages(options: ReplayOptions = {}): Promi
         }
       }
     } finally {
-      await releaseHolds(paths, run);
+      await rm(paths.pins, { force: true });
     }
   }
   const after = await installed();
@@ -651,27 +650,27 @@ export async function replayRecordedPackages(options: ReplayOptions = {}): Promi
   return status;
 }
 
-/** Holds the image's packages for the replay; the names held are kept so a killed replay's holds are released next time. */
-async function holdImagePackages(paths: InstallsPaths, image: ImageFiles, run: CommandRunner) {
-  const selections = await run("dpkg", ["--get-selections"]);
-  const held = new Set(selections.output.split("\n").flatMap((line) => (/^(\S+)\s+hold$/.exec(line)?.[1] ?? [])).map((name) => name.replace(/:.*$/, "")));
-  const installed = new Set(selections.output.split("\n").flatMap((line) => (/^(\S+)\s+install$/.exec(line)?.[1] ?? [])).map((name) => name.replace(/:.*$/, "")));
-  const hold = (await readLines(image.baseline)).filter((name) => installed.has(name) && !held.has(name));
-  if (!hold.length) return;
-  await writeAtomic(paths.holds, `${hold.join("\n")}\n`);
-  await setSelections(run, hold, "hold");
+/** apt preferences that keep the image's packages from coming from a source a bot added. */
+export function imagePackagePins(baseline: readonly string[], botHosts: readonly string[]): string {
+  return botHosts.map((host) => `Explanation: OpenTeam replay: the image's packages never come from a source a bot added.\nPackage: ${baseline.join(" ")}\nPin: origin "${host}"\nPin-Priority: -1\n`).join("\n");
 }
 
-async function releaseHolds(paths: InstallsPaths, run: CommandRunner) {
-  const held = await readLines(paths.holds);
-  if (held.length) await setSelections(run, held, "install");
-  await rm(paths.holds, { force: true });
-}
-
-async function setSelections(run: CommandRunner, names: readonly string[], state: "hold" | "install") {
-  // dpkg --set-selections reads stdin; a here-string through sh keeps the runner simple.
-  const list = names.map((name) => `${name} ${state}`).join("\n");
-  await run("sh", ["-c", 'printf "%s\\n" "$1" | dpkg --set-selections', "openteam-holds", list]);
+/**
+ * Pins the image's packages for the replay: none may come from a host only a bot's source uses,
+ * and --no-remove keeps any from being removed. Debian's own updates to them stay allowed, as when
+ * the bot first installed: the archive keeps only the newest point release, so a -dev package
+ * often needs its library's newer version. Returns apt's options for the pins.
+ */
+async function pinImagePackages(paths: InstallsPaths, image: ImageFiles, systemPath: (path: string) => string): Promise<string[]> {
+  const host = (pair: string) => { try { return new URL(pair.split(" ")[0]!).hostname; } catch { return ""; } };
+  const own = new Set([...(await imageSources(image, systemPath))].map(host));
+  const configured = await sourceFiles(["/etc/apt/sources.list", "/etc/apt/sources.list.d"], systemPath);
+  const hosts = new Set((await Promise.all(configured.map(async (file) => parseSourceFile(await readText(systemPath(file)))))).flat().map(host));
+  const botHosts = [...hosts].filter((name) => name && !own.has(name)).sort();
+  const baseline = await readLines(image.baseline);
+  if (!botHosts.length || !baseline.length) return [];
+  await writeAtomic(paths.pins, imagePackagePins(baseline, botHosts));
+  return ["-o", `Dir::Etc::Preferences=${paths.pins}`];
 }
 
 export const describeEntry = (name: string, entry: RecordedPackage, installed: boolean) =>

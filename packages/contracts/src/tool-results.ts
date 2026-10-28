@@ -79,7 +79,7 @@ export function renderControlResult(
     if (result.delivery === "unknown") return `The ${where} started sending, but its outcome is unknown${id}. Check the chat with ChatItems before discussing another attempt; never resend it automatically.`;
     const card = result.in_dm ? "in your own 1:1 chat with the user, not in this room (a room cannot hold approval cards); tell the room where it is" : "in the chat";
     if (result.delivery === "pending") return `The ${where} could not go out automatically (${result.error}), so it waits on an approval card ${card}${id}. Nothing has been sent.`;
-    return `Raised an approval card for the ${where} ${card}${id}. Nothing has been sent: the user presses Send or Discard on the card, and you're told the outcome. Don't send it again or another way.`;
+    return `Raised an approval card for the ${where} ${card}${id}. Nothing has been sent: the user presses Send or Discard on the card. You're woken when it sends or fails; a discard reaches you on your next turn. Don't send it again or another way.`;
   }
   if (name === "RequestUserForm" && result.sent)
     return "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only, never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back."

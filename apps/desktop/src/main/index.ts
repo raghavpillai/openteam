@@ -3,8 +3,9 @@ import { randomBytes } from "node:crypto";
 import { loadMachineIdentity } from "./host/machine-identity";
 import { DesktopMachineEnrollment } from "./host/machine-enrollment";
 import { MessagesAccess } from "./host/messages-access";
-import { open, rename, unlink } from "node:fs/promises";
-import { hostname } from "node:os";
+import { nativeCommand } from "./host/native-command";
+import { mkdtemp, open, readFile, rename, rm, unlink } from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import {
   compareOpenTeamVersions,
@@ -80,7 +81,9 @@ let isQuitting = false;
 const localMachine = { machineId: "", label: hostname() };
 let machineEnrollment: DesktopMachineEnrollment | null = null;
 // Messages is macOS-only: other platforms report no Messages support at all.
-const messagesAccess = process.platform === "darwin" ? new MessagesAccess() : null;
+const messagesAccess = process.platform === "darwin"
+  ? new MessagesAccess(undefined, undefined, [...new Set([process.env.__CFBundleIdentifier, "dev.openteam.desktop"].filter((id): id is string => !!id))])
+  : null;
 let enrollmentServerUrl: string | null = null;
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#080808" : "#fbfbfb");
 const releasePage = "https://github.com/raghavpillai/openteam/releases/latest";
@@ -938,10 +941,32 @@ ipcMain.handle("openteam:computer:update", async (event, input: unknown) => {
   if (!record || !Object.keys(record).length || Object.keys(record).some(key => key !== "machineLabel" && key !== "messagesEnabled")) throw new Error("Invalid computer settings");
   if ("machineLabel" in record && (typeof record.machineLabel !== "string" || !record.machineLabel.trim())) throw new Error("A computer label is required");
   if ("messagesEnabled" in record && (typeof record.messagesEnabled !== "boolean" || !messagesAccess)) throw new Error("Messages is available on a Mac only");
-  return computerSettingsView(await requireComputerSettings(event).update({
+  const updated = await requireComputerSettings(event).update({
     ...(typeof record.machineLabel === "string" ? { machineLabel: record.machineLabel } : {}),
     ...(typeof record.messagesEnabled === "boolean" ? { messagesEnabled: record.messagesEnabled } : {}),
-  }));
+  });
+  await machineEnrollment?.report();
+  return computerSettingsView(updated);
+});
+// app.getFileIcon crashes the main process on macOS 26 (a SIGTRAP in Chromium's thread pool),
+// so the Messages icon is converted once with sips instead.
+let messagesIconRequest: Promise<string | null> | undefined;
+ipcMain.handle("openteam:computer:messages-icon", async (event) => {
+  requireAuthSender(event);
+  if (!messagesAccess) return null;
+  messagesIconRequest ??= (async () => {
+    const directory = await mkdtemp(join(tmpdir(), "openteam-messages-icon-"));
+    try {
+      const target = join(directory, "messages.png");
+      await nativeCommand("/usr/bin/sips", ["-s", "format", "png", "-Z", "80", "/System/Applications/Messages.app/Contents/Resources/AppIcon.icns", "--out", target]);
+      return `data:image/png;base64,${(await readFile(target)).toString("base64")}`;
+    } catch {
+      return null;
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  })();
+  return messagesIconRequest;
 });
 ipcMain.handle("openteam:computer:messages-permissions", async (event, request: unknown) => {
   requireAuthSender(event);
@@ -956,7 +981,11 @@ ipcMain.handle("openteam:computer:messages-permissions", async (event, request: 
     await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${request === "automation" ? "Privacy_Automation" : "Privacy_Contacts"}`);
     return messagesAccess.request(request);
   }
-  if (request === "automation" || request === "contacts") return messagesAccess.request(request);
+  if (request === "automation" || request === "contacts") {
+    const permissions = await messagesAccess.request(request);
+    await machineEnrollment?.report();
+    return permissions;
+  }
   return messagesAccess.permissions(0);
 });
 
@@ -1197,6 +1226,10 @@ if (!hasSingleInstanceLock) {
           capabilities: new HostCapabilities(undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json")), {
             enabled: async () => (await computerSettings!.read()).messagesEnabled,
             access: messagesAccess ?? undefined,
+            onGrantMissing: () => {
+              mainWindow?.webContents.send("openteam:messages-grants-needed");
+              if (process.platform === "darwin" && !mainWindow?.isFocused()) app.dock?.bounce("informational");
+            },
           }),
         });
       try { hostBridge = await startBridge(port); }

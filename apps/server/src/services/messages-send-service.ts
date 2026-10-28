@@ -111,13 +111,18 @@ export class MessagesSendService {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       if (/outcome is uncertain|disconnected|already dispatched/i.test(reason)) return this.settle(messageId, "unknown", UNCONFIRMED_OUTCOME, false, !wake);
+      // Nothing was sent: the card stays open, worded for the user, who fixes the setting and presses Send again.
+      if (/Messages is turned off/i.test(reason))
+        return this.reopen(messageId, `Messages is turned off on ${stored.machineLabel}. Turn on Use Messages in OpenTeam Settings → Computer there, then press Send again.`);
+      if (/has not granted OpenTeam/i.test(reason))
+        return this.reopen(messageId, `${stored.machineLabel} needs a macOS permission to send texts. Allow it in the window that opened on that Mac, then press Send again.`);
       return this.settle(messageId, "failed", `Nothing was sent: ${stored.machineLabel} refused the text (${reason}).`, wake, !wake, { sendError: reason.slice(0, 500) });
     }
     const how = metadata.sentUnder
       ? "Sent without an approval card: the user allowed this recipient, or every send, on that Mac."
       : metadata.allowedRecipient ? `The user sent it and allowed ${String(metadata.allowedRecipient)} from now on.` : "The user approved and sent your text.";
     const seen = result.verified === true ? "It already appears in the Messages chat." : "It has not appeared in the Messages chat yet; that is not a failure, so do not resend it.";
-    return this.settle(messageId, "sent", `${how} ${seen}`, wake, !wake, { sendResult: result });
+    return this.settle(messageId, "sent", `${how} ${seen}\n${JSON.stringify(result)}`, wake, !wake, { sendResult: result });
   }
 
   private reopen(messageId: string, reason: string) {

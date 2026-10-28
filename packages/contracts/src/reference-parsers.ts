@@ -66,7 +66,7 @@ const sendParameters = external_exports.object({
     "`iMessage` or `SMS` to force one. Omit (or `auto`) to try iMessage, then SMS only if the address is not on iMessage. Ignored with `chatId`, whose guid already carries the service."
   ),
   recipientName: external_exports.string().optional().describe(
-    "The recipient's name exactly as FindContacts returned it, recorded beside the number in the result. Only used with `to`; a `chatId` send shows the chat guid alone. Omit when you do not have one."
+    'The recipient\'s name exactly as FindContacts returned it. Only a `to` send shows it, on the approval card beside the handle; a `chatId` card shows a one-to-one chat\'s handle or "Group chat", never a name. So to text one person whose handle and name you have, send with `to` and this, even if you found their chat. Omit when you do not have one.'
   )
 });
 const checkPermissionsParameters = external_exports.object({});

@@ -48,6 +48,8 @@ interface Window {
       get: () => Promise<OpenTeamComputerSettings>;
       update: (request: { machineLabel?: string; messagesEnabled?: boolean }) => Promise<OpenTeamComputerSettings>;
       messagesPermissions: (request?: "fullDiskAccess" | "automation" | "contacts") => Promise<OpenTeamMessagesPermissions | null>;
+      messagesIcon?: () => Promise<string | null>;
+      onMessagesGrantsNeeded?: (listener: () => void) => () => void;
     };
     files: {
       downloadAll: (

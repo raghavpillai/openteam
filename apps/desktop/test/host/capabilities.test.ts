@@ -149,3 +149,27 @@ test("Messages requests run only while this Mac's own setting allows them", asyn
   await expect(host.handle(request)).resolves.toMatchObject({ kind: "items" });
   expect(reads).toBe(1);
 });
+
+test("a missing macOS grant names itself and opens the permissions dialog instead of failing generically", async () => {
+  let permissions = { fullDiskAccess: false, automation: "unknown", contacts: "notAsked" } as Record<string, unknown>;
+  let prompts = 0;
+  const access = { permissions: async () => permissions, noteAutomation: () => {} };
+  const messages = { execute: async () => ({ kind: "items", items: [] }), people: async () => ({}) };
+  const host = new HostCapabilities(messages as unknown as MacMessages, undefined, "darwin", undefined, {
+    enabled: async () => true,
+    access: access as never,
+    onGrantMissing: () => { prompts++; },
+  });
+  await expect(host.handle({ tool: "ChatItems", botId: "b", arguments: {} })).rejects.toThrow("has not granted OpenTeam Full Disk Access");
+  await expect(host.handle({ tool: "FindContacts", botId: "b", arguments: { query: "Alex" } })).rejects.toThrow("hasn't been asked for Contacts access yet");
+  expect(prompts).toBe(2);
+  permissions = { fullDiskAccess: true, automation: "notAsked", contacts: "notAsked" };
+  // Checking permissions never needs a grant, and reports what Settings shows.
+  await expect(host.handle({ tool: "CheckIMessagePermissions", botId: "b", arguments: {} })).resolves.toEqual({
+    kind: "check-permissions", fullDiskAccess: true, automation: "notAsked", contacts: "denied",
+  });
+  await expect(host.handle({ tool: "ChatItems", botId: "b", arguments: {} })).resolves.toMatchObject({ kind: "items" });
+  permissions = { fullDiskAccess: true, automation: "denied", contacts: "granted" };
+  await expect(host.handle({ tool: "SendIMessage", botId: "b", callId: "c", arguments: { text: "hi", to: "+15555550100" } })).rejects.toThrow("has not granted OpenTeam Automation for Messages");
+  expect(prompts).toBe(3);
+});

@@ -1,20 +1,11 @@
+import { ChevronDown, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { MachineMessagesSettings } from "@openteam/client-core";
-import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { api } from "../../../client/openteam-api";
+import { MessagesPermissionsDialog, missingGrants } from "./messages-permissions-dialog";
 import { InteractiveSwitch, SectionLabel, SettingsGroup, SettingsRow } from "./ui";
 
-type Grant = "fullDiskAccess" | "automation" | "contacts";
-const GRANTS: Array<{ key: Grant; title: string; description: string }> = [
-  { key: "fullDiskAccess", title: "Full Disk Access", description: "Lets bots search your texts" },
-  { key: "automation", title: "Automation", description: "Lets bots send texts through Messages" },
-  { key: "contacts", title: "Contacts", description: "Lets bots find people by name" },
-];
-
-const grantState = (permissions: OpenTeamMessagesPermissions, key: Grant) =>
-  key === "fullDiskAccess" ? (permissions.fullDiskAccess ? "granted" : "denied") : permissions[key];
-
-/** This Mac's Messages switch, its macOS grants, and who bots may text without asking. */
+/** This Mac's Messages switch, its macOS permissions, and who OpenTeam may text without asking. */
 export function MessagesSettings({
   computer,
   onComputerChange,
@@ -25,135 +16,161 @@ export function MessagesSettings({
   const machineId = computer.machine.machineId;
   const [permissions, setPermissions] = useState<OpenTeamMessagesPermissions | null>(null);
   const [send, setSend] = useState<MachineMessagesSettings | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [sendFailed, setSendFailed] = useState(false);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [failed, setFailed] = useState<"enabled" | "standing" | "recipient" | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [recipientsOpen, setRecipientsOpen] = useState(false);
 
+  const changed = () => window.dispatchEvent(new Event("openteam:machines-changed"));
   const loadSend = useCallback(() => {
     if (!machineId) return;
-    void api.machineMessages(machineId).then(setSend).catch(() => setSend(null));
+    void api
+      .machineMessages(machineId)
+      .then((value) => {
+        setSend(value);
+        setSendFailed(false);
+      })
+      .catch(() => setSendFailed(true));
   }, [machineId]);
   useEffect(() => {
-    void window.openteam?.computer.messagesPermissions().then(setPermissions).catch(() => {});
+    const refresh = () => void window.openteam?.computer.messagesPermissions().then(setPermissions).catch(() => {});
+    refresh();
     loadSend();
-    // Grants change in System Settings, outside the app; the server clears send rules when the switch flips.
-    const timer = setInterval(() => {
-      void window.openteam?.computer.messagesPermissions().then(setPermissions).catch(() => {});
-      loadSend();
-    }, 10_000);
-    return () => clearInterval(timer);
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
   }, [loadSend]);
 
-  const act = async (work: () => Promise<void>, failure: string) => {
-    setBusy(true);
-    setError(null);
+  if (!computer.messagesSupported) return null;
+  const enabled = computer.messagesEnabled;
+  const missing = missingGrants(permissions);
+
+  const setEnabled = async (messagesEnabled: boolean) => {
+    setSaving("enabled");
+    setFailed(null);
     try {
-      await work();
-    } catch (cause) {
-      setError(clientErrorMessage(cause, failure));
+      onComputerChange(await window.openteam!.computer.update({ messagesEnabled }));
+      // The server clears send rules whenever the switch flips.
+      setSend((current) => current && { ...current, sendWithoutAsking: false, allowedRecipients: [] });
+      changed();
+      if (messagesEnabled) {
+        const current = await window.openteam!.computer.messagesPermissions().catch(() => null);
+        if (current) setPermissions(current);
+        if (missingGrants(current).length) setDialogOpen(true);
+      }
+    } catch {
+      setFailed("enabled");
     } finally {
-      setBusy(false);
+      setSaving(null);
+    }
+  };
+  const updateSend = async (key: string, input: { sendWithoutAsking?: boolean; removeRecipient?: string }, failure: "standing" | "recipient") => {
+    setSaving(key);
+    setFailed(null);
+    try {
+      setSend(await api.updateMachineMessages(machineId, input));
+    } catch {
+      setFailed(failure);
+    } finally {
+      setSaving(null);
     }
   };
 
-  if (!computer.messagesSupported) return null;
+  const recipients = send?.allowedRecipients ?? [];
   return (
     <>
       <SectionLabel>Messages</SectionLabel>
       <SettingsGroup>
         <SettingsRow
           title="Use Messages"
-          description="Lets OpenTeam bots read and send texts on this Mac"
-          control={
-            <InteractiveSwitch
-              label="Use Messages"
-              checked={computer.messagesEnabled}
-              disabled={busy}
-              onChange={(messagesEnabled) =>
-                void act(async () => {
-                  onComputerChange(await window.openteam!.computer.update({ messagesEnabled }));
-                  setSend((current) => current && { ...current, sendWithoutAsking: false, allowedRecipients: [] });
-                }, "Couldn’t change Messages")
-              }
-            />
-          }
+          description={failed === "enabled" ? "Couldn't save. Try again." : "Lets OpenTeam read and send texts on this Mac"}
+          control={<InteractiveSwitch label="Use Messages" checked={enabled} disabled={saving !== null} onChange={(value) => void setEnabled(value)} />}
         />
-        {computer.messagesEnabled && permissions
-          ? GRANTS.map((grant) => {
-              const state = grantState(permissions, grant.key);
-              return (
-                <SettingsRow
-                  key={grant.key}
-                  title={grant.title}
-                  description={grant.description}
-                  control={
-                    state === "granted" ? (
-                      <span className="text-[12px] text-foreground-secondary">Allowed</span>
-                    ) : (
-                      <button
-                        className="inline-flex h-7 items-center rounded-[8px] bg-black/[0.08] px-3 text-[12px] text-foreground disabled:text-foreground-tertiary dark:bg-white/[0.09]"
-                        disabled={busy}
-                        onClick={() =>
-                          void act(async () => {
-                            setPermissions(await window.openteam!.computer.messagesPermissions(grant.key));
-                          }, "Couldn’t ask macOS for this permission")
-                        }
-                        type="button"
-                      >
-                        {grant.key === "fullDiskAccess" || state === "denied" ? "Open System Settings" : "Allow"}
-                      </button>
-                    )
-                  }
-                />
-              );
-            })
-          : null}
-        {computer.messagesEnabled && send ? (
-          <>
-            <SettingsRow
-              title="Send Without Asking"
-              description="Skips the approval card for every text"
-              control={
+        {enabled ? (
+          <SettingsRow
+            title="macOS permissions"
+            description={!permissions ? "Loading…" : missing.length ? `Needs ${missing.join(", ")}` : "Automation, Contacts and Full Disk Access are allowed"}
+            control={
+              <button
+                className="inline-flex h-7 items-center rounded-[8px] bg-black/[0.08] px-3 text-[12px] text-foreground disabled:text-foreground-tertiary dark:bg-white/[0.09]"
+                disabled={!permissions}
+                onClick={() => setDialogOpen(true)}
+                type="button"
+              >
+                {missing.length ? "Set up" : "Review"}
+              </button>
+            }
+          />
+        ) : null}
+        {enabled ? (
+          <SettingsRow
+            title="Send Without Asking"
+            description={!send ? (sendFailed ? "Couldn't load this setting" : "Loading…") : failed === "standing" ? "Couldn't save. Try again." : "Skips the approval card for every text"}
+            control={
+              sendFailed ? (
+                <button className="text-[12px] text-foreground-secondary hover:text-foreground" onClick={loadSend} type="button">
+                  Retry
+                </button>
+              ) : (
                 <InteractiveSwitch
                   label="Send Without Asking"
-                  checked={send.sendWithoutAsking}
-                  disabled={busy}
-                  onChange={(sendWithoutAsking) =>
-                    void act(async () => setSend(await api.updateMachineMessages(machineId, { sendWithoutAsking })), "Couldn’t save Messages settings")
-                  }
+                  checked={send?.sendWithoutAsking ?? false}
+                  disabled={!send || saving !== null}
+                  onChange={(sendWithoutAsking) => void updateSend("standing", { sendWithoutAsking }, "standing")}
                 />
-              }
-            />
+              )
+            }
+          />
+        ) : null}
+        {enabled && send && !send.sendWithoutAsking && recipients.length ? (
+          <>
             <SettingsRow
               title="Allowed recipients"
-              description={send.allowedRecipients.length ? "Bots can text these people without asking first" : "Choose “Always allow” on a text’s approval card to add someone"}
+              description={failed === "recipient" ? "The change could not be applied. Try again." : "OpenTeam can text these people without asking first"}
+              control={
+                <button
+                  aria-expanded={recipientsOpen}
+                  className="inline-flex h-7 items-center gap-1 rounded-[8px] bg-black/[0.08] px-3 text-[12px] text-foreground dark:bg-white/[0.09]"
+                  onClick={() => setRecipientsOpen((open) => !open)}
+                  type="button"
+                >
+                  {recipients.length === 1 ? "1 person" : `${recipients.length} people`}
+                  <ChevronDown aria-hidden className={`size-3.5 transition-transform ${recipientsOpen ? "rotate-180" : ""}`} strokeWidth={2.25} />
+                </button>
+              }
             />
-            {send.allowedRecipients.map((recipient) => (
-              <SettingsRow
-                key={recipient.recipient}
-                title={recipient.recipientName ?? recipient.recipient}
-                description={recipient.recipientName ? recipient.recipient : undefined}
-                control={
-                  <button
-                    className="text-[12px] text-foreground-secondary hover:text-foreground"
-                    disabled={busy}
-                    onClick={() =>
-                      void act(async () => setSend(await api.updateMachineMessages(machineId, { removeRecipient: recipient.recipient })), "Couldn’t remove this recipient")
-                    }
-                    type="button"
-                  >
-                    Remove
-                  </button>
-                }
-              />
-            ))}
+            {recipientsOpen ? (
+              <ul className="pb-2">
+                {recipients.map((recipient) => (
+                  <li className="flex items-center gap-3 py-1.5 pl-3" key={recipient.recipient}>
+                    <div className="min-w-0 flex-1">
+                      {recipient.recipientName ? <div className="truncate text-[12.5px] font-medium">{recipient.recipientName}</div> : null}
+                      <div className="truncate text-[12px] text-foreground-secondary" dir="ltr">{recipient.recipient}</div>
+                    </div>
+                    <button
+                      aria-label={`Remove ${recipient.recipientName ?? recipient.recipient}`}
+                      className="rounded-md p-1 text-foreground-secondary hover:bg-black/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]"
+                      disabled={saving !== null}
+                      onClick={() => void updateSend(recipient.recipient, { removeRecipient: recipient.recipient }, "recipient")}
+                      type="button"
+                    >
+                      <Trash2 aria-hidden className="size-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </>
         ) : null}
-        {error ? (
-          <p role="alert" className="pb-3 text-xs text-destructive">
-            {error}
-          </p>
-        ) : null}
       </SettingsGroup>
+      <MessagesPermissionsDialog
+        onChange={(value) => {
+          setPermissions(value);
+          changed();
+        }}
+        onOpenChange={setDialogOpen}
+        open={dialogOpen}
+      />
     </>
   );
 }

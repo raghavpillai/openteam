@@ -43,7 +43,7 @@ The desktop app connects your Mac to your server with an outgoing connection, so
 
 1. **Sign in.** Install the app on that Mac and sign in. The Mac joins automatically and shows as **Online** under **Settings → Computer → Computers**.
 2. **Turn on Messages.** In **Settings → Computer**, turn on **Use Messages**. Until you do, bots don't get Messages tools for that Mac at all.
-3. **Grant access.** The same section lists three permissions. **Full Disk Access** lets bots search your texts; macOS doesn't ask for this one, so choose **Open System Settings** and turn on OpenTeam. **Automation** lets bots send through Messages, and **Contacts** lets them find people by name; choose **Allow** and accept the macOS prompt.
+3. **Grant access.** A window lists three macOS permissions; choose **Allow** next to each. **Automation** lets bots send through Messages and **Contacts** lets them find people by name; accept the macOS prompt for each. **Full Disk Access** lets bots search your texts; macOS doesn't ask for this one, so **Allow** opens System Settings, where you turn on OpenTeam.
 4. **Check it.** Ask a bot what's new in your texts.
 
 Keep the app open while bots use Messages. If it closes or the Mac sleeps, that Mac goes offline.
@@ -60,7 +60,7 @@ A text a bot wants to send appears as a **Send this message?** card in its chat,
 - **Discard** drops it, and the bot is told not to send it another way.
 - **Always allow** sends it and lets bots text that person from that Mac without a card from then on.
 
-Under **Settings → Computer → Messages**, **Send Without Asking** skips the card for every text, and **Allowed recipients** lists the people you've allowed, with **Remove**. Rules belong to one Mac. Turning Messages off and on again on that Mac clears them.
+Under **Settings → Computer → Messages**, **Send Without Asking** skips the card for every text, and **Allowed recipients** lists the people you've allowed, with a button to remove each. Rules belong to one Mac. Turning Messages off and on again on that Mac clears them.
 
 ## Example prompts for your Messages
 

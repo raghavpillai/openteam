@@ -41,11 +41,11 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("auth-disabled enrollment i
 test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("Messages runs on a connected Mac that turned it on and fails over when one sleeps",async()=>{
  const db=createPrismaClient(process.env.OPENTEAM_TEST_DATABASE_URL!);
  const service=new MachineService(db,"fixture",undefined,undefined,true);
- const air=crypto.randomUUID(),mini=crypto.randomUUID(),phone=crypto.randomUUID();
+ const air:string=crypto.randomUUID(),mini:string=crypto.randomUUID(),phone:string=crypto.randomUUID();
  const ready={enabled:true,fullDiskAccess:true,automation:"granted",contacts:"granted"};
  let preferred:string|null=null;
  (service as unknown as {preferred:()=>Promise<{machineId:string|null}>}).preferred=async()=>({machineId:preferred});
- const pick=(machineId?:string)=>service.messagesMachine(crypto.randomUUID(),undefined,machineId).then(row=>row.label);
+ const pick=(machineId?:string)=>service.messagesMachine(crypto.randomUUID() as string,undefined,machineId).then(row=>row.label);
  try{
   for(const [machineId,label] of [[air,"MacBook Air"],[mini,"Mac mini"],[phone,"Linux box"]] as const){await service.enroll({machineId,label},null);service.relay.connect(machineId);}
   await expect(pick()).rejects.toThrow("No Mac with Messages turned on is connected");

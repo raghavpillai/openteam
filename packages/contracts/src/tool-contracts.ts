@@ -500,6 +500,11 @@ draft.properties.waitForReview = {
     "Set true when the user asked to see, edit or approve this message before it goes out (\"draft ...\", \"let me check it first\"). The card then waits for their Send even if they allowed these recipients for you. Omit it otherwise.",
 };
 
+// A text waits on its card without holding the turn: the result says whether it went out or waits.
+adaptDescription("SendIMessage", [[
+  "; send once and report the result. `via` echoes how it was addressed, and `verified` is whether the text has already appeared in the local chat log, so `false` means not seen yet, not failed. Never resend on `verified: false`.",
+  "; send once. The result says whether it went out at once or waits on the card, and you're woken with the card's outcome; nothing waiting on a card has been sent. In a send's outcome, `via` echoes how it was addressed, and `verified` is whether the text has already appeared in the local chat log, so `false` means not seen yet, not failed. Never resend on `verified: false`.",
+]]);
 // A user can connect several Macs: every Messages tool may name the one it runs on.
 for (const name of DESKTOP_MESSAGES_TOOLS) {
   contracts[name]!.inputSchema.properties.machineId = { type: "string", minLength: 1, description: MESSAGES_MACHINE_ID_DESCRIPTION };

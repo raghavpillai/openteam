@@ -5,7 +5,7 @@ import { SectionLabel, SettingsGroup } from "./ui";
 
 const MESSAGES_LABELS: Record<string, string> = {
   ready: "Messages on",
-  needs_permission: "Messages needs Full Disk Access",
+  needs_permission: "Messages needs permissions",
   off: "Messages off",
 };
 
@@ -23,9 +23,14 @@ export function MachineSettings() {
   };
   useEffect(() => { void api.computerDisplay().then(setDisplay).catch(e=>setError(clientErrorMessage(e,"Could not load display settings"))); void load().catch(e => setError(clientErrorMessage(e, "Could not load computers"))); }, []);
   useEffect(() => {
-    const timer = setInterval(() => { void load().catch(() => {}); }, 10_000);
-    return () => clearInterval(timer);
+    const refresh = () => { void load().catch(() => {}); };
+    const timer = setInterval(refresh, 10_000);
+    window.addEventListener("openteam:machines-changed", refresh);
+    return () => { clearInterval(timer); window.removeEventListener("openteam:machines-changed", refresh); };
   }, []);
+  // This computer first, then the ones online, then the rest.
+  const rank = (machine: { machineId: string; connected: boolean; enabled: boolean }) =>
+    local?.machineId === machine.machineId ? 0 : machine.connected ? 1 : machine.enabled ? 2 : 3;
   const change = async (action: () => Promise<unknown>) => {
     setBusy(true); setError(null);
     try { await action(); await load(); } catch (e) { setError(clientErrorMessage(e, "Could not update computers")); }
@@ -36,7 +41,7 @@ export function MachineSettings() {
     <SettingsGroup>
       <p className="py-2 text-xs text-foreground-secondary">Connect the OpenTeam desktop app to this server on each computer. It joins automatically and stays listed when offline. </p>
       {local && !local.connected && <p role="status" className="py-2 text-xs text-foreground-secondary">{local.error ?? (local.configured ? "Connecting this computer…" : "Sign in to connect this computer.")}</p>}
-      {machines.map(machine => <div key={machine.machineId} className="flex items-center gap-3 py-2 text-xs">
+      {[...machines].sort((a, b) => rank(a) - rank(b)).map(machine => <div key={machine.machineId} className="flex items-center gap-3 py-2 text-xs">
         <div className="min-w-0 flex-1"><div>{machine.label}{local?.machineId === machine.machineId ? " (this computer)" : ""} · {!machine.enabled ? "Disabled" : machine.connected ? "Online" : "Offline"}</div><div className="truncate text-foreground-secondary">{machine.transport === "relay" ? `Desktop app connection${MESSAGES_LABELS[machine.messages] ? ` · ${MESSAGES_LABELS[machine.messages]}` : ""}` : machine.bridgeUrl}</div></div>
         {machine.transport === "relay" && <button type="button" disabled={busy} onClick={() => void change(() => api.setMachineEnabled(machine.machineId, !machine.enabled))}>{machine.enabled ? "Disable" : "Enable"}</button>}
         {local?.machineId !== machine.machineId && <button type="button" disabled={busy} onClick={() => void change(() => api.removeMachine(machine.machineId))}>Remove</button>}

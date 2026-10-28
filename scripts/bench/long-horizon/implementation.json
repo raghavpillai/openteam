@@ -1,8 +1,8 @@
 {
   "status": "implemented; final live validation in progress",
-  "productRevision": "73b5b731",
+  "productRevision": "490cef61",
   "reference": {
-    "source": "Captured Grok runtime/prompts/tools snapshots from October 19–21, 2026, plus support trace comparisons",
+    "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
     "preserved": [
       "Parent owns user-facing delivery",
       "WakeParent terminates automation; it is not a worker progress checkpoint",
@@ -14,32 +14,66 @@
       "Atomic durable obligations and delayed continuation on existing Subagent/Run/Inbox infrastructure",
       "Bounded startup reconciliation, current-run fences, and durable accepted scope"
     ],
-    "headToHead": "Unavailable: prior Grok attempts did not verify account access. No superiority claim."
+    "headToHead": "Live Grok account access restored after native cleanup of an archived benchmark conversation released desktop capacity. One0.75pilot passed provider and transcript gates. Further tests blocked by required0.78.1app update pending user approval; new version cohort will remain separate. No superiority claim."
   },
   "slices": [
     {
       "name": "Scoped authorization",
-      "implementation": "Preserve destination, purpose, original task, accepted chronological steering, and hard read-only limits across resume/restart/compaction. Existing email/Slack drafting rules retain their destinations.",
-      "tests": ["apps/server/test/task-progress.integration.test.ts", "apps/computer/test/runtime/compaction-lifecycle.test.ts"],
-      "liveCases": ["read-only", "fee", "changed appointment terms", "scope narrowed during wait"]
+      "implementation": "Preserve destination, purpose, original task, accepted chronological steering, and hard read-only limits across resume/restart/compaction. Existing email/Slack drafting rules retain their destinations. Resuming a stopped task records host revocation before the new parent instruction; earlier authorization does not silently carry over.",
+      "tests": [
+        "apps/server/test/task-progress.integration.test.ts",
+        "apps/computer/test/runtime/compaction-lifecycle.test.ts"
+      ],
+      "liveCases": [
+        "read-only",
+        "fee",
+        "changed appointment terms",
+        "scope narrowed during wait"
+      ]
     },
     {
       "name": "Progress without worker termination",
       "implementation": "Meaningful evidence-backed milestones atomically commit with an idempotency receipt and parent wake. Working continues; waiting/blocked ends only the current turn after a successful save.",
-      "tests": ["apps/computer/test/runtime/task-progress.test.ts", "apps/server/test/task-progress.integration.test.ts"],
-      "liveCases": ["synchronous support", "asynchronous review", "private export"]
+      "tests": [
+        "apps/computer/test/runtime/task-progress.test.ts",
+        "apps/server/test/task-progress.integration.test.ts"
+      ],
+      "liveCases": [
+        "synchronous support",
+        "asynchronous review",
+        "private export"
+      ]
     },
     {
       "name": "Durable ownership and waiting",
-      "implementation": "Waiting is visible and stoppable, releases graphical capacity, retains original lineage, records next action/check/deadline, and resumes through the existing worker queue.",
-      "tests": ["apps/server/test/task-progress.integration.test.ts", "apps/worker/test/task-continuation.integration.test.ts"],
-      "liveCases": ["delayed return", "appointment confirmation", "unrelated user question", "cancellation", "expired sign-in", "one-hour dependency"]
+      "implementation": "Waiting is visible and stoppable, releases graphical capacity, retains original lineage, records next action/check/deadline, and resumes through the existing worker queue. Initial formal partial/blocked final reports remain pending and parent-owned without an automatic retry.",
+      "tests": [
+        "apps/server/test/task-progress.integration.test.ts",
+        "apps/worker/test/task-continuation.integration.test.ts"
+      ],
+      "liveCases": [
+        "delayed return",
+        "appointment confirmation",
+        "unrelated user question",
+        "cancellation",
+        "expired sign-in",
+        "one-hour dependency"
+      ]
     },
     {
       "name": "Safe reconciliation",
       "implementation": "Current-run checks reject stale reports/completions. Recovery stops old Pi contexts before redrive, fences claims/initial dispatch, preserves ownership, and requires live-state reconciliation before uncertain external effects.",
-      "tests": ["apps/server/test/startup-task-recovery.integration.test.ts", "apps/worker/test/runtime-dispatch.integration.test.ts", "apps/computer/test/runtime/cancellation.test.ts"],
-      "liveCases": ["accepted request with HTTP 504", "full stack hard kill", "server-only restart", "midpoint restart during one-hour wait"]
+      "tests": [
+        "apps/server/test/startup-task-recovery.integration.test.ts",
+        "apps/worker/test/runtime-dispatch.integration.test.ts",
+        "apps/computer/test/runtime/cancellation.test.ts"
+      ],
+      "liveCases": [
+        "accepted request with HTTP 504",
+        "full stack hard kill",
+        "server-only restart",
+        "midpoint restart during one-hour wait"
+      ]
     },
     {
       "name": "Work and latency",
@@ -48,15 +82,47 @@
     }
   ],
   "verification": {
-    "typechecks": { "passed": 15, "total": 15 },
+    "typechecks": {
+      "passed": 15,
+      "total": 15
+    },
     "architecture": "passed",
-    "computer": { "passed": 756, "skipped": 68, "failed": 0 },
-    "serverAndWorker": { "passed": 461, "skipped": 155, "failed": 0 },
-    "targetedLifecycleAndScope": { "passed": 62, "failed": 0 },
-    "startupAndDispatchFence": { "passed": 7, "failed": 0 },
-    "queueFaultInjection": { "passed": 1, "assertions": 16 },
-    "messaging": { "passed": 267, "failed": 1, "failure": "Filesystem-watcher test also fails on unchanged baseline with populated managed skill catalog" },
-    "limits": "Targeted integration results overlap broader suite counts; do not sum them. Skipped environment-dependent tests were not executed. Virtual-time and fake-computer queue tests do not establish live-model behavior."
+    "computer": {
+      "passed": 756,
+      "skipped": 68,
+      "failed": 0
+    },
+    "targetedLifecycleAndScope": {
+      "passed": 15,
+      "assertions": 78,
+      "failed": 0,
+      "scope": "Latest DB lifecycle/scope suite; overlaps broader suites"
+    },
+    "startupAndDispatchFence": {
+      "passed": 7,
+      "failed": 0
+    },
+    "queueFaultInjection": {
+      "passed": 1,
+      "assertions": 26,
+      "scope": "Real DB/queue/worker services with fake computer/model; includes initial partial then explicit new-info resume"
+    },
+    "messaging": {
+      "passed": 267,
+      "failed": 1,
+      "failure": "Filesystem-watcher test also fails on unchanged baseline with populated managed skill catalog"
+    },
+    "limits": "Targeted integration results overlap broader suite counts; do not sum them. Skipped environment-dependent tests were not executed. Virtual-time and fake-computer queue tests do not establish live-model behavior.",
+    "server": {
+      "passed": 342,
+      "skipped": 131,
+      "failed": 0
+    },
+    "worker": {
+      "passed": 119,
+      "skipped": 27,
+      "failed": 0
+    }
   },
   "reproduce": {
     "bun": "1.4.2",
@@ -75,5 +141,40 @@
     "Provider-backed action scores still require semantic transcript and authorization review",
     "Prior invalid infrastructure and harness trials are retained and excluded from frozen comparisons",
     "Cost estimates may omit cancelled or missing provider responses"
-  ]
+  ],
+  "updatedAt": "2026-10-28T16:48:42.582567+00:00",
+  "liveValidation": {
+    "realQueueHourSoaks": {
+      "passed": 3,
+      "inProgress": 1,
+      "latestPassed": "midpoint host recreation plus unrelated input before/after restart",
+      "fourthRevision": "4b6491ed"
+    },
+    "liveModelHour": {
+      "id": "live-hour-expired-2",
+      "revision": "73b5b731",
+      "passed": true,
+      "elapsedSec": 3687.073,
+      "conditions": [
+        "real one-hour outside dependency",
+        "midpoint full stack hard kill",
+        "expired sign-in",
+        "interleaved unrelated input"
+      ],
+      "duplicates": 0,
+      "unauthorizedActions": 0,
+      "questionResponseSec": 9.538,
+      "verifiedReportSec": 25.736,
+      "parkedIntervalModelResponses": 0,
+      "limits": "Fixture outcome and request lifecycle only; no actual label download, shipment or card settlement."
+    },
+    "latestRevisionHeldout": {
+      "cohort": "final3",
+      "revision": "490cef61",
+      "actionsAndTranscriptReviewed": 6,
+      "remaining": "scope narrowing, stale tab, export hard restart and six low/medium ablation cells",
+      "runtimeReliabilityFinding": "Expired-sign-in completed provider action and accurate report; finalization then logged expired5sPrisma transaction, leaving task failed despite complete progress. Retained separately from action/claims pass."
+    },
+    "criticalRepeatedComparisons": "Running20baseline and prospectively20candidate; new Grok version needs approved mandatory app restart. Fixed stacks and time offsets limit causal comparisons."
+  }
 }

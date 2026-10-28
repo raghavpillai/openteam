@@ -1,23 +1,93 @@
 {
   "auditedAt": "2026-10-28",
-  "productRevision": "73b5b731",
-  "referenceBuild": "Captured Grok snapshots, October 19–21; live desktop 0.75.0",
-  "method": "Revisit the historical G1–G14 gap list against the current source and real-loop tests. Prompt/catalog assertions establish surface parity only; live outcomes are reported separately.",
+  "productRevision": "490cef61",
+  "referenceBuild": "Captured Grok snapshots October19\u201321; observed live desktop0.75.0. Required0.78.1update is pending user approval.",
+  "method": "Revisit the historical G1\u2013G14 gap list against the current source and real-loop tests. Prompt/catalog assertions establish surface parity only; live outcomes are reported separately.",
   "areas": [
-    { "gap": "G1", "area": "Turn endings and sibling tool calls", "status": "existing behavioral parity", "evidence": "delivery-batch and real Pi parity-loop tests execute sibling calls and bound failure holds to two" },
-    { "gap": "G2", "area": "Implicit finite watches", "status": "existing instruction parity", "evidence": "platform-system-prompt and managed routines skill include implicit needs and finite/self-expiring watches; durable task waiting is an additional mechanism" },
-    { "gap": "G3", "area": "Worker waiting and reports", "status": "reference status semantics plus extension", "evidence": "Worker done/partial/blocked reporting and outside-dependency rules remain. ReportTaskProgress adds host-owned waiting without abusing terminating WakeParent." },
-    { "gap": "G4", "area": "One-off routines", "status": "existing scheduling support", "evidence": "Existing routine lifecycle/schedule infrastructure is reused; this change does not introduce a second scheduler." },
-    { "gap": "G5", "area": "Outcome delegation", "status": "existing instruction parity", "evidence": "Self-contained parent task, outcome scope, original values and follow-up identity remain; accepted scope is now durable." },
-    { "gap": "G6", "area": "Approval and autonomy", "status": "preserve OpenTeam safety boundaries", "evidence": "Explicit approval remains scoped to destination/purpose/limits. No new fee, changed commitment, read-only mutation or refusal workaround is authorized by progress or recovery." },
-    { "gap": "G7", "area": "Untrusted content and drafting", "status": "existing safety plus clarified destination scope", "evidence": "Third-party content grants no permission; email/Slack drafting routes remain. Website approval does not become email approval." },
-    { "gap": "G8", "area": "Worker revival", "status": "preserved reference semantics", "evidence": "Completion revival retains blocked/partial rules. Nonterminal progress does not consume partial redispatch or terminate a working task." },
-    { "gap": "G9", "area": "Delivery nudges", "status": "intentional bounded divergence", "evidence": "OpenTeam retains a bounded fallback when a user-origin turn produced no outward delivery. Hidden wakes and a successful background dispatch do not receive a closing nudge; delivery-failure tests cover this behavior." },
-    { "gap": "G10", "area": "Skipped questions", "status": "existing state-aware handling", "evidence": "Unanswered/dismissed widget echoes are acknowledged per context. An unrelated new message is not permission; pending task scope survives it." },
-    { "gap": "G11", "area": "Task surface and background delivery", "status": "existing surface parity", "evidence": "Task has self-contained briefs, resume identity, private worker reports and automatic completion delivery; tested by graphical delegation and real queue integration." },
-    { "gap": "G12", "area": "Send scope", "status": "preserve scoped sending and privacy", "evidence": "Saved routines and parent instructions do not authorize unrelated recipients or publications. New chronological updates supersede conflicting old permission." },
-    { "gap": "G13", "area": "Interactive exchange completion", "status": "general extension informed by traces", "evidence": "Answer outstanding questions, close completed interactive exchanges politely and retain unresolved work. Product instructions contain no provider/scenario-specific wording." },
-    { "gap": "G14", "area": "Identity, acknowledgement, clocks and tool modality", "status": "mostly existing instruction parity with local tool adaptations", "evidence": "Action-first acknowledgement, parent-owned private handoffs and clock context exist. Native browser and secure-form adapters remain OpenTeam implementations; no claim of identical internals." }
+    {
+      "gap": "G1",
+      "area": "Turn endings and sibling tool calls",
+      "status": "existing behavioral parity",
+      "evidence": "delivery-batch and real Pi parity-loop tests execute sibling calls and bound failure holds to two"
+    },
+    {
+      "gap": "G2",
+      "area": "Implicit finite watches",
+      "status": "existing instruction parity",
+      "evidence": "platform-system-prompt and managed routines skill include implicit needs and finite/self-expiring watches; durable task waiting is an additional mechanism"
+    },
+    {
+      "gap": "G3",
+      "area": "Worker waiting and reports",
+      "status": "reference status semantics plus extension",
+      "evidence": "Worker done/partial/blocked reporting and outside-dependency rules remain. ReportTaskProgress adds host-owned waiting without abusing terminating WakeParent."
+    },
+    {
+      "gap": "G4",
+      "area": "One-off routines",
+      "status": "existing scheduling support",
+      "evidence": "Existing routine lifecycle/schedule infrastructure is reused; this change does not introduce a second scheduler."
+    },
+    {
+      "gap": "G5",
+      "area": "Outcome delegation",
+      "status": "existing instruction parity",
+      "evidence": "Self-contained parent task, outcome scope, original values and follow-up identity remain; accepted scope is now durable."
+    },
+    {
+      "gap": "G6",
+      "area": "Approval and autonomy",
+      "status": "preserve OpenTeam safety boundaries",
+      "evidence": "Explicit approval remains scoped to destination/purpose/limits. No new fee, changed commitment, read-only mutation or refusal workaround is authorized by progress or recovery."
+    },
+    {
+      "gap": "G7",
+      "area": "Untrusted content and drafting",
+      "status": "existing safety plus clarified destination scope",
+      "evidence": "Third-party content grants no permission; email/Slack drafting routes remain. Website approval does not become email approval."
+    },
+    {
+      "gap": "G8",
+      "area": "Worker revival",
+      "status": "preserved reference semantics",
+      "evidence": "Completion revival retains blocked/partial rules. Nonterminal progress does not consume partial redispatch or terminate a working task."
+    },
+    {
+      "gap": "G9",
+      "area": "Delivery nudges",
+      "status": "intentional bounded divergence",
+      "evidence": "OpenTeam retains a bounded fallback when a user-origin turn produced no outward delivery. Hidden wakes and a successful background dispatch do not receive a closing nudge; delivery-failure tests cover this behavior."
+    },
+    {
+      "gap": "G10",
+      "area": "Skipped questions",
+      "status": "existing state-aware handling",
+      "evidence": "Unanswered/dismissed widget echoes are acknowledged per context. An unrelated new message is not permission; pending task scope survives it."
+    },
+    {
+      "gap": "G11",
+      "area": "Task surface and background delivery",
+      "status": "existing surface parity",
+      "evidence": "Task has self-contained briefs, resume identity, private worker reports and automatic completion delivery; tested by graphical delegation and real queue integration."
+    },
+    {
+      "gap": "G12",
+      "area": "Send scope",
+      "status": "preserve scoped sending and privacy",
+      "evidence": "Saved routines and parent instructions do not authorize unrelated recipients or publications. New chronological updates supersede conflicting old permission."
+    },
+    {
+      "gap": "G13",
+      "area": "Interactive exchange completion",
+      "status": "general extension informed by traces",
+      "evidence": "Answer outstanding questions, close completed interactive exchanges politely and retain unresolved work. Product instructions contain no provider/scenario-specific wording."
+    },
+    {
+      "gap": "G14",
+      "area": "Identity, acknowledgement, clocks and tool modality",
+      "status": "mostly existing instruction parity with local tool adaptations",
+      "evidence": "Action-first acknowledgement, parent-owned private handoffs and clock context exist. Native browser and secure-form adapters remain OpenTeam implementations; no claim of identical internals."
+    }
   ],
   "securityAndPrivacyRetained": [
     "Protected credential/state files and symlink targets cannot be delivered as ordinary attachments",
@@ -29,8 +99,23 @@
     "Grok evidence collection exports only the created benchmark conversation; screenshots crop to its main pane"
   ],
   "additionalRegressionRun": {
-    "computer": { "passed": 57, "failed": 0, "assertions": 298, "files": 6 },
-    "messagingAndCatalog": { "passed": 51, "failed": 0, "assertions": 1007, "files": 5 },
+    "computer": {
+      "passed": 57,
+      "failed": 0,
+      "assertions": 298,
+      "files": 6
+    },
+    "messagingAndCatalog": {
+      "passed": 51,
+      "failed": 0,
+      "assertions": 1007,
+      "files": 5
+    },
     "limits": "These are targeted reruns and overlap the broader suites. They do not establish live Grok reliability, semantic safety in all tasks, or identical model behavior."
+  },
+  "liveEvidence": {
+    "grok075Pilot": "One completed case passed provider/scope/transcript gates; post-outcome screenshot collection hit mandatory client update. Retain collection caveat and version separation.",
+    "securityNegativeCases": "Latest490read-only, cancellation, fee refusal and changed appointment terms passed provider/transcript checks; no duplicate or unauthorized action. Scope-narrowing and stale-tab cases are in progress.",
+    "controlPolicy": "No app security/privacy controls, secure-form routes, file delivery restrictions or connector permissions changed."
   }
 }

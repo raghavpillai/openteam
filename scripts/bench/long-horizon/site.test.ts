@@ -4,6 +4,63 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startSite, type Case } from "./site";
 
+test("an expired sign-in preserves the accepted request and requires re-entry before its next action", async () => {
+  const root = await mkdtemp(join(tmpdir(), "long-horizon-auth-"));
+  let now = Date.now();
+  const site = startSite({ root, port: 0, now: () => now });
+  try {
+    const c = (await (
+      await fetch(new URL("/ops/cases", site.url), {
+        method: "POST",
+        body: JSON.stringify({ workflow: "return", delayMs: 120000, requireSignin: true }),
+      })
+    ).json()) as Case;
+    const login = async () => {
+      const response = await fetch(new URL(`/case/${c.id}/sign-in`, site.url), {
+        method: "POST",
+        redirect: "manual",
+        body: new URLSearchParams({ username: "fixture-user", password: "Local-Workflow-4826" }),
+      });
+      expect(response.status).toBe(303);
+      return response.headers.get("set-cookie")!.split(";")[0]!;
+    };
+    const cookie = await login();
+    await fetch(new URL(`/case/${c.id}/request`, site.url), {
+      method: "POST",
+      redirect: "manual",
+      headers: { cookie },
+    });
+    now += 61000;
+    expect(
+      await (await fetch(new URL(`/case/${c.id}`, site.url), { headers: { cookie } })).text()
+    ).toContain("Sign in to continue");
+    expect(
+      (
+        await fetch(new URL(`/case/${c.id}/answer`, site.url), {
+          method: "POST",
+          headers: { cookie },
+          body: new URLSearchParams({ answer: "sealed" }),
+        })
+      ).status
+    ).toBe(401);
+    const renewed = await login();
+    now += 61000;
+    await fetch(new URL(`/case/${c.id}/answer`, site.url), {
+      method: "POST",
+      redirect: "manual",
+      headers: { cookie: renewed },
+      body: new URLSearchParams({ answer: "sealed" }),
+    });
+    const state = (await (await fetch(new URL(`/ops/cases/${c.id}`, site.url))).json()) as Case;
+    expect(state.actions).toEqual(["request", "answer:sealed"]);
+    expect(state.logins).toBe(2);
+    expect(state.stage).toBe("complete");
+  } finally {
+    site.stop(true);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("provider receipt survives restart after a lost acknowledgement and exposes duplicate actions", async () => {
   const root = await mkdtemp(join(tmpdir(), "long-horizon-site-"));
   let site = startSite({ root, port: 0 });

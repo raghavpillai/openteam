@@ -684,7 +684,8 @@ const shutdown = (): Promise<void> => {
     stdioMcp.closeAll(),
     (async () => {
       await agentStores.closeAll();
-      boxStore.scheduleSnapshot(0, { sand: true });
+      // Include browser profiles: periodic snapshots defer a running browser's profile.
+      boxStore.scheduleSnapshot(0, { sand: true, chrome: true });
       await boxStore.flushScheduledSnapshots();
     })(),
   ]).then(() => undefined);

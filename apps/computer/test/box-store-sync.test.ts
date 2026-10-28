@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type BoxStoreDirtyHint, type BoxStoreManifest, BoxStoreSync } from "../src/box-store-sync";
@@ -405,5 +405,99 @@ describe("OpenTeam-compatible box-store synchronization", () => {
     ]);
     const chrome = (await sync.snapshotOut({ all: false, chrome: true })).files.map(({ path }) => path);
     expect(chrome).toEqual(paths);
+  });
+
+  test("snapshots a running browser's profile at most once per interval, and on browser requests and exit", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-live-profile-"));
+    const home = join(root, "home");
+    const sandRoot = join(home, "sand-data");
+    const workspaceRoot = join(root, "workspace");
+    const profile = join(home, "chrome-profile");
+    await mkdir(join(profile, "Default"), { recursive: true });
+    await mkdir(sandRoot, { recursive: true });
+    await mkdir(workspaceRoot, { recursive: true });
+    // Chromium holds this symlink for as long as it runs and removes it on exit.
+    await symlink("openteam-1234", join(profile, "SingletonLock"));
+    const preferences = join(profile, "Default", "Preferences");
+    const note = join(workspaceRoot, "note.txt");
+    const sync = new BoxStoreSync({ storeRoot: join(root, "store"), home, sandRoot, workspaceRoot });
+    const hash = (manifest: BoxStoreManifest, path: string) =>
+      manifest.files.find((file) => file.path === path)?.sha256;
+    const saved = async (manifest: BoxStoreManifest, path: string) =>
+      (await readFile(join(root!, "store", "blobs", hash(manifest, path)!), "utf8"));
+    const profilePath = "home/box/chrome-profile/Default/Preferences";
+
+    await writeFile(preferences, "v1");
+    await writeFile(note, "w1");
+    expect(await saved(await sync.snapshotOut(), profilePath)).toBe("v1");
+
+    await writeFile(preferences, "v2");
+    await writeFile(note, "w2");
+    const periodic = await sync.snapshotOut();
+    expect(await saved(periodic, profilePath)).toBe("v1");
+    expect(await saved(periodic, "workspace/note.txt")).toBe("w2");
+    expect(periodic.tombstones ?? []).toEqual([]);
+
+    expect(await saved(await sync.snapshotOut({ all: true, chrome: true }), profilePath)).toBe("v2");
+    await writeFile(preferences, "v3");
+    expect(await saved(await sync.snapshotOut({ all: false, chrome: true }), profilePath)).toBe("v3");
+
+    await writeFile(preferences, "v4");
+    expect(await saved(await sync.snapshotOut(), profilePath)).toBe("v3");
+    await rm(join(profile, "SingletonLock"));
+    expect(await saved(await sync.snapshotOut(), profilePath)).toBe("v4");
+
+    const shortInterval = new BoxStoreSync({
+      storeRoot: join(root, "store"),
+      home,
+      sandRoot,
+      workspaceRoot,
+      chromeProfileIntervalMs: 1_000,
+    });
+    await symlink("openteam-1234", join(profile, "SingletonLock"));
+    await shortInterval.snapshotOut();
+    await writeFile(preferences, "v5");
+    expect(await saved(await shortInterval.snapshotOut(), profilePath)).toBe("v4");
+    await Bun.sleep(1_100);
+    expect(await saved(await shortInterval.snapshotOut(), profilePath)).toBe("v5");
+  });
+
+  test("keeps a pending browser request when a periodic full snapshot absorbs it", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-chrome-merge-"));
+    let releaseFirst: (() => void) | undefined;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    class ControlledSync extends BoxStoreSync {
+      readonly hints: BoxStoreDirtyHint[] = [];
+
+      override async snapshotOut(
+        hint: BoxStoreDirtyHint = { all: true }
+      ): Promise<BoxStoreManifest> {
+        this.hints.push(hint);
+        if (this.hints.length === 1) await firstGate;
+        return {
+          version: 1,
+          revision: this.hints.length,
+          generatedAt: new Date(0).toISOString(),
+          files: [],
+          tombstones: [],
+          etag: `run-${this.hints.length}`,
+        };
+      }
+    }
+    const sync = new ControlledSync({ storeRoot: join(root, "replica") });
+    sync.scheduleSnapshot(0, { workspace: true });
+    await Bun.sleep(5);
+    sync.scheduleSnapshot(0, { agentIds: ["agent-a"], chrome: true });
+    sync.scheduleSnapshot(0, { all: true });
+    releaseFirst?.();
+    await sync.flushScheduledSnapshots();
+    expect(sync.hints).toHaveLength(2);
+    expect(sync.hints[1]).toEqual({ all: true, chrome: true });
+
+    sync.scheduleSnapshot(0, { all: true });
+    await sync.flushScheduledSnapshots();
+    expect(sync.hints[2]).toEqual({ all: true });
   });
 });

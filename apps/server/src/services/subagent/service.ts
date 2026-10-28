@@ -725,7 +725,14 @@ export class SubagentService {
       });
       if (current.status === "waiting") await tx.subagentAttempt.updateMany({ where: { subagentId: subagent.id, childRunId: current.currentRunId, status: "waiting" }, data: { status: "completed", completedAt: new Date() } });
       const priorProgress = taskProgress(current.progress);
-      const scopeUpdates = [...taskScopeUpdates(current.scopeUpdates), { callId: context.callId, runId: wake.run.id, message: input.prompt }];
+      const scopeUpdates = taskScopeUpdates(current.scopeUpdates);
+      if (current.status === "stopped") scopeUpdates.push({
+        callId: `host-stop:${current.currentRunId ?? current.id}`,
+        runId: current.currentRunId ?? current.parentRunId,
+        source: "host_stop",
+        message: "The preceding task was explicitly stopped. Its earlier permission to continue actions does not carry over. The new parent instruction must convey current authorization for any send, submission, sharing, purchase or other external mutation. Unchanged prohibitions still apply.",
+      });
+      scopeUpdates.push({ callId: context.callId, runId: wake.run.id, message: input.prompt });
       if (JSON.stringify(scopeUpdates).length > 64000) throw new ApiError(409, "task_scope_full", "The steering history is full. Start a fresh task with its complete current approved scope and limits.");
       const fileAttachments = (input.file_attachments ?? current.fileAttachments) as Prisma.InputJsonValue;
       const resumedProgress = priorProgress?.remaining.length ? { ...priorProgress, state: "working" as const, runId: wake.run.id, revision: current.progressRevision + 1 } : { ...initialTaskProgress(wake.run.id), revision: current.progressRevision + 1 };

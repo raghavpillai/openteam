@@ -19,6 +19,25 @@ import { SubagentService } from "../src/services/subagent/service";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 
+test.skipIf(!url)("resuming a stopped task retains permission revocation before the new scope", () => fixture(async f => {
+  const service = new SubagentService(f.db, f.messaging, { cancel: () => Effect.succeed({}) } as never,
+    f.root, async () => Response.json({ stopped: true }), f.store);
+  await service.stop(f.parent.bot.id, "stop-before-status-read", { subagent_id: `sand-subagent-${f.sub.id}` });
+  const prompt = "Read the existing status only. Do not send, submit or change anything.";
+  await service.task({ ...f.context, botId: f.parent.bot.id, runId: f.parent.run.id,
+    conversationId: f.parent.bot.conversation!.id, channelId: f.parent.channel.id, callId: crypto.randomUUID() }, {
+    description: "Inspect stopped work", subagent_type: "computerUse", resume: `sand-subagent-${f.sub.id}`,
+    prompt, read_only: true,
+  });
+  const resumed = await f.db.subagent.findUniqueOrThrow({ where: { id: f.sub.id } });
+  const updates = resumed.scopeUpdates as any[];
+  expect(updates).toHaveLength(2);
+  expect(updates[0]).toMatchObject({ source: "host_stop", runId: f.child.run.id });
+  expect(updates[1].message).toBe(prompt);
+  expect(resumed.readOnly).toBe(true);
+  expect(resumed.prompt).toBe(f.sub.prompt);
+}));
+
 for (const status of ["partial", "blocked"]) test.skipIf(!url)(
   `an initial ${status} report keeps ownership without copying private report text into progress`,
   () => fixture(async f => {

@@ -2068,7 +2068,7 @@ export class WakeWorker {
       });
       return;
     }
-    if (interrupted && await recoverTaskInterruption(tx, this.messaging, subagent.id, claimed.runId, attempt.id, details)) return;
+    if (interrupted && taskProgress(subagent.progress)?.remaining.length && await recoverTaskInterruption(tx, this.messaging, subagent.id, claimed.runId, attempt.id, details)) return;
     // A run the computer never settled reads as interrupted; a reported failure gives its error.
     const result = interrupted ? SUBAGENT_INTERRUPTED_RESULT : String(details.message ?? "");
     const failed = await tx.subagent.updateMany({

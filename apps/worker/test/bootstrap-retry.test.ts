@@ -210,6 +210,8 @@ describe("execute tells a computer outage from a reported failure", () => {
     worker.computerUrl = turn === "unreachable" ? "http://127.0.0.1:9" : computer.url.origin;
     worker.controlToken = "token";
     worker.prisma = {
+      $executeRaw: async () => 0,
+      $transaction: async (body: (tx: unknown) => Promise<unknown>) => body(worker.prisma),
       pluginInstallation: { findMany: async () => [] },
       run: { update: async () => ({}), findUnique: async () => ({ status: "running" }) },
       subagent: { findUnique: async () => null },

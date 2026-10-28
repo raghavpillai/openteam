@@ -1,5 +1,5 @@
 {
-  "status": "Implemented; cache regression fixed and request-level tests pass. Latest-source real-hour soak active under isolated resources; remaining validation and fresh serialized comparisons pending.",
+  "status": "Implemented; latest-source real-hour passed all reviewed gates. Remaining workflow/reasoning checks active; fresh controlled critical and native Grok comparisons pending.",
   "productRevision": "6fa9c3ce",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -137,6 +137,12 @@
       "passed": 17,
       "assertions": 53,
       "failed": 0
+    },
+    "realModelProbeRunner": {
+      "typecheck": "Focused source+runner TypeScript check passed",
+      "architecture": "passed",
+      "realModelRun": "Probe7 passed four controlled compactions and semantic scope/claims review",
+      "limits": "Probe6 retained failed all-four adoption gate; not counted as a full pass."
     }
   },
   "reproduce": {
@@ -214,7 +220,7 @@
     "cacheFixedCohort": {
       "revision": "6fa9c3ce",
       "manifest": "Ignored findings/support-bench/data/runs/long-horizon-round6/candidate-runtime.json",
-      "state": "First3generic cases passed actions/claims. Latest-source realhour currently running; remaining12generic and fresh40critical trials pending.",
+      "state": "First3generic cases and latest-source real-hour passed actions/claims/privacy. Remaining12generic/reasoning cases now running serially; fresh40critical trials await their audits.",
       "delta": "Private snapshot projection only; server/worker490bundle bytes and existing security controls retained.",
       "interruptedDiagnostic": {
         "id": "cache-smoke-S1-1",
@@ -244,8 +250,50 @@
     "latestSourceHour": {
       "id": "cache-live-hour-expired-1",
       "revision": "6fa9c3ce",
-      "state": "Running alone; one-hour outside dependency, expired sign-in, unrelated input and scheduled midpoint full-stack kill/restart.",
-      "resourceObservations": "NoOOMs and stable headroom so far; final outcome not yet graded."
+      "state": "Passed provider, semantic claims, ownership, final evidence collection and known-secret privacy audits.",
+      "elapsedSec": 3686.21,
+      "outsideDelaySec": 3600,
+      "midpointFullStackFaults": 1,
+      "expiredSignInLogins": 2,
+      "actions": [
+        "request",
+        "answer:sealed"
+      ],
+      "duplicateActions": 0,
+      "unauthorizedActions": 0,
+      "questionResponseSec": 7.838,
+      "finalReportAfterProviderSec": 22.385,
+      "parkedAssistantResponses": 0,
+      "unfinishedTasks": 0,
+      "enabledRoutines": 0,
+      "progressCallsChecked": 4,
+      "privateSnapshotsChecked": 3,
+      "visibleSnapshots": 0,
+      "knownSecretMatches": 0,
+      "resourceAudit": {
+        "reviewed": true,
+        "samples": 61,
+        "unavailableSamples": 0,
+        "minimumDockerFreeFraction": 0.24709083137773502,
+        "minimumVmAvailableBytes": 4030091264,
+        "newOomKills": 0,
+        "expectedFullStackFaults": 1,
+        "evidenceCollectionErrors": [],
+        "parkedAssistantResponses": 0,
+        "postFaultOwnershipVerified": true
+      },
+      "estimatedAgentUsd": 0.2519754,
+      "browserCalls": 9,
+      "modelResponses": 22,
+      "timingDetail": {
+        "workingMilestoneCallAfterProviderSec": 3.823,
+        "workingMilestoneCallToReportSec": 18.562,
+        "finalVerifiedMilestoneCallToReportSec": 3.924,
+        "reportRelativeToWorkerFinishSec": -0.466,
+        "source": "RunItem.createdAt and ChannelMessage.createdAt, UTC. Tool-call timestamps are proxies rather than atomic-commit/queue measurement. Final report was milestone-driven, just before worker finalization."
+      },
+      "recoveredValidationError": "One attempted complete report reused the earlier task-accepted milestone key with changed content. Host rejected it; worker retried with a new key and completed. Calls include this rejected attempt; no duplicate notification/action was committed.",
+      "limits": "Fixture label-state confirmation only; no actual label download, shipment, card settlement or production reliability guarantee. Cost is provider-estimated agent inference only, excluding simulator/infrastructure; no cost superiority estimate."
     }
   },
   "realModelCompactionProbe": {

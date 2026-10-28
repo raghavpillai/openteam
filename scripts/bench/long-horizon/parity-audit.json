@@ -1,7 +1,7 @@
 {
   "auditedAt": "2026-10-28",
   "productRevision": "490cef61",
-  "referenceBuild": "Captured Grok snapshots October19\u201321; observed live desktop0.75.0. Required0.78.1update is pending user approval.",
+  "referenceBuild": "Captured Grok snapshots October19\u201321; observed live desktop 0.75.0. Required 0.78.1 update is pending user approval.",
   "method": "Revisit the historical G1\u2013G14 gap list against the current source and real-loop tests. Prompt/catalog assertions establish surface parity only; live outcomes are reported separately.",
   "areas": [
     {
@@ -115,7 +115,7 @@
   },
   "liveEvidence": {
     "grok075Pilot": "One completed case passed provider/scope/transcript gates; post-outcome screenshot collection hit mandatory client update. Retain collection caveat and version separation.",
-    "securityNegativeCases": "Latest490read-only, cancellation, fee refusal and changed appointment terms passed provider/transcript checks; no duplicate or unauthorized action. Scope-narrowing and stale-tab cases are in progress.",
+    "securityNegativeCases": "Latest 490 read-only, cancellation, fee refusal and changed appointment terms passed provider/transcript checks; no duplicate or unauthorized action. Scope-narrowing and stale-tab cases are in progress.",
     "controlPolicy": "No app security/privacy controls, secure-form routes, file delivery restrictions or connector permissions changed."
   }
 }

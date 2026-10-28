@@ -592,17 +592,18 @@ export async function replayRecordedPackages(options: ReplayOptions = {}): Promi
       };
       const settle = async () => { const now = await installed(); todo = todo.filter((name) => !(name in now) && !failed.has(name)); };
 
+      // Every replay apt run uses its own copy of the lists. apt-get locks the lists folder (an
+      // install too) and a bot's `apt-get update` can't wait for that lock, so it would fail
+      // while the replay held the shared one.
+      const lists = [...pins, "-o", `Dir::State::Lists=${paths.replayLists}`, "-o", "Dir::Cache::pkgcache=", "-o", "Dir::Cache::srcpkgcache="];
+      await rm(paths.replayLists, { recursive: true, force: true });
+      await mkdir(join(paths.replayLists, "partial"), { recursive: true });
+      await run("cp", ["-a", `${paths.lists}/.`, paths.replayLists]);
+      await rm(join(paths.replayLists, "lock"), { force: true });
       // Offline, from the .debs and lists kept in the volume.
-      await pass("offline", pins, false);
+      await pass("offline", lists, false);
       await settle();
       if (todo.length) {
-        // The replay refreshes its own copy of the lists: apt can't wait for the lists lock, so a
-        // bot's `apt-get update` would fail while the replay held the shared one.
-        const lists = [...pins, "-o", `Dir::State::Lists=${paths.replayLists}`, "-o", "Dir::Cache::pkgcache=", "-o", "Dir::Cache::srcpkgcache="];
-        await rm(paths.replayLists, { recursive: true, force: true });
-        await mkdir(join(paths.replayLists, "partial"), { recursive: true });
-        await run("cp", ["-a", `${paths.lists}/.`, paths.replayLists]);
-        await rm(join(paths.replayLists, "lock"), { force: true });
         let refresh = await attempt("refresh package lists", "apt-get", [...lists, "-q", "update"], UPDATE_TIMEOUT_MS);
         const before = todo.length;
         await pass("network", lists, true);
@@ -627,6 +628,7 @@ export async function replayRecordedPackages(options: ReplayOptions = {}): Promi
       }
     } finally {
       await rm(paths.pins, { force: true });
+      await rm(paths.replayLists, { recursive: true, force: true });
     }
   }
   const after = await installed();

@@ -257,8 +257,10 @@ test("replay installs offline when it can, and from its own lists otherwise", as
   expect(status.restored.sort()).toEqual(["cowsay", "sl"]);
   const apt = fake.calls.filter((call) => call.startsWith("apt-get"));
   expect(apt[0]).toContain("--no-download --ignore-missing install cowsay sl");
-  // The refresh and the online install use the replay's own lists, so a bot's `apt-get update` never waits on them.
-  expect(apt[1]).toContain(`-o Dir::State::Lists=${fake.paths.replayLists}`);
+  // Every replay apt run uses the replay's own lists, so a bot's `apt-get update` never finds them locked.
+  for (const call of fake.calls.filter((call) => call.startsWith("apt-get") || call.startsWith("apt-cache")))
+    expect(call).toContain(`-o Dir::State::Lists=${fake.paths.replayLists}`);
+  expect(await stat(fake.paths.replayLists).catch(() => null)).toBeNull();
   expect(apt[1]).toEndWith("-q update");
   expect(apt[2]).toEndWith("install sl");
   expect(fake.calls[0]).toBe("dpkg --configure -a");
@@ -343,7 +345,7 @@ test("a kept .deb comes back by its file", async () => {
   await writeFile(fake.paths.packages, JSON.stringify({ packages: { glow: { deb: "glow_2.1.1_arm64.deb" } } }));
   const status = await replayRecordedPackages({ paths: fake.paths, image: fake.image, run: fake.run, systemPath: fake.system, log: () => {} });
   expect(status.restored).toEqual(["glow"]);
-  expect(fake.calls.some((call) => call.endsWith(`--no-download --ignore-missing install ${join(fake.paths.local, "glow_2.1.1_arm64.deb")}`))).toBe(true);
+  expect(fake.calls.some((call) => call.includes("--no-download --ignore-missing install") && call.endsWith(join(fake.paths.local, "glow_2.1.1_arm64.deb")))).toBe(true);
 });
 
 test("each bot hears once what the last start couldn't bring back", async () => {

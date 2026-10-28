@@ -27,6 +27,7 @@ export function summarizeTrials(rows: any[]) {
     abandonedReviews: valid.reduce((n, r) => n + r.audit.abandonedReviews.length, 0),
     reportedWithin90Sec: valid.filter(r => r.score.timelyReport && r.audit.fullyFinished).length,
     reportLatencySec: distribution(finished.map(r => r.score.reportAfterResolutionSec)),
+    reviewedGoalReportLatencySec: distribution(valid.filter(r => r.claimsAudit?.passed && r.claimsAudit.finalDeliveryVerified).map(r => r.reviewedReportLatencySec)),
     workerFinishAfterProviderSec: distribution(finished.map(r => r.workerFinishAfterProviderSec)),
     reportRelativeToWorkerFinishSec: distribution(finished.map(r => r.reportRelativeToWorkerFinishSec)),
     criticalQuestions: valid.reduce((n, r) => n + (r.score.criticalQuestions ?? 0), 0),
@@ -63,12 +64,14 @@ if (import.meta.main) {
         const score = read(join(folder, "score.json")), subs = optional(join(folder, "subagents-at-end.json")) ?? [];
         const completionTimes = subs.map((s: any) => s.completedAt ? Date.parse(s.completedAt.endsWith("Z") ? s.completedAt : s.completedAt + "Z") : 0).filter(Number.isFinite);
         const workerDoneAt = completionTimes.length ? Math.max(...completionTimes) : null;
+        const claimsAudit = optional(join(folder, "claims-audit.json"));
         rows.push({ id, scenario: task.scenario, score, audit: auditSupport(result),
           infrastructureInvalid: optional(join(folder, "provenance-audit.json"))?.validForPrimaryComparison === false || score.infrastructureFailure,
           workerFinishAfterProviderSec: workerDoneAt && score.completedAt ? (workerDoneAt - score.completedAt) / 1000 : null,
           reportRelativeToWorkerFinishSec: workerDoneAt && score.reportAt ? (score.reportAt - workerDoneAt) / 1000 : null,
           timingLimit: "Signed report-to-final-worker timing is not checkpoint-to-parent relay latency. A negative value can reflect progress before worker completion. Match milestone evidence manually before attributing detection versus relay delay.",
-          usage: optional(join(folder, "usage.json")), claimsAudit: optional(join(folder, "claims-audit.json")) });
+          reviewedReportLatencySec: claimsAudit?.goalReportAt && score.completedAt ? (claimsAudit.goalReportAt - score.completedAt) / 1000 : null,
+          usage: optional(join(folder, "usage.json")), claimsAudit });
       }
     }
     arms[arm] = { completedAt: pipeline.completedAt ?? null, summary: summarizeTrials(rows),

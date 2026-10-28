@@ -15,6 +15,8 @@ export type TurnStatus = "completed" | "failed" | "interrupted" | "cancelled";
 
 export interface ActiveTurn {
   taskConfiguration?: TaskConfiguration;
+  /** A connected Mac had Messages turned on when the turn started, so the Messages tools are offered. */
+  messagesAvailable?: boolean;
   pluginRuntimePackages?: readonly import("@openteam/plugin-sdk").PluginRuntimePackage[];
   pluginAbortController?: AbortController;
   closePluginSession?: () => Promise<void>;

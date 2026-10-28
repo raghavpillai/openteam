@@ -104,14 +104,6 @@ const newerVersion = (next: string, current: string): boolean => {
 };
 
 export type ReleasedPluginUpdate = { key: string; from: string; to: string; reconnect: string[] };
-export type PluginHostComponentView = {
-  key: string;
-  name: string;
-  version: string;
-  installedMarker: string;
-  refreshCommand: string[];
-  files: Record<string, string>;
-};
 
 export class PluginManagement {
   constructor(
@@ -440,31 +432,6 @@ export class PluginManagement {
         }
       }
       return updated;
-    });
-
-  /** Host parts of installations that run exactly the package this release ships. */
-  hostComponents = () =>
-    serviceEffect(async (): Promise<PluginHostComponentView[]> => {
-      const released = await this.releasedPackages();
-      const installations = await this.prisma.pluginInstallation.findMany({
-        where: { status: "installed", pluginKey: { in: [...released.keys()] } },
-        select: { pluginKey: true, manifest: true },
-      });
-      return installations.flatMap((installation) => {
-        const next = released.get(installation.pluginKey)!;
-        const current = definitionFromManifest(installation.manifest);
-        if (!next.host || !current || pluginDigest(current) !== pluginDigest(next)) return [];
-        return [
-          {
-            key: next.key,
-            name: next.name,
-            version: next.version,
-            installedMarker: next.host.installedMarker,
-            refreshCommand: next.host.refreshCommand,
-            files: next.files ?? {},
-          },
-        ];
-      });
     });
 
   update = (key: string, digest: string, rollback = false, automatic = false) =>

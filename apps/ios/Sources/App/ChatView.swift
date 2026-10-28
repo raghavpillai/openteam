@@ -561,8 +561,8 @@ struct MessageRow: View {
             MessageReplyQuote(replyID: reply, channelID: channel.id, ownerID: message.id,
               onOpen: onReplyContext.map { action in { action(reply) } })
           }
-          // A draft card shows its own title; its text is only the chat-list preview.
-          if !message.displayContent.isEmpty, message.metadata["type"].string != "external-draft" {
+          // Draft and approval cards show their own title; their text is only the chat-list preview.
+          if !message.displayContent.isEmpty, !["external-draft", "imessage-send"].contains(message.metadata["type"].string) {
             Group {
               if RichMarkdownView.required(message.displayContent) {
                 RichMarkdownView(source: message.displayContent, forceDark: message.isUser).frame(

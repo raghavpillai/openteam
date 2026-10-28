@@ -37,7 +37,7 @@ enum NativePalette {
   static let user = color("0E0E0E", "545454")
   static let separator = color("E4E4E4", "343434")
   /// The conversation list's column beside a chat, and its open conversation's card.
-  static let sidebar = color("EEEEEF", "1E1E1F")
+  static let sidebar = color("F5F5F6", "1E1E1F")
   static let sidebarSelection = color("FFFFFF", "2E2E30")
   static let code = color("E5E5E5", "2C2C2C")
   static let selection = code
@@ -275,6 +275,7 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
   var bottom: Bottom
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var keyboardFrame = CGRect.null
+  @State private var topBarHeight: CGFloat = 0
   func body(content: Content) -> some View {
     GeometryReader { viewport in
       let bounds = viewport.frame(in: .global)
@@ -287,11 +288,12 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
           .overlay(alignment: .top) {
             ChromeFade(edge: .top)
               .frame(height: viewport.safeAreaInsets.top + 104)
-              // The chat header is 44 points with six points above and below.
-              .offset(y: -viewport.safeAreaInsets.top - 56)
+              // Duo adds clearance above its controls. Include the complete
+              // header so the fade still reaches the top of the viewport.
+              .offset(y: -viewport.safeAreaInsets.top - topBarHeight)
           }
           .safeAreaBar(edge: .top, spacing: 0) {
-            top
+            top.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topBarHeight = $0 }
           }
           // The composer needs a stable native inset while becoming first
           // responder. The iOS 26 scroll-pocket bar can relinquish its editor

@@ -83,6 +83,8 @@ import {
 } from "./events";
 import { createJsonTransport, type OpenTeamTransportOptions } from "./http";
 
+/** A Mac's send settings: skip every approval card, or only for allowed recipients. */
+export interface MachineMessagesSettings { machineId: string; sendWithoutAsking: boolean; allowedRecipients: Array<{ recipient: string; recipientName: string | null }> }
 export interface OpenTeamClientOptions extends OpenTeamTransportOptions {
   createId?: () => string;
   timeZone?: () => string;
@@ -178,7 +180,9 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         body: audio,
         signal,
       }),
-    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;connected:boolean;enabled:boolean}>>("/api/v0/server-settings/machines"),
+    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;connected:boolean;enabled:boolean;lastSeenAt:string|null;messages:"ready"|"needs_permission"|"off"|"unavailable";messagesPermissions:{fullDiskAccess:boolean;automation:string;contacts:string}|null}>>("/api/v0/server-settings/machines"),
+    machineMessages: (machineId:string) => transport.request<MachineMessagesSettings>(`/api/v0/server-settings/machines/${encodeURIComponent(machineId)}/messages`),
+    updateMachineMessages: (machineId:string, input:{sendWithoutAsking?:boolean;removeRecipient?:string}) => transport.request<MachineMessagesSettings>(`/api/v0/server-settings/machines/${encodeURIComponent(machineId)}/messages`,{method:"PATCH",body:JSON.stringify(input)}),
     computerDisplay: () => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display"),
     saveComputerDisplay: (value:{width:number;height:number}) => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display",{method:"PATCH",body:JSON.stringify(value)}),
     registerMachine: (bridgeUrl:string) => transport.request("/api/v0/server-settings/machines",{method:"POST",body:JSON.stringify({bridgeUrl})}),
@@ -671,6 +675,8 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     mutateSharedTemplate: (messageId: string, action: "import" | "publish" | "unpublish", clientId?: string) =>
       transport.request<RichMessageMutationView & { botId?: string }>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/bot-template`, { method: "POST", body: JSON.stringify({ action, clientId }) }),
     sharedTemplateRecipe: (messageId: string) => transport.request<import("@openteam/contracts").BotRecipe>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/bot-template/recipe`),
+    mutateIMessageSend: (messageId: string, action: "send" | "allow" | "cancel" | "refresh") =>
+      transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/imessage-send`, { method: "POST", body: JSON.stringify({ action }) }),
     mutateExternalDraft: (messageId: string, action: "send" | "cancel" | "refresh", edits?: Record<string, unknown>) =>
       transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/external-draft`, { method: "POST", body: JSON.stringify({ action, edits }) }),
     /** Sets how the card's Bot gets later drafts approved; `edits` carries unsent recipient changes. */

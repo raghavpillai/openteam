@@ -60,6 +60,16 @@ export class DesktopMachineEnrollment {
     });
   }
 
+  /** Sends this computer's identity and Messages state now; the next poll would carry it within 20 s anyway. */
+  async report() {
+    const enrollment = this.current;
+    if (!enrollment) return;
+    await this.channel(enrollment, "/heartbeat", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(await this.options.getIdentity()), signal: AbortSignal.timeout(5_000),
+    }).catch(() => {});
+  }
+
   isConnected() { return !!this.current; }
   status() { return { connected: this.isConnected(), configured: !!this.serverUrl, error: this.connectionError }; }
 

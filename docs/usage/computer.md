@@ -54,9 +54,20 @@ With your permission, a bot can:
 
 Bots don't get a view of your screen or control of your mouse and keyboard. They work through commands and files.
 
-Bots execute commands, transfers, and available native tools directly on enrolled computers. To stop access, disable the computer under **Settings → Computer → Computers** or close the desktop app.
+Bots execute commands, transfers, and available native tools directly on enrolled computers. To stop access, disable the computer from its **…** menu under **Settings → Computer → Manage devices** or close the desktop app.
 
-Your computer may ask you to grant OpenTeam permissions, such as access to Contacts. To read Messages, turn on Full Disk Access for OpenTeam in **System Settings → Privacy & Security**; macOS doesn't ask for this one.
+Your computer may ask you to grant OpenTeam permissions, such as access to Contacts.
+
+### Messages on a Mac
+
+Bots can use Messages only on a Mac where you turn it on:
+
+1. On that Mac, open **Settings → Computer** in the desktop app and turn on **Use Messages**, or choose **Set up** next to **Messages** under **This Mac** in **Marketplace**.
+2. A window lists the macOS permissions Messages needs. Choose **Allow** next to each: **Automation** lets bots send through Messages, **Contacts** lets them find people by name, and **Full Disk Access** lets them search your texts. macOS doesn't ask for Full Disk Access, so **Allow** opens System Settings, where you turn on OpenTeam. Reopen the window any time from **macOS permissions** in the same section. If a bot needs a permission you haven't granted, the window opens on that Mac.
+
+Before a bot sends a text, a **Send this message?** card shows the recipient, the text and the Mac it goes out from, in the desktop and iPhone apps. Choose **Send**, **Discard**, or **Always allow** to let bots text that person from that Mac without asking. **Send Without Asking** skips the card for every text. **Allowed recipients** under **Settings → Computer → Messages** lists the people you've allowed, with a button to remove each. Turning Messages off and on again clears both.
+
+With Messages on for more than one Mac, a bot uses the Mac you last wrote from, or the only one that's online. A Mac goes offline when it sleeps or its app closes, so closing a MacBook moves Messages to another Mac that's awake. **Settings → Computer → Manage devices** shows each computer as online now or when it was last opened, and whether Messages is on there. The iPhone app has the same list under **Settings → Manage devices**.
 
 Keep the desktop app open while a bot works on your computer. When you give a task, say which computer you mean, because the bot's Linux computer and your own computer have different files.
 

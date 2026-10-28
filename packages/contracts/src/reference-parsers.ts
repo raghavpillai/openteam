@@ -2,6 +2,7 @@
 // Generated from the September 12 tool source: schema construction and pure normalization only.
 import { z as external_exports } from "zod";
 import { parseToolArguments } from "./tool-arguments";
+import { MESSAGES_MACHINE_ID_DESCRIPTION } from "./desktop-capability-names";
 import * as import_node_path165 from "node:path";
 const import_node_path166 = import_node_path165;
 class SandToolInputError extends Error {}
@@ -65,7 +66,7 @@ const sendParameters = external_exports.object({
     "`iMessage` or `SMS` to force one. Omit (or `auto`) to try iMessage, then SMS only if the address is not on iMessage. Ignored with `chatId`, whose guid already carries the service."
   ),
   recipientName: external_exports.string().optional().describe(
-    "The recipient's name exactly as FindContacts returned it, recorded beside the number in the result. Only used with `to`; a `chatId` send shows the chat guid alone. Omit when you do not have one."
+    'The recipient\'s name exactly as FindContacts returned it. Only a `to` send shows it, on the approval card beside the handle; a `chatId` card shows a one-to-one chat\'s handle or "Group chat", never a name. So to text one person whose handle and name you have, send with `to` and this, even if you found their chat. Omit when you do not have one.'
   )
 });
 const checkPermissionsParameters = external_exports.object({});
@@ -241,7 +242,9 @@ function normalizeDestinationPath(raw) {
   }
   return normalized;
 }
-const schemas = { FindContacts:findContactsParameters, FindIMessageChats:findChatsParameters, ChatItems:chatItemsParameters, SearchIMessages:searchParameters, IMessageActivity:activityParameters, FetchIMessageAttachment:fetchAttachmentParameters, SendIMessage:sendParameters, CheckIMessagePermissions:checkPermissionsParameters, RequestCookieOriginApproval:chromeCookieImportParameters, UploadFile:external_exports.preprocess(explainMissingUploadSourcePath, uploadFileParameters), DownloadFile:external_exports.preprocess(explainWrongDownloadFileCall, downloadFileParameters) };
+// Deployment extension: a user can connect several Macs, so each Messages tool may name one.
+const onMachine = (schema) => schema.extend({ machineId: external_exports.string().trim().min(1).optional().describe(MESSAGES_MACHINE_ID_DESCRIPTION) });
+const schemas = { FindContacts:onMachine(findContactsParameters), FindIMessageChats:onMachine(findChatsParameters), ChatItems:onMachine(chatItemsParameters), SearchIMessages:onMachine(searchParameters), IMessageActivity:onMachine(activityParameters), FetchIMessageAttachment:onMachine(fetchAttachmentParameters), SendIMessage:onMachine(sendParameters), CheckIMessagePermissions:onMachine(checkPermissionsParameters), RequestCookieOriginApproval:chromeCookieImportParameters, UploadFile:external_exports.preprocess(explainMissingUploadSourcePath, uploadFileParameters), DownloadFile:external_exports.preprocess(explainWrongDownloadFileCall, downloadFileParameters) };
 export function parseReferenceArguments(name: string, raw: unknown): Record<string, any> {
  const schema = schemas[name]; if(!schema) throw new Error('No reference parser: '+name);
  const args = parseToolArguments(schema, raw);

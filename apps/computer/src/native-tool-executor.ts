@@ -1,4 +1,5 @@
 import { MachineDirectory } from "./machine-directory";
+import { DESKTOP_MESSAGES_TOOLS } from "@openteam/contracts/desktop-capability-names";
 import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 import type { ChildProcess } from "node:child_process";
 import { Readable } from "node:stream";
@@ -93,8 +94,20 @@ export interface CopyFileInput { computer_path?: string; box_path?: string; mach
 
 export class NativeToolExecutor {
   async desktopCapability(tool: string, botId: string, args: unknown, signal?: AbortSignal, callId?: string, channelId?: string): Promise<Record<string, any>> {
-    const machineId = await this.machines?.preferred(botId, channelId, signal);
-    return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId, machineId }, signal, undefined, 15 * 60_000);
+    if (!(DESKTOP_MESSAGES_TOOLS as readonly string[]).includes(tool)) {
+      const machineId = await this.machines?.preferred(botId, channelId, signal);
+      return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId, machineId }, signal, undefined, 15 * 60_000);
+    }
+    // Messages runs only on a Mac that turned it on; the server picks one when the call names none.
+    const { machineId: requested, ...rest } = (args ?? {}) as Record<string, unknown>;
+    if (!this.machines) throw new Error("Messages needs the OpenTeam server's computer directory");
+    const machineId = await this.machines.messagesMachine(botId, channelId, typeof requested === "string" ? requested : undefined, signal);
+    return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: rest, callId, machineId }, signal, undefined, 15 * 60_000);
+  }
+
+  /** Whether any connected Mac offers Messages right now. */
+  messagesAvailable(signal?: AbortSignal): Promise<boolean> {
+    return this.machines ? this.machines.messagesAvailable(signal).catch(() => false) : Promise.resolve(false);
   }
   private readonly shellJobs: ShellJobRegistry;
   private readonly liveShells = new Map<string, { scope: string; background: boolean; stop: () => void }>();
@@ -484,7 +497,7 @@ export class NativeToolExecutor {
 
   async listMachines(signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
     const response = this.machines ? {machines:await this.machines.list(signal)} : await this.hostFetch(HOST_BRIDGE_PATHS.machines,{},signal,parseHostMachinesResponse);
-    return textResult(JSON.stringify({ machines: response.machines.map(machine => ({ machineId:machine.machineId, label:machine.label, connected:(machine as HostMachine & {connected?:boolean}).connected ?? true })) }, null, 2), {
+    return textResult(JSON.stringify({ machines: response.machines.map(machine => ({ machineId:machine.machineId, label:machine.label, connected:(machine as HostMachine & {connected?:boolean}).connected ?? true, messages:(machine as {messages?:string}).messages ?? "unavailable" })) }, null, 2), {
       machines: response.machines,
     });
   }

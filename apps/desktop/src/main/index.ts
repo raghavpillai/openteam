@@ -2,8 +2,10 @@ import { TailscaleManager } from "./tailscale-manager";
 import { randomBytes } from "node:crypto";
 import { loadMachineIdentity } from "./host/machine-identity";
 import { DesktopMachineEnrollment } from "./host/machine-enrollment";
-import { open, rename, unlink } from "node:fs/promises";
-import { hostname } from "node:os";
+import { MessagesAccess } from "./host/messages-access";
+import { nativeCommand } from "./host/native-command";
+import { mkdtemp, open, readFile, rename, rm, unlink } from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import {
   compareOpenTeamVersions,
@@ -78,6 +80,10 @@ const activityNotifications = new Map<string, Notification>();
 let isQuitting = false;
 const localMachine = { machineId: "", label: hostname() };
 let machineEnrollment: DesktopMachineEnrollment | null = null;
+// Messages is macOS-only: other platforms report no Messages support at all.
+const messagesAccess = process.platform === "darwin"
+  ? new MessagesAccess(undefined, undefined, [...new Set([process.env.__CFBundleIdentifier, "dev.openteam.desktop"].filter((id): id is string => !!id))])
+  : null;
 let enrollmentServerUrl: string | null = null;
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#080808" : "#fbfbfb");
 const releasePage = "https://github.com/raghavpillai/openteam/releases/latest";
@@ -910,7 +916,7 @@ const requireComputerSettings = (event: Electron.IpcMainInvokeEvent) => {
 };
 
 const computerSettingsView = (settings: ComputerSettings) => ({
-  ...settings, machine: { ...localMachine, label: settings.machineLabel ?? localMachine.label },
+  ...settings, machine: { ...localMachine, label: settings.machineLabel ?? localMachine.label }, messagesSupported: !!messagesAccess,
 });
 let computerClipboardActive = false;
 ipcMain.on("openteam:computer-clipboard-active", (event, active: unknown) => {
@@ -931,8 +937,56 @@ ipcMain.handle("openteam:computer-clipboard-write", (event, text: unknown) => {
 });
 ipcMain.handle("openteam:computer:get", async event => computerSettingsView(await requireComputerSettings(event).read()));
 ipcMain.handle("openteam:computer:update", async (event, input: unknown) => {
-  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => key !== "machineLabel") || typeof (input as any).machineLabel !== "string" || !(input as any).machineLabel.trim()) throw new Error("A computer label is required");
-  return computerSettingsView(await requireComputerSettings(event).update({ machineLabel: (input as any).machineLabel }));
+  const record = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : null;
+  if (!record || !Object.keys(record).length || Object.keys(record).some(key => key !== "machineLabel" && key !== "messagesEnabled")) throw new Error("Invalid computer settings");
+  if ("machineLabel" in record && (typeof record.machineLabel !== "string" || !record.machineLabel.trim())) throw new Error("A computer label is required");
+  if ("messagesEnabled" in record && (typeof record.messagesEnabled !== "boolean" || !messagesAccess)) throw new Error("Messages is available on a Mac only");
+  const updated = await requireComputerSettings(event).update({
+    ...(typeof record.machineLabel === "string" ? { machineLabel: record.machineLabel } : {}),
+    ...(typeof record.messagesEnabled === "boolean" ? { messagesEnabled: record.messagesEnabled } : {}),
+  });
+  await machineEnrollment?.report();
+  return computerSettingsView(updated);
+});
+// app.getFileIcon crashes the main process on macOS 26 (a SIGTRAP in Chromium's thread pool),
+// so the Messages icon is converted once with sips instead.
+let messagesIconRequest: Promise<string | null> | undefined;
+ipcMain.handle("openteam:computer:messages-icon", async (event) => {
+  requireAuthSender(event);
+  if (!messagesAccess) return null;
+  messagesIconRequest ??= (async () => {
+    const directory = await mkdtemp(join(tmpdir(), "openteam-messages-icon-"));
+    try {
+      const target = join(directory, "messages.png");
+      await nativeCommand("/usr/bin/sips", ["-s", "format", "png", "-Z", "80", "/System/Applications/Messages.app/Contents/Resources/AppIcon.icns", "--out", target]);
+      return `data:image/png;base64,${(await readFile(target)).toString("base64")}`;
+    } catch {
+      return null;
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  })();
+  return messagesIconRequest;
+});
+ipcMain.handle("openteam:computer:messages-permissions", async (event, request: unknown) => {
+  requireAuthSender(event);
+  if (!messagesAccess) return null;
+  if (request === "fullDiskAccess") {
+    await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles");
+    return messagesAccess.permissions(0);
+  }
+  // macOS never asks twice: after a denial only System Settings can grant it.
+  const current = await messagesAccess.permissions(0);
+  if ((request === "automation" || request === "contacts") && current[request] === "denied") {
+    await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${request === "automation" ? "Privacy_Automation" : "Privacy_Contacts"}`);
+    return messagesAccess.request(request);
+  }
+  if (request === "automation" || request === "contacts") {
+    const permissions = await messagesAccess.request(request);
+    await machineEnrollment?.report();
+    return permissions;
+  }
+  return messagesAccess.permissions(0);
 });
 
 ipcMain.handle("openteam:performance-snapshot", async (event) => {
@@ -1090,8 +1144,9 @@ if (!hasSingleInstanceLock) {
       const activityChanged = () => mainWindow?.webContents.send("openteam:notifications:activity-changed");
       powerMonitor.on("lock-screen", () => { notificationScreenLocked = true; activityChanged(); });
       powerMonitor.on("unlock-screen", () => { notificationScreenLocked = false; notificationDeliveryFailed = false; activityChanged(); });
-      powerMonitor.on("suspend", () => { notificationSuspended = true; activityChanged(); });
-      powerMonitor.on("resume", () => { notificationSuspended = false; activityChanged(); });
+      // A sleeping computer goes offline at once, so bots move Messages and other work to one that's awake.
+      powerMonitor.on("suspend", () => { notificationSuspended = true; activityChanged(); void machineEnrollment?.stop(); });
+      powerMonitor.on("resume", () => { notificationSuspended = false; activityChanged(); if (enrollmentServerUrl) machineEnrollment?.configure(enrollmentServerUrl); });
       powerMonitor.on("user-did-resign-active", () => { notificationScreenLocked = true; activityChanged(); });
       powerMonitor.on("user-did-become-active", () => { notificationScreenLocked = false; activityChanged(); });
       desktopNotifications = new DesktopNotificationManager({
@@ -1168,7 +1223,14 @@ if (!hasSingleInstanceLock) {
           machineId: localMachine.machineId,
           machineLabel: localMachine.label,
           runJob: hostJobs.run,
-          capabilities: new HostCapabilities(undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json"))),
+          capabilities: new HostCapabilities(undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json")), {
+            enabled: async () => (await computerSettings!.read()).messagesEnabled,
+            access: messagesAccess ?? undefined,
+            onGrantMissing: () => {
+              mainWindow?.webContents.send("openteam:messages-grants-needed");
+              if (process.platform === "darwin" && !mainWindow?.isFocused()) app.dock?.bounce("informational");
+            },
+          }),
         });
       try { hostBridge = await startBridge(port); }
       catch (error) {
@@ -1184,7 +1246,10 @@ if (!hasSingleInstanceLock) {
         getToken: async () => (await authTokenStore!.read()).token,
         getIdentity: async () => {
           const settings = await computerSettings!.read();
-          return { label: settings.machineLabel ?? localMachine.label };
+          return {
+            label: settings.machineLabel ?? localMachine.label,
+            ...(messagesAccess ? { messages: { enabled: settings.messagesEnabled, ...await messagesAccess.permissions() } } : {}),
+          };
         },
       });
       if (enrollmentServerUrl) machineEnrollment.configure(enrollmentServerUrl);

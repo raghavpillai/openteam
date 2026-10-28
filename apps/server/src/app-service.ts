@@ -179,7 +179,8 @@ export class AppService {
       this.messaging,
       this.plugins,
       this.screens,
-      this.bots
+      this.bots,
+      this.machines
     );
     this.runs = new RunService(
       this.prisma,
@@ -509,6 +510,7 @@ export class AppService {
   sharedTemplateRecipe = (id: string, publicOnly = false) =>
     this.richMessages.sharedTemplates.recipe(id, publicOnly);
   mutateExternalDraft = forwardServiceMethod(() => this.richMessages.externalDrafts.mutate);
+  mutateIMessageSend = forwardServiceMethod(() => this.richMessages.messagesSends!.mutate);
   submitUserForm = forwardServiceMethod(() => this.richMessages.submitUserForm);
   userFormPrefill = forwardServiceMethod(() => this.richMessages.formPrefill);
 

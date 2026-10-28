@@ -34,7 +34,7 @@ export function summarizeUsage(entries: any[], since = 0) {
       if (item.name === "CallDynamicTool" && item.arguments?.namespace === "browser") totals.browserCalls++;
     }
   }
-  return { ...totals, since, costLimit: "Provider-reported estimate, not an invoice; missing/cancelled responses can have unreported cost. Token categories follow provider semantics and need not be disjoint." };
+  return { ...totals, since, costLimit: "Agent response estimates only, excluding simulator/counterparty and infrastructure costs; not an invoice. Missing/cancelled responses can have unreported cost. Token categories follow provider semantics and need not be disjoint." };
 }
 
 if (import.meta.main) {

@@ -130,6 +130,6 @@
   "cachePreservation": {
     "observed": "Source490moving tail snapshot prevented conversation-prefix reuse in two live support trials; high estimated cost retained.",
     "change": "Private host snapshots now persist in existing Pi transcript on change. They are hidden from UI and do not start another turn.",
-    "verification": "Actual serialized provider requests preserve prior prefix, including when snapshot advances; latest state and scope remain in four consecutive compactions. Fresh live cost validation pending."
+    "verification": "Actual serialized requests preserve their prefix and latest state across four compactions. Real diagnostic cachedprefix grew32\u201335k, but shared-resource browser crash interrupted completion; full cost-per-completed-task validation pending under serialized protocol."
   }
 }

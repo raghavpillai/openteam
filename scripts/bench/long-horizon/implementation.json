@@ -1,5 +1,5 @@
 {
-  "status": "Implemented; cache-prefix regression fixed and request-level regression verified. Fresh versioned live validation in progress.",
+  "status": "Implemented; cache regression fixed and request-level tests pass. Latest-source real-hour soak active under isolated resources; remaining validation and fresh serialized comparisons pending.",
   "productRevision": "6fa9c3ce",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -155,9 +155,10 @@
     "Repeated trials are exploratory with fixed stacks and wall-clock offsets",
     "Provider-backed action scores still require semantic transcript and authorization review",
     "Prior invalid infrastructure and harness trials are retained and excluded from frozen comparisons",
-    "Cost estimates may omit cancelled or missing provider responses"
+    "Cost estimates may omit cancelled or missing provider responses",
+    "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-28T16:48:42.582567+00:00",
+  "updatedAt": "2026-10-28T18:57:19.354261+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -191,7 +192,7 @@
       "runtimeReliabilityFinding": "Expired-sign-in completed provider action and accurate report; finalization then exceeded a 5-second Prisma transaction, leaving task failed despite saved complete progress. Shared-host one-minute load was 880.75 at the time; record observed runtime failure and resource confound, not an established product regression.",
       "faultOutcome": "Stale-tab retry and post-acceptance full-stack hard-kill export passed. Original uninjected stale-tab attempt retained as a harness-invalid fault trial."
     },
-    "criticalRepeatedComparisons": "Unchanged bf7 baseline20 continues. Old490candidate stopped after2complete trials for confirmed cache defect; both quality outcomes and $5.94/$6.24 estimated costs retained. Fresh6fa9cohort repeats workflow/fault/ablation checks before20new critical trials. Grok native restart approval pending.",
+    "criticalRepeatedComparisons": "Prior concurrent baseline stopped after10observations (9valid,6fullclaims passes; one resource-affected browser failure). Source490candidate stopped after2correct but costly trials. Fresh controlled20baseline+20candidate trials will run serially after latest-source soak and generic checks; no pooling across these regimes.",
     "reasoningAblation": {
       "revision": "490cef61 previous cohort",
       "actionGatesPassed": 6,
@@ -211,9 +212,18 @@
     },
     "cacheFixedCohort": {
       "revision": "6fa9c3ce",
-      "manifest": "Ignored findings/support-bench/data/runs/long-horizon-round5/candidate-runtime.json",
-      "state": "Fresh15workflow/fault/ablation checks running, then20new support trials. No live cost improvement claimed before measurements.",
-      "delta": "Only private task snapshot projection changed; model/customer policy/prompts/security controls frozen. Server/worker490bundle bytes retained."
+      "manifest": "Ignored findings/support-bench/data/runs/long-horizon-round6/candidate-runtime.json",
+      "state": "First3generic cases passed actions/claims. Latest-source realhour currently running; remaining12generic and fresh40critical trials pending.",
+      "delta": "Private snapshot projection only; server/worker490bundle bytes and existing security controls retained.",
+      "interruptedDiagnostic": {
+        "id": "cache-smoke-S1-1",
+        "estimatedAgentUsd": 0.4312104,
+        "modelResponses": 46,
+        "browserCalls": 18,
+        "cacheReadTokens": 1211394,
+        "cacheWriteTokens": 103270,
+        "result": "Actual browser target crash under shared OOM/disk pressure, no completed-goal pass. Growing real cachedprefix32\u201335k observed; do not claim lower cost per completed task."
+      }
     },
     "progressPrivacy": {
       "previousGenericCases": 15,
@@ -223,6 +233,18 @@
       "previousSupportCallsChecked": 14,
       "knownFixturePasswordPinOperatorKeyMatches": 0,
       "limits": "Exact known fake-account values only; not a general secret detector or proof about all channels."
+    },
+    "resourceRecovery": {
+      "evidence": "Browser target errors on both stacks, kernel OOM-kill counters3/9, Docker free fraction below21%. All outcomes/costs retained with provenance flags.",
+      "action": "Stopped only own idle benchmark services. Verified8unused cached registry digests still downloadable and removed local cache copies without force; exact restore commands retained. No data volumes or active/namedlocal deployment images removed.",
+      "result": "FreeDocker restored to~24.7%; idleVMavailable5.26GB, activecandidate~4GB. New protocol oneOTbrowser stack at a time, preflightVMavailable1GiB, unchanged10GiB+21%disk guards, halt after resource breach.",
+      "cohort": "long-horizon-round6; fresh40critical trial order counterbalanced by repetition."
+    },
+    "latestSourceHour": {
+      "id": "cache-live-hour-expired-1",
+      "revision": "6fa9c3ce",
+      "state": "Running alone; one-hour outside dependency, expired sign-in, unrelated input and scheduled midpoint full-stack kill/restart.",
+      "resourceObservations": "NoOOMs and stable headroom so far; final outcome not yet graded."
     }
   }
 }

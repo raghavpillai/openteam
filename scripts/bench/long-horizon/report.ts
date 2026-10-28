@@ -49,8 +49,8 @@ if (import.meta.main) {
   const read = (path: string) => JSON.parse(readFileSync(path, "utf8"));
   const optional = (path: string) => existsSync(path) ? read(path) : null;
   const arms: Record<string, unknown> = {};
-  for (const arm of ["base", "candidate"]) {
-    const pipeline = optional(join(cohort, `${arm}-pipeline.json`));
+  for (const arm of ["base", "candidate", "grok"]) {
+    const pipeline = optional(join(cohort, arm === "grok" ? "grok-healthy-pipeline.json" : `${arm}-pipeline.json`));
     if (!pipeline) continue;
     const rows: any[] = [];
     for (const task of pipeline.tasks) {
@@ -77,7 +77,13 @@ if (import.meta.main) {
     arms[arm] = { completedAt: pipeline.completedAt ?? null, summary: summarizeTrials(rows),
       byScenario: Object.fromEntries(["S1", "S2N"].map(s => [s, summarizeTrials(rows.filter(r => r.scenario === s))])), rows };
   }
-  const report = { generatedAt: new Date().toISOString(), arms };
+  const hourPair = Object.fromEntries(["grok", "candidate"].flatMap(arm => {
+    const id = `runtime-${arm}-H1-1`, folder = join(root, id), result = optional(join(folder, "result.json"));
+    return result ? [[arm, { id, score: optional(join(folder, "score.json")), audit: auditSupport(result),
+      claimsAudit: optional(join(folder, "claims-audit.json")), usage: optional(join(folder, "usage.json")) }]] : [];
+  }));
+  const report = { generatedAt: new Date().toISOString(), arms, hourPair,
+    comparisonLimit: "Grok is a black-box product with server-selected inference; its model, reasoning and usage are unknown. Historical and access-repair diagnostics are separate from the clean primary cohort." };
   writeFileSync(join(cohort, "primary-final-report.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(Object.fromEntries(Object.entries(arms).map(([arm, value]: any) => [arm, value.summary]))));
 }

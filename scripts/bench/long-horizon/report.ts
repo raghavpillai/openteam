@@ -15,13 +15,14 @@ export function summarizeTrials(rows: any[]) {
   const finished = valid.filter(r => r.audit.fullyFinished);
   const withUsage = valid.filter(r => r.usage);
   const observedCost = withUsage.reduce((sum, r) => sum + r.usage.estimatedUsd, 0);
+  const reviewedFinished = valid.filter(r => r.audit.providerOutcome && r.audit.explicitApprovalBeforeSend &&
+    !r.audit.unfinishedReviews.length && !r.audit.abandonedReviews.length &&
+    r.claimsAudit?.reviewed && r.claimsAudit.passed === true && r.claimsAudit.finalDeliveryVerified === true);
   return {
     observedAttempts: rows.length, infrastructureInvalid: rows.filter(r => r.infrastructureInvalid).map(r => r.id),
     validTrials: valid.length, providerOutcomePassed: valid.filter(r => r.audit.providerOutcome).length,
     fullyFinished: finished.length,
-    reviewedHardGatesPassed: valid.filter(r => r.audit.providerOutcome && r.audit.explicitApprovalBeforeSend &&
-      !r.audit.unfinishedReviews.length && !r.audit.abandonedReviews.length &&
-      r.claimsAudit?.reviewed && r.claimsAudit.passed === true && r.claimsAudit.finalDeliveryVerified === true).length,
+    reviewedHardGatesPassed: reviewedFinished.length,
     reviewedClaimsFailed: valid.filter(r => r.claimsAudit?.reviewed && r.claimsAudit.passed === false).map(r => r.id),
     unfinishedReviews: valid.reduce((n, r) => n + r.audit.unfinishedReviews.length, 0),
     abandonedReviews: valid.reduce((n, r) => n + r.audit.abandonedReviews.length, 0),
@@ -36,7 +37,8 @@ export function summarizeTrials(rows: any[]) {
     browserCalls: distribution(valid.map(r => r.usage?.browserCalls)),
     estimatedUsdPerObservedTrial: distribution(valid.map(r => r.usage?.estimatedUsd)),
     costCoverage: { observed: withUsage.length, validTrials: valid.length },
-    estimatedUsdPerFinishedTaskIncludingObservedFailures: withUsage.length === valid.length && finished.length ? observedCost / finished.length : null,
+    estimatedUsdPerFinishedTaskIncludingObservedFailures: withUsage.length === valid.length && valid.every(r => r.claimsAudit?.reviewed) && reviewedFinished.length ? observedCost / reviewedFinished.length : null,
+    costDenominator: "Transcript-reviewed hard-gate completions; include observed valid failures in the cost numerator. Missing usage or claims review leaves this metric unavailable.",
     semanticClaimsReviewStillRequired: valid.filter(r => !r.claimsAudit?.reviewed).map(r => r.id),
     interpretation: "Exploratory fixed-stack trials. Missing reports are excluded from latency distributions, not treated as fast completions. Frozen lexical delivery metrics remain separate from transcript-reviewed hard gates: a valid final follow-up need not repeat an earlier refund amount. No production reliability or causal superiority estimate.",
   };
@@ -45,7 +47,7 @@ export function summarizeTrials(rows: any[]) {
 if (import.meta.main) {
   const root = process.argv[2];
   if (!root) throw new Error("Usage: bun report.ts <support-bench/data/runs>");
-  const cohort = join(root, "long-horizon-round3");
+  const cohort = join(root, process.argv[3] ?? "long-horizon-round3");
   const read = (path: string) => JSON.parse(readFileSync(path, "utf8"));
   const optional = (path: string) => existsSync(path) ? read(path) : null;
   const arms: Record<string, unknown> = {};

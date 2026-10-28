@@ -11,6 +11,15 @@ test("missing timing and invalid infrastructure attempts cannot inflate completi
   expect(distribution([5, 9, null, 1, 3])).toEqual({ observed: 4, median: 4, p90: 9, max: 9 });
 });
 
+test("cost per completed task uses reviewed outcomes and includes failed-attempt cost", () => {
+  const row = { id: "delivered", audit: { providerOutcome: true, explicitApprovalBeforeSend: true,
+    fullyFinished: false, unfinishedReviews: [], abandonedReviews: [] }, score: {}, usage: { estimatedUsd: 1 },
+    claimsAudit: { reviewed: true, passed: true, finalDeliveryVerified: true } };
+  expect(summarizeTrials([row, { ...row, id: "failed", claimsAudit: { reviewed: true, passed: false } }]))
+    .toMatchObject({ reviewedHardGatesPassed: 1, estimatedUsdPerFinishedTaskIncludingObservedFailures: 2 });
+  expect(summarizeTrials([{ ...row, usage: null }]).estimatedUsdPerFinishedTaskIncludingObservedFailures).toBeNull();
+});
+
 test("a reviewed final follow-up can establish delivery without matching a refund phrase twice", () => {
   const row = { id: "different-wording", audit: { providerOutcome: true, explicitApprovalBeforeSend: true,
     fullyFinished: false, unfinishedReviews: [], abandonedReviews: [] }, score: {},

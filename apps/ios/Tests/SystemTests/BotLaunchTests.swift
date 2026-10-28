@@ -129,6 +129,7 @@ final class BotLaunchTests: SystemIntentFixture {
     intent.bot = TeamBotEntity(try XCTUnwrap(client.bootstrap.bots.first), scope: scope)
     _ = try await client.api.request("/__qa/control", method: "POST", body: .object([
       "transcription": .string("missing")]))
+    await store.refresh(flushPending: false)
     do { _ = try await intent.perform(); XCTFail("Recorded without transcription configured") }
     catch { XCTAssertTrue(error.localizedDescription.contains("Configure voice notes")) }
     XCTAssertNil(store.botVoiceLaunch.pending)
@@ -148,6 +149,91 @@ final class BotLaunchTests: SystemIntentFixture {
         requiringSecureCoding: true)
       XCTAssertFalse(encoded.isEmpty)
     }
+  }
+
+  func testSavedBotResolutionUsesTheAccountCacheWhileServerIsUnavailable() async throws {
+    let store = try await connectedStore()
+    store.flushPersistence()
+    let bot = try XCTUnwrap(store.state.bootstrap?.bots.first)
+    let entity = TeamBotEntity(bot, scope: scope)
+    _ = try await API(server: server).request("/__qa/control", method: "POST",
+      body: .object(["offline": .bool(true)]))
+    let resolved = try await TeamBotQuery().entities(for: [entity.id])
+    XCTAssertEqual(resolved.map(\.id), [entity.id])
+    XCTAssertEqual(resolved.first?.name, bot.name)
+    try await assertNoDelivery()
+  }
+
+  func testCachedOpenAndVoiceLaunchDoNotWaitForTheServer() async throws {
+    let store = try await connectedStore()
+    let bot = try XCTUnwrap(store.state.bootstrap?.bots.last)
+    let entity = TeamBotEntity(bot, scope: scope)
+    _ = try await API(server: server).request("/__qa/control", method: "POST",
+      body: .object(["offline": .bool(true)]))
+    var open = OpenTeamBotIntent()
+    open.store = store; open.target = entity
+    _ = try await open.perform()
+    XCTAssertEqual(store.navigation, [bot.dmChannelId])
+    var voice = RecordBotVoiceNoteIntent()
+    voice.store = store; voice.bot = entity
+    _ = try await voice.perform()
+    XCTAssertEqual(store.botVoiceLaunch.pending?.channelID, bot.dmChannelId)
+    try await assertNoDelivery()
+  }
+
+  func testMissingAndCorruptBotCachesFallBackToLiveResolution() async throws {
+    let client = try await SystemIntentClient.connect()
+    let entity = TeamBotEntity(try XCTUnwrap(client.bootstrap.bots.first), scope: scope)
+    let uncached = try await TeamBotQuery().entities(for: [entity.id])
+    XCTAssertEqual(uncached.map(\.id), [entity.id])
+    let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("OpenTeam")
+    let disk = try DiskStore(directory: root, scope: scope)
+    try Data("invalid-cache".utf8).write(to: disk.url)
+    let recovered = try await TeamBotQuery().entities(for: [entity.id])
+    XCTAssertEqual(recovered.map(\.id), [entity.id])
+  }
+
+  func testCachedBotCannotResolveAfterAccountChangeOrLocalReset() async throws {
+    let store = try await connectedStore()
+    store.flushPersistence()
+    let entity = TeamBotEntity(try XCTUnwrap(store.state.bootstrap?.bots.first), scope: scope)
+    var other = session; other.userID = "another-account"
+    try SecureSession.save(other)
+    do { _ = try await TeamBotQuery().entities(for: [entity.id]); XCTFail("Resolved another account's cached Bot") }
+    catch { XCTAssertTrue(error.localizedDescription.contains("different OpenTeam account")) }
+    try SecureSession.save(session)
+    UserDefaults.standard.set(true, forKey: LocalDataReset.pendingKey)
+    defer { UserDefaults.standard.removeObject(forKey: LocalDataReset.pendingKey) }
+    do { _ = try await TeamBotQuery().entities(for: [entity.id]); XCTFail("Resolved a cached Bot during local reset") }
+    catch { XCTAssertTrue(error.localizedDescription.contains("connect to your server")) }
+  }
+
+  func testCachedBotCannotOpenAfterCredentialsChange() async throws {
+    let store = try await connectedStore()
+    let entity = TeamBotEntity(try XCTUnwrap(store.state.bootstrap?.bots.first), scope: scope)
+    var replaced = session; replaced.token = "replacement-fixture-token"
+    try SecureSession.save(replaced)
+    var intent = OpenTeamBotIntent()
+    intent.store = store; intent.target = entity
+    do { _ = try await intent.perform(); XCTFail("Opened stale authenticated app state") }
+    catch { XCTAssertTrue(error.localizedDescription.contains("Connect to this OpenTeam account")) }
+    XCTAssertTrue(store.navigation.isEmpty)
+  }
+
+  func testResolvingCachedBotDoesNotAuthorizeSendingWhileOffline() async throws {
+    let store = try await connectedStore()
+    store.flushPersistence()
+    let entity = TeamBotEntity(try XCTUnwrap(store.state.bootstrap?.bots.first), scope: scope)
+    _ = try await API(server: server).request("/__qa/control", method: "POST",
+      body: .object(["offline": .bool(true)]))
+    let resolved = try await TeamBotQuery().entities(for: [entity.id])
+    let bot = try XCTUnwrap(resolved.first)
+    var intent = SendBotTaskIntent()
+    intent.bot = bot; intent.instructions = "Must still validate on the server"; intent.attachments = []
+    do { _ = try await intent.perform(); XCTFail("Sent from cached metadata") }
+    catch { XCTAssertTrue(error is APIError) }
+    try await assertNoDelivery()
   }
 
   func testRepeatedLaunchPreservesActiveRecordingAndRefusesAnotherBot() throws {

@@ -38,6 +38,8 @@ struct OpenTeamBotIntent: OpenIntent {
   static let description = IntentDescription("Open a chosen Bot's conversation in OpenTeam. Save the Bot in a shortcut to use it with Back Tap or the Action button.")
   static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let openAppWhenRun = true
+  @available(iOS 26.0, *)
+  static var supportedModes: IntentModes { .foreground(.immediate) }
   @Parameter(title: "Bot") var target: TeamBotEntity
   static var parameterSummary: some ParameterSummary { Summary("Open \(\.$target)") }
   @Dependency var store: AppStore
@@ -53,6 +55,8 @@ struct RecordBotVoiceNoteIntent: AudioRecordingIntent {
   static let description = IntentDescription("Open a chosen Bot and start hands-free voice-note recording. Tap Send to transcribe and send, or discard the recording. Works with a saved shortcut assigned to Back Tap or the Action button.")
   static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let openAppWhenRun = true
+  @available(iOS 26.0, *)
+  static var supportedModes: IntentModes { .foreground(.immediate) }
   @Parameter(title: "Bot") var bot: TeamBotEntity
   @Dependency var store: AppStore
   static var parameterSummary: some ParameterSummary { Summary("Record a voice note to \(\.$bot)") }

@@ -138,8 +138,8 @@ For example, say “Send a task with OpenTeam” or “Run a routine in OpenTeam
 Siri asks for the Bot/routine and any required instructions. Debug builds use the
 app name “OpenTeam Swift”. These actions require device authentication and the
 saved server session. Task submission returns the accepted message immediately;
-the agent continues on the server. The server must be reachable over LAN, VPN,
-or the configured remote address.
+the agent continues on the server. Sending, searching, and exporting require a
+reachable server over LAN, VPN, or the configured remote address.
 
 To bind a specific Bot to Back Tap or the iPhone Action button:
 
@@ -163,6 +163,13 @@ This is voice-note messaging, not a continuous voice call. Transcription must be
 configured on the server. Repeating the shortcut preserves an active voice note;
 switching Bots during one asks you to send or discard it first. Unused recording
 requests expire after 30 seconds and are cleared on account changes or sign-out.
+Saved Bot parameters resolve from the connected account's existing local cache.
+Known Bots open without waiting for server bootstrap, and a configured voice
+composer can start recording once visible. Normal foreground sync refreshes the
+directory and transcription configuration independently. Missing or corrupt
+caches fall back to live resolution; sending and exporting still validate against
+the server. Device unlock, Shortcuts dispatch, app startup, and microphone
+permission can still add delay.
 The simulator can verify shortcut execution and foreground recording handoff,
 but the physical double/triple Back Tap gesture requires a supported iPhone.
 

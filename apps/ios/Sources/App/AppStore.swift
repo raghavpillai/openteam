@@ -1322,6 +1322,11 @@ final class AppStore {
     recordVoiceNote: Bool = false) async throws {
     let opening = UUID()
     systemOpenGeneration = opening
+    // A saved Bot already identifies a locally known destination. Bring up its
+    // cached chat without waiting for bootstrap; normal foreground sync updates
+    // it independently. Drafting and message lookup keep their live validation.
+    if text == nil, attachments.isEmpty,
+      try await openCachedBot(value, recordVoiceNote: recordVoiceNote) { return }
     let client = try await SystemIntentClient.connect()
     guard opening == systemOpenGeneration else { throw CancellationError() }
     guard let id = SystemEntityID(value), id.scope == client.scope,
@@ -1363,6 +1368,35 @@ final class AppStore {
     if id.kind == .message, focusedMessage != id.localID {
       throw APIError("This message could not be opened. It may have been removed.")
     }
+  }
+
+  private func openCachedBot(_ value: String, recordVoiceNote: Bool) async throws -> Bool {
+    guard let id = SystemEntityID(value), id.kind == .bot else { return false }
+    let session = try SystemIntentClient.savedSession()
+    let scope = SystemEntityID.scope(server: session.server, userID: session.userID)
+    guard id.scope == scope else {
+      throw APIError("This item belongs to a different OpenTeam account. Choose it again.")
+    }
+    if phase == .starting {
+      pendingSystemItem = (value, nil, [], recordVoiceNote, .now)
+      return true
+    }
+    guard phase == .ready, systemScope == scope,
+      record?.server == session.server, record?.userID == session.userID,
+      record?.token == session.token else {
+      throw APIError("Connect to this OpenTeam account before opening its content.")
+    }
+    guard let bootstrap = state.bootstrap,
+      let target = ShareDirectory.destinations(bootstrap).first(where: {
+        $0.id == id.channelID && $0.bot?.id == id.localID && $0.bot?.status != "archived"
+      }) else { return false }
+    // If configuration is not cached yet, a fresh response may enable voice
+    // notes. An already configured composer can begin recording immediately.
+    if recordVoiceNote, bootstrap.runtime["transcription"].string != "configured" { return false }
+    guard try botVoiceLaunch.canOpen(target.id) else { return true }
+    await open(target.id)
+    botVoiceLaunch.open(scope: scope, channelID: target.id, record: recordVoiceNote)
+    return true
   }
 
   private func clearSystemContent() {

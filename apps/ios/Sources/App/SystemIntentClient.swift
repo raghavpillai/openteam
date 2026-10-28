@@ -11,11 +11,16 @@ struct SystemIntentClient {
   let bootstrap: Bootstrap
   var scope: String { SystemEntityID.scope(server: session.server, userID: session.userID) }
 
-  static func connect() async throws -> Self {
+  static func savedSession() throws -> SessionRecord {
     guard !UserDefaults.standard.bool(forKey: LocalDataReset.pendingKey),
       let session = try SecureSession.read() else {
       throw APIError("Open OpenTeam and connect to your server first.")
     }
+    return session
+  }
+
+  static func connect() async throws -> Self {
+    let session = try savedSession()
     let api = try API(server: session.server, token: session.token, timeout: 15)
     let bootstrap: Bootstrap
     do { bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self) }
@@ -43,13 +48,15 @@ struct SystemIntentClient {
     return client
   }
 
-  func validateSession() throws {
+  static func validateSession(_ session: SessionRecord) throws {
     guard !UserDefaults.standard.bool(forKey: LocalDataReset.pendingKey),
       let current = try SecureSession.read(), current.server == session.server,
       current.userID == session.userID, current.token == session.token else {
       throw APIError("Your OpenTeam account changed. Choose the conversation again.")
     }
   }
+
+  func validateSession() throws { try Self.validateSession(session) }
 
   func identifier(_ value: String, kind: SystemEntityID.Kind) throws -> SystemEntityID {
     try validateSession()

@@ -23,10 +23,14 @@ struct TeamBotEntity: IndexedEntity {
     name = bot.name
     role = bot.title
   }
+  init(id: String, name: String, role: String) {
+    self.id = id; self.name = name; self.role = role
+  }
 }
 
 struct TeamBotQuery: EntityStringQuery {
   @MainActor func entities(for identifiers: [String]) async throws -> [TeamBotEntity] {
+    if let cached = try SavedBotDirectory.entities(for: identifiers) { return cached }
     let client = try await SystemIntentClient.connect()
     return try identifiers.compactMap { value in
       try client.destination(value, kind: .bot).bot.map { TeamBotEntity($0, scope: client.scope) }

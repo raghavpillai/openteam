@@ -1,5 +1,5 @@
 {
-  "status": "Runtime implemented and functional/fault/compaction checks verified. Native hour fully audited: abandoned required review, no refund or recovery. Independent nativev4critical batch active. OTcontrolled repeats held after another shared-disk breach; no comparative win claimed.",
+  "status": "Runtime implemented and functional/fault/compaction checks verified. Native hour missed required review. Two fresh native v4access failures audited, with unsupported access claims later retracted; further native launches held at completed boundary. OTcontrolled repeats held by shared disk guard. No comparative win claimed.",
   "productRevision": "6fa9c3ce",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -14,7 +14,7 @@
       "Atomic durable obligations and delayed continuation on existing Subagent/Run/Inbox infrastructure",
       "Bounded startup reconciliation, current-run fences, and durable accepted scope"
     ],
-    "headToHead": "Native0.78.1verified; firstv3nativecase passed manual outcome/report checks, but unpairedhour missed required review and ended with0refund. Independentv4nativecritical batch running. OTlatestcontrolled attempt invalidated by real shared-disk pressure; matchedhour deferred, no H2Hsuperiority claim."
+    "headToHead": "Native0.78.1verified. Firstv3case passed semantic report checks; unpairedhour missed review. Both v4native attempts had no observable account access and retracted progress claims; second also has malformed customer replies. OTv4attempt resource-invalid. Comparison remains inconclusive."
   },
   "slices": [
     {
@@ -134,8 +134,8 @@
       "mechanism": "Append a private transcript snapshot on change or after compaction removed it; unchanged record does not move on later requests or trigger a new turn."
     },
     "benchmarkAnalysis": {
-      "passed": 18,
-      "assertions": 58,
+      "passed": 19,
+      "assertions": 59,
       "failed": 0
     },
     "realModelProbeRunner": {
@@ -421,7 +421,7 @@
       "generalChange": "Supply requested fixture identity facts in embedded questions; preserve pending-widget precedence, limited sharing, recurring-scope refusals and unknown-fact abstention. No provider outcomes or new concessions supplied.",
       "verification": "26harness tests pass; actual recorded unanswered question reproduces null on v3and a scoped fixture-fact reply on v4. No task replay and no proof baseline would subsequently resolve.",
       "inputsUnchanged": "Product revision, task prompts, site models, inference defaults, collection and raw scoring",
-      "launch": "Firstv4OTattempt invalidated by shared disk and remainingOTlaunches held. Currentnativev4critical batch runs independently; no pairedhour task sent while OTpeer stopped."
+      "launch": "Firstv4OTattempt resource-invalid; two nativev4attempts access-unverified, second additionally customer-invalid. All future native launches held after normal current-case cleanup. Matchedhour not sent."
     },
     "nativeHourInterimDeadlineMiss": {
       "observedAt": "2026-10-28T22:04:12.562104+00:00",
@@ -468,7 +468,24 @@
       "newVMOrImagesInstalled": false,
       "macHostFreeKiBAtDiagnosis": 16459428,
       "guardsUnchanged": true,
-      "nextStep": "Stable resources and a fresh explicit retry ID before any OTresume; continue independent native tests."
+      "nextStep": "Finite observer permits one fresh retry only after15minutes above unchanged resource gates. No unrelated cleanup; no repeated automatic retries."
+    },
+    "nativeV4AccessReview": {
+      "cohort": "long-horizon-round7",
+      "reviewedTrials": 2,
+      "providerAccountAccessVerified": 0,
+      "unsupportedAccessClaims": 3,
+      "claimsLaterRetracted": true,
+      "primaryComparisonValidTrials": 0,
+      "secondTrialCustomerHarnessInvalid": true,
+      "nativePendingNotAttempted": 18,
+      "nativeControllerStoppedAtCompletedBoundary": true,
+      "outwardMessagesChecked": 16,
+      "outwardKnownSecretMatches": 0,
+      "siteHomepageHostProbes": "Local/public HTTP200; does not verify native cloud or safety-service reachability.",
+      "toolErrorAttribution": "Model-reported only; no independently visible cloud tool error, no actual block-source determination.",
+      "securityPrivacyUnchanged": true,
+      "limits": "Retained diagnostic failures. Initial access failure preceded malformed customer answers, but subsequent behavior is confounded. No vendor reliability or comparative win claim."
     }
   },
   "realModelCompactionProbe": {

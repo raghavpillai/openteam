@@ -1,7 +1,7 @@
 {
-  "auditedAt": "2026-10-28T22:29:08.325391+00:00",
+  "auditedAt": "2026-10-28T22:40:27.410474+00:00",
   "productRevision": "6fa9c3ce",
-  "referenceBuild": "Captured Grok snapshots October19\u201321; observed live desktop 0.75.0. Required 0.78.1 update is pending user approval.",
+  "referenceBuild": "Captured Grok snapshots October19\u201321; live0.78.1update/restart explicitly authorized and verified. Cloud tools/model/reasoning/cost remain partly opaque.",
   "method": "Revisit the historical G1\u2013G14 gap list against the current source and real-loop tests. Prompt/catalog assertions establish surface parity only; live outcomes are reported separately.",
   "areas": [
     {
@@ -231,8 +231,25 @@
       "matched": false,
       "limits": "One unpaired native case; remote model/reasoning/cost unknown. Current status truth is separate from requested goal completion."
     },
-    "currentControlState": "Independent nativev4critical batch active. Matchedhour and furtherOTtrials deferred after genuine shared-disk breach. No settings weakened or unrelated workload/data removed.",
-    "cleanupObservation": "Ownhourbenchmark bot removed through native confirmation, absent fromsidebar, no post-deletion ownaccount page activity at boundedcheck. Private-bot team-automation list returns featureoff, so cloudcascade semantics are not independently attested."
+    "currentControlState": "Nativev4batch held after two no-account-access attempts; both retracted unsupported access claims, second had malformed simulated-customer answers.18nativepending tasks unattempted. OTguard remains active; matchedhour not sent.",
+    "cleanupObservation": "Ownhourbenchmark bot removed through native confirmation, absent fromsidebar, no post-deletion ownaccount page activity at boundedcheck. Private-bot team-automation list returns featureoff, so cloudcascade semantics are not independently attested.",
+    "nativeV4AccessReview": {
+      "cohort": "long-horizon-round7",
+      "reviewedTrials": 2,
+      "providerAccountAccessVerified": 0,
+      "unsupportedAccessClaims": 3,
+      "claimsLaterRetracted": true,
+      "primaryComparisonValidTrials": 0,
+      "secondTrialCustomerHarnessInvalid": true,
+      "nativePendingNotAttempted": 18,
+      "nativeControllerStoppedAtCompletedBoundary": true,
+      "outwardMessagesChecked": 16,
+      "outwardKnownSecretMatches": 0,
+      "siteHomepageHostProbes": "Local/public HTTP200; does not verify native cloud or safety-service reachability.",
+      "toolErrorAttribution": "Model-reported only; no independently visible cloud tool error, no actual block-source determination.",
+      "securityPrivacyUnchanged": true,
+      "limits": "Retained diagnostic failures. Initial access failure preceded malformed customer answers, but subsequent behavior is confounded. No vendor reliability or comparative win claim."
+    }
   },
   "stagedClientReadOnlyReview": {
     "versions": [

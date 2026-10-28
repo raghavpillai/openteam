@@ -30,6 +30,17 @@ test("cost per completed task uses reviewed outcomes and includes failed-attempt
   expect(summarizeTrials([{ ...row, usage: null }]).estimatedUsdPerFinishedTaskIncludingObservedFailures).toBeNull();
 });
 
+test("comparison exclusions retain reviewed false claims as diagnostic failures", () => {
+  const excluded = { id: "no-account-access", infrastructureInvalid: true, audit: null,
+    claimsAudit: { reviewed: true, passed: false, finalDeliveryVerified: false } };
+  const notReviewed = { id: "interrupted-collection", infrastructureInvalid: true, audit: null };
+  expect(summarizeTrials([excluded, notReviewed])).toMatchObject({
+    observedAttempts: 2, validTrials: 0, reviewedHardGatesPassed: 0,
+    reviewedClaimsFailed: [], excludedAttemptClaimsFailures: ["no-account-access"],
+    infrastructureInvalid: ["no-account-access", "interrupted-collection"],
+  });
+});
+
 test("a reviewed final follow-up can establish delivery without matching a refund phrase twice", () => {
   const row = { id: "different-wording", audit: { providerOutcome: true, explicitApprovalBeforeSend: true,
     fullyFinished: false, unfinishedReviews: [], abandonedReviews: [] }, score: {},

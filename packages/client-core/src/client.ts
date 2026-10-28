@@ -180,7 +180,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         body: audio,
         signal,
       }),
-    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;connected:boolean;enabled:boolean;messages:"ready"|"needs_permission"|"off"|"unavailable";messagesPermissions:{fullDiskAccess:boolean;automation:string;contacts:string}|null}>>("/api/v0/server-settings/machines"),
+    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;connected:boolean;enabled:boolean;lastSeenAt:string|null;messages:"ready"|"needs_permission"|"off"|"unavailable";messagesPermissions:{fullDiskAccess:boolean;automation:string;contacts:string}|null}>>("/api/v0/server-settings/machines"),
     machineMessages: (machineId:string) => transport.request<MachineMessagesSettings>(`/api/v0/server-settings/machines/${encodeURIComponent(machineId)}/messages`),
     updateMachineMessages: (machineId:string, input:{sendWithoutAsking?:boolean;removeRecipient?:string}) => transport.request<MachineMessagesSettings>(`/api/v0/server-settings/machines/${encodeURIComponent(machineId)}/messages`,{method:"PATCH",body:JSON.stringify(input)}),
     computerDisplay: () => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display"),

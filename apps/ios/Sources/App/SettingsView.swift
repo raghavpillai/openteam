@@ -101,6 +101,7 @@ struct SettingsView: View {
           Link("Help Center", destination: URL(string: "https://github.com/raghavpillai/openteam#readme")!)
         }
         Section {
+          NavigationLink("Manage devices") { ManageDevicesView() }
           NavigationLink("Server status") { ServerStatusView() }
           Button(store.requiresAuthentication ? "Sign out" : "Disconnect", role: .destructive) {
             signOut = true
@@ -219,6 +220,90 @@ struct HiddenConversationsView: View {
     }.navigationTitle("Hidden conversations")
   }
 }
+/// One computer: its name, a status dot, and "Computer · Online now · Messages on".
+struct ManagedDeviceRow: View {
+  let machine: JSON
+  private static let messagesLabels = ["ready": "Messages on", "needs_permission": "Messages needs permissions", "off": "Messages off"]
+  var body: some View {
+    let online = machine["enabled"].bool && machine["connected"].bool
+    let status: String = !machine["enabled"].bool ? "Disabled" : online ? "Online now" : ManageDevicesView.lastOpened(machine["lastSeenAt"].string)
+    let messages: String = Self.messagesLabels[machine["messages"].string].map { " · " + $0 } ?? ""
+    HStack(spacing: 12) {
+      Image(systemName: "desktopcomputer").foregroundStyle(NativePalette.muted)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(verbatim: machine["label"].string)
+        // The dot is part of the text so it stays beside the first line when the status wraps.
+        (Text(Image(systemName: "circle.fill")).font(.system(size: 6)).foregroundStyle(online ? Color.green : Color.gray.opacity(0.5))
+          + Text(verbatim: "  Computer · " + status + messages).font(.footnote).foregroundStyle(NativePalette.muted))
+      }
+    }
+  }
+}
+
+/// The computers connected to this server: online now or when last opened, and whether Messages is on.
+struct ManageDevicesView: View {
+  @Environment(AppStore.self) private var store
+  @State private var machines: [JSON] = []
+  @State private var failure: String?
+  @State private var busy = false
+  static func lastOpened(_ value: String, now: Date = Date()) -> String {
+    let parser = ISO8601DateFormatter()
+    parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    guard let date = parser.date(from: value) ?? ISO8601DateFormatter().date(from: value) else { return "Not opened yet" }
+    return "Last opened " + RelativeDateTimeFormatter().localizedString(for: date, relativeTo: now)
+  }
+  private func load() async {
+    do {
+      machines = try await store.request("/api/v0/server-settings/machines").array
+        .sorted { ($0["connected"].bool ? 0 : 1) < ($1["connected"].bool ? 0 : 1) }
+      failure = nil
+    } catch is CancellationError {
+    } catch {
+      failure = UserFacingError.message(error)
+    }
+  }
+  private func change(_ machine: JSON, _ method: String, _ body: JSON? = nil) {
+    busy = true
+    Task {
+      defer { busy = false }
+      do {
+        _ = try await store.request("/api/v0/server-settings/machines/\(API.segment(machine["machineId"].string))", method: method, body: body)
+        await load()
+      } catch {
+        failure = UserFacingError.message(error)
+      }
+    }
+  }
+  var body: some View {
+    NativeForm {
+      if let failure { InlineFailure(message: failure) }
+      Section {
+        if machines.isEmpty {
+          Text("Open the OpenTeam desktop app on a computer and sign in to add it here.")
+            .font(.subheadline).foregroundStyle(NativePalette.muted)
+        }
+        ForEach(machines.indices, id: \.self) { index in
+          let machine = machines[index]
+          ManagedDeviceRow(machine: machine)
+            .swipeActions {
+              Button("Remove", role: .destructive) { change(machine, "DELETE") }.disabled(busy)
+              if machine["transport"].string == "relay" {
+                Button(machine["enabled"].bool ? "Disable" : "Enable") {
+                  change(machine, "PATCH", .object(["enabled": .bool(!machine["enabled"].bool)]))
+                }.disabled(busy)
+              }
+            }
+        }
+      } footer: {
+        Text("Turn on Messages in the desktop app on each Mac, under Settings → Computer.")
+      }
+    }
+    .navigationTitle("Manage devices")
+    .task { await load() }
+    .refreshable { await load() }
+  }
+}
+
 struct ServerStatusView: View {
   @Environment(AppStore.self) private var store
   var body: some View {

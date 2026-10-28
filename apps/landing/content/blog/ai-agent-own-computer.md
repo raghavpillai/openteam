@@ -239,7 +239,7 @@ A few lines of page code can replace a long loop of screenshots and clicks. Plug
 
 ### Your own computer, as an opt-in
 
-v0 comes back by choice. The desktop app can connect your Mac or Linux machine, over an outgoing connection with no open ports. Bots can then run commands, read files and copy files to and from `/workspace`. On a Mac they can also read your contacts, read and send Messages, and import your Chrome sign-ins. They never see your screen or control your mouse. To stop it, disable the computer in **Settings → Computer → Computers** or quit the app.
+v0 comes back by choice. The desktop app can connect your Mac or Linux machine, over an outgoing connection with no open ports. Bots can then run commands, read files and copy files to and from `/workspace`. On a Mac they can also read your contacts, read and send Messages, and import your Chrome sign-ins. They never see your screen or control your mouse. To stop it, disable the computer from its **…** menu in **Settings → Computer → Manage devices** or quit the app.
 
 ### The numbers
 

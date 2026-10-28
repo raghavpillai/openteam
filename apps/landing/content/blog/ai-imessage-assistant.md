@@ -41,7 +41,7 @@ Apple has no Messages API for this, so the desktop app reads the Mac's Messages 
 
 The desktop app connects your Mac to your server with an outgoing connection, so you don't open any ports. Bots use native tools on the Mac; they don't see your screen.
 
-1. **Sign in.** Install the app on that Mac and sign in. The Mac joins automatically and shows as **Online** under **Settings → Computer → Computers**.
+1. **Sign in.** Install the app on that Mac and sign in. The Mac joins automatically and shows as **Online now** under **Settings → Computer → Manage devices**.
 2. **Turn on Messages.** In **Settings → Computer**, turn on **Use Messages**. Until you do, bots don't get Messages tools for that Mac at all.
 3. **Grant access.** A window lists three macOS permissions; choose **Allow** next to each. **Automation** lets bots send through Messages and **Contacts** lets them find people by name; accept the macOS prompt for each. **Full Disk Access** lets bots search your texts; macOS doesn't ask for this one, so **Allow** opens System Settings, where you turn on OpenTeam.
 4. **Check it.** Ask a bot what's new in your texts.
@@ -50,7 +50,7 @@ Keep the app open while bots use Messages. If it closes or the Mac sleeps, that 
 
 ### More than one Mac
 
-Turn on Messages on each Mac you want bots to use. A bot uses the Mac you last wrote to it from. If that Mac is offline, for example a MacBook with its lid closed, it uses another Mac that's online with Messages on, such as a Mac mini at home. When more than one Mac could serve and you wrote from your phone, the bot asks which one, or names one itself. **Settings → Computer → Computers** shows which Macs are online and which have Messages on.
+Turn on Messages on each Mac you want bots to use. A bot uses the Mac you last wrote to it from. If that Mac is offline, for example a MacBook with its lid closed, it uses another Mac that's online with Messages on, such as a Mac mini at home. When more than one Mac could serve and you wrote from your phone, the bot asks which one, or names one itself. **Settings → Computer → Manage devices**, on the desktop or the iPhone app, shows which Macs are online and which have Messages on.
 
 ## Approve texts before they go out
 
@@ -124,7 +124,7 @@ OpenTeam fits if you want open source, your own hardware and model, or more than
 
 **No double sends.** Each card sends at most once. The Mac keeps a receipt per card, so pressing Send again after a lost connection returns the first result instead of texting twice.
 
-**Turning it off.** Turn off **Use Messages** on that Mac, or disable the Mac under **Settings → Computer → Computers**.
+**Turning it off.** Turn off **Use Messages** on that Mac, or disable the Mac from its **…** menu under **Settings → Computer → Manage devices**.
 
 ## What it can't do yet
 

@@ -1,3 +1,4 @@
+import { ThisMacSection } from "./this-mac";
 import type {
   PluginCatalogItemView,
   PluginConnectionView,
@@ -163,6 +164,7 @@ export function MarketplaceView({
       <SearchField query={query} onChange={setQuery} />
       <MarketplaceCategories category={category} onChange={setCategory} />
       <div className="bot-scrollbar mt-7 min-h-0 flex-1 overflow-y-auto">
+        {category === "All" ? <ThisMacSection query={query} /> : null}
         {sections.map((section) => (
           <section className="mb-7" key={section.name}>
             <div className="mb-2 flex items-center justify-between px-2">

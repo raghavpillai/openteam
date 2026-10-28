@@ -130,9 +130,17 @@ export function MessagesPermissionsDialog({
   );
 }
 
-/** Opens the permissions dialog wherever the user is when a bot needs a grant mid-task. */
+/** Any part of the app can open the permissions window with this event. */
+export const OPEN_MESSAGES_PERMISSIONS_EVENT = "openteam:open-messages-permissions";
+
+/** Opens the permissions dialog wherever the user is when a bot needs a grant mid-task, or a setup button asks. */
 export function MessagesGrantsPrompt() {
   const [open, setOpen] = useState(false);
   useEffect(() => window.openteam?.computer.onMessagesGrantsNeeded?.(() => setOpen(true)), []);
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener(OPEN_MESSAGES_PERMISSIONS_EVENT, show);
+    return () => window.removeEventListener(OPEN_MESSAGES_PERMISSIONS_EVENT, show);
+  }, []);
   return <MessagesPermissionsDialog onOpenChange={setOpen} open={open} />;
 }

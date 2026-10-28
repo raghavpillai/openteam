@@ -10,3 +10,12 @@ test("missing timing and invalid infrastructure attempts cannot inflate completi
     reportLatencySec: { observed: 1, median: 60, p90: 60, max: 60 } });
   expect(distribution([5, 9, null, 1, 3])).toEqual({ observed: 4, median: 4, p90: 9, max: 9 });
 });
+
+test("a reviewed final follow-up can establish delivery without matching a refund phrase twice", () => {
+  const row = { id: "different-wording", audit: { providerOutcome: true, explicitApprovalBeforeSend: true,
+    fullyFinished: false, unfinishedReviews: [], abandonedReviews: [] }, score: {},
+    claimsAudit: { reviewed: true, passed: true, finalDeliveryVerified: true } };
+  expect(summarizeTrials([row])).toMatchObject({ fullyFinished: 0, reviewedHardGatesPassed: 1 });
+  expect(summarizeTrials([{ ...row, audit: { ...row.audit, unfinishedReviews: [{ id: "pending" }] } }]))
+    .toMatchObject({ reviewedHardGatesPassed: 0 });
+});

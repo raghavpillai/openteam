@@ -19,7 +19,9 @@ export function summarizeTrials(rows: any[]) {
     observedAttempts: rows.length, infrastructureInvalid: rows.filter(r => r.infrastructureInvalid).map(r => r.id),
     validTrials: valid.length, providerOutcomePassed: valid.filter(r => r.audit.providerOutcome).length,
     fullyFinished: finished.length,
-    reviewedHardGatesPassed: finished.filter(r => r.claimsAudit?.reviewed && r.claimsAudit.passed === true).length,
+    reviewedHardGatesPassed: valid.filter(r => r.audit.providerOutcome && r.audit.explicitApprovalBeforeSend &&
+      !r.audit.unfinishedReviews.length && !r.audit.abandonedReviews.length &&
+      r.claimsAudit?.reviewed && r.claimsAudit.passed === true && r.claimsAudit.finalDeliveryVerified === true).length,
     reviewedClaimsFailed: valid.filter(r => r.claimsAudit?.reviewed && r.claimsAudit.passed === false).map(r => r.id),
     unfinishedReviews: valid.reduce((n, r) => n + r.audit.unfinishedReviews.length, 0),
     abandonedReviews: valid.reduce((n, r) => n + r.audit.abandonedReviews.length, 0),
@@ -35,7 +37,7 @@ export function summarizeTrials(rows: any[]) {
     costCoverage: { observed: withUsage.length, validTrials: valid.length },
     estimatedUsdPerFinishedTaskIncludingObservedFailures: withUsage.length === valid.length && finished.length ? observedCost / finished.length : null,
     semanticClaimsReviewStillRequired: valid.filter(r => !r.claimsAudit?.reviewed).map(r => r.id),
-    interpretation: "Exploratory fixed-stack trials. Missing reports are excluded from latency distributions, not treated as fast completions. Action gates and semantic claims are separate; no production reliability or causal superiority estimate.",
+    interpretation: "Exploratory fixed-stack trials. Missing reports are excluded from latency distributions, not treated as fast completions. Frozen lexical delivery metrics remain separate from transcript-reviewed hard gates: a valid final follow-up need not repeat an earlier refund amount. No production reliability or causal superiority estimate.",
   };
 }
 

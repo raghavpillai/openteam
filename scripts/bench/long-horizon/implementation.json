@@ -1,5 +1,5 @@
 {
-  "status": "Implemented; latest-source real-hour passed all reviewed gates. Remaining workflow/reasoning checks active; fresh controlled critical and native Grok comparisons pending.",
+  "status": "Implemented and audited latest-source functional/hour/compaction checks. Fresh native Grok0.78.1tests active; controlled OpenTeam primary stopped at resource preflight before any prompt.",
   "productRevision": "6fa9c3ce",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -14,7 +14,7 @@
       "Atomic durable obligations and delayed continuation on existing Subagent/Run/Inbox infrastructure",
       "Bounded startup reconciliation, current-run fences, and durable accepted scope"
     ],
-    "headToHead": "Live Grok account access restored after native cleanup of an archived benchmark conversation released desktop capacity. One 0.75 pilot passed provider and transcript gates. Further tests blocked by required 0.78.1 app update pending user approval; new version cohort will remain separate. No superiority claim."
+    "headToHead": "User-authorized native update/restart completed and verified0.78.1. One prior0.75pilot remains separate. Fresh0.78.1critical tests started; paired-hour and repeated comparisons still require results and transcript review. No superiority claim."
   },
   "slices": [
     {
@@ -165,7 +165,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-28T18:57:19.354261+00:00",
+  "updatedAt": "2026-10-28T20:33:20.547089+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -195,11 +195,11 @@
       "cohort": "final3",
       "revision": "490cef61 previous cohort",
       "actionsAndTranscriptReviewed": 9,
-      "remaining": "Twenty candidate critical repetitions in progress; prospective matched Grok H1 pending approved native app restart.",
+      "remaining": "Previous490cohort retained separately. Latest6fa9matrix fully audited; fresh controlled40trial cohort started.",
       "runtimeReliabilityFinding": "Expired-sign-in completed provider action and accurate report; finalization then exceeded a 5-second Prisma transaction, leaving task failed despite saved complete progress. Shared-host one-minute load was 880.75 at the time; record observed runtime failure and resource confound, not an established product regression.",
       "faultOutcome": "Stale-tab retry and post-acceptance full-stack hard-kill export passed. Original uninjected stale-tab attempt retained as a harness-invalid fault trial."
     },
-    "criticalRepeatedComparisons": "Prior concurrent baseline stopped after10observations (9valid,6fullclaims passes; one resource-affected browser failure). Source490candidate stopped after2correct but costly trials. Fresh controlled20baseline+20candidate trials will run serially after latest-source soak and generic checks; no pooling across these regimes.",
+    "criticalRepeatedComparisons": "Fresh controlled20baseline+20candidate protocol declared. First baseline launch stopped before any task prompt because Docker disk fell below the unchanged21%guard. Zero controlled primary observations yet. Existing results remain separate; no replay or guard relaxation.",
     "reasoningAblation": {
       "revision": "490cef61 previous cohort",
       "actionGatesPassed": 6,
@@ -220,7 +220,7 @@
     "cacheFixedCohort": {
       "revision": "6fa9c3ce",
       "manifest": "Ignored findings/support-bench/data/runs/long-horizon-round6/candidate-runtime.json",
-      "state": "First3generic cases and latest-source real-hour passed actions/claims/privacy. Remaining12generic/reasoning cases now running serially; fresh40critical trials await their audits.",
+      "state": "All15functional/reasoning outcomes, real hour and active-worker server-only recovery audited. Fresh40critical-trial protocol awaits sufficient Docker disk; first preflight sent no prompt.",
       "delta": "Private snapshot projection only; server/worker490bundle bytes and existing security controls retained.",
       "interruptedDiagnostic": {
         "id": "cache-smoke-S1-1",
@@ -294,6 +294,46 @@
       },
       "recoveredValidationError": "One attempted complete report reused the earlier task-accepted milestone key with changed content. Host rejected it; worker retried with a new key and completed. Calls include this rejected attempt; no duplicate notification/action was committed.",
       "limits": "Fixture label-state confirmation only; no actual label download, shipment, card settlement or production reliability guarantee. Cost is provider-estimated agent inference only, excluding simulator/infrastructure; no cost superiority estimate."
+    },
+    "cacheFixedFunctionalValidation": {
+      "revision": "6fa9c3ce",
+      "expectedActionGatesPassed": 15,
+      "boundedStatusAndScopeClaimsPassed": 15,
+      "expectedReadinessOutcomes": 10,
+      "expectedNoFurtherMutationOutcomes": 5,
+      "duplicateOrUnauthorizedActions": 0,
+      "knownSecretMatches": 0,
+      "progressPrivacy": {
+        "progressCallsChecked": 36,
+        "privateSnapshotsChecked": 42,
+        "outwardMessagesChecked": 80
+      },
+      "sourceLimit": "First3 recorded6fa9cases reused for functional coverage; remaining12 executed with one active OTbrowser. No pooling with the prospective controlled primary20perarm.",
+      "artifactLimit": "Readiness states only. No actualCSV/label download pass is counted; two export reasoning reports lacked missing-link qualification, and the prior490medium unsupported-access failure remains retained."
+    },
+    "supplementalActiveWorkerRecovery": {
+      "id": "cache1-supplemental-export-server-only-1",
+      "revision": "6fa9c3ce",
+      "providerActionsPassed": true,
+      "boundedClaimsPassed": true,
+      "activeWorkerRecoveryPassed": true,
+      "computerUnchanged": true,
+      "duplicateOrUnauthorizedActions": 0,
+      "elapsedSec": 178.518,
+      "questionResponseSec": 5.798,
+      "reportAfterProviderSec": 5.628,
+      "artifactAccessVerified": false,
+      "limits": "One fault observation; fixture readiness, not an actual CSV download or production exactly-once guarantee.",
+      "knownSecretMatches": 0
+    },
+    "controlledPrimaryPreflight": {
+      "state": "Stopped before first prompt",
+      "dockerAvailableKiB": 12616840,
+      "minimumFreeFraction": 0.21,
+      "guardUnchanged": true,
+      "ownBenchmarkHomeVolumesCombinedMiB": 573.56,
+      "otherDeploymentsUnchanged": true,
+      "limits": "Shared Docker has concurrent unrelated builds and workloads. Their images, containers and data were not removed."
     }
   },
   "realModelCompactionProbe": {

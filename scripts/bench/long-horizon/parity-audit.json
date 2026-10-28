@@ -1,5 +1,5 @@
 {
-  "auditedAt": "2026-10-28",
+  "auditedAt": "2026-10-28T20:33:20.547089+00:00",
   "productRevision": "6fa9c3ce",
   "referenceBuild": "Captured Grok snapshots October19\u201321; observed live desktop 0.75.0. Required 0.78.1 update is pending user approval.",
   "method": "Revisit the historical G1\u2013G14 gap list against the current source and real-loop tests. Prompt/catalog assertions establish surface parity only; live outcomes are reported separately.",
@@ -32,7 +32,7 @@
       "gap": "G5",
       "area": "Outcome delegation",
       "status": "existing instruction parity",
-      "evidence": "Self-contained parent task, outcome scope, original values and follow-up identity remain; accepted scope is now durable."
+      "evidence": "October21 box-desktop reference delegates outcome/constraints/values, while its Task roster still asks for a narrow self-contained step. Current OpenTeam matches both surfaces: graphicalDelegationInstructions and taskUserInfo. Durable accepted scope is an extension; no assumption that the older October20 skill wording is the latest."
     },
     {
       "gap": "G6",
@@ -115,7 +115,7 @@
   },
   "liveEvidence": {
     "grok075Pilot": "One completed case passed provider/scope/transcript gates; post-outcome screenshot collection hit mandatory client update. Retain collection caveat and version separation.",
-    "securityNegativeCases": "Prior490read-only, cancellation, fee refusal, changed terms and narrowed scope passed provider/transcript gates. Latest6fa9first3generic and one-hour restart/expired-login pass; remaining12fresh checks active.",
+    "securityNegativeCases": "Latest6fa9read-only, cancellation, fee refusal, changed appointment terms, narrowed scope, expired login, stale-tab and interrupted-action cases passed expected actions and bounded status/scope claims. All15functional/reasoning cells reviewed;10readiness and5no-further-mutation outcomes, not15physical fulfillments.",
     "controlPolicy": "No app security/privacy controls, secure-form routes, file delivery restrictions or connector permissions changed.",
     "latestSourceHour": {
       "id": "cache-live-hour-expired-1",
@@ -164,7 +164,8 @@
       },
       "recoveredValidationError": "One attempted complete report reused the earlier task-accepted milestone key with changed content. Host rejected it; worker retried with a new key and completed. Calls include this rejected attempt; no duplicate notification/action was committed.",
       "limits": "Fixture label-state confirmation only; no actual label download, shipment, card settlement or production reliability guarantee. Cost is provider-estimated agent inference only, excluding simulator/infrastructure; no cost superiority estimate."
-    }
+    },
+    "native078": "User authorized restart; installed and live-renderer version0.78.1verified, mandatory gate absent, existing loopback harness restored, fresh critical cohort started. Previous0.75pilot kept separate; model/reasoning/cost remain unknown."
   },
   "stagedClientReadOnlyReview": {
     "versions": [
@@ -173,7 +174,14 @@
     ],
     "source": "Local installed and staged application coordinator bundles, SHA-256 recorded in ignored findings/grok-staged-review-2026-10-28/static-parity-review.json",
     "finding": "Both expose task-list and running-subagent metadata; staged bundle includes tool-name entries. Client schemas do not reveal cloud waiting/continuation semantics. No basis for claiming identical internals.",
-    "privacy": "Only application code/package metadata read; no user settings, session databases or credentials copied. App not restarted. No vendor code added to product repository."
+    "privacy": "Static review read application code/package metadata only. Subsequent native restart/update was explicitly user authorized; existing local test harness restored. No security/privacy settings changed; no vendor code added to product repository.",
+    "lastLiveCheck": {
+      "at": "2026-10-28T20:30:18.153093+00:00",
+      "version": "0.78.1",
+      "mandatoryRestartGate": false,
+      "restartExplicitlyAuthorized": true,
+      "privacyControlsChanged": false
+    }
   },
   "cachePreservation": {
     "observed": "Source490moving tail snapshot prevented conversation-prefix reuse in two live support trials; high estimated cost retained.",

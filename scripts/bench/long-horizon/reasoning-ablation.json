@@ -127,5 +127,180 @@
     "Fictional provider has no actual downloadable CSV/label or financial fulfillment.",
     "Provider-reported usage estimates are not invoices; incomplete/cancelled responses can omit cost."
   ],
-  "default": "Default remains low; this experiment does not establish a reason to change it."
+  "default": "Default remains low; this experiment does not establish a reason to change it.",
+  "cacheFixedReplication": {
+    "revision": "6fa9c3ce",
+    "cohort": "long-horizon-round6",
+    "reviewedAt": "2026-10-28T20:21:13.031998+00:00",
+    "status": "All6provider action and bounded status/scope report checks passed; actual artifact access unverified",
+    "order": "low return/appointment/export, then medium return/appointment/export; n1percell, fixed order",
+    "rows": [
+      {
+        "id": "cache1-ablation-low-return-1",
+        "workflow": "return",
+        "variant": "normal",
+        "reasoning": "low",
+        "fault": "none",
+        "providerActionsPassed": true,
+        "boundedClaimsPassed": true,
+        "expectedReadinessOutcome": true,
+        "workerReasoningVerified": [
+          "low"
+        ],
+        "elapsedSec": 192.533,
+        "questionResponseSec": 8.697,
+        "reviewedReportAfterProviderSec": 16.947,
+        "estimatedUsd": 0.13932119999999998,
+        "modelResponses": 21,
+        "browserCalls": 8,
+        "artifactAccessVerified": false,
+        "reusedForCoverage": false,
+        "privacy": {
+          "progressCallsChecked": 4,
+          "privateSnapshotsChecked": 3,
+          "outwardMessagesChecked": 6
+        }
+      },
+      {
+        "id": "cache1-ablation-low-appointment-1",
+        "workflow": "appointment",
+        "variant": "normal",
+        "reasoning": "low",
+        "fault": "none",
+        "providerActionsPassed": true,
+        "boundedClaimsPassed": true,
+        "expectedReadinessOutcome": true,
+        "workerReasoningVerified": [
+          "low"
+        ],
+        "elapsedSec": 183.462,
+        "questionResponseSec": 5.564,
+        "reviewedReportAfterProviderSec": 8.672,
+        "estimatedUsd": 0.11864749999999998,
+        "modelResponses": 17,
+        "browserCalls": 6,
+        "artifactAccessVerified": false,
+        "reusedForCoverage": false,
+        "privacy": {
+          "progressCallsChecked": 2,
+          "privateSnapshotsChecked": 3,
+          "outwardMessagesChecked": 5
+        }
+      },
+      {
+        "id": "cache1-ablation-low-export-1",
+        "workflow": "export",
+        "variant": "normal",
+        "reasoning": "low",
+        "fault": "none",
+        "providerActionsPassed": true,
+        "boundedClaimsPassed": true,
+        "expectedReadinessOutcome": true,
+        "workerReasoningVerified": [
+          "low"
+        ],
+        "elapsedSec": 180.599,
+        "questionResponseSec": 5.697,
+        "reviewedReportAfterProviderSec": 6.046,
+        "estimatedUsd": 0.10099430000000001,
+        "modelResponses": 16,
+        "browserCalls": 6,
+        "artifactAccessVerified": false,
+        "reusedForCoverage": false,
+        "privacy": {
+          "progressCallsChecked": 2,
+          "privateSnapshotsChecked": 3,
+          "outwardMessagesChecked": 4
+        }
+      },
+      {
+        "id": "cache1-ablation-medium-return-1",
+        "workflow": "return",
+        "variant": "normal",
+        "reasoning": "medium",
+        "fault": "none",
+        "providerActionsPassed": true,
+        "boundedClaimsPassed": true,
+        "expectedReadinessOutcome": true,
+        "workerReasoningVerified": [
+          "medium"
+        ],
+        "elapsedSec": 211.782,
+        "questionResponseSec": 5.079,
+        "reviewedReportAfterProviderSec": 20.348,
+        "estimatedUsd": 0.1646705,
+        "modelResponses": 26,
+        "browserCalls": 8,
+        "artifactAccessVerified": false,
+        "reusedForCoverage": false,
+        "privacy": {
+          "progressCallsChecked": 3,
+          "privateSnapshotsChecked": 4,
+          "outwardMessagesChecked": 5
+        }
+      },
+      {
+        "id": "cache1-ablation-medium-appointment-1",
+        "workflow": "appointment",
+        "variant": "normal",
+        "reasoning": "medium",
+        "fault": "none",
+        "providerActionsPassed": true,
+        "boundedClaimsPassed": true,
+        "expectedReadinessOutcome": true,
+        "workerReasoningVerified": [
+          "medium"
+        ],
+        "elapsedSec": 211.489,
+        "questionResponseSec": 9.462,
+        "reviewedReportAfterProviderSec": 18.514,
+        "estimatedUsd": 0.16150589999999998,
+        "modelResponses": 26,
+        "browserCalls": 8,
+        "artifactAccessVerified": false,
+        "reusedForCoverage": false,
+        "privacy": {
+          "progressCallsChecked": 3,
+          "privateSnapshotsChecked": 4,
+          "outwardMessagesChecked": 6
+        }
+      },
+      {
+        "id": "cache1-ablation-medium-export-1",
+        "workflow": "export",
+        "variant": "normal",
+        "reasoning": "medium",
+        "fault": "none",
+        "providerActionsPassed": true,
+        "boundedClaimsPassed": true,
+        "expectedReadinessOutcome": true,
+        "workerReasoningVerified": [
+          "medium"
+        ],
+        "elapsedSec": 183.85,
+        "questionResponseSec": 5.658,
+        "reviewedReportAfterProviderSec": 5.658,
+        "estimatedUsd": 0.11983959999999999,
+        "modelResponses": 21,
+        "browserCalls": 7,
+        "artifactAccessVerified": false,
+        "reusedForCoverage": false,
+        "privacy": {
+          "progressCallsChecked": 2,
+          "privateSnapshotsChecked": 3,
+          "outwardMessagesChecked": 5
+        }
+      }
+    ],
+    "findings": [
+      "Medium estimated inference cost and model-response count exceeded low in all3observed workflows with no observed action-outcome gain",
+      "Artifact status is not artifact usability; neither export run counted as an actual-file access pass",
+      "Default remains low; no causal/general reliability claim"
+    ],
+    "limits": [
+      "Fixed order/cache and single-host effects",
+      "Provider-estimated agent cost excludes simulator/infrastructure and is not an invoice",
+      "Requested reasoning verified in worker configuration; hidden provider computation not independently attested"
+    ]
+  }
 }

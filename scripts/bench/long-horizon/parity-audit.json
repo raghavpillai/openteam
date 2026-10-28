@@ -117,5 +117,14 @@
     "grok075Pilot": "One completed case passed provider/scope/transcript gates; post-outcome screenshot collection hit mandatory client update. Retain collection caveat and version separation.",
     "securityNegativeCases": "Latest 490 read-only, cancellation, fee refusal and changed appointment terms passed provider/transcript checks; no duplicate or unauthorized action. Scope-narrowing and stale-tab cases are in progress.",
     "controlPolicy": "No app security/privacy controls, secure-form routes, file delivery restrictions or connector permissions changed."
+  },
+  "stagedClientReadOnlyReview": {
+    "versions": [
+      "0.75.0",
+      "0.78.1"
+    ],
+    "source": "Local installed and staged application coordinator bundles, SHA-256 recorded in ignored findings/grok-staged-review-2026-10-28/static-parity-review.json",
+    "finding": "Both expose task-list and running-subagent metadata; staged bundle includes tool-name entries. Client schemas do not reveal cloud waiting/continuation semantics. No basis for claiming identical internals.",
+    "privacy": "Only application code/package metadata read; no user settings, session databases or credentials copied. App not restarted. No vendor code added to product repository."
   }
 }

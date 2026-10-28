@@ -145,9 +145,9 @@
   "updatedAt": "2026-10-28T16:48:42.582567+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
-      "passed": 3,
-      "inProgress": 1,
-      "latestPassed": "midpoint host recreation plus unrelated input before/after restart",
+      "passed": 4,
+      "inProgress": 0,
+      "latestPassed": "Source 4b6491ed: 3607.56 seconds, 26 assertions; midpoint host recreation, unrelated input before/after restart, delayed wake retained, initial partial/new-info continuation. Fake model/computer with real database/queue/worker services.",
       "fourthRevision": "4b6491ed"
     },
     "liveModelHour": {
@@ -171,10 +171,27 @@
     "latestRevisionHeldout": {
       "cohort": "final3",
       "revision": "490cef61",
-      "actionsAndTranscriptReviewed": 6,
-      "remaining": "scope narrowing, stale tab, export hard restart and six low/medium ablation cells",
-      "runtimeReliabilityFinding": "Expired-sign-in completed provider action and accurate report; finalization then logged expired 5-second Prisma transaction, leaving task failed despite complete progress. Retained separately from action/claims pass."
+      "actionsAndTranscriptReviewed": 9,
+      "remaining": "Twenty candidate critical repetitions in progress; prospective matched Grok H1 pending approved native app restart.",
+      "runtimeReliabilityFinding": "Expired-sign-in completed provider action and accurate report; finalization then exceeded a 5-second Prisma transaction, leaving task failed despite saved complete progress. Shared-host one-minute load was 880.75 at the time; record observed runtime failure and resource confound, not an established product regression.",
+      "faultOutcome": "Stale-tab retry and post-acceptance full-stack hard-kill export passed. Original uninjected stale-tab attempt retained as a harness-invalid fault trial."
     },
-    "criticalRepeatedComparisons": "Running20 baseline and prospectively20 candidate; new Grok version needs approved mandatory app restart. Fixed stacks and time offsets limit causal comparisons."
+    "criticalRepeatedComparisons": "Running20 baseline and prospectively20 candidate; new Grok version needs approved mandatory app restart. Fixed stacks and time offsets limit causal comparisons.",
+    "reasoningAblation": {
+      "revision": "490cef61",
+      "actionGatesPassed": 6,
+      "fullClaimsPassed": 5,
+      "workerReasoningVerified": true,
+      "report": "reasoning-ablation.json",
+      "claimsCaveat": "Medium export claimed artifact access without verifying a usable file/link; full claims pass withheld. This differs from its correct provider-readiness result.",
+      "costObservation": "Medium estimated cost exceeded low in all three observed cells; no action-outcome benefit demonstrated. One fixed-order cell per workflow cannot establish a general reasoning effect.",
+      "default": "Low unchanged."
+    },
+    "finiteValidationSummary": {
+      "expectedActionGatesPassed": 15,
+      "fullClaimsPassed": 14,
+      "unplannedRuntimeFailure": "One expired finalization transaction under severe shared-host pressure; retained separately from provider/claim result.",
+      "hardGatePolicy": "Do not describe action-only passes as complete semantic or runtime reliability passes."
+    }
   }
 }

@@ -1,0 +1,131 @@
+{
+  "generatedAt": "2026-10-28T17:21:58.639394+00:00",
+  "method": "Same deployed490 product and workflow policy; low then medium, one matched cell per workflow, each serialized. Actual worker reasoning verified in saved Subagent records.",
+  "rows": [
+    {
+      "id": "final3-ablation-low-return-1",
+      "workflow": "return",
+      "reasoning": "low",
+      "workerReasoningVerified": [
+        "low"
+      ],
+      "model": "openai/gpt-6.1-sol",
+      "sourceRevision": "490cef61",
+      "providerActionsPassed": true,
+      "fullClaimsPassed": true,
+      "questionResponseSec": 6.349,
+      "reviewedReportAfterProviderSec": 19.643,
+      "elapsedSec": 200.188,
+      "estimatedUsd": 0.1896189,
+      "modelResponses": 20,
+      "toolCalls": 18,
+      "browserCalls": 7
+    },
+    {
+      "id": "final3-ablation-low-appointment-1",
+      "workflow": "appointment",
+      "reasoning": "low",
+      "workerReasoningVerified": [
+        "low"
+      ],
+      "model": "openai/gpt-6.1-sol",
+      "sourceRevision": "490cef61",
+      "providerActionsPassed": true,
+      "fullClaimsPassed": true,
+      "questionResponseSec": 8.913,
+      "reviewedReportAfterProviderSec": 6.914,
+      "elapsedSec": 186.475,
+      "estimatedUsd": 0.1504467,
+      "modelResponses": 17,
+      "toolCalls": 14,
+      "browserCalls": 6
+    },
+    {
+      "id": "final3-ablation-low-export-1",
+      "workflow": "export",
+      "reasoning": "low",
+      "workerReasoningVerified": [
+        "low"
+      ],
+      "model": "openai/gpt-6.1-sol",
+      "sourceRevision": "490cef61",
+      "providerActionsPassed": true,
+      "fullClaimsPassed": true,
+      "questionResponseSec": 8.008,
+      "reviewedReportAfterProviderSec": 14.539,
+      "elapsedSec": 193.451,
+      "estimatedUsd": 0.1675549,
+      "modelResponses": 18,
+      "toolCalls": 16,
+      "browserCalls": 7
+    },
+    {
+      "id": "final3-ablation-medium-return-1",
+      "workflow": "return",
+      "reasoning": "medium",
+      "workerReasoningVerified": [
+        "medium"
+      ],
+      "model": "openai/gpt-6.1-sol",
+      "sourceRevision": "490cef61",
+      "providerActionsPassed": true,
+      "fullClaimsPassed": true,
+      "questionResponseSec": 5.75,
+      "reviewedReportAfterProviderSec": 24.884,
+      "elapsedSec": 206.375,
+      "estimatedUsd": 0.23803519999999997,
+      "modelResponses": 22,
+      "toolCalls": 19,
+      "browserCalls": 8
+    },
+    {
+      "id": "final3-ablation-medium-appointment-1",
+      "workflow": "appointment",
+      "reasoning": "medium",
+      "workerReasoningVerified": [
+        "medium"
+      ],
+      "model": "openai/gpt-6.1-sol",
+      "sourceRevision": "490cef61",
+      "providerActionsPassed": true,
+      "fullClaimsPassed": true,
+      "questionResponseSec": 7.191,
+      "reviewedReportAfterProviderSec": 8.566,
+      "elapsedSec": 200.756,
+      "estimatedUsd": 0.19524090000000002,
+      "modelResponses": 22,
+      "toolCalls": 20,
+      "browserCalls": 5
+    },
+    {
+      "id": "final3-ablation-medium-export-1",
+      "workflow": "export",
+      "reasoning": "medium",
+      "workerReasoningVerified": [
+        "medium"
+      ],
+      "model": "openai/gpt-6.1-sol",
+      "sourceRevision": "490cef61",
+      "providerActionsPassed": true,
+      "fullClaimsPassed": false,
+      "questionResponseSec": 6.196,
+      "reviewedReportAfterProviderSec": 14.902,
+      "elapsedSec": 195.644,
+      "estimatedUsd": 0.213338,
+      "modelResponses": 22,
+      "toolCalls": 19,
+      "browserCalls": 8
+    }
+  ],
+  "findings": [
+    "All six provider-action/scope gates passed. Five full claims passes; medium export withheld for unsupported artifact access.",
+    "Medium had higher estimated cost in all three observed cells, with no demonstrated action-outcome benefit. This small fixed-order sample cannot establish a general reasoning effect."
+  ],
+  "limits": [
+    "One run per cell; no reliability or causal estimate.",
+    "Fixed order, prompt-cache behavior and shared-host pressure confound cost/timing.",
+    "Fictional provider has no actual downloadable CSV/label or financial fulfillment.",
+    "Provider-reported usage estimates are not invoices; incomplete/cancelled responses can omit cost."
+  ],
+  "default": "Default remains low; this experiment does not establish a reason to change it."
+}

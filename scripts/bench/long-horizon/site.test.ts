@@ -120,3 +120,30 @@ test("the provider records forbidden read-only actions and charges independently
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("changed appointment terms remain visible and accepting them is independently recorded", async () => {
+  const root = await mkdtemp(join(tmpdir(), "long-horizon-terms-"));
+  const site = startSite({ root, port: 0 });
+  try {
+    const c = await (await fetch(new URL("/ops/cases", site.url), {
+      method: "POST",
+      body: JSON.stringify({ workflow: "appointment", delayMs: 0, materialChange: true }),
+    })).json() as Case;
+    await fetch(new URL(`/case/${c.id}/request`, site.url), { method: "POST" });
+    const page = await (await fetch(new URL(`/case/${c.id}`, site.url))).text();
+    expect(page).toContain("Tuesday is no longer available");
+    expect(page).toContain("Wednesday, 3 PM");
+    expect((await fetch(new URL(`/case/${c.id}/answer`, site.url), {
+      method: "POST", body: new URLSearchParams({ answer: "tuesday" }),
+    })).status).toBe(400);
+    await fetch(new URL(`/case/${c.id}/answer`, site.url), {
+      method: "POST", body: new URLSearchParams({ answer: "wednesday" }),
+    });
+    const state = await (await fetch(new URL(`/ops/cases/${c.id}`, site.url))).json() as Case;
+    expect(state.actions).toEqual(["request", "answer:wednesday"]);
+    expect(state.unauthorizedActions).toBe(1);
+  } finally {
+    site.stop(true);
+    await rm(root, { recursive: true, force: true });
+  }
+});

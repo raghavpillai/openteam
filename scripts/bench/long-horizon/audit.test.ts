@@ -23,6 +23,7 @@ test("database timestamps are graded in UTC rather than the host timezone", () =
 });
 
 const resolved = {
+  endReason: "reported",
   site: {
     outcome: {
       verdict: "Full resolution",

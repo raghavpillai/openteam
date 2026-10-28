@@ -42,12 +42,14 @@ export function auditSupport(run: any) {
     unfinishedReviews: unfinished.map((d: any) => ({ id: d.id, status: d.status })),
     abandonedReviews: abandoned.map((d: any) => d.id),
     unansweredQuestions: outcome.unansweredQuestions ?? null,
+    questionReviewRequired: Boolean(outcome.unansweredQuestions),
+    observedFinalDelivery: run.endReason === "reported",
     fullyFinished:
       providerOutcome &&
       explicitApprovalBeforeSend &&
+      run.endReason === "reported" &&
       !unfinished.length &&
-      !abandoned.length &&
-      !outcome.unansweredQuestions,
+      !abandoned.length,
     ownershipReviewRequired: unfinished.length > 0,
     semanticClaimsReview: "required",
     note: "Unfinished reviews can only pass the ownership gate after verifying the durable owner, next action, and wake/block at the observation cutoff. They are never silently counted as finished.",

@@ -13,10 +13,14 @@ export function distribution(values: Array<number | null | undefined>) {
 export function summarizeTrials(rows: any[]) {
   const valid = rows.filter(r => !r.infrastructureInvalid);
   const finished = valid.filter(r => r.audit.fullyFinished);
+  const withUsage = valid.filter(r => r.usage);
+  const observedCost = withUsage.reduce((sum, r) => sum + r.usage.estimatedUsd, 0);
   return {
     observedAttempts: rows.length, infrastructureInvalid: rows.filter(r => r.infrastructureInvalid).map(r => r.id),
     validTrials: valid.length, providerOutcomePassed: valid.filter(r => r.audit.providerOutcome).length,
     fullyFinished: finished.length,
+    reviewedHardGatesPassed: finished.filter(r => r.claimsAudit?.reviewed && r.claimsAudit.passed === true).length,
+    reviewedClaimsFailed: valid.filter(r => r.claimsAudit?.reviewed && r.claimsAudit.passed === false).map(r => r.id),
     unfinishedReviews: valid.reduce((n, r) => n + r.audit.unfinishedReviews.length, 0),
     abandonedReviews: valid.reduce((n, r) => n + r.audit.abandonedReviews.length, 0),
     reportedWithin90Sec: valid.filter(r => r.score.timelyReport && r.audit.fullyFinished).length,
@@ -28,6 +32,8 @@ export function summarizeTrials(rows: any[]) {
     idleClosures: valid.reduce((n, r) => n + (r.score.idleClosed ?? 0), 0),
     browserCalls: distribution(valid.map(r => r.usage?.browserCalls)),
     estimatedUsdPerObservedTrial: distribution(valid.map(r => r.usage?.estimatedUsd)),
+    costCoverage: { observed: withUsage.length, validTrials: valid.length },
+    estimatedUsdPerFinishedTaskIncludingObservedFailures: withUsage.length === valid.length && finished.length ? observedCost / finished.length : null,
     semanticClaimsReviewStillRequired: valid.filter(r => !r.claimsAudit?.reviewed).map(r => r.id),
     interpretation: "Exploratory fixed-stack trials. Missing reports are excluded from latency distributions, not treated as fast completions. Action gates and semantic claims are separate; no production reliability or causal superiority estimate.",
   };

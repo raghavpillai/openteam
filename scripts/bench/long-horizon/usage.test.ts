@@ -9,3 +9,10 @@ test("restart transcript copies do not double-count provider responses or action
     .toMatchObject({ modelResponses: 2, responsesWithoutUsage: 1, inputTokens: 20, outputTokens: 5,
       cacheReadTokens: 10, estimatedUsd: 0.2, browserCalls: 1, toolCalls: 1 });
 });
+
+test("task usage excludes onboarding responses before the task was sent", () => {
+  const entries = [10, 30].map(at => ({ type: "message", id: String(at), message: {
+    role: "assistant", timestamp: at, content: [], usage: { cost: { total: 1 } },
+  } }));
+  expect(summarizeUsage(entries, 20)).toMatchObject({ modelResponses: 1, estimatedUsd: 1, since: 20 });
+});

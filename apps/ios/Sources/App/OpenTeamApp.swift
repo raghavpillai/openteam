@@ -1,12 +1,19 @@
+import AppIntents
 import SwiftUI
 
 @main
 struct OpenTeamApp: App {
   @UIApplicationDelegateAdaptor(NotificationAppDelegate.self) private var notificationDelegate
-  @State private var store = AppStore()
+  @State private var store: AppStore
   @AppStorage("appearance") private var appearance = "system"
   @AppStorage("accent") private var accent = "black"
   @Environment(\.scenePhase) private var scenePhase
+  init() {
+    let store = AppStore()
+    _store = State(initialValue: store)
+    AppDependencyManager.shared.add(dependency: store)
+    TeamAppShortcuts.updateAppShortcutParameters()
+  }
   var body: some Scene {
     WindowGroup {
       Group {
@@ -34,6 +41,9 @@ struct OpenTeamApp: App {
       }
       .onChange(of: appearance, initial: true) { _, value in Self.syncLaunchScreen(value) }
       .onOpenURL { url in Task { await store.deepLink(url) } }
+      .sheet(item: $store.systemDraft) { draft in
+        SystemDraftPicker(draft: draft).environment(store)
+      }
     }
   }
   private static let launchScreenQueue = DispatchQueue(label: "launch-screen", qos: .utility)

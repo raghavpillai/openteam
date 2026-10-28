@@ -35,6 +35,7 @@ def configs(name, settings):
         build = dict(settings)
         if name == 'app':
             build.update(APP_DISPLAY_NAME='OpenTeam Swift' if mode == 'Debug' else 'OpenTeam', APP_URL_SCHEME='openteam-swift' if mode == 'Debug' else 'openteam')
+            build['ENABLE_TESTABILITY'] = 'YES' if mode == 'Debug' else 'NO'
         if name == 'share':
             build.update(APP_DISPLAY_NAME='OpenTeam Swift' if mode == 'Debug' else 'OpenTeam', APP_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift' if mode == 'Debug' else release['bundleIdentifier'])
         if mode == 'Release' and name in ['app', 'extension', 'share']:
@@ -116,7 +117,17 @@ link_package('share', share_target, 'libraries-dev', 'ThinkingOrbsKit')
 proxy = add('proxy', dict(isa='PBXContainerItemProxy', containerPortal=uid('project'), proxyType=1, remoteGlobalIDString=app_target, remoteInfo='OpenTeamNative'))
 dependency = add('dependency', dict(isa='PBXTargetDependency', target=app_target, targetProxy=proxy))
 test_target = add('test-target', dict(isa='PBXNativeTarget', name='OpenTeamNativeUITests', buildConfigurationList=test_config, buildPhases=phases('test'), buildRules=[], dependencies=[dependency], fileSystemSynchronizedGroups=[ui_tests], productName='OpenTeamNativeUITests', productReference=test, productType='com.apple.product-type.bundle.ui-testing'))
+# Hosted tests exercise App Intents, Keychain identity checks, and Spotlight
+# against deterministic loopback fixtures without Siri language-model access.
+system_test_ref = add('system-test-ref', dict(isa='PBXFileReference', explicitFileType='wrapper.cfbundle', path='OpenTeamSystemTests.xctest', sourceTree='BUILT_PRODUCTS_DIR'))
+objects[products]['children'].append(system_test_ref)
+system_tests = add('system-tests', dict(isa='PBXFileSystemSynchronizedRootGroup', path='Tests/SystemTests', sourceTree='<group>'))
+objects[main]['children'].append(system_tests)
+system_config = configs('system-tests', dict(PRODUCT_NAME='OpenTeamSystemTests', PRODUCT_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift.system-tests', GENERATE_INFOPLIST_FILE='YES', SWIFT_VERSION='6.0', TEST_HOST='$(BUILT_PRODUCTS_DIR)/OpenTeamNative.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OpenTeamNative', BUNDLE_LOADER='$(TEST_HOST)'))
+system_target = add('system-test-target', dict(isa='PBXNativeTarget', name='OpenTeamSystemTests', buildConfigurationList=system_config, buildPhases=phases('system-tests'), buildRules=[], dependencies=[dependency], fileSystemSynchronizedGroups=[system_tests], productName='OpenTeamSystemTests', productReference=system_test_ref, productType='com.apple.product-type.bundle.unit-test'))
 project = add('project', dict(isa='PBXProject', attributes={'BuildIndependentTargetsInParallel':'YES', 'LastUpgradeCheck':'2660', 'TargetAttributes':{app_target:{'CreatedOnToolsVersion':'26.6','SystemCapabilities':{'com.apple.Push':{'enabled':1},'com.apple.BackgroundModes':{'enabled':1}}}, test_target:{'CreatedOnToolsVersion':'26.6','TestTargetID':app_target}}}, buildConfigurationList=project_config, compatibilityVersion='Xcode 16.0', developmentRegion='en', hasScannedForEncodings=0, knownRegions=['en', 'Base'], mainGroup=main, packageReferences=list(package_refs.values()), productRefGroup=products, projectDirPath='', projectRoot='', targets=[app_target, test_target, extension_target, share_target]))
+objects[project]['targets'].append(system_target)
+
 directory = root / 'OpenTeamNative.xcodeproj'
 directory.mkdir(exist_ok=True)
 (directory / 'project.pbxproj').write_text('// !$*UTF8*$!\n' + quote(dict(archiveVersion=1, classes={}, objectVersion=77, objects=objects, rootObject=project)) + '\n')
@@ -132,6 +143,11 @@ app_ref = reference(app_target, 'OpenTeamNative.app'); test_ref = reference(test
 <AnalyzeAction buildConfiguration="Debug"/><ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
 </Scheme>''')
 print(directory)
+
+system_ref = reference(system_target, 'OpenTeamSystemTests.xctest')
+system_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text()
+system_scheme = system_scheme.replace(f'{test_ref}<SkippedTests>', f'{system_ref}<SkippedTests>')
+(schemes / 'SystemIntents.xcscheme').write_text(system_scheme)
 
 visual_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<SkippedTests><Test Identifier="LiveBackendUITests"/><Test Identifier="QAAuditUITests"/><Test Identifier="SettingsPluginAuditUITests"/><Test Identifier="NativePushUITests"/></SkippedTests>', '<SelectedTests><Test Identifier="SelectedUITests"/></SelectedTests>')
 

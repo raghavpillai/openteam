@@ -534,7 +534,7 @@ struct MessageRow: View {
       } else {
         bubble
       }
-    }
+    }.modifier(SystemMessageContext(message: message, channel: channel))
   }
   private var bubble: some View {
     HStack(alignment: .bottom, spacing: 0) {

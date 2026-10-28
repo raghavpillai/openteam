@@ -76,6 +76,7 @@ struct SettingsView: View {
           Text("Bot").font(.system(size: 13)).foregroundStyle(NativePalette.faint)
         }
         Section { PushNotificationSettings() }
+        SystemDiscoverySettings()
         Section {
           Menu {
             Picker("Appearance", selection: $appearance.hapticSelection("settings.appearance")) {

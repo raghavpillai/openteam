@@ -10,6 +10,16 @@ export function distribution(values: Array<number | null | undefined>) {
     p90: sorted[Math.ceil(sorted.length * .9) - 1]!, max: sorted.at(-1)! };
 }
 
+export function hourTrialId(pipeline: any, arm: "grok" | "candidate", planned?: Partial<Record<"grok" | "candidate", string>>) {
+  const recorded = pipeline?.hour?.id;
+  if (recorded && planned?.[arm] && recorded !== planned[arm])
+    throw new Error("Recorded hour trial differs from cohort manifest");
+  const id = recorded ?? planned?.[arm] ?? `runtime-${arm}-H1-1`;
+  if (typeof id !== "string" || !/^[A-Za-z0-9_-]+$/.test(id))
+    throw new Error("Invalid recorded hour trial ID");
+  return id;
+}
+
 export function summarizeTrials(rows: any[]) {
   const valid = rows.filter(r => !r.infrastructureInvalid);
   const finished = valid.filter(r => r.audit.fullyFinished);
@@ -54,10 +64,13 @@ if (import.meta.main) {
   const cohort = join(root, process.argv[3] ?? "long-horizon-round3");
   const read = (path: string) => JSON.parse(readFileSync(path, "utf8"));
   const optional = (path: string) => existsSync(path) ? read(path) : null;
+  const hourIds = optional(join(cohort, "plan.json"))?.hourTrials;
   const arms: Record<string, unknown> = {};
+  const pipelines: Record<string, any> = {};
   for (const arm of ["base", "candidate", "grok"]) {
     const pipeline = optional(join(cohort, arm === "grok" ? "grok-healthy-pipeline.json" : `${arm}-pipeline.json`));
     if (!pipeline) continue;
+    pipelines[arm] = pipeline;
     const rows: any[] = [];
     for (const task of pipeline.tasks) {
       for (const id of [...(task.invalidAttempts ?? []), task.id]) {
@@ -93,7 +106,7 @@ if (import.meta.main) {
       byScenario: Object.fromEntries(["S1", "S2N"].map(s => [s, summarizeTrials(rows.filter(r => r.scenario === s))])), rows };
   }
   const hourPair = Object.fromEntries(["grok", "candidate"].flatMap(arm => {
-    const id = `runtime-${arm}-H1-1`, folder = join(root, id), result = optional(join(folder, "result.json"));
+    const id = hourTrialId(pipelines[arm], arm as "grok" | "candidate", hourIds), folder = join(root, id), result = optional(join(folder, "result.json"));
     return result ? [[arm, { id, score: optional(join(folder, "score.json")), audit: auditSupport(result),
       claimsAudit: optional(join(folder, "claims-audit.json")), usage: optional(join(folder, "usage.json")) }]] : [];
   }));

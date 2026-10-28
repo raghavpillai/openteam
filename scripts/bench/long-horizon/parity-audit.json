@@ -1,5 +1,5 @@
 {
-  "auditedAt": "2026-10-28T20:48:01.974719+00:00",
+  "auditedAt": "2026-10-28T22:02:54.251202+00:00",
   "productRevision": "6fa9c3ce",
   "referenceBuild": "Captured Grok snapshots October19\u201321; observed live desktop 0.75.0. Required 0.78.1 update is pending user approval.",
   "method": "Revisit the historical G1\u2013G14 gap list against the current source and real-loop tests. Prompt/catalog assertions establish surface parity only; live outcomes are reported separately.",
@@ -181,6 +181,36 @@
       "controlledOpenTeamPrimary": "Zero prompts; disk guard pending",
       "limits": "One0.78trial; separate from0.75pilot. Fictional provider approval and pending refund, not real card settlement. Native cloud model/reasoning/cost unknown.",
       "scoringDiagnostic": "Frozen lexical report gate missed accurate on-its-way-back wording. Raw terminal-no-report retained; independent manual provider/scope/report review passes. No task/customer/scoring or product wording changes."
+    },
+    "firstCriticalPerformance": {
+      "baselineReportSec": 73.519,
+      "candidateReportSec": 140.909,
+      "baselineEstimatedUsd": 0.4724271,
+      "candidateEstimatedUsd": 0.8792583,
+      "baselineBrowserCalls": 43,
+      "candidateBrowserCalls": 61,
+      "baselineBrowserCallsAfterProvider": 7,
+      "candidateBrowserCallsAfterProvider": 15,
+      "workingMilestoneAfterProviderSec": 31.827,
+      "completeMilestoneAfterProviderSec": 129.676,
+      "parentRevivalCreatedAfterWorkingMilestoneCallSec": 4.436,
+      "candidateReportRelativeToWorkerFinishSec": -4.299,
+      "interpretation": "Nonterminal parent delivery works; most observed full-completion delay preceded final verified milestone, with verification, screenshots and extra confirmation requests. Do not remove essential verification or infer a general regression from n1."
+    },
+    "cohortRepair": "Fresh v4customer fact policy and IDs declared after observed ZIP omission, preserving all current v3tasks and raw negatives. This is a benchmark repair, with no production prompt/runtime/security changes. No async superiority claim from invalid baseline counterpart.",
+    "nativeHourInterimDeadlineMiss": {
+      "observedAt": "2026-10-28T22:04:12.562104+00:00",
+      "phase": "interim-trial-still-running",
+      "id": "native078-unpaired-H1-1",
+      "requiredQuestionPostedAt": 1793224328172,
+      "providerReviewStatus": "closed_no_response",
+      "replyObserved": false,
+      "providerVerdict": "Partial",
+      "plannedCadence": "Native parent announced every30minutes starting around18:10ET; question posted17:52ET, providerclosedafter10minutes",
+      "websiteActivity": "No case revisit observed since20:53UTC asof22:03UTC",
+      "taskNotInterrupted": true,
+      "possibleLaterRecovery": "Stillobservinguntilfrozen95minute cutoff; do notreplacefinalresultwiththisinterimfinding.",
+      "limits": "One native0.78hour, unpaired with OT. Black-boxmodel/runtimeunknown; no generalvendorreliabilityorH2Hsuperiorityclaim."
     }
   },
   "stagedClientReadOnlyReview": {

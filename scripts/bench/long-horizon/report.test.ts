@@ -1,5 +1,15 @@
 import { expect, test } from "bun:test";
-import { distribution, summarizeTrials } from "./report";
+import { distribution, hourTrialId, summarizeTrials } from "./report";
+
+test("hour evidence follows its recorded cohort rather than reading a previous cohort", () => {
+  expect(hourTrialId({ hour: { id: "fresh-candidate-hour-1" } }, "candidate"))
+    .toBe("fresh-candidate-hour-1");
+  expect(hourTrialId(undefined, "grok")).toBe("runtime-grok-H1-1");
+  expect(hourTrialId({ hour: null }, "candidate", { candidate: "fresh-candidate-hour-1" }))
+    .toBe("fresh-candidate-hour-1");
+  expect(() => hourTrialId({ hour: { id: "old-hour" } }, "grok", { grok: "fresh-hour" })).toThrow();
+  expect(() => hourTrialId({ hour: { id: "../another-cohort/result" } }, "grok")).toThrow();
+});
 
 test("missing timing and invalid infrastructure attempts cannot inflate completion or speed", () => {
   const row = { id: "valid", audit: { fullyFinished: true, providerOutcome: true, unfinishedReviews: [], abandonedReviews: [] }, score: { reportAfterResolutionSec: 60, timelyReport: true } };

@@ -1,5 +1,5 @@
 {
-  "status": "Implemented and audited latest-source functional/hour/compaction checks. Fresh native Grok0.78.1tests active; controlled OpenTeam primary stopped at resource preflight before any prompt.",
+  "status": "Runtime implementation and functional/fault/compaction checks verified. Early repeated performance results mixed; v3cohort stopped for customer-simulator omission, fresh separately frozen v4cohort active. Native0.78hour still running.",
   "productRevision": "6fa9c3ce",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -14,7 +14,7 @@
       "Atomic durable obligations and delayed continuation on existing Subagent/Run/Inbox infrastructure",
       "Bounded startup reconciliation, current-run fences, and durable accepted scope"
     ],
-    "headToHead": "User-authorized native update/restart completed and verified0.78.1. One prior0.75pilot remains separate. Fresh0.78.1critical tests started; paired-hour and repeated comparisons still require results and transcript review. No superiority claim."
+    "headToHead": "Authorized native0.78.1verified. First native case passes provider/scope/manual report review (raw lexical false-negative retained); unpaired hour still active. Fresh v4native and matched-hour cohort queued after its unchanged collection. Prior0.75andv3results remain separate; no superiority claim."
   },
   "slices": [
     {
@@ -134,8 +134,8 @@
       "mechanism": "Append a private transcript snapshot on change or after compaction removed it; unchanged record does not move on later requests or trigger a new turn."
     },
     "benchmarkAnalysis": {
-      "passed": 17,
-      "assertions": 53,
+      "passed": 18,
+      "assertions": 58,
       "failed": 0
     },
     "realModelProbeRunner": {
@@ -143,6 +143,12 @@
       "architecture": "passed",
       "realModelRun": "Probe7 passed four controlled compactions and semantic scope/claims review",
       "limits": "Probe6 retained failed all-four adoption gate; not counted as a full pass."
+    },
+    "supportCustomerHarness": {
+      "passed": 26,
+      "failed": 0,
+      "newGeneralFactualRegressions": 6,
+      "scope": "Existing20plus6new identity-fact/privacy/scope tests; sources archived in ignored findings/support-bench round7."
     }
   },
   "reproduce": {
@@ -165,7 +171,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-28T20:48:01.974719+00:00",
+  "updatedAt": "2026-10-28T22:02:54.251202+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -199,7 +205,7 @@
       "runtimeReliabilityFinding": "Expired-sign-in completed provider action and accurate report; finalization then exceeded a 5-second Prisma transaction, leaving task failed despite saved complete progress. Shared-host one-minute load was 880.75 at the time; record observed runtime failure and resource confound, not an established product regression.",
       "faultOutcome": "Stale-tab retry and post-acceptance full-stack hard-kill export passed. Original uninjected stale-tab attempt retained as a harness-invalid fault trial."
     },
-    "criticalRepeatedComparisons": "Fresh controlled20baseline+20candidate protocol declared. First baseline launch stopped before any task prompt because Docker disk fell below the unchanged21%guard. Zero controlled primary observations yet. Existing results remain separate; no replay or guard relaxation.",
+    "criticalRepeatedComparisons": "V3cohort stopped after4observations: baseline/candidateS1 and candidateS2N verified; baselineS2Ninvalid because cooperative simulator omitted service-ZIP reply. Preserve all raw outcomes/costs. Fresh v4policy20baseline+20candidate+20native critical cases declared separately; first fresh baseline active. No pooling or superiority claim.",
     "reasoningAblation": {
       "revision": "490cef61 previous cohort",
       "actionGatesPassed": 6,
@@ -220,7 +226,7 @@
     "cacheFixedCohort": {
       "revision": "6fa9c3ce",
       "manifest": "Ignored findings/support-bench/data/runs/long-horizon-round6/candidate-runtime.json",
-      "state": "All15functional/reasoning outcomes, real hour and active-worker server-only recovery audited. Fresh40critical-trial protocol awaits sufficient Docker disk; first preflight sent no prompt.",
+      "state": "Latest15functional/reasoning cases, real hour and active-worker recovery pass reviewed gates. V3critical results and new v4cohort tracked separately; production runtime remains6fa9.",
       "delta": "Private snapshot projection only; server/worker490bundle bytes and existing security controls retained.",
       "interruptedDiagnostic": {
         "id": "cache-smoke-S1-1",
@@ -327,7 +333,7 @@
       "knownSecretMatches": 0
     },
     "controlledPrimaryPreflight": {
-      "state": "Stopped before first prompt",
+      "state": "Initial preflight sent no prompt; resource gate later recovered and four v3cases ran. Cohort then stopped for independent customer-harness defect.",
       "dockerAvailableKiB": 12616840,
       "minimumFreeFraction": 0.21,
       "guardUnchanged": true,
@@ -350,6 +356,86 @@
       "controlledOpenTeamPrimary": "Zero prompts; disk guard pending",
       "limits": "One0.78trial; separate from0.75pilot. Fictional provider approval and pending refund, not real card settlement. Native cloud model/reasoning/cost unknown.",
       "scoringDiagnostic": "Frozen lexical report gate missed accurate on-its-way-back wording. Raw terminal-no-report retained; independent manual provider/scope/report review passes. No task/customer/scoring or product wording changes."
+    },
+    "firstRepeatedCriticalEvidence": {
+      "policyVersion": "3-goal-scope",
+      "status": "Cohort stopped after4observations; future unrun cases superseded by separate v4cohort",
+      "rows": [
+        {
+          "id": "serial-base-S1-1",
+          "providerPassed": true,
+          "claimsPassed": true,
+          "finalDeliveryVerified": true,
+          "invalidForPrimary": false,
+          "reviewedReportSec": 73.519,
+          "estimatedAgentUsd": 0.4724270999999999
+        },
+        {
+          "id": "serial-candidate-S1-1",
+          "providerPassed": true,
+          "claimsPassed": true,
+          "finalDeliveryVerified": true,
+          "invalidForPrimary": false,
+          "reviewedReportSec": 140.909,
+          "estimatedAgentUsd": 0.8792582999999998
+        },
+        {
+          "id": "serial-base-S2N-1",
+          "providerPassed": false,
+          "claimsPassed": true,
+          "finalDeliveryVerified": false,
+          "invalidForPrimary": true,
+          "reviewedReportSec": null,
+          "estimatedAgentUsd": null
+        },
+        {
+          "id": "serial-candidate-S2N-1",
+          "providerPassed": true,
+          "claimsPassed": true,
+          "finalDeliveryVerified": true,
+          "invalidForPrimary": false,
+          "reviewedReportSec": 41.867,
+          "estimatedAgentUsd": 1.1116290000000004
+        }
+      ],
+      "firstS1Pair": {
+        "baselineReportSec": 73.519,
+        "candidateReportSec": 140.909,
+        "baselineEstimatedUsd": 0.4724271,
+        "candidateEstimatedUsd": 0.8792583,
+        "baselineBrowserCalls": 43,
+        "candidateBrowserCalls": 61,
+        "baselineBrowserCallsAfterProvider": 7,
+        "candidateBrowserCallsAfterProvider": 15,
+        "workingMilestoneAfterProviderSec": 31.827,
+        "completeMilestoneAfterProviderSec": 129.676,
+        "parentRevivalCreatedAfterWorkingMilestoneCallSec": 4.436,
+        "candidateReportRelativeToWorkerFinishSec": -4.299,
+        "interpretation": "Nonterminal parent delivery works; most observed full-completion delay preceded final verified milestone, with verification, screenshots and extra confirmation requests. Do not remove essential verification or infer a general regression from n1."
+      },
+      "limits": "Raw outcomes/costs retained; baseline async customer omission invalid for comparison. Fresh v4cases not pooled. Cost estimates exclude simulator/infra and are not invoices."
+    },
+    "customerSimulatorRepair": {
+      "version": "4-factual-identity",
+      "rootCohort": "long-horizon-round7",
+      "generalChange": "Supply requested fixture identity facts in embedded questions; preserve pending-widget precedence, limited sharing, recurring-scope refusals and unknown-fact abstention. No provider outcomes or new concessions supplied.",
+      "verification": "26harness tests pass; actual recorded unanswered question reproduces null on v3and a scoped fixture-fact reply on v4. No task replay and no proof baseline would subsequently resolve.",
+      "inputsUnchanged": "Product revision, task prompts, site models, inference defaults, collection and raw scoring",
+      "launch": "Separate finite controllers wait for current v3runner collection/cleanup. Fresh OTcohort now active; native v3hour continues unchanged before fresh native cohort."
+    },
+    "nativeHourInterimDeadlineMiss": {
+      "observedAt": "2026-10-28T22:04:12.562104+00:00",
+      "phase": "interim-trial-still-running",
+      "id": "native078-unpaired-H1-1",
+      "requiredQuestionPostedAt": 1793224328172,
+      "providerReviewStatus": "closed_no_response",
+      "replyObserved": false,
+      "providerVerdict": "Partial",
+      "plannedCadence": "Native parent announced every30minutes starting around18:10ET; question posted17:52ET, providerclosedafter10minutes",
+      "websiteActivity": "No case revisit observed since20:53UTC asof22:03UTC",
+      "taskNotInterrupted": true,
+      "possibleLaterRecovery": "Stillobservinguntilfrozen95minute cutoff; do notreplacefinalresultwiththisinterimfinding.",
+      "limits": "One native0.78hour, unpaired with OT. Black-boxmodel/runtimeunknown; no generalvendorreliabilityorH2Hsuperiorityclaim."
     }
   },
   "realModelCompactionProbe": {

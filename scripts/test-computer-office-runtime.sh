@@ -9,7 +9,7 @@ chmod 700 /home/box/.config/private
 printf synthetic > /home/box/.config/private/token
 printf 'name,amount\nAlpha,12\nBeta,8\n' > /workspace/office-qa/input.csv
 chown -R runner:box /workspace/office-qa
-/usr/local/bin/openteam-computer-entrypoint true
+/usr/lib/openteam/bin/openteam-computer-entrypoint true
 runuser -u runner -- test ! -r /home/box/.config/private/token
 runuser -u runner -- test -w /home/box/.cache/fontconfig
 runuser -u runner -- test -w /home/box/.cache/dconf
@@ -38,7 +38,7 @@ set -eu
 mkdir -p /home/box/.config /home/box/.cache /home/box/.pi/agent
 chmod 700 /home/box/.pi/agent
 ln -s /home/box/.pi/agent "/home/box/$REDIRECTED_PATH"
-if /usr/local/bin/openteam-computer-entrypoint true; then
+if /usr/lib/openteam/bin/openteam-computer-entrypoint true; then
   echo 'Unexpectedly accepted redirected office profile/cache' >&2
   exit 1
 fi

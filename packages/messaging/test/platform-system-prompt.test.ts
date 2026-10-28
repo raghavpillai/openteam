@@ -364,8 +364,8 @@ describe("platform prompt integration", () => {
 
   test("every box section says what a restart or update keeps", () => {
     for (const prompt of [renderWorkerBoxSection({ readOnly: false, workingDirectory: "/workspace" }), renderWorkerBoxSection({ readOnly: true, workingDirectory: "/workspace" })])
-      expect(prompt).toContain("apt packages, which are reinstalled automatically; /tmp and anything installed elsewhere by hand are lost.");
-    expect(combinedGraphicalWorkerPrompt("/workspace")).toContain("Restarts keep your home folder, /workspace, and installed packages, but not /tmp.");
+      expect(prompt).toContain("pip and npm packages are reinstalled or rebuilt if Python or Node changes version. /tmp, manual edits under /etc and files anywhere else are lost.");
+    expect(combinedGraphicalWorkerPrompt("/workspace")).toContain("Restarts keep your home folder, /workspace, /usr/local and apt packages (reinstalled at start), but not /tmp, /etc edits or files elsewhere.");
   });
 
   test("the copied question-widget example passes OpenTeam's real send validation", () => {
@@ -395,8 +395,8 @@ describe("platform prompt integration", () => {
     // The reference's Time section, then its box section with the registered-computer file moves.
     expect(prompt).toContain("A timestamp that carries its own zone is not box-local.");
     expect(prompt).toContain("Move data between code and web apps through files on the box.");
-    // Recreating the computer keeps the home and workspace volumes and reinstalls apt packages, nothing else.
-    expect(prompt).toContain("Restarts and updates of the box keep your home folder and /workspace, language packages (pip, npm, uv and the like), and apt packages, which are reinstalled automatically; /tmp and anything installed elsewhere by hand are lost.");
+    // Recreating the computer keeps the home, workspace and /usr/local volumes and reinstalls apt packages, nothing else.
+    expect(prompt).toContain("Restarts and updates of the box keep your home folder, /workspace and /usr/local (where sudo pip, sudo npm -g and make install put things), and reinstall apt packages at start, including ones from apt sources or .deb files you added;");
     expect(prompt).toContain("move files across with CopyToBox (their computer into /workspace/uploads or a box_path) and CopyFromBox (your box onto their disk).");
     // Without this the main agent wipes the shared /workspace as soon as it is asked to.
     expect(prompt).toContain("- The box is shared with the user's other agents, which may be using it right now. Don't delete files or kill processes you didn't create; if the user asks you to, confirm first.");

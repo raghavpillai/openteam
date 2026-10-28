@@ -9,7 +9,8 @@ Your data lives in a database and several Docker volumes. Back them up together,
 | What | Contains |
 | --- | --- |
 | Database | Bots, conversations, memory, run history, plugin accounts, and private skills |
-| `computer_home` volume | Browser profiles, website sign-ins, model provider sign-ins, and software bots installed (pip, npm and uv packages, plus the list and cached downloads of apt packages, which are reinstalled when the computer starts) |
+| `computer_home` volume | Browser profiles, website sign-ins, model provider sign-ins, and software bots installed in their home folder |
+| `computer_local` volume | Software bots installed system-wide in `/usr/local`, and the list of apt packages the computer reinstalls when it starts, with their cached downloads |
 | `agent_data` volume | Skills, routines, bot profiles, and model settings |
 | `workspace` volume | Files in `/workspace` |
 | `assets` volume | Attachments |
@@ -37,7 +38,7 @@ oc stop server worker computer
 oc exec -T postgres pg_dump -U openteam -d openteam --format=custom > "$OUT/postgres.dump"
 
 # Back up the volumes
-for v in computer_home agent_data assets workspace box_store; do
+for v in computer_home computer_local agent_data assets workspace box_store; do
   docker run --rm -v "openteam_openteam_$v:/source:ro" -v "$OUT:/backup" alpine:3.22 \
     tar -czf "/backup/openteam_$v.tar.gz" -C /source .
 done
@@ -71,7 +72,7 @@ oc up -d --wait postgres
 oc exec -T postgres pg_restore -U openteam -d openteam < "$OUT/postgres.dump"
 
 # Restore the volumes
-for v in computer_home agent_data assets workspace box_store; do
+for v in computer_home computer_local agent_data assets workspace box_store; do
   docker run --rm -v "openteam_openteam_$v:/target" -v "$OUT:/backup:ro" alpine:3.22 \
     sh -c "find /target -mindepth 1 -delete && tar -xzf /backup/openteam_$v.tar.gz -C /target"
 done

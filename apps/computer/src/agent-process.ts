@@ -65,9 +65,39 @@ export const spawnAgentProcess: typeof spawn = ((command: string, args: readonly
   // Join before setpriv/exec so ordinary commands and sudo descendants inherit
   // the budget while retaining the computer's administrator-access behavior.
   return group
-    ? spawn("/usr/local/bin/openteam-desktop-exec", [group, "/usr/bin/setpriv", ...identityArgs], rest)
+    ? spawn("/usr/lib/openteam/bin/openteam-desktop-exec", [group, "/usr/bin/setpriv", ...identityArgs], rest)
     : spawn("/usr/bin/setpriv", identityArgs, rest);
 }) as typeof spawn;
+
+/**
+ * Bots' commands search the system folders, /usr/local included, then the home folder's tool
+ * folders, so a copy a bot keeps in its home never shadows a system tool for other bots. The
+ * image's own tools are linked from /usr/bin. OpenTeam's own processes keep the computer's fixed
+ * PATH (docker/computer-entrypoint.sh), which has neither /usr/local nor the home folder.
+ */
+export const AGENT_SEARCH_PATHS = {
+  PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/home/box/.local/bin:/home/box/.bun/bin:/home/box/.cargo/bin:/home/box/go/bin",
+  // The image's Node libraries come first, so require("pptxgenjs") gets the version an update shipped.
+  NODE_PATH: "/usr/lib/openteam/node/lib/node_modules:/usr/local/lib/node_modules",
+  BUN_INSTALL_BIN: "/home/box/.bun/bin",
+};
+
+/**
+ * A Shell keeps the environment its last command exited with. Its PATH stays its own (a venv may
+ * lead it) and gains the bot entries it lacks at the end; the image's Node libraries and bun's
+ * global bin folder always come from the current image.
+ */
+export const withAgentSearchPaths = (saved: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+  const path = saved.PATH?.split(":").filter(Boolean) ?? [];
+  const [imageModules, ...otherModules] = AGENT_SEARCH_PATHS.NODE_PATH.split(":");
+  const nodePath = (saved.NODE_PATH?.split(":").filter(Boolean) ?? []).filter((entry) => entry !== imageModules);
+  return {
+    ...saved,
+    PATH: [...path, ...AGENT_SEARCH_PATHS.PATH.split(":").filter((entry) => !path.includes(entry))].join(":"),
+    NODE_PATH: [imageModules, ...nodePath, ...otherModules.filter((entry) => !nodePath.includes(entry))].join(":"),
+    BUN_INSTALL_BIN: AGENT_SEARCH_PATHS.BUN_INSTALL_BIN,
+  };
+};
 
 const ALWAYS_PRIVATE_ENVIRONMENT_KEYS = new Set([
   "AWS_ACCESS_KEY_ID",

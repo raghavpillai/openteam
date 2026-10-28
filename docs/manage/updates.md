@@ -31,6 +31,8 @@ The CLI starts a background updater after `openteam install`, `openteam setup`, 
 
 The desktop app and the server have separate versions. If the app reports that it's incompatible with the server, update both.
 
+Updates keep the software bots installed on their computer; see [what restarts and updates keep](../usage/computer.md#what-restarts-and-updates-keep). The first update to a version that keeps them can't bring back software installed before it, so bots reinstall that once.
+
 ## After updating
 
 Run `openteam status`, then open the app and check that a bot's conversation and files are still there.

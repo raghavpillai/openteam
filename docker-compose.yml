@@ -124,7 +124,7 @@ services:
     devices:
       - /dev/net/tun:/dev/net/tun
     healthcheck:
-      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:8790/health');process.exit(r.ok?0:1)"]
+      test: ["CMD", "/usr/lib/openteam/bin/bun", "-e", "const r=await fetch('http://127.0.0.1:8790/health');process.exit(r.ok?0:1)"]
       interval: 3s
       timeout: 5s
       retries: 30
@@ -138,13 +138,15 @@ services:
       - openteam_agent_data:/home/box/sand-data
       - openteam_workspace:/workspace
       - openteam_box_store:/box-store
+      # Bots' system-wide installs (sudo pip and npm -g, make install, copied tools) and the record of their apt packages.
+      - openteam_computer_local:/usr/local
 
   computer-memory-init:
     labels: *openteam-labels
     build:
       context: .
       dockerfile: docker/computer.Dockerfile
-    entrypoint: ["/usr/local/bin/openteam-memory-init"]
+    entrypoint: ["/usr/lib/openteam/bin/openteam-memory-init"]
     pid: service:computer
     network_mode: none
     depends_on:
@@ -243,6 +245,7 @@ services:
 volumes:
   openteam_postgres:
   openteam_computer_home:
+  openteam_computer_local:
   openteam_agent_data:
   openteam_assets:
   openteam_workspace:

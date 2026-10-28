@@ -48,7 +48,7 @@ import {
   parseHostShellResponse,
   parseShellAwaitResponse,
 } from "@openteam/contracts/service-protocol";
-import { spawnAgentProcess as spawn, agentProcessIdentity, agentProcessGroupSignaler, sanitizedAgentEnvironment } from "./agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, agentProcessGroupSignaler, AGENT_SEARCH_PATHS, sanitizedAgentEnvironment, withAgentSearchPaths } from "./agent-process";
 import { agentFileIO } from "./agent-file-io";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
@@ -73,26 +73,6 @@ const SHELL_HARD_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const TERMINAL_HEADER_UPDATE_MS = 5_000;
 // Shell output logs are named by their numeric shell_id.
 const TERMINAL_LOG_NAME = /^[0-9]+\.log$/;
-
-/**
- * A Shell keeps the environment its last command exited with, so a search path the image added
- * after it was saved (such as the home volume's tool folders) would never reach it. Each entry
- * of the current PATH or NODE_PATH the saved one lacks goes in before the first entry they share.
- */
-export const withCurrentSearchPaths = (saved: NodeJS.ProcessEnv, current: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
-  const merged = { ...saved };
-  for (const key of ["PATH", "NODE_PATH"]) {
-    const have = saved[key]?.split(":").filter(Boolean);
-    const want = current[key]?.split(":").filter(Boolean) ?? [];
-    if (!have) { if (current[key] !== undefined) merged[key] = current[key]; continue; }
-    const missing = want.filter((entry) => !have.includes(entry));
-    if (!missing.length) continue;
-    const shared = have.findIndex((entry) => want.includes(entry));
-    const at = shared < 0 ? have.length : shared;
-    merged[key] = [...have.slice(0, at), ...missing, ...have.slice(at)].join(":");
-  }
-  return merged;
-};
 
 export const sanitizedShellEnvironment = (
   source: NodeJS.ProcessEnv,
@@ -221,7 +201,7 @@ export class NativeToolExecutor {
       }), { status: "completed", exitCode: 1 });
     }
     await mkdir(this.terminalDir, { recursive: true });
-    const savedEnvironment = await loadShellEnvironment(this.terminalDir, scope, environment ?? process.env, environment);
+    const savedEnvironment = await loadShellEnvironment(this.terminalDir, scope, environment ?? { ...process.env, ...AGENT_SEARCH_PATHS }, environment);
     const secrets = routing.secrets ?? [];
 
     const shellId = String(randomInt(100000, 2147483647));
@@ -234,7 +214,7 @@ export class NativeToolExecutor {
     const environmentCapture = createShellEnvironmentCapture(dirname(savedEnvironment.path));
     const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", `${SHELL_ENVIRONMENT_CAPTURE}\n${input.command}`], {
       cwd: workingDirectory,
-      env: { ...sanitizedShellEnvironment(withCurrentSearchPaths(savedEnvironment.environment, environment ?? process.env), workingDirectory), ...routing.secretEnvironment, OPENTEAM_DESKTOP_ID: environment?.OPENTEAM_DESKTOP_ID },
+      env: { ...sanitizedShellEnvironment(withAgentSearchPaths(savedEnvironment.environment), workingDirectory), ...routing.secretEnvironment, OPENTEAM_DESKTOP_ID: environment?.OPENTEAM_DESKTOP_ID },
       ...agentProcessIdentity(),
       detached: true,
       stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],

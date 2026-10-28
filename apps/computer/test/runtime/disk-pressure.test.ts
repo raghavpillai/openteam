@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { classifyDiskPressure, DISK_PRESSURE_REMINDER, DiskPressureMonitor, diskPressureReminderStepPersisted } from "../../src/runtime/disk-pressure";
+import { classifyDiskPressure, DISK_PRESSURE_REMINDER, DiskPressureMonitor, reminderStepPersisted } from "../../src/runtime/disk-pressure";
 
 const GIB = 1024 ** 3;
 
@@ -73,10 +73,10 @@ test("a restarted computer keeps the episode and who already heard about it, as 
 
 test("the reminder is spent once a model step after it was saved, even if the turn is then interrupted", () => {
   const reminder = { role: "custom", customType: "openteam-disk-pressure" };
-  expect(diskPressureReminderStepPersisted([reminder])).toBe(false);
-  expect(diskPressureReminderStepPersisted([reminder, { role: "assistant", stopReason: "aborted" }])).toBe(false);
-  expect(diskPressureReminderStepPersisted([{ role: "assistant", stopReason: "toolUse" }, reminder])).toBe(false);
-  expect(diskPressureReminderStepPersisted([reminder, { role: "assistant", stopReason: "toolUse" }, { role: "assistant", stopReason: "aborted" }])).toBe(true);
+  expect(reminderStepPersisted([reminder])).toBe(false);
+  expect(reminderStepPersisted([reminder, { role: "assistant", stopReason: "aborted" }])).toBe(false);
+  expect(reminderStepPersisted([{ role: "assistant", stopReason: "toolUse" }, reminder])).toBe(false);
+  expect(reminderStepPersisted([reminder, { role: "assistant", stopReason: "toolUse" }, { role: "assistant", stopReason: "aborted" }])).toBe(true);
 });
 
 test("a main-agent turn on a low disk gets the reminder before its first request", async () => {

@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build src/main.ts src/provider-cli.ts src/apt-packages-cli.ts --outdir dist --target bun --external @earendil-works/pi-coding-agent --external @earendil-works/pi-ai --external playwright-core",
+    "build": "bun build src/main.ts src/provider-cli.ts src/installs-cli.ts --outdir dist --target bun --external @earendil-works/pi-coding-agent --external @earendil-works/pi-ai --external playwright-core",
     "dev": "bun --watch src/main.ts",
     "start": "bun dist/main.js",
     "typecheck": "tsc -p tsconfig.json",

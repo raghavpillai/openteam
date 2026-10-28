@@ -5,7 +5,7 @@ import { chmod, chown, cp, mkdir, readFile, rename, rm, writeFile } from "node:f
 import { join } from "node:path";
 import type { ComputerUseActionInput, ScreenActionInput, ScreenClipboardInput, ScreenClipboardView } from "@openteam/contracts";
 import { performClipboardOperation } from "./screen/clipboard";
-import { spawnAgentProcess as spawn, agentProcessIdentity, assignAgentOwnership } from "./agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, AGENT_SEARCH_PATHS, assignAgentOwnership } from "./agent-process";
 import { BrowserBroker } from "./browser/broker";
 import { BrowserProfileAuthority } from "./browser/profile-authority";
 import { prepareDownloadPreferences } from "./browser/download-preferences";
@@ -286,7 +286,7 @@ export class ScreenBroker {
 
   async commandEnvironment(botId: string, cwd: string): Promise<NodeJS.ProcessEnv> {
     const session = await this.readySession(botId, cwd);
-    return environment(this.home, session);
+    return { ...environment(this.home, session), ...AGENT_SEARCH_PATHS };
   }
 
   async withAgentBrowserInput<T>(
@@ -679,7 +679,7 @@ export class ScreenBroker {
     if (app === "thunar") {
       return this.spawnLongLived("thunar", [session.cwd], session, env);
     }
-    return this.spawnLongLived("xfce4-terminal", ["--disable-server"], session, env, session.cwd);
+    return this.spawnLongLived("xfce4-terminal", ["--disable-server"], session, { ...env, ...AGENT_SEARCH_PATHS }, session.cwd);
   }
 
   private spawnLongLived(

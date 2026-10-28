@@ -117,67 +117,67 @@ RUN apt-get update \
   && usermod --login box --home /home/box --move-home --shell /bin/bash bun \
   && groupadd --gid 998 orbitd \
   && usermod --append --groups orbitd box \
-  && mkdir -p /app/apps/computer/dist /workspace /home/box/.pi/agent \
-  && mv /usr/bin/chromium /usr/local/bin/google-chrome \
+  && mkdir -p /app/apps/computer/dist /workspace /home/box/.pi/agent /usr/lib/openteam/bin \
+  && mv /usr/bin/chromium /usr/lib/openteam/bin/google-chrome \
+  && mv /usr/local/bin/bun /usr/lib/openteam/bin/bun \
+  && ln -s bun /usr/lib/openteam/bin/bunx \
+  && rm -rf /usr/local/bin/bunx /usr/local/bin/docker-entrypoint.sh /usr/local/bun-node-fallback-bin \
   && chown -R box:box /app /workspace /home/box
 
-COPY --from=ghcr.io/astral-sh/uv:0.8.14 /uv /uvx /usr/local/bin/
+# OpenTeam's own tools and libraries live in /usr/lib/openteam. /usr/local is
+# a volume the bots install into, so the image ships nothing there.
+COPY --from=ghcr.io/astral-sh/uv:0.8.14 /uv /uvx /usr/lib/openteam/bin/
 
 # Office toolkit for the knowledgeWork worker's deck skills, at the path those
 # skills name, with the libraries they expect. docker/officekit-ts is a copy
 # without the deck template library; docker/officekit-ts.sha256.json lists its
 # files and that change.
 COPY docker/officekit-ts /opt/sand/sand-host/officekit-ts
-RUN npm install --global --no-audit --no-fund pptxgenjs@4.0.1 docx@9.8.1 \
+# Every Python finds the image's packages ahead of /usr/local and ~/.local
+# (openteam.pth), so an update's versions are the ones skills get.
+RUN npm install --global --prefix /usr/lib/openteam/node --no-audit --no-fund pptxgenjs@4.0.1 docx@9.8.1 \
   && npm install --prefix /opt/sand/sand-host/officekit-ts --no-audit --no-fund --omit=dev sharp@0.35.5 libxml2-wasm@0.7.2 \
   && chmod 0755 /opt/sand/sand-host/officekit-ts/bin/office \
-  && pip install --break-system-packages --no-cache-dir \
+  && pip install --break-system-packages --no-cache-dir --target /usr/lib/openteam/python \
     python-pptx==1.0.2 python-docx==1.2.0 openpyxl==3.1.5 xlsxwriter==3.2.9 \
     "markitdown[pptx,docx,xlsx]==0.1.7" pandas==3.0.6 pillow==12.3.0 lxml==6.1.3 \
+  && ln -s /usr/lib/openteam/python/bin/* /usr/lib/openteam/bin/ \
+  && printf '%s\n' 'import sys; sys.path.insert(min([i for i, d in enumerate(sys.path) if d.startswith("/usr/local/lib/python") or d == sys.modules["site"].USER_SITE] + [len(sys.path)]), "/usr/lib/openteam/python")' \
+    > /usr/lib/python3/dist-packages/openteam.pth \
   && rm -rf /root/.npm /root/.cache
-# Skills require("pptxgenjs") from any folder, and bots their own global packages.
-ENV NODE_PATH=/home/box/.local/lib/node_modules:/usr/local/lib/node_modules
 
 COPY --from=build --chown=box:box /app/node_modules /app/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/node_modules /app/apps/computer/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/dist/main.js /app/apps/computer/dist/main.js
 COPY --from=build --chown=box:box /app/apps/computer/dist/provider-cli.js /app/apps/computer/dist/provider-cli.js
-COPY --from=build --chown=box:box /app/apps/computer/dist/apt-packages-cli.js /app/apps/computer/dist/apt-packages-cli.js
-COPY --from=memory-tools /openteam-memory-init /openteam-desktop-exec /usr/local/bin/
-COPY docker/openteam-memory-setup.py /usr/local/bin/openteam-memory-setup.py
-COPY --chown=box:box docker/computer-entrypoint.sh /usr/local/bin/openteam-computer-entrypoint
-COPY --chown=box:box docker/openteam-pi-auth /usr/local/bin/openteam-pi-auth
-COPY docker/openteam-box-timezone /usr/local/bin/openteam-box-timezone
+COPY --from=build --chown=box:box /app/apps/computer/dist/installs-cli.js /app/apps/computer/dist/installs-cli.js
+COPY --from=memory-tools /openteam-memory-init /openteam-desktop-exec /usr/lib/openteam/bin/
+COPY docker/openteam-memory-setup.py /usr/lib/openteam/bin/openteam-memory-setup.py
+COPY --chown=box:box docker/computer-entrypoint.sh /usr/lib/openteam/bin/openteam-computer-entrypoint
+COPY --chown=box:box docker/openteam-pi-auth /usr/lib/openteam/bin/openteam-pi-auth
+COPY docker/openteam-installs /usr/lib/openteam/bin/openteam-installs
+COPY docker/openteam-box-timezone /usr/lib/openteam/bin/openteam-box-timezone
 COPY --chown=box:box docker/desktop /usr/share/openteam-desktop
-COPY --chown=box:box docker/openteam-screen-launch /usr/local/bin/openteam-screen-launch
+COPY --chown=box:box docker/openteam-screen-launch /usr/lib/openteam/bin/openteam-screen-launch
 COPY --chown=box:box docker/openteam-browser /usr/bin/chromium
 COPY --chown=box:box docker/openteam-vnc.html /usr/share/novnc/openteam.html
 COPY --from=desktop-assets /openteam-wallpaper.png /usr/share/openteam-desktop/wallpaper.png
 RUN chmod 0755 \
     /usr/bin/chromium \
-    /usr/local/bin/openteam-computer-entrypoint \
-    /usr/local/bin/openteam-pi-auth \
-    /usr/local/bin/openteam-box-timezone \
-    /usr/local/bin/openteam-screen-launch
+    /usr/lib/openteam/bin/openteam-computer-entrypoint \
+    /usr/lib/openteam/bin/openteam-pi-auth \
+    /usr/lib/openteam/bin/openteam-installs \
+    /usr/lib/openteam/bin/openteam-box-timezone \
+    /usr/lib/openteam/bin/openteam-screen-launch
 
-# Bot installs land in the kept home volume, even under sudo: pip outside a
-# virtualenv installs to ~/.local (root's ~/.local is box's), npm's global
-# prefix is ~/.local, and apt installs are recorded and reinstalled at start
-# (apps/computer/src/apt-packages.ts). Keep this after every image install.
+# Bots find the image's tools by name through /usr/bin. Everything they
+# install outside the home folder goes to the /usr/local volume, except apt
+# packages, which are recorded and reinstalled at start (apps/computer/src/apt-packages.ts).
 COPY docker/apt-keep-installs.conf /etc/apt/apt.conf.d/90openteam-keep-installs
-COPY docker/openteam-home-installs.sh /etc/profile.d/openteam-home-installs.sh
-COPY docker/openteam-home-owned /usr/local/bin/openteam-home-owned
-RUN printf '[global]\nbreak-system-packages = true\n' > /etc/pip.conf \
-  && mkdir -p /root/.config/pip /usr/share/openteam \
-  && printf '[install]\nuser = true\n' > /root/.config/pip/pip.conf \
-  && rm -rf /root/.local && ln -s /home/box/.local /root/.local \
-  && printf 'prefix=/home/box/.local\n' > /etc/npmrc \
-  && printf 'Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/box/.local/bin"\n' > /etc/sudoers.d/openteam-paths \
-  && chmod 0440 /etc/sudoers.d/openteam-paths \
-  && chmod 0755 /usr/local/bin/openteam-home-owned \
-  && for name in pip pip3 npm uv; do ln -s ../bin/openteam-home-owned "/usr/local/sbin/$name"; done \
-  && dpkg-query -W -f='${Package}\n' | sort > /usr/share/openteam/apt-baseline
-ENV PATH=/home/box/.local/bin:/home/box/.bun/bin:/home/box/.cargo/bin:/home/box/go/bin:$PATH:/usr/games
+COPY docker/dpkg-keep-installs.cfg /etc/dpkg/dpkg.cfg.d/openteam-keep-installs
+ENV PATH=/usr/lib/openteam/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV NODE_PATH=/usr/lib/openteam/node/lib/node_modules
+ENV BUN_INSTALL_BIN=/home/box/.bun/bin
 
 # GTK/Chromium must decode native chooser filenames as UTF-8. Without a
 # locale, non-ASCII paths can become empty/unreadable File objects. A runtime
@@ -188,5 +188,14 @@ ENV OPENTEAM_PI_AGENT_DIR=/home/box/.pi/agent
 WORKDIR /workspace
 USER root:box
 EXPOSE 8790 6200-6299
-ENTRYPOINT ["tini", "--", "openteam-computer-entrypoint"]
-CMD ["bun", "/app/apps/computer/dist/main.js"]
+# Keep this last: the baselines describe the finished image, and the build id
+# changes whenever anything above does.
+RUN for tool in /usr/lib/openteam/bin/*; do [ -e "/usr/bin/${tool##*/}" ] || ln -s "$tool" /usr/bin/; done \
+  && mkdir -p /usr/share/openteam \
+  && dpkg-query -W -f='${Package}\n' | sort > /usr/share/openteam/apt-baseline \
+  && find /etc/apt/sources.list /etc/apt/sources.list.d /etc/apt/keyrings /etc/apt/trusted.gpg /etc/apt/trusted.gpg.d \
+    /etc/apt/preferences.d /usr/share/keyrings -type f 2>/dev/null | sort > /usr/share/openteam/apt-sources-baseline \
+  && if find /usr/local -mindepth 1 ! -type d ! -path /usr/local/man | grep .; then echo "the image must ship no files in /usr/local" >&2; exit 1; fi \
+  && cat /proc/sys/kernel/random/uuid > /usr/lib/openteam/build-id
+ENTRYPOINT ["tini", "--", "/usr/lib/openteam/bin/openteam-computer-entrypoint"]
+CMD ["/usr/lib/openteam/bin/bun", "/app/apps/computer/dist/main.js"]

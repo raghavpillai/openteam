@@ -93,9 +93,9 @@ export interface ActiveTurn {
   /** The low-disk episode this main-agent turn tells the bot about, and whether it went out. */
   diskPressureEpisode?: string | null;
   diskPressureReminded?: boolean;
-  /** Likewise for recorded apt packages the computer's startup could not reinstall. */
-  aptReplayNotice?: { episode: string; content: string } | null;
-  aptReplayReminded?: boolean;
+  /** Likewise for installs the computer's last start could not bring back, or rebuilt. */
+  installNotice?: { episode: string; content: string } | null;
+  installReminded?: boolean;
   /** A typed message superseded this run; calls it cut off say so. */
   interruptedByUserAt?: number;
   /** Stopped through the cancel-run API (the user's stop or StopSubagent): the turn settles as cancelled. */

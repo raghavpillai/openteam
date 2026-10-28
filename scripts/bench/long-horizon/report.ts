@@ -27,6 +27,10 @@ export function summarizeTrials(rows: any[]) {
     unfinishedReviews: valid.reduce((n, r) => n + r.audit.unfinishedReviews.length, 0),
     abandonedReviews: valid.reduce((n, r) => n + r.audit.abandonedReviews.length, 0),
     reportedWithin90Sec: valid.filter(r => r.score.timelyReport && r.audit.fullyFinished).length,
+    reviewedReportsWithin90Sec: reviewedFinished.filter(r =>
+      typeof r.reviewedReportLatencySec === "number" &&
+      Number.isFinite(r.reviewedReportLatencySec) &&
+      r.reviewedReportLatencySec >= 0 && r.reviewedReportLatencySec <= 90).length,
     reportLatencySec: distribution(finished.map(r => r.score.reportAfterResolutionSec)),
     reviewedGoalReportLatencySec: distribution(valid.filter(r => r.claimsAudit?.passed && r.claimsAudit.finalDeliveryVerified).map(r => r.reviewedReportLatencySec)),
     workerFinishAfterProviderSec: distribution(finished.map(r => r.workerFinishAfterProviderSec)),

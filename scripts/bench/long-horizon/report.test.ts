@@ -28,3 +28,14 @@ test("a reviewed final follow-up can establish delivery without matching a refun
   expect(summarizeTrials([{ ...row, audit: { ...row.audit, unfinishedReviews: [{ id: "pending" }] } }]))
     .toMatchObject({ reviewedHardGatesPassed: 0 });
 });
+
+test("an early refund milestone cannot count as a timely reviewed full-completion report", () => {
+  const row = { id: "milestone-before-verification", audit: { providerOutcome: true,
+    explicitApprovalBeforeSend: true, fullyFinished: true, unfinishedReviews: [], abandonedReviews: [] },
+    score: { timelyReport: true, reportAfterResolutionSec: 40 },
+    claimsAudit: { reviewed: true, passed: true, finalDeliveryVerified: true },
+    reviewedReportLatencySec: 120 };
+  expect(summarizeTrials([row])).toMatchObject({ reportedWithin90Sec: 1, reviewedReportsWithin90Sec: 0 });
+  expect(summarizeTrials([{ ...row, reviewedReportLatencySec: 80 }]))
+    .toMatchObject({ reviewedReportsWithin90Sec: 1 });
+});

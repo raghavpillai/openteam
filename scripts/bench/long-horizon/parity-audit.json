@@ -1,5 +1,5 @@
 {
-  "auditedAt": "2026-10-28T20:33:20.547089+00:00",
+  "auditedAt": "2026-10-28T20:48:01.974719+00:00",
   "productRevision": "6fa9c3ce",
   "referenceBuild": "Captured Grok snapshots October19\u201321; observed live desktop 0.75.0. Required 0.78.1 update is pending user approval.",
   "method": "Revisit the historical G1\u2013G14 gap list against the current source and real-loop tests. Prompt/catalog assertions establish surface parity only; live outcomes are reported separately.",
@@ -165,7 +165,23 @@
       "recoveredValidationError": "One attempted complete report reused the earlier task-accepted milestone key with changed content. Host rejected it; worker retried with a new key and completed. Calls include this rejected attempt; no duplicate notification/action was committed.",
       "limits": "Fixture label-state confirmation only; no actual label download, shipment, card settlement or production reliability guarantee. Cost is provider-estimated agent inference only, excluding simulator/infrastructure; no cost superiority estimate."
     },
-    "native078": "User authorized restart; installed and live-renderer version0.78.1verified, mandatory gate absent, existing loopback harness restored, fresh critical cohort started. Previous0.75pilot kept separate; model/reasoning/cost remain unknown."
+    "native078": "User authorized restart; installed and live-renderer version0.78.1verified, mandatory gate absent, existing loopback harness restored, fresh critical cohort started. Previous0.75pilot kept separate; model/reasoning/cost remain unknown.",
+    "native078FirstReviewed": {
+      "desktopVersion": "0.78.1",
+      "trialsReviewed": 1,
+      "semanticHardGatesPassed": 1,
+      "rawLexicalDeliveryPassed": 0,
+      "reviewedReportAfterProviderSec": 86.676,
+      "outwardKnownSecretMatches": 0,
+      "unpairedNativeHour": {
+        "id": "native078-unpaired-H1-1",
+        "status": "started",
+        "paired": false
+      },
+      "controlledOpenTeamPrimary": "Zero prompts; disk guard pending",
+      "limits": "One0.78trial; separate from0.75pilot. Fictional provider approval and pending refund, not real card settlement. Native cloud model/reasoning/cost unknown.",
+      "scoringDiagnostic": "Frozen lexical report gate missed accurate on-its-way-back wording. Raw terminal-no-report retained; independent manual provider/scope/report review passes. No task/customer/scoring or product wording changes."
+    }
   },
   "stagedClientReadOnlyReview": {
     "versions": [

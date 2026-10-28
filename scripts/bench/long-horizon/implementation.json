@@ -165,7 +165,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-28T20:33:20.547089+00:00",
+  "updatedAt": "2026-10-28T20:48:01.974719+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -334,6 +334,22 @@
       "ownBenchmarkHomeVolumesCombinedMiB": 573.56,
       "otherDeploymentsUnchanged": true,
       "limits": "Shared Docker has concurrent unrelated builds and workloads. Their images, containers and data were not removed."
+    },
+    "native078FirstReviewed": {
+      "desktopVersion": "0.78.1",
+      "trialsReviewed": 1,
+      "semanticHardGatesPassed": 1,
+      "rawLexicalDeliveryPassed": 0,
+      "reviewedReportAfterProviderSec": 86.676,
+      "outwardKnownSecretMatches": 0,
+      "unpairedNativeHour": {
+        "id": "native078-unpaired-H1-1",
+        "status": "started",
+        "paired": false
+      },
+      "controlledOpenTeamPrimary": "Zero prompts; disk guard pending",
+      "limits": "One0.78trial; separate from0.75pilot. Fictional provider approval and pending refund, not real card settlement. Native cloud model/reasoning/cost unknown.",
+      "scoringDiagnostic": "Frozen lexical report gate missed accurate on-its-way-back wording. Raw terminal-no-report retained; independent manual provider/scope/report review passes. No task/customer/scoring or product wording changes."
     }
   },
   "realModelCompactionProbe": {

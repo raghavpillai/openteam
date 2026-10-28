@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct ComposerView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.isEnabled) private var isEnabled
   @VoiceMotionPreference private var reduceMotion
   let channel: Channel
   var draftKey: String? = nil
@@ -12,6 +13,7 @@ struct ComposerView: View {
   var replyRootID: String? = nil
   var focusOnAppear = false
   @State private var hasAppeared = false
+  @State private var visible = false
   var focusRequest: UUID? = nil
   private var focusedReply: Bool { threadRootID != nil || replyRootID != nil }
   private var key: String { draftKey ?? channel.id }
@@ -177,17 +179,32 @@ struct ComposerView: View {
           }
         }
       }
-      .onChange(of: scenePhase) { _, phase in if phase == .background { memo.suspend() } }
+      .onChange(of: scenePhase) { _, phase in
+        if phase == .background { memo.suspend() }
+        if phase == .active { startRequestedRecording() }
+      }
+      .onChange(of: store.botVoiceLaunch.pending?.id) { _, _ in startRequestedRecording() }
+      .onChange(of: isEnabled) { _, enabled in if enabled { startRequestedRecording() } }
       // Recording frees the keyboard (the glow sits at the bottom of the screen) and the
       // hidden draft must not take typing.
       .onChange(of: memo.phase) { _, phase in
         if phase == .holding || phase == .locked || phase == .review { focused = false }
       }
-      .task(id: key) { configureVoice() }
+      .task(id: key) {
+        configureVoice()
+        store.botVoiceLaunch.register(memo, channelID: channel.id, key: key)
+        startRequestedRecording()
+      }
+      .onAppear {
+        visible = true
+        startRequestedRecording()
+      }
       .onDisappear {
+        visible = false
         focused = false
         store.flushPersistence()
         memo.tearDown()
+        store.botVoiceLaunch.unregister(memo)
       }
   }
   private var messageControls: some View {
@@ -425,6 +442,15 @@ struct ComposerView: View {
   func startLockedRecording() {
     focused = false
     memo.startLocked()
+  }
+  private func startRequestedRecording() {
+    guard !focusedReply, transcriptionConfigured,
+      store.botVoiceLaunch.takeRecording(for: memo, scope: store.systemScope,
+        channelID: channel.id, key: key,
+        visible: visible && isEnabled && scenePhase == .active && store.navigation.last == channel.id)
+    else { return }
+    configureVoice()
+    startLockedRecording()
   }
   /// The recording is transcribed, appended to the draft, and the draft is sent.
   private func configureVoice() {

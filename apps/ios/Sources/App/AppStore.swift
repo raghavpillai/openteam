@@ -11,7 +11,9 @@ final class AppStore {
   private(set) var systemScope: String?
   private(set) var systemDiscoveryEnabled = false
   var systemDraft: SystemMessageDraft?
-  private var pendingSystemItem: (id: String, draft: String?, attachments: [Asset])?
+  let botVoiceLaunch = BotVoiceLaunch()
+  private var pendingSystemItem: (id: String, draft: String?, attachments: [Asset], record: Bool, createdAt: Date)?
+  private var systemOpenGeneration = UUID()
   var launchComplete = false
   var authPath: [AuthStep] = []
   var authError: String?
@@ -46,7 +48,9 @@ final class AppStore {
   private var catchUpSync: UUID?
   var connecting = false
   var busy: Set<String> = []
-  var navigation: [String] = []
+  var navigation: [String] = [] {
+    didSet { botVoiceLaunch.cancelPending(unless: navigation.last) }
+  }
   var focusedRoutine: String?
   var focusedMessage: String?
   var activeChannel: String?
@@ -445,6 +449,7 @@ final class AppStore {
     historyWindows = [:]
     if let systemScope, systemScope != scope {
       systemDraft = nil; pendingSystemItem = nil
+      botVoiceLaunch.reset()
       SystemDiscovery.shared.clear(removeTransfers: true)
     }
     record = next
@@ -466,7 +471,13 @@ final class AppStore {
     if let pending = pendingSystemItem {
       pendingSystemItem = nil
       Task {
-        do { try await openSystemItem(pending.id, draft: pending.draft, attachments: pending.attachments) }
+        do {
+          guard !pending.record || Date.now.timeIntervalSince(pending.createdAt) < 30 else {
+            throw APIError("Run the voice-note shortcut again to start recording.")
+          }
+          try await openSystemItem(pending.id, draft: pending.draft,
+            attachments: pending.attachments, recordVoiceNote: pending.record)
+        }
         catch { self.error = UserFacingError.message(error) }
       }
     }
@@ -1307,19 +1318,32 @@ final class AppStore {
 
   /// Called by OpenIntent and the Siri draft flow. Validate saved identifiers
   /// against the live account before touching navigation or the existing draft.
-  func openSystemItem(_ value: String, draft text: String? = nil, attachments: [Asset] = []) async throws {
+  func openSystemItem(_ value: String, draft text: String? = nil, attachments: [Asset] = [],
+    recordVoiceNote: Bool = false) async throws {
+    let opening = UUID()
+    systemOpenGeneration = opening
     let client = try await SystemIntentClient.connect()
+    guard opening == systemOpenGeneration else { throw CancellationError() }
     guard let id = SystemEntityID(value), id.scope == client.scope,
       [.bot, .conversation, .message].contains(id.kind) else {
       throw APIError("This item belongs to a different OpenTeam account. Choose it again.")
     }
     let target = try client.destination(value, kind: id.kind)
+    if recordVoiceNote {
+      guard id.kind == .bot else { throw APIError("Choose a Bot to record a voice note.") }
+      guard client.bootstrap.runtime["transcription"].string == "configured" else {
+        throw APIError("Configure voice notes in OpenTeam Settings before recording.")
+      }
+    }
     if phase == .starting {
-      pendingSystemItem = (value, text, attachments)
+      pendingSystemItem = (value, text, attachments, recordVoiceNote, .now)
       return
     }
     guard phase == .ready, systemScope == client.scope else {
       throw APIError("Connect to this OpenTeam account before opening its content.")
+    }
+    if id.kind == .bot, text == nil {
+      guard try botVoiceLaunch.canOpen(target.id) else { return }
     }
     // Refresh the directory so a newly created Bot can be opened immediately.
     apply(client.bootstrap)
@@ -1333,12 +1357,17 @@ final class AppStore {
       saveDraft(existing, channel: target.id)
     }
     await open(target.id, messageID: id.kind == .message ? id.localID : nil)
+    if id.kind == .bot, text == nil {
+      botVoiceLaunch.open(scope: client.scope, channelID: target.id, record: recordVoiceNote)
+    }
     if id.kind == .message, focusedMessage != id.localID {
       throw APIError("This message could not be opened. It may have been removed.")
     }
   }
 
   private func clearSystemContent() {
+    systemOpenGeneration = UUID()
+    botVoiceLaunch.reset()
     SystemDiscovery.shared.clear(removeTransfers: true)
     systemScope = nil
     systemDiscoveryEnabled = false

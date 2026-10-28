@@ -5,3 +5,7 @@
 "Run a routine in ${applicationName}" = "Run a routine in ${applicationName}";
 "Run ${routine} in ${applicationName}" = "Run ${routine} in ${applicationName}";
 "Find messages in ${applicationName}" = "Find messages in ${applicationName}";
+"Open a bot in ${applicationName}" = "Open a bot in ${applicationName}";
+"Open bot ${target} in ${applicationName}" = "Open bot ${target} in ${applicationName}";
+"Record a voice note in ${applicationName}" = "Record a voice note in ${applicationName}";
+"Talk to ${bot} in ${applicationName}" = "Talk to ${bot} in ${applicationName}";

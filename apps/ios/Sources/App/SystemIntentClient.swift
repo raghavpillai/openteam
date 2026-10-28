@@ -30,6 +30,13 @@ struct SystemIntentClient {
         try SecureSession.clear()
       }
       throw failure
+    } catch let failure as APIError {
+      throw failure
+    } catch {
+      // URLSession errors may contain Network.__NWPath in NSError.userInfo.
+      // App Intents returns query failures over secure XPC, which cannot encode
+      // that object and would terminate the app during parameter refresh.
+      throw APIError(UserFacingError.message(error))
     }
     let client = Self(session: session, api: api, bootstrap: bootstrap)
     try client.validateSession()

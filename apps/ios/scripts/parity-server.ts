@@ -156,6 +156,7 @@ const server = Bun.serve({
       emit("channel.message.created",channel.id); return response({ok:true});
     }
     if (path === "/__qa/control" && method === "POST") {
+      if (input.transcription !== undefined) snapshot.runtime.transcription = input.transcription;
       if (input.modelSettings) serverSetup = new ServerSetupFixture(true);
       if (input.largeModelCatalog !== undefined) serverSetup.largeModelCatalog = input.largeModelCatalog;
       if (input.onboarding) {

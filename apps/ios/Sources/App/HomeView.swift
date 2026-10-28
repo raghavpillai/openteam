@@ -111,6 +111,13 @@ struct HomeView: View {
     // page, and a fold changes layout; either would cancel the task and restart it
     // (and open the chat again).
     .task(id: store.landing) { await land() }
+    .onChange(of: store.botVoiceLaunch.presentation) { _, _ in
+      pendingOpen = nil
+      pendingRoutine = nil
+      settings = nil
+      creation = nil
+      search = false
+    }
   }
   /// Compact width (a folded iPhone Duo or any iPhone in portrait) pushes chats
   /// over the list.
@@ -153,7 +160,7 @@ struct HomeView: View {
           .transition(.move(edge: .leading).combined(with: .opacity))
       }
       if let selected {
-        NavigationStack { ChatView(channel: selected) }
+        NavigationStack { ChatView(channel: selected).id(store.botVoiceLaunch.presentation) }
           // A different chat starts with its own pushed details and threads.
           .id(selected.id)
           .environment(
@@ -275,7 +282,7 @@ struct HomeView: View {
   }
   @ViewBuilder private func conversation(_ id: String) -> some View {
     if let channel = store.channel(id) {
-      ChatView(channel: channel)
+      ChatView(channel: channel).id(store.botVoiceLaunch.presentation)
     } else {
       ContentUnavailableView("Conversation unavailable", systemImage: "bubble.left")
     }

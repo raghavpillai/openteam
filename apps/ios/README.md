@@ -131,7 +131,8 @@ provisioning profile. The share extension's App ID is the app's bundle ID plus
 
 ### Siri, Shortcuts, and Spotlight
 
-App Shortcuts expose **Send a task to a Bot**, **Open a conversation**,
+App Shortcuts expose **Open a Bot**, **Record a voice note to a Bot**,
+**Send a task to a Bot**, **Open a conversation**,
 **Run an OpenTeam routine**, and **Find OpenTeam messages** on iOS 18 and later.
 For example, say “Send a task with OpenTeam” or “Run a routine in OpenTeam”;
 Siri asks for the Bot/routine and any required instructions. Debug builds use the
@@ -139,6 +140,21 @@ app name “OpenTeam Swift”. These actions require device authentication and t
 saved server session. Task submission returns the accepted message immediately;
 the agent continues on the server. The server must be reachable over LAN, VPN,
 or the configured remote address.
+
+To bind a specific Bot to the iPhone Action button:
+
+1. In **Shortcuts**, create a shortcut and add OpenTeam's **Open a Bot** or
+   **Record a voice note to a Bot** action. Choose the Bot in its parameter and save.
+2. In iPhone **Settings → Action Button → Shortcut**, choose that saved shortcut.
+
+The opening action goes straight to that Bot's chat. The recording action opens
+the chat and starts the existing hands-free voice-note flow once the app is
+visible, requesting microphone permission if needed. Tap **Send** to transcribe
+and send through the existing composer, or discard to keep the draft untouched.
+This is voice-note messaging, not a continuous voice call. Transcription must be
+configured on the server. Repeating the shortcut preserves an active voice note;
+switching Bots during one asks you to send or discard it first. Unused recording
+requests expire after 30 seconds and are cleared on account changes or sign-out.
 
 On iOS 27, the Messages App Schemas additionally expose drafting and sending
 messages through Siri AI. A Bot is a message person, a chat is a conversation,

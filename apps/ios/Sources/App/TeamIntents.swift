@@ -35,14 +35,29 @@ struct OpenTeamConversationIntent: OpenIntent {
 
 struct OpenTeamBotIntent: OpenIntent {
   static let title: LocalizedStringResource = "Open a Bot"
+  static let description = IntentDescription("Open a chosen Bot's conversation in OpenTeam. Save the Bot in a shortcut to use it with the Action button.")
   static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let openAppWhenRun = true
   @Parameter(title: "Bot") var target: TeamBotEntity
+  static var parameterSummary: some ParameterSummary { Summary("Open \(\.$target)") }
   @Dependency var store: AppStore
   @MainActor func perform() async throws -> some IntentResult {
-    let client = try await SystemIntentClient.connect()
-    _ = try client.destination(target.id, kind: .bot)
+    guard SystemEntityID(target.id)?.kind == .bot else { throw APIError("Choose a Bot to open.") }
     try await store.openSystemItem(target.id)
+    return .result()
+  }
+}
+
+struct RecordBotVoiceNoteIntent: AudioRecordingIntent {
+  static let title: LocalizedStringResource = "Record a voice note to a Bot"
+  static let description = IntentDescription("Open a chosen Bot and start hands-free voice-note recording. Tap Send to transcribe and send, or discard the recording. Works with a saved shortcut and the Action button.")
+  static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
+  static let openAppWhenRun = true
+  @Parameter(title: "Bot") var bot: TeamBotEntity
+  @Dependency var store: AppStore
+  static var parameterSummary: some ParameterSummary { Summary("Record a voice note to \(\.$bot)") }
+  @MainActor func perform() async throws -> some IntentResult {
+    try await store.openSystemItem(bot.id, recordVoiceNote: true)
     return .result()
   }
 }
@@ -88,6 +103,14 @@ struct FindTeamMessagesIntent: AppIntent {
 
 struct TeamAppShortcuts: AppShortcutsProvider {
   static var appShortcuts: [AppShortcut] {
+    AppShortcut(intent: OpenTeamBotIntent(), phrases: [
+      "Open a bot in \(.applicationName)",
+      "Open bot \(\.$target) in \(.applicationName)",
+    ], shortTitle: "Open a Bot", systemImageName: "bubble.left")
+    AppShortcut(intent: RecordBotVoiceNoteIntent(), phrases: [
+      "Record a voice note in \(.applicationName)",
+      "Talk to \(\.$bot) in \(.applicationName)",
+    ], shortTitle: "Record to a Bot", systemImageName: "mic")
     AppShortcut(intent: SendBotTaskIntent(), phrases: [
       "Send a task with \(.applicationName)",
       "Ask \(\.$bot) in \(.applicationName)",

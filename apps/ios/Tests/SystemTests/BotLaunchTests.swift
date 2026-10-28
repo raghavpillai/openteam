@@ -59,6 +59,31 @@ final class BotLaunchTests: SystemIntentFixture {
     try await assertNoDelivery()
   }
 
+  func testRepeatedBackgroundShortcutTriggersArmOnlyOneForegroundRecording() async throws {
+    let client = try await SystemIntentClient.connect()
+    let bot = try XCTUnwrap(client.bootstrap.bots.last)
+    let store = try await connectedStore()
+    store.setForeground(false)
+    var intent = RecordBotVoiceNoteIntent()
+    intent.store = store; intent.bot = TeamBotEntity(bot, scope: scope)
+    // Back Tap runs a saved shortcut outside the app. A repeated invocation
+    // before its composer mounts must not create multiple recording starts.
+    _ = try await intent.perform()
+    _ = try await intent.perform()
+    let memo = VoiceMemoController()
+    store.botVoiceLaunch.register(memo, channelID: bot.dmChannelId, key: bot.dmChannelId)
+    XCTAssertFalse(store.botVoiceLaunch.takeRecording(for: memo, scope: scope,
+      channelID: bot.dmChannelId, key: bot.dmChannelId, visible: false))
+    store.setForeground(true)
+    XCTAssertEqual(store.navigation, [bot.dmChannelId])
+    XCTAssertTrue(store.botVoiceLaunch.takeRecording(for: memo, scope: scope,
+      channelID: bot.dmChannelId, key: bot.dmChannelId, visible: true))
+    XCTAssertFalse(store.botVoiceLaunch.takeRecording(for: memo, scope: scope,
+      channelID: bot.dmChannelId, key: bot.dmChannelId, visible: true))
+    store.setForeground(false)
+    try await assertNoDelivery()
+  }
+
   func testVoiceShortcutSurvivesColdLaunchAndOpeningABotCancelsIt() async throws {
     let client = try await SystemIntentClient.connect()
     let bot = try XCTUnwrap(client.bootstrap.bots.first)

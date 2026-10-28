@@ -141,11 +141,19 @@ saved server session. Task submission returns the accepted message immediately;
 the agent continues on the server. The server must be reachable over LAN, VPN,
 or the configured remote address.
 
-To bind a specific Bot to the iPhone Action button:
+To bind a specific Bot to Back Tap or the iPhone Action button:
 
 1. In **Shortcuts**, create a shortcut and add OpenTeam's **Open a Bot** or
    **Record a voice note to a Bot** action. Choose the Bot in its parameter and save.
-2. In iPhone **Settings → Action Button → Shortcut**, choose that saved shortcut.
+2. For Back Tap, go to **Settings → Accessibility → Touch → Back Tap**, choose
+   **Double Tap** or **Triple Tap**, and select the saved shortcut under **Shortcuts**.
+   You can assign one gesture to open the Bot and the other to record to it.
+   For the Action button, use **Settings → Action Button → Shortcut** instead.
+
+Choose a fixed Bot when saving each shortcut instead of **Ask Each Time**, and
+run it once to grant any required permissions. Both actions require an unlocked,
+authenticated device. Back Tap invokes the same saved shortcut; OpenTeam does
+not need to be open first. See Apple's [Back Tap setup guide](https://support.apple.com/guide/shortcuts/run-shortcuts-tapping-iphone-apd897693606/ios).
 
 The opening action goes straight to that Bot's chat. The recording action opens
 the chat and starts the existing hands-free voice-note flow once the app is
@@ -155,6 +163,8 @@ This is voice-note messaging, not a continuous voice call. Transcription must be
 configured on the server. Repeating the shortcut preserves an active voice note;
 switching Bots during one asks you to send or discard it first. Unused recording
 requests expire after 30 seconds and are cleared on account changes or sign-out.
+The simulator can verify shortcut execution and foreground recording handoff,
+but the physical double/triple Back Tap gesture requires a supported iPhone.
 
 On iOS 27, the Messages App Schemas additionally expose drafting and sending
 messages through Siri AI. A Bot is a message person, a chat is a conversation,

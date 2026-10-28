@@ -35,7 +35,7 @@ struct OpenTeamConversationIntent: OpenIntent {
 
 struct OpenTeamBotIntent: OpenIntent {
   static let title: LocalizedStringResource = "Open a Bot"
-  static let description = IntentDescription("Open a chosen Bot's conversation in OpenTeam. Save the Bot in a shortcut to use it with the Action button.")
+  static let description = IntentDescription("Open a chosen Bot's conversation in OpenTeam. Save the Bot in a shortcut to use it with Back Tap or the Action button.")
   static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let openAppWhenRun = true
   @Parameter(title: "Bot") var target: TeamBotEntity
@@ -50,7 +50,7 @@ struct OpenTeamBotIntent: OpenIntent {
 
 struct RecordBotVoiceNoteIntent: AudioRecordingIntent {
   static let title: LocalizedStringResource = "Record a voice note to a Bot"
-  static let description = IntentDescription("Open a chosen Bot and start hands-free voice-note recording. Tap Send to transcribe and send, or discard the recording. Works with a saved shortcut and the Action button.")
+  static let description = IntentDescription("Open a chosen Bot and start hands-free voice-note recording. Tap Send to transcribe and send, or discard the recording. Works with a saved shortcut assigned to Back Tap or the Action button.")
   static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
   static let openAppWhenRun = true
   @Parameter(title: "Bot") var bot: TeamBotEntity

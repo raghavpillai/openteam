@@ -1,3 +1,4 @@
+import { replaceTaskProgressContext } from "@openteam/contracts/task-progress";
 import { applyArgumentAliases, normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { onlyPendingBackgroundWork } from "./background-status";
 import { markDelivered } from "./events";
@@ -234,8 +235,8 @@ export const workerTopLevelTools = (
 ): readonly string[] => {
   if (active.requestSource === "automation" && active.runtimeProfile !== "subagent") return [WAKE_PARENT_TOOL.name];
   // File transfers stay in the cursor namespace, as in the reference's Task worker manifest.
-  if (active.subagentType === "executor" || active.subagentType === "knowledgeWork") return ["AwaitShell", "WebSearch", "WebFetch"];
-  if (active.subagentType === "computerUse") return ["AwaitShell"];
+  if (active.subagentType === "executor" || active.subagentType === "knowledgeWork") return ["ReportTaskProgress", "AwaitShell", "WebSearch", "WebFetch"];
+  if (active.subagentType === "computerUse") return ["ReportTaskProgress", "AwaitShell"];
   return [];
 };
 
@@ -573,7 +574,7 @@ export class RuntimeTools {
         description: graphical ? tool.description.replace(MACHINE_ROUTING_AWAIT_SENTENCE, "") : tool.description,
         parameters: Type.Unsafe<Record<string, unknown>>(graphical ? boxScopedSchema(tool.inputSchema) : tool.inputSchema),
         // WakeParent ends the run, so nothing runs beside it.
-        executionMode: name === WAKE_PARENT_TOOL.name ? "sequential" : "parallel",
+        executionMode: [WAKE_PARENT_TOOL.name, "ReportTaskProgress"].includes(name) ? "sequential" : "parallel",
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenTeamTool(active, callId, name, args, signal),
       })];
@@ -1418,6 +1419,12 @@ export class RuntimeTools {
         signal
       );
       active.pluginNamespaces = fresh.namespaces;
+    }
+    if (tool === "ReportTaskProgress" && body && typeof body === "object" && (body as Record<string, unknown>).progress) {
+      active.instructions = replaceTaskProgressContext(active.instructions, (body as Record<string, unknown>).progress);
+    }
+    if (tool === "ReportTaskProgress" && body && typeof body === "object" && (body as Record<string, unknown>).deferred === true) {
+      active.endTurnRequested = true;
     }
     if (
       tool === "WakeParent" &&

@@ -1,3 +1,4 @@
+import { initialTaskProgress, taskProgress } from "@openteam/messaging";
 import {
   ApiError,
   formatPiModelRef,
@@ -21,6 +22,7 @@ import { taskInference, parseTaskConfiguration } from "@openteam/contracts/task-
 import { normalizeSubagentTypeName, parentOnlyDispatchNotice, subagentTitle, withSiteDispatchNotes } from "@openteam/contracts/subagent-dispatch";
 
 const ACTIVE_STATUSES = ["provisioning", "queued", "running"] as const;
+const OPEN_STATUSES = [...ACTIVE_STATUSES, "waiting"] as const;
 // The sender's copy of a direct agent message, keyed by the call that sent it.
 const A2A_OUTGOING_PREFIX = "a2a:out:";
 const DELEGATED_WORK_WINDOW_MS = 24 * 60 * 60_000;
@@ -200,7 +202,7 @@ export class SubagentService {
   async check(parentBotId: string, input: CheckSubagentInput) {
     if (!input.subagent_id) {
       const running = await this.prisma.subagent.findMany({
-        where: { parentBotId, status: { in: [...ACTIVE_STATUSES] } },
+        where: { parentBotId, status: { in: [...OPEN_STATUSES] } },
         orderBy: { createdAt: "asc" },
       });
       if (running.length === 0) return "No background subagents are running right now.";
@@ -295,7 +297,7 @@ export class SubagentService {
       if (!run) throw new ApiError(404, "run_not_found", "Run not found");
       const callId = `user-stop:${runId}`;
       const worker = await this.prisma.subagent.findFirst({
-        where: { childBotId: run.botId, currentRunId: runId, status: { in: [...ACTIVE_STATUSES] } },
+        where: { childBotId: run.botId, currentRunId: runId, status: { in: [...OPEN_STATUSES] } },
       });
       if (worker) {
         await this.stopOne(worker.parentBotId, callId, worker);
@@ -339,7 +341,7 @@ export class SubagentService {
           orderBy: { createdAt: "asc" },
         }),
         this.prisma.subagent.findMany({
-          where: { status: { in: [...ACTIVE_STATUSES] } },
+          where: { status: { in: [...OPEN_STATUSES] } },
           select: { childBotId: true },
           orderBy: { createdAt: "asc" },
         }),
@@ -389,7 +391,7 @@ export class SubagentService {
 
   private async stopRunningSubagents(parentBotId: string, callId: string) {
     const running = await this.prisma.subagent.findMany({
-      where: { parentBotId, status: { in: [...ACTIVE_STATUSES] } },
+      where: { parentBotId, status: { in: [...OPEN_STATUSES] } },
       orderBy: { createdAt: "asc" },
     });
     return Promise.all(running.map(async (subagent) => {
@@ -443,7 +445,7 @@ export class SubagentService {
       if (!peer.runId || !run || !["queued", "running"].includes(run.status)) return { id: peer.id, name: peer.name, result: "not_running" as const };
       try {
         await Effect.runPromise(this.runs.cancel(peer.runId));
-        const dispatched = await this.prisma.subagent.findMany({ where: { parentBotId: peer.id, parentRunId: peer.runId, status: { in: [...ACTIVE_STATUSES] } } });
+        const dispatched = await this.prisma.subagent.findMany({ where: { parentBotId: peer.id, parentRunId: peer.runId, status: { in: [...OPEN_STATUSES] } } });
         await Promise.all(dispatched.map((subagent) => this.stopOne(peer.id, callId, subagent)));
         return { id: peer.id, name: peer.name, result: "stopped" as const };
       } catch (error) {
@@ -452,7 +454,7 @@ export class SubagentService {
     }));
   }
 
-  private async stopOne(parentBotId: string, callId: string, subagent: Awaited<ReturnType<SubagentService["owned"]>>) {
+  private async stopOne(parentBotId: string, callId: string, subagent: Awaited<ReturnType<SubagentService["owned"]>>, continuationRace = 0): Promise<{ stopped: boolean; subagent_id: string; status: string }> {
     if (subagent.currentRunId) {
       try {
         await Effect.runPromise(this.runs.cancel(subagent.currentRunId));
@@ -471,13 +473,20 @@ export class SubagentService {
         where: {
           id: subagent.id,
           currentRunId: subagent.currentRunId,
-          status: { in: [...ACTIVE_STATUSES] },
+          status: { in: [...OPEN_STATUSES] },
         },
-        data: { status: "stopped", stoppedAt, completedAt: stoppedAt },
+        data: { status: "stopped", stoppedAt, completedAt: stoppedAt, nextCheckAt: null },
       });
       // Do not overwrite completion or a new attempt that began while the
       // cancellation request was in flight.
       if (updated.count === 0) return false;
+      const latest = await tx.subagent.findUnique({ where: { id: subagent.id }, select: { progressRevision: true } });
+      if (latest && latest.progressRevision > 0) {
+        const progressWakes = await tx.inboxEvent.findMany({ where: { status: "pending", idempotencyKey: { startsWith: `task-progress:${subagent.id}:` } }, select: { runId: true } });
+        await tx.run.updateMany({ where: { id: { in: progressWakes.map(w => w.runId) }, status: "queued" }, data: { status: "cancelled", completedAt: stoppedAt } });
+        await tx.inboxEvent.updateMany({ where: { status: "pending", idempotencyKey: { startsWith: `task-progress:${subagent.id}:` } }, data: { status: "completed", completedAt: stoppedAt } });
+      }
+
       if (subagent.currentRunId) {
         await tx.subagentAttempt.updateMany({
           where: {
@@ -499,6 +508,8 @@ export class SubagentService {
     if (!stopped) {
       const current = await this.prisma.subagent.findUnique({ where: { id: subagent.id } });
       // The worker may record the cancelled turn as stopped before this transaction does.
+      if (current && subagent.parentRunId && continuationRace < 3 && current.currentRunId !== subagent.currentRunId && current.parentRunId === subagent.parentRunId && OPEN_STATUSES.includes(current.status as typeof OPEN_STATUSES[number]))
+        return this.stopOne(parentBotId, callId, current, continuationRace + 1);
       if (current?.status === "stopped" && current.currentRunId === subagent.currentRunId)
         return { stopped: true, subagent_id: botSubagentId(subagent.id), status: "stopped" };
       return { stopped: false, subagent_id: botSubagentId(subagent.id), status: current?.status ?? "unavailable" };
@@ -599,7 +610,7 @@ export class SubagentService {
       });
       const updated = await tx.subagent.update({
         where: { id: created.id },
-        data: { currentRunId: wake.run.id },
+        data: { currentRunId: wake.run.id, progress: toJson(initialTaskProgress(wake.run.id)) },
       });
       const attempt = await tx.subagentAttempt.create({
         data: {
@@ -663,6 +674,8 @@ export class SubagentService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openteam-subagent-capacity'))`;
       await assertSubagentCapacity(context.botId, type, tx);
+      const current = await tx.subagent.findUniqueOrThrow({ where: { id: subagent.id } });
+      if (current.currentRunId !== subagent.currentRunId || !["completed", "failed", "stopped", "waiting"].includes(current.status)) throw new ApiError(409, "subagent_not_resumable", "The task already continued; inspect its current state before dispatching again");
       const child = await tx.bot.findUnique({
         where: { id: subagent.childBotId },
         include: {
@@ -712,6 +725,10 @@ export class SubagentService {
           prompt: input.prompt,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
           status: "queued",
+          nextCheckAt: null,
+          progress: taskProgress(current.progress) ? { ...JSON.parse(JSON.stringify(current.progress)), state: "working", runId: wake.run.id, revision: current.progressRevision + 1, checkAt: undefined } : Prisma.DbNull,
+          progressRevision: current.progressRevision + 1,
+          recoveryAttempts: 0,
           result: null,
           error: Prisma.DbNull,
           startedAt: null,
@@ -742,7 +759,7 @@ export class SubagentService {
       where: {
         id: openteamSubagentId(id),
         parentBotId,
-        status: { in: [...ACTIVE_STATUSES] },
+        status: { in: [...OPEN_STATUSES] },
       },
     });
     return subagent ?? this.noRunningSubagentMessage(parentBotId, id);
@@ -750,7 +767,7 @@ export class SubagentService {
 
   private async noRunningSubagentMessage(parentBotId: string, id: string): Promise<string> {
     const running = await this.prisma.subagent.findMany({
-      where: { parentBotId, status: { in: [...ACTIVE_STATUSES] } },
+      where: { parentBotId, status: { in: [...OPEN_STATUSES] } },
       select: { id: true },
       orderBy: { createdAt: "asc" },
     });
@@ -806,6 +823,9 @@ export class SubagentService {
       tool_call_count: currentRun ? await this.prisma.runItem.count({ where: { AND: [activityWhere, { status: { in: [...FINISHED_ITEM_STATUSES] } }] } }) : 0,
       recent_activity: subagentActivity(recentItems),
       transcript_path: subagent.outputPath,
+      progress: subagent.progress,
+      next_check_at: subagent.nextCheckAt?.toISOString() ?? null,
+      deadline_at: subagent.deadlineAt?.toISOString() ?? null,
       result: subagent.result,
       error: subagent.error,
     };

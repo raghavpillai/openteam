@@ -1,3 +1,4 @@
+import { REPORT_TASK_PROGRESS_TOOL, TaskProgressInput } from "@openteam/contracts/task-progress";
 import { READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
 import { READ_AGENT_ACTIVITY_TOOL, parseReadAgentActivityInput } from "@openteam/contracts/read-agent-activity";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
@@ -191,6 +192,7 @@ export function dynamicCatalog(
   }, execute: (turn, callId, args, signal) => callControlPlaneTool(turn, callId, "ReadAgentActivity", args, signal) };
   const cursorTools: RuntimeDynamicTool[] = [
     ...additionalTools,
+    ...(active.runtimeProfile === "subagent" && ["computerUse", "executor", "knowledgeWork"].includes(active.subagentType ?? "") ? [controlPlaneTool(REPORT_TASK_PROGRESS_TOOL, TaskProgressInput)] : []),
     ...(active.requestSource === "automation" && active.runtimeProfile !== "subagent"
       ? [controlPlaneTool(WAKE_PARENT_TOOL, WakeParentInput)] : []),
     {

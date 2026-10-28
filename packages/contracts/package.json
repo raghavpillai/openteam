@@ -49,7 +49,8 @@
     "./subagent-dispatch": "./src/subagent-dispatch.ts",
     "./computer-action-aliases": "./src/computer-action-aliases.ts",
     "./notification-presence": "./src/notification-presence.ts",
-    "./tailscale": "./src/tailscale.ts"
+    "./tailscale": "./src/tailscale.ts",
+    "./task-progress": "./src/task-progress.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",

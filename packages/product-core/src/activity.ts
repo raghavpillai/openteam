@@ -4,6 +4,7 @@ export const ACTIVE_ASYNC_TASK_STATUSES = new Set<SubagentActivityView["status"]
   "provisioning",
   "queued",
   "running",
+  "waiting",
 ]);
 
 const taskTimestamp = (task: SubagentActivityView): number =>

@@ -1,3 +1,5 @@
+import { TaskProgressInput } from "@openteam/contracts/task-progress";
+import { reportTaskProgress } from "@openteam/messaging";
 import { readAgentActivity, readTranscript } from "@openteam/messaging";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
@@ -97,12 +99,16 @@ export class InternalToolService {
         throw new ApiError(403, "automation_tool_forbidden", AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
       }
       request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
+      if (request.tool === "ReportTaskProgress") {
+        if (!childIdentity) throw new ApiError(403, "task_progress_unavailable", "Only a delegated worker may report task progress");
+        return reportTaskProgress(this.prisma, this.messaging, context, Schema.decodeUnknownSync(TaskProgressInput)(request.arguments));
+      }
       if (request.tool === "WakeParent") {
         if (childIdentity) throw new ApiError(403, "wake_parent_unavailable", "Only the automation itself can wake its parent");
         const woken = await wakeAutomationParent(this.messaging, context, Schema.decodeUnknownSync(WakeParentInput)(request.arguments));
         // The handoff ends the automation, so the subagents it started stop with it.
         const children = await this.prisma.subagent.findMany({
-          where: { parentBotId: request.botId, parentRunId: { in: woken.automation_run_ids }, status: { in: ["provisioning", "queued", "running"] } },
+          where: { parentBotId: request.botId, parentRunId: { in: woken.automation_run_ids }, status: { in: ["provisioning", "queued", "running", "waiting"] } },
           select: { id: true },
         });
         await Promise.allSettled(children.map((child) => this.subagents.stop(request.botId, request.callId, { subagent_id: botSubagentId(child.id) })));

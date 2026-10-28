@@ -130,7 +130,7 @@ export class SnapshotService {
         this.prisma.runItem.findMany({ orderBy: { createdAt: "asc" } }),
         this.prisma.subagentAttempt.findMany({
           include: {
-            subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
           },
           orderBy: { createdAt: "asc" },
         }),
@@ -218,7 +218,7 @@ export class SnapshotService {
         this.prisma.subagentAttempt.findMany({
           where: { parentChannelId: { in: channelIds } },
           include: {
-            subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
           },
           orderBy: { createdAt: "asc" },
         }),
@@ -330,7 +330,7 @@ export class SnapshotService {
             status: { in: ["provisioning", "queued", "running"] },
           },
           include: {
-            subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
           },
           orderBy: { createdAt: "asc" },
         }),
@@ -532,7 +532,7 @@ export class SnapshotService {
             status: { in: ["provisioning", "queued", "running"] },
           },
           include: {
-            subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
           },
           orderBy: { createdAt: "desc" },
           take: subagentLimit + 1,
@@ -543,7 +543,7 @@ export class SnapshotService {
             status: { notIn: ["provisioning", "queued", "running"] },
           },
           include: {
-            subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
           },
           orderBy: { createdAt: "desc" },
           take: subagentLimit + 1,

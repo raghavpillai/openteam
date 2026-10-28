@@ -1674,7 +1674,7 @@ export interface SubagentActivityView {
   currentRunId: string | null;
   description: string;
   subagentType: SubagentType;
-  status: "provisioning" | "queued" | "running" | "completed" | "failed" | "stopped";
+  status: "provisioning" | "queued" | "running" | "waiting" | "completed" | "failed" | "stopped";
   /** Sanitized completion candidate. It is never inserted into chat automatically. */
   summary: string | null;
   errorMessage: string | null;

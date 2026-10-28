@@ -1,3 +1,4 @@
+import { settleTaskProgress, dispatchTaskContinuations, taskProgress, notifyTaskProgress } from "@openteam/messaging";
 import {
   publishMessageNotification,
   turnOwesReplyReminder,
@@ -489,6 +490,7 @@ export class WakeWorker {
     await this.boss.schedule("routine-dispatch", "* * * * *");
     await this.messaging.recoverRounds();
     await this.recoverDurableWork();
+    await dispatchTaskContinuations(this.prisma, this.messaging);
     await this.recoverRoutineExecutions();
     await this.reconcileAgentStores();
     await this.agentData.reconcileAllActiveBots();
@@ -551,6 +553,7 @@ export class WakeWorker {
     if (this.routinePassActive) return;
     this.routinePassActive = true;
     try {
+      await dispatchTaskContinuations(this.prisma, this.messaging);
       const reconciliation = await this.agentData.reconcileAutomationFilesBatch(
         this.automationReconcileCursor,
         AUTOMATION_RECONCILE_BATCH_SIZE
@@ -1970,6 +1973,7 @@ export class WakeWorker {
     ) {
       return;
     }
+    if (await settleTaskProgress(tx, this.messaging, subagent, attempt.id, claimed.runId)) return;
     const finalMessage = await tx.message.findFirst({
       where: { runId: claimed.runId, role: "assistant", status: "completed" },
       orderBy: { updatedAt: "desc" },
@@ -1981,6 +1985,7 @@ export class WakeWorker {
       where: { id: subagent.id, currentRunId: claimed.runId, status: { notIn: ["completed", "failed", "stopped"] } },
       data: {
         status: "completed",
+        ...(taskProgress(subagent.progress)?.tracking === "initial" ? { progress: { ...JSON.parse(JSON.stringify(subagent.progress)), state: "complete", remaining: [], evidence: [`run:${claimed.runId}:final-report`], summary: "Worker returned its final report; see the report for its verified and pending outcomes." } } : {}),
         result,
         error: Prisma.DbNull,
         completedAt: new Date(),
@@ -2061,6 +2066,20 @@ export class WakeWorker {
           payload: { parentBotId: subagent.parentBotId, subagentId: subagent.id, runId: claimed.runId },
         },
       });
+      return;
+    }
+    const progress = taskProgress(subagent.progress);
+    const recoveryCount = subagent.recoveryAttempts;
+    if (interrupted && progress?.remaining.length && recoveryCount < 3) {
+      const pending = { ...progress, state: "waiting" as const,
+        runId: claimed.runId, revision: subagent.progressRevision + 1,
+        summary: "A runtime interruption left action outcomes uncertain. Reconcile live state before continuing.",
+        reconciliationRequired: true,
+        checkAt: new Date(Date.now() + 1000).toISOString() };
+      const recovered = await tx.subagent.updateMany({ where: { id: subagent.id, currentRunId: claimed.runId, status: { notIn: ["completed", "failed", "stopped"] } }, data: { status: "waiting", recoveryAttempts: { increment: 1 }, progress: JSON.parse(JSON.stringify(pending)), progressRevision: pending.revision, nextCheckAt: new Date(pending.checkAt) } });
+      if (!recovered.count) return;
+      await tx.subagentAttempt.update({ where: { id: attempt.id }, data: { status: "failed", error: details, completedAt: new Date() } });
+      await notifyTaskProgress(tx, this.messaging, subagent, pending, `recovery:${pending.revision}`);
       return;
     }
     // A run the computer never settled reads as interrupted; a reported failure gives its error.

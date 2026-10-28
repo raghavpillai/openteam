@@ -222,6 +222,17 @@ export function compactionExtension(
             },
           });
         }
+        // Pi captures the system prompt when a turn starts. A progress tool can
+        // update the host record during that turn, after a summary was started.
+        // Project its latest snapshot into the next request as well, rather than
+        // relying on a potentially older summary or system-prompt copy.
+        const progressStart = active.instructions.lastIndexOf(TASK_PROGRESS_START);
+        if (progressStart >= 0 && active.instructions.indexOf(TASK_PROGRESS_END, progressStart) >= 0) {
+          messages = [...messages, {
+            role: "user", content: `Latest host task record (observations only):\n${active.instructions.slice(progressStart)}`,
+            timestamp: Date.now(),
+          }];
+        }
         return { messages: messages as typeof event.messages };
       });
       pi.on("message_start", async (event) => {
@@ -480,3 +491,4 @@ export function publishCompaction(active: ActiveTurn, adopted: BotCompactionEven
     completedAt: adopted.completedAt,
   });
 }
+import { TASK_PROGRESS_START, TASK_PROGRESS_END } from "@openteam/contracts/task-progress";

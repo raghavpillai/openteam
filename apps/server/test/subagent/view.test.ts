@@ -24,6 +24,12 @@ const storedSubagent = (result: string | null, error: unknown = null) => ({
 });
 
 describe("subagent activity view", () => {
+  test("a parked task stays visible only on its current attempt without exposing its private record", () => {
+    const row = storedSubagent("Private result");
+    const waiting = subagentActivityView({ ...row, subagent: { ...row.subagent, status: "waiting", currentRunId: row.childRunId } });
+    expect(waiting.status).toBe("waiting"); expect(waiting.completedAt).toBeNull(); expect(waiting.summary).toBeNull();
+    expect(subagentActivityView({ ...row, subagent: { ...row.subagent, status: "waiting", currentRunId: "a-later-run" } }).status).toBe("completed");
+  });
   test("keeps child completion text out of the renderer snapshot", () => {
     const view = subagentActivityView(
       storedSubagent(

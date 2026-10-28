@@ -189,6 +189,7 @@ enum SubagentStatus {
   provisioning
   queued
   running
+  waiting
   completed
   failed
   stopped
@@ -315,6 +316,12 @@ model Subagent {
   fileAttachments  Json           @default("[]")
   readOnly         Boolean        @default(false)
   status           SubagentStatus @default(provisioning)
+  // Durable obligations survive a parked turn, process restart and context compaction.
+  progress         Json?
+  progressRevision Int            @default(0)
+  recoveryAttempts Int            @default(0)
+  nextCheckAt      DateTime?
+  deadlineAt       DateTime?
   result           String?
   error            Json?
   outputPath       String
@@ -328,6 +335,7 @@ model Subagent {
   @@unique([parentBotId, launchCallId])
   @@index([parentBotId, status, createdAt])
   @@index([childBotId, status])
+  @@index([status, nextCheckAt])
 }
 
 model SubagentAttempt {

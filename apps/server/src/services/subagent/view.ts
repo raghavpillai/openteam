@@ -19,6 +19,8 @@ type StoredAttempt = {
     id: string;
     parentBotId: string;
     subagentType: string;
+    status?: string;
+    currentRunId?: string | null;
   };
 };
 
@@ -32,14 +34,14 @@ export const subagentActivityView = (attempt: StoredAttempt): Snapshot["subagent
   currentRunId: attempt.childRunId,
   description: attempt.description,
   subagentType: attempt.subagent.subagentType as Snapshot["subagents"][number]["subagentType"],
-  status: attempt.status as Snapshot["subagents"][number]["status"],
+  status: (attempt.subagent.status === "waiting" && attempt.subagent.currentRunId === attempt.childRunId ? "waiting" : attempt.status) as Snapshot["subagents"][number]["status"],
   // Completion text is a private parent wake. The renderer only needs durable
   // lineage for active-task rows; do not project the
   // child's result or failure payload into the client snapshot.
   summary: null,
   errorMessage: null,
   startedAt: attempt.startedAt?.toISOString() ?? null,
-  completedAt: attempt.completedAt?.toISOString() ?? null,
+  completedAt: attempt.subagent.status === "waiting" && attempt.subagent.currentRunId === attempt.childRunId ? null : attempt.completedAt?.toISOString() ?? null,
   stoppedAt: attempt.stoppedAt?.toISOString() ?? null,
   createdAt: attempt.createdAt.toISOString(),
   updatedAt: attempt.updatedAt.toISOString(),

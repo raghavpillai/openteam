@@ -86,8 +86,8 @@ export async function automationBackgroundWorkRunning(
     },
     select: { id: true },
   })).map((entry) => entry.id);
-  if (await tx.subagentAttempt.count({
-    where: { parentRunId: { in: family }, status: { in: ["provisioning", "queued", "running"] } },
+  if (await tx.subagent.count({
+    where: { parentRunId: { in: family }, status: { in: ["provisioning", "queued", "running", "waiting"] } },
   })) return true;
   return pendingAutomationShells(tx, botId, family);
 }
@@ -129,10 +129,10 @@ export async function reconcileRoutineExecution(
   // A handoff ends the automation; background work it started no longer reports to it.
   if (
     !handoff?.wakeRunId &&
-    (await tx.subagentAttempt.count({
+    (await tx.subagent.count({
       where: {
         parentRunId: { in: family.map((entry) => entry.id) },
-        status: { in: ["provisioning", "queued", "running"] },
+        status: { in: ["provisioning", "queued", "running", "waiting"] },
       },
     }))
   )
@@ -321,10 +321,10 @@ export async function saveSilentAutomationResult(tx: Prisma.TransactionClient, r
     )
   )
     return;
-  const children = await tx.subagentAttempt.count({
+  const children = await tx.subagent.count({
     where: {
       parentRunId: { in: family.map((entry) => entry.id) },
-      status: { in: ["provisioning", "queued", "running"] },
+      status: { in: ["provisioning", "queued", "running", "waiting"] },
     },
   });
   if (children) return;

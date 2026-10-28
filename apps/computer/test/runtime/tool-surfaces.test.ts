@@ -166,7 +166,7 @@ describe("specialized subagent tool surfaces", () => {
   });
 
   test("computerUse receives Shell, Read, AwaitShell, Computer and the browser tools", () => {
-    expect(toolNames("computerUse")).toEqual(["Shell", "Read", "AwaitShell", "Computer", ...BROWSER_USE_TOOLS.map(tool => tool.name)]);
+    expect(toolNames("computerUse")).toEqual(["Shell", "Read", "ReportTaskProgress", "AwaitShell", "Computer", ...BROWSER_USE_TOOLS.map(tool => tool.name)]);
   });
 
   test("the graphical worker drops exactly the disabled tools", () => {
@@ -174,6 +174,7 @@ describe("specialized subagent tool surfaces", () => {
     const taskConfiguration = { executorProfiles: [], disabledToolIdentifiers: ["SHELL", "BROWSER_TABS", "OPENAI_COMPUTER_USE"] };
     expect(runtime.customTools(workerTurn("computerUse", { taskConfiguration })).map((tool: any) => tool.name)).toEqual([
       "Read",
+      "ReportTaskProgress",
       ...BROWSER_USE_TOOLS.map((tool) => tool.name).filter((name) => name !== "browser_tabs"),
     ]);
     const browserless = {
@@ -183,6 +184,7 @@ describe("specialized subagent tool surfaces", () => {
     expect(runtime.customTools(workerTurn("computerUse", { taskConfiguration: browserless })).map((tool: any) => tool.name)).toEqual([
       "Shell",
       "Read",
+      "ReportTaskProgress",
       "AwaitShell",
       "Computer",
     ]);
@@ -208,7 +210,7 @@ describe("specialized subagent tool surfaces", () => {
     for (const subagentType of ["executor", "knowledgeWork"]) {
       const names = toolNames(subagentType);
       // In the reference's order: its tool builders put the web tools before Shell.
-      expect(names).toEqual(["WebSearch", "WebFetch", "Shell", "Read", "AwaitShell", "GetDynamicTools", "CallDynamicTool"]);
+      expect(names).toEqual(["WebSearch", "WebFetch", "Shell", "Read", "AwaitShell", "GetDynamicTools", "CallDynamicTool", "ReportTaskProgress"]);
       expect(names).not.toContain("Screenshot");
       const cursor = runtime.dynamicCatalog(workerTurn(subagentType)).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
       expect(cursor).not.toContain("WebSearch");
@@ -927,7 +929,7 @@ test('a readonly worker lists and greps with Shell on the box, reads only throug
       { connectionId: 'c1', name: 'whoami', description: '', inputSchema: { type: 'object' }, source: 'custom/custom', readOnly: true },
       { connectionId: 'c1', name: 'send_message', description: '', inputSchema: { type: 'object' }, source: 'gmail/gmail' },
     ] }] });
-  expect(runtime.customTools(readonly).map((tool: any) => tool.name)).toEqual(['WebSearch', 'WebFetch', 'Shell', 'Read', 'AwaitShell', 'GetDynamicTools', 'CallDynamicTool']);
+  expect(runtime.customTools(readonly).map((tool: any) => tool.name)).toEqual(['WebSearch', 'WebFetch', 'Shell', 'Read', 'AwaitShell', 'GetDynamicTools', 'CallDynamicTool', 'ReportTaskProgress']);
   expect(runtime.dynamicCatalog(readonly).find((namespace: any) => namespace.name === 'cursor').tools.map((tool: any) => tool.name)).toEqual([]);
   await expect(runtime.executeOpenTeamTool(readonly, 'call-1', 'Shell', { command: 'ls', machineId: 'mac' })).rejects.toThrow("Read-only agents cannot access the user's computer");
   const calls: string[] = [];

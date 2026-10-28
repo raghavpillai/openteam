@@ -7,6 +7,7 @@ import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { ComputerRuntime } from "../../src/runtime";
 import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../../src/bot-compaction";
+import { replaceTaskProgressContext } from "@openteam/contracts/task-progress";
 const deferred = () => {
   let resolve!: (v?: any) => void;
   const promise = new Promise<any>((r) => (resolve = r));
@@ -43,7 +44,7 @@ const answer = (text: string) => ({
   timestamp: Date.now(),
 });
 
-for (const timing of ["pending", "ready", "capacity"] as const) {
+for (const timing of ["pending", "ready", "capacity", "task-progress"] as const) {
   test(`four consecutive real Pi compactions while summary ${timing}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "continual-lifecycle-"));
     const store = new BotCompactionArchiveStore(join(root, "archive"));
@@ -67,6 +68,7 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
       return waitForCapacity(input, signal);
     };
     let path: string | undefined;
+    let currentActive: any;
     const provider = await ModelRuntime.create({
       credentials: new InMemoryCredentialStore(),
       modelsPath: null,
@@ -142,6 +144,12 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           parameters: { type: "object", properties: {} },
           execute: async () => {
             toolCalls++;
+            if (timing === "task-progress") {
+              currentActive.instructions = replaceTaskProgressContext(
+                "Updated parent scope: read-only now; never submit the pending document.",
+                { runId: currentActive.runId, revision: round, state: "working", summary: `Receipt verified in cycle ${round}`, evidence: ["/requests/receipt"], remaining: ["Inspect the later document request without sending"], nextAction: "Inspect only" }
+              );
+            }
             toolStarted.resolve();
             await releaseTool.promise;
             return {
@@ -176,7 +184,7 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           contextSessionId: id,
           modelRef: { providerId: model.provider, modelId: model.id },
           reasoning: "off",
-          instructions: "System fixture",
+          instructions: timing === "task-progress" ? "Updated parent scope: read-only now; never submit the pending document." : "System fixture",
           userInfoMessage: null,
           cwd: root,
           runtimeProfile: "agent",
@@ -191,6 +199,7 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           attachmentTempDirectories: [],
           queue: { push: (e: any) => events.push(e), end() {} },
         };
+        currentActive = active;
         const manager = path
           ? SessionManager.open(path, join(root, "sessions"), root)
           : SessionManager.create(root, join(root, "sessions"), { id });
@@ -226,12 +235,20 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
         releaseTool.resolve();
         await running;
         expect(toolCalls).toBe(round);
-        expect(summaryCalls).toBe(round);
+        expect(summaryCalls).toBe(timing === "task-progress" ? round * 2 : round);
         expect((await store.manifest(id)).epoch).toBe(round);
         const inputs = requests
           .filter((r) => r.round === round)
           .map((r) => JSON.stringify(r.request));
         expect(inputs.some((s) => s.includes("summary_content"))).toBe(true);
+        if (timing === "task-progress") {
+          // The real post-compaction provider request must carry the newest
+          // state and scope even when the summary started before that update.
+          const afterCompaction = inputs.at(-1)!;
+          expect(afterCompaction).toContain(`Receipt verified in cycle ${round}`);
+          expect(afterCompaction).toContain("read-only now; never submit");
+          expect(afterCompaction).toContain("Inspect the later document request without sending");
+        }
         expect(
           events
             .slice(startEvents)

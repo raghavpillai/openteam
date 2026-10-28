@@ -245,6 +245,47 @@ import XCTest
     XCTAssertEqual(count, 0)
   }
 
+  func testBackgroundedRecordingWaitsForExplicitSendAfterReturning() async throws {
+    let app = try await launch(appearance: "light")
+    mic(app).tap()
+    XCTAssertTrue(app.buttons["Send voice note"].waitForExistence(timeout: 5))
+    try await Task.sleep(for: .seconds(1.2))
+    XCUIDevice.shared.press(.home)
+    try await Task.sleep(for: .seconds(1))
+    app.activate()
+    XCTAssertTrue(app.buttons["Send voice note"].waitForExistence(timeout: 5))
+    XCTAssertEqual(app.descendants(matching: .any)["voice-clock"].label, "Voice note ready")
+    let before = try await uploads()
+    XCTAssertEqual(before, 0, "Backgrounding must not transcribe or send")
+    capture("background-review", app)
+    app.buttons["Send voice note"].tap()
+    try await waitForMessage(app, transcript)
+    let after = try await uploads()
+    XCTAssertEqual(after, 1)
+  }
+
+  func testBackgroundedRecordingCanBeDiscardedWithoutChangingMultilineDraft() async throws {
+    let draft = "Keep my instructions.\nKeep this second line.\nAnd the third."
+    let app = try await launch(appearance: "light",
+      arguments: ["--visual-draft-base64", Data(draft.utf8).base64EncodedString()])
+    app.buttons["attach-button"].tap()
+    XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 5))
+    app.buttons["Record voice note"].tap()
+    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
+    try await Task.sleep(for: .seconds(1))
+    XCUIDevice.shared.press(.home)
+    try await Task.sleep(for: .seconds(1))
+    app.activate()
+    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
+    XCTAssertEqual(app.descendants(matching: .any)["voice-clock"].label, "Voice note ready")
+    app.buttons["Discard recording"].tap()
+    XCTAssertTrue(app.buttons["send-button"].waitForExistence(timeout: 5))
+    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertEqual(field.value as? String, draft)
+    let count = try await uploads()
+    XCTAssertEqual(count, 0)
+  }
+
   func testFailedTranscriptionKeepsTheRecordingForRetry() async throws {
     let app = try await launch()
     try await fixture("/__qa/control", ["failures": ["POST /api/v0/transcriptions": ["status": 503, "count": 1]]])

@@ -49,7 +49,7 @@ final class VoiceMemoController: ObservableObject {
   }
 
   @Published private(set) var phase: Phase = .idle
-  let recorder = VoiceRecorder()
+  let recorder: VoiceRecorder
   @Published private(set) var tracker = VoiceHoldTracker(barWidth: 0)
   private var cancelResistance = VoiceCancelResistanceFeedback()
   @Published private(set) var hint: String?
@@ -81,6 +81,42 @@ final class VoiceMemoController: ObservableObject {
   private var transcription: Task<Void, Never>?
   /// Identifies the press (or hands-free start) that asked for the microphone.
   private var recordingSession = UUID()
+  private var audioObservers = Set<AnyCancellable>()
+
+  init(recorder: VoiceRecorder = VoiceRecorder(), notifications: NotificationCenter = .default) {
+    self.recorder = recorder
+    recorder.didStop = { [weak self] error in
+      self?.suspend()
+      if let error { self?.report?(error) }
+    }
+    notifications.publisher(for: AVAudioSession.interruptionNotification)
+      .compactMap { $0.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt }
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] type in
+        MainActor.assumeIsolated {
+          if type == AVAudioSession.InterruptionType.began.rawValue { self?.suspend() }
+        }
+      }.store(in: &audioObservers)
+    notifications.publisher(for: AVAudioSession.routeChangeNotification)
+      .compactMap { $0.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt }
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] raw in
+        MainActor.assumeIsolated {
+          switch AVAudioSession.RouteChangeReason(rawValue: raw) {
+          case .oldDeviceUnavailable, .newDeviceAvailable, .noSuitableRouteForCategory:
+            self?.suspend()
+          default: break // Our own category/activation changes must not stop capture.
+          }
+        }
+      }.store(in: &audioObservers)
+    for name in [AVAudioSession.mediaServicesWereLostNotification,
+      AVAudioSession.mediaServicesWereResetNotification] {
+      notifications.publisher(for: name)
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in MainActor.assumeIsolated { self?.suspend() } }
+        .store(in: &audioObservers)
+    }
+  }
 
   /// The composer has become the recording bar.
   var showsBar: Bool { phase != .idle && phase != .pressing }
@@ -336,6 +372,10 @@ final class VoiceMemoController: ObservableObject {
 
   /// The app went to the background: keep what was recorded for review.
   func suspend() {
+    recordingSession = UUID()
+    startTask?.cancel()
+    startTask = nil
+    holdTask?.cancel()
     touchStart = nil
     touchPhase = .idle
     switch phase {
@@ -351,6 +391,7 @@ final class VoiceMemoController: ObservableObject {
   }
 
   func tearDown() {
+    recordingSession = UUID()
     for task in [holdTask, startTask, hintTask, settleTask, flashTask, transcription] { task?.cancel() }
     transcription = nil
     recorder.cancel()
@@ -371,8 +412,9 @@ final class VoiceMemoController: ObservableObject {
         try await recorder.start()
         // The recording ended while the microphone was opening: close it again rather
         // than record in the background.
+        guard recordingSession == session, !Task.isCancelled else { return }
         let wanted = phase == .pressing || phase == .holding || phase == .locked
-        if recordingSession != session || !wanted { recorder.cancel() }
+        if !wanted, recorder.recording { recorder.cancel() }
       } catch {
         if recordingSession == session { startFailed(error) }
       }
@@ -442,7 +484,7 @@ final class VoiceMemoController: ObservableObject {
 // MARK: - Recorder
 
 @MainActor
-final class VoiceRecorder: ObservableObject {
+final class VoiceRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
   @Published var recording = false
   @Published var pendingURL: URL?
   @Published var elapsed: TimeInterval = 0
@@ -453,12 +495,24 @@ final class VoiceRecorder: ObservableObject {
   static let history = 80
   private var meter: Task<Void, Never>?
   private var recorder: AVAudioRecorder?
-  private var starting = false
+  private var starting: UUID?
+  private var audioSessionActive = false
   private var generation = UUID()
+  private let permission: @MainActor () async -> Bool
+  private let recordingLimit: TimeInterval
+  var didStop: (@MainActor (Error?) -> Void)?
   #if DEBUG && targetEnvironment(simulator)
     private var fixture: SimulatorVoiceFixture?
+    var usesSyntheticAudioForTesting = false
   #endif
   private var deadline: Task<Void, Never>?
+
+  init(recordingLimit: TimeInterval = 300,
+    permission: @escaping @MainActor () async -> Bool = { await AVAudioApplication.requestRecordPermission() }) {
+    self.recordingLimit = recordingLimit
+    self.permission = permission
+    super.init()
+  }
 
   /// When the newest sample arrived; the waveform slides between samples from it.
   private(set) var lastSampleAt = Date.distantPast
@@ -482,13 +536,13 @@ final class VoiceRecorder: ObservableObject {
   }
 
   func start() async throws {
-    guard !starting, !recording, pendingURL == nil else { return }
-    starting = true
-    defer { starting = false }
+    guard starting == nil, !recording, pendingURL == nil else { return }
     let attempt = generation
+    starting = attempt
+    defer { if starting == attempt { starting = nil } }
     #if DEBUG && targetEnvironment(simulator)
-      if ProcessInfo.processInfo.arguments.contains("--ui-testing"),
-        ProcessInfo.processInfo.arguments.contains("--qa-synthetic-voice")
+      if usesSyntheticAudioForTesting || (ProcessInfo.processInfo.arguments.contains("--ui-testing")
+        && ProcessInfo.processInfo.arguments.contains("--qa-synthetic-voice"))
       {
         var sourceURL: URL?
         if let raw = ProcessInfo.processInfo.environment["OPENTEAM_QA_VOICE_SOURCE"] {
@@ -516,34 +570,46 @@ final class VoiceRecorder: ObservableObject {
               sample(level)
               try await Task.sleep(for: .milliseconds(100))
             } catch {
-              _ = stop()
+              finishUnexpectedly(error: error)
               return
             }
           }
         }
+        scheduleDeadline()
         return
       }
     #endif
-    guard await AVAudioApplication.requestRecordPermission() else {
+    let allowed = await permission()
+    guard attempt == generation, !Task.isCancelled else { return }
+    guard allowed else {
       throw APIError("Enable microphone access in iPhone Settings to record a voice note.")
     }
-    guard attempt == generation, !Task.isCancelled else { return }
     let session = AVAudioSession.sharedInstance()
     try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
     // Recording suppresses UIKit feedback unless the audio session opts in.
     try session.setAllowHapticsAndSystemSoundsDuringRecording(true)
     try session.setActive(true)
+    audioSessionActive = true
     let url = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString + ".m4a")
-    let r = try AVAudioRecorder(
-      url: url,
-      settings: [
-        AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 24000, AVNumberOfChannelsKey: 1,
-        AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-      ])
+    let r: AVAudioRecorder
+    do {
+      r = try AVAudioRecorder(
+        url: url,
+        settings: [
+          AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 24000, AVNumberOfChannelsKey: 1,
+          AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
+        ])
+    } catch {
+      try? FileManager.default.removeItem(at: url)
+      deactivateAudioSession()
+      throw error
+    }
+    r.delegate = self
     r.isMeteringEnabled = true
-    guard r.record(forDuration: 300) else {
-      try? session.setActive(false, options: .notifyOthersOnDeactivation)
+    guard r.record(forDuration: recordingLimit) else {
+      try? FileManager.default.removeItem(at: url)
+      deactivateAudioSession()
       throw APIError("The microphone could not start recording.")
     }
     recorder = r
@@ -558,16 +624,24 @@ final class VoiceRecorder: ObservableObject {
         do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
       }
     }
-    deadline = Task {
-      try? await Task.sleep(for: .seconds(300))
-      if !Task.isCancelled { _ = stop() }
+    scheduleDeadline()
+  }
+
+  private func scheduleDeadline() {
+    deadline?.cancel()
+    deadline = Task { [weak self, recordingLimit] in
+      try? await Task.sleep(for: .seconds(recordingLimit))
+      if !Task.isCancelled { self?.finishUnexpectedly() }
     }
   }
 
   func stop() -> URL? {
+    generation = UUID()
+    starting = nil
     deadline?.cancel()
     meter?.cancel()
     if let recorder { elapsed = recorder.currentTime }
+    recorder?.delegate = nil
     recorder?.stop()
     recording = false
     level = 0
@@ -582,14 +656,41 @@ final class VoiceRecorder: ObservableObject {
     #endif
     pendingURL = url
     recorder = nil
-    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    deactivateAudioSession()
     return url
   }
 
+  private func deactivateAudioSession() {
+    guard audioSessionActive else { return }
+    audioSessionActive = false
+    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+  }
+
   func cancel() {
-    generation = UUID()
     if let url = stop() { try? FileManager.default.removeItem(at: url) }
     pendingURL = nil
+  }
+
+  private func finishUnexpectedly(error: Error? = nil) {
+    guard recording else { return }
+    _ = stop()
+    didStop?(error)
+  }
+
+  nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+    let identity = ObjectIdentifier(recorder)
+    Task { @MainActor [weak self] in
+      guard let self, let current = self.recorder, ObjectIdentifier(current) == identity else { return }
+      finishUnexpectedly(error: flag ? nil : APIError("Recording stopped unexpectedly. Review or discard your voice note."))
+    }
+  }
+
+  nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+    let identity = ObjectIdentifier(recorder)
+    Task { @MainActor [weak self] in
+      guard let self, let current = self.recorder, ObjectIdentifier(current) == identity else { return }
+      finishUnexpectedly(error: APIError("The microphone could not finish recording. Review or discard your voice note."))
+    }
   }
 }
 

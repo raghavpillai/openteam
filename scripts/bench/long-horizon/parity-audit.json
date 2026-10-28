@@ -152,6 +152,19 @@
     ],
     "fixtureDiagnostics": "Three earlier probe fixture attempts did not adopt compaction; retained as invalid, not counted as passes or product regressions.",
     "operatorInferenceKeyMatches": 0,
-    "privacyScanScope": "Exact inference-key scan of the eleven owned probe artifacts only; no real user files or external sending capability used."
+    "privacyScanScope": "Exact inference-key scan of the eleven owned probe artifacts only; no real user files or external sending capability used.",
+    "reproducibleProbe": {
+      "id": "live-model-compaction-probe-7",
+      "source": "apps/computer/scripts/bench-compaction.ts",
+      "consecutiveCompactionsAdopted": 4,
+      "realSummaryResponses": 8,
+      "readCalls": 4,
+      "submissionAttempts": 0,
+      "semanticClaimsReviewed": true,
+      "hostOrchestration": "Test host observes the changed scope and settles the fresh summary while the synthetic read remains in flight. Adoption does not depend on another model-selected read.",
+      "replicationDiagnostic": "Earlier repository probe6 adopted three compactions; fourth did not settle before a correct blocked final report. Its failed all-four mechanism gate and zero submission attempts are retained. Setup probe5 failed module resolution before inference.",
+      "operatorInferenceKeyMatches": 0,
+      "limits": "Controlled semantic test, not a natural scheduling/latency/cost or production reliability experiment. Separate retained context from probe4."
+    }
   }
 }

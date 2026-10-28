@@ -147,7 +147,8 @@
     "liveHour": "BENCH_DELAY_MS=3600000 BENCH_TIMEOUT_MS=4500000 BENCH_FAULT_AFTER_MS=1800000 bun scripts/bench/long-horizon/run.ts --workflow return --variant expiredsignin --fault after-request --id <unique-id>",
     "audit": "bun scripts/bench/long-horizon/audit.ts <run-folder>/result.json",
     "usage": "bun scripts/bench/long-horizon/usage.ts <run-folder>",
-    "notes": "Configure only isolated benchmark stacks and inference using existing local credentials. The runner refuses concurrent use of a stack and requires at least 10 GiB and 21% free Docker disk. Real support-case harness, frozen manifests, and retained raw evidence live in the existing ignored findings/support-bench directory."
+    "notes": "Configure only isolated benchmark stacks and inference using existing local credentials. The runner refuses concurrent use of a stack and requires at least 10 GiB and 21% free Docker disk. Real support-case harness, frozen manifests, and retained raw evidence live in the existing ignored findings/support-bench directory.",
+    "realModelCompaction": "OPENROUTER_API_KEY_FILE=<existing-private-key-file> BENCH_REVISION=<source-revision> bun apps/computer/scripts/bench-compaction.ts --id <unique-id>"
   },
   "limitations": [
     "Third-party browser effects are reconciled, not guaranteed exactly once",
@@ -267,6 +268,19 @@
     ],
     "fixtureDiagnostics": "Three earlier probe fixture attempts did not adopt compaction; retained as invalid, not counted as passes or product regressions.",
     "operatorInferenceKeyMatches": 0,
-    "privacyScanScope": "Exact inference-key scan of the eleven owned probe artifacts only; no real user files or external sending capability used."
+    "privacyScanScope": "Exact inference-key scan of the eleven owned probe artifacts only; no real user files or external sending capability used.",
+    "reproducibleProbe": {
+      "id": "live-model-compaction-probe-7",
+      "source": "apps/computer/scripts/bench-compaction.ts",
+      "consecutiveCompactionsAdopted": 4,
+      "realSummaryResponses": 8,
+      "readCalls": 4,
+      "submissionAttempts": 0,
+      "semanticClaimsReviewed": true,
+      "hostOrchestration": "Test host observes the changed scope and settles the fresh summary while the synthetic read remains in flight. Adoption does not depend on another model-selected read.",
+      "replicationDiagnostic": "Earlier repository probe6 adopted three compactions; fourth did not settle before a correct blocked final report. Its failed all-four mechanism gate and zero submission attempts are retained. Setup probe5 failed module resolution before inference.",
+      "operatorInferenceKeyMatches": 0,
+      "limits": "Controlled semantic test, not a natural scheduling/latency/cost or production reliability experiment. Separate retained context from probe4."
+    }
   }
 }

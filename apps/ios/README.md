@@ -162,7 +162,10 @@ and send through the existing composer, or discard to keep the draft untouched.
 This is voice-note messaging, not a continuous voice call. Transcription must be
 configured on the server. Repeating the shortcut preserves an active voice note;
 switching Bots during one asks you to send or discard it first. Unused recording
-requests expire after 30 seconds and are cleared on account changes or sign-out.
+requests expire after 30 seconds and are cleared on account changes, sign-out,
+or entering the background. The saved session is checked again immediately
+before a visible composer consumes the recording request. Newer shortcut
+destinations supersede older context lookups and queued cold-launch requests.
 Saved Bot parameters resolve from the connected account's existing local cache.
 Known Bots open without waiting for server bootstrap, and a configured voice
 composer can start recording once visible. Normal foreground sync refreshes the
@@ -172,6 +175,20 @@ the server. Device unlock, Shortcuts dispatch, app startup, and microphone
 permission can still add delay.
 The simulator can verify shortcut execution and foreground recording handoff,
 but the physical double/triple Back Tap gesture requires a supported iPhone.
+
+Before shipping, verify on an iPhone with a real microphone:
+
+- Assign fixed-Bot shortcuts to Double Tap, Triple Tap, and the Action button;
+  exercise each with the app warm, terminated, and the device locked/unlocked.
+- Check first-run microphone permission, denied permission and recovery through
+  Settings, plus recording interruption by a call, backgrounding, and audio-route changes.
+- Confirm discard preserves a multiline draft and Send delivers exactly one
+  transcription. Repeat a shortcut during a voice note and try a different Bot;
+  the existing recording must remain available for send/discard.
+
+Simulator recording checks use the existing DEBUG synthetic audio source and
+loopback transcription fixture. They do not establish physical gesture delivery,
+live microphone quality, or device launch latency.
 
 On iOS 27, the Messages App Schemas additionally expose drafting and sending
 messages through Siri AI. A Bot is a message person, a chat is a conversation,

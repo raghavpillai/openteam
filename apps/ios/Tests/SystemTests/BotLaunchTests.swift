@@ -44,7 +44,8 @@ final class BotLaunchTests: SystemIntentFixture {
     XCTAssertEqual(store.botVoiceLaunch.pending?.scope, scope)
     XCTAssertEqual(store.draft(bot.dmChannelId), draft)
     let memo = VoiceMemoController()
-    store.botVoiceLaunch.register(memo, channelID: bot.dmChannelId, key: bot.dmChannelId)
+    store.botVoiceLaunch.register(memo, channelID: bot.dmChannelId, key: bot.dmChannelId,
+      presentation: store.botVoiceLaunch.presentation)
     XCTAssertFalse(store.botVoiceLaunch.takeRecording(for: memo, scope: scope,
       channelID: bot.dmChannelId, key: bot.dmChannelId, visible: false))
     XCTAssertFalse(store.botVoiceLaunch.takeRecording(for: memo, scope: scope,
@@ -71,7 +72,8 @@ final class BotLaunchTests: SystemIntentFixture {
     _ = try await intent.perform()
     _ = try await intent.perform()
     let memo = VoiceMemoController()
-    store.botVoiceLaunch.register(memo, channelID: bot.dmChannelId, key: bot.dmChannelId)
+    store.botVoiceLaunch.register(memo, channelID: bot.dmChannelId, key: bot.dmChannelId,
+      presentation: store.botVoiceLaunch.presentation)
     XCTAssertFalse(store.botVoiceLaunch.takeRecording(for: memo, scope: scope,
       channelID: bot.dmChannelId, key: bot.dmChannelId, visible: false))
     store.setForeground(true)
@@ -119,6 +121,50 @@ final class BotLaunchTests: SystemIntentFixture {
     catch { XCTAssertTrue(error.localizedDescription.contains("different OpenTeam account")) }
     XCTAssertTrue(store.navigation.isEmpty)
     XCTAssertNil(store.botVoiceLaunch.pending)
+  }
+
+  func testSlowerMessageOpenCannotOverrideANewerBotShortcut() async throws {
+    let store = try await connectedStore()
+    let bootstrap = try XCTUnwrap(store.state.bootstrap)
+    let bot = try XCTUnwrap(bootstrap.bots.last)
+    let message = try XCTUnwrap(bootstrap.latestMessages.first { $0.channelId != bot.dmChannelId })
+    _ = try await API(server: server).request("/__qa/control", method: "POST", body: .object([
+      "failures": .object(["GET /api/v0/channel-messages/\(message.id)/context":
+        .object(["delayMs": .number(800), "count": .number(1)])])]))
+    var started = false
+    let previous = Task { @MainActor in
+      started = true
+      await store.open(message.channelId, messageID: message.id)
+    }
+    while !started { await Task.yield() }
+    var intent = RecordBotVoiceNoteIntent()
+    intent.store = store; intent.bot = TeamBotEntity(bot, scope: scope)
+    _ = try await intent.perform()
+    await previous.value
+    XCTAssertEqual(store.navigation, [bot.dmChannelId], "A late context response must not undo the chosen Bot")
+    XCTAssertEqual(store.botVoiceLaunch.pending?.channelID, bot.dmChannelId)
+    XCTAssertNil(store.focusedMessage)
+    try await assertNoDelivery()
+  }
+
+  func testColdQueuedVoiceCannotOverrideANewerBotShortcut() async throws {
+    let connected = try await connectedStore()
+    connected.flushPersistence()
+    let bootstrap = try XCTUnwrap(connected.state.bootstrap)
+    let store = AppStore()
+    var voice = RecordBotVoiceNoteIntent()
+    voice.store = store; voice.bot = TeamBotEntity(try XCTUnwrap(bootstrap.bots.first), scope: scope)
+    _ = try await voice.perform()
+    await store.start()
+    let latest = try XCTUnwrap(bootstrap.bots.last)
+    var open = OpenTeamBotIntent()
+    open.store = store; open.target = TeamBotEntity(latest, scope: scope)
+    _ = try await open.perform()
+    for _ in 0..<5 { await Task.yield() }
+    XCTAssertEqual(store.navigation, [latest.dmChannelId])
+    XCTAssertNil(store.botVoiceLaunch.pending, "A stale cold-start replay must not reopen the microphone")
+    store.setForeground(false)
+    try await assertNoDelivery()
   }
 
   func testMissingTranscriptionDoesNotOpenTheMicrophoneOrNavigate() async throws {
@@ -239,7 +285,7 @@ final class BotLaunchTests: SystemIntentFixture {
   func testRepeatedLaunchPreservesActiveRecordingAndRefusesAnotherBot() throws {
     let handoff = BotVoiceLaunch()
     let memo = VoiceMemoController()
-    handoff.register(memo, channelID: "research", key: "research")
+    handoff.register(memo, channelID: "research", key: "research", presentation: handoff.presentation)
     // This synchronous test cancels before the recorder's Task runs, so it
     // exercises the real controller's busy state without requesting a mic.
     memo.startLocked()
@@ -252,7 +298,7 @@ final class BotLaunchTests: SystemIntentFixture {
   func testAThreadRecordingCannotBeReplacedWithTheMainComposer() throws {
     let handoff = BotVoiceLaunch()
     let memo = VoiceMemoController()
-    handoff.register(memo, channelID: "research", key: "thread-research")
+    handoff.register(memo, channelID: "research", key: "thread-research", presentation: handoff.presentation)
     memo.startLocked()
     defer { memo.tearDown() }
     XCTAssertThrowsError(try handoff.canOpen("research"))
@@ -262,7 +308,7 @@ final class BotLaunchTests: SystemIntentFixture {
   func testExpiredOrWrongAccountHandoffsCannotStartRecording() {
     let handoff = BotVoiceLaunch()
     let memo = VoiceMemoController()
-    handoff.register(memo, channelID: "research", key: "research")
+    handoff.register(memo, channelID: "research", key: "research", presentation: handoff.presentation)
     handoff.open(scope: scope, channelID: "research", record: true, now: .distantPast)
     XCTAssertFalse(handoff.takeRecording(for: memo, scope: scope,
       channelID: "research", key: "research", visible: true))
@@ -276,12 +322,12 @@ final class BotLaunchTests: SystemIntentFixture {
   func testOldComposerCannotConsumeTheNewChatPresentationRequest() {
     let handoff = BotVoiceLaunch()
     let oldMemo = VoiceMemoController()
-    handoff.register(oldMemo, channelID: "research", key: "research")
+    handoff.register(oldMemo, channelID: "research", key: "research", presentation: handoff.presentation)
     handoff.open(scope: scope, channelID: "research", record: true)
     XCTAssertFalse(handoff.takeRecording(for: oldMemo, scope: scope,
       channelID: "research", key: "research", visible: true))
     let newMemo = VoiceMemoController()
-    handoff.register(newMemo, channelID: "research", key: "research")
+    handoff.register(newMemo, channelID: "research", key: "research", presentation: handoff.presentation)
     XCTAssertTrue(handoff.takeRecording(for: newMemo, scope: scope,
       channelID: "research", key: "research", visible: true))
   }
@@ -296,6 +342,102 @@ final class BotLaunchTests: SystemIntentFixture {
     await store.signOut()
     XCTAssertNil(store.botVoiceLaunch.pending)
     XCTAssertEqual(store.phase, .signedOut)
+  }
+
+  func testLateComposerRegistrationCannotReplaceTheCurrentRecorder() throws {
+    let handoff = BotVoiceLaunch()
+    let oldPresentation = handoff.presentation
+    handoff.open(scope: scope, channelID: "research", record: true)
+    let current = VoiceMemoController()
+    handoff.register(current, channelID: "research", key: "research", presentation: handoff.presentation)
+    let stale = VoiceMemoController()
+    handoff.register(stale, channelID: "research", key: "research", presentation: oldPresentation)
+    XCTAssertFalse(handoff.takeRecording(for: stale, scope: scope,
+      channelID: "research", key: "research", visible: true))
+    XCTAssertTrue(handoff.takeRecording(for: current, scope: scope,
+      channelID: "research", key: "research", visible: true))
+    current.startLocked()
+    defer { current.tearDown() }
+    XCTAssertThrowsError(try handoff.canOpen("ops"), "A late task must not replace the busy recorder")
+  }
+
+  func testChangedSessionBeforeComposerAppearsCancelsRecording() async throws {
+    let store = try await connectedStore()
+    let bot = try XCTUnwrap(store.state.bootstrap?.bots.first)
+    var intent = RecordBotVoiceNoteIntent()
+    intent.store = store; intent.bot = TeamBotEntity(bot, scope: scope)
+    _ = try await intent.perform()
+    let memo = VoiceMemoController()
+    store.botVoiceLaunch.register(memo, channelID: bot.dmChannelId, key: bot.dmChannelId,
+      presentation: store.botVoiceLaunch.presentation)
+    try SecureSession.clear()
+    XCTAssertFalse(store.takeBotRecording(for: memo, channelID: bot.dmChannelId,
+      key: bot.dmChannelId, visible: true))
+    XCTAssertNil(store.botVoiceLaunch.pending)
+    XCTAssertEqual(memo.phase, .idle)
+    try await assertNoDelivery()
+  }
+
+  func testBackgroundCancellationClearsWarmAndColdRecordingRequests() async throws {
+    let connected = try await connectedStore()
+    connected.flushPersistence()
+    let bot = try XCTUnwrap(connected.state.bootstrap?.bots.first)
+    var warm = RecordBotVoiceNoteIntent()
+    warm.store = connected; warm.bot = TeamBotEntity(bot, scope: scope)
+    _ = try await warm.perform()
+    connected.cancelPendingVoiceRecording()
+    XCTAssertNil(connected.botVoiceLaunch.pending)
+    let store = AppStore()
+    var cold = RecordBotVoiceNoteIntent()
+    cold.store = store; cold.bot = warm.bot
+    _ = try await cold.perform()
+    store.cancelPendingVoiceRecording()
+    await store.start()
+    for _ in 0..<5 { await Task.yield() }
+    XCTAssertNil(store.botVoiceLaunch.pending)
+    XCTAssertTrue(store.navigation.isEmpty)
+    store.setForeground(false)
+    try await assertNoDelivery()
+  }
+
+  func testBackgroundCancellationDoesNotDiscardAQueuedOpenBot() async throws {
+    let connected = try await connectedStore()
+    connected.flushPersistence()
+    let bot = try XCTUnwrap(connected.state.bootstrap?.bots.first)
+    let store = AppStore()
+    var intent = OpenTeamBotIntent()
+    intent.store = store; intent.target = TeamBotEntity(bot, scope: scope)
+    _ = try await intent.perform()
+    store.cancelPendingVoiceRecording()
+    await store.start()
+    for _ in 0..<10 where store.navigation.isEmpty { await Task.yield() }
+    XCTAssertEqual(store.navigation, [bot.dmChannelId])
+    XCTAssertNil(store.botVoiceLaunch.pending)
+    store.setForeground(false)
+  }
+
+  func testBackgroundCancellationDiscardsAnInFlightVoiceLookup() async throws {
+    let store = try await connectedStore()
+    let bot = try XCTUnwrap(store.state.bootstrap?.bots.first)
+    // Force the uncached configuration path while the server remains configured.
+    store.state.bootstrap?.runtime = .object(["transcription": .string("missing")])
+    _ = try await API(server: server).request("/__qa/control", method: "POST", body: .object([
+      "failures": .object(["GET /api/v0/client-bootstrap":
+        .object(["delayMs": .number(800), "count": .number(1)])])]))
+    var intent = RecordBotVoiceNoteIntent()
+    intent.store = store; intent.bot = TeamBotEntity(bot, scope: scope)
+    var started = false
+    let opening = Task { @MainActor in
+      started = true
+      do { _ = try await intent.perform(); XCTFail("Completed a cancelled voice lookup") }
+      catch { XCTAssertTrue(UserFacingError.isCancelled(error)) }
+    }
+    while !started { await Task.yield() }
+    store.cancelPendingVoiceRecording()
+    await opening.value
+    XCTAssertNil(store.botVoiceLaunch.pending)
+    XCTAssertTrue(store.navigation.isEmpty)
+    try await assertNoDelivery()
   }
 
   private func assertNoDelivery() async throws {

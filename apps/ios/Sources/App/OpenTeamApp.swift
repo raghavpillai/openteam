@@ -41,7 +41,10 @@ struct OpenTeamApp: App {
       .onChange(of: scenePhase) { _, phase in
         store.setForeground(phase == .active)
         // iOS caches a launch picture for a new appearance or orientation at launch.
-        if phase == .background { Self.syncLaunchScreen(appearance) }
+        if phase == .background {
+          store.cancelPendingVoiceRecording()
+          Self.syncLaunchScreen(appearance)
+        }
       }
       .onChange(of: appearance, initial: true) { _, value in Self.syncLaunchScreen(value) }
       .onOpenURL { url in Task { await store.deepLink(url) } }

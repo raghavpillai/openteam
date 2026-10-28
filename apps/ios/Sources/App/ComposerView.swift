@@ -6,6 +6,7 @@ struct ComposerView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.botVoicePresentation) private var botVoicePresentation
   @VoiceMotionPreference private var reduceMotion
   let channel: Channel
   var draftKey: String? = nil
@@ -192,7 +193,8 @@ struct ComposerView: View {
       }
       .task(id: key) {
         configureVoice()
-        store.botVoiceLaunch.register(memo, channelID: channel.id, key: key)
+        store.botVoiceLaunch.register(memo, channelID: channel.id, key: key,
+          presentation: botVoicePresentation)
         startRequestedRecording()
       }
       .onAppear {
@@ -445,7 +447,8 @@ struct ComposerView: View {
   }
   private func startRequestedRecording() {
     guard !focusedReply, transcriptionConfigured,
-      store.botVoiceLaunch.takeRecording(for: memo, scope: store.systemScope,
+      botVoicePresentation == store.botVoiceLaunch.presentation,
+      store.takeBotRecording(for: memo,
         channelID: channel.id, key: key,
         visible: visible && isEnabled && scenePhase == .active && store.navigation.last == channel.id)
     else { return }

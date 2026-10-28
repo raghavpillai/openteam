@@ -18,7 +18,10 @@ final class BotVoiceLaunch {
   private var composerKey: String?
   private var registeredPresentation: UUID?
 
-  func register(_ memo: VoiceMemoController, channelID: String, key: String) {
+  func register(_ memo: VoiceMemoController, channelID: String, key: String, presentation: UUID?) {
+    // A task from a disappearing composer may run after the new chat is ready.
+    // Its owning view's identity must match, not the identity at registration time.
+    guard presentation == self.presentation else { return }
     self.memo = memo
     self.channelID = channelID
     composerKey = key
@@ -66,6 +69,8 @@ final class BotVoiceLaunch {
   func cancelPending(unless channel: String?) {
     if pending?.channelID != channel { pending = nil }
   }
+
+  func cancelPending() { pending = nil }
 
   func reset() {
     pending = nil

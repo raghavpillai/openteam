@@ -160,7 +160,11 @@ struct HomeView: View {
           .transition(.move(edge: .leading).combined(with: .opacity))
       }
       if let selected {
-        NavigationStack { ChatView(channel: selected).id(store.botVoiceLaunch.presentation) }
+        NavigationStack {
+          ChatView(channel: selected)
+            .environment(\.botVoicePresentation, store.botVoiceLaunch.presentation)
+            .id(store.botVoiceLaunch.presentation)
+        }
           // A different chat starts with its own pushed details and threads.
           .id(selected.id)
           .environment(
@@ -282,7 +286,9 @@ struct HomeView: View {
   }
   @ViewBuilder private func conversation(_ id: String) -> some View {
     if let channel = store.channel(id) {
-      ChatView(channel: channel).id(store.botVoiceLaunch.presentation)
+      ChatView(channel: channel)
+        .environment(\.botVoicePresentation, store.botVoiceLaunch.presentation)
+        .id(store.botVoiceLaunch.presentation)
     } else {
       ContentUnavailableView("Conversation unavailable", systemImage: "bubble.left")
     }
@@ -765,6 +771,7 @@ struct ChatLeadingControl {
   var action: @MainActor () -> Void
 }
 extension EnvironmentValues {
+  @Entry var botVoicePresentation: UUID?
   @Entry var chatLeadingControl: ChatLeadingControl?
   /// Conversation links select the chat beside the list instead of pushing it.
   @Entry var opensConversationsInPlace = false

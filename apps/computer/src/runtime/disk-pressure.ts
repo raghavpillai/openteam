@@ -34,8 +34,8 @@ export function classifyDiskPressure(
 }
 
 /** A reminder is spent once a model step taken after it was saved, as the reference commits at that step's checkpoint. */
-export function diskPressureReminderStepPersisted(messages: ReadonlyArray<{ role: string; customType?: string; stopReason?: string }>): boolean {
-  const reminder = messages.findLastIndex((message) => message.role === "custom" && message.customType === "openteam-disk-pressure");
+export function diskPressureReminderStepPersisted(messages: ReadonlyArray<{ role: string; customType?: string; stopReason?: string }>, customType = "openteam-disk-pressure"): boolean {
+  const reminder = messages.findLastIndex((message) => message.role === "custom" && message.customType === customType);
   return reminder >= 0 && messages.slice(reminder + 1).some((message) => message.role === "assistant" && message.stopReason !== "aborted" && message.stopReason !== "error");
 }
 

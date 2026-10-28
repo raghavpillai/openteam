@@ -29,6 +29,7 @@ import type { ActiveTurn } from "./types";
 import { communicationReminder, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder, promptFingerprint } from "./prompt-context";
 import { compactRepeatedDiscovery } from "./discovery-context";
 import { DISK_PRESSURE_REMINDER } from "./disk-pressure";
+import { APT_REPLAY_NOTICE_TYPE } from "./apt-replay-notice";
 
 const TOO_MANY_MEDIA_MARKERS = [
   "request contained too many images or documents",
@@ -147,6 +148,14 @@ export function compactionExtension(
           active.diskPressureReminded = true;
           await active.session.sendCustomMessage(
             { customType: "openteam-disk-pressure", content: DISK_PRESSURE_REMINDER, display: false, details: { episode: active.diskPressureEpisode, origin: "host" } },
+            { triggerTurn: false }
+          );
+          event.messages = [...event.messages, active.session.messages.at(-1)!];
+        }
+        if (active.aptReplayNotice && !active.aptReplayReminded && active.session) {
+          active.aptReplayReminded = true;
+          await active.session.sendCustomMessage(
+            { customType: APT_REPLAY_NOTICE_TYPE, content: active.aptReplayNotice.content, display: false, details: { episode: active.aptReplayNotice.episode, origin: "host" } },
             { triggerTurn: false }
           );
           event.messages = [...event.messages, active.session.messages.at(-1)!];

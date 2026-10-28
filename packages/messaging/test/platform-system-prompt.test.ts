@@ -12,7 +12,8 @@ import {
   renderPlatformBaseSystemPrompt,
   renderSkillsSection,
 } from "../src/platform-system-prompt";
-import { renderMainBoxSection, renderWorkerTimeSection } from "../src/worker-prompts";
+import { renderMainBoxSection, renderWorkerBoxSection, renderWorkerTimeSection } from "../src/worker-prompts";
+import { combinedGraphicalWorkerPrompt } from "../src/graphical-worker-prompts";
 import { REQUEST_BOX_HELP_TOOL, SEND_TO_USER_TOOL } from "@openteam/contracts";
 import { referenceTool } from "@openteam/contracts/tool-contracts";
 import managedSkills from "../src/prompts/managed-skills.json";
@@ -361,6 +362,12 @@ describe("platform prompt integration", () => {
     expect(AUTOMATION_DELEGATING_SECTION).toContain("- If the user asks you not to delegate, work inline; that overrides the rule of thumb above.");
   });
 
+  test("every box section says what a restart or update keeps", () => {
+    for (const prompt of [renderWorkerBoxSection({ readOnly: false, workingDirectory: "/workspace" }), renderWorkerBoxSection({ readOnly: true, workingDirectory: "/workspace" })])
+      expect(prompt).toContain("apt packages, which are reinstalled automatically; /tmp and anything installed elsewhere by hand are lost.");
+    expect(combinedGraphicalWorkerPrompt("/workspace")).toContain("Restarts keep your home folder, /workspace, and installed packages, but not /tmp.");
+  });
+
   test("the copied question-widget example passes OpenTeam's real send validation", () => {
     const example = PLATFORM_BASE_SYSTEM_PROMPT.match(
       /send a question widget instead of prose: (\{.+\})\./
@@ -388,6 +395,8 @@ describe("platform prompt integration", () => {
     // The reference's Time section, then its box section with the registered-computer file moves.
     expect(prompt).toContain("A timestamp that carries its own zone is not box-local.");
     expect(prompt).toContain("Move data between code and web apps through files on the box.");
+    // Recreating the computer keeps the home and workspace volumes and reinstalls apt packages, nothing else.
+    expect(prompt).toContain("Restarts and updates of the box keep your home folder and /workspace, language packages (pip, npm, uv and the like), and apt packages, which are reinstalled automatically; /tmp and anything installed elsewhere by hand are lost.");
     expect(prompt).toContain("move files across with CopyToBox (their computer into /workspace/uploads or a box_path) and CopyFromBox (your box onto their disk).");
     // Without this the main agent wipes the shared /workspace as soon as it is asked to.
     expect(prompt).toContain("- The box is shared with the user's other agents, which may be using it right now. Don't delete files or kill processes you didn't create; if the user asks you to, confirm first.");

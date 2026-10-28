@@ -1,0 +1,14 @@
+#!/bin/sh
+# pip, npm and uv install into /home/box/.local even under sudo (see /etc/npmrc
+# and root's pip.conf). Give what a root run wrote there back to the box user,
+# so its own later installs can upgrade or remove it.
+case "${0##*/}" in
+  pip|pip3|npm) real=/usr/bin/${0##*/} ;;
+  uv) real=/usr/local/bin/uv ;;
+  *) echo "openteam-home-owned: unknown command ${0##*/}" >&2; exit 127 ;;
+esac
+[ "$(id -u)" = 0 ] || exec "$real" "$@"
+status=0
+"$real" "$@" || status=$?
+find /home/box/.local -xdev -uid 0 -exec chown -h "$(stat -c %u:%g /home/box)" {} + 2>/dev/null
+exit "$status"

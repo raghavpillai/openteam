@@ -63,6 +63,7 @@ import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "
 import { endTurnHoldExtension } from "./runtime/end-turn-hold";
 import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
 import { DiskPressureMonitor, diskPressureReminderStepPersisted } from "./runtime/disk-pressure";
+import { APT_REPLAY_NOTICE_TYPE, AptReplayNotice } from "./runtime/apt-replay-notice";
 
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath, existingContextSessionPath } from "./runtime/session-path";
@@ -103,6 +104,7 @@ export class ComputerRuntime {
   private readonly workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
   // The reference watches its workspace, data and temp volumes and keeps its ledger in its data root.
   private readonly diskPressure = new DiskPressureMonitor([this.workspaceRoot, this.agentDir, tmpdir()], join(this.agentDir, "disk-pressure-reminders.json"));
+  private readonly aptReplayNotice = new AptReplayNotice(join(this.agentDir, "apt-replay-reminders.json"));
 
   private modelRuntime: ModelRuntime | null = null;
   private readonly inferenceProviders = new InferenceProviderService(
@@ -317,6 +319,7 @@ export class ComputerRuntime {
         active.messagesAvailable = await this.tools.messagesAvailable();
         await this.tools.userForms.beginTurn(active.botId, active.runId);
         active.diskPressureEpisode = await this.diskPressure.claim(active.botId).catch(() => null);
+        active.aptReplayNotice = await this.aptReplayNotice.claim(active.botId).catch(() => null);
       }
       await this.botStore?.openForWake(active.botId);
       await this.botStore?.recordRequestId(active.botId, active.runId);
@@ -861,6 +864,9 @@ export class ComputerRuntime {
       if (active.diskPressureReminded && active.diskPressureEpisode != null && active.session &&
         diskPressureReminderStepPersisted(active.session.messages as Array<{ role: string }>))
         await this.diskPressure.commit(active.botId, active.diskPressureEpisode);
+      if (active.aptReplayReminded && active.aptReplayNotice && active.session &&
+        diskPressureReminderStepPersisted(active.session.messages as Array<{ role: string }>, APT_REPLAY_NOTICE_TYPE))
+        await this.aptReplayNotice.commit(active.botId, active.aptReplayNotice.episode);
       this.compaction.parkBackground(active.contextSessionId);
       attachSession(active);
       if (this.botStore) {

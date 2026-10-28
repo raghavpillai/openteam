@@ -135,13 +135,14 @@ RUN npm install --global --no-audit --no-fund pptxgenjs@4.0.1 docx@9.8.1 \
     python-pptx==1.0.2 python-docx==1.2.0 openpyxl==3.1.5 xlsxwriter==3.2.9 \
     "markitdown[pptx,docx,xlsx]==0.1.7" pandas==3.0.6 pillow==12.3.0 lxml==6.1.3 \
   && rm -rf /root/.npm /root/.cache
-# Skills require("pptxgenjs") from any folder.
-ENV NODE_PATH=/usr/local/lib/node_modules
+# Skills require("pptxgenjs") from any folder, and bots their own global packages.
+ENV NODE_PATH=/home/box/.local/lib/node_modules:/usr/local/lib/node_modules
 
 COPY --from=build --chown=box:box /app/node_modules /app/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/node_modules /app/apps/computer/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/dist/main.js /app/apps/computer/dist/main.js
 COPY --from=build --chown=box:box /app/apps/computer/dist/provider-cli.js /app/apps/computer/dist/provider-cli.js
+COPY --from=build --chown=box:box /app/apps/computer/dist/apt-packages-cli.js /app/apps/computer/dist/apt-packages-cli.js
 COPY --from=memory-tools /openteam-memory-init /openteam-desktop-exec /usr/local/bin/
 COPY docker/openteam-memory-setup.py /usr/local/bin/openteam-memory-setup.py
 COPY --chown=box:box docker/computer-entrypoint.sh /usr/local/bin/openteam-computer-entrypoint
@@ -158,6 +159,25 @@ RUN chmod 0755 \
     /usr/local/bin/openteam-pi-auth \
     /usr/local/bin/openteam-box-timezone \
     /usr/local/bin/openteam-screen-launch
+
+# Bot installs land in the kept home volume, even under sudo: pip outside a
+# virtualenv installs to ~/.local (root's ~/.local is box's), npm's global
+# prefix is ~/.local, and apt installs are recorded and reinstalled at start
+# (apps/computer/src/apt-packages.ts). Keep this after every image install.
+COPY docker/apt-keep-installs.conf /etc/apt/apt.conf.d/90openteam-keep-installs
+COPY docker/openteam-home-installs.sh /etc/profile.d/openteam-home-installs.sh
+COPY docker/openteam-home-owned /usr/local/bin/openteam-home-owned
+RUN printf '[global]\nbreak-system-packages = true\n' > /etc/pip.conf \
+  && mkdir -p /root/.config/pip /usr/share/openteam \
+  && printf '[install]\nuser = true\n' > /root/.config/pip/pip.conf \
+  && rm -rf /root/.local && ln -s /home/box/.local /root/.local \
+  && printf 'prefix=/home/box/.local\n' > /etc/npmrc \
+  && printf 'Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/box/.local/bin"\n' > /etc/sudoers.d/openteam-paths \
+  && chmod 0440 /etc/sudoers.d/openteam-paths \
+  && chmod 0755 /usr/local/bin/openteam-home-owned \
+  && for name in pip pip3 npm uv; do ln -s ../bin/openteam-home-owned "/usr/local/sbin/$name"; done \
+  && dpkg-query -W -f='${Package}\n' | sort > /usr/share/openteam/apt-baseline
+ENV PATH=/home/box/.local/bin:/home/box/.bun/bin:/home/box/.cargo/bin:/home/box/go/bin:$PATH:/usr/games
 
 # GTK/Chromium must decode native chooser filenames as UTF-8. Without a
 # locale, non-ASCII paths can become empty/unreadable File objects. A runtime

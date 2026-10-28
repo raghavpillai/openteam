@@ -32,6 +32,11 @@ find /home/box "$data_root" /workspace -uid 1001 -exec chown -h "$agent_uid:$age
 chown "$agent_uid:$agent_gid" /home/box "$data_root" /workspace /workspace/slides /home/box/Downloads /home/box/Documents
 chmod 0700 /home/box "$data_root"
 chmod 0755 /workspace /workspace/slides /home/box/Downloads /home/box/Documents
+# pip, npm and uv install into ~/.local, also under sudo. Make its folders
+# before a root install can, and give back anything root left there.
+mkdir -p /home/box/.local/bin /home/box/.local/lib/node_modules /home/box/.local/share/uv \
+  "$(python3 -m site --user-site)" /home/box/.openteam/apt/archives/partial /home/box/.openteam/apt/lists/partial
+find /home/box/.local -xdev -uid 0 -exec chown -h "$agent_uid:$agent_gid" {} +
 
 # The supervisor owns credentials; bot processes start as box but can read
 # these files through sudo. File ownership is not an isolation boundary.
@@ -60,6 +65,12 @@ if [ ! -L "$data_alias" ]; then
 fi
 
 cd /workspace
+
+if [ "${1:-}" = bun ] && [ "${2:-}" = /app/apps/computer/dist/main.js ]; then
+  # Reinstall the apt packages bots installed before this container existed.
+  # It runs in the background; its log is /home/box/.openteam/apt/replay.log.
+  (bun /app/apps/computer/dist/apt-packages-cli.js replay &)
+fi
 
 # Match the writable kernel filesystems inside the bot computer's namespaces.
 mount -o remount,rw /sys

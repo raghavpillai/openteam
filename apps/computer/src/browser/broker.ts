@@ -28,6 +28,10 @@ interface Peer {
   baseline: Map<string, BrowserCookie>;
   targets: Map<string, BrowserTarget>;
   originBaselines: Map<string, string>;
+  // A busy page or short CPU stall can time out a call while the socket stays
+  // open. Such a peer is kept and retried; `stale` marks that it missed changes.
+  unresponsive: boolean;
+  stale: boolean;
 }
 
 interface BrowserTarget {
@@ -114,10 +118,7 @@ export class BrowserBroker {
         this.peers.delete(botId);
         peer.cdp.close();
       }
-      if (this.peers.size === 0 && this.timer) {
-        clearInterval(this.timer);
-        this.timer = null;
-      }
+      this.stopTimerIfIdle();
     }
   }
 
@@ -155,6 +156,8 @@ export class BrowserBroker {
       baseline: local,
       targets: new Map(),
       originBaselines: new Map(),
+      unresponsive: false,
+      stale: false,
     };
     this.peers.set(botId, peer);
     await this.setCookies(peer, [...this.cookies.values()]);
@@ -191,6 +194,9 @@ export class BrowserBroker {
   private async reconcile(): Promise<void> {
     const updates = new Map<string, BrowserCookie>();
     const deletions = new Map<string, BrowserCookie>();
+    // A peer that fails is skipped for the rest of the pass, so its baseline
+    // still holds its own changes when it answers again.
+    const failed = new Set<Peer>();
     for (const peer of [...this.peers.values()]) {
       try {
         const current = await this.readCookies(peer.cdp);
@@ -204,14 +210,15 @@ export class BrowserBroker {
         }
         peer.baseline = current;
       } catch {
-        this.peers.delete(peer.botId);
-        peer.cdp.close();
+        this.peerFailed(peer);
+        failed.add(peer);
       }
     }
     for (const key of updates.keys()) deletions.delete(key);
     const changedOrigins = new Map<string, BrowserOriginState>();
     const observedStates = new Map<Peer, Map<string, string>>();
     for (const peer of [...this.peers.values()]) {
+      if (failed.has(peer)) continue;
       try {
         await this.refreshTargets(peer, false);
         const observed = new Map<string, string>();
@@ -236,20 +243,34 @@ export class BrowserBroker {
           peer.originBaselines.set(target.origin, digest);
         }
       } catch {
-        this.peers.delete(peer.botId);
-        peer.cdp.close();
+        this.peerFailed(peer);
+        failed.add(peer);
       }
     }
-    if (updates.size === 0 && deletions.size === 0 && changedOrigins.size === 0) return;
+    const changed = updates.size > 0 || deletions.size > 0 || changedOrigins.size > 0;
     for (const [key, cookie] of updates) this.cookies.set(key, cookie);
     for (const key of deletions.keys()) this.cookies.delete(key);
     const changedDigests = new Map(
       [...changedOrigins].map(([origin, snapshot]) => [origin, stateDigest(snapshot)])
     );
     for (const peer of [...this.peers.values()]) {
+      if (failed.has(peer) || (!changed && !peer.stale)) continue;
       try {
-        for (const cookie of deletions.values()) await this.deleteCookie(peer, cookie);
-        await this.setCookies(peer, [...updates.values()]);
+        if (peer.stale) {
+          // Catch up on everything shared while this browser was not answering.
+          for (const [key, cookie] of peer.baseline) {
+            if (!this.cookies.has(key)) await this.deleteCookie(peer, cookie);
+          }
+          await this.setCookies(
+            peer,
+            [...this.cookies]
+              .filter(([key, cookie]) => JSON.stringify(peer.baseline.get(key)) !== JSON.stringify(cookie))
+              .map(([, cookie]) => cookie)
+          );
+        } else {
+          for (const cookie of deletions.values()) await this.deleteCookie(peer, cookie);
+          await this.setCookies(peer, [...updates.values()]);
+        }
         peer.baseline = await this.readCookies(peer.cdp);
         for (const [origin, snapshot] of changedOrigins) {
           const applied = new Set<string>();
@@ -272,12 +293,49 @@ export class BrowserBroker {
             }
           }
         }
+        peer.stale = false;
       } catch {
-        this.peers.delete(peer.botId);
-        peer.cdp.close();
+        this.peerFailed(peer);
+        failed.add(peer);
       }
     }
-    await this.save();
+    for (const peer of [...this.peers.values()]) {
+      if (!failed.has(peer)) {
+        this.peerAnswered(peer);
+      } else if (changed) {
+        peer.stale = true;
+        // Without a baseline, the next target refresh restores the shared state.
+        for (const origin of changedOrigins.keys()) peer.originBaselines.delete(origin);
+      }
+    }
+    if (changed) await this.save();
+  }
+
+  private peerFailed(peer: Peer): void {
+    if (peer.cdp.closed) {
+      if (this.peers.get(peer.botId) === peer) this.peers.delete(peer.botId);
+      peer.cdp.close();
+      this.stopTimerIfIdle();
+      console.warn(`Browser for bot ${peer.botId} closed its DevTools connection; stopped sharing its sign-ins.`);
+      return;
+    }
+    if (!peer.unresponsive) {
+      console.warn(`Browser for bot ${peer.botId} is not answering; retrying sign-in sharing.`);
+    }
+    peer.unresponsive = true;
+  }
+
+  private peerAnswered(peer: Peer): void {
+    if (!peer.unresponsive) return;
+    peer.unresponsive = false;
+    console.info(`Browser for bot ${peer.botId} is answering again; sign-in sharing resumed.`);
+  }
+
+  private stopTimerIfIdle(): void {
+    if (this.peers.size === 0 && this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
   }
 
   private async refreshTargets(peer: Peer, restoreAuthority: boolean): Promise<void> {

@@ -3,14 +3,14 @@ title: Grok Bot vs Meta Muse vs OpenAI dots, plus an open-source alternative
 seoTitle: "Grok Bot vs Meta Muse vs OpenAI dots: which one to use"
 description: Grok Bot, Meta Muse and OpenAI dots compared on price, regions, models, privacy and teamwork, plus OpenTeam, an open-source Grok Bot alternative.
 date: 2026-10-09
-updated: 2026-10-26
+updated: 2026-10-28
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam desktop app showing a bot's chat, a live preview of its Linux screen and a weekday routine
 related: meta-muse-not-available-in-your-country, claude-cowork-alternative, best-self-hosted-ai-agents
 ---
 
-**Grok Bot is for several bots that coordinate, from $30 a month with Cursor Premium. Meta Muse is for a free, phone-first agent, only in the US, Canada and Japan. OpenAI dots is for ChatGPT Pro and Business Premium users who want one always-on agent. OpenTeam is the open-source Grok Bot alternative for running self-hosted AI agents on your own hardware, at the cost of more setup.**
+**Grok Bot is for several bots that coordinate, from $30 a month with Cursor Premium. Meta Muse is for a free, phone-first agent, only in the US, Canada, Japan and Singapore. OpenAI dots is for ChatGPT Pro and Business Premium users who want one always-on agent. OpenTeam is the open-source Grok Bot alternative for running self-hosted AI agents on your own hardware, at the cost of more setup.**
 
 We build OpenTeam, an open-source (GPL-3.0) team of AI agents, so weigh our view accordingly. All three hosted products give an agent its own cloud computer that keeps working after you close the laptop. Every claim links to the vendor's own pages or to dated press, and we haven't run any of the three.
 
@@ -23,7 +23,7 @@ Facts as of October 9, 2026 (Grok Bot prices as of October 13), from each vendor
 | | Grok Bot | Meta Muse | OpenAI dots | OpenTeam |
 |---|---|---|---|---|
 | Price and plan | Cursor Premium ($30/mo) and up, Cursor Teams, or a linked SuperGrok or X Premium+ plan | Free with a limit; Power $20/mo; Maximum $100/mo | ChatGPT Pro (from $100/mo) or a Business Premium seat | Free (GPL-3.0); you pay for hardware and model usage |
-| Where you can use it | Not published; its computers run in the US | US, Canada and, since October 23, Japan | Pro: outside the EEA, UK and Switzerland. Business Premium: rolling out worldwide | Wherever your model provider works |
+| Where you can use it | Not published; its computers run in the US | US, Canada, Japan and, since October 27, Singapore | Pro: outside the EEA, UK and Switzerland. Business Premium: rolling out worldwide | Wherever your model provider works |
 | Model | Picked per request by Cursor; no picker | Muse Spark | GPT-6 Astra | One per server: OpenAI, Anthropic, OpenRouter or a compatible endpoint, including local |
 | Where the agent runs | One cloud computer per user, shared by your bots | A cloud Linux VM per person | Its own cloud computer; optional link to your laptop | Your machine: a Linux desktop per bot |
 | Sign-ins | Shared by your bots; you take over for passwords | Credential store the agent can't read | Private form; credentials skip the chat | Shared by all bots; password forms the model can't read |
@@ -57,7 +57,7 @@ Grok Bot is xAI's app for "always-on agents" that "have their own computer," lau
 Meta launched Muse on September 8, 2026 as a personal agent that lives on its own cloud computer, the Muse Secure VM ([Meta](https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/)).
 
 - **Price and plan:** Free with a usage limit Meta doesn't quantify. Power is $20 a month for 500 million Muse tokens a week; Maximum is $100 for 3 billion ([Meta Help Center](https://www.meta.com/help/subscriptions/1021145227643680/)).
-- **Where you can use it:** The US and Canada ([Meta](https://about.fb.com/news/2026/09/introducing-muse-small-business/)), and Japan since October 23 ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)). Meta hasn't announced other countries.
+- **Where you can use it:** The US and Canada ([Meta](https://about.fb.com/news/2026/09/introducing-muse-small-business/)), Japan since October 23 ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)) and Singapore since October 27 ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)). Meta hasn't announced other countries.
 - **Model:** Muse Spark, Meta's own model.
 - **Where the agent runs:** A dedicated, persistent Linux VM per person, with a browser you can watch and take over. Your files, memory and credentials live there ([Meta](https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse)). A "Confidential VM" with user-held keys is promised for later this year.
 - **Sign-ins:** Credentials sit in a separate store and are inserted at the network edge, so the agent never sees real passwords or tokens.
@@ -123,7 +123,7 @@ If you want an agent on your phone in two minutes, or an approval prompt before 
 ## Which one should you use?
 
 - **Choose Grok Bot if** you want several named bots that split work in group chats, need Windows, Linux or Android apps, and already pay for Cursor or SuperGrok.
-- **Choose Meta Muse if** you live in the US or Canada and want a free phone agent for email, bookings and shopping, and accept training on by default or switch it off.
+- **Choose Meta Muse if** you live in the US, Canada, Japan or Singapore and want a free phone agent for email, bookings and shopping, and accept training on by default or switch it off.
 - **Choose OpenAI dots if** you already pay for ChatGPT Pro or Business Premium, work in Slack or Teams, and want one agent that knows your ChatGPT context.
 - **Choose OpenTeam if** you want bots on hardware you control and any model provider, including a local one, and you can do without approval prompts.
 - **Stay with what you have if** your agent already works where your team works; switching means rebuilding its memory.
@@ -142,7 +142,7 @@ No, but you can try it. The trial is a usage credit with a 7-day window. After t
 
 ### Is Meta Muse available outside the US and Canada?
 
-Only in Japan, since October 23, 2026 ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)). Meta hasn't announced other countries. See [what to do if Meta Muse isn't available in your country](/blog/meta-muse-not-available-in-your-country).
+Yes, in Japan since October 23, 2026 ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)) and Singapore since October 27 ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)). Meta hasn't announced other countries. See [what to do if Meta Muse isn't available in your country](/blog/meta-muse-not-available-in-your-country).
 
 ### Can I use OpenAI dots in the UK or EU?
 

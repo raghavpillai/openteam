@@ -1974,13 +1974,26 @@ export class WakeWorker {
     ) {
       return;
     }
-    if (await settleTaskProgress(tx, this.messaging, subagent, attempt.id, claimed.runId)) return;
     const finalMessage = await tx.message.findFirst({
       where: { runId: claimed.runId, role: "assistant", status: "completed" },
       orderBy: { updatedAt: "desc" },
     });
     // The parent gets the worker's own report, as in the reference.
     const result = finalMessage?.content.trim() ?? "";
+    if (await settleTaskProgress(tx, this.messaging, subagent, attempt.id, claimed.runId, result)) {
+      if (taskProgress(subagent.progress)?.tracking === "initial") {
+        const current = await tx.subagent.findUnique({ where: { id: subagent.id } });
+        if (current?.status === "waiting" && current.currentRunId === claimed.runId && current.result === result) {
+          // Preserve the reference's partial/blocked revival and redispatch cap
+          // while keeping the unfinished logical task visible and owned.
+          await this.notifySubagentParent(tx, {
+            ...subagent, parentRunId: attempt.parentRunId, parentChannelId: attempt.parentChannelId,
+            description: attempt.description, prompt: attempt.prompt, currentRunId: attempt.childRunId,
+          }, "completed", result, true);
+        }
+      }
+      return;
+    }
     // A parent's message can move the worker to a new turn after the read above; that turn reports instead.
     const completed = await tx.subagent.updateMany({
       where: { id: subagent.id, currentRunId: claimed.runId, status: { notIn: ["completed", "failed", "stopped"] } },
@@ -2126,7 +2139,8 @@ export class WakeWorker {
       outputPath: string;
     },
     status: "completed" | "failed",
-    result: string
+    result: string,
+    pendingTask = false
   ): Promise<void> {
     const parent = await tx.bot.findUnique({
       where: { id: subagent.parentBotId },
@@ -2153,7 +2167,8 @@ export class WakeWorker {
       type: `subagent.${status}`,
       content: (routine
         ? renderQuietSubagentRevivalPrompt({ ...revival, routine })
-        : renderSubagentRevivalPrompt(revival)) + (note ? `\n\n${note}` : ""),
+        : renderSubagentRevivalPrompt(revival)) + (note ? `\n\n${note}` : "") +
+        (pendingTask ? "\nThe worker turn ended, but its unfinished goal remains parked for your decision with no automatic check. Keep it owned. If you resolve the blocker by replacing it with a new task, stop the obsolete parked task rather than leaving a duplicate pending goal." : ""),
       revival: {
         block: routine ? `${subagentRevivalBlock(revival)}\n${quietRoutineOriginNote(routine)}` : subagentRevivalBlock(revival),
         subagentType: subagent.subagentType,

@@ -102,6 +102,12 @@ test.skipIf(!db)(
                 final =
                   "Status: done\nEXPORT_FINISHED: service receipt verified; no duplicate submission.";
               }
+            } else if (input.content.includes("PARTIAL_RESOLVED")) {
+              await call("ReportTaskProgress", { key: "outside-decision-verified", state: "complete",
+                summary: "The authorized outside decision is verified", evidence: ["/requests/decision"], remaining: [] });
+              final = "Status: done\nPARTIAL_FINISHED: the outside decision is verified.";
+            } else if (input.content.includes("PARTIAL_WORKFLOW")) {
+              final = "Status: partial\nPARTIAL_PENDING: an outside decision remains pending. Inspect it when its result is supplied.";
             } else if (input.content.includes("DOCUMENT_WORKFLOW")) {
               if (!documentReady) {
                 documentActions++;
@@ -139,6 +145,16 @@ test.skipIf(!db)(
                 "EXPORT_WORKFLOW: Generate the approved export once. Verify its receipt; do not publish it elsewhere or incur fees.",
               subagent_type: "executor",
             });
+          } else if (input.content.includes("RESOLVE_PARTIAL")) {
+            const pending = await app!.prisma.subagent.findFirstOrThrow({ where: { parentBotId: parentId, description: "Unfinished request" } });
+            await call("Task", { description: "Verify the supplied decision", subagent_type: "computerUse",
+              resume: `sand-subagent-${pending.id}`, prompt: "PARTIAL_RESOLVED: The user supplied the new outside decision. Verify it within the original scope; do not add fees." });
+          } else if (input.content.includes("START_PARTIAL")) {
+            await call("Task", {
+              description: "Unfinished request",
+              prompt: "PARTIAL_WORKFLOW: Complete the approved request and its outside decision without adding fees.",
+              subagent_type: "computerUse",
+            });
           } else if (input.content.includes("START_DOCUMENT")) {
             await call("Task", {
               description: "Document acceptance",
@@ -152,6 +168,10 @@ test.skipIf(!db)(
                 ? "Export workflow finished."
                 : input.content.includes("DOCUMENT_FINISHED")
                   ? "Document workflow finished."
+                  : input.content.includes("PARTIAL_FINISHED")
+                    ? "Partial work resolved."
+                  : input.content.includes("PARTIAL_PENDING")
+                    ? "Partial work stays owned."
                   : input.content.includes("UNRELATED")
                     ? "Unrelated question answered."
                     : input.content.includes("Delegated task progress")
@@ -376,6 +396,30 @@ test.skipIf(!db)(
       expect(await app!.prisma.subagentAttempt.count({ where: { subagentId: waiting.id } })).toBe(
         2
       );
+      await Effect.runPromise(app!.sendMessage(bot.conversationId, {
+        clientId: crypto.randomUUID(), content: "START_PARTIAL",
+      }));
+      await until(async () => (await app!.prisma.channelMessage.count({
+        where: { senderBotId: parentId, content: "Partial work stays owned." },
+      })) === 1);
+      const partial = await app!.prisma.subagent.findFirstOrThrow({
+        where: { parentBotId: parentId, description: "Unfinished request" },
+      });
+      expect(partial.status).toBe("waiting");
+      expect(partial.nextCheckAt).toBeNull();
+      expect(partial.result).toStartWith("Status: partial");
+      expect(partial.progress).toMatchObject({ state: "blocked", blockSource: "runtime" });
+      expect((partial.progress as any).remaining.length).toBeGreaterThan(0);
+      expect(await dispatchTaskContinuations(app!.prisma, app!.messaging, new Date(Date.now() + 3600_000))).toBe(0);
+      await app!.prisma.$transaction(tx => (worker as any).completeSubagent(tx, {
+        botId: partial.childBotId, runId: partial.currentRunId,
+      }));
+      expect(await app!.prisma.subagentAttempt.count({ where: { subagentId: partial.id } })).toBe(1);
+      expect(await app!.prisma.channelMessage.count({ where: { senderBotId: parentId, content: "Partial work stays owned." } })).toBe(1);
+      await Effect.runPromise(app!.sendMessage(bot.conversationId, { clientId: crypto.randomUUID(), content: "RESOLVE_PARTIAL with new information" }));
+      await until(async () => (await app!.prisma.channelMessage.count({ where: { senderBotId: parentId, content: "Partial work resolved." } })) === 1);
+      expect((await app!.prisma.subagent.findUniqueOrThrow({ where: { id: partial.id } })).status).toBe("completed");
+      expect(await app!.prisma.subagentAttempt.count({ where: { subagentId: partial.id } })).toBe(2);
       expect(errors).toEqual([]);
     } finally {
       await worker?.stop();

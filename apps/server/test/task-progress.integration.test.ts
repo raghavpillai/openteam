@@ -11,12 +11,29 @@ import {
   dispatchTaskContinuations,
   settleTaskProgress,
   recoverTaskInterruption,
+  initialTaskProgress,
   automationBackgroundWorkRunning,
   type ToolContext,
 } from "@openteam/messaging";
 import { SubagentService } from "../src/services/subagent/service";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
+
+for (const status of ["partial", "blocked"]) test.skipIf(!url)(
+  `an initial ${status} report keeps ownership without copying private report text into progress`,
+  () => fixture(async f => {
+    const report = `Status: ${status}\nAn outside decision remains pending. Private fixture context: not-for-progress-storage.`;
+    await f.db.subagent.update({ where: { id: f.sub.id }, data: { progress: initialTaskProgress(f.child.run.id) as any } });
+    expect(await f.db.$transaction(async tx => settleTaskProgress(tx, f.messaging,
+      await tx.subagent.findUniqueOrThrow({ where: { id: f.sub.id } }), f.attempt.id, f.child.run.id, report))).toBe(true);
+    const saved = await f.db.subagent.findUniqueOrThrow({ where: { id: f.sub.id } });
+    expect(saved).toMatchObject({ status: "waiting", nextCheckAt: null, result: report });
+    expect(saved.progress).toMatchObject({ state: "blocked", blockSource: "runtime" });
+    expect(JSON.stringify(saved.progress)).not.toContain("not-for-progress-storage");
+    expect((await f.db.subagentAttempt.findUniqueOrThrow({ where: { id: f.attempt.id } })).result).toBe(report);
+    expect(await dispatchTaskContinuations(f.db, f.messaging, new Date(Date.now() + 3600_000))).toBe(0);
+  })
+);
 async function fixture(body: (f: Awaited<ReturnType<typeof createFixture>>) => Promise<void>) {
   const f = await createFixture();
   try {

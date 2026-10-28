@@ -465,16 +465,28 @@ export async function settleTaskProgress(
     description: string;
   },
   attemptId: string,
-  runId: string
+  runId: string,
+  finalReport?: string
 ): Promise<boolean> {
   const progress = taskProgress(subagent.progress);
-  if (progress?.runId === runId && progress.tracking !== "initial" && progress.remaining.length) {
+  const incompleteInitialReport = progress?.tracking === "initial" &&
+    /^Status:\s*(?:partial|blocked)\b/i.test(finalReport?.trimStart() ?? "");
+  if (progress?.runId === runId && (progress.tracking !== "initial" || incompleteInitialReport) && progress.remaining.length) {
     // The turn can end while its goal remains owned. Only an explicit future
     // check resumes it; blockers and unexpected early finishes return ownership
     // to the parent, rather than silently declaring the task done.
     const waiting = progress.state === "waiting" && subagent.nextCheckAt !== null;
-    const pending =
-      waiting || progress.state === "blocked"
+    const pending: TaskProgress = incompleteInitialReport
+      ? {
+          ...progress,
+          state: "blocked",
+          blockSource: "runtime",
+          summary: "The worker reported unfinished work before saving a detailed checkpoint. Its remaining task needs the parent's review.",
+          evidence: [`run:${runId}:final-report`],
+          nextAction: "Read the stored final report and decide the next authorized step within the original scope. Apply the normal partial/blocked redispatch rules; do not retry automatically.",
+          revision: subagent.progressRevision + 1,
+        }
+      : waiting || progress.state === "blocked"
         ? progress
         : {
             ...progress,
@@ -486,6 +498,7 @@ export async function settleTaskProgress(
               "Review the unfinished work and decide the next authorized step.",
             revision: subagent.progressRevision + 1,
           };
+    if (incompleteInitialReport) delete pending.tracking;
     const saved = await tx.subagent.updateMany({
       where: {
         id: subagent.id,
@@ -497,12 +510,13 @@ export async function settleTaskProgress(
         progress: JSON.parse(JSON.stringify(pending)),
         progressRevision: pending.revision,
         nextCheckAt: waiting ? subagent.nextCheckAt : null,
+        ...(incompleteInitialReport ? { result: finalReport } : {}),
       },
     });
     if (!saved.count) return true;
     await tx.subagentAttempt.update({
       where: { id: attemptId },
-      data: { status: "waiting", completedAt: null },
+      data: { status: "waiting", completedAt: null, ...(incompleteInitialReport ? { result: finalReport } : {}) },
     });
     await tx.event.create({
       data: {
@@ -514,7 +528,10 @@ export async function settleTaskProgress(
         },
       },
     });
-    if (pending !== progress)
+    // Initial free-text reports keep the existing status-aware completion
+    // handoff in the worker. Do not copy potentially sensitive report text into
+    // this record or send a second progress wake for the same handoff.
+    if (pending !== progress && !incompleteInitialReport)
       await notifyTaskProgress(tx, messaging, subagent, pending, `unfinished:${pending.revision}`);
     return true;
   }

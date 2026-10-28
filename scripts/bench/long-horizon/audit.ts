@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { workIsSettled } from "./workflow-gates";
 // PostgreSQL's row_to_json renders its UTC timestamp columns without a zone.
 // Do not reinterpret those values in the benchmark host's local timezone.
 const timestamp = (value: string) =>
@@ -85,6 +86,8 @@ export function auditWorkflow(result: any, timeline: any[]) {
       reportAt && provider.answeredAt ? (reportAt - provider.answeredAt) / 1000 : null,
     unfinishedTaskIds: unresolved.map((s: any) => s.id),
     unownedTaskIds: unowned.map((s: any) => s.id),
+    enabledRoutineIds: (result.routines ?? []).filter((r: any) => r.enabled && !r.deletedAt).map((r: any) => r.id),
+    cancellationSettled: result.variant === "cancel" ? workIsSettled(result.subagents ?? [], result.routines ?? []) : null,
     semanticClaimsReview: "required",
     metricLimit:
       "Receipt-based reporting latency is missing if the parent omits the receipt; review its transcript rather than treating a missing match as a failed task.",

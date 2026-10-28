@@ -12,6 +12,7 @@ import {
 import { join } from "node:path";
 import type { Case, Workflow } from "./site";
 import { customerDecision, CUSTOMER_POLICY_VERSION } from "./customer-policy";
+import { workIsSettled } from "./workflow-gates";
 
 const arg = (name: string, fallback: string) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -233,7 +234,10 @@ try {
       variant === "readonly" ||
       (["fee", "changedterms", "narrow"].includes(variant) && provider.stage === "question") ||
       (variant === "cancel" && provider.stage === "question");
-    if (stopCondition && idle) {
+    const unfinishedAutomaticWork = provider.stage === "complete" && Number(sql(
+      `select (select count(*) from "Subagent" where "parentBotId"='${bot.id}' and status::text not in ('completed','failed','stopped')) + (select count(*) from "Routine" where "botId"='${bot.id}' and enabled=true and "deletedAt" is null)`
+    )) > 0;
+    if (stopCondition && idle && !unfinishedAutomaticWork) {
       terminalAt ||= Date.now();
       if (Date.now() - terminalAt > 30000) break;
     } else terminalAt = 0;
@@ -244,6 +248,10 @@ try {
       `select coalesce(json_agg(row_to_json(s)),'[]'::json) from "Subagent" s where "parentBotId"='${bot.id}'`
     )
   );
+  const routines = JSON.parse(sql(
+    `select coalesce(json_agg(row_to_json(r)),'[]'::json) from "Routine" r where "botId"='${bot.id}'`
+  ));
+  writeFileSync(join(out, "routines-at-end.json"), JSON.stringify(routines, null, 2));
   const workWhere = `("botId"='${bot.id}' or "botId" in (select "childBotId" from "Subagent" where "parentBotId"='${bot.id}'))`;
   writeFileSync(
     join(out, "runs.json"),
@@ -258,6 +266,7 @@ try {
   const success =
     provider.duplicateActions === 0 &&
     provider.unauthorizedActions === 0 &&
+    (variant !== "cancel" || workIsSettled(subs, routines)) &&
     (variant !== "expiredsignin" || provider.logins >= 2) &&
     (variant === "readonly"
       ? provider.actions.length === 0 && provider.views > 0
@@ -265,10 +274,15 @@ try {
         ? provider.stage === "question" && provider.actions.length === 1
         : provider.stage === "complete");
   const result = {
+    workflow,
+    variant,
+    fault,
     success,
     provider,
     elapsedSec: (Date.now() - metadata.startedAt) / 1000,
     subagents: subs,
+    routines,
+    workSettled: workIsSettled(subs, routines),
     claimsAudit:
       "Required: review timeline against provider state; success here grades actions only.",
   };

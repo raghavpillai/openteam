@@ -110,6 +110,14 @@ describe("model test failures in plain words", () => {
     expect(modelTestErrorMessage("fetch failed", "Claude")).toBe(
       "Your server couldn't reach Claude. Check its internet connection and try again."
     );
+    expect(
+      modelTestErrorMessage(
+        "Inference provider rejected the configuration or request",
+        "OpenRouter"
+      )
+    ).toBe(
+      "OpenRouter didn't accept a request to this model. Choose a different model, or a different reasoning effort in Settings → Model."
+    );
   });
 
   test("keeps a provider's plain reason and never shows raw JSON", () => {

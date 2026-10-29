@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import { type Api, getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   type InferenceProviderView,
@@ -149,6 +149,9 @@ const applyOpenRouterMetadata = (model: ChatModel, entry: Entry): void => {
   model.reasoning =
     Array.isArray(entry.supported_parameters) &&
     entry.supported_parameters.some((p) => p === "reasoning" || p === "reasoning_effort");
+  // Endpoints that require reasoning answer 400 to `off`, so it isn't offered.
+  if (model.reasoning && object(entry.reasoning) && entry.reasoning.mandatory === true)
+    model.thinkingLevelMap = { ...model.thinkingLevelMap, off: null };
   model.input =
     Array.isArray(architecture.input_modalities) && architecture.input_modalities.includes("image")
       ? ["text", "image"]
@@ -472,9 +475,11 @@ export class ChatProviderRegistry {
         provider.modelMessage ??
           `Model ${settings.modelId} is not available from this connected provider. Refresh its model list and choose a listed chat model.`
       );
-    if (model.reasoningLevels && !model.reasoningLevels.includes(settings.reasoning)) {
+    const levels =
+      model.reasoningLevels ?? (model.reasoning ? getSupportedThinkingLevels(model) : undefined);
+    if (levels && !levels.includes(settings.reasoning)) {
       throw new Error(
-        `${model.name} does not support reasoning level ${settings.reasoning}. Choose one of: ${model.reasoningLevels.join(", ")}.`
+        `${model.name} does not support reasoning level ${settings.reasoning}. Choose one of: ${levels.join(", ")}.`
       );
     }
     // Persist dynamic capability mappings so inference keeps the same request contract

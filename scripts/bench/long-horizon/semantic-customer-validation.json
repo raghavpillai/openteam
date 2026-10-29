@@ -135,5 +135,8 @@
   "originalBudgetStartUsageUsd": 6049.980107475,
   "holdNewLaunchesAtAdditionalUsd": 20,
   "noAllowanceReset": true,
-  "freshActorCohortEvidence": "semantic-customer-round.json"
+  "freshActorCohortEvidence": "semantic-customer-round.json",
+  "observedLiveLimitations": [
+    "Classifier tagged an optional finite later-today check as recurring_watch. Rendered response restated existing limits and continuation, without granting new authority or providing hidden facts. Native continued an in-scope read. Preserve the imprecise classification as a fixture caveat; do not attribute success purely to actor inference."
+  ]
 }

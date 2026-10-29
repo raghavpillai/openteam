@@ -1,5 +1,5 @@
 {
-  "status": "Immutable4b runtime passed two narrowly approved cases, real-hour, saved-wait restart and read-only narrowing. Native short timeout excluded for a missing customer approval response, not an actor failure. Fresh semantic-policy7all-arm cohort is running with Grok0.78.1first, original spending hold and runtime images unchanged.",
+  "status": "Immutable4b runtime passed two narrowly approved cases, real-hour, saved-wait restart and read-only narrowing. Fresh semantic-policy7native0.78.1case passed eligible-provider outcome/approval/final-report checks with an explicit unresolved July user decision. Customer classifier scheduling-label caveat retained. Controlled OT/baseline and further native comparisons continue; no general superiority claim.",
   "productRevision": "4b552998",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",

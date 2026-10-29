@@ -1,5 +1,5 @@
 import { VIEWER_PORT_END, VIEWER_PORT_START } from "./constants";
-import { portAvailable, viewerPorts } from "./ports";
+import { occupiedHost, viewerPorts } from "./ports";
 import type { ComposeProject } from "./docker";
 import { CliError } from "./errors";
 import type { HealthResult } from "./health";
@@ -59,20 +59,14 @@ export const describePortOccupant = (
   };
 };
 
-const hostsToCheck = (host: string): string[] =>
-  host === "127.0.0.1" ? [host] : Array.from(new Set([host, "127.0.0.1"]));
-
 const firstOccupiedPort = async (
   runner: CommandRunner,
   host: string,
   ports: readonly number[]
 ): Promise<PortOccupant | null> => {
   for (const port of ports) {
-    for (const candidate of hostsToCheck(host)) {
-      if (!(await portAvailable(candidate, port))) {
-        return describePortOccupant(runner, candidate, port);
-      }
-    }
+    const occupied = await occupiedHost(host, port);
+    if (occupied) return describePortOccupant(runner, occupied, port);
   }
   return null;
 };
@@ -176,7 +170,7 @@ const stopHint = (occupant: PortOccupant): string =>
     ? `Stop that stack with \`docker compose -p ${occupant.project} down\``
     : occupant.container
       ? `Stop it with \`docker stop ${occupant.container}\``
-      : "Stop the process that holds it";
+      : `Find it with \`lsof -nP -iTCP:${occupant.port} -sTCP:LISTEN\` and stop it`;
 
 export const portConflictMessage = (occupant: PortOccupant): string => {
   const port = occupant.port;

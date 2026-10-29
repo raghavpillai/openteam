@@ -3,6 +3,7 @@ import { providerIdleFetch } from "./runtime/provider-idle-fetch";
 import type { ComputerInferenceRequest } from "@openteam/contracts/service-protocol";
 import { prepareUserImages } from "./runtime/image-input";
 import { clampThinkingLevel } from "@earendil-works/pi-ai";
+import { taskProgressBaseInstructions } from "@openteam/contracts/task-progress";
 import {
   type AgentSession,
   type AgentSessionEvent,
@@ -717,7 +718,7 @@ export class ComputerRuntime {
       noExtensions: true,
       noPromptTemplates: true,
       noThemes: true,
-      systemPrompt: instructions,
+      systemPrompt: taskProgressBaseInstructions(instructions),
       extensionFactories: [
         this.compactionExtension(sessionManager, active),
         reasoningExtension(model, active.reasoning),

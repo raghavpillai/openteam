@@ -81,12 +81,17 @@ export function roundViews<
   }));
 }
 
-export function runViews<T extends Array<{ createdAt: Date; updatedAt: Date }>>(
+export function runViews<T extends Array<{ createdAt: Date; updatedAt: Date; requestProgress?: unknown; requestStoppedAt?: Date | null; requestNextCheckAt?: Date | null; requestRevision?: number; requestReconciliations?: number }>>(
   runs: T
 ): Snapshot["runs"] {
-  return runs.map((run) => ({
-    ...run,
-    createdAt: run.createdAt.toISOString(),
-    updatedAt: run.updatedAt.toISOString(),
-  })) as Snapshot["runs"];
+  return runs.map((run) => {
+    const { requestProgress, requestStoppedAt, requestNextCheckAt, requestRevision: _, requestReconciliations: __, ...publicRun } = run;
+    const state = (requestProgress as { state?: string } | null)?.state;
+    return {
+      ...publicRun,
+      ...(!requestStoppedAt && state && ["working", "waiting", "blocked", "complete"].includes(state)
+        ? { requestState: state, requestNextCheckAt: requestNextCheckAt?.toISOString() ?? null } : {}),
+      createdAt: run.createdAt.toISOString(), updatedAt: run.updatedAt.toISOString(),
+    };
+  }) as Snapshot["runs"];
 }

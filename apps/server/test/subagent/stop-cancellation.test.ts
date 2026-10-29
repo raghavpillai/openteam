@@ -54,6 +54,7 @@ function stopAllFixture(children: any[], cancel: (runId: string) => Promise<void
  const events: any[] = [];
  const stops: string[] = [];
  const db: any = {
+  $executeRaw: async () => 1,
   channelMessage: { findMany: async () => [] },
   subagent: {
    findMany: async ({ where }: any) => children.filter((child) => child.parentBotId === where.parentBotId && where.status.in.includes(child.status)),
@@ -65,7 +66,7 @@ function stopAllFixture(children: any[], cancel: (runId: string) => Promise<void
    },
   },
   subagentAttempt: { updateMany: async () => ({ count: 1 }) },
-  run: { findUnique: async () => ({ status: 'running' }) },
+  run: { findUnique: async () => ({ status: 'running' }), findMany: async () => [] },
   event: { create: async ({ data }: any) => events.push(data) },
  };
  db.$transaction = async (fn: any) => fn(db);

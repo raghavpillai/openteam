@@ -1,5 +1,5 @@
 {
-  "status": "Runtime implemented and verified. The matched hour is fully audited: the candidate completed after a timely reply; native Grok missed the deadline, reopened the review, but had no refund at the 95-minute cutoff. The first valid S1/S2N pairs completed on the candidate and failed at the approved send on the baseline. Full candidate reports took82\u2013134seconds. Repetitions and bounded cleanup observation continue.",
+  "status": "General parent-request ownership and stable cache prefixes implemented and locally verified. The existing6fa live runtime retains its valid ownership failure and slow reports. New-revision browser/hour validation is held because the inference account is depleted; no new-live superiority claim.",
   "productRevision": "6fa9c3ce",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -88,9 +88,10 @@
     },
     "architecture": "passed",
     "computer": {
-      "passed": 757,
+      "passed": 758,
       "skipped": 68,
-      "failed": 0
+      "failed": 0,
+      "assertions": 7252
     },
     "targetedLifecycleAndScope": {
       "passed": 15,
@@ -114,8 +115,8 @@
     },
     "limits": "Targeted integration results overlap broader suite counts; do not sum them. Skipped environment-dependent tests were not executed. Virtual-time and fake-computer queue tests do not establish live-model behavior.",
     "server": {
-      "passed": 342,
-      "skipped": 131,
+      "passed": 343,
+      "skipped": 148,
       "failed": 0
     },
     "worker": {
@@ -150,6 +151,46 @@
       "newGeneralFactualRegressions": 6,
       "scope": "Existing20plus6new identity-fact/privacy/scope tests; sources archived in ignored findings/support-bench round7.",
       "preparedCapabilityRegressions": 3
+    },
+    "parentOwnershipFocused": {
+      "passed": 37,
+      "failed": 0,
+      "assertions": 176,
+      "realQueueHostRecreation": true,
+      "actualChildCannotCloseParent": true
+    },
+    "analysis": {
+      "passed": 22,
+      "failed": 0,
+      "assertions": 72
+    },
+    "workerLatestIsolated": {
+      "passed": 139,
+      "failed": 8,
+      "files": 43,
+      "allFailureCasesAlsoFailOnUnchangedHead": "a44f508d",
+      "comparisonArtifact": "/tmp/support-long/request-worker-baseline-comparison.json",
+      "limits": "Not a clean entire worker-suite pass. Combined-process fixture contamination and missing-generated-plugin baseline setup attempts retained separately."
+    },
+    "crossTurnCache": {
+      "passed": true,
+      "method": "Actual serialized provider requests across Pi session recreation retain their entire earlier prefix while a new saved observation is appended. Forced-compaction lifecycle tests still preserve latest state."
+    },
+    "messagingLatest": {
+      "passed": 236,
+      "skipped": 32,
+      "failed": 0,
+      "scope": "Standard fixture/unit run; database-specific watchers remain separate, including the previously reproduced baseline watcher failure."
+    },
+    "contracts": {
+      "passed": 128,
+      "failed": 0,
+      "assertions": 1106
+    },
+    "budgetGate": {
+      "passed": 2,
+      "realDepletedAccountRejectedBeforeTask": true,
+      "noBillingMutation": true
     }
   },
   "reproduce": {
@@ -741,5 +782,49 @@
       "operatorInferenceKeyMatches": 0,
       "limits": "Controlled semantic test, not a natural scheduling/latency/cost or production reliability experiment. Separate retained context from probe4."
     }
-  }
+  },
+  "deployedLiveRevision": "6fa9c3ce",
+  "parentRequestSource": "PR167 source commits; new parent change is not the existing frozen6fa live arm.",
+  "parentRequestTracking": {
+    "implementedAt": "2026-10-29T04:34:25.927840+00:00",
+    "basis": "Valid serial4-candidate-S2N-2 failure: exact approved child step done, broader pending decision unowned.",
+    "mechanism": [
+      "Original parent Run anchors requested outcome separately from each scoped Subagent; no new goal table.",
+      "Task auto-starts ownership; same-worker approval replies inherit the unfinished original request. Different requests remain distinct.",
+      "ReportRequestProgress saves evidence/remaining/next check/block and explicit verified-and-delivered completion. It cannot widen an approval or close while workers remain open.",
+      "Existing Inbox/lease dispatcher persists checks; cancellation, superseded revisions, deleted channels and completed requests fence stale wakes.",
+      "Bounded private reconciliation recovers a missing parent continuation, including folded completions and a crash after a terminal model event.",
+      "Parent wait remains visible/stoppable; client snapshots/events omit private evidence and scope records.",
+      "Changed state is appended once as a private observation. The system prefix stays stable across recreated Pi sessions; authorization instructions still apply."
+    ],
+    "tests": [
+      "apps/server/test/request-progress.integration.test.ts",
+      "apps/server/test/request-projection.test.ts",
+      "apps/worker/test/request-continuation.integration.test.ts",
+      "apps/computer/test/runtime/task-progress.test.ts",
+      "apps/computer/test/runtime/task-progress-cache.test.ts"
+    ],
+    "limits": [
+      "No general semantic judge of completion or externally visible browser exactly-once guarantee.",
+      "Latest real-model probes are not clean full validation: incomplete/restricted fixture attempts, collector failures and real provider402 errors are retained. The real adapter probe did save an authorized wait before its funding failure.",
+      "New images and14-attempt funded test plan must be frozen before live comparison."
+    ]
+  },
+  "fundingHold": {
+    "observedAt": "2026-10-29T04:34:25.927840+00:00",
+    "availableCreditApproxUsd": 0.02,
+    "reason": "Provider402 credit failures; two baseline repetitions and current affected attempts are excluded from primary model comparisons.",
+    "futurePaidLaunchesHeld": true,
+    "currentCasesObservedUnchanged": true,
+    "billingMutation": false,
+    "nextPlan": "scripts/bench/long-horizon/parent-request-round.json",
+    "readOnlyBudgetGate": "scripts/bench/long-horizon/budget.ts",
+    "reviewedAffectedCases": [
+      "serial4-base-S1-2",
+      "serial4-base-S1-3",
+      "serial4-candidate-S1-3",
+      "serial4-grok078-S2N-3"
+    ]
+  },
+  "newRevisionValidation": "Local runtime, queue, recovery, scope, projection and cache tests pass. No clean funded full browser/hour run of the parent-request extension yet."
 }

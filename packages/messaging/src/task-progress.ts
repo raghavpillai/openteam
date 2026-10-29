@@ -177,6 +177,7 @@ export async function notifyTaskProgress(
     parentRunId: string;
     parentChannelId: string;
     description: string;
+    requestRunId?: string | null;
   },
   progress: TaskProgress,
   key: string
@@ -209,7 +210,7 @@ export async function notifyTaskProgress(
     botId: subagent.parentBotId,
     channelId: subagent.parentChannelId,
     origin: "background_revival",
-    taskContextRunId: sourceContext ?? subagent.parentRunId,
+    taskContextRunId: subagent.requestRunId ?? sourceContext ?? subagent.parentRunId,
     type: "subagent.progress",
     clientId: `task-progress:${subagent.id}:${key}`,
     priority: 260,

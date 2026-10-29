@@ -1,3 +1,4 @@
+import { taskProgressBaseInstructions } from "@openteam/contracts/task-progress";
 import { preparePromptSections } from "../src/prompt-sections";
 import { describe, expect, test } from "bun:test";
 import { AgentMessaging, validateSendToUserInput } from "../src";
@@ -56,6 +57,7 @@ const mainAgent = (id: string) => {
       }),
     },
     prisma: {
+      run: { findMany: async () => [] },
       contextSession: { findFirst: async () => ({ scope: "home" }), findMany: async () => [] },
       $queryRaw: async () => [],
       bot: {
@@ -138,7 +140,7 @@ describe("platform prompt integration", () => {
     expect(memory).toBeLessThan(instructions.indexOf("## Routines"));
     expect(instructions.split("alpha's memory policy.").length - 1).toBe(1);
     expect(instructions).not.toContain("Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines.");
-    expect(instructions).toEndWith(`\n\n${PARALLEL_TOOL_CALLS}`);
+    expect(taskProgressBaseInstructions(instructions)).toEndWith(`\n\n${PARALLEL_TOOL_CALLS}`);
   });
 
   test.each([["user", "they replied in chat instead of answering on the card"], ["routine", "no answer is not a yes"]])(

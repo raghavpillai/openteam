@@ -357,7 +357,7 @@ describe("specialized subagent tool surfaces", () => {
 
   test("normal agents target hosts with machineId on Shell and Read", () => {
     const names = toolNames(null);
-    expect(names).toEqual(NATIVE_TOOL_NAMES);
+    expect(names).toEqual([...NATIVE_TOOL_NAMES, "ReportRequestProgress"]);
     expect(names).not.toContain("ListMachines");
     expect(names).toContain("Shell");
     expect(names).toContain("Read");

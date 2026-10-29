@@ -784,8 +784,8 @@ export default function App() {
     ]
   );
   const activeTaskChannelIds = useMemo(
-    () => activeAsyncTaskChannelIds(snapshot?.subagents ?? []),
-    [snapshot?.subagents]
+    () => new Set([...activeAsyncTaskChannelIds(snapshot?.subagents ?? []), ...(snapshot?.runs ?? []).flatMap(run => run.requestState === "waiting" && run.channelId ? [run.channelId] : [])]),
+    [snapshot?.subagents, snapshot?.runs]
   );
 
   const openNewBot = useCallback(() => {

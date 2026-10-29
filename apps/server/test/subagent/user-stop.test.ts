@@ -18,10 +18,11 @@ function fixture() {
   const cancelled: string[] = [];
   const shellStops: string[] = [];
   const db: any = {
+    $executeRaw: async () => 1,
     bot: { findUnique: async ({ where }: any) => (["bot", "idle-bot"].includes(where.id) ? { id: where.id } : null) },
     run: {
-      findUnique: async ({ where }: any) => (runs[where.id] ? { ...runs[where.id] } : null),
-      findMany: async ({ where }: any) => Object.values(runs).filter((row) => matches(row, where)).map(({ id }) => ({ id })),
+      findUnique: async ({ where }: any) => (runs[where.id] ? { ...runs[where.id], inboxEvents: [] } : null),
+      findMany: async ({ where }: any) => where.requestProgress ? [] : Object.values(runs).filter((row) => matches(row, where)).map(({ id }) => ({ id })),
     },
     subagent: {
       findFirst: async ({ where }: any) => subagents.find((row) => matches(row, where)) ?? null,

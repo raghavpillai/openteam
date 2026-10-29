@@ -11,7 +11,8 @@ for (const resume of [undefined, "restore-missing-worker"]) {
     const stop = new Error("captured child persistence");
     const tx: any = {
       $executeRaw: async () => 1,
-      bot: { create: async () => ({}) }, channel: { create: async () => ({}) },
+      bot: { create: async () => ({}), findUnique: async () => ({ status: "active" }) }, channel: { create: async () => ({}), findFirst: async () => ({ id: "parent-room" }) },
+      run: { findUnique: async () => ({ id: "parent-run", botId: "parent", channelId: "parent-room", origin: "user", status: "running", inboxEvents: [] }), update: async () => ({}) },
       subagent: { create: async ({ data }: any) => { child = data; throw stop; } },
     };
     const db: any = {

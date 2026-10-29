@@ -244,6 +244,11 @@
           "run_in_background": {
             "type": "boolean",
             "description": "Run the agent in the background (returns output_file path to check later). If this is false, you will be blocked until the agent completes. When true, the background subagent will send a notification when it completes. That notification includes a user-visible summary portion; do not repeat it unless the user asks, several results need synthesis, or you need to handle a blocker."
+          },
+          "request_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Original request_run_id returned by ReportRequestProgress or Task. Keep this ID for related steps and approval replies; each independent user request has its own ID."
           }
         },
         "required": [

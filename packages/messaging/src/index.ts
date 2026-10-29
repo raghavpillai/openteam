@@ -1,3 +1,6 @@
+export { ensureRequestForTask, reportRequestProgress, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, stopRequestProgress, requestProgressSnapshot, requestWakeAllowed } from "./request-progress";
+import { requestProgressSnapshot } from "./request-progress";
+import { renderTaskProgressContext } from "@openteam/contracts/task-progress";
 export { initialTaskProgress, settleTaskProgress, reportTaskProgress, dispatchTaskContinuations, taskProgress, taskProgressContext, notifyTaskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "./task-progress";
 import { taskProgressContext, taskScopeContext } from "./task-progress";
 export { taskScopeContext, taskScopeUpdates } from "./task-progress";
@@ -1979,6 +1982,7 @@ export class AgentMessaging {
           ...(bot.subagentIdentity.readOnly ? [WORKER_READONLY_LINE] : []),
         ].join("\n"),
         "Report meaningful, verified milestones through ReportTaskProgress while continuing the task. Keep evidence references, all unresolved obligations and the next authorized action current. When an outside dependency is not ready, save state waiting with a next check before its response deadline; the host will continue the same task. Do not park while a live exchange still needs an immediate answer. If you used this record, clear its remaining list with state complete when the delegated outcome is verified. Never invent a completion or an arbitrary deadline. A block based on instructions is a policy interpretation; only quote a tool refusal when a tool actually returned it.",
+        "Prefer a fresh observation that covers the related facts you need, and reuse evidence you have already verified. Once all delegated success criteria are established, report them before optional screenshots, repeated checks or navigation cleanup. A required deliverable, unanswered question or secondary review remains part of the task. When authorized, close a finished interactive exchange politely without abandoning pending work. Keep every required verification and approval limit; saving a call is not a reason to skip one.",
         executor ? EXECUTOR_SEND_RULES_SECTION : "",
         `${WORKER_SAFETY_SECTION}\n\n${WORKER_DRAFT_HANDOFF}`,
         WORKER_UNTRUSTED_CONTENT_SECTION,
@@ -2170,7 +2174,9 @@ export class AgentMessaging {
       automation
         ? `Use cursor.ReadTranscript with in="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.`
         : "",
+      ...(!automation ? ["You own the user’s requested outcome across narrowly scoped worker steps. Track it with ReportRequestProgress and keep its request_run_id on related Task calls and approval replies. Worker completion alone does not close the user’s request. Save a future check when an outside result remains pending, or an actual blocker when a decision is needed. Complete only after verifying and delivering the requested outcome. Existing scope and approval limits still govern every action."] : []),
       PARALLEL_TOOL_CALLS,
+      ...(!automation ? [renderTaskProgressContext({ requests: await requestProgressSnapshot(this.prisma, botId, channelId ?? null) })] : []),
     ]
       .filter(Boolean)
       .join("\n\n");

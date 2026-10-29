@@ -115,6 +115,7 @@ describe("bounded teammates roster", () => {
         loadTaskConfiguration: async () => ({ executorProfiles: [] }),
       },
       prisma: {
+      run: { findMany: async () => [] },
         $queryRaw: async () => [],
         contextSession: { findMany: async () => [], findFirst: async () => null },
         bot: {

@@ -237,7 +237,7 @@ export const workerTopLevelTools = (
   // File transfers stay in the cursor namespace, as in the reference's Task worker manifest.
   if (active.subagentType === "executor" || active.subagentType === "knowledgeWork") return ["ReportTaskProgress", "AwaitShell", "WebSearch", "WebFetch"];
   if (active.subagentType === "computerUse") return ["ReportTaskProgress", "AwaitShell"];
-  return [];
+  return active.runtimeProfile === "agent" ? ["ReportRequestProgress"] : [];
 };
 
 /** The reference's order for directly callable tools (its tool builders' order); others keep their place after these. */
@@ -574,7 +574,7 @@ export class RuntimeTools {
         description: graphical ? tool.description.replace(MACHINE_ROUTING_AWAIT_SENTENCE, "") : tool.description,
         parameters: Type.Unsafe<Record<string, unknown>>(graphical ? boxScopedSchema(tool.inputSchema) : tool.inputSchema),
         // WakeParent ends the run, so nothing runs beside it.
-        executionMode: [WAKE_PARENT_TOOL.name, "ReportTaskProgress"].includes(name) ? "sequential" : "parallel",
+        executionMode: [WAKE_PARENT_TOOL.name, "ReportTaskProgress", "ReportRequestProgress"].includes(name) ? "sequential" : "parallel",
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenTeamTool(active, callId, name, args, signal),
       })];
@@ -1420,10 +1420,14 @@ export class RuntimeTools {
       );
       active.pluginNamespaces = fresh.namespaces;
     }
+    if (tool === "ReportRequestProgress" && body && typeof body === "object" && Array.isArray((body as Record<string, unknown>).requests)) {
+      active.instructions = replaceTaskProgressContext(active.instructions, { requests: (body as Record<string, unknown>).requests });
+      if ((body as Record<string, unknown>).ended === true) active.endTurnRequested = true;
+    }
     if (tool === "ReportTaskProgress" && body && typeof body === "object" && (body as Record<string, unknown>).progress) {
       active.instructions = replaceTaskProgressContext(active.instructions, (body as Record<string, unknown>).progress);
     }
-    if (tool === "ReportTaskProgress" && body && typeof body === "object" && (body as Record<string, unknown>).deferred === true) {
+    if (["ReportTaskProgress", "ReportRequestProgress"].includes(tool) && body && typeof body === "object" && (body as Record<string, unknown>).deferred === true) {
       active.endTurnRequested = true;
     }
     if (

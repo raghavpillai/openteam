@@ -109,3 +109,37 @@ test("a failed progress write neither ends the task nor invents saved state", as
     server.stop(true);
   }
 });
+
+test("a parent saves a separate request wait, carries it into compaction, and workers cannot access that operation", async () => {
+  const requestId = crypto.randomUUID();
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
+    async fetch(req) {
+      const request = await req.json() as any;
+      expect(request.tool).toBe("ReportRequestProgress");
+      return Response.json({ request_run_id: requestId, deferred: request.arguments.state === "waiting", ended: request.arguments.state === "complete",
+        requests: request.arguments.state === "complete" ? [] : [{ request_run_id: requestId, progress: request.arguments }] });
+    },
+  });
+  try {
+    const tools = new RuntimeTools({} as never, server.url.origin, "fixture", "/tmp", "/tmp");
+    const active = { requestSource: "turn", runtimeProfile: "agent", subagentType: null,
+      pluginNamespaces: [], botId: "owner", instructions: "Only one outgoing message is approved.",
+      modelRef: {}, reasoning: "low", compactionReadPiMessages: () => [], cwd: "/tmp", contextSessionId: "context" } as unknown as ActiveTurn;
+    const operation = tools.customTools(active).find(t => t.name === "ReportRequestProgress")!;
+    expect(operation).toBeDefined();
+    const waiting = await operation.execute("wait", { ...input, state: "waiting", checkAt: new Date(Date.now() + 3600_000).toISOString() }, undefined, undefined, {} as never);
+    expect((waiting as any).terminate).toBe(true);
+    expect(active.endTurnRequested).toBe(true);
+    const snapshot = compactionObservation(active).systemPrompt;
+    expect(snapshot).toContain(requestId);
+    expect(snapshot).toContain("Confirm destination receipt");
+    expect(snapshot).toContain("Only one outgoing message is approved.");
+    const next = { ...active, endTurnRequested: false };
+    const complete = await tools.customTools(next).find(t => t.name === "ReportRequestProgress")!
+      .execute("complete", { ...input, state: "complete", remaining: [] }, undefined, undefined, {} as never);
+    expect((complete as any).terminate).toBe(true);
+    expect(next.endTurnRequested).toBe(true);
+    expect(tools.customTools({ ...active, runtimeProfile: "subagent", subagentType: "executor" }).map(t => t.name)).not.toContain("ReportRequestProgress");
+    expect(tools.customTools({ ...active, requestSource: "automation" }).map(t => t.name)).not.toContain("ReportRequestProgress");
+  } finally { server.stop(true); }
+});

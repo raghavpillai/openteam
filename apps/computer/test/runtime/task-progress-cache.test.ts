@@ -81,6 +81,24 @@ test("real provider requests retain their prefix when task snapshots are unchang
     const snapshots = manager.getEntries().filter((entry: any) => entry.type === "custom_message" && entry.customType === "openteam-task-progress");
     expect(snapshots).toHaveLength(2);
     expect(snapshots.every((entry: any) => entry.display === false)).toBe(true);
+    // Recreate the Pi session as the worker does for a later wake. The latest
+    // parent/worker observations must append after the saved conversation,
+    // rather than changing its system prefix and invalidating that history.
+    const next: any = { ...active, runId: "next-fixture-run", turnId: crypto.randomUUID(),
+      instructions: snapshot(3), session: null, endTurnRequested: false,
+      assistantOrdinal: 0, startedItems: new Set(), toolArgs: new Map() };
+    const restored = SessionManager.open(active.sessionPath, join(root, "sessions"), root);
+    const resumed = await runtime.createStandaloneSession(root, next.instructions, restored, next, next.modelRef);
+    next.session = resumed;
+    next.sessionPath = resumed.sessionFile;
+    runtime.activeByRun.set(next.runId, next);
+    next.unsubscribe = resumed.subscribe((event: any) => runtime.routeEvent(next, event));
+    await runtime.execute(next, "Read the updated saved status within the same scope.", []);
+    expect(requests).toHaveLength(5);
+    expect(requests[4].messages.slice(0, requests[3].messages.length)).toEqual(requests[3].messages);
+    expect(JSON.stringify(requests[4])).toContain("Verified receipt revision 3");
+    expect(requests[4].messages[0]).toEqual(requests[0].messages[0]);
+    expect(JSON.stringify(requests[4].messages[0])).not.toContain("Verified receipt revision");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -60,3 +60,9 @@ test("an early refund milestone cannot count as a timely reviewed full-completio
   expect(summarizeTrials([{ ...row, reviewedReportLatencySec: 80 }]))
     .toMatchObject({ reviewedReportsWithin90Sec: 1 });
 });
+test("an accurate partial status with an unowned goal is an ownership failure, without inventing a false claim or success", () => {
+  const row = { id: "unowned-review", audit: { providerOutcome: false, explicitApprovalBeforeSend: true,
+    fullyFinished: false, unfinishedReviews: [{ id: "pending-review" }], abandonedReviews: [] }, score: {},
+    claimsAudit: { reviewed: true, passed: true, finalDeliveryVerified: false, unfinishedGoalOwned: false } };
+  expect(summarizeTrials([row])).toMatchObject({ reviewedHardGatesPassed: 0, reviewedClaimsFailed: [], reviewedOwnershipFailed: ["unowned-review"], unfinishedReviews: 1 });
+});

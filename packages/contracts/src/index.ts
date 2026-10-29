@@ -376,6 +376,7 @@ export type SubagentType = typeof SubagentType.Type;
 
 export const TaskInput = Schema.Struct({
   description: Schema.String,
+  request_run_id: Schema.optional(Schema.UUID),
   prompt: Schema.String.pipe(Schema.minLength(1)),
   resume: Schema.optional(Schema.String),
   subagent_type: Schema.optional(SubagentType),
@@ -1658,6 +1659,9 @@ export interface RunView {
   channelId: string | null;
   deliveryId: string | null;
   error: unknown;
+  /** Parent request status; private evidence and scope records are not projected. */
+  requestState?: "working" | "waiting" | "blocked" | "complete";
+  requestNextCheckAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

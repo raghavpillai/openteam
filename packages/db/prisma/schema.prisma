@@ -304,6 +304,8 @@ model Subagent {
   childBotId       String         @unique @db.Uuid
   childBot         Bot            @relation("ChildSubagent", fields: [childBotId], references: [id], onDelete: Cascade)
   parentRunId      String         @db.Uuid
+  requestRunId     String?        @db.Uuid
+  requestRun       Run?           @relation("RequestSubagents", fields: [requestRunId], references: [id], onDelete: SetNull)
   parentChannelId  String         @db.Uuid
   currentRunId     String?        @unique @db.Uuid
   launchCallId     String
@@ -337,6 +339,7 @@ model Subagent {
   @@index([parentBotId, status, createdAt])
   @@index([childBotId, status])
   @@index([status, nextCheckAt])
+  @@index([requestRunId, status])
 }
 
 model SubagentAttempt {
@@ -760,6 +763,13 @@ model Run {
   inferenceReasoning String?
   taskConfiguration Json?
   origin         RunOrigin    @default(user)
+  // A parent request can outlive this model turn and several scoped workers.
+  requestProgress Json?
+  requestRevision Int @default(0)
+  requestNextCheckAt DateTime?
+  requestReconciliations Int @default(0)
+  requestStoppedAt DateTime?
+  requestedSubagents Subagent[] @relation("RequestSubagents")
   channelId      String?      @db.Uuid
   channel        Channel?     @relation(fields: [channelId], references: [id], onDelete: SetNull)
   deliveryId     String?      @unique @db.Uuid
@@ -782,6 +792,7 @@ model Run {
   @@index([botId, status])
   @@index([conversationId, createdAt])
   @@index([channelId, createdAt])
+  @@index([requestNextCheckAt])
 }
 
 model AutomationResult {

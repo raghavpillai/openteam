@@ -120,7 +120,7 @@ export function compactionExtension(
     name: "openteam-bot-compaction",
     hidden: true,
     factory: (pi) => {
-      pi.on("before_agent_start", async () => ({ systemPrompt: active.instructions }));
+      pi.on("before_agent_start", async () => ({ systemPrompt: taskProgressBaseInstructions(active.instructions) }));
       pi.on("context", async (event, ctx) => {
         if (!restoredMeasurement) {
           restoredMeasurement = true;
@@ -196,7 +196,7 @@ export function compactionExtension(
         active.compactionRequestMessages = structuredClone(readPiMessages());
         messages = compactRepeatedDiscovery(messages);
         const fingerprint = promptFingerprint(
-          active.instructions,
+          taskProgressBaseInstructions(active.instructions),
           textFromContent(active.userInfoMessage?.content),
           modelVisibleSummaryTools(
             (active.session?.getAllTools() ?? []).filter((tool) =>
@@ -498,4 +498,4 @@ export function publishCompaction(active: ActiveTurn, adopted: BotCompactionEven
     completedAt: adopted.completedAt,
   });
 }
-import { TASK_PROGRESS_START, TASK_PROGRESS_END } from "@openteam/contracts/task-progress";
+import { TASK_PROGRESS_START, TASK_PROGRESS_END, taskProgressBaseInstructions } from "@openteam/contracts/task-progress";

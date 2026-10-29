@@ -1,4 +1,4 @@
-import { settleTaskProgress, dispatchTaskContinuations, taskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
+import { settleTaskProgress, dispatchTaskContinuations, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, requestWakeAllowed, taskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
 import {
   publishMessageNotification,
   turnOwesReplyReminder,
@@ -492,6 +492,8 @@ export class WakeWorker {
     await this.messaging.recoverRounds();
     await this.recoverDurableWork();
     await dispatchTaskContinuations(this.prisma, this.messaging);
+    await dispatchRequestChecks(this.prisma, this.messaging);
+    await recoverRequestProgress(this.prisma, this.messaging);
     await this.recoverRoutineExecutions();
     await this.reconcileAgentStores();
     await this.agentData.reconcileAllActiveBots();
@@ -555,6 +557,8 @@ export class WakeWorker {
     this.routinePassActive = true;
     try {
       await dispatchTaskContinuations(this.prisma, this.messaging);
+      await dispatchRequestChecks(this.prisma, this.messaging);
+      await recoverRequestProgress(this.prisma, this.messaging);
       const reconciliation = await this.agentData.reconcileAutomationFilesBatch(
         this.automationReconcileCursor,
         AUTOMATION_RECONCILE_BATCH_SIZE
@@ -1123,7 +1127,7 @@ export class WakeWorker {
         const foregroundBusy = existingLeases.some(lease => lease.scope === "foreground");
         const automations = existingLeases.filter(lease => lease.scope.startsWith("automation:"));
         if (foregroundBusy && automations.length >= 4) return null;
-        const candidates = await tx.inboxEvent.findMany({
+        const pendingCandidates = await tx.inboxEvent.findMany({
           where: {
             botId,
             OR: [
@@ -1144,6 +1148,15 @@ export class WakeWorker {
             run: { include: { channel: true } },
           },
         });
+        const candidates = [];
+        for (const candidate of pendingCandidates) {
+          if (candidate.run.origin === "user" || await requestWakeAllowed(tx, candidate)) candidates.push(candidate);
+          else {
+            const settledAt = new Date();
+            await tx.inboxEvent.update({ where: { id: candidate.id }, data: { status: "completed", completedAt: settledAt } });
+            await tx.run.update({ where: { id: candidate.runId }, data: { status: "cancelled", completedAt: settledAt, error: { code: "request_check_superseded" } } });
+          }
+        }
         // As in the reference's automation runs, a routine hears from its background work once
         // none of it is still running; the last result to finish wakes it with all of them.
         const busyRoutines = new Set<string>();
@@ -1505,6 +1518,7 @@ export class WakeWorker {
         });
         await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
         await this.completeSubagent(tx, claimed);
+        if (claimed.runtimeProfile !== "subagent" && claimed.origin !== "routine") await settleRequestProgress(tx, this.messaging, claimed.botId, claimed.runId);
       });
       // Memory extraction needs the published replies, not the buffered group outbox.
       if (claimed.deliveryId) {
@@ -2134,6 +2148,7 @@ export class WakeWorker {
       parentChannelId: string;
       description: string;
       prompt: string;
+      requestRunId?: string | null;
       subagentType: string;
       currentRunId: string | null;
       outputPath: string;
@@ -2163,7 +2178,7 @@ export class WakeWorker {
       botId: subagent.parentBotId,
       channelId: subagent.parentChannelId,
       ...route,
-      taskContextRunId: sourcePayload?.taskContextRunId ?? subagent.parentRunId,
+      taskContextRunId: subagent.requestRunId ?? sourcePayload?.taskContextRunId ?? subagent.parentRunId,
       type: `subagent.${status}`,
       content: (routine
         ? renderQuietSubagentRevivalPrompt({ ...revival, routine })

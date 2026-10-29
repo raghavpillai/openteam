@@ -59,14 +59,15 @@ describe("snapshot pagination", () => {
     });
     const running = run("run-active", "running", 2);
     const finished = run("run-finished", "completed", 1);
+    const waiting = { ...run("request-waiting", "completed", 0), requestProgress: { state: "waiting", evidence: ["private evidence"] }, requestNextCheckAt: at(3600) };
     const itemQueries: string[][] = [];
     const service = new SnapshotService(
       {
         channel: { findFirst: async () => ({ id: channelId }) },
         channelRound: { findMany: async () => [] },
         run: {
-          findMany: async ({ where }: { where: { status: { in?: string[] } } }) =>
-            where.status.in ? [running] : [finished],
+          findMany: async ({ where }: any) =>
+            where.OR ? [waiting, running] : [finished],
         },
         subagentAttempt: { findMany: async () => [] },
         event: { findFirst: async () => ({ sequence: 7n }) },
@@ -87,7 +88,9 @@ describe("snapshot pagination", () => {
 
     const state = await Effect.runPromise(service.channelState(channelId));
 
-    expect(state.runs.map(({ id }) => id)).toEqual(["run-finished", "run-active"]);
+    expect(state.runs.map(({ id }) => id)).toEqual(["request-waiting", "run-finished", "run-active"]);
+    expect(state.runs[0]?.requestState).toBe("waiting");
+    expect(JSON.stringify(state)).not.toContain("private evidence");
     expect(itemQueries).toEqual([["run-active"]]);
     expect(state.runItems.map(({ id }) => id)).toEqual(["item-active"]);
     expect(state.truncated.runItems).toBe(false);

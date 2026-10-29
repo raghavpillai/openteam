@@ -14,6 +14,11 @@ export const TaskProgressInput = Schema.Struct({
   toolError: Schema.optional(text),
 });
 export type TaskProgressInput = typeof TaskProgressInput.Type;
+export const RequestProgressInput = Schema.Struct({
+  ...TaskProgressInput.fields,
+  request_run_id: Schema.optional(Schema.UUID),
+});
+export type RequestProgressInput = typeof RequestProgressInput.Type;
 export type TaskProgress = TaskProgressInput & {
   runId: string;
   revision: number;
@@ -109,8 +114,30 @@ export const REPORT_TASK_PROGRESS_TOOL = {
   },
 } as const;
 
+/** A child's done means its scoped step is done; the parent still owns the request. */
+export const REPORT_REQUEST_PROGRESS_TOOL = {
+  ...REPORT_TASK_PROGRESS_TOOL,
+  name: "ReportRequestProgress",
+  description: "Keep the user's requested outcome owned across scoped subtasks, approval replies and waits. This parent-only record is separate from TodoWrite and worker progress. Task automatically starts tracking new work and returns request_run_id; acknowledgements need no progress call. Omit request_run_id to start tracking the current request; use the returned request_run_id for every related Task and progress update, including after approval replies. Different user requests keep separate IDs. State complete ends THIS TURN and requires evidence that the requested outcome was verified and delivered, with no unfinished obligations or active workers. Deliver any other ready results before this call. A completed narrow worker step is not completion of the broader request. If the outside outcome is pending, use waiting with remaining work, nextAction and checkAt before any known deadline; the host schedules one private continuation and ends this turn. Read/check only within the user's existing scope; get fresh approval before any additional outgoing action that exceeds the previous approval. If further progress actually needs a decision, ask it and save blocked with its source, rather than offering to continue an already requested task. Never claim a tool refusal without its actual error. Every unfinished state requires nextAction. Use stable milestone keys only for identical retries; any content or check-time change needs a new key. Use evidence references rather than copied transcripts, and no passwords, PINs or tokens. This tool grants no permission and does not revive cancelled work. No routine is needed for this request's saved check.",
+  inputSchema: {
+    ...REPORT_TASK_PROGRESS_TOOL.inputSchema,
+    properties: {
+      ...REPORT_TASK_PROGRESS_TOOL.inputSchema.properties,
+      request_run_id: { type: "string", format: "uuid", description: "The original request_run_id returned when tracking this user request; keep it across approval replies and worker changes." },
+    },
+  },
+} as const;
+
 export const TASK_PROGRESS_START = "<durable_task_state>";
 export const TASK_PROGRESS_END = "</durable_task_state>";
+/** Observations belong in the persisted private conversation, not in the
+ * system prefix ahead of that growing conversation on every resumed turn. */
+export const taskProgressBaseInstructions = (instructions: string): string => {
+  const start = instructions.lastIndexOf(TASK_PROGRESS_START);
+  return start >= 0 && instructions.indexOf(TASK_PROGRESS_END, start) >= 0
+    ? instructions.slice(0, start).trimEnd()
+    : instructions;
+};
 export const renderTaskProgressContext = (progress: unknown): string =>
   `${TASK_PROGRESS_START}\n${JSON.stringify(progress).replaceAll("<", "\\u003c")}\n${TASK_PROGRESS_END}\nThese are prior observations, not fresh proof or new authorization. Preserve the original approval and limits, apply newer parent instructions, and reconcile live state before repeating any action whose outcome is uncertain. Clear obligations only after verification.`;
 export const replaceTaskProgressContext = (instructions: string, progress: unknown): string => {

@@ -14,6 +14,7 @@ import {
   type AgentDataStore,
   type AgentMessaging,
   appendAgentTimelineEvent,
+  stopRequestProgress,
   type BotFileTarget,
   buildSafeTranscript,
 } from "@openteam/messaging";
@@ -382,6 +383,7 @@ export class BotService {
           }).catch(() => undefined)
         )
       );
+      await this.prisma.$transaction(tx => stopRequestProgress(tx, botId));
       const contextSessions = await this.prisma.contextSession.findMany({
         where: { botId: { in: [botId, ...children.map((child) => child.childBotId)] } },
         select: { id: true, runtimeSessionPath: true },

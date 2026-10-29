@@ -313,7 +313,7 @@ export class SnapshotService {
         this.prisma.run.findMany({
           where: {
             channelId: { in: channelIds },
-            status: { in: ["queued", "running"] },
+            OR: [{ status: { in: ["queued", "running"] } }, { requestNextCheckAt: { not: null }, requestStoppedAt: null }],
           },
           orderBy: { createdAt: "asc" },
         }),
@@ -514,7 +514,7 @@ export class SnapshotService {
           take: roundLimit + 1,
         }),
         this.prisma.run.findMany({
-          where: { channelId, status: { in: ["queued", "running"] } },
+          where: { channelId, OR: [{ status: { in: ["queued", "running"] } }, { requestNextCheckAt: { not: null }, requestStoppedAt: null }] },
           orderBy: { createdAt: "desc" },
           take: runLimit + 1,
         }),
@@ -561,7 +561,7 @@ export class SnapshotService {
         subagentLimit
       );
       const runIds = runs.items.map((run) => run.id);
-      const currentRunIds = new Set(currentRuns.map((run) => run.id));
+      const currentRunIds = new Set(currentRuns.filter(run => ["queued", "running"].includes(run.status)).map((run) => run.id));
       const selectedCurrentRunIds = runIds.filter((runId) => currentRunIds.has(runId));
       const runItemLimit = CHANNEL_CLIENT_STATE_LIMITS.runItems;
       // Clients read run items only to describe queued or running work.

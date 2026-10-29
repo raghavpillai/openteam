@@ -1,4 +1,4 @@
-import { initialTaskProgress, taskProgress, taskScopeUpdates } from "@openteam/messaging";
+import { initialTaskProgress, taskProgress, taskScopeUpdates, ensureRequestForTask, stopRequestProgress } from "@openteam/messaging";
 import {
   ApiError,
   formatPiModelRef,
@@ -187,7 +187,7 @@ export class SubagentService {
     if (!attempt) {
       throw new ApiError(409, "subagent_attempt_missing", "This Task attempt is unavailable");
     }
-    return dispatched(subagentBackgroundResult(subagent.id));
+    return dispatched(subagentBackgroundResult(subagent.id) + (subagent.requestRunId ? `\nParent request_run_id: ${subagent.requestRunId}. This is the original requested outcome, not just this scoped step; reconcile it with ReportRequestProgress.` : ""));
   }
 
   private receiptSubagentId(response: Prisma.JsonValue | null | undefined): string | null {
@@ -327,6 +327,7 @@ export class SubagentService {
         const current = await this.prisma.run.findUnique({ where: { id: runId }, select: { status: true } });
         return { ok: true, status: current?.status ?? "cancelled" };
       }
+      await this.prisma.$transaction(tx => stopRequestProgress(tx, run.botId, ["queued", "running"].includes(run.status) ? undefined : runId));
       const result = await Effect.runPromise(this.runs.cancel(runId));
       if (["queued", "running"].includes(run.status)) await this.stopRunningSubagents(run.botId, callId);
       return result;
@@ -347,8 +348,9 @@ export class SubagentService {
         orderBy: { createdAt: "asc" },
       });
       await Promise.allSettled(runs.map((run) => Effect.runPromise(this.stopRun(run.id))));
+      const requests = await this.prisma.$transaction(tx => stopRequestProgress(tx, botId));
       const workers = await this.stopRunningSubagents(botId, `user-stop:bot:${botId}`);
-      return { hadActiveRun: runs.length > 0 || workers.length > 0 };
+      return { hadActiveRun: runs.length > 0 || workers.length > 0 || requests > 0 };
     });
 
   /**
@@ -359,7 +361,7 @@ export class SubagentService {
     serviceEffect(async (): Promise<BusyBotsView> => {
       const [runs, subagents] = await Promise.all([
         this.prisma.run.findMany({
-          where: { status: { in: ["queued", "running"] } },
+          where: { OR: [{ status: { in: ["queued", "running"] } }, { requestNextCheckAt: { not: null }, requestStoppedAt: null, bot: { status: "active" } }] },
           select: { id: true, botId: true },
           orderBy: { createdAt: "asc" },
         }),
@@ -407,6 +409,7 @@ export class SubagentService {
 
   /** Stop each running subagent on its own, so one failure never hides or blocks the others. */
   private async stopAll(parentBotId: string, callId: string) {
+    await this.prisma.$transaction(tx => stopRequestProgress(tx, parentBotId));
     const [outcomes, delegated] = await Promise.all([this.stopRunningSubagents(parentBotId, callId), this.stopDelegatedWork(parentBotId, callId)]);
     const of = (outcome: string) => outcomes.filter((entry) => entry.outcome === outcome).map(({ outcome: _, ...entry }) => entry);
     return { stopped_all: true, stopped: of("stopped"), already_finished: of("finished"), failed: of("failed"), delegated };
@@ -576,6 +579,7 @@ export class SubagentService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openteam-subagent-capacity'))`;
       await assertSubagentCapacity(context.botId, type, tx);
+      const requestRunId = await ensureRequestForTask(tx, context.botId, context.runId, input.request_run_id);
       await tx.bot.create({
         data: {
           id: childBotId,
@@ -609,6 +613,7 @@ export class SubagentService {
           parentBotId: context.botId,
           childBotId,
           parentRunId: context.runId,
+          requestRunId,
           parentChannelId: context.channelId,
           launchCallId: context.callId,
           description: name,
@@ -697,6 +702,9 @@ export class SubagentService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openteam-subagent-capacity'))`;
       await assertSubagentCapacity(context.botId, type, tx);
+      const priorRequest = subagent.requestRunId ? await tx.run.findUnique({ where: { id: subagent.requestRunId } }) : null;
+      const inheritedRequestId = priorRequest && priorRequest.channelId === context.channelId && !priorRequest.requestStoppedAt && priorRequest.status !== "cancelled" && taskProgress(priorRequest.requestProgress)?.state !== "complete" ? priorRequest.id : undefined;
+      const requestRunId = await ensureRequestForTask(tx, context.botId, context.runId, input.request_run_id ?? inheritedRequestId);
       const current = await tx.subagent.findUniqueOrThrow({ where: { id: subagent.id } });
       if (current.currentRunId !== subagent.currentRunId || !["completed", "failed", "stopped", "waiting"].includes(current.status)) throw new ApiError(409, "subagent_not_resumable", "The task already continued; inspect its current state before dispatching again");
       const child = await tx.bot.findUnique({
@@ -755,6 +763,7 @@ export class SubagentService {
         where: { id: subagent.id },
         data: {
           parentRunId: context.runId,
+          requestRunId,
           parentChannelId: context.channelId,
           launchCallId: context.callId,
           currentRunId: wake.run.id,

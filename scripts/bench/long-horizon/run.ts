@@ -13,6 +13,7 @@ import { join } from "node:path";
 import type { Case, Workflow } from "./site";
 import { customerDecision, CUSTOMER_POLICY_VERSION } from "./customer-policy";
 import { workIsSettled } from "./workflow-gates";
+import { requireTrialBudgetFromEnvironment } from "./budget";
 
 const arg = (name: string, fallback: string) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -64,6 +65,8 @@ const api = async (path: string, body?: unknown) => {
 };
 let bot: any;
 try {
+  const funding = await requireTrialBudgetFromEnvironment();
+  writeFileSync(join(out, "budget-preflight.json"), JSON.stringify(funding, null, 2));
   const disk = execFileSync("docker", ["exec", computer, "df", "-Pk", "/workspace"], { encoding: "utf8" }).trim().split("\n").at(-1)!.trim().split(/\s+/);
   if (Number(disk[3]) * 1024 < 10 * 1024 ** 3 || Number(disk[3]) / Number(disk[1]) < .21) throw new Error("Benchmark preflight: free Docker disk below 10 GiB or 21%; infrastructure failure before the agent task");
   const c = (await (

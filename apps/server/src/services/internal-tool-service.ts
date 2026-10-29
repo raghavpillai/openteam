@@ -1,5 +1,5 @@
-import { TaskProgressInput } from "@openteam/contracts/task-progress";
-import { reportTaskProgress } from "@openteam/messaging";
+import { TaskProgressInput, RequestProgressInput } from "@openteam/contracts/task-progress";
+import { reportTaskProgress, reportRequestProgress, requestProgressSnapshot } from "@openteam/messaging";
 import { readAgentActivity, readTranscript } from "@openteam/messaging";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
@@ -99,6 +99,11 @@ export class InternalToolService {
         throw new ApiError(403, "automation_tool_forbidden", AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
       }
       request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
+      if (request.tool === "ReportRequestProgress") {
+        if (childIdentity || run.origin === "routine") throw new ApiError(403, "request_progress_unavailable", "Only the user-facing parent may track a request");
+        const result = await reportRequestProgress(this.prisma, context, Schema.decodeUnknownSync(RequestProgressInput)(request.arguments));
+        return { ...(result as Record<string, unknown>), requests: await requestProgressSnapshot(this.prisma, request.botId, request.channelId) };
+      }
       if (request.tool === "ReportTaskProgress") {
         if (!childIdentity) throw new ApiError(403, "task_progress_unavailable", "Only a delegated worker may report task progress");
         return reportTaskProgress(this.prisma, this.messaging, context, Schema.decodeUnknownSync(TaskProgressInput)(request.arguments));

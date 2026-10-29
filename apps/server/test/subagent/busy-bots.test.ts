@@ -3,8 +3,11 @@ import { Effect } from "effect";
 import { SubagentService } from "../../src/services/subagent/service";
 
 function service(runs: Array<{ id: string; botId: string; status: string }>, subagents: Array<{ parentBotId: string; childBotId: string; status: string }>) {
-  const matches = (row: any, where: any) => Object.entries(where).every(([key, value]: any) =>
-    value && typeof value === "object" && "in" in value ? value.in.includes(row[key]) : row[key] === value);
+  const matches = (row: any, where: any): boolean => Object.entries(where).every(([key, value]: any) =>
+    key === "OR" ? value.some((clause: any) => matches(row, clause)) :
+    value && typeof value === "object" && "in" in value ? value.in.includes(row[key]) :
+    value && typeof value === "object" && "not" in value ? row[key] != null && row[key] !== value.not :
+    value && typeof value === "object" ? matches(row[key] ?? {}, value) : row[key] === value);
   const names: Record<string, string> = { chief: "Chief of Staff", scout: "Scout", worker: "worker", nested: "nested" };
   const db: any = {
     run: { findMany: async ({ where }: any) => runs.filter((row) => matches(row, where)) },

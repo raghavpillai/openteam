@@ -34,6 +34,7 @@ export function summarizeTrials(rows: any[]) {
     fullyFinished: finished.length,
     reviewedHardGatesPassed: reviewedFinished.length,
     reviewedClaimsFailed: valid.filter(r => r.claimsAudit?.reviewed && r.claimsAudit.passed === false).map(r => r.id),
+    reviewedOwnershipFailed: valid.filter(r => r.claimsAudit?.reviewed && r.claimsAudit.unfinishedGoalOwned === false).map(r => r.id),
     excludedAttemptClaimsFailures: rows.filter(r => r.infrastructureInvalid &&
       r.claimsAudit?.reviewed && r.claimsAudit.passed === false).map(r => r.id),
     unfinishedReviews: valid.reduce((n, r) => n + r.audit.unfinishedReviews.length, 0),

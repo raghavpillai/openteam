@@ -1,5 +1,5 @@
 {
-  "status": "Runtime implemented and verified. Candidate matchedhour completed after timely delayed reply, with112second full-report performance miss. Native matchedhour missed required response deadline; run continues unchanged for late-recovery observation. Controlled repetitions incomplete; no general/vendor superiority claim.",
+  "status": "Runtime implemented and verified. The matched hour is fully audited: the candidate completed after a timely reply; native Grok missed the deadline, reopened the review, but had no refund at the 95-minute cutoff. The first valid S1/S2N pairs completed on the candidate and failed at the approved send on the baseline. Full candidate reports took82\u2013134seconds. Repetitions and bounded cleanup observation continue.",
   "productRevision": "6fa9c3ce",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -14,7 +14,7 @@
       "Atomic durable obligations and delayed continuation on existing Subagent/Run/Inbox infrastructure",
       "Bounded startup reconciliation, current-run fences, and durable accepted scope"
     ],
-    "headToHead": "Earlier native outcomes and invalids retained. Three native read-only diagnostics pass; original unattempted matched-hour tasks now running. First valid v4baseline failed policy interpretation, candidate completed. Broader controlled comparisons pending."
+    "headToHead": "In one matched hour, OpenTeam completed within the trial. Grok0.78.1missed the response deadline, attempted late recovery, and left a reopened review pending at95minutes. Earlier native outcomes and invalid attempts remain separate. Native cloud model, reasoning and cost are unknown; no general vendor superiority estimate."
   },
   "slices": [
     {
@@ -579,7 +579,7 @@
       "cohort": "long-horizon-round7",
       "candidateId": "runtime4-candidate-H1-1",
       "nativeId": "runtime4-grok-H1-1",
-      "status": "candidate-complete-native-deadline-missed-still-active",
+      "status": "both-complete-and-audited",
       "customerPolicy": "4-factual-identity unchanged",
       "earlierUnpairedHourSeparate": true,
       "limits": "Outcomes pending; short native sign-in probes do not establish long-horizon completion.",
@@ -613,7 +613,7 @@
       "knownSecretMatches": 0,
       "resourceSamples": 72,
       "resourcesPassed": true,
-      "limits": "One candidate support-hour observation; native outcome pending. No forced restart or compaction in this pair. Provider-pending refund, not actual card settlement. Estimated cost excludes simulator/infra. Full report above90seconds remains a performance miss."
+      "limits": "One candidate support-hour observation, with the native result recorded separately. No forced restart or compaction in this pair. Fictional provider refund pending, not actual card settlement. Agent cost excludes simulator/infrastructure. Full report above90seconds remains a performance miss."
     },
     "matchedHourNativeDeadlineInterim": {
       "observedAt": "2026-10-29T02:38:20.277576+00:00",
@@ -640,6 +640,71 @@
       "limits": "One matched pair, native cloud model/reasoning/cost unknown. No final run result yet; later recovery remains observable. Earlier interim report accurate at timestamp; deadline miss is not a fabricated-refund claim.",
       "responseDeadlineMet": false,
       "responseWindowExpired": true
+    },
+    "matchedHourNativeReviewed": {
+      "id": "runtime4-grok-H1-1",
+      "version": "0.78.1",
+      "goalCompletedWithin95Minutes": false,
+      "refunded": "$0.00",
+      "accountClosed": true,
+      "autopayOff": true,
+      "responseDeadlineMet": false,
+      "abandonedOriginalReviews": 1,
+      "firstCaseReturnSec": 970.189,
+      "returnAfterResponseCloseSec": 370.189,
+      "lateRecoveryAttemptObserved": true,
+      "newReviewStillPendingAtCutoff": true,
+      "finalPartialStatusAccurate": true,
+      "fullGoalDelivery": false,
+      "followupAnnouncedAtCutoff": true,
+      "privateCloudScheduleVerified": false,
+      "outwardEntriesChecked": 9,
+      "knownSecretMatches": 0,
+      "ownBotCleanupConfirmed": true,
+      "ownBotAbsentFromSidebar": true,
+      "privateAutomationListResult": "off",
+      "postDeleteActivityObservation": "Active through04:01UTC, afterannounced03:55oldcheck; raw observation requires coverage review.",
+      "limits": "The reopened review had an announced follow-up before evaluator cleanup. A late recovery attempt did occur; eventual completion beyond the trial is unknown. One pair with unknown native cloud model, reasoning and cost does not establish general vendor superiority."
+    },
+    "secondValidV4Pair": {
+      "scenario": "S2N",
+      "baselineId": "serial4-base-S2N-1",
+      "baselineGoalCompleted": false,
+      "baselineFalseToolBlockAttribution": true,
+      "baselineEstimatedAgentUsd": 0.2043277,
+      "candidateId": "serial4-candidate-S2N-1",
+      "candidateGoalCompleted": true,
+      "candidateFullGoalReportSec": 134.318,
+      "candidateReviewedReportWithin90Sec": false,
+      "candidateRequiredReplySec": 210.637,
+      "candidateModelResponses": 121,
+      "candidateBrowserCalls": 67,
+      "candidateBrowserCallsAfterProvider": 10,
+      "candidateEstimatedAgentUsd": 1.5716629,
+      "candidateOutwardMessages": 19,
+      "candidateProgressCalls": 12,
+      "candidatePrivateSnapshots": 14,
+      "knownSecretMatches": 0,
+      "candidateUnfinishedTasksOrRoutines": 0,
+      "resourcesPassedBoth": true,
+      "limits": "One case per arm/scenario. The candidate used two scoped approval widgets. The baseline failed before sending, so completion latency and cost per completed task cannot be compared directly."
+    },
+    "postResolutionProfile": {
+      "evidence": "Ignored support-bench/data/runs/long-horizon-round7/post-resolution-browser-profile.json",
+      "completedCandidateCases": 3,
+      "reviewedFullReportSecs": [
+        81.953,
+        112.085,
+        134.318
+      ],
+      "browserCallsAfterProvider": [
+        6,
+        7,
+        10
+      ],
+      "finding": "S1andS2Nalready batch account, service and billing reads. Additional screenshot-related turns, decision reads, UI closure and a navigation retry precede full reports. Call counts alone do not show which essential verification can safely be removed.",
+      "nextIteration": "Test reductions in optional recordkeeping and deterministic UI turn overhead on a separately frozen candidate with held-out workflows. Keep the activev4matrix unchanged.",
+      "limits": "Recordedtoolcall/result intervals, not isolated inference timing. No new productionprompt/runtime change deployed."
     }
   },
   "realModelCompactionProbe": {

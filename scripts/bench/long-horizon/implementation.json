@@ -1,5 +1,5 @@
 {
-  "status": "Runtime implemented and functional/fault/compaction checks verified. Native hour missed required review. Two fresh native v4access failures audited, with unsupported access claims later retracted; further native launches held at completed boundary. OTcontrolled repeats held by shared disk guard. No comparative win claimed.",
+  "status": "Runtime implemented and functional/fault/compaction checks verified. Controlledv4testing resumed after15healthy resource minutes with one fresh retry. Baseline failed approved send under policy interpretation. Three native read-only probes passed; native pairedhour waiting for nextOTboundary. No comparative win claimed.",
   "productRevision": "6fa9c3ce",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -14,7 +14,7 @@
       "Atomic durable obligations and delayed continuation on existing Subagent/Run/Inbox infrastructure",
       "Bounded startup reconciliation, current-run fences, and durable accepted scope"
     ],
-    "headToHead": "Native0.78.1verified. Firstv3case passed semantic report checks; unpairedhour missed review. Both v4native attempts had no observable account access and retracted progress claims; second also has malformed customer replies. OTv4attempt resource-invalid. Comparison remains inconclusive."
+    "headToHead": "Earlier nativev3semantic pass, unpairedhour failure and v4access failures retained. Fresh public-fetch/browser/sign-in diagnostics pass without security changes. Pending nativev4cases and matchedhour resumed on unchanged harness; first valid v4baseline retry failed approved send. Controlled comparison still incomplete."
   },
   "slices": [
     {
@@ -145,10 +145,11 @@
       "limits": "Probe6 retained failed all-four adoption gate; not counted as a full pass."
     },
     "supportCustomerHarness": {
-      "passed": 26,
+      "passed": 29,
       "failed": 0,
       "newGeneralFactualRegressions": 6,
-      "scope": "Existing20plus6new identity-fact/privacy/scope tests; sources archived in ignored findings/support-bench round7."
+      "scope": "Existing20plus6new identity-fact/privacy/scope tests; sources archived in ignored findings/support-bench round7.",
+      "preparedCapabilityRegressions": 3
     }
   },
   "reproduce": {
@@ -421,7 +422,7 @@
       "generalChange": "Supply requested fixture identity facts in embedded questions; preserve pending-widget precedence, limited sharing, recurring-scope refusals and unknown-fact abstention. No provider outcomes or new concessions supplied.",
       "verification": "26harness tests pass; actual recorded unanswered question reproduces null on v3and a scoped fixture-fact reply on v4. No task replay and no proof baseline would subsequently resolve.",
       "inputsUnchanged": "Product revision, task prompts, site models, inference defaults, collection and raw scoring",
-      "launch": "Firstv4OTattempt resource-invalid; two nativev4attempts access-unverified, second additionally customer-invalid. All future native launches held after normal current-case cleanup. Matchedhour not sent."
+      "launch": "Fresh OTretry running after healthy resource gate; frozenv4customer source unchanged. Three separate native diagnostics passed; resume only unattemptedv4cases and hour. Prospectivev5policy not imported by running trials."
     },
     "nativeHourInterimDeadlineMiss": {
       "observedAt": "2026-10-28T22:04:12.562104+00:00",
@@ -468,7 +469,9 @@
       "newVMOrImagesInstalled": false,
       "macHostFreeKiBAtDiagnosis": 16459428,
       "guardsUnchanged": true,
-      "nextStep": "Finite observer permits one fresh retry only after15minutes above unchanged resource gates. No unrelated cleanup; no repeated automatic retries."
+      "nextStep": "Single fresh retry released after15healthy minutes; original invalid retained. Serial controlled cases continue under unchanged guards. No additional automatic resource retry.",
+      "releasedAt": 1793236036693,
+      "freshRetry": "serial4-base-S1-1-infra-retry1"
     },
     "nativeV4AccessReview": {
       "cohort": "long-horizon-round7",
@@ -486,6 +489,62 @@
       "toolErrorAttribution": "Model-reported only; no independently visible cloud tool error, no actual block-source determination.",
       "securityPrivacyUnchanged": true,
       "limits": "Retained diagnostic failures. Initial access failure preceded malformed customer answers, but subsequent behavior is confounded. No vendor reliability or comparative win claim."
+    },
+    "nativeDiagnosticRecovery": {
+      "reviewedAt": "2026-10-29T01:16:32.968357+00:00",
+      "diagnosticProbes": [
+        {
+          "id": "native078-readonly-public-diagnostic-1",
+          "readVerified": true,
+          "elapsedSec": 20.433,
+          "surface": "Public page fetch"
+        },
+        {
+          "id": "native078-readonly-browser-diagnostic-1",
+          "readVerified": true,
+          "elapsedSec": 40.376,
+          "surface": "Requested computer browser, exact unseen phrase"
+        },
+        {
+          "id": "native078-readonly-signin-diagnostic-1",
+          "readVerified": true,
+          "elapsedSec": 60.568,
+          "surface": "Private cancellation reference,0support/billing changes"
+        }
+      ],
+      "ownProbeCleanupVerified": true,
+      "knownSecretMatchesInSigninOutward": 0,
+      "frozenV4SourcesComparedByteForByte": true,
+      "priorNegativesPreserved": true,
+      "pendingNativeUnattempted": 18,
+      "next": "Original unattempted pairedhour at nextOTboundary, then pendingv4native tasks. Hold again if no-account-access recurs.",
+      "limits": "Independent diagnostics, not scored support wins or proof of previous failure source. No restart, reset, safety bypass, endpoint change, or security/privacy setting change."
+    },
+    "firstValidV4BaselineRetry": {
+      "id": "serial4-base-S1-1-infra-retry1",
+      "validForPrimaryComparison": true,
+      "goalCompleted": false,
+      "refunded": "$0.00",
+      "serviceActive": true,
+      "autopayOn": true,
+      "customerMessagesSent": 0,
+      "finalStatusAccurate": true,
+      "modelResponses": 25,
+      "browserCalls": 9,
+      "estimatedAgentUsd": 0.1799005,
+      "resourcesPassed": true,
+      "outwardMessagesChecked": 7,
+      "knownSecretMatches": 0,
+      "blockSource": "Worker policy interpretation of drafting rule; not an actual browser tool rejection.",
+      "limits": "One valid negative. Prior disk-invalid attempt retained separately. Cost estimate excludes simulator/infra, not invoice."
+    },
+    "preparedCustomerCapabilitiesRepair": {
+      "version": "5-holder-capabilities",
+      "testsPassed": 29,
+      "newRegressionTests": 3,
+      "runningV4Changed": false,
+      "generalRules": "Only known addresses; no invented human takeover/link promise; distinguish hygiene advice from sharing requests.",
+      "limits": "Prepared prospective benchmark-only policy. Separate fresh IDs/cohort needed before applying; does not predict model task success."
     }
   },
   "realModelCompactionProbe": {

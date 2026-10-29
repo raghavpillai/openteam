@@ -34,7 +34,7 @@ Start with a read-only request:
 > Find recent decisions about the website launch and summarize them with links. Don't post anything to Slack.
 
 
-To limit what bots can do in Slack, turn tools off or set them to **Deny** under **Manage → Accounts and settings**.
+Bots act as the Slack account you connect and can see what it can see. To limit what they can reach, connect a separate Slack account with access to fewer channels. Don't remove scopes from the app to do this; see the note under Fix common problems.
 
 ## Connect another workspace
 
@@ -46,7 +46,7 @@ Choose **Add Another Account** on the plugin's page, give the account a name, an
 | --- | --- |
 | App isn't enabled for Slack MCP Server | Turn on **Enable Slack MCP Server** under **Agents**, then choose **Restart / refresh tools** |
 | Redirect mismatch | Check that the app's redirect URL exactly matches the **Authorized redirect URI** in OpenTeam |
-| A channel is missing or a tool is denied | Check your own access to the channel, the app's scopes, and the bot's access |
+| A channel is missing or a tool fails with a permission error | Check your own access to the channel, the app's scopes, and the bot's access |
 | Administrator approval required | Finish your workspace's app approval process, then try again |
 
 Keep all the scopes from the manifest in your Slack app. OpenTeam requests all of them when you sign in, so removing one can make sign-in fail.

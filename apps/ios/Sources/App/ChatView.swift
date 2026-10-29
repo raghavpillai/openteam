@@ -818,12 +818,11 @@ struct MessageActionsView: View {
 struct MarkdownText: View {
   let source: String
   var textColor: Color = NativePalette.text
-  /// Links take the app tint, which is also the fill of your own bubble. There they
-  /// use the text color and an underline instead, so they stay readable and visible.
+  /// Received links stay blue even with the monochrome app accent. Your own
+  /// links use the bubble's text color; underlines distinguish links in both.
   var ownMessage = false
   func inline(_ block: String) -> AttributedString {
-    let text = MessageTextCache.inline(block)
-    return ownMessage ? Self.underliningLinks(text) : text
+    Self.underliningLinks(MessageTextCache.inline(block))
   }
   static func underliningLinks(_ text: AttributedString) -> AttributedString {
     var text = text
@@ -837,10 +836,8 @@ struct MarkdownText: View {
       RichMarkdownView(source: source)
     } else if IdentifierMessageText.requiresNativeWrapping(source) {
       IdentifierMessageText(source: source, color: textColor)
-    } else if ownMessage {
-      blocks.tint(textColor)
     } else {
-      blocks
+      blocks.tint(ownMessage ? textColor : NativePalette.link)
     }
   }
   private var blocks: some View {

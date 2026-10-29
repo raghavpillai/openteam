@@ -13,7 +13,7 @@ public enum WebTool: String, CaseIterable, Sendable {
   }
   /// What turning the tool off means, shown on its Off row.
   public var offConsequence: String {
-    self == .search ? "Bots can't search the web." : "Bots read pages only in their browser."
+    self == .search ? "Bots can't search the web." : "Bots can only read pages in their browser."
   }
 }
 
@@ -167,7 +167,7 @@ public struct WebToolView: Equatable, Sendable {
     guard let selected else {
       return tool == .search
         ? "Search is off. Bots can't search the web."
-        : "Fetch is off. Bots read pages only in their browser."
+        : "Fetch is off. Bots can only read pages in their browser."
     }
     if self[selected].check?.passed == false {
       return "\(activeName(tool)) failed its \(tool.rawValue) check."

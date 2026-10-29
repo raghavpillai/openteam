@@ -374,6 +374,22 @@ final class ServerSetupTests: XCTestCase {
     XCTAssertEqual(draft.settings.baseUrl, "")
     XCTAssertEqual(draft.body["provider"], .string("openai-compatible"))
     XCTAssertTrue(TranscriptionDraft(nil).changed(from: nil))
+    // A server that was never set up opens on OpenAI with its default model, as on desktop.
+    let untouched = try JSONDecoder().decode(
+      TranscriptionSettingsView.self,
+      from: Data(
+        #"{"enabled":false,"provider":"openai-compatible","baseUrl":"","model":"","language":"","hasApiKey":false,"configured":false}"#
+          .utf8))
+    XCTAssertTrue(untouched.untouched)
+    let fresh = TranscriptionDraft(untouched)
+    XCTAssertEqual(fresh.settings.provider, .openai)
+    XCTAssertEqual(fresh.settings.baseUrl, "https://api.openai.com/v1")
+    XCTAssertEqual(fresh.settings.model, "gpt-transcribe")
+    XCTAssertFalse(fresh.settings.enabled)
+    // A custom service someone saved stays as it is.
+    var custom = untouched
+    custom.settings.baseUrl = "http://audio:8000/v1"
+    XCTAssertEqual(TranscriptionDraft(custom).settings.provider, .compatible)
     XCTAssertEqual(
       TranscriptionRequest.savedMessage(saved), "Saved. Voice notes are enabled on connected devices.")
     var off = saved
@@ -411,5 +427,13 @@ final class ServerSetupTests: XCTestCase {
     XCTAssertTrue(OnboardingDecision.needed(bots: 3, runtime: runtime))
     XCTAssertFalse(OnboardingDecision.needed(bots: 3, runtime: RuntimeStatus(values: ["inference": "invalid"])))
     XCTAssertFalse(OnboardingDecision.needed(bots: 1, runtime: RuntimeStatus(values: [:])))
+  }
+}
+
+final class ProviderDisplayNameTests: XCTestCase {
+  func testPlanSignInsUseThePlanNameLikeDesktop() {
+    XCTAssertEqual(InferenceProvider(id: "openai-codex", name: "Codex").displayName, "ChatGPT")
+    XCTAssertEqual(InferenceProvider(id: "claude-code", name: "Claude Code").displayName, "Claude")
+    XCTAssertEqual(InferenceProvider(id: "openrouter", name: "OpenRouter").displayName, "OpenRouter")
   }
 }

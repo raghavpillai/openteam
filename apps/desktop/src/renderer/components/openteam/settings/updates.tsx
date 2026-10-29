@@ -7,7 +7,7 @@ import { LoadingOrb } from "../../ui/loading-orb";
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
 
 const primaryButton =
-  "inline-flex h-9 items-center gap-2 rounded-[9px] bg-black px-3 text-[13px] text-white hover:opacity-80 disabled:opacity-50 dark:bg-white dark:text-black";
+  "inline-flex h-9 items-center gap-2 rounded-[9px] bg-black px-3 text-[13px] text-white enabled:hover:opacity-80 disabled:bg-black/[0.07] disabled:text-foreground disabled:opacity-50 dark:bg-white dark:text-black dark:disabled:bg-white/[0.09] dark:disabled:text-foreground";
 const secondaryButton =
   "inline-flex h-9 items-center gap-2 rounded-[9px] bg-black/[0.04] px-3 text-[13px] hover:bg-black/[0.07] disabled:opacity-50 dark:bg-white/[0.07] dark:hover:bg-white/[0.1]";
 
@@ -113,7 +113,7 @@ export default function UpdatesSettings() {
                 type="button"
               >
                 {["downloading", "installing"].includes(clientUpdate?.status ?? "") ? (
-                  <LoadingOrb aria-hidden inverse size={14} />
+                  <LoadingOrb aria-hidden size={14} />
                 ) : null}
                 {clientUpdate?.status === "downloaded"
                   ? "Restart to update"

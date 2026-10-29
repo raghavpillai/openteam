@@ -275,6 +275,8 @@ export default function App() {
   const inspectorPanelRef = useRef<HTMLDivElement | null>(null);
   const inspectorContentRef = useRef<HTMLDivElement | null>(null);
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>("summary");
+  // A routine opened from bot settings returns there, not to the details summary.
+  const [routineReturnMode, setRoutineReturnMode] = useState<"summary" | "settings">("summary");
   const [enabledScreenIds, setEnabledScreenIds] = useState<ReadonlySet<string>>(() => new Set());
   const [computerHandoff, setComputerHandoff] = useState<ComputerHandoffOpenDetail | null>(null);
   const [a2aExchange, setA2AExchange] = useState<A2AExchangeState | null>(null);
@@ -303,6 +305,12 @@ export default function App() {
       : Math.min(sidebarLayout.width, sidebarMaxWidth);
   const detailsDocked = canShowInspector(viewportWidth, effectiveSidebarWidth);
   const visibleDetailsOpen = detailsOpen;
+  // Toasts sit bottom-right; while the details panel is open they move left of it, so they
+  // don't cover its controls (bot settings ends with Duplicate and Delete there).
+  const toastInsetRight = visibleDetailsOpen && selectedId ? inspectorWidth : 0;
+  useEffect(() => {
+    document.documentElement.style.setProperty("--toast-inset-right", `${toastInsetRight}px`);
+  }, [toastInsetRight]);
   const detailsOverlay = detailsOpen && !detailsDocked;
   const inspectorMaxWidth = maxInspectorWidthForLayout(viewportWidth, effectiveSidebarWidth);
   const renderedInspectorWidth = clampInspectorWidth(
@@ -1360,7 +1368,9 @@ export default function App() {
                   setDetailsOpen(open);
                 }}
                 onShowSettings={() => setInspectorMode("settings")}
-                onShowSummary={() => setInspectorMode("summary")}
+                onShowSummary={() =>
+                  setInspectorMode(inspectorMode === "routine" ? routineReturnMode : "summary")
+                }
                 exchange={
                   a2aExchange && a2aExchangeChannel
                     ? {
@@ -1379,6 +1389,7 @@ export default function App() {
             <ModelStatusBanner
               inference={snapshot.runtime.inference}
               onOpenSettings={() => openSettingsTarget("inference-provider")}
+              paused={settingsOpen || pluginsOpen}
             />
 
             {error && (
@@ -1682,7 +1693,11 @@ export default function App() {
                             mode={inspectorMode}
                             onEnableScreen={enableScreen}
                             onFinishComputerHandoff={() => setComputerHandoff(null)}
-                            onModeChange={setInspectorMode}
+                            onModeChange={(mode) => {
+                              if (mode === "routine")
+                                setRoutineReturnMode(inspectorMode === "settings" ? "settings" : "summary");
+                              setInspectorMode(mode);
+                            }}
                             onOpenTeam={openInspectorBot}
                             onRetryBot={retryInspectorBot}
                             onSetGroupAvatar={setChannelAvatar}
@@ -1694,6 +1709,7 @@ export default function App() {
                                 : null
                             }
                             onUpdateBot={updateInspectorBot}
+                            onBotAction={handleStandardBotRowAction}
                           />
                         </Suspense>
                       </div>

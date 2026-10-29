@@ -10,7 +10,7 @@ public struct TranscriptionSettings: Codable, Sendable, Equatable {
       switch self {
       case .openai: return "OpenAI"
       case .deepgram: return "Deepgram"
-      case .compatible: return "Custom"
+      case .compatible: return "Custom / OpenAI-compatible"
       }
     }
     /// Hosted services have a fixed address; only a custom service's is editable.
@@ -87,6 +87,8 @@ public struct TranscriptionSettingsView: Codable, Sendable, Equatable {
     try c.encode(configured, forKey: .configured)
   }
   /// The Settings row summary: "Off", or the provider in use.
+  /// Never configured: no saved service, address or key.
+  public var untouched: Bool { !configured && !hasApiKey && settings.baseUrl.isEmpty }
   public var summary: String {
     guard settings.enabled else { return "Off" }
     return configured ? settings.provider.title : "Not set up"
@@ -114,6 +116,8 @@ public struct TranscriptionDraft: Equatable, Sendable {
   public var removeKey = false
   public init(_ saved: TranscriptionSettingsView?) {
     settings = saved?.settings ?? TranscriptionSettings()
+    // Nothing set up yet: start on OpenAI and its default model, as desktop does.
+    if let saved, saved.untouched { settings.choose(.openai) }
   }
   public mutating func choose(_ provider: TranscriptionSettings.Provider) {
     settings.choose(provider)

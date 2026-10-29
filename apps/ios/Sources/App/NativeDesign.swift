@@ -43,7 +43,6 @@ enum NativePalette {
   static let selection = code
   // Reference action fill: RGB 1/108/236. iOS 26's default blue is brighter.
   static let link = color("016CEC", "016CEC")
-  static let disabledPrimary = color("848484", "9A9A9A")
   static let toggle = Color(uiColor: .systemGreen)
   static let receiptCheck = color("347D5B", "559978")
   static let widgetDanger = color("C83A3A", "F48182")
@@ -385,6 +384,14 @@ extension View {
       safeAreaInset(edge: edge, spacing: 0, content: content)
     }
   }
+  /// The system's soft fade under a top bar, for lists whose rows scroll beneath bar buttons.
+  @ViewBuilder func softTopScrollEdge() -> some View {
+    if #available(iOS 26, *) {
+      scrollEdgeEffectStyle(.soft, for: .top)
+    } else {
+      self
+    }
+  }
   /// Grouped cards' side margins. Section margins stay inside the safe area, so
   /// cards end before a side bar like iPhone Duo's; scroll content margins don't.
   @ViewBuilder func listCardMargins(_ length: CGFloat) -> some View {
@@ -472,10 +479,11 @@ struct SheetHeading: View {
 struct PrimaryActionStyle: ButtonStyle {
   @Environment(\.isEnabled) private var enabled
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label.font(.body.weight(.medium)).foregroundStyle(NativePalette.onPrimary)
+    configuration.label.font(.body.weight(.medium))
+      .foregroundStyle(enabled ? NativePalette.onPrimary : NativePalette.text)
       .frame(maxWidth: .infinity).padding(.vertical, 12)
-      .background(enabled ? NativePalette.text : NativePalette.disabledPrimary, in: Capsule())
-      .opacity(configuration.isPressed ? 0.75 : 1)
+      .background(enabled ? NativePalette.text : NativePalette.code, in: Capsule())
+      .opacity(configuration.isPressed ? 0.75 : enabled ? 1 : 0.5)
   }
 }
 

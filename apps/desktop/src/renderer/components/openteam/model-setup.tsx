@@ -5,7 +5,7 @@ import type { ModelSetup, ModelTestState } from "../../hooks/use-model-setup";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
 export const primaryButton =
-  "inline-flex h-8 items-center justify-center gap-1.5 rounded-[8px] bg-black px-3 text-[12px] text-white outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/35 disabled:opacity-50 dark:bg-white dark:text-black";
+  "inline-flex h-8 items-center justify-center gap-1.5 rounded-[8px] bg-black px-3 text-[12px] text-white outline-none focus-visible:ring-2 focus-visible:ring-ring/35 enabled:hover:opacity-80 disabled:bg-black/[0.07] disabled:text-foreground disabled:opacity-50 dark:bg-white dark:text-black dark:disabled:bg-white/[0.09] dark:disabled:text-foreground";
 export const secondaryButton =
   "inline-flex h-8 items-center justify-center gap-1.5 rounded-[8px] bg-black/[0.07] px-3 text-[12px] outline-none hover:bg-black/[0.1] focus-visible:ring-2 focus-visible:ring-ring/35 disabled:opacity-50 dark:bg-white/[0.09] dark:hover:bg-white/[0.13]";
 const inputClass =

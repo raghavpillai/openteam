@@ -2,7 +2,7 @@ import type {
   PluginManagementView,
   PluginPrivateSkillView,
 } from "@openteam/contracts/plugin-management";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { inputClass, PluginButton, PluginField, usePluginOperation } from "./plugin-ui";
 
@@ -23,6 +23,7 @@ export function PrivateSkills({
   const [bots, setBots] = useState<Array<{ id: string; name: string }>>([]);
   const [armed, setArmed] = useState(false);
   const operation = usePluginOperation(refresh);
+  const importInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     void operation.run(async () => setBots(await api.bots()));
   }, []);
@@ -47,7 +48,10 @@ export function PrivateSkills({
             skill.
           </p>
         </div>
-        <PluginButton onClick={() => edit(null)}>Create skill</PluginButton>
+        <div className="flex shrink-0 items-center gap-2">
+          <PluginButton onClick={() => importInput.current?.click()}>Import SKILL.md</PluginButton>
+          <PluginButton onClick={() => edit(null)}>Create skill</PluginButton>
+        </div>
       </div>
       <div className="grid gap-2">
         {data.skills.map((skill) => (
@@ -69,28 +73,27 @@ export function PrivateSkills({
           </p>
         )}
       </div>
-      <label className="cursor-pointer text-sm text-blue-600 underline">
-        Import SKILL.md
-        <input
-          hidden
-          type="file"
-          accept=".md"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file)
-              void operation.run(async () => {
-                const text = await file.text();
-                edit(null);
-                const { readSkillImport } = await import("./skill-import");
-                const parsed = readSkillImport(text, file.name.replace(/\.md$/, ""));
-                setName(parsed.name);
-                setDescription(parsed.description);
-                setBody(parsed.body);
-              });
-            event.target.value = "";
-          }}
-        />
-      </label>
+      <input
+        ref={importInput}
+        aria-label="Import SKILL.md"
+        hidden
+        type="file"
+        accept=".md"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file)
+            void operation.run(async () => {
+              const text = await file.text();
+              edit(null);
+              const { readSkillImport } = await import("./skill-import");
+              const parsed = readSkillImport(text, file.name.replace(/\.md$/, ""));
+              setName(parsed.name);
+              setDescription(parsed.description);
+              setBody(parsed.body);
+            });
+          event.target.value = "";
+        }}
+      />
       {editing && (
         <>
           <PluginField label="Skill name">

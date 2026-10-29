@@ -41,7 +41,14 @@ if (!root) throw new Error("OpenTeam renderer root is missing");
 
 createRoot(root).render(
   <StrictMode>
-    <Toaster closeButton position="bottom-right" richColors theme="system" />
+    {/* App sets --toast-inset-right so toasts stay clear of the open details panel. */}
+    <Toaster
+      closeButton
+      offset={{ right: "calc(var(--toast-inset-right, 0px) + 24px)" }}
+      position="bottom-right"
+      richColors
+      theme="system"
+    />
     <DesktopUpdateDialog />
     <AuthGate>
       <Workspace />

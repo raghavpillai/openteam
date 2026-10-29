@@ -18,7 +18,7 @@ import { webProviderIcon as iconFor } from "../../../lib/web-provider-icons";
 import { SettingsGroup, SettingsHeading } from "./ui";
 
 const actionButton =
-  "inline-flex h-8 items-center gap-1.5 rounded-[8px] bg-black px-3 text-[12px] text-white outline-none hover:opacity-80 disabled:opacity-50 dark:bg-white dark:text-black";
+  "inline-flex h-8 items-center gap-1.5 rounded-[8px] bg-black px-3 text-[12px] text-white outline-none enabled:hover:opacity-80 disabled:bg-black/[0.07] disabled:text-foreground disabled:opacity-50 dark:bg-white dark:text-black dark:disabled:bg-white/[0.09] dark:disabled:text-foreground";
 const secondaryButton =
   "inline-flex h-7 items-center gap-1.5 rounded-[7px] bg-black/[0.07] px-2.5 text-[12px] outline-none hover:bg-black/[0.1] disabled:opacity-50 dark:bg-white/[0.09] dark:hover:bg-white/[0.13]";
 const inputClass =
@@ -408,7 +408,7 @@ export default function ProvidersSettings() {
       <div className="mt-4 flex items-center justify-between px-2">
         <div className="text-[12px] text-foreground-secondary">Keys are stored on your server and never shown again.</div>
         <button className={actionButton} disabled={!changed || Boolean(busy)} onClick={() => void save()} type="button">
-          {busy === "save" ? <LoadingOrb aria-hidden inverse size={14} /> : applied ? <Check className="size-3.5" /> : null}
+          {busy === "save" ? <LoadingOrb aria-hidden size={14} /> : applied ? <Check className="size-3.5" /> : null}
           {applied ? "Saved" : "Save"}
         </button>
       </div>

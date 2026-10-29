@@ -1,5 +1,5 @@
 import type { BotView, ChannelView, UpdateBotInput } from "@openteam/contracts";
-import { Plus, X } from "lucide-react";
+import { CopyPlus, Plus, Share, Trash2, X } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertDialog,
@@ -19,6 +19,8 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
+import { api } from "../../client/openteam-api";
+import { botTemplateRecipe, downloadBotTemplate } from "../../lib/bot-template";
 import { BotAvatar } from "./avatar";
 
 const AvatarPicker = lazy(() =>
@@ -47,6 +49,7 @@ interface ProfileDraft {
   name: string;
   title: string;
   description: string;
+  instructions: string;
   icon: string;
   color: string;
 }
@@ -55,17 +58,43 @@ const draftOf = (bot: BotView): ProfileDraft => ({
   name: bot.name,
   title: bot.title,
   description: bot.description,
+  instructions: bot.instructions,
   icon: bot.icon,
   color: bot.color,
 });
 
+/** Bot actions that live in the sidebar's menu too; Settings reuses the same handlers. */
+export type BotSettingsAction = "duplicate" | "delete";
+
+const settingsAction =
+  "flex h-9 w-full items-center gap-2 rounded-[9px] px-2 text-left text-[13px] outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring/25 disabled:pointer-events-none disabled:opacity-45";
+
 function BotSettings({
   bot,
+  active,
   onUpdate,
+  onOpenRoutine,
+  onAction,
 }: {
   bot: BotView;
+  active: boolean;
   onUpdate: (input: UpdateBotInput) => Promise<BotView>;
+  onOpenRoutine: (routineId: string | null) => void;
+  onAction?: (action: BotSettingsAction) => void;
 }) {
+  const [exporting, setExporting] = useState(false);
+  const [exportFailed, setExportFailed] = useState(false);
+  const shareTemplate = async () => {
+    setExporting(true);
+    setExportFailed(false);
+    try {
+      downloadBotTemplate(botTemplateRecipe(bot, await api.routines(bot.id, "bot")));
+    } catch {
+      setExportFailed(true);
+    } finally {
+      setExporting(false);
+    }
+  };
   const [draft, setDraft] = useState(() => draftOf(bot));
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const draftRef = useRef(draft);
@@ -83,6 +112,7 @@ function BotSettings({
           ...(next.name.trim() ? { name: next.name.trim() } : {}),
           title: next.title,
           description: next.description,
+          instructions: next.instructions,
           ...(includeAvatar ? { icon: next.icon, color: next.color } : {}),
         });
         if (requestRevision === revision.current) setSaveState("saved");
@@ -129,6 +159,7 @@ function BotSettings({
           ...(next.name.trim() ? { name: next.name.trim() } : {}),
           title: next.title,
           description: next.description,
+          instructions: next.instructions,
         })
         .catch(() => undefined);
     },
@@ -212,9 +243,68 @@ function BotSettings({
             value={draft.description}
           />
         </div>
+        <div className="grid gap-[2px]">
+          <Label
+            className="pl-2 text-[12px] font-normal leading-[18px] text-muted-foreground"
+            htmlFor={`settings-instructions-${bot.id}`}
+          >
+            Instructions
+          </Label>
+          <Textarea
+            aria-label="Bot instructions"
+            className="min-h-32 resize-y rounded-[7px] border-[#d9d9d9] px-2.5 py-2 text-[14px] shadow-none focus-visible:border-ring dark:focus-visible:border-ring focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
+            id={`settings-instructions-${bot.id}`}
+            maxLength={20_000}
+            onBlur={flush}
+            onChange={(event) => queue({ ...draft, instructions: event.target.value })}
+            placeholder="How this Bot should work"
+            value={draft.instructions}
+          />
+        </div>
         {saveState === "error" && (
           <p className="text-xs text-destructive">Could not save. Your draft is still here.</p>
         )}
+      </div>
+      <Suspense fallback={<div aria-label="Loading routines" className="mt-6 h-16" role="status" />}>
+        <RoutinesSummary
+          active={active}
+          embedded
+          onOpen={onOpenRoutine}
+          ownerId={bot.id}
+          ownerKind="bot"
+        />
+      </Suspense>
+      <div className="mt-4 grid gap-0.5 border-t border-black/[0.065] pt-3 dark:border-white/[0.07]">
+        <button
+          className={settingsAction}
+          disabled={exporting}
+          onClick={() => void shareTemplate()}
+          type="button"
+        >
+          <Share className="size-4 text-foreground-secondary" strokeWidth={1.7} />
+          {exporting ? "Preparing template…" : "Share as template"}
+        </button>
+        {exportFailed && (
+          <p className="px-2 text-xs text-destructive" role="alert">
+            Could not prepare the template. Try again.
+          </p>
+        )}
+        {onAction ? (
+          <>
+            <button className={settingsAction} onClick={() => onAction("duplicate")} type="button">
+              <CopyPlus className="size-4 text-foreground-secondary" strokeWidth={1.7} />
+              Duplicate bot
+            </button>
+            <button
+              className={`${settingsAction} text-destructive`}
+              onClick={() => onAction("delete")}
+              type="button"
+            >
+              <Trash2 className="size-4" strokeWidth={1.7} />
+              Delete bot
+            </button>
+          </>
+        ) : null}
       </div>
     </div>
   );
@@ -359,6 +449,7 @@ export const Inspector = memo(function Inspector({
   onSetGroupAvatar,
   onSetMembers,
   onUpdateGroupProfile,
+  onBotAction,
   routineOpenRequest,
 }: {
   channel: ChannelView;
@@ -381,6 +472,7 @@ export const Inspector = memo(function Inspector({
     description: string
   ) => Promise<ChannelView>;
   routineOpenRequest?: { routineId: string; nonce: number } | null;
+  onBotAction?: (bot: BotView, action: BotSettingsAction) => void;
 }) {
   const members = useMemo(
     () =>
@@ -433,7 +525,16 @@ export const Inspector = memo(function Inspector({
   if (bot && mode === "settings") {
     return (
       <aside aria-label="Settings" className="size-full bg-background">
-        <BotSettings bot={bot} onUpdate={(input) => onUpdateBot(bot.id, input)} />
+        <BotSettings
+          active={active}
+          bot={bot}
+          onAction={onBotAction ? (action) => onBotAction(bot, action) : undefined}
+          onOpenRoutine={(routineId) => {
+            setSelectedRoutineId(routineId);
+            onModeChange("routine");
+          }}
+          onUpdate={(input) => onUpdateBot(bot.id, input)}
+        />
       </aside>
     );
   }

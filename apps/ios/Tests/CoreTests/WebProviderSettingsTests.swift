@@ -52,7 +52,7 @@ final class WebProviderSettingsTests: XCTestCase {
     }
     XCTAssertEqual(tool(nil).activeName(.search), "Off")
     XCTAssertEqual(tool(nil).warning(.search), "Search is off. Bots can't search the web.")
-    XCTAssertEqual(tool(nil).warning(.fetch), "Fetch is off. Bots read pages only in their browser.")
+    XCTAssertEqual(tool(nil).warning(.fetch), "Fetch is off. Bots can only read pages in their browser.")
     XCTAssertEqual(tool("builtin").activeName(.fetch), "Built-in")
     XCTAssertEqual(tool("builtin").warning(.fetch), "Built-in fetch reads basic pages only.")
     XCTAssertEqual(tool("builtin", passed: false).warning(.fetch), "Built-in failed its fetch check.")

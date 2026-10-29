@@ -232,16 +232,13 @@ struct ModelCapsuleButtonStyle: ButtonStyle {
   var primary = false
   @Environment(\.isEnabled) private var enabled
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label.font(.subheadline.weight(.medium))
-      .foregroundStyle(primary ? NativePalette.onPrimary : NativePalette.text)
+    // A disabled primary button looks like a disabled secondary one; a gray pill read as enabled.
+    let filled = primary && enabled
+    return configuration.label.font(.subheadline.weight(.medium))
+      .foregroundStyle(filled ? NativePalette.onPrimary : NativePalette.text)
       .padding(.horizontal, 14).frame(minHeight: 36)
-      .background(
-        primary
-          ? (enabled ? NativePalette.text : NativePalette.disabledPrimary)
-          : NativePalette.code,
-        in: Capsule()
-      )
-      .opacity(configuration.isPressed ? 0.7 : enabled || primary ? 1 : 0.5)
+      .background(filled ? NativePalette.text : NativePalette.code, in: Capsule())
+      .opacity(configuration.isPressed ? 0.7 : enabled ? 1 : 0.5)
       .contentShape(Capsule())
   }
 }
@@ -395,7 +392,7 @@ private struct ModelSettingsForm: View {
         ) {
           if setup.providerId.isEmpty { Text("Choose a provider").tag("") }
           ForEach(data?.providers ?? []) { candidate in
-            Text(candidate.name).tag(candidate.id)
+            Text(candidate.displayName).tag(candidate.id)
           }
         }.pickerStyle(.menu).disabled(data == nil || busy)
           .accessibilityIdentifier("model-provider-picker")
@@ -473,7 +470,7 @@ private struct ModelSettingsForm: View {
           } else if let saved = data?.savedModel {
             LabeledContent(
               "In use",
-              value: (data?.provider(saved.providerId)?.name ?? saved.providerId) + " · "
+              value: (data?.provider(saved.providerId)?.displayName ?? saved.providerId) + " · "
                 + saved.modelId)
           } else if data != nil {
             Text("No model chosen yet. Bots can't reply until you choose one.")
@@ -493,7 +490,7 @@ private struct ModelSettingsForm: View {
             Task { await setup.apply() }
           } label: {
             HStack(spacing: 6) {
-              if setup.busy == .save { PrimaryLoadingOrb(label: "Saving") }
+              if setup.busy == .save { LoadingOrb(size: 16, label: "Saving") }
               Text("Apply")
             }.frame(maxWidth: .infinity)
           }.buttonStyle(ModelCapsuleButtonStyle(primary: true))
@@ -526,7 +523,7 @@ private struct ModelSettingsForm: View {
       ) { setup.selectModel($0) }
     }
     .confirmationDialog(
-      "Disconnect \(provider?.name ?? "this provider")?", isPresented: $confirmingDisconnect,
+      "Disconnect \(provider?.displayName ?? "this provider")?", isPresented: $confirmingDisconnect,
       titleVisibility: .visible
     ) {
       Button("Disconnect", role: .destructive) { Task { await setup.disconnect() } }

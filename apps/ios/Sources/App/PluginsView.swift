@@ -12,7 +12,8 @@ struct PluginListView: View {
   // Keep aligned with client-core/plugin-marketplace.ts.
   private let categories = [
     "All", "Featured", "Team plugins", "Agent Orchestration", "Documents and Files",
-    "Finance and Legal", "Inbox and Collaboration", "MCP", "Productivity", "Scheduling",
+    "Finance and Legal", "Inbox and Collaboration", "Login and Credential Management", "MCP",
+    "Productivity", "Scheduling",
   ]
   @State private var failure: String?
   @State private var loading = true
@@ -22,11 +23,22 @@ struct PluginListView: View {
   private func installed(_ plugin: JSON) -> JSON? {
     settings["installs"].array.first { key($0) == key(plugin) }
   }
-  private var groups: [(name: String, plugins: [JSON])] {
-    if installedOnly { return [("Installed", filtered(settings["installs"].array))] }
+  /// Everything the current view lists before search and category: installs, or the catalog
+  /// plus custom installs.
+  private var listed: [JSON] {
+    if installedOnly { return settings["installs"].array }
     let catalog = settings["catalog"].array
-    let extra = settings["installs"].array.filter { item in !catalog.contains { key($0) == key(item) } }
-    let values = filtered(catalog + extra, usingCategory: true)
+    return catalog + settings["installs"].array.filter { item in !catalog.contains { key($0) == key(item) } }
+  }
+  /// Only categories with something in them, plus the current one so the menu shows its check.
+  private var availableCategories: [String] {
+    categories.filter { name in
+      name == "All" || name == category || listed.contains { matches($0, category: name) }
+    }
+  }
+  private var groups: [(name: String, plugins: [JSON])] {
+    if installedOnly { return [("Installed", filtered(listed, usingCategory: true))] }
+    let values = filtered(listed, usingCategory: true)
     if !query.isEmpty || category != "All" { return [(query.isEmpty ? category : "Results", values)] }
     var names: [String] = []
     for item in values where !item["featured"].bool {
@@ -55,6 +67,10 @@ struct PluginListView: View {
         PluginDetailView(plugin: plugin, installed: installed(plugin) != nil, onChange: load)
       }
       .toolbar { catalogToolbar }.readingVerticalBar($verticalBar)
+      .onChange(of: installedOnly) { _, _ in
+        // A category with nothing in the other view would only show an empty list.
+        if !listed.contains(where: { matches($0, category: category) }) { category = "All" }
+      }
       .task { await load() }.refreshable { await load() }
   }
   @ToolbarContentBuilder private var catalogToolbar: some ToolbarContent {
@@ -123,7 +139,10 @@ struct PluginListView: View {
           }
         }
         if !loading, failure == nil, groups.allSatisfy({ $0.plugins.isEmpty }) {
-          Text(query.isEmpty && category == "All" ? "No plugins available." : "No plugins match this filter.")
+          Text(
+            !query.isEmpty || category != "All"
+              ? "No plugins match this filter."
+              : installedOnly ? "No plugins installed yet." : "No plugins available.")
             .foregroundStyle(NativePalette.muted).padding(.vertical, 24)
         }
         if !loading {
@@ -151,7 +170,7 @@ struct PluginListView: View {
       }.padding(.horizontal, 12).frame(height: 40).nativeGlass()
       Menu {
         Picker("Filter plugins", selection: $category.hapticSelection("plugin.category")) {
-          ForEach(categories, id: \.self) { Text($0).tag($0) }
+          ForEach(availableCategories, id: \.self) { Text($0).tag($0) }
         }
       } label: {
         Image(systemName: "line.3.horizontal.decrease").font(.system(size: 18))
@@ -165,13 +184,16 @@ struct PluginListView: View {
         plugin[$0].string.localizedCaseInsensitiveContains(query)
       }
       guard textMatches, usingCategory else { return textMatches }
-      switch category {
-      case "All": return true
-      case "Featured": return plugin["featured"].bool
-      case "Team plugins": return !plugin["featured"].bool
-      case "MCP": return plugin["components"].array.contains(.string("mcp"))
-      default: return normalizedCategory(plugin["category"].string) == normalizedCategory(category)
-      }
+      return matches(plugin, category: category)
+    }
+  }
+  private func matches(_ plugin: JSON, category: String) -> Bool {
+    switch category {
+    case "All": return true
+    case "Featured": return plugin["featured"].bool
+    case "Team plugins": return !plugin["featured"].bool
+    case "MCP": return plugin["components"].array.contains(.string("mcp"))
+    default: return normalizedCategory(plugin["category"].string) == normalizedCategory(category)
     }
   }
   private func normalizedCategory(_ value: String) -> String {

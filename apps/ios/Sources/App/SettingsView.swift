@@ -114,6 +114,8 @@ struct SettingsView: View {
         .listCardMargins(16)
         .contentMargins(.top, 20, for: .scrollContent)
         .listSectionSpacing(28)
+        // Rows scroll under Close; give the bar the soft edge other settings pages have.
+        .softTopScrollEdge()
         .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: SettingsRoute.self) { route in
           switch route {
@@ -237,7 +239,8 @@ struct ManagedDeviceRow: View {
         (Text(Image(systemName: "circle.fill")).font(.system(size: 6)).foregroundStyle(online ? Color.green : Color.gray.opacity(0.5))
           + Text(verbatim: "  Computer · " + status + messages).font(.footnote).foregroundStyle(NativePalette.muted))
       }
-    }
+    }.accessibilityElement(children: .ignore)
+      .accessibilityLabel(machine["label"].string + ", Computer, " + status + messages.replacingOccurrences(of: " · ", with: ", "))
   }
 }
 
@@ -374,7 +377,7 @@ struct ConversationDetails: View {
               .focused($focusedProfile, equals: .name)
               .font(.title3.weight(.semibold)).multilineTextAlignment(.center)
             if bot != nil {
-              TextField("Title (optional)", text: $title).accessibilityIdentifier("profile-title")
+              TextField("Label (optional)", text: $title).accessibilityIdentifier("profile-title")
                 .focused($focusedProfile, equals: .title).multilineTextAlignment(.center)
             } else {
               TextField("Description", text: $description, axis: .vertical).lineLimit(2...5)
@@ -450,7 +453,7 @@ struct ConversationDetails: View {
               } label: {
                 HStack(spacing: 14) {
                   Image(systemName: "square.and.arrow.up").font(.system(size: 17)).frame(width: 20)
-                  Text(exportingTemplate ? "Preparing template…" : "Share as Template")
+                  Text(exportingTemplate ? "Preparing template…" : "Share as template")
                 }
               }.foregroundStyle(NativePalette.link).disabled(exportingTemplate)
                 .accessibilityIdentifier("profile-share-template")
@@ -491,7 +494,7 @@ struct ConversationDetails: View {
                 Task { await exportTemplate() }
               } label: {
                 Image(systemName: "square.and.arrow.up").foregroundStyle(NativePalette.text)
-              }.disabled(exportingTemplate).accessibilityLabel("Share as Template")
+              }.disabled(exportingTemplate).accessibilityLabel("Share as template")
             }
           }
           if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }

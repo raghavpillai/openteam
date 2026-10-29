@@ -128,7 +128,7 @@ struct VoiceNotesSettingsView: View {
             } label: {
               HStack(spacing: 6) {
                 if operation.busy && !checking {
-                  PrimaryLoadingOrb(label: "Saving")
+                  LoadingOrb(size: 16, label: "Saving")
                 }
                 Text("Save")
               }.frame(maxWidth: .infinity)

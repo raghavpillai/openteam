@@ -1,5 +1,5 @@
 import { isWindowVisible } from "../../lib/window-visibility";
-import { CalendarClock, CirclePause, LoaderCircle } from "lucide-react";
+import { CalendarClock, CirclePause, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../client/openteam-api";
 import {
@@ -27,11 +27,14 @@ export function RoutinesSummary({
   ownerId,
   ownerKind,
   onOpen,
+  embedded = false,
 }: {
   active: boolean;
   ownerId: string;
   ownerKind: "bot" | "group";
   onOpen: (routineId: string | null) => void;
+  /** Inside a scrolling settings page: no scroller of its own, a heading even when empty, and Add routine. */
+  embedded?: boolean;
 }) {
   const [routines, setRoutines] = useState<RoutineView[] | null>(null);
   useEffect(() => {
@@ -84,6 +87,33 @@ export function RoutinesSummary({
     [routines]
   );
 
+  if (embedded) {
+    return (
+      <section aria-label="Routines" className="mt-6">
+        <div className="pl-2 text-[12px] leading-[18px] text-muted-foreground">Routines</div>
+        {routines === null ? (
+          <div className="grid h-10 place-items-center">
+            <LoadingOrb label="Loading routines" size={16} />
+          </div>
+        ) : sorted.length === 0 ? (
+          <p className="px-2 py-2 text-[13px] leading-[17px] text-muted-foreground">
+            No routines yet
+          </p>
+        ) : (
+          <RoutineRows onOpen={onOpen} routines={sorted} />
+        )}
+        <button
+          className="mt-0.5 flex h-9 w-full items-center gap-2 rounded-[9px] px-2 text-left text-[13px] text-foreground-secondary outline-none hover:bg-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/25"
+          onClick={() => onOpen(null)}
+          type="button"
+        >
+          <Plus className="size-4" strokeWidth={1.7} />
+          Add routine
+        </button>
+      </section>
+    );
+  }
+
   if (routines === null) {
     return (
       <div className="grid flex-1 place-items-center">
@@ -111,41 +141,53 @@ export function RoutinesSummary({
         <h2 className="text-[13px] font-medium">Routines</h2>
 
       </div>
-      <ul aria-label="Routines" className="mt-1 grid gap-1">
-        {sorted.map((routine) => {
-          const running = routineIsRunning(routine);
-          const schedules = routineScheduleDrafts(routine);
-          const detail = routine.enabled
-            ? schedules.length > 0
-              ? describeRoutineSchedules(schedules)
-              : describeRoutineSchedule(cloneDefaultSchedule())
-            : "Paused";
-          return (
-            <li key={routine.id}>
-              <button
-                className="group flex min-h-[42px] w-full items-center gap-2 rounded-[9px] px-2 text-left outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring/25"
-                onClick={() => onOpen(routine.id)}
-                style={{ containIntrinsicSize: "42px", contentVisibility: "auto" }}
-                type="button"
-              >
-                <span className="grid size-3.5 shrink-0 place-items-center">
-                  {running ? (
-                    <LoaderCircle className="size-3.5 animate-spin text-[#0c64c1] dark:text-[#4aa8ff]" />
-                  ) : routine.enabled ? (
-                    <CalendarClock className="size-3.5 text-[#00673a] dark:text-[#53b782]" />
-                  ) : (
-                    <CirclePause className="size-3.5 text-muted-foreground" />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium">{routine.name}</span>
-                  <span className="block truncate text-[11px] text-muted-foreground">{detail}</span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      <RoutineRows onOpen={onOpen} routines={sorted} />
     </div>
+  );
+}
+
+function RoutineRows({
+  routines,
+  onOpen,
+}: {
+  routines: RoutineView[];
+  onOpen: (routineId: string | null) => void;
+}) {
+  return (
+    <ul aria-label="Routines" className="mt-1 grid gap-1">
+      {routines.map((routine) => {
+        const running = routineIsRunning(routine);
+        const schedules = routineScheduleDrafts(routine);
+        const detail = routine.enabled
+          ? schedules.length > 0
+            ? describeRoutineSchedules(schedules)
+            : describeRoutineSchedule(cloneDefaultSchedule())
+          : "Paused";
+        return (
+          <li key={routine.id}>
+            <button
+              className="group flex min-h-[42px] w-full items-center gap-2 rounded-[9px] px-2 text-left outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring/25"
+              onClick={() => onOpen(routine.id)}
+              style={{ containIntrinsicSize: "42px", contentVisibility: "auto" }}
+              type="button"
+            >
+              <span className="grid size-3.5 shrink-0 place-items-center">
+                {running ? (
+                  <LoaderCircle className="size-3.5 animate-spin text-[#0c64c1] dark:text-[#4aa8ff]" />
+                ) : routine.enabled ? (
+                  <CalendarClock className="size-3.5 text-[#00673a] dark:text-[#53b782]" />
+                ) : (
+                  <CirclePause className="size-3.5 text-muted-foreground" />
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-medium">{routine.name}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">{detail}</span>
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

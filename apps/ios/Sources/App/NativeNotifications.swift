@@ -516,7 +516,10 @@ struct PushNotificationSettings: View {
       Toggle(
         "Notifications",
         isOn: Binding(
-          get: { notifications.enabled && notifications.permission != .denied },
+          get: {
+            notifications.enabled
+              && [.authorized, .provisional, .ephemeral].contains(notifications.permission)
+          },
           set: { value in Task { await notifications.setEnabled(value) } })
       )
       .accessibilityIdentifier("push-notifications-toggle").tint(NativePalette.toggle).disabled(
@@ -531,10 +534,6 @@ struct PushNotificationSettings: View {
           Task { await notifications.resume(requestPermission: true) }
         }
         .accessibilityIdentifier("push-notifications-retry")
-      } else if notifications.enabled && notifications.permission == .notDetermined {
-        Button("Enable notifications") {
-          Task { await notifications.resume(requestPermission: true) }
-        }
       }
     }.task { await notifications.resume() }
   }

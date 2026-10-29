@@ -69,7 +69,8 @@ export default function ModelSettings() {
               >
                 Disconnect
               </button>
-            ) : (
+            ) : signingIn ? null : (
+              // The sign-in or key form below replaces these while it's open.
               <div className="flex items-center gap-2">
                 {(provider?.authMethods ?? []).map((method) => (
                   <button
@@ -79,7 +80,7 @@ export default function ModelSettings() {
                     onClick={() => void setup.connect(method.type)}
                     type="button"
                   >
-                    {busy === "connect" ? <LoadingOrb aria-hidden inverse size={14} /> : null}
+                    {busy === "connect" ? <LoadingOrb aria-hidden size={14} /> : null}
                     {method.type === "oauth" ? "Sign in" : "Add API key"}
                   </button>
                 ))}
@@ -188,7 +189,7 @@ export default function ModelSettings() {
               onClick={() => void setup.apply()}
               type="button"
             >
-              {busy === "save" ? <LoadingOrb aria-hidden inverse size={14} /> : null}
+              {busy === "save" ? <LoadingOrb aria-hidden size={14} /> : null}
               Apply
             </button>
           </div>

@@ -16,6 +16,7 @@ import {
   inputClass,
   PluginButton,
   PluginField,
+  PluginSelect,
   usePluginOperation,
 } from "./plugin-ui";
 
@@ -175,17 +176,15 @@ export default function PluginWorkspace({
                 {installed.connections.length > 0 ? (
                   <>
                     <PluginField label="Connection / account">
-                      <select
-                        className={inputClass}
+                      <PluginSelect
+                        label="Connection / account"
                         value={connection?.id ?? ""}
-                        onChange={(event) => setConnectionId(event.target.value)}
-                      >
-                        {installed.connections.map((entry) => (
-                          <option key={entry.id} value={entry.id}>
-                            {entry.name} · {entry.alias} · {entry.status.replaceAll("_", " ")}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={setConnectionId}
+                        options={installed.connections.map((entry) => ({
+                          value: entry.id,
+                          label: `${entry.name} · ${entry.alias} · ${entry.status.replaceAll("_", " ")}`,
+                        }))}
+                      />
                     </PluginField>
                     {connection && (
                       <ConnectionConfiguration

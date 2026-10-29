@@ -31,6 +31,9 @@ public struct InferenceAuthMethod: Codable, Sendable, Hashable {
 public struct InferenceProvider: Codable, Sendable, Identifiable, Hashable {
   public var id: String
   public var name: String
+  /// The plan people pay for ("ChatGPT", "Claude") instead of the runtime's name
+  /// ("Codex", "Claude Code"), as desktop's provider-names.ts shows it.
+  public var displayName: String { ModelSetupCatalog.planNames[id] ?? name }
   public var authMethods: [InferenceAuthMethod]
   public var connected: Bool
   public var authType: String?
@@ -447,6 +450,8 @@ public struct FeaturedProvider: Sendable, Hashable, Identifiable {
 }
 
 public enum ModelSetupCatalog {
+  /// Subscription sign-ins, named for the plan rather than the tool that uses it.
+  public static let planNames = ["openai-codex": "ChatGPT", "claude-code": "Claude"]
   /// Same providers, order and copy as desktop's FEATURED_PROVIDERS.
   public static let featured: [FeaturedProvider] = [
     .init(id: "openai-codex", title: "ChatGPT", detail: "Sign in with your ChatGPT plan"),

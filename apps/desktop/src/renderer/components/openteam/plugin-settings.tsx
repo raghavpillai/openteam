@@ -333,6 +333,21 @@ export function PluginDialog({
         : page === "manage"
           ? managementSection === "private" ? "Private skills" : "Develop plugins"
           : page === "installed" ? "Manage plugins and skills" : "Marketplace";
+  // Every page's back button names where it goes, as the installed list's always did.
+  const backTarget = trail.current.at(-1);
+  const backLabel =
+    !backTarget || backTarget.page === "marketplace"
+      ? "Marketplace"
+      : backTarget.page === "installed"
+        ? "Your plugins"
+        : backTarget.page === "manage"
+          ? backTarget.section === "private" ? "Private skills" : "Develop plugins"
+          : backTarget.page === "custom"
+            ? "Add custom MCP"
+            : (data?.installs.find((plugin) => plugin.pluginKey === backTarget.selectedKey)?.catalog
+                ?.name ??
+              data?.catalog.find((plugin) => plugin.key === backTarget.selectedKey)?.name ??
+              "Back");
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
@@ -364,13 +379,13 @@ export function PluginDialog({
         <header className={`relative flex shrink-0 items-center px-8 ${page === "marketplace" ? "h-[96px]" : "h-[64px]"}`}>
           {page !== "marketplace" ? (
             <button
-              aria-label={trail.current.at(-1)?.page === "installed" ? "Back to installed plugins" : "Back to Marketplace"}
-              className={`absolute left-3.5 flex h-8 items-center justify-center gap-1 cursor-pointer rounded-full text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${page === "installed" ? "px-2 text-[12px]" : "w-8"}`}
+              aria-label={backTarget?.page === "installed" ? "Back to installed plugins" : `Back to ${backLabel}`}
+              className="absolute left-3.5 flex h-8 max-w-[45%] items-center justify-center gap-1 cursor-pointer rounded-full px-2 text-[12px] text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
               onClick={goBack}
               type="button"
             >
-              <ChevronLeft className="size-4" />
-              {page === "installed" ? "Marketplace" : null}
+              <ChevronLeft className="size-4 shrink-0" />
+              <span className="truncate">{backLabel}</span>
             </button>
           ) : null}
           {page !== "marketplace" ? (

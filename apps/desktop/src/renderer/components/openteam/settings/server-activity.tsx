@@ -110,8 +110,9 @@ export function ServerActivity() {
 
   return (
     <section aria-label="Live server activity" className="mb-4">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h3 className="text-[13px] font-medium">Live activity</h3>
+      <div className="mb-2 flex items-center justify-between gap-3 px-2">
+        {/* Same style as the other section labels (SectionLabel). */}
+        <h3 className="text-[12px] font-normal leading-4 text-foreground-tertiary">Live activity</h3>
         <span
           className="flex items-center gap-1.5 text-[11px] text-foreground-tertiary"
           role="status"
@@ -135,7 +136,7 @@ export function ServerActivity() {
           <ResourceGauge label="Disk" value={activity?.diskPercent ?? null} />
         </div>
       </SettingsGroup>
-      <p className="mt-1.5 text-[10px] leading-relaxed text-foreground-tertiary">
+      <p className="mt-1.5 px-2 text-[10px] leading-relaxed text-foreground-tertiary">
         Host/VM CPU &amp; RAM · OpenTeam data disk
       </p>
     </section>

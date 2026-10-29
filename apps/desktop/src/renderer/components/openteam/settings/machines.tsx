@@ -93,6 +93,11 @@ export function MachineSettings() {
   </>;
 }
 
+const fieldClass =
+  "h-8 rounded-[8px] border border-black/[0.09] bg-background px-2.5 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30 dark:border-white/[0.1]";
+const buttonClass =
+  "inline-flex h-8 shrink-0 items-center rounded-[8px] bg-black/[0.08] px-3 text-[12px] text-foreground disabled:text-foreground-tertiary dark:bg-white/[0.09]";
+
 /** Manual bridges and the bot's screen size: rarely needed, kept out of the device list. */
 export function AdvancedComputerSettings() {
   const [display,setDisplay]=useState({width:1280,height:800});
@@ -109,19 +114,22 @@ export function AdvancedComputerSettings() {
   return <>
     <SectionLabel>Advanced</SectionLabel>
     <SettingsGroup>
-      <details className="animated-disclosure py-2 text-xs"><summary>Connect a bridge manually</summary>
-      <form className="flex gap-2 py-2" onSubmit={event => { event.preventDefault(); void change(async () => { await api.registerMachine(address); setAddress(""); }); }}>
-        <input aria-label="Computer bridge URL" type="url" required placeholder="http://computer.local:port" value={address} onChange={event => setAddress(event.target.value)} className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs" />
-        <button type="submit" disabled={busy || !address.trim()} className="text-xs">Add computer</button>
+      <details className="animated-disclosure border-b border-black/[0.065] py-3 text-[12.5px] dark:border-white/[0.07]"><summary>Connect a bridge manually</summary>
+      <form className="flex gap-2 pt-2.5" onSubmit={event => { event.preventDefault(); void change(async () => { await api.registerMachine(address); setAddress(""); }); }}>
+        <input aria-label="Computer bridge URL" type="url" required placeholder="http://computer.local:port" value={address} onChange={event => setAddress(event.target.value)} className={`${fieldClass} min-w-0 flex-1`} />
+        <button type="submit" disabled={busy || !address.trim()} className={buttonClass}>Add computer</button>
       </form>
       </details>
-      <form className="flex flex-wrap items-center gap-2 py-2 text-xs" onSubmit={event=>{event.preventDefault();void change(async()=>{setDisplay(await api.saveComputerDisplay(display));setDisplaySaved(true);});}}>
-        <span>Box display</span>
-        <input aria-label="Box display width" className="w-20 rounded border bg-background px-2 py-1" type="number" min={640} max={7680} required value={display.width} onChange={e=>{setDisplaySaved(false);setDisplay({...display,width:Number(e.target.value)});}} /> ×
-        <input aria-label="Box display height" className="w-20 rounded border bg-background px-2 py-1" type="number" min={480} max={4320} required value={display.height} onChange={e=>{setDisplaySaved(false);setDisplay({...display,height:Number(e.target.value)});}} />
-        <button disabled={busy} type="submit">Save display</button>
-        {error && <p role="alert" className="w-full text-red-600">{error}</p>}
-        <p className="w-full text-foreground-secondary">{displaySaved ? "Saved. " : ""}Applies to newly opened box desktops. Restart an existing box desktop to apply it there.</p>
+      <form className="py-3" onSubmit={event=>{event.preventDefault();void change(async()=>{setDisplay(await api.saveComputerDisplay(display));setDisplaySaved(true);});}}>
+        <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+          <span className="mr-auto">Box display</span>
+          <input aria-label="Box display width" className={`${fieldClass} w-20`} type="number" min={640} max={7680} required value={display.width} onChange={e=>{setDisplaySaved(false);setDisplay({...display,width:Number(e.target.value)});}} />
+          <span aria-hidden className="text-foreground-secondary">×</span>
+          <input aria-label="Box display height" className={`${fieldClass} w-20`} type="number" min={480} max={4320} required value={display.height} onChange={e=>{setDisplaySaved(false);setDisplay({...display,height:Number(e.target.value)});}} />
+          <button className={buttonClass} disabled={busy} type="submit">Save display</button>
+        </div>
+        {error && <p role="alert" className="mt-1.5 text-[12px] text-red-600 dark:text-red-400">{error}</p>}
+        <p className="mt-1.5 text-[12px] leading-4 text-foreground-secondary">{displaySaved ? "Saved. " : ""}Applies to newly opened box desktops. Restart an existing box desktop to apply it there.</p>
       </form>
     </SettingsGroup>
   </>;

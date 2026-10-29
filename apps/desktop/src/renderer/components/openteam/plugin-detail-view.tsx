@@ -35,7 +35,7 @@ type MarketplacePage = "marketplace" | "installed" | "detail" | "custom" | "mana
 type OAuthCallbackSettings = { oauthCallbackMode: "auto" | "desktop" | "server" | "manual"; oauthLoopbackPort: number };
 
 const primaryButton =
-  "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity duration-120 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45 dark:bg-white dark:text-black";
+  "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity duration-120 ease-out enabled:hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:bg-[#77777717] disabled:text-foreground disabled:opacity-60 dark:bg-white dark:text-black dark:disabled:bg-[#77777717] dark:disabled:text-foreground";
 const secondaryButton =
   "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-[#77777717] px-3 text-[13px] text-foreground outline-none transition-colors duration-120 ease-out hover:bg-[#7777772b] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45";
 
@@ -275,7 +275,7 @@ export function CustomMcpView({
           Cancel
         </button>
         <button className={primaryButton} disabled={!valid || busy} type="submit">
-          {busy ? <LoadingOrb aria-hidden inverse size={12} /> : <Plus className="size-3" />}{" "}
+          {busy ? <LoadingOrb aria-hidden size={12} /> : <Plus className="size-3" />}{" "}
           Add server
         </button>
       </div>
@@ -656,7 +656,7 @@ function PluginSetupCard({
             onClick={submit}
             type="button"
           >
-            {busy ? <LoadingOrb aria-hidden inverse size={12} /> : null}
+            {busy ? <LoadingOrb aria-hidden size={12} /> : null}
             {requiresHttps ? "HTTPS required" : actionLabel}
           </button>
           <button className={cn(secondaryButton, "ml-2")} type="button" disabled={busy} onClick={onDismiss}>Set up later</button>
@@ -946,7 +946,7 @@ export function PluginDetail({
             onClick={() => onInstall(plugin, setupValues)}
             type="button"
           >
-            {busy === plugin.key ? <LoadingOrb aria-hidden inverse size={12} /> : null}
+            {busy === plugin.key ? <LoadingOrb aria-hidden size={12} /> : null}
             Add
           </button>
         ) : (

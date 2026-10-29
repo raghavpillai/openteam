@@ -3,6 +3,7 @@ import {
   type TranscriptionSettings,
   type TranscriptionSettingsView,
 } from "@openteam/contracts/transcription";
+import { Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { requestRuntimeRefresh } from "../../../lib/runtime-refresh";
@@ -214,7 +215,13 @@ export function TranscriptionSettingsPanel() {
                         <ProviderMark id="deepgram" /> Deepgram
                       </span>
                     </SelectItem>
-                    <SelectItem value="openai-compatible">Custom / OpenAI-compatible</SelectItem>
+                    <SelectItem value="openai-compatible">
+                      <span className="flex items-center gap-2">
+                        {/* A custom service has no brand; iPhone shows the same sparkles. */}
+                        <Sparkles aria-hidden className="size-3.5 text-violet-500" strokeWidth={1.8} />
+                        Custom / OpenAI-compatible
+                      </span>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               }
@@ -325,7 +332,7 @@ export function TranscriptionSettingsPanel() {
               disabled={Boolean(busy) || !changed}
               onClick={() => void save()}
             >
-              {busy === "save" ? <LoadingOrb aria-hidden inverse size={14} /> : null} Save
+              {busy === "save" ? <LoadingOrb aria-hidden size={14} /> : null} Save
             </button>
           </div>
           {message ? (

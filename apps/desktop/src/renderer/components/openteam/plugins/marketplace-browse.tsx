@@ -6,7 +6,10 @@ import type {
   PluginSettingsView,
 } from "@openteam/contracts";
 import type { PluginPrivateSkillView } from "@openteam/contracts/plugin-management";
-import { pluginMatchesMarketplaceCategory } from "@openteam/client-core/plugin-marketplace";
+import {
+  PLUGIN_MARKETPLACE_CATEGORIES,
+  pluginMatchesMarketplaceCategory,
+} from "@openteam/client-core/plugin-marketplace";
 import { Check, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
@@ -162,7 +165,16 @@ export function MarketplaceView({
   return (
     <div className="flex min-h-0 flex-1 flex-col px-8 pb-5 max-sm:px-5">
       <SearchField query={query} onChange={setQuery} />
-      <MarketplaceCategories category={category} onChange={setCategory} />
+      <MarketplaceCategories
+        categories={PLUGIN_MARKETPLACE_CATEGORIES.filter(
+          (item) =>
+            item === "All" ||
+            item === category ||
+            data.catalog.some((plugin) => pluginMatchesMarketplaceCategory(plugin, item))
+        )}
+        category={category}
+        onChange={setCategory}
+      />
       <div className="bot-scrollbar mt-7 min-h-0 flex-1 overflow-y-auto">
         {category === "All" ? <ThisMacSection query={query} /> : null}
         {sections.map((section) => (

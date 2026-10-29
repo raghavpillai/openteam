@@ -55,7 +55,7 @@ struct NativePreferencesView: View {
         Text("OpenTeam follows your iPhone’s language and text size. Your bots use your timezone for routines and their computer’s clock.").font(.footnote)
           .foregroundStyle(NativePalette.muted)
       }
-    }.navigationTitle("Preferences").navigationBarTitleDisplayMode(.inline)
+    }.navigationTitle("More preferences").navigationBarTitleDisplayMode(.inline)
   }
 }
 

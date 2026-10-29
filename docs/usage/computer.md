@@ -44,7 +44,7 @@ VPN applications may still need service configuration.
 
 When OpenTeam updates, or recreates the computer after a settings change, the computer starts again from a fresh image and keeps only these:
 
-- The bots' home folder and `/workspace`.
+- The bots' home folder and `/workspace`. This includes each bot's browser profile: sign-ins, history, bookmarks, settings and extension data. Tabs that were open aren't reopened.
 - `/usr/local`, where `sudo pip install`, `sudo npm install -g`, `make install` and hand-copied tools go.
 - apt packages. The computer records each package a bot installs, the apt sources and keys it added, and `.deb` files it installed, and reinstalls them in the background when it starts. Packages from Debian come back at the new image's version.
 - pip and npm packages, which are reinstalled or rebuilt when an update changes the Python or Node.js version.

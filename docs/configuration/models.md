@@ -6,8 +6,8 @@ Your bots use an AI model from a provider you connect. Use a subscription you al
 
 | Provider | What you need | CLI ID |
 | --- | --- | --- |
-| Codex | A ChatGPT subscription | `openai-codex` |
-| Claude Code | A Claude subscription | `claude-code` |
+| ChatGPT | A ChatGPT subscription | `openai-codex` |
+| Claude | A Claude subscription | `claude-code` |
 | OpenAI | An OpenAI API key | `openai` |
 | Anthropic | An Anthropic API key | `anthropic` |
 | OpenRouter | An OpenRouter API key | `openrouter` |

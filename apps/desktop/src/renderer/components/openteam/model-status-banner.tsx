@@ -24,13 +24,19 @@ const NOTICES: Record<Problem, { title: string; description: string; action: str
   },
 };
 
-/** Explains why bots are silent while the server has no working model. */
+/**
+ * Explains why bots are silent while the server has no working model. It steps aside while
+ * Settings (whose Model page shows the same state) or the Marketplace is open, instead of
+ * covering the dialog.
+ */
 export function ModelStatusBanner({
   inference,
   onOpenSettings,
+  paused = false,
 }: {
   inference: ClientSnapshot["runtime"]["inference"];
   onOpenSettings: () => void;
+  paused?: boolean;
 }) {
   const openSettings = useRef(onOpenSettings);
   openSettings.current = onOpenSettings;
@@ -44,7 +50,7 @@ export function ModelStatusBanner({
   );
 
   useEffect(() => {
-    if (inference === "ready") {
+    if (inference === "ready" || paused) {
       toast.dismiss(MODEL_STATUS_TOAST_ID);
       return;
     }
@@ -55,7 +61,7 @@ export function ModelStatusBanner({
       duration: Number.POSITIVE_INFINITY,
       action: { label: notice.action, onClick: () => openSettings.current() },
     });
-  }, [inference]);
+  }, [inference, paused]);
 
   return null;
 }

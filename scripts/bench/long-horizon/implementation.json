@@ -1,5 +1,5 @@
 {
-  "status": "Immutable4b runtime passed two narrowly approved cases, real-hour, saved-wait restart and read-only narrowing. Fresh semantic-policy7native0.78.1case passed eligible-provider outcome/approval/final-report checks with an explicit unresolved July user decision. Customer classifier scheduling-label caveat retained. Controlled OT/baseline and further native comparisons continue; no general superiority claim.",
+  "status": "Immutable4b general runtime implementation and focused/current-source live validation complete; performance targets partially met. Frozen policy7batch: eight collected/audited, seven primary-eligible, one semantic-customer exclusion. Both scoped candidates reached provider resolution; final verification remains explicitly user-blocked in repetition2. Synchronous reporting latency and scoped idle closures remain.",
   "productRevision": "4b552998",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -213,7 +213,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-29T10:58:29.265504+00:00",
+  "updatedAt": "2026-10-29T12:56:10.174502+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -815,7 +815,12 @@
       "New images and14-attempt funded test plan must be frozen before live comparison."
     ]
   },
-  "fundingHold": {
+  "newRevisionValidation": "Immutable4b source passed narrow approval, real60-minute review delay, appointment saved-wait full-stack restart, and read-only narrowing after an ambiguous accepted export request. Stop/revocation fenced original work; later form was intentionally unanswered and no export readiness was claimed. Source-specific fixture outcomes and bounded privacy/resource audits only; repetitions continue. See cooperative-round.json.",
+  "currentRuntimeSource": "4b5529981383408f6396c3898cf41aa412cd7317",
+  "currentEvidence": "semantic-customer-round.json",
+  "semanticCustomerEvidence": "semantic-customer-validation.json",
+  "currentComparisonEvidence": "semantic-customer-round.json",
+  "historicalFundingHold": {
     "observedAt": "2026-10-29T04:34:25.927840+00:00",
     "availableCreditApproxUsd": 0.02,
     "reason": "Provider402 credit failures; two baseline repetitions and current affected attempts are excluded from primary model comparisons.",
@@ -831,9 +836,22 @@
       "serial4-grok078-S2N-3"
     ]
   },
-  "newRevisionValidation": "Immutable4b source passed narrow approval, real60-minute review delay, appointment saved-wait full-stack restart, and read-only narrowing after an ambiguous accepted export request. Stop/revocation fenced original work; later form was intentionally unanswered and no export readiness was claimed. Source-specific fixture outcomes and bounded privacy/resource audits only; repetitions continue. See cooperative-round.json.",
-  "currentRuntimeSource": "4b5529981383408f6396c3898cf41aa412cd7317",
-  "currentEvidence": "cooperative-round.json",
-  "semanticCustomerEvidence": "semantic-customer-validation.json",
-  "currentComparisonEvidence": "semantic-customer-round.json"
+  "fundingHold": {
+    "observedAt": "2026-10-29T12:50:53.250Z",
+    "reason": "Original conservative20USDfuture-launch allowance guard crossed during the last already-funded in-flight case. All eight cases collected; no new paid trial after crossing. Earlier depleted-credit hold was resolved by user.",
+    "futurePaidLaunchesHeld": true,
+    "startingUsageUsd": 6049.980107475,
+    "lastObservedAdditionalUsageUsd": 20.85534790699967,
+    "holdFutureLaunchesAtAdditionalUsd": 20,
+    "billingMutation": false,
+    "nativeCloudCostUnknown": true
+  },
+  "previousCohortEvidence": "cooperative-round.json",
+  "remainingPerformanceWork": [
+    "Candidate S1provider-outcome report114.421seconds missed90-second gate. Baseline first update50.971seconds preceded independent verification116.578seconds; do not compare unlike stages.",
+    "Scoped candidate idle closures remain despite required reviews being answered.",
+    "Further evaluate read-only approval friction and contextual customer-classifier scope errors; final extra candidate verification and native July appeal are explicitly user-blocked/end-censored.",
+    "General production stale-account identity-guard fix is not established by expiring owned benchmark browser sessions.",
+    "Larger matched samples and new-source live validation require a fresh declared spending allowance; do not reset original usage anchor."
+  ]
 }

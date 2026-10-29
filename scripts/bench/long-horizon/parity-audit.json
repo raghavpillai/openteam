@@ -527,5 +527,7 @@
   "liveEvidenceUpdate": "Native0.78.1completed additional short S1/S2N cases, including an accurate report missed by the raw lexical detector. The matched-hour deadline failure and late recovery remain separate. New parent-runtime live validation is funding-blocked.",
   "currentRuntimeSource": "4b5529981383408f6396c3898cf41aa412cd7317",
   "currentSourceEvidence": "cooperative-round.json",
-  "currentSourceHourFinding": "Matched pair, one trial per product: OpenTeam answered the required hour-delayed question and completed. Native0.78.1scheduled its next check after the10-minute reply window and missed it. Harness cleanup occurred before the next scheduled check, so later recovery was not tested. Keep finite watches and private parent delivery parity while aligning OpenTeam durable checks with known response windows. No general vendor superiority estimate."
+  "currentSourceHourFinding": "Matched pair, one trial per product: OpenTeam answered the required hour-delayed question and completed. Native0.78.1scheduled its next check after the10-minute reply window and missed it. Harness cleanup occurred before the next scheduled check, so later recovery was not tested. Keep finite watches and private parent delivery parity while aligning OpenTeam durable checks with known response windows. No general vendor superiority estimate.",
+  "currentComparisonEvidence": "semantic-customer-round.json",
+  "currentComparisonFinding": "Policy7short batch audited: seven primary-eligible trials and one holder false-positive retention exclusion. Provider-goal results and remaining explicit user decisions distinguished; no general vendor superiority or private native model/cost inference. Immutable4b source; security/privacy settings unchanged."
 }

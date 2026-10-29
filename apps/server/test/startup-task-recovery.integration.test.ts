@@ -176,6 +176,11 @@ test.skipIf(!url)(
           where: { botId: f.parent.bot.id, type: "runtime.reconcile" },
         })
       ).toBe(1);
+      // A saved continuation owns the interrupted request. Asking the person
+      // to send it again would compete with that recovery and risk duplicates.
+      expect(await f.db.channelMessage.count({
+        where: { clientId: `restart-interrupted:${f.parent.run.id}` },
+      })).toBe(0);
     })
 );
 
@@ -200,6 +205,30 @@ test.skipIf(!url)("startup fences new queue claims while it stops old Pi context
     } finally {
       await other.$disconnect();
     }
+  })
+);
+
+test.skipIf(!url)("an exhausted foreground recovery posts one resend notice instead of another continuation", () =>
+  fixture(async (f) => {
+    await f.db.inboxEvent.createMany({
+      data: [1, 2, 3].map(attempt => ({
+        botId: f.parent.bot.id,
+        conversationId: f.parent.bot.conversation!.id,
+        runId: f.parent.run.id,
+        idempotencyKey: `runtime-recovery:${f.parent.run.id}:${attempt}`,
+        type: "fixture.recovery-history",
+        status: "completed" as const,
+        payload: {},
+      })),
+    });
+    await recover(f.db, f.boss as never, f.messaging, f.computer);
+    await recover(f.db, f.boss as never, f.messaging, f.computer);
+    expect(await f.db.inboxEvent.count({
+      where: { botId: f.parent.bot.id, type: "runtime.reconcile" },
+    })).toBe(0);
+    expect(await f.db.channelMessage.count({
+      where: { clientId: `restart-interrupted:${f.parent.run.id}` },
+    })).toBe(1);
   })
 );
 

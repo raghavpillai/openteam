@@ -160,22 +160,6 @@ export async function recover(
         }
       }
     }
-    // Say so in the chat, once per turn, without waking the bot: the person decides whether to ask again.
-    // A bot woken above about its failed Task speaks in that chat itself.
-    for (const run of cutOffTurns) {
-      if (!run.channelId || subagentRunIds.has(run.id) || wokenParents.has(`${run.botId}:${run.channelId}`)) continue;
-      await tx.channelMessage.createMany({
-        data: [{
-          channelId: run.channelId,
-          clientId: `restart-interrupted:${run.id}`,
-          sender: "system",
-          content: RESTART_INTERRUPTED_NOTICE,
-          metadata: { type: "event", event: { type: "turn-interrupted", reason: "restart", runId: run.id } },
-          createdAt: now,
-        }],
-        skipDuplicates: true,
-      });
-    }
     const orphanedActiveChildren = archivedParentChildren.filter((child) =>
       ["provisioning", "queued", "running", "waiting"].includes(child.status)
     );
@@ -259,6 +243,7 @@ export async function recover(
     // Keep an interrupted foreground request owned too. Reuse the original
     // context and bounded host-redrive identity; never replay it as a new user
     // action or spin an unbounded restart loop.
+    const reconciledRunIds = new Set<string>();
     for (const run of activeRuns.filter(run => run.status === "running" && ["user", "handoff_resume"].includes(run.origin) && run.bot.status === "active" && run.channelId)) {
       const current = await tx.run.findUnique({ where: { id: run.id }, select: { status: true } });
       if (current?.status !== "interrupted") continue;
@@ -272,6 +257,23 @@ export async function recover(
       if (attempts >= 3) continue;
       await messaging.enqueueWake(tx, { botId: run.botId, channelId: run.channelId!, origin: "handoff_resume", type: "runtime.reconcile", clientId: `${prefix}${attempts + 1}`, priority: 300, taskContextRunId: context, interruptedRunId: run.id, attachments: payload.attachments,
         content: `The host restarted during this user's pending request. Continue from the current transcript and authoritative state. Check existing delegated tasks before launching work; do not duplicate sends, submissions or completed actions, and respect newer cancellations and scope.\nOriginal pending request:\n${payload.content}` });
+      reconciledRunIds.add(run.id);
+    }
+    // Ask for a resend only when no saved continuation will recover this turn.
+    // A failed Task's parent also speaks through its own wake instead.
+    for (const run of cutOffTurns) {
+      if (!run.channelId || subagentRunIds.has(run.id) || reconciledRunIds.has(run.id) || wokenParents.has(`${run.botId}:${run.channelId}`)) continue;
+      await tx.channelMessage.createMany({
+        data: [{
+          channelId: run.channelId,
+          clientId: `restart-interrupted:${run.id}`,
+          sender: "system",
+          content: RESTART_INTERRUPTED_NOTICE,
+          metadata: { type: "event", event: { type: "turn-interrupted", reason: "restart", runId: run.id } },
+          createdAt: now,
+        }],
+        skipDuplicates: true,
+      });
     }
     if (interrupted.count > 0) {
       await appendEvent(tx, "runtime.recovered", null, {

@@ -316,12 +316,14 @@ export function MentionEditor({
     }
   };
 
+  // Keep the placeholder out of inline layout: Chromium can otherwise reuse a
+  // pasted block's caret baseline after the editor is cleared.
   return (
     <>
       <div
         aria-label="Message"
         className={cn(
-          "whitespace-pre-wrap break-words empty:before:pointer-events-none empty:before:text-[#b7b7b7] empty:before:content-[attr(data-placeholder)] dark:empty:before:text-[#6d6d6d]",
+          "whitespace-pre-wrap break-words empty:before:float-left empty:before:h-0 empty:before:pointer-events-none empty:before:text-[#b7b7b7] empty:before:content-[attr(data-placeholder)] dark:empty:before:text-[#6d6d6d]",
           className
         )}
         contentEditable={!disabled}

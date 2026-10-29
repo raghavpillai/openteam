@@ -137,6 +137,7 @@
     "test:parity-edges": "bun scripts/test-desktop-parity-edges.ts",
     "test:widget-group-parity": "bun scripts/test-widget-group-parity.ts",
     "test:background-activity": "bun scripts/test-background-activity.ts",
+    "test:composer-caret": "bun scripts/test-composer-caret.ts",
     "test:composer-button-parity": "bun scripts/test-composer-button-parity.ts",
     "test:message-send-motion": "bun scripts/test-message-send-motion.ts",
     "test:sidebar-parity": "bun scripts/test-sidebar-parity.ts",

@@ -34,7 +34,7 @@ import {
 } from "../src/lifecycle";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import type { SetupPrompter } from "../src/setup";
-import { UPDATE_BUSY_MESSAGE } from "../src/update-gate";
+import { updateBusyMessage } from "@openteam/contracts/server-updates";
 import { readUpdateState } from "../src/update-safety";
 
 class HealthyDockerRunner implements CommandRunner {
@@ -765,7 +765,7 @@ describe("installed lifecycle", () => {
           parseArguments(["update", "--version", "1.3.0", "--when-idle", ...releaseFixture()]),
           runner
         )
-      ).rejects.toThrow(UPDATE_BUSY_MESSAGE);
+      ).rejects.toThrow(updateBusyMessage(["Chief of Staff"]));
     } finally {
       log.mockRestore();
     }
@@ -795,7 +795,7 @@ describe("installed lifecycle", () => {
           parseArguments(["update", "--version", "1.3.0", "--when-idle", "--json-progress", ...releaseFixture()]),
           runner
         )
-      ).rejects.toThrow(UPDATE_BUSY_MESSAGE);
+      ).rejects.toThrow(updateBusyMessage(["Scout"]));
     } finally {
       log.mockRestore();
     }
@@ -803,7 +803,6 @@ describe("installed lifecycle", () => {
     expect(runner.calls.some((call) => call.args.includes("pull"))).toBe(true);
     expect(runner.calls.some((call) => call.args.includes("stop"))).toBe(false);
     expect(messages.some((message) => message.includes('"phase":"rolling-back"'))).toBe(false);
-    expect(messages).toContain("Still working: Scout");
     expect(existsSync(`${paths.compose}.next`)).toBe(false);
     expect(readFileSync(paths.compose, "utf8")).toBe(previousCompose);
   });

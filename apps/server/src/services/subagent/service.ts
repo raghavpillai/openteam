@@ -355,18 +355,20 @@ export class SubagentService {
 
   /**
    * The bots with work in progress, longest-running first, which an update waits for. A subagent's
-   * turn counts for the bot that launched it, as the user can only stop that bot.
+   * turn counts for the bot that launched it, as the user can only stop that bot. Parked work (a
+   * subagent waiting on the user or a later check, or a request's next check) is durable across a
+   * restart and resumes from the database, so it never holds an update.
    */
   busyBots = () =>
     serviceEffect(async (): Promise<BusyBotsView> => {
       const [runs, subagents] = await Promise.all([
         this.prisma.run.findMany({
-          where: { OR: [{ status: { in: ["queued", "running"] } }, { requestNextCheckAt: { not: null }, requestStoppedAt: null, bot: { status: "active" } }] },
+          where: { status: { in: ["queued", "running"] } },
           select: { id: true, botId: true },
           orderBy: { createdAt: "asc" },
         }),
         this.prisma.subagent.findMany({
-          where: { status: { in: [...OPEN_STATUSES] } },
+          where: { status: { in: [...ACTIVE_STATUSES] } },
           select: { childBotId: true },
           orderBy: { createdAt: "asc" },
         }),

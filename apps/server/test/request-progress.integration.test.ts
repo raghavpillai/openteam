@@ -245,17 +245,18 @@ test.skipIf(!url)(
 );
 
 test.skipIf(!url)(
-  "a parent-only wait remains visible to stop controls after the model turn ends",
+  "a parent-only wait never holds an update, and stopping the bot still ends it",
   () =>
     fixture(async (f) => {
       await reportRequestProgress(f.db, f.context, wait());
+      expect(
+        (await Effect.runPromise(f.service.busyBots())).bots.find((b) => b.botId === f.owner.id)?.runIds
+      ).toContain(f.context.runId);
       await f.db.run.update({ where: { id: f.context.runId }, data: { status: "completed" } });
-      const busy = await Effect.runPromise(f.service.busyBots());
-      expect(busy.bots.find((b) => b.botId === f.owner.id)?.runIds).toContain(f.context.runId);
-      await Effect.runPromise(f.service.stopBot(f.owner.id));
       expect(
         (await Effect.runPromise(f.service.busyBots())).bots.find((b) => b.botId === f.owner.id)
       ).toBeUndefined();
+      expect((await Effect.runPromise(f.service.stopBot(f.owner.id))).hadActiveRun).toBe(true);
       expect(await dispatchRequestChecks(f.db, f.messaging, new Date(Date.now() + 86400_000))).toBe(
         0
       );

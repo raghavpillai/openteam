@@ -236,6 +236,8 @@ services:
       timeout: 12s
       start_period: 45s
       retries: 3
+    # pg-boss waits up to 30 s for running jobs before the worker exits.
+    stop_grace_period: 45s
     restart: unless-stopped
     volumes:
       - openteam_agent_data:/home/box/agent-data

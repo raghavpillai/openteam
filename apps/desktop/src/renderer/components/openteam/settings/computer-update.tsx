@@ -1,4 +1,4 @@
-import type { BusyBotsView } from "@openteam/contracts";
+import { type BusyBotsView, isUpdateBusyMessage, stillWorking } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { CircleCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -9,8 +9,6 @@ import { cn } from "../../../lib/cn";
 import { inSidebarOrder, useSidebarBotOrder } from "../../../lib/sidebar-bot-order";
 import { SectionLabel, SettingsGroup } from "./ui";
 
-const BUSY = "An agent is working. Update will be available when every agent is done.";
-const BUSY_REFUSAL = "An agent could not pause. Nothing changed; try again when it settles.";
 const FAILED = "The computer update failed. Try again.";
 const BUSY_POLL_MS = 2_000;
 const CONFIRM_RESET_MS = 3_000;
@@ -102,7 +100,8 @@ export function ComputerUpdateSettings() {
           : busyBots.length > 0
             ? "busy"
             : "ready";
-  const stopTarget = state === "busy" ? inSidebarOrder(busyBots, sidebarOrder)[0] : undefined;
+  const busyInOrder = state === "busy" ? inSidebarOrder(busyBots, sidebarOrder) : [];
+  const stopTarget = busyInOrder[0];
 
   const update = async () => {
     setError(null);
@@ -131,14 +130,14 @@ export function ComputerUpdateSettings() {
   const failure = error ?? (server?.status === "error" ? server.message : null);
   const extraCopy =
     state === "busy" ? (
-      BUSY
+      `${stillWorking(busyInOrder.map((bot) => bot.name))}. Update will be available when every agent is done.`
     ) : state === "updating" ? (
       server?.message
     ) : state === "unavailable" ? (
       server?.message
     ) : failure && state !== "up-to-date" ? (
-      failure === BUSY_REFUSAL ? (
-        BUSY_REFUSAL
+      isUpdateBusyMessage(failure) ? (
+        failure
       ) : (
         <>
           {FAILED}

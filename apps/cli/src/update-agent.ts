@@ -4,11 +4,12 @@ import {
   copyFileSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, delimiter, isAbsolute, join } from "node:path";
 import type { ServerUpdateHeartbeat, ServerUpdateRequest } from "@openteam/contracts";
 import {
   compareOpenTeamVersions,
@@ -30,9 +31,38 @@ import {
 
 export const UPDATE_AGENT_ENV = "OPENTEAM_UPDATE_AGENT";
 export const UPDATE_AGENT_CLI_ENV = "OPENTEAM_UPDATE_AGENT_CLI";
+/**
+ * The same runtime by a path that outlives an upgrade of it. Homebrew's versioned Cellar path
+ * disappears on `brew upgrade`, while its `opt` link and the copy on PATH follow the upgrade.
+ */
+export const stableRuntimePath = (executable: string, environment = process.env): string => {
+  const real = (path: string) => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return null;
+    }
+  };
+  const target = real(executable);
+  if (!target) return executable;
+  const cellar = /^(.+)\/Cellar\/([^/]+)\/[^/]+\/(.+)$/.exec(executable);
+  const candidates = [
+    ...(cellar ? [join(cellar[1]!, "opt", cellar[2]!, cellar[3]!)] : []),
+    ...(environment.PATH ?? "")
+      .split(delimiter)
+      .filter((directory) => isAbsolute(directory))
+      .map((directory) => join(directory, basename(executable))),
+  ];
+  return candidates.find((candidate) => real(candidate) === target) ?? executable;
+};
+
+/** The program that runs this CLI: a standalone binary itself, or the runtime running its script. */
+const runtimeExecutable = (environment = process.env): string =>
+  isBunStandaloneExecutable() ? process.execPath : stableRuntimePath(process.execPath, environment);
+
 export const updateAgentExecutable = (
   environment = process.env,
-  executable = process.execPath
+  executable = runtimeExecutable(environment)
 ): string =>
   readCliPromotion(environment, executable, CLI_VERSION)?.target ??
   environment[UPDATE_AGENT_CLI_ENV] ??

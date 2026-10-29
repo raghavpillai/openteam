@@ -3,8 +3,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 app.setPath("userData", path.join(__dirname, "profile"));
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-const BUSY = "An agent is working. Update will be available when every agent is done.";
-const REFUSAL = "An agent could not pause. Nothing changed; try again when it settles.";
+const BUSY = "Scout and Chief of Staff are still working. Update will be available when every agent is done.";
+const REFUSAL = "Orion is still working. Nothing changed; try again when it's done.";
 app
   .whenReady()
   .then(async () => {
@@ -74,7 +74,7 @@ app
     // A bot starts working: the card names the first busy bot in sidebar order, Update waits.
     await js(`fixture.busy=[{botId:"b-chief",name:"Chief of Staff",runIds:["r1"]},{botId:"b-scout",name:"Scout",runIds:["r2"]}]`);
     await waitFor((v) => v.state === "busy", "busy after the next poll", 3_500);
-    await assert((v) => v.text.includes(BUSY), "busy explanation");
+    await assert((v) => v.text.includes(BUSY), "busy explanation names the busy bots in sidebar order");
     await assert((v) => v.buttons.map((b) => b.text).join("|") === "Stop Scout|Update", "Stop names Scout, the first busy bot in the sidebar");
     await assert((v) => button(v, "Update").disabled && !button(v, "Stop Scout").disabled, "Update disabled while busy");
     await shot("03-busy");
@@ -102,7 +102,7 @@ app
     await click("Click Again to Confirm");
     await waitFor((v) => v.state === "ready" && v.buttons.length === 1, "idle once every bot is stopped");
 
-    // An agent could not pause: the CLI's refusal shows as it is.
+    // A bot started working after the check: the CLI's refusal names it and shows as it is.
     await js(`fixture.failUpdate=${JSON.stringify(REFUSAL)}`);
     await click("Update");
     await assert((v) => button(v, "Click Again to Confirm")?.confirming === true, "Update asks to confirm");

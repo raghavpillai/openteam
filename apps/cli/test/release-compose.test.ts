@@ -11,6 +11,12 @@ afterEach(() => {
   }
 });
 
+test("the development stack gives the worker time for its graceful stop", async () => {
+  const compose = await Bun.file(resolve(import.meta.dir, "../../../docker-compose.yml")).text();
+  const worker = compose.split("\n  worker:\n")[1]!.split(/\n  [a-z-]+:\n|\nvolumes:/)[0]!;
+  expect(worker).toContain("stop_grace_period: 45s");
+});
+
 describe("release Compose rendering", () => {
   test("replaces every OpenTeam tag with its immutable multi-architecture digest", async () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-release-compose-"));
@@ -55,6 +61,8 @@ describe("release Compose rendering", () => {
     expect(worker).toContain("OPENTEAM_APNS_TEAM_ID: ${OPENTEAM_APNS_TEAM_ID:-}");
     expect(worker).toContain("OPENTEAM_APNS_TOPIC: ${OPENTEAM_APNS_TOPIC:-dev.openbot.mobile}");
     expect(worker).toContain("OPENTEAM_APNS_PRIVATE_KEY: ${OPENTEAM_APNS_PRIVATE_KEY:-}");
+    // Longer than pg-boss's 30 s graceful stop, so stopping never kills the worker.
+    expect(worker).toContain("stop_grace_period: 45s");
     expect(rendered).not.toContain("OPENTEAM_WEB_SEARCH_");
     expect(rendered).not.toContain("OPENTEAM_PI_PROVIDER");
     expect(rendered).not.toContain("OPENTEAM_PI_MODEL");

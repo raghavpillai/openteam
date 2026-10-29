@@ -1,13 +1,10 @@
 import { readFileSync } from "node:fs";
 import type { BusyBotsView } from "@openteam/contracts";
+import { updateBusyMessage } from "@openteam/contracts/server-updates";
 import type { CliOptions } from "./arguments";
 import { type InstallationPaths, parseEnvironment } from "./config";
 import { CliError } from "./errors";
 import { healthUrl } from "./health";
-
-/** Desktop shows this refusal as it is. */
-export const UPDATE_BUSY_MESSAGE =
-  "An agent could not pause. Nothing changed; try again when it settles.";
 
 /** Desktop asks through the environment, which reaches the CLI an older one stages for the update. */
 export const updateWaitsForIdle = (
@@ -15,9 +12,10 @@ export const updateWaitsForIdle = (
   environment: NodeJS.ProcessEnv = process.env
 ): boolean => options.whenIdle || environment.OPENTEAM_UPDATE_WHEN_IDLE === "1";
 
+/** Desktop shows this refusal as it is. */
 export class UpdateBusyError extends CliError {
-  constructor() {
-    super(UPDATE_BUSY_MESSAGE);
+  constructor(names: readonly string[]) {
+    super(updateBusyMessage(names));
   }
 }
 
@@ -41,6 +39,5 @@ export const assertNoAgentWorking = async (
     : null;
   const working = activity?.bots ?? [];
   if (working.length === 0) return;
-  console.log(`Still working: ${working.map((bot) => bot.name).join(", ")}`);
-  throw new UpdateBusyError();
+  throw new UpdateBusyError(working.map((bot) => bot.name));
 };

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpawnOptions, spawn } from "node:child_process";
@@ -9,6 +9,7 @@ import {
   UpdateAgent,
   updateAgentArguments,
   updateAgentExecutable,
+  stableRuntimePath,
   UPDATE_AGENT_ENV,
   UPDATE_AGENT_CLI_ENV,
 } from "../src/update-agent";
@@ -203,4 +204,30 @@ test("a staged CLI starts its daemon from the promoted installation, and private
   expect(updateAgentExecutable({ [UPDATE_AGENT_CLI_ENV]: target }, "/tmp/private-agent")).toBe(
     target
   );
+});
+
+test("a Homebrew runtime starts the agent by a path that survives brew upgrade", () => {
+  const prefix = realpathSync(mkdtempSync(join(tmpdir(), "openteam-brew-")));
+  directories.push(prefix);
+  const versioned = join(prefix, "Cellar", "node@24", "24.13.1", "bin", "node");
+  mkdirSync(join(versioned, ".."), { recursive: true });
+  writeFileSync(versioned, "");
+  mkdirSync(join(prefix, "opt"));
+  symlinkSync(join("..", "Cellar", "node@24", "24.13.1"), join(prefix, "opt", "node@24"));
+  // A keg-only formula isn't linked into bin; its opt link follows each upgrade.
+  expect(stableRuntimePath(versioned, { PATH: "/usr/bin:/bin" })).toBe(join(prefix, "opt", "node@24", "bin", "node"));
+
+  // Elsewhere the PATH entry that runs the same binary is kept, never a different runtime.
+  const other = join(prefix, "other", "bin");
+  const linked = join(prefix, "bin");
+  mkdirSync(other, { recursive: true });
+  mkdirSync(linked);
+  writeFileSync(join(other, "node"), "");
+  const runtime = join(prefix, "runtime", "24.13.1", "node");
+  mkdirSync(join(runtime, ".."), { recursive: true });
+  writeFileSync(runtime, "");
+  symlinkSync(runtime, join(linked, "node"));
+  expect(stableRuntimePath(runtime, { PATH: `relative:${other}:${linked}` })).toBe(join(linked, "node"));
+  expect(stableRuntimePath(runtime, { PATH: other })).toBe(runtime);
+  expect(stableRuntimePath(join(prefix, "missing"), { PATH: linked })).toBe(join(prefix, "missing"));
 });

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import { SubagentService } from "../../src/services/subagent/service";
 
-function service(runs: Array<{ id: string; botId: string; status: string }>, subagents: Array<{ parentBotId: string; childBotId: string; status: string }>) {
+function service(runs: Array<{ id: string; botId: string; status: string; [key: string]: unknown }>, subagents: Array<{ parentBotId: string; childBotId: string; status: string }>) {
   const matches = (row: any, where: any): boolean => Object.entries(where).every(([key, value]: any) =>
     key === "OR" ? value.some((clause: any) => matches(row, clause)) :
     value && typeof value === "object" && "in" in value ? value.in.includes(row[key]) :
@@ -45,4 +45,26 @@ test("subagent work, however deep, counts for the bot that launched it", async (
 test("a subagent still starting up keeps its bot busy", async () => {
   const result = await Effect.runPromise(service([], [{ parentBotId: "chief", childBotId: "worker", status: "provisioning" }]).busyBots());
   expect(result).toEqual({ bots: [{ botId: "chief", name: "Chief of Staff", runIds: [] }] });
+});
+
+test("parked work that resumes on its own after a restart never holds an update", async () => {
+  const result = await Effect.runPromise(service(
+    [{ id: "parked-request", botId: "chief", status: "completed", requestNextCheckAt: new Date(), requestStoppedAt: null, bot: { status: "active" } }],
+    [
+      { parentBotId: "chief", childBotId: "worker", status: "waiting" },
+      { parentBotId: "scout", childBotId: "nested", status: "waiting" },
+    ],
+  ).busyBots());
+  expect(result).toEqual({ bots: [] });
+});
+
+test("a parked subagent doesn't hide another subagent that is still running", async () => {
+  const result = await Effect.runPromise(service(
+    [{ id: "worker-turn", botId: "worker", status: "running" }],
+    [
+      { parentBotId: "chief", childBotId: "worker", status: "running" },
+      { parentBotId: "scout", childBotId: "nested", status: "waiting" },
+    ],
+  ).busyBots());
+  expect(result).toEqual({ bots: [{ botId: "chief", name: "Chief of Staff", runIds: ["worker-turn"] }] });
 });

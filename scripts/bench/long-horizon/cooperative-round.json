@@ -1,6 +1,6 @@
 {
   "cohort": "long-horizon-round9-cooperative-fixture",
-  "updatedAt": "2026-10-29T09:49:33.136397+00:00",
+  "updatedAt": "2026-10-29T09:51:56.896785+00:00",
   "status": "in_progress_not_final",
   "runtimeSource": "4b5529981383408f6396c3898cf41aa412cd7317",
   "baseline": "computer6fa9c3ce + server/worker490cef61",
@@ -153,12 +153,24 @@
       "rawIdleWarnings": 0,
       "collectionError": null,
       "observationLimit": "Predeclared12-minute post-terminal rule ended observation after review closure, before next09:45UTC scheduled check and before95-minute maximum. Cleanup sent stop and deleted only its benchmark bot. A missed reply deadline is observed; a potential later recovery is not tested.",
-      "cleanupObservation": "Read-only own-account monitoring through09:51UTC covers the stated09:45UTCcheck; pending coverage audit.",
+      "cleanupObservation": "Bounded observation passed:11successfulsamples,0unavailable,6afterstated09:45UTCcheck, through09:50:47UTC;0post-deleteactivity/replies/customer messages. Private backend cascade and arbitrarily later checks remain unobservable.",
       "limits": [
         "n1 per product in this frozen matched pair; no reliability-rate or general vendor superiority claim.",
         "Native inference/settings/private deletion cascade are not observable.",
         "Known-value outward scan is not universal privacy proof."
-      ]
+      ],
+      "cleanupCoverageAudit": {
+        "reviewedAt": "2026-10-29T09:51:56.896785+00:00",
+        "successfulSamples": 11,
+        "unavailableSamples": 0,
+        "samplesAfterAnnouncedCheck": 6,
+        "firstAfterCheckUTC": "2026-10-29T09:45:47.780000+00:00",
+        "lastAfterCheckUTC": "2026-10-29T09:50:47.836000+00:00",
+        "noPostDeleteActivityObserved": true,
+        "declaredCoveragePassed": true,
+        "passed": true,
+        "limits": "Bounded own-account observation including the stated09:45UTCcheck. This does not attest private backend automation deletion or exclude activity at arbitrarily later times."
+      }
     },
     "coop6-candidate-appointment-1": {
       "id": "coop6-candidate-appointment-1",

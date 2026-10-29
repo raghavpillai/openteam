@@ -213,7 +213,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-29T13:07:34.349991+00:00",
+  "updatedAt": "2026-10-29T16:23:19.323557+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -878,5 +878,69 @@
     },
     "scope": "Read-only observation of this owned fixture account after deleting its own benchmark bot. No model task, prompt replay, security-setting change or paid inference.",
     "limits": "No observed post-delete account activity within the bounded window. Native private automation deletion/cascade and arbitrarily later activity remain unobservable."
+  },
+  "mergeReadinessValidation": {
+    "reviewedAt": "2026-10-29T16:23:19.323557+00:00",
+    "runtimeSource": "55fee358352968f0c81f78199c5003cbbcd6bedb",
+    "mergedMain": "b0ed7456",
+    "priorLiveRuntimeSource": "4b5529981383408f6396c3898cf41aa412cd7317",
+    "mainCommitsIntegrated": 18,
+    "restartNoticeIntegration": {
+      "defect": "Main could post a resend instruction while this branch already queued recovery of the same request.",
+      "fix": "Post the idempotent restart notice only when this turn has no queued recovery and no failed-task parent wake. Retain a single notice when recovery is exhausted.",
+      "regressionBefore": "New real-database assertion failed: one competing resend notice with a saved continuation.",
+      "regressionAfter": "Saved continuation suppresses notice; exhausted foreground recovery posts exactly one notice across repeated startup."
+    },
+    "typechecks": {
+      "passed": 15,
+      "total": 15
+    },
+    "architecture": "passed",
+    "builds": [
+      "computer",
+      "server",
+      "worker"
+    ],
+    "computer": {
+      "passed": 797,
+      "skipped": 68,
+      "failed": 0
+    },
+    "serverDefaultSuite": {
+      "passed": 343,
+      "skipped": 151,
+      "failed": 0
+    },
+    "workerDefaultSuite": {
+      "passed": 119,
+      "skipped": 28,
+      "failed": 0
+    },
+    "messagingContractsBenchmarkCombined": {
+      "passed": 402,
+      "skipped": 32,
+      "failed": 0
+    },
+    "isolatedDatabaseAndQueueIntegrations": {
+      "passed": 44,
+      "files": 7,
+      "assertions": 219,
+      "failed": 0,
+      "filesRun": [
+        "apps/server/test/task-progress.integration.test.ts",
+        "apps/server/test/request-progress.integration.test.ts",
+        "apps/server/test/startup-task-recovery.integration.test.ts",
+        "apps/server/test/startup-recovery.integration.test.ts",
+        "apps/worker/test/runtime-dispatch.integration.test.ts",
+        "apps/worker/test/task-continuation.integration.test.ts",
+        "apps/worker/test/request-continuation.integration.test.ts"
+      ]
+    },
+    "limits": [
+      "Current main integration is validated by local checks and fake-computer real-queue tests; live Grok/OpenTeam trials were on immutable4b before this refresh. No new paid trial after original allowance hold.",
+      "Environment-dependent skips were not executed. Historical broader DB-enabled worker failures remain recorded; those eight failing cases were not rerun on the refreshed branch.",
+      "No independent GitHub review or attached CI results observed at readiness audit.",
+      "Performance targets remain partly unmet; this is readiness for review and a single-user rollout, not a universal performance claim."
+    ]
   }
 }

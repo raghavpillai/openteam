@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -11,6 +11,7 @@ import {
   installFailureReason,
   installsPaths,
   installTarget,
+  keepSources,
   localDebArguments,
   nextRecordedList,
   packageSnapshot,
@@ -18,6 +19,7 @@ import {
   parseInstalled,
   parsePolicy,
   parseSourceFile,
+  readForgotten,
   readRecord,
   recordAfterApt,
   replayRecordedPackages,
@@ -130,8 +132,12 @@ test("apt errors read as reasons a bot can act on", () => {
 
 interface FakeRepo { [name: string]: Array<{ version: string; uri: string; suite: string }> }
 
-/** A fake dpkg/apt over a scratch tree. Repos list what each source offers; `cached` is what installs offline. */
-async function fakeSystem(installed: Record<string, string>, repos: FakeRepo, options: { cached?: Set<string>; broken?: Set<string>; offlineNetwork?: boolean; unreachable?: Set<string> } = {}) {
+/**
+ * A fake dpkg/apt over a scratch tree. Repos list what each source offers; `cached` is what installs
+ * offline, and a package installs offline only with its `deps` cached too. Like apt, it takes a .deb
+ * path without downloading only from its cache folder.
+ */
+async function fakeSystem(installed: Record<string, string>, repos: FakeRepo, options: { cached?: Set<string>; deps?: Record<string, string[]>; broken?: Set<string>; offlineNetwork?: boolean; unreachable?: Set<string> } = {}) {
   const root = await mkdtemp(join(tmpdir(), "openteam-installs-"));
   const paths = installsPaths(join(root, "state"));
   const system = (path: string) => join(root, "system", path);
@@ -173,14 +179,18 @@ async function fakeSystem(installed: Record<string, string>, repos: FakeRepo, op
     const targets = args.slice(args.indexOf("install") + 1);
     const offline = args.includes("--no-download");
     const names = targets.map((target) => (target.includes("/") ? basenameOf(target) : target.split("=")[0]!));
-    const missing = (index: number) => offline && !targets[index]!.includes("/") && !options.cached?.has(names[index]!);
+    const outsideCache = targets.find((target) => target.includes("/") && dirname(target) !== paths.archives);
+    if (offline && outsideCache) return { code: 100, output: `E: Internal Error, Pathname to install is not absolute '${outsideCache.split("/").pop()}'` };
+    const uncached = (name: string) => !options.cached?.has(name);
+    const missing = (index: number) => (offline || options.offlineNetwork) && ((!targets[index]!.includes("/") && uncached(names[index]!)) || (options.deps?.[names[index]!] ?? []).some(uncached));
     if (offline && args.includes("--ignore-missing")) {
-      targets.forEach((target, index) => { if (!missing(index) && !options.broken?.has(names[index]!)) installed[names[index]!] = repos[names[index]!]?.[0]?.version ?? "1"; });
-      return { code: 0, output: "installed what the cache has" };
+      // apt installs a package it has even when a dependency is missing, half configured.
+      targets.forEach((target, index) => { if ((target.includes("/") || !uncached(names[index]!)) && !options.broken?.has(names[index]!)) installed[names[index]!] = repos[names[index]!]?.[0]?.version ?? "1"; });
+      return { code: 100, output: "E: Sub-process /usr/bin/dpkg returned an error code (1)" };
     }
     const bad = names.filter((name, index) => options.broken?.has(name) || missing(index));
-    if (bad.length) return { code: 100, output: options.broken?.has(bad[0]!) ? "E: Unable to correct problems, you have held broken packages." : "E: Unable to fetch some archives" };
-    if (args[0] === "-s") return { code: 0, output: "Inst" };
+    if (bad.length) return { code: 100, output: options.broken?.has(bad[0]!) ? "E: Unable to correct problems, you have held broken packages." : offline ? "E: Unable to fetch some archives" : "E: Failed to fetch http://deb.debian.org/debian/pool  Temporary failure resolving 'deb.debian.org'" };
+    if (args[0] === "-s" || args.includes("--download-only")) return { code: 0, output: "Inst" };
     targets.forEach((target, index) => (installed[names[index]!] = target.includes("=") ? target.split("=")[1]! : repos[names[index]!]?.[0]?.version ?? "1"));
     return { code: 0, output: "installed" };
   };
@@ -248,6 +258,23 @@ test("kept sources come back where they are missing, and only a finished replay 
   expect(await restoreSources(options)).toEqual([]);
 });
 
+test("a source the bot removes stays removed after `apt-get update` or a shutdown, which run no dpkg", async () => {
+  const fake = await fakeSystem({ bash: "5" }, {});
+  const options = { paths: fake.paths, image: fake.image, run: fake.run, systemPath: fake.system, sourceLocations: ["/etc/apt/sources.list.d"] };
+  await writeFile(fake.system("etc/apt/sources.list.d/gone.list"), "deb http://apt.gone.invalid stable main\n");
+  await keepSources(options);
+  await rm(fake.system("etc/apt/sources.list.d/gone.list"));
+  // While this start's replay is still putting sources back, a missing one isn't a removal.
+  await writeFile(fake.paths.status, JSON.stringify({ id: "x", state: "running", failed: [] }));
+  await keepSources(options);
+  expect(await readdirDeep(fake.paths.sources)).toHaveLength(1);
+  await writeFile(fake.paths.status, JSON.stringify({ id: "x", state: "done", failed: [] }));
+  await keepSources(options);
+  expect(await restoreSources(options)).toEqual([]);
+  // apt runs the same step after every `apt-get update`.
+  expect(await readFile(join(import.meta.dir, "../../../docker/apt-keep-installs.conf"), "utf8")).toContain('APT::Update::Post-Invoke { "/usr/lib/openteam/bin/bun /app/apps/computer/dist/installs-cli.js sources || true"; };');
+});
+
 test("replay installs offline when it can, and from its own lists otherwise", async () => {
   const fake = await fakeSystem({ bash: "5", curl: "8", jq: "1" }, { cowsay: [{ version: "3", uri: DEBIAN, suite: "trixie" }], jq: [{ version: "1", uri: DEBIAN, suite: "trixie" }], sl: [{ version: "5", uri: DEBIAN, suite: "trixie" }] }, { cached: new Set(["cowsay"]) });
   await writeFile(fake.paths.packages, JSON.stringify({ packages: { cowsay: {}, jq: {}, sl: {} } }));
@@ -256,13 +283,19 @@ test("replay installs offline when it can, and from its own lists otherwise", as
   expect(status).toMatchObject({ state: "done", failed: [], pending: [] });
   expect(status.restored.sort()).toEqual(["cowsay", "sl"]);
   const apt = fake.calls.filter((call) => call.startsWith("apt-get"));
-  expect(apt[0]).toContain("--no-download --ignore-missing install cowsay sl");
+  // apt says what its cache has everything for, and installs that without the network.
+  expect(apt.slice(0, 4).map((call) => call.slice(call.indexOf("--no-download")))).toEqual([
+    "--no-download --download-only install cowsay sl",
+    "--no-download --download-only install cowsay",
+    "--no-download --download-only install sl",
+    "--no-download install cowsay",
+  ]);
   // Every replay apt run uses the replay's own lists, so a bot's `apt-get update` never finds them locked.
   for (const call of fake.calls.filter((call) => call.startsWith("apt-get") || call.startsWith("apt-cache")))
     expect(call).toContain(`-o Dir::State::Lists=${fake.paths.replayLists}`);
   expect(await stat(fake.paths.replayLists).catch(() => null)).toBeNull();
-  expect(apt[1]).toEndWith("-q update");
-  expect(apt[2]).toEndWith("install sl");
+  expect(apt[4]).toEndWith("-q update");
+  expect(apt[5]).toEndWith("install sl");
   expect(fake.calls[0]).toBe("dpkg --configure -a");
   // With no source a bot added, there is nothing to pin.
   expect(fake.calls.some((call) => call.includes("Dir::Etc::Preferences"))).toBe(false);
@@ -330,6 +363,36 @@ test("one package that can't come back doesn't slow the rest, is marked once per
   expect(Object.keys(await readRecord(fake.paths))).not.toContain("glow");
 });
 
+test("a forgotten package stays untracked while installed, and is tracked again once reinstalled", async () => {
+  const fake = await fakeSystem({ bash: "5", curl: "8" }, {});
+  const options = { paths: fake.paths, image: fake.image, run: fake.run, extendedStates: fake.extendedStates, systemPath: fake.system, sourceLocations: [] };
+  const aptRun = async (change: () => void) => { await snapshotBeforeApt(options); change(); await recordAfterApt(options); };
+  await mkdir(fake.paths.local, { recursive: true });
+  await writeFile(join(fake.paths.local, "tool_1.0_all.deb"), "tool");
+  await aptRun(() => Object.assign(fake.installed, { jo: "1", sl: "1", tool: "1.0" }));
+  expect(Object.keys(await readRecord(fake.paths))).toEqual(["jo", "sl", "tool"]);
+
+  expect(await forgetPackages(["jo", "tool"], options)).toEqual({ forgotten: ["jo", "tool"], unknown: [] });
+  // Later apt runs don't track them again.
+  await aptRun(() => (fake.installed.bc = "1"));
+  expect(Object.keys(await readRecord(fake.paths))).toEqual(["bc", "sl"]);
+  expect(await readForgotten(fake.paths)).toEqual(["jo", "tool"]);
+  // So a start doesn't tell bots a forgotten .deb package can't come back.
+  delete fake.installed.tool;
+  const status = await replayRecordedPackages({ ...options, log: () => {} });
+  expect(status).toMatchObject({ restored: [], failed: [], pending: [] });
+
+  // Removing a forgotten package and installing it again tracks it again.
+  await aptRun(() => delete fake.installed.jo);
+  expect(await readForgotten(fake.paths)).toEqual([]);
+  await aptRun(() => (fake.installed.jo = "1"));
+  expect(Object.keys(await readRecord(fake.paths))).toEqual(["bc", "jo", "sl"]);
+  // A package that isn't installed is simply dropped.
+  await writeFile(fake.paths.packages, JSON.stringify({ packages: { ...(await readRecord(fake.paths)), vanished: {} } }));
+  expect(await forgetPackages(["vanished"], options)).toEqual({ forgotten: ["vanished"], unknown: [] });
+  expect(await readForgotten(fake.paths)).toEqual([]);
+});
+
 test("without the network, packages wait for the next start instead of failing", async () => {
   const fake = await fakeSystem({ bash: "5" }, { cowsay: [{ version: "3", uri: DEBIAN, suite: "trixie" }] }, { offlineNetwork: true });
   await writeFile(fake.paths.packages, JSON.stringify({ packages: { cowsay: {} } }));
@@ -345,7 +408,23 @@ test("a kept .deb comes back by its file", async () => {
   await writeFile(fake.paths.packages, JSON.stringify({ packages: { glow: { deb: "glow_2.1.1_arm64.deb" } } }));
   const status = await replayRecordedPackages({ paths: fake.paths, image: fake.image, run: fake.run, systemPath: fake.system, log: () => {} });
   expect(status.restored).toEqual(["glow"]);
-  expect(fake.calls.some((call) => call.includes("--no-download --ignore-missing install") && call.endsWith(join(fake.paths.local, "glow_2.1.1_arm64.deb")))).toBe(true);
+  // Offline, from apt's cache folder, where it was linked for the run.
+  expect(fake.calls.some((call) => call.includes("--no-download install") && call.endsWith(join(fake.paths.archives, "glow_2.1.1_arm64.deb")))).toBe(true);
+  expect(await readdir(fake.paths.archives)).toEqual([]);
+  expect(await readdir(fake.paths.local)).toEqual(["glow_2.1.1_arm64.deb"]);
+});
+
+test("offline, kept .debs and cached packages come back, and one the cache lacks doesn't hold them up", async () => {
+  const repos: FakeRepo = Object.fromEntries(["figlet", "cowsay", "sl"].map((name) => [name, [{ version: "1", uri: DEBIAN, suite: "trixie" }]]));
+  // sl is cached, but a library it needs isn't: it waits rather than going in half configured.
+  const fake = await fakeSystem({ bash: "5" }, repos, { cached: new Set(["figlet", "sl", "libfiglet"]), deps: { tool: ["libfiglet"], sl: ["libncurses"] }, offlineNetwork: true });
+  await mkdir(fake.paths.local, { recursive: true });
+  await writeFile(join(fake.paths.local, "tool_1.0_all.deb"), "tool");
+  await writeFile(fake.paths.packages, JSON.stringify({ packages: { figlet: {}, cowsay: {}, sl: {}, tool: { deb: "tool_1.0_all.deb" } } }));
+  const status = await replayRecordedPackages({ paths: fake.paths, image: fake.image, run: fake.run, systemPath: fake.system, log: () => {} });
+  expect(status).toMatchObject({ restored: ["figlet", "tool"], failed: [], pending: ["cowsay", "sl"] });
+  expect(fake.installed).not.toHaveProperty("sl");
+  expect(await readdir(fake.paths.archives)).toEqual([]);
 });
 
 test("each bot hears once what the last start couldn't bring back", async () => {
@@ -365,7 +444,7 @@ test("each bot hears once what the last start couldn't bring back", async () => 
   // A package installed again, or forgotten, is left out; with none left, nobody else is told.
   fake.installed.vanished = "1";
   expect((await notice.claim("bot-b"))?.content).not.toContain("vanished");
-  await forgetPackages(["glow"], { paths: fake.paths });
+  await forgetPackages(["glow"], { paths: fake.paths, run: fake.run });
   expect(await notice.claim("bot-b")).toBeNull();
 });
 
@@ -380,8 +459,8 @@ test("the notice says what a version change rebuilt", () => {
 
 test("record files are readable by bots", async () => {
   const fake = await fakeSystem({ bash: "5" }, {});
-  await forgetPackages([], { paths: fake.paths });
+  await forgetPackages([], { paths: fake.paths, run: fake.run });
   await writeFile(fake.paths.packages, JSON.stringify({ packages: { a: {} } }));
-  await forgetPackages(["a"], { paths: fake.paths });
+  await forgetPackages(["a"], { paths: fake.paths, run: fake.run });
   expect((await stat(fake.paths.packages)).mode & 0o044).toBe(0o044);
 });

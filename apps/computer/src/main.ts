@@ -18,6 +18,7 @@ import {
   parseComputerInferenceRequest,
 } from "@openteam/contracts/service-protocol";
 import { Schema } from "effect";
+import { keepSources } from "./apt-packages";
 import { createBoxClock } from "./box-clock";
 import { BoxStoreSync } from "./box-store-sync";
 import { computerEventStream } from "./computer-event-stream";
@@ -683,6 +684,8 @@ const shutdown = (): Promise<void> => {
   shutdownPromise = Promise.all([
     runtime.recordLeftRunningProcesses().catch((error) => console.warn(`Left-running process record failed: ${String(error)}`)),
     stdioMcp.closeAll(),
+    // A source a bot removed without running apt since must not come back at the next start.
+    keepSources().catch((error) => console.error(`openteam installs: keeping apt sources failed: ${String(error)}`)),
     (async () => {
       await Promise.all([agentStores.closeAll(), screens.shutdown()]);
       // Include browser profiles: periodic snapshots defer a running browser's profile.

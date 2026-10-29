@@ -35,3 +35,16 @@ fi
 test "$(stat -c %a /home/box/.pi/agent)" = 700
 printf 'Redirected package directory rejected without exposing target\n'
 CONTAINER
+
+docker run --rm -i --network none --entrypoint sh "$image" <<'CONTAINER'
+set -eu
+# /usr/local is kept and shared by every bot, so one bot's copy of a system tool there
+# mustn't replace it in login shells either.
+printf '#!/bin/sh\necho bot copy\n' > /usr/local/bin/python3
+chmod 0755 /usr/local/bin/python3
+for shell in "bash -lc" "sudo -i sh -c" "su - -c" "su - box -c" "runuser -u box -- bash -lc"; do
+  found=$($shell 'command -v python3')
+  test "$found" = /usr/bin/python3 || { echo "$shell finds $found" >&2; exit 1; }
+done
+printf 'Login shells find the system tools before /usr/local\n'
+CONTAINER

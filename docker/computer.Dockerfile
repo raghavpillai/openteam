@@ -177,8 +177,20 @@ COPY docker/apt-keep-installs.conf /etc/apt/apt.conf.d/90openteam-keep-installs
 COPY docker/dpkg-keep-installs.cfg /etc/dpkg/dpkg.cfg.d/openteam-keep-installs
 # Like bot shells (apps/computer/src/agent-process.ts), sudo finds the image's tools before a
 # same-named copy in /usr/local.
+# Login shells (sudo -i, su -, bash -l) take PATH from /etc/profile and su's from login.defs.
 RUN printf 'Defaults secure_path="/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin"\n' > /etc/sudoers.d/openteam-paths \
-  && chmod 0440 /etc/sudoers.d/openteam-paths
+  && chmod 0440 /etc/sudoers.d/openteam-paths \
+  && sed -i \
+    -e 's#PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"#PATH="/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin"#' \
+    -e 's#PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"#PATH="/usr/bin:/bin:/usr/local/bin:/usr/local/games:/usr/games"#' \
+    /etc/profile \
+  && sed -i -E \
+    -e 's#^(ENV_SUPATH\s+PATH=).*#\1/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin#' \
+    -e 's#^(ENV_PATH\s+PATH=).*#\1/usr/bin:/bin:/usr/local/bin:/usr/local/games:/usr/games#' \
+    /etc/login.defs \
+  && for shell in "su - root" "su - box"; do \
+    case ":$($shell -c 'echo $PATH'):" in *:/usr/local/bin:*:/usr/bin:*|*:/usr/local/sbin:*:/usr/sbin:*) echo "$shell searches /usr/local first" >&2; exit 1 ;; esac; \
+  done
 ENV PATH=/usr/lib/openteam/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ENV NODE_PATH=/usr/lib/openteam/node/lib/node_modules
 ENV BUN_INSTALL_BIN=/home/box/.bun/bin

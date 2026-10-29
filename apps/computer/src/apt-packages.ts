@@ -6,12 +6,12 @@
  * packages a bot installed beyond the image's own set, where each came from, the apt sources and
  * keys a bot added, and the .deb files it installed by hand. Package lists and downloads stay in
  * the volume too. When the computer starts, the entrypoint replays the record in the background:
- * offline from the kept .debs first, then from the network. Meanwhile the image's own packages
- * can't be removed or come from a source a bot added, and a package that can't come back is
- * tried again only once the image changes.
+ * offline from apt's cache and the kept .debs first, then from the network. Meanwhile the image's
+ * own packages can't be removed or come from a source a bot added, and a package that can't come
+ * back is tried again only once the image changes. A package a bot forgets stops being tracked.
  */
 import { spawn } from "node:child_process";
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, link, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 export const INSTALLS_ROOT = "/usr/local/var/lib/openteam";
@@ -73,6 +73,8 @@ export interface RecordedPackage {
   failed?: { build: string; reason: string };
 }
 export type PackageRecord = Record<string, RecordedPackage>;
+/** packages.json: the record, and the installed packages a bot forgot, which stay untracked until installed again. */
+interface InstallsFile { packages: PackageRecord; forgotten: string[] }
 
 export interface ReplayStatus {
   id: string;
@@ -113,21 +115,31 @@ export const packageSnapshot = (installed: Record<string, string>, auto: Readonl
 });
 
 /**
- * The recorded names after one apt or dpkg run. Every manual package the image lacks is recorded.
- * Only a package this run took away (manual before, not after) leaves the list: one that failed
- * to replay is not installed before or after, so it stays until the bot forgets it.
+ * The recorded names after one apt or dpkg run. Every manual package the image lacks is recorded,
+ * unless a bot forgot it. Only a package this run took away (manual before, not after) leaves the
+ * list: one that failed to replay is not installed before or after, so it stays until the bot
+ * forgets it.
  */
 export function nextRecordedList(input: {
   recorded: readonly string[];
   before?: PackageSnapshot;
   after: PackageSnapshot;
   baseline: ReadonlySet<string>;
+  forgotten?: ReadonlySet<string>;
 }): string[] {
   const after = new Set(input.after.manual);
   const removed = new Set((input.before?.manual ?? []).filter((name) => !after.has(name)));
   const next = new Set(input.recorded.filter((name) => !removed.has(name)));
-  for (const name of after) if (!input.baseline.has(name)) next.add(name);
+  for (const name of after) if (!input.baseline.has(name) && !input.forgotten?.has(name)) next.add(name);
   return [...next].sort();
+}
+
+/**
+ * The forgotten packages that stay untracked after one apt or dpkg run: those still installed that
+ * this run didn't install. Removing a forgotten package, or installing it again, ends that.
+ */
+export function stillForgotten(forgotten: Iterable<string>, before: PackageSnapshot | undefined, after: PackageSnapshot): string[] {
+  return [...forgotten].filter((name) => name in after.installed && (!before || name in before.installed));
 }
 
 export interface PolicySource { uri: string; suite: string }
@@ -273,23 +285,36 @@ export async function writeAtomic(path: string, text: string) {
   await rename(temporary, path);
 }
 
-export async function readRecord(paths: InstallsPaths): Promise<PackageRecord> {
+async function readInstallsFile(paths: InstallsPaths): Promise<InstallsFile> {
   try {
-    const saved = JSON.parse(await readFile(paths.packages, "utf8")) as { packages?: PackageRecord };
-    return saved?.packages && typeof saved.packages === "object" ? saved.packages : {};
+    const saved = JSON.parse(await readFile(paths.packages, "utf8")) as Partial<InstallsFile>;
+    return {
+      packages: saved?.packages && typeof saved.packages === "object" ? saved.packages : {},
+      forgotten: Array.isArray(saved?.forgotten) ? saved.forgotten.filter((name) => typeof name === "string") : [],
+    };
   } catch {
-    return {};
+    return { packages: {}, forgotten: [] };
   }
 }
 
+export const readRecord = async (paths: InstallsPaths): Promise<PackageRecord> => (await readInstallsFile(paths)).packages;
+export const readForgotten = async (paths: InstallsPaths): Promise<string[]> => (await readInstallsFile(paths)).forgotten;
+
 /** Re-reads the record just before writing, so a hook and the replay don't undo each other's changes. */
-export async function updateRecord(paths: InstallsPaths, change: (record: PackageRecord) => void): Promise<PackageRecord> {
-  const record = await readRecord(paths);
-  const before = JSON.stringify(record);
-  change(record);
-  const sorted = Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
-  if (JSON.stringify(sorted) !== before) await writeAtomic(paths.packages, `${JSON.stringify({ packages: sorted }, null, 2)}\n`);
-  return sorted;
+export async function updateRecord(paths: InstallsPaths, change: (record: PackageRecord, forgotten: Set<string>) => void): Promise<PackageRecord> {
+  const saved = await readInstallsFile(paths);
+  const before = JSON.stringify(saved);
+  const forgotten = new Set(saved.forgotten);
+  change(saved.packages, forgotten);
+  const next: InstallsFile = {
+    packages: Object.fromEntries(Object.entries(saved.packages).sort(([a], [b]) => a.localeCompare(b))),
+    forgotten: [...forgotten].sort(),
+  };
+  if (JSON.stringify(next) !== before) {
+    const { packages, forgotten: untracked } = next;
+    await writeAtomic(paths.packages, `${JSON.stringify(untracked.length ? { packages, forgotten: untracked } : { packages }, null, 2)}\n`);
+  }
+  return next.packages;
 }
 
 export async function readPackageSnapshot(run: CommandRunner, extendedStates = "/var/lib/apt/extended_states"): Promise<PackageSnapshot> {
@@ -370,6 +395,17 @@ export async function captureSources(options: AptOptions & { removeGone?: boolea
   for (const file of await sourceFiles(["/"], (path) => join(paths.sources, path))) if (!wanted.has(file)) await rm(join(paths.sources, file), { force: true });
 }
 
+/**
+ * Brings the kept sources in step with the computer's: after every apt run that installs, removes or
+ * updates, and when the computer shuts down, so a source a bot removed doesn't come back.
+ */
+export async function keepSources(options: AptOptions = {}) {
+  const { paths } = optionsWithDefaults(options);
+  // Until this start's replay has put the kept sources back, a missing one isn't the bot's removal.
+  const status = await readReplayStatus(paths);
+  await captureSources({ ...options, removeGone: status?.state !== "running" });
+}
+
 /** Puts back the kept sources the image lacks. A file that already exists stays as it is. */
 export async function restoreSources(options: AptOptions = {}): Promise<string[]> {
   const { paths, systemPath } = optionsWithDefaults(options);
@@ -428,8 +464,9 @@ export async function recordAfterApt(options: AptOptions = {}) {
   const before = await readFile(paths.snapshot, "utf8").then((text) => JSON.parse(text) as PackageSnapshot, () => undefined);
   await rm(paths.snapshot, { force: true });
   const baseline = new Set(await readLines(image.baseline));
-  const recorded = await readRecord(paths);
-  const names = nextRecordedList({ recorded: Object.keys(recorded), before, after, baseline });
+  const { packages: recorded, forgotten } = await readInstallsFile(paths);
+  const untracked = new Set(stillForgotten(forgotten, before, after));
+  const names = nextRecordedList({ recorded: Object.keys(recorded), before, after, baseline, forgotten: untracked });
   // Where each newly installed (or newly upgraded) version came from.
   const changed = names.filter((name) => after.installed[name] !== undefined && after.installed[name] !== recorded[name]?.version);
   const policy = await policies(run, changed);
@@ -452,14 +489,13 @@ export async function recordAfterApt(options: AptOptions = {}) {
     }
     classified[name] = deb ? { version, deb } : { version, local: true };
   }
-  const next = await updateRecord(paths, (record) => {
+  const next = await updateRecord(paths, (record, current) => {
     for (const name of Object.keys(record)) if (!names.includes(name)) delete record[name];
     for (const name of names) record[name] = classified[name] ?? record[name] ?? {};
+    for (const name of current) if (!untracked.has(name)) current.delete(name);
   });
 
-  const status = await readReplayStatus(paths);
-  // Until this start's replay has put the kept sources back, a missing one isn't the bot's removal.
-  await captureSources({ ...options, removeGone: status?.state !== "running" }).catch((error) => console.error(`openteam installs: keeping apt sources failed: ${error}`));
+  await keepSources(options).catch((error) => console.error(`openteam installs: keeping apt sources failed: ${error}`));
 
   const keptDebs = new Set(Object.values(next).flatMap((entry) => (entry.deb ? [entry.deb] : [])));
   for (const file of await readdir(paths.local).catch(() => [] as string[])) if (!keptDebs.has(file)) await rm(join(paths.local, file), { force: true });
@@ -472,15 +508,21 @@ export async function recordAfterApt(options: AptOptions = {}) {
   for (const file of archivesToPrune(entries, removed)) await rm(join(paths.archives, file), { force: true });
 }
 
-/** Stops reinstalling these packages: the bot's way out for one that can't come back. */
+/**
+ * Stops tracking these packages: they aren't reinstalled at start, and bots aren't told about them.
+ * One that is installed stays untracked while it stays installed; removing it and installing it
+ * again tracks it again.
+ */
 export async function forgetPackages(names: readonly string[], options: AptOptions = {}): Promise<{ forgotten: string[]; unknown: string[] }> {
-  const { paths } = optionsWithDefaults(options);
+  const { paths, run, extendedStates } = optionsWithDefaults(options);
   const forgotten: string[] = [];
   const unknown: string[] = [];
-  const record = await updateRecord(paths, (record) => {
+  const { installed } = names.length ? await readPackageSnapshot(run, extendedStates) : { installed: {} };
+  const record = await updateRecord(paths, (record, untracked) => {
     for (const name of names) {
-      if (!record[name]) { unknown.push(name); continue; }
+      if (!record[name] && !untracked.has(name)) { unknown.push(name); continue; }
       delete record[name];
+      if (name in installed) untracked.add(name);
       forgotten.push(name);
     }
   });
@@ -559,7 +601,7 @@ export async function replayRecordedPackages(options: ReplayOptions = {}): Promi
     await writeFile(paths.log, `${status.startedAt} reinstalling ${todo.join(" ")}\n`);
     const pins = await pinImagePackages(paths, image, systemPath);
     try {
-      const pass = async (label: string, lists: readonly string[], download: boolean) => {
+      const targetsFor = async (lists: readonly string[]) => {
         const policy = await policies(run, todo.filter((name) => !record[name]!.deb), lists);
         const targets = new Map<string, string>();
         for (const name of todo) {
@@ -569,24 +611,61 @@ export async function replayRecordedPackages(options: ReplayOptions = {}): Promi
           if (entry.deb && !(await stat(target).catch(() => null))) { failed.set(name, "its kept .deb file is gone"); continue; }
           targets.set(name, target);
         }
+        return targets;
+      };
+      /**
+       * Installs what apt's cache has everything for. apt takes a .deb path without downloading
+       * only from its cache folder, so the kept .debs are linked there for the run. Packages the
+       * cache lacks wait for the network: --ignore-missing would install one whose dependency is
+       * missing, half configured.
+       */
+      const fromCache = async (label: string, lists: readonly string[]) => {
+        const linked: string[] = [];
+        try {
+          const targets = await targetsFor(lists);
+          for (const [name, target] of targets) {
+            const deb = record[name]!.deb;
+            if (!deb) continue;
+            const cached = join(paths.archives, deb);
+            if (!(await stat(cached).catch(() => null))) { await link(target, cached).catch(() => copyFile(target, cached)); linked.push(cached); }
+            targets.set(name, cached);
+          }
+          const flags = [...lists, "--no-download"];
+          const cached = async (names: readonly string[], note: string) =>
+            (await attempt(`${label}, ${note}`, "apt-get", aptInstall([...flags, "--download-only"], names.map((name) => targets.get(name)!)), SIMULATE_TIMEOUT_MS)).code === 0;
+          let ready = [...targets.keys()];
+          if (!ready.length) return;
+          if (!(await cached(ready, "is everything cached"))) {
+            const all = ready;
+            ready = [];
+            for (const name of all) if (await cached([name], `is ${name} cached`)) ready.push(name);
+          }
+          if (!ready.length) return;
+          const result = await attempt(label, "apt-get", aptInstall(flags, ready.map((name) => targets.get(name)!)), OFFLINE_TIMEOUT_MS);
+          // One that breaks the run (a maintainer script, say) mustn't keep the rest from coming back.
+          if (result.code !== 0 && ready.length > 1)
+            for (const name of ready) await attempt(`${label}, ${name} alone`, "apt-get", aptInstall(flags, [targets.get(name)!]), OFFLINE_TIMEOUT_MS);
+        } finally {
+          for (const file of linked) await rm(file, { force: true });
+        }
+      };
+      const fromNetwork = async (label: string, lists: readonly string[]) => {
+        const targets = await targetsFor(lists);
         if (!targets.size) return;
-        // Offline, apt installs what its cache has and holds back the rest.
-        const flags = [...lists, ...(download ? [] : ["--no-download", "--ignore-missing"])];
-        const timeout = download ? NETWORK_TIMEOUT_MS : OFFLINE_TIMEOUT_MS;
-        let result = await attempt(label, "apt-get", aptInstall(flags, [...targets.values()]), timeout);
-        // Offline, a missing download is expected; online, a network error is for the next start.
-        if (result.code === 0 || !download || unreachable(result.output)) return;
+        let result = await attempt(label, "apt-get", aptInstall(lists, [...targets.values()]), NETWORK_TIMEOUT_MS);
+        // A network error is for the next start.
+        if (result.code === 0 || unreachable(result.output)) return;
         // Find the packages that break the run with dry runs, and install the rest together.
         for (const [name, target] of targets) {
           const dryRun = await attempt(`${label}, dry run for ${name}`, "apt-get", ["-s", ...aptInstall(lists, [target])], SIMULATE_TIMEOUT_MS);
           if (dryRun.code !== 0) { failed.set(name, installFailureReason(dryRun.output)); targets.delete(name); }
         }
         if (!targets.size) return;
-        result = await attempt(`${label}, without the failing ones`, "apt-get", aptInstall(flags, [...targets.values()]), timeout);
+        result = await attempt(`${label}, without the failing ones`, "apt-get", aptInstall(lists, [...targets.values()]), NETWORK_TIMEOUT_MS);
         if (result.code === 0 || unreachable(result.output)) return;
         // Only a failure dry runs can't see (a maintainer script, say) gets here.
         for (const [name, target] of targets) {
-          const alone = targets.size === 1 ? result : await attempt(`${label}, ${name} alone`, "apt-get", aptInstall(flags, [target]), timeout);
+          const alone = targets.size === 1 ? result : await attempt(`${label}, ${name} alone`, "apt-get", aptInstall(lists, [target]), NETWORK_TIMEOUT_MS);
           if (alone.code !== 0 && !unreachable(alone.output)) failed.set(name, installFailureReason(alone.output));
         }
       };
@@ -601,17 +680,17 @@ export async function replayRecordedPackages(options: ReplayOptions = {}): Promi
       await run("cp", ["-a", `${paths.lists}/.`, paths.replayLists]);
       await rm(join(paths.replayLists, "lock"), { force: true });
       // Offline, from the .debs and lists kept in the volume.
-      await pass("offline", lists, false);
+      await fromCache("offline", lists);
       await settle();
       if (todo.length) {
         let refresh = await attempt("refresh package lists", "apt-get", [...lists, "-q", "update"], UPDATE_TIMEOUT_MS);
         const before = todo.length;
-        await pass("network", lists, true);
+        await fromNetwork("network", lists);
         await settle();
         // A bot's source may have needed something the first pass installed; refresh and try again.
         if (todo.length && (todo.length < before || unfetchedUrls(refresh.output).length)) {
           refresh = await attempt("refresh package lists again", "apt-get", [...lists, "-q", "update"], UPDATE_TIMEOUT_MS);
-          await pass("network, second pass", lists, true);
+          await fromNetwork("network, second pass", lists);
           await settle();
         }
         // Without the image's own sources the network is down: everything left waits for the next start.

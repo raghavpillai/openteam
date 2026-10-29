@@ -49,9 +49,9 @@ When OpenTeam updates, or recreates the computer after a settings change, the co
 - apt packages. The computer records each package a bot installs, the apt sources and keys it added, and `.deb` files it installed, and reinstalls them in the background when it starts. Packages from Debian come back at the new image's version.
 - pip and npm packages, which are reinstalled or rebuilt when an update changes the Python or Node.js version.
 
-Everything else, such as `/tmp`, manual changes under `/etc`, and files in `/opt` or other folders, starts fresh. The image's own tools and libraries always come back as the image's version, so an update's fixes reach every bot. Commands bots add to `/usr/local/bin` or their home folder run by name, but a copy with the same name as one of the system's tools doesn't replace it; bots call such a copy by its full path.
+Everything else, such as `/tmp`, manual changes under `/etc`, and files in `/opt` or other folders, starts fresh. The image's own tools and libraries always come back as the image's version, so an update's fixes reach every bot. Commands bots add to `/usr/local/bin` or their home folder run by name, but a copy with the same name as one of the system's tools doesn't replace it, in login shells and `sudo` too; bots call such a copy by its full path.
 
-If a package can't come back (its apt source is gone, or it was installed from a `.deb` that wasn't kept), each bot is told once, and the computer tries again only after its image changes. Bots run `openteam-installs` to see what's recorded and `sudo openteam-installs forget NAME` to drop a package. To start over with no installed software, stop OpenTeam and remove the `openteam_openteam_computer_local` volume.
+If a package can't come back (its apt source is gone, or it was installed from a `.deb` that wasn't kept), each bot is told once, and the computer tries again only after its image changes. Bots run `openteam-installs` to see what's recorded and `sudo openteam-installs forget NAME` to stop tracking a package: it isn't reinstalled at start and no bot is told about it, until it's removed and installed again. An apt source a bot removes stays removed. To start over with no installed software, stop OpenTeam and remove the `openteam_openteam_computer_local` volume.
 
 ## Use your own computer
 

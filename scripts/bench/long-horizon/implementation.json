@@ -1,5 +1,5 @@
 {
-  "status": "General parent-request ownership and stable cache prefixes implemented and locally verified. Immutable4b source passed narrow-approval and real-hour audits. Native0.78.1missed the matched question deadline; harness ended before its next scheduled check, so later recovery is untested. Current-source held-out restart/read-only validation remains running.",
+  "status": "General parent-request ownership and stable cache prefixes implemented and locally verified. Immutable4b source passed narrow-approval, real-hour, and held-out saved-wait full-stack restart audits. Native0.78.1missed the matched question deadline; later recovery was not tested after harness cleanup. Current-source read-only narrowing and repetitions continue.",
   "productRevision": "4b552998",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -213,7 +213,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-29T09:41:28.188308+00:00",
+  "updatedAt": "2026-10-29T09:49:33.136397+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -831,7 +831,7 @@
       "serial4-grok078-S2N-3"
     ]
   },
-  "newRevisionValidation": "Immutable4b source passed a narrowly approved case and a real60-minute review delay: required question answered132.307seconds, full pending-refund report67.464seconds, parent/worker complete, no idle closure, no OOM/restart, and zero assistant responses in the60-minute parked interval. Current-source injected restart and held-out read-only transfer remain pending.",
+  "newRevisionValidation": "Immutable4b source passed narrow approval and real60-minute review delay, then a held-out appointment after saved wait plus full-stack hard restart. Appointment reply8.557seconds, verified report9.192seconds, no duplicate/unauthorized action, unrelated question answered, parent/worker complete. Fixture outcomes only; current-source read-only narrowing and repetitions remain pending. See cooperative-round.json.",
   "currentRuntimeSource": "4b5529981383408f6396c3898cf41aa412cd7317",
   "currentEvidence": "cooperative-round.json"
 }

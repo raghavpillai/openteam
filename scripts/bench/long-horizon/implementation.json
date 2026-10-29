@@ -1,5 +1,5 @@
 {
-  "status": "General parent-request ownership and stable cache prefixes implemented and locally verified. Immutable4b source passed narrow-approval, real-hour, and held-out saved-wait full-stack restart audits. Native0.78.1missed the matched question deadline; later recovery was not tested after harness cleanup. Current-source read-only narrowing and repetitions continue.",
+  "status": "General parent-request ownership and stable cache prefixes implemented and locally verified. Immutable4b source passed scoped approval, real-hour, saved-wait full-stack restart, and read-only narrowing audits. Native0.78.1missed the matched question deadline; later recovery was not tested after cleanup. Short repetitions continue.",
   "productRevision": "4b552998",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -213,7 +213,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-29T09:49:33.136397+00:00",
+  "updatedAt": "2026-10-29T09:56:18.206686+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -831,7 +831,7 @@
       "serial4-grok078-S2N-3"
     ]
   },
-  "newRevisionValidation": "Immutable4b source passed narrow approval and real60-minute review delay, then a held-out appointment after saved wait plus full-stack hard restart. Appointment reply8.557seconds, verified report9.192seconds, no duplicate/unauthorized action, unrelated question answered, parent/worker complete. Fixture outcomes only; current-source read-only narrowing and repetitions remain pending. See cooperative-round.json.",
+  "newRevisionValidation": "Immutable4b source passed narrow approval, real60-minute review delay, appointment saved-wait full-stack restart, and read-only narrowing after an ambiguous accepted export request. Stop/revocation fenced original work; later form was intentionally unanswered and no export readiness was claimed. Source-specific fixture outcomes and bounded privacy/resource audits only; repetitions continue. See cooperative-round.json.",
   "currentRuntimeSource": "4b5529981383408f6396c3898cf41aa412cd7317",
   "currentEvidence": "cooperative-round.json"
 }

@@ -1,0 +1,93 @@
+{
+  "cohort": "long-horizon-round10-semantic-customer",
+  "updatedAt": "2026-10-29T10:58:29.265504+00:00",
+  "status": "running_not_final",
+  "runtimeSource": "4b5529981383408f6396c3898cf41aa412cd7317",
+  "benchmarkSourceCommit": "a0217024",
+  "customerPolicyVersion": "7-semantic-holder-bounded-authority",
+  "customerCoreSha256": "074ebe0ef8fa468e40bbeb43f9019d99accf915aa54f014c86c7fb3d827d16fa",
+  "policyValidation": "semantic-customer-validation.json",
+  "baseline": {
+    "computer": "6fa9c3ce frozen cached runtime",
+    "serverWorker": "490cef61 frozen bytes",
+    "isolation": "Use compatible original schema/images, not a main checkout."
+  },
+  "models": {
+    "OpenTeam": "openai/gpt-6.1-sol low",
+    "holder": "anthropic/claude-opus-5.5 minimal",
+    "assistant": "anthropic/claude-opus-5.5 minimal",
+    "support": "deepseek/deepseek-v4.1-flash low",
+    "nativeInferenceReasoningCost": "unknown"
+  },
+  "plannedTrials": [
+    {
+      "id": "semantic7-grok078-S2N-1",
+      "arm": "grok078",
+      "scenario": "S2N",
+      "repetition": 1
+    },
+    {
+      "id": "semantic7-candidate-S2N-1",
+      "arm": "candidate",
+      "scenario": "S2N",
+      "repetition": 1
+    },
+    {
+      "id": "semantic7-base-S2N-1",
+      "arm": "base",
+      "scenario": "S2N",
+      "repetition": 1
+    },
+    {
+      "id": "semantic7-grok078-S1-1",
+      "arm": "grok078",
+      "scenario": "S1",
+      "repetition": 1
+    },
+    {
+      "id": "semantic7-base-S1-1",
+      "arm": "base",
+      "scenario": "S1",
+      "repetition": 1
+    },
+    {
+      "id": "semantic7-candidate-S1-1",
+      "arm": "candidate",
+      "scenario": "S1",
+      "repetition": 1
+    },
+    {
+      "id": "semantic7-base-S2N-2",
+      "arm": "base",
+      "scenario": "S2N",
+      "repetition": 2
+    },
+    {
+      "id": "semantic7-candidate-S2N-2",
+      "arm": "candidate",
+      "scenario": "S2N",
+      "repetition": 2
+    }
+  ],
+  "firstRunningTrial": "semantic7-grok078-S2N-1",
+  "budget": {
+    "startingUsageUsd": 6049.980107475,
+    "holdNewLaunchesAtAdditionalUsd": 20,
+    "noResetAfterExclusionsOrProbes": true,
+    "nativeCloudCostUnknown": true
+  },
+  "isolation": {
+    "OTPhysicalBrowserNamespace": "ownerHill",
+    "nativeNamespace": "grok",
+    "sequentialTrials": true,
+    "ownFixtureAccountsOnly": true,
+    "priorActiveCaseNotInterrupted": true
+  },
+  "failurePolicy": "Explicit customer/provider failure or collection/resource fault preserves and excludes attempt; no replay of attempted IDs. Approval/claims/ownership/privacy still require transcript review.",
+  "limits": [
+    "No semantic-policy7actor outcome is yet claimed passed.",
+    "Do not pool with earlier customer policy versions.",
+    "Customer policy probes are not actor task successes.",
+    "Eight planned attempts, possibly fewer at original spending hold."
+  ]
+}

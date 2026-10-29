@@ -1,6 +1,6 @@
 {
   "version": "7-semantic-holder-bounded-authority",
-  "status": "validated_prepared_waiting_fresh_actor_launch",
+  "status": "validated_frozen_fresh_actor_cohort_running",
   "reason": "Frozen policy6 failed to answer an indirect approval request in native0.78.1. The original attempt is excluded, not labeled an agent failure. A semantic classifier handles varied request forms without adding one phrase to a regular expression.",
   "implementation": "support-customer-policy.mjs",
   "localTests": {
@@ -134,5 +134,6 @@
   "nextCohort": "long-horizon-round10-semantic-customer",
   "originalBudgetStartUsageUsd": 6049.980107475,
   "holdNewLaunchesAtAdditionalUsd": 20,
-  "noAllowanceReset": true
+  "noAllowanceReset": true,
+  "freshActorCohortEvidence": "semantic-customer-round.json"
 }

@@ -1,5 +1,13 @@
-import { spawn } from "node:child_process";
-import { constants, copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import {
+  constants,
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { ServerUpdateHeartbeat, ServerUpdateRequest } from "@openteam/contracts";
 import {
@@ -12,6 +20,13 @@ import { healthUrl } from "./health";
 import { activeUpdateProcess, readUpdateState } from "./update-safety";
 import { isBunStandaloneExecutable, readCliPromotion } from "./cli-update";
 import { CLI_VERSION } from "./constants";
+import {
+  installUpdateAgentService,
+  removeUpdateAgentService,
+  type ServiceHost,
+  systemServiceHost,
+  type UpdateAgentCommand,
+} from "./update-agent-service";
 
 export const UPDATE_AGENT_ENV = "OPENTEAM_UPDATE_AGENT";
 export const UPDATE_AGENT_CLI_ENV = "OPENTEAM_UPDATE_AGENT_CLI";
@@ -59,20 +74,104 @@ const lockOwner = (paths: InstallationPaths): number | null => {
     return null;
   }
 };
+// A claim whose PID never appears belongs to an agent that died while starting.
+const ABANDONED_CLAIM_MS = 30_000;
 
-/** No new listener, network port, or desktop credentials: the host polls its own installation. */
-export const ensureUpdateAgent = (paths: InstallationPaths): void => {
-  if (!readManifest(paths)?.ownerUsername) return;
+/**
+ * Whether `pid` is this installation's agent. After a reboot the recorded PID can belong to an
+ * unrelated process, which must not keep the agent off.
+ */
+export const isUpdateAgentProcess = (
+  pid: number,
+  directory: string,
+  platform = process.platform
+): boolean => {
+  if (!alive(pid)) return false;
+  try {
+    if (platform === "darwin") {
+      const ps = spawnSync("ps", ["-ww", "-o", "command=", "-p", String(pid)], {
+        encoding: "utf8",
+      });
+      if (ps.error) return true;
+      // A directory with spaces spans several words, so match the text.
+      return ps.status === 0 && / status /.test(ps.stdout) && ps.stdout.includes(` ${directory}`);
+    }
+    if (platform !== "linux") return true;
+    const args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+    return args.includes("status") && args.includes(directory);
+  } catch {
+    return false;
+  }
+};
+
+export const runningUpdateAgent = (paths: InstallationPaths): number | null => {
   const owner = lockOwner(paths);
-  if (owner && alive(owner)) return;
-  const args = updateWorkerArguments([
-    process.argv[0]!,
-    process.argv[1]!,
-    "status",
-    "--dir",
-    paths.directory,
-  ]);
-  const installedExecutable = updateAgentExecutable();
+  return owner && isUpdateAgentProcess(owner, paths.directory) ? owner : null;
+};
+
+/** The command the service manager or the CLI runs to start this installation's agent. */
+export const updateAgentCommand = (paths: InstallationPaths): UpdateAgentCommand => {
+  const executable = updateAgentExecutable();
+  const environment: Record<string, string> = {
+    [UPDATE_AGENT_ENV]: "1",
+    [UPDATE_AGENT_CLI_ENV]: executable,
+  };
+  // Service managers start with a minimal environment; keep what finds and reaches Docker.
+  for (const name of [
+    "PATH",
+    "DOCKER_HOST",
+    "DOCKER_CONTEXT",
+    "DOCKER_CONFIG",
+    "DOCKER_CERT_PATH",
+    "DOCKER_TLS_VERIFY",
+  ]) {
+    const value = process.env[name];
+    if (value) environment[name] = value;
+  }
+  return {
+    executable,
+    args: updateWorkerArguments([
+      process.argv[0]!,
+      process.argv[1]!,
+      "status",
+      "--dir",
+      paths.directory,
+    ]),
+    environment,
+  };
+};
+
+/**
+ * No new listener, network port, or desktop credentials: the host polls its own installation.
+ * On macOS and systemd Linux the agent is registered to start again after a reboot or sign-in.
+ */
+export const ensureUpdateAgent = (
+  paths: InstallationPaths,
+  host: ServiceHost = systemServiceHost()
+): void => {
+  if (!readManifest(paths)?.ownerUsername) return;
+  const running = runningUpdateAgent(paths) !== null;
+  const command = updateAgentCommand(paths);
+  try {
+    const service = installUpdateAgentService(paths, command, running, host);
+    if (service.managed) {
+      if (service.linger)
+        console.warn(
+          `Server updates start when you sign in to this host, not at boot. To start them at boot, run: ${service.linger}`
+        );
+      return;
+    }
+    if (service.warning)
+      console.warn(
+        `Server updates will stay off after a reboot until you run openteam start (${service.warning}).${service.linger ? ` To start them at boot, run: ${service.linger}, then openteam start.` : ""}`
+      );
+  } catch (error) {
+    console.warn(
+      `Server updates will stay off after a reboot until you run openteam start (${error instanceof Error ? error.message : error}).`
+    );
+  }
+  if (running) return;
+  const installedExecutable = command.executable;
   let executable = installedExecutable;
   // A persistent Windows daemon must not hold the installed CLI's executable open
   // while a later update promotes its replacement.
@@ -84,20 +183,38 @@ export const ensureUpdateAgent = (paths: InstallationPaths): void => {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
   }
-  const child = spawn(executable, args, {
+  const child = spawn(executable, command.args, {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
-    env: {
-      ...workerEnvironment(),
-      [UPDATE_AGENT_ENV]: "1",
-      [UPDATE_AGENT_CLI_ENV]: installedExecutable,
-    },
+    env: { ...workerEnvironment(), ...command.environment },
   });
   events(child).on("error", (error) =>
     console.warn(`Server updates could not be enabled: ${error.message}`)
   );
   child.unref();
+};
+
+/** `openteam stop` and `uninstall`: stop the agent and keep it from starting at the next boot. */
+export const stopUpdateAgent = (
+  paths: InstallationPaths,
+  host: ServiceHost = systemServiceHost()
+): void => {
+  try {
+    removeUpdateAgentService(paths, host);
+  } catch (error) {
+    console.warn(
+      `Could not remove the server updater's startup entry: ${error instanceof Error ? error.message : error}`
+    );
+  }
+  const pid = runningUpdateAgent(paths);
+  if (pid && host.platform !== "win32") {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // Already gone.
+    }
+  }
 };
 
 export const updateAgentArguments = (
@@ -231,22 +348,23 @@ export class UpdateAgent {
 
 export const runUpdateAgent = async (paths: InstallationPaths): Promise<void> => {
   const owner = lockOwner(paths);
-  if (owner && alive(owner)) return;
-  // An incomplete claim is another daemon starting; leave it time to write its PID.
+  if (owner && isUpdateAgentProcess(owner, paths.directory)) return;
   if (!owner) {
+    let claimedAt: number | null = null;
     try {
-      mkdirSync(lockPath(paths), { mode: 0o700 });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") return;
-      throw error;
-    }
-  } else {
-    rmSync(lockPath(paths), { recursive: true, force: true });
-    try {
-      mkdirSync(lockPath(paths), { mode: 0o700 });
+      claimedAt = statSync(lockPath(paths)).mtimeMs;
     } catch {
-      return;
+      // No claim yet.
     }
+    // An incomplete claim is another daemon starting; leave it time to write its PID.
+    if (claimedAt !== null && Date.now() - claimedAt < ABANDONED_CLAIM_MS) return;
+  }
+  rmSync(lockPath(paths), { recursive: true, force: true });
+  try {
+    mkdirSync(lockPath(paths), { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return;
+    throw error;
   }
   writeFileSync(join(lockPath(paths), "pid"), String(process.pid), { mode: 0o600 });
   try {

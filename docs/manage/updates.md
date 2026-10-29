@@ -27,7 +27,14 @@ Open **Settings → Updates** to update the desktop app. In **Settings → Compu
 
 The host CLI runs the same signed-release updater described above, including backup and rollback. Updates wait until every agent is idle; the host checks again before stopping services. The update continues after you close the desktop app; the app reconnects when the server restarts.
 
-The CLI starts a background updater after `openteam install`, `openteam setup`, `openteam start`, or `openteam update`. After rebooting the host, run `openteam start` to re-enable in-app updates. If the updater is unavailable, Settings shows the command to run on that server. Servers installed before this feature need one update with `openteam update` on the host first.
+The CLI starts a background updater after `openteam install`, `openteam setup`, `openteam start`, or `openteam update`. On macOS and on Linux with systemd, it also sets the updater to start again after a reboot, so in-app updates keep working:
+
+- **macOS:** a LaunchAgent in `~/Library/LaunchAgents` starts it when you sign in.
+- **Linux:** a systemd user service starts it at boot. The CLI turns on lingering for your user so the service doesn't wait for you to sign in. If your system doesn't allow that, the CLI prints the `sudo loginctl enable-linger` command to run once.
+
+`openteam stop` and `openteam uninstall` stop the updater and remove its startup entry; `openteam start` adds it back. On Windows, and on Linux without systemd, run `openteam start` after rebooting the host to re-enable in-app updates.
+
+If the updater is unavailable, Settings shows the command to run on that server. Servers installed before this feature need one update with `openteam update` on the host first.
 
 The desktop app and the server have separate versions. If the app reports that it's incompatible with the server, update both.
 

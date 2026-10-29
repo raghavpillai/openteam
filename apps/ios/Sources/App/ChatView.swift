@@ -244,6 +244,10 @@ struct ChatView: View {
         if message.metadata["event"]["type"].string == "name-changed" {
           Label("Renamed to " + message.metadata["event"]["to"].string, systemImage: "pencil")
             .font(.system(size: 12)).foregroundStyle(NativePalette.muted).frame(maxWidth: .infinity)
+        } else if message.isInterruptedNotice {
+          Text(message.content).font(.system(size: 12)).foregroundStyle(NativePalette.muted)
+            .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.horizontal, 24)
+            .accessibilityIdentifier("interrupted-notice-" + message.id)
         } else {
           MessageRow(message: message, channel: channel, onReply: { reply(message) },
             onThread: { branchesReplies = true; thread = message },

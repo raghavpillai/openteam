@@ -1,5 +1,5 @@
 {
-  "status": "General parent-request ownership and stable cache prefixes implemented and locally verified. Immutable4b source passed scoped approval, real-hour, saved-wait full-stack restart, and read-only narrowing audits. Native0.78.1missed the matched question deadline; later recovery was not tested after cleanup. Short repetitions continue.",
+  "status": "Immutable4b runtime passed scoped approval, real-hour, saved-wait restart and read-only narrowing audits. One native short timeout is now excluded because the customer harness ignored an indirect approval request. General semantic customer validation passes; a fresh all-arm cohort is prepared after the unchanged active case. No production runtime change was made for the transient working-state snapshot.",
   "productRevision": "4b552998",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -213,7 +213,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-29T09:56:18.206686+00:00",
+  "updatedAt": "2026-10-29T10:49:34.965985+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -833,5 +833,6 @@
   },
   "newRevisionValidation": "Immutable4b source passed narrow approval, real60-minute review delay, appointment saved-wait full-stack restart, and read-only narrowing after an ambiguous accepted export request. Stop/revocation fenced original work; later form was intentionally unanswered and no export readiness was claimed. Source-specific fixture outcomes and bounded privacy/resource audits only; repetitions continue. See cooperative-round.json.",
   "currentRuntimeSource": "4b5529981383408f6396c3898cf41aa412cd7317",
-  "currentEvidence": "cooperative-round.json"
+  "currentEvidence": "cooperative-round.json",
+  "semanticCustomerEvidence": "semantic-customer-validation.json"
 }

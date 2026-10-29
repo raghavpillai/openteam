@@ -1,0 +1,132 @@
+{
+  "version": "7-semantic-holder-bounded-authority",
+  "status": "validated_prepared_not_yet_actor_tested",
+  "reason": "Frozen policy6 failed to answer an indirect approval request in native0.78.1. The original attempt is excluded, not labeled an agent failure. A semantic classifier handles varied request forms without adding one phrase to a regular expression.",
+  "implementation": "support-customer-policy.mjs",
+  "localTests": {
+    "passed": 13,
+    "failed": 0,
+    "meaningfulGates": [
+      "one-action authority",
+      "known facts only",
+      "no fabricated missing facts",
+      "restricted scope overrides",
+      "clarification distinct from permission",
+      "known URL only",
+      "credential-redacted classifier input",
+      "cached/concurrent decision deduplication",
+      "explicit structured/API failure",
+      "no protected-value option echo",
+      "bounded classifier calls"
+    ]
+  },
+  "livePolicyProbes": {
+    "passed": 16,
+    "total": 16,
+    "model": "anthropic/claude-opus-5.5",
+    "reasoning": "minimal",
+    "results": [
+      {
+        "id": "actual-implicit-request",
+        "passed": true,
+        "kind": "permission"
+      },
+      {
+        "id": "conditional-approval",
+        "passed": true,
+        "kind": "permission"
+      },
+      {
+        "id": "indirect-next-step",
+        "passed": true,
+        "kind": "permission"
+      },
+      {
+        "id": "imperative-fact",
+        "passed": true,
+        "kind": "verification"
+      },
+      {
+        "id": "quoted-draft-not-approval",
+        "passed": true,
+        "kind": null
+      },
+      {
+        "id": "known-facts-only",
+        "passed": true,
+        "kind": null
+      },
+      {
+        "id": "protected-login-password",
+        "passed": true,
+        "kind": "scope"
+      },
+      {
+        "id": "new-fee",
+        "passed": true,
+        "kind": "scope"
+      },
+      {
+        "id": "recurring-watch",
+        "passed": true,
+        "kind": "scope"
+      },
+      {
+        "id": "reject-credit",
+        "passed": true,
+        "kind": "permission"
+      },
+      {
+        "id": "informational-result",
+        "passed": true,
+        "kind": null
+      },
+      {
+        "id": "clarification-choice",
+        "passed": true,
+        "kind": "clarification"
+      },
+      {
+        "id": "verification-alternatives",
+        "passed": true,
+        "kind": "verification"
+      },
+      {
+        "id": "unknown-provider-reference",
+        "passed": true,
+        "kind": "unavailable"
+      },
+      {
+        "id": "unavailable-human-takeover",
+        "passed": true,
+        "kind": "scope"
+      },
+      {
+        "id": "new-commitment",
+        "passed": true,
+        "kind": "scope"
+      }
+    ],
+    "estimatedClassifierUsd": 0.13586,
+    "limits": "Customer-policy probes, not actor-task successes. Final changes after probes were import organization and equivalent string formatting; policy payload and behavior unchanged."
+  },
+  "negativeDevelopmentAttempts": [
+    {
+      "kind": "forced tool choice",
+      "result": "HTTP400 before structured classification; retained as a fixture setup error. Auto tool choice plus mandatory validated structured output passed probes.",
+      "actorTasksLaunched": 0
+    }
+  ],
+  "fences": [
+    "Model returns a bounded intent, fact keys and option index, never freeform holder authority or invented fact values.",
+    "Fact values are supplied by host from known account fields; provider outcome/decision state is not supplied to classifier.",
+    "Login password, PIN and operator/inference key values are scrubbed from classifier inputs; PIN is supplied only to the acting assistant for a scoped verification request.",
+    "Single-action approval semantics apply equally to widgets and text.",
+    "Malformed, unavailable or over-bound customer decisions end and exclude a trial explicitly instead of silently starving the actor.",
+    "Actor inference, runtime images, site provider models and security settings unchanged."
+  ],
+  "nextCohort": "long-horizon-round10-semantic-customer",
+  "originalBudgetStartUsageUsd": 6049.980107475,
+  "holdNewLaunchesAtAdditionalUsd": 20,
+  "noAllowanceReset": true
+}

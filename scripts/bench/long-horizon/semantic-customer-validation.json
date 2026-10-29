@@ -1,6 +1,6 @@
 {
   "version": "7-semantic-holder-bounded-authority",
-  "status": "validated_prepared_not_yet_actor_tested",
+  "status": "validated_prepared_waiting_fresh_actor_launch",
   "reason": "Frozen policy6 failed to answer an indirect approval request in native0.78.1. The original attempt is excluded, not labeled an agent failure. A semantic classifier handles varied request forms without adding one phrase to a regular expression.",
   "implementation": "support-customer-policy.mjs",
   "localTests": {
@@ -21,11 +21,16 @@
     ]
   },
   "livePolicyProbes": {
-    "passed": 16,
-    "total": 16,
+    "passed": 17,
+    "total": 17,
     "model": "anthropic/claude-opus-5.5",
     "reasoning": "minimal",
     "results": [
+      {
+        "id": "new-recipient",
+        "passed": true,
+        "kind": "scope"
+      },
       {
         "id": "actual-implicit-request",
         "passed": true,
@@ -107,8 +112,8 @@
         "kind": "scope"
       }
     ],
-    "estimatedClassifierUsd": 0.13586,
-    "limits": "Customer-policy probes, not actor-task successes. Final changes after probes were import organization and equivalent string formatting; policy payload and behavior unchanged."
+    "estimatedClassifierUsd": 0.150216,
+    "limits": "Customer-policy validation only, not actor task successes. Final destination-fenced core validated with live17probe set and13localtests."
   },
   "negativeDevelopmentAttempts": [
     {
@@ -123,7 +128,8 @@
     "Login password, PIN and operator/inference key values are scrubbed from classifier inputs; PIN is supplied only to the acting assistant for a scoped verification request.",
     "Single-action approval semantics apply equally to widgets and text.",
     "Malformed, unavailable or over-bound customer decisions end and exclude a trial explicitly instead of silently starving the actor.",
-    "Actor inference, runtime images, site provider models and security settings unchanged."
+    "Actor inference, runtime images, site provider models and security settings unchanged.",
+    "Approvals and verification explicitly retain the original provider website; no new destinations or recipients."
   ],
   "nextCohort": "long-horizon-round10-semantic-customer",
   "originalBudgetStartUsageUsd": 6049.980107475,

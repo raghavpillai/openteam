@@ -1,5 +1,5 @@
 {
-  "status": "Immutable4b runtime passed scoped approval, real-hour, saved-wait restart and read-only narrowing audits. One native short timeout is now excluded because the customer harness ignored an indirect approval request. General semantic customer validation passes; a fresh all-arm cohort is prepared after the unchanged active case. No production runtime change was made for the transient working-state snapshot.",
+  "status": "Immutable4b runtime passed two narrow-approval cases, real-hour, saved-wait restart and read-only narrowing. Native short timeout excluded for omitted customer approval; no actor failure established. Semantic customer policy passes17liveprobes/13localtests and is frozen for a fresh all-arm cohort. Runtime ownership alarm was corrected from full queue evidence; production code remains unchanged.",
   "productRevision": "4b552998",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -213,7 +213,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-29T10:49:34.965985+00:00",
+  "updatedAt": "2026-10-29T10:55:51.070183+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,

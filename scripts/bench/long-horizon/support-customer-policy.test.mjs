@@ -39,6 +39,8 @@ test("approval renderer preserves one action and all authority limits across arb
   const r = renderDecision(d("approval"), { account, singleActionOnly: true });
   assert.equal(r.kind, "permission");
   assert.match(r.text, /only the immediate/);
+  assert.match(r.text, /original provider website/);
+  assert.match(r.text, /new destinations or recipients/);
   assert.match(r.text, /later outgoing action still needs/);
   assert.match(r.text, /Do not accept fees/);
 });
@@ -75,6 +77,7 @@ test("scope issues override an otherwise approving classifier for every restrict
     "protected_credentials",
     "human_takeover",
     "alternate_url",
+    "new_destination",
   ])
     assert.equal(
       renderDecision(d("approval", { scopeIssues: [issue] }), { account }).kind,

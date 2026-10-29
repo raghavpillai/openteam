@@ -94,3 +94,35 @@ export const backgroundHistoryNeed = ({
   if (history.loading || history.loadedAt === 0) return null;
   return detachedMessageIds.has(latest.id) ? "refresh" : null;
 };
+
+// A just-read open chat is not read again for this long after bootstrap.
+const OPEN_HISTORY_REUSE_MS = 250;
+
+/**
+ * Whether bootstrap must be followed by a read of the open chat. The saved chat
+ * starts loading before bootstrap resolves, so a page read moments ago is reused
+ * when its run state already covers bootstrap's cursor. History and run state are
+ * separate reads, though: a reply that lands between them is in the state's
+ * revision but not on the page, so a page that withholds bootstrap's newest
+ * message is always read again.
+ */
+export const openHistoryNeedsRead = ({
+  bootstrap,
+  channelId,
+  history,
+  state,
+  detachedMessageIds,
+  now,
+}: {
+  bootstrap: ClientBootstrapView;
+  channelId: string;
+  history: LoadedChannelHistory | undefined;
+  state: ChannelClientState | undefined;
+  detachedMessageIds: ReadonlySet<string>;
+  now: number;
+}): boolean => {
+  if (!history || now - history.loadedAt >= OPEN_HISTORY_REUSE_MS || !state) return true;
+  if (compareSequence({ sequence: state.revision }, { sequence: bootstrap.cursor }) < 0) return true;
+  const latest = bootstrap.latestMessages.find((message) => message.channelId === channelId);
+  return Boolean(latest && detachedMessageIds.has(latest.id));
+};

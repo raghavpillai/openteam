@@ -37,6 +37,7 @@ import { createSnapshotCaches, reconcileClientSnapshot } from "../lib/snapshot-r
 import {
   backgroundHistoryNeed as backgroundHistoryNeedFor,
   bootstrapSnapshot,
+  openHistoryNeedsRead,
 } from "../lib/bootstrap-snapshot";
 import { withDeadline } from "../lib/request-errors";
 import { RUNTIME_REFRESH_EVENT } from "../lib/runtime-refresh";
@@ -863,21 +864,19 @@ export function useOpenTeam() {
               // can never strand the app on its connecting screen.
               publishBootstrap(cycleQuiet);
               const activeChannel = historyLru.current[0];
-              if (activeChannel && histories.current.has(activeChannel)) {
-                const history = histories.current.get(activeChannel);
-                const state = channelStates.current.get(activeChannel);
-                // The saved channel can begin loading before bootstrap resolves.
-                // Reuse that just-completed page instead of immediately issuing
-                // the same history/state pair a second time during startup.
-                if (
-                  !history ||
-                  Date.now() - history.loadedAt >= 250 ||
-                  !state ||
-                  compareSequence({ sequence: state.revision }, { sequence: bootstrap.cursor }) <
-                    0
-                ) {
-                  await fetchChannel(activeChannel, false, true);
-                }
+              if (
+                activeChannel &&
+                histories.current.has(activeChannel) &&
+                openHistoryNeedsRead({
+                  bootstrap,
+                  channelId: activeChannel,
+                  history: histories.current.get(activeChannel),
+                  state: channelStates.current.get(activeChannel),
+                  detachedMessageIds: detachedMessageIdsRef.current,
+                  now: Date.now(),
+                })
+              ) {
+                await fetchChannel(activeChannel, false, true);
               }
               void syncBackgroundHistories();
               setError(null);

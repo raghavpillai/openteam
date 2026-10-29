@@ -1,6 +1,6 @@
 {
-  "status": "General parent-request ownership and stable cache prefixes implemented and locally verified. The existing6fa live runtime retains its valid ownership failure and slow reports. New-revision browser/hour validation is held because the inference account is depleted; no new-live superiority claim.",
-  "productRevision": "6fa9c3ce",
+  "status": "General parent-request ownership and stable cache prefixes implemented and locally verified. Immutable4b source passed narrow-approval and real-hour provider/claim/ownership audits. Matching native hour and current-source held-out restart/read-only validation remain running; exclusions and prior negatives are retained.",
+  "productRevision": "4b552998",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
     "preserved": [
@@ -213,7 +213,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-28T22:29:08.325391+00:00",
+  "updatedAt": "2026-10-29T09:26:01.956653+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -746,6 +746,11 @@
       "finding": "S1andS2Nalready batch account, service and billing reads. Additional screenshot-related turns, decision reads, UI closure and a navigation retry precede full reports. Call counts alone do not show which essential verification can safely be removed.",
       "nextIteration": "Test reductions in optional recordkeeping and deterministic UI turn overhead on a separately frozen candidate with held-out workflows. Keep the activev4matrix unchanged.",
       "limits": "Recordedtoolcall/result intervals, not isolated inference timing. No new productionprompt/runtime change deployed."
+    },
+    "currentParentOwnershipCohort": {
+      "evidence": "cooperative-round.json",
+      "source": "4b5529981383408f6396c3898cf41aa412cd7317",
+      "status": "in_progress_not_final"
     }
   },
   "realModelCompactionProbe": {
@@ -826,5 +831,7 @@
       "serial4-grok078-S2N-3"
     ]
   },
-  "newRevisionValidation": "Local runtime, queue, recovery, scope, projection and cache tests pass. No clean funded full browser/hour run of the parent-request extension yet."
+  "newRevisionValidation": "Immutable4b source passed a narrowly approved case and a real60-minute review delay: required question answered132.307seconds, full pending-refund report67.464seconds, parent/worker complete, no idle closure, no OOM/restart, and zero assistant responses in the60-minute parked interval. Current-source injected restart and held-out read-only transfer remain pending.",
+  "currentRuntimeSource": "4b5529981383408f6396c3898cf41aa412cd7317",
+  "currentEvidence": "cooperative-round.json"
 }

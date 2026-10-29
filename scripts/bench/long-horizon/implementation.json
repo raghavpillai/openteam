@@ -213,7 +213,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-29T12:56:10.174502+00:00",
+  "updatedAt": "2026-10-29T13:07:34.349991+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,
@@ -853,5 +853,30 @@
     "Further evaluate read-only approval friction and contextual customer-classifier scope errors; final extra candidate verification and native July appeal are explicitly user-blocked/end-censored.",
     "General production stale-account identity-guard fix is not established by expiring owned benchmark browser sessions.",
     "Larger matched samples and new-source live validation require a fresh declared spending allowance; do not reset original usage anchor."
-  ]
+  ],
+  "historicalNativeCleanup": {
+    "case": "serial4-grok078-S2N-3",
+    "efficacyStatus": "Earlier funding-invalid native case remains excluded; this cleanup audit does not turn it into a task success.",
+    "announcedCheckAt": "2026-10-29T13:00:00Z",
+    "observerFinishedAt": "2026-10-29T13:06:32.021000+00:00",
+    "coverage": {
+      "reviewedAt": "2026-10-29T13:06:52.357Z",
+      "successfulSamples": 494,
+      "unavailableSamples": 0,
+      "samplesAfterAnnouncedCheck": 6,
+      "noPostDeleteActivityObserved": true,
+      "declaredCoveragePassed": true,
+      "passed": true,
+      "observerCredentialRotationPreserved": true,
+      "limits": "Bounded own-account observation after bot deletion, not private backend cascade attestation or proof against arbitrary later activity."
+    },
+    "independentCoverageVerification": {
+      "firstSuccessfulPostCheckSampleSeconds": 31.922,
+      "lastSuccessfulPostCheckSampleSeconds": 332.016,
+      "observedActivity": 0,
+      "observerProcessExited": true
+    },
+    "scope": "Read-only observation of this owned fixture account after deleting its own benchmark bot. No model task, prompt replay, security-setting change or paid inference.",
+    "limits": "No observed post-delete account activity within the bounded window. Native private automation deletion/cascade and arbitrarily later activity remain unobservable."
+  }
 }

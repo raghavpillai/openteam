@@ -29,6 +29,10 @@ import {
   temporaryName,
 } from "./box-store/manifest";
 
+const CHROME_PROFILE_SOURCE = /^home\/box\/chrome-profile(?:-\d+)?$/;
+/** How often a periodic snapshot recaptures a profile whose Chromium is still running. */
+export const CHROME_PROFILE_SNAPSHOT_INTERVAL_MS = 30 * 60_000;
+
 type SnapshotContent = Buffer | Awaited<ReturnType<typeof stageFile>>;
 
 export class BoxStoreSync {
@@ -49,6 +53,8 @@ export class BoxStoreSync {
   private pendingFullSnapshot = false;
   private readonly pendingDirtyPrefixes = new Set<string>();
   private pendingChromeSnapshot = false;
+  private readonly chromeProfileIntervalMs: number;
+  private readonly chromeProfileCapturedAt = new Map<string, number>();
   private readonly metrics: BoxStoreSyncMetrics = {
     scheduledRequests: 0,
     coalescedRequests: 0,
@@ -72,6 +78,7 @@ export class BoxStoreSync {
       sandRoot?: string;
       workspaceRoot?: string;
       hasLiveAgentHandle?: (agentId: string) => boolean;
+      chromeProfileIntervalMs?: number;
     } = {}
   ) {
     this.storeRoot = resolve(
@@ -88,6 +95,8 @@ export class BoxStoreSync {
       options.workspaceRoot ?? process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace"
     );
     this.hasLiveAgentHandle = options.hasLiveAgentHandle ?? (() => false);
+    this.chromeProfileIntervalMs =
+      options.chromeProfileIntervalMs ?? CHROME_PROFILE_SNAPSHOT_INTERVAL_MS;
   }
 
   async start(): Promise<void> {
@@ -169,6 +178,9 @@ export class BoxStoreSync {
   }
 
   private mergeDirtyHint(hint: BoxStoreDirtyHint): void {
+    // A full snapshot may defer running browser profiles, so an explicit
+    // browser request must survive being merged into one.
+    if (hint.chrome) this.pendingChromeSnapshot = true;
     if (
       hint.all !== false &&
       !hint.sand &&
@@ -180,13 +192,11 @@ export class BoxStoreSync {
     ) {
       this.pendingFullSnapshot = true;
       this.pendingDirtyPrefixes.clear();
-      this.pendingChromeSnapshot = false;
       return;
     }
     if (hint.all) {
       this.pendingFullSnapshot = true;
       this.pendingDirtyPrefixes.clear();
-      this.pendingChromeSnapshot = false;
       return;
     }
     if (this.pendingFullSnapshot) return;
@@ -209,15 +219,15 @@ export class BoxStoreSync {
       }
       this.pendingDirtyPrefixes.add(`home/box/sand-data/${segments.join("/")}`);
     }
-    if (hint.chrome) this.pendingChromeSnapshot = true;
   }
 
   private consumeDirtyHint(): BoxStoreDirtyHint {
     if (this.pendingFullSnapshot) {
+      const chrome = this.pendingChromeSnapshot;
       this.pendingFullSnapshot = false;
       this.pendingDirtyPrefixes.clear();
       this.pendingChromeSnapshot = false;
-      return { all: true };
+      return chrome ? { all: true, chrome } : { all: true };
     }
     const prefixes = collapseLogicalPrefixes(this.pendingDirtyPrefixes);
     this.pendingDirtyPrefixes.clear();
@@ -275,6 +285,7 @@ export class BoxStoreSync {
 
   private async snapshotOutLocked(hint: BoxStoreDirtyHint): Promise<BoxStoreManifest> {
     this.metrics.snapshotRuns += 1;
+    const startedAt = Date.now();
     const startingManifest = await this.readManifest();
     const startingEtag = startingManifest?.etag ?? null;
     const signatureCache = await this.readSignatureCache(startingEtag);
@@ -289,30 +300,37 @@ export class BoxStoreSync {
     );
     const fullSnapshot =
       hint.all === true || !hasSpecificHint || !startingManifest || !signatureCache;
+    // Profiles deferred by a full snapshot keep their previous entries, exactly
+    // like clean roots in a partial snapshot.
+    const deferredProfiles =
+      fullSnapshot && !hint.chrome && startingManifest && signatureCache
+        ? await this.deferredChromeProfiles(sources, startedAt)
+        : [];
     const dirtyPrefixes = fullSnapshot
-      ? sources.map(({ logical }) => logical)
+      ? sources
+          .map(({ logical }) => logical)
+          .filter((logical) => !deferredProfiles.includes(logical))
       : this.dirtyPrefixesForHint(hint, sources, startingManifest);
+    const retained = (path: string): boolean =>
+      fullSnapshot
+        ? deferredProfiles.some((prefix) => logicalContains(prefix, path))
+        : !dirtyPrefixes.some((prefix) => logicalContains(prefix, path));
     const previousFiles = new Map(
       (startingManifest?.files ?? []).map((file) => [file.path, file] as const)
     );
-    const filesByPath = fullSnapshot ? new Map<string, ManifestFile>() : new Map(previousFiles);
+    const filesByPath = new Map([...previousFiles].filter(([path]) => retained(path)));
     const nextSignatures = new Map<string, string>();
-    if (!fullSnapshot && signatureCache) {
-      for (const [path, signature] of Object.entries(signatureCache.signatures)) {
-        if (!dirtyPrefixes.some((prefix) => logicalContains(prefix, path))) {
-          nextSignatures.set(path, signature);
-        }
-      }
-    }
-    for (const prefix of dirtyPrefixes) {
-      for (const path of filesByPath.keys()) {
-        if (logicalContains(prefix, path)) filesByPath.delete(path);
-      }
-      for (const path of nextSignatures.keys()) {
-        if (logicalContains(prefix, path)) nextSignatures.delete(path);
-      }
+    for (const [path, signature] of Object.entries(signatureCache?.signatures ?? {})) {
+      if (retained(path)) nextSignatures.set(path, signature);
     }
     const targets = this.collectionTargets(dirtyPrefixes, sources);
+    const capturedProfiles = sources
+      .map(({ logical }) => logical)
+      .filter(
+        (logical) =>
+          CHROME_PROFILE_SOURCE.test(logical) &&
+          dirtyPrefixes.some((prefix) => logicalContains(prefix, logical))
+      );
     for (const target of targets) {
       await this.collect(
         target.path,
@@ -352,6 +370,7 @@ export class BoxStoreSync {
       this.manifestPath,
       Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8")
     );
+    for (const logical of capturedProfiles) this.chromeProfileCapturedAt.set(logical, startedAt);
     const nextCache: SnapshotSignatureCache = {
       version: 1,
       manifestEtag: manifest.etag,
@@ -454,6 +473,29 @@ export class BoxStoreSync {
       }
     }
     return sources;
+  }
+
+  /**
+   * A running Chromium rewrites parts of its profile every few minutes even
+   * while idle (extension and IndexedDB LevelDB logs, cookie and quota
+   * databases), and each changed file is stored whole. Full snapshots therefore capture a running browser's profile
+   * at most once per interval. Explicit browser hints and the shutdown snapshot
+   * still capture it, and once the browser exits (Chromium removes its
+   * SingletonLock) the next periodic snapshot does too. The live profile itself
+   * stays on the home volume across restarts.
+   */
+  private async deferredChromeProfiles(
+    sources: Array<{ path: string; logical: string }>,
+    now: number
+  ): Promise<string[]> {
+    const deferred: string[] = [];
+    for (const { path, logical } of sources) {
+      if (!CHROME_PROFILE_SOURCE.test(logical)) continue;
+      const capturedAt = this.chromeProfileCapturedAt.get(logical);
+      if (capturedAt === undefined || now - capturedAt >= this.chromeProfileIntervalMs) continue;
+      if (await lstat(join(path, "SingletonLock")).catch(() => null)) deferred.push(logical);
+    }
+    return deferred;
   }
 
   private dirtyPrefixesForHint(

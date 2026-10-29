@@ -1293,6 +1293,23 @@ function TestScreen({
   // "OpenRouter: Auto Router" reads as "Auto Router"; the maker shows in the picker.
   const modelName = setup.selectedModel ? modelOption(setup.selectedModel, "").name : setup.modelId;
   const noModels = !setup.modelId && !setup.busy && Boolean(setup.data);
+  // Picking a model tests it; after a failed test, picking another is the usual fix.
+  const picker =
+    setup.data && setup.data.models.length > 1 ? (
+      <>
+        <span className="setup-label">Model</span>
+        <ModelPicker
+          disabled={retrying || test.status === "running"}
+          models={setup.data.models}
+          onChange={(modelId) => {
+            setup.selectModel(modelId);
+            setPending(true);
+          }}
+          providerName={providerTitle(setup.providerId, setup)}
+          value={setup.modelId}
+        />
+      </>
+    ) : null;
   if (noModels || (test.status === "failed" && !retrying)) {
     // No model list usually means the provider refused the key or sign-in.
     const message = noModels ? (setup.provider?.modelMessage ?? "") : "";
@@ -1333,7 +1350,9 @@ function TestScreen({
             providerName={name}
           />
         }
-      />
+      >
+        {picker}
+      </SetupLayout>
     );
   }
   const passed = test.status === "passed" && !retrying;
@@ -1362,21 +1381,7 @@ function TestScreen({
         />
       }
     >
-      {setup.data && setup.data.models.length > 1 ? (
-        <>
-          <span className="setup-label">Model</span>
-          <ModelPicker
-            disabled={!passed}
-            models={setup.data.models}
-            onChange={(modelId) => {
-              setup.selectModel(modelId);
-              setPending(true);
-            }}
-            providerName={providerTitle(setup.providerId, setup)}
-            value={setup.modelId}
-          />
-        </>
-      ) : null}
+      {picker}
     </SetupLayout>
   );
 }

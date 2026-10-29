@@ -55,7 +55,6 @@ export interface ScreenStatus {
     | "settings"
     | "bookmarks"
     | "history"
-    | "open-tabs"
   >;
   browserTargetRouting: "bot-owned-tabs";
   error: string | null;

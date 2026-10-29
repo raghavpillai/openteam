@@ -455,9 +455,10 @@ export const SendToAgentInput = Schema.Struct({
 export type SendToAgentInput = typeof SendToAgentInput.Type;
 
 export const AgentSendToUserInput = Schema.Struct({
-  type: Schema.Literal("text", "attachment", "widget", "secret-request", "computer-handoff", "user-form", "external-draft", "bot-template"),
+  type: Schema.Literal("text", "attachment", "widget", "secret-request", "computer-handoff", "user-form", "external-draft", "imessage-send", "bot-template"),
   form: Schema.optional(Schema.Unknown),
   draft: Schema.optional(Schema.Unknown),
+  imessage: Schema.optional(Schema.Unknown),
   template: Schema.optional(Schema.Unknown),
   end_turn: Schema.optional(Schema.Boolean),
   content: Schema.optional(Schema.String),
@@ -1053,7 +1054,6 @@ export interface ScreenStatusView {
     | "settings"
     | "bookmarks"
     | "history"
-    | "open-tabs"
   >;
   browserTargetRouting: "bot-owned-tabs";
 }
@@ -1810,6 +1810,7 @@ export class ApiError extends Error {
   }
 }
 export * from './external-draft';
+export * from './messages-send';
 export * from './bot-recipe';
 
 export * from "./web-search";

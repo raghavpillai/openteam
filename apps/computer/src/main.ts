@@ -681,10 +681,12 @@ const shutdown = (): Promise<void> => {
   server.stop();
   runtime.closeIdleProviderConnections();
   shutdownPromise = Promise.all([
+    runtime.recordLeftRunningProcesses().catch((error) => console.warn(`Left-running process record failed: ${String(error)}`)),
     stdioMcp.closeAll(),
     (async () => {
-      await agentStores.closeAll();
-      boxStore.scheduleSnapshot(0, { sand: true });
+      await Promise.all([agentStores.closeAll(), screens.shutdown()]);
+      // Include browser profiles: periodic snapshots defer a running browser's profile.
+      boxStore.scheduleSnapshot(0, { sand: true, chrome: true });
       await boxStore.flushScheduledSnapshots();
     })(),
   ]).then(() => undefined);
@@ -693,10 +695,14 @@ const shutdown = (): Promise<void> => {
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
-    void shutdown().catch((error) => {
-      console.error(`OpenTeam computer gateway shutdown failed: ${String(error)}`);
-      process.exitCode = 1;
-    });
+    // Exit explicitly: desktop processes would otherwise keep the gateway
+    // alive until Docker kills the container.
+    void shutdown()
+      .catch((error) => {
+        console.error(`OpenTeam computer gateway shutdown failed: ${String(error)}`);
+        process.exitCode = 1;
+      })
+      .finally(() => process.exit());
   });
 }
 

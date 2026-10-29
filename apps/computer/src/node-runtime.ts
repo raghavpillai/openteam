@@ -7,7 +7,6 @@ export const nodeBinary = (): string => {
     process.env.OPENTEAM_NODE_BINARY,
     "/usr/bin/node",
     "/opt/homebrew/bin/node",
-    "/usr/local/bin/node",
     ...(process.env.PATH ?? "").split(delimiter).filter(Boolean).map(directory => join(directory, "node")),
   ];
   const resolved = candidates.find((candidate): candidate is string => Boolean(candidate && existsSync(candidate)));

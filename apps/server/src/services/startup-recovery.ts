@@ -8,6 +8,12 @@ import type { ComputerFetch } from "./service-utils";
 import { appendEvent } from "./service-utils";
 import { SUBAGENT_RECOVERY_RUN_STATUSES, subagentRestartError } from "./subagent/recovery";
 
+export const RESTART_INTERRUPTED_NOTICE =
+  "This reply was interrupted by a restart. Send your message again to continue.";
+
+/** Turns a person is waiting on. Background work (routines, Tasks, events) reports through its own paths. */
+const NOTICE_ORIGINS = ["user", "handoff_resume"] as const;
+
 export async function recover(
   prisma: PrismaClient,
   boss: PgBoss,
@@ -49,6 +55,16 @@ export async function recover(
         parentBot: { status: { not: "archived" } },
       },
     });
+    const subagentRunIds = new Set(interruptedSubagents.map((subagent) => subagent.currentRunId));
+    const cutOffTurns = await tx.run.findMany({
+      where: {
+        status: "running",
+        origin: { in: [...NOTICE_ORIGINS] },
+        channel: { archivedAt: null },
+        bot: { status: { not: "archived" } },
+      },
+      select: { id: true, botId: true, channelId: true },
+    });
     const interrupted = await tx.run.updateMany({
       where: { id: { in: activeRunIds }, status: "running" },
       data: {
@@ -60,6 +76,7 @@ export async function recover(
         },
       },
     });
+    const wokenParents = new Set<string>();
     for (const subagent of interruptedSubagents) {
       const attempt = subagent.currentRunId
         ? await tx.subagentAttempt.findUnique({
@@ -121,6 +138,7 @@ export async function recover(
           select: { status: true },
         });
         if (parent && ["active", "provisioning"].includes(parent.status)) {
+          wokenParents.add(`${subagent.parentBotId}:${attempt.parentChannelId}`);
           await messaging.enqueueWake(tx, {
             botId: subagent.parentBotId,
             channelId: attempt.parentChannelId,
@@ -141,6 +159,22 @@ export async function recover(
           });
         }
       }
+    }
+    // Say so in the chat, once per turn, without waking the bot: the person decides whether to ask again.
+    // A bot woken above about its failed Task speaks in that chat itself.
+    for (const run of cutOffTurns) {
+      if (!run.channelId || subagentRunIds.has(run.id) || wokenParents.has(`${run.botId}:${run.channelId}`)) continue;
+      await tx.channelMessage.createMany({
+        data: [{
+          channelId: run.channelId,
+          clientId: `restart-interrupted:${run.id}`,
+          sender: "system",
+          content: RESTART_INTERRUPTED_NOTICE,
+          metadata: { type: "event", event: { type: "turn-interrupted", reason: "restart", runId: run.id } },
+          createdAt: now,
+        }],
+        skipDuplicates: true,
+      });
     }
     const orphanedActiveChildren = archivedParentChildren.filter((child) =>
       ["provisioning", "queued", "running", "waiting"].includes(child.status)

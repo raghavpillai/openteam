@@ -2068,7 +2068,7 @@ export class AgentMessaging {
           FROM "ChannelMessage" AS message
           WHERE message."senderBotId" = ${botId}::uuid
             AND message."sender" = 'agent'::"ChannelMessageSender"
-            AND message."metadata"->>'type' IN ('widget', 'secret-request', 'computer-handoff', 'user-form', 'external-draft', 'bot-template')
+            AND message."metadata"->>'type' IN ('widget', 'secret-request', 'computer-handoff', 'user-form', 'external-draft', 'imessage-send', 'bot-template')
             AND (
               (
                 message."metadata"->>'type' = 'widget'
@@ -2085,7 +2085,7 @@ export class AgentMessaging {
               )
               OR (message."metadata" ? 'outcomeId' AND coalesce((message."metadata"->>'outcomeEchoed')::boolean, false) = false)
               OR (
-                message."metadata"->>'type' IN ('user-form', 'external-draft', 'bot-template')
+                message."metadata"->>'type' IN ('user-form', 'external-draft', 'imessage-send', 'bot-template')
                 AND (message."metadata"->>'cardState' = 'pending' OR coalesce((message."metadata"->>'outcomeEchoed')::boolean, false) = false)
               )
             )
@@ -2121,8 +2121,8 @@ export class AgentMessaging {
         unansweredIds.push(message.id);
         return [buildUnansweredQuestionNote(message.content, wakeOrigin === "user")];
       }
-      if (metadata.type === "user-form" || metadata.type === "external-draft" || metadata.type === "bot-template") {
-        return [typeof metadata.outcomeText === "string" ? `[Card outcome ${String(metadata.outcomeId)}]\n${metadata.outcomeText}` : `The user has not completed the ${metadata.type === "user-form" ? "form" : "message draft"} yet: ${JSON.stringify(message.content)}. Wait for their response.`];
+      if (metadata.type === "user-form" || metadata.type === "external-draft" || metadata.type === "imessage-send" || metadata.type === "bot-template") {
+        return [typeof metadata.outcomeText === "string" ? `[Card outcome ${String(metadata.outcomeId)}]\n${metadata.outcomeText}` : `The user has not completed the ${metadata.type === "user-form" ? "form" : metadata.type === "imessage-send" ? "text approval" : "message draft"} yet: ${JSON.stringify(message.content)}. Wait for their response.`];
       }
       return [
         `The user has not provided the requested credential yet: ${JSON.stringify(message.content)}.`,
@@ -2610,8 +2610,8 @@ export class AgentMessaging {
         if (normalized.status !== "message") return { acknowledgement: { sent: false, silent: true }, interruptRunId: null };
         content = normalized.content;
       }
-      // A room cannot hold a draft card, so a draft from a room goes to the bot's own 1:1 chat.
-      if (privateDm && input.type !== "text" && input.type !== "external-draft") {
+      // A room cannot hold a draft or approval card, so one from a room goes to the bot's own 1:1 chat.
+      if (privateDm && input.type !== "text" && input.type !== "external-draft" && input.type !== "imessage-send") {
         throw new ApiError(
           400,
           "dm_text_only",
@@ -2791,6 +2791,7 @@ export class AgentMessaging {
     if (input.type === "bot-template") return input.content ?? "Shared bot template";
     if (input.type === "user-form") return String((input.form as { title: string }).title);
     if (input.type === "external-draft") return String((input.draft as { subject?: string; target?: string }).subject ?? (input.draft as { target?: string }).target ?? "Review message draft");
+    if (input.type === "imessage-send") return "Send this message?";
     if (input.type === "text") {
       if (!input.content?.trim()) throw new Error("content is required when type is text");
       return input.content;

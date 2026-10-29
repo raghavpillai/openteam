@@ -1,5 +1,10 @@
 #!/bin/sh
 set -eu
+# OpenTeam's own processes never search /usr/local or the home folder, which
+# bots install into; bot shells get those back (agent-process.ts).
+PATH=/usr/lib/openteam/bin:/usr/sbin:/usr/bin:/sbin:/bin
+NODE_PATH=/usr/lib/openteam/node/lib/node_modules
+export PATH NODE_PATH
 
 agent_dir=${OPENTEAM_PI_AGENT_DIR:-/home/box/.pi/agent}
 data_root=${OPENTEAM_AGENT_DATA_CANONICAL_ROOT:-/home/box/sand-data}
@@ -18,8 +23,8 @@ umask 0022
 
 # One-off provider login/import commands also use this image without a running
 # computer or helper. They do not launch desktops and must remain usable.
-if [ "${1:-}" = bun ] && [ "${2:-}" = /app/apps/computer/dist/main.js ]; then
-  python3 /usr/local/bin/openteam-memory-setup.py
+if [ "${1:-}" = /usr/lib/openteam/bin/bun ] && [ "${2:-}" = /app/apps/computer/dist/main.js ]; then
+  /usr/bin/python3 -I -S /usr/lib/openteam/bin/openteam-memory-setup.py
 fi
 
 mkdir -p "$agent_dir"
@@ -32,6 +37,8 @@ find /home/box "$data_root" /workspace -uid 1001 -exec chown -h "$agent_uid:$age
 chown "$agent_uid:$agent_gid" /home/box "$data_root" /workspace /workspace/slides /home/box/Downloads /home/box/Documents
 chmod 0700 /home/box "$data_root"
 chmod 0755 /workspace /workspace/slides /home/box/Downloads /home/box/Documents
+# apt keeps its package lists and downloads in the /usr/local volume.
+mkdir -p /usr/local/var/lib/openteam/apt/archives/partial /usr/local/var/lib/openteam/apt/lists/partial
 
 # The supervisor owns credentials; bot processes start as box but can read
 # these files through sudo. File ownership is not an isolation boundary.
@@ -60,6 +67,13 @@ if [ ! -L "$data_alias" ]; then
 fi
 
 cd /workspace
+
+if [ "${1:-}" = /usr/lib/openteam/bin/bun ] && [ "${2:-}" = /app/apps/computer/dist/main.js ]; then
+  # Reinstall the apt packages bots installed before this container existed,
+  # and rebuild language packages after a Python or Node version change.
+  # It runs in the background; its log is /usr/local/var/lib/openteam/replay.log.
+  (/usr/lib/openteam/bin/bun /app/apps/computer/dist/installs-cli.js replay >/dev/null 2>&1 &)
+fi
 
 # Match the writable kernel filesystems inside the bot computer's namespaces.
 mount -o remount,rw /sys

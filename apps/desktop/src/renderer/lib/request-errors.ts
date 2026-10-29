@@ -134,6 +134,10 @@ export function modelTestErrorMessage(raw: string, name: string): string {
   if (/\b5\d\d\b|server_error|overloaded|internal (?:server )?error/i.test(text)) {
     return `${name} had a problem on its end. Try again in a moment.`;
   }
+  // The server's word for a request the provider refused as configured, e.g. reasoning off.
+  if (/rejected the configuration or request/i.test(text)) {
+    return `${name} didn't accept a request to this model. Choose a different model, or a different reasoning effort in Settings → Model.`;
+  }
   if (readable(nested)) return redactSensitiveText(nested);
   if (readable(raw.trim())) return redactSensitiveText(raw.trim());
   return `${name} sent back an error. Try again, or choose a different AI.`;

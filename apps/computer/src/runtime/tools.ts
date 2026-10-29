@@ -26,7 +26,7 @@ import {
   parseConnectorTransfer,
 } from "@openteam/contracts/connector-transfers";
 import { createHash } from "node:crypto";
-import { DESKTOP_CAPABILITY_TOOLS } from "@openteam/contracts/desktop-capabilities";
+import { DESKTOP_CAPABILITY_TOOLS, DESKTOP_MESSAGES_TOOLS } from "@openteam/contracts/desktop-capabilities";
 import { agentFileIO } from "../agent-file-io";
 import { connectorResultParts, spillConnectorText } from "./connector-results";
 import { boundToolImage } from "./image-input";
@@ -472,6 +472,11 @@ export class RuntimeTools {
     }
     active.acknowledgedCardOutcomes ??= new Set();
     for (const receipt of receipts) active.acknowledgedCardOutcomes.add(receipt.outcomeId);
+  }
+
+  /** Checked once per turn: Messages tools appear only while a connected Mac has Messages on. */
+  messagesAvailable(): Promise<boolean> {
+    return this.nativeToolExecutor.messagesAvailable(AbortSignal.timeout(5_000));
   }
 
   contextCatalog(active: ActiveTurn) {
@@ -1460,6 +1465,7 @@ export class RuntimeTools {
         REQUEST_BOX_HELP_TOOL.name,
         "RequestUserForm",
         "DraftExternalMessage",
+        "SendIMessage",
         "CreateBotShareJson",
       ].includes(tool) &&
       body &&
@@ -1608,13 +1614,17 @@ export class RuntimeTools {
             ),
         ...(active.runtimeProfile === "subagent" || active.requestSource === "automation"
           ? []
-          : DESKTOP_CAPABILITY_TOOLS.map(
+          : DESKTOP_CAPABILITY_TOOLS.filter(
+              (definition) => active.messagesAvailable || !(DESKTOP_MESSAGES_TOOLS as readonly string[]).includes(definition.name)
+            ).map(
               (definition): RuntimeDynamicTool => ({
                 ...definition,
                 source: "first-party",
                 decodeArguments: (args) => parseReferenceArguments(definition.name, args),
-                execute: (turn, callId, args, signal) =>
-                  this.desktopTool(turn, definition.name, args, signal, callId),
+                // A text goes out only from its approval card, unless the user allowed it on that Mac.
+                execute: (turn, callId, args, signal) => definition.name === "SendIMessage"
+                  ? this.callControlPlaneTool(turn, callId, definition.name, args, signal)
+                  : this.desktopTool(turn, definition.name, args, signal, callId),
               })
             )),
         ...(active.runtimeProfile === "subagent"

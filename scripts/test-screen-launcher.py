@@ -20,7 +20,7 @@ class NativeDocumentLauncherTest(unittest.TestCase):
             launcher = root / "openteam-screen-launch"
             launcher.write_bytes((directory_root / "openteam-screen-launch").read_bytes())
             launcher.chmod(0o700)
-            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"], OPENTEAM_TOOLS_DIR=str(root),
                        OPENTEAM_BROWSER_PROFILE=str(root / "desktop profile"), OPENTEAM_BROWSER_DEBUG_PORT="9444")
             for headless in ("--headless", "--headless=new"):
                 for extra in ([], ["--user-data-dir=" + str(root / "explicit profile")]):
@@ -42,7 +42,7 @@ class NativeDocumentLauncherTest(unittest.TestCase):
             launcher = root / "openteam-screen-launch"
             launcher.write_bytes((directory_root / "openteam-screen-launch").read_bytes())
             launcher.chmod(0o700)
-            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"], OPENTEAM_TOOLS_DIR=str(root),
                        OPENTEAM_BROWSER_PROFILE=str(root / "screen profile"), OPENTEAM_BROWSER_DEBUG_PORT="9444")
             for urls in ([], ["https://example.com/a?q=one&v=two"],
                          ["file:///workspace/report 日本語.html", "https://example.com/second"],

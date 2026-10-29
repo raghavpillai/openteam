@@ -1,17 +1,28 @@
+import AppIntents
 import SwiftUI
 
 @main
 struct OpenTeamApp: App {
   @UIApplicationDelegateAdaptor(NotificationAppDelegate.self) private var notificationDelegate
-  @State private var store = AppStore()
+  @State private var store: AppStore
   @AppStorage("appearance") private var appearance = "system"
   @AppStorage("accent") private var accent = "black"
   @Environment(\.scenePhase) private var scenePhase
+  init() {
+    let store = AppStore()
+    _store = State(initialValue: store)
+    AppDependencyManager.shared.add(dependency: store)
+    if !Self.systemTestHost { TeamAppShortcuts.updateAppShortcutParameters() }
+  }
   var body: some Scene {
     WindowGroup {
       Group {
         #if DEBUG
-          if ProcessInfo.processInfo.arguments.contains("--composer-latency-control") {
+          if Self.systemTestHost {
+            // Hosted unit tests own their sessions and app stores. Starting the
+            // normal scene would poll/write the same account during assertions.
+            Color.clear
+          } else if ProcessInfo.processInfo.arguments.contains("--composer-latency-control") {
             ComposerLatencyControl()
           } else if ProcessInfo.processInfo.arguments.contains("--bot-motion-lab") {
             RobotMotionLab()
@@ -30,11 +41,24 @@ struct OpenTeamApp: App {
       .onChange(of: scenePhase) { _, phase in
         store.setForeground(phase == .active)
         // iOS caches a launch picture for a new appearance or orientation at launch.
-        if phase == .background { Self.syncLaunchScreen(appearance) }
+        if phase == .background {
+          store.cancelPendingVoiceRecording()
+          Self.syncLaunchScreen(appearance)
+        }
       }
       .onChange(of: appearance, initial: true) { _, value in Self.syncLaunchScreen(value) }
       .onOpenURL { url in Task { await store.deepLink(url) } }
+      .sheet(item: $store.systemDraft) { draft in
+        SystemDraftPicker(draft: draft).environment(store)
+      }
     }
+  }
+  private static var systemTestHost: Bool {
+    #if DEBUG
+      ProcessInfo.processInfo.environment["OPENTEAM_SYSTEM_TEST_HOST"] == "1"
+    #else
+      false
+    #endif
   }
   private static let launchScreenQueue = DispatchQueue(label: "launch-screen", qos: .utility)
   /// Keeps the picture iOS shows before launch in the chosen appearance, so a

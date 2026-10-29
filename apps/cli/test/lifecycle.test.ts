@@ -1,8 +1,16 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parseArguments } from "../src/arguments";
 import {
   createEnvironment,
@@ -685,6 +693,60 @@ describe("installed lifecycle", () => {
       "verifying",
       "complete",
     ]);
+  });
+
+  test("a successful update keeps the newest three update backups and logs what it removed", async () => {
+    const { paths } = fixture();
+    const old = [
+      "postgres-1.1.0-before-1.2.0-2026-01-01T00-00-00-000Z.sql",
+      "postgres-1.2.0-before-1.2.1-2026-02-01T00-00-00-000Z.sql",
+      "postgres-1.2.1-before-1.2.2-2026-03-01T00-00-00-000Z.sql",
+      "postgres-1.2.2-before-1.2.3-2026-04-01T00-00-00-000Z.sql",
+    ];
+    mkdirSync(paths.backups, { recursive: true });
+    for (const name of old) writeFileSync(join(paths.backups, name), "SELECT 1;\n");
+    const messages: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...values) => {
+      messages.push(values.map(String).join(" "));
+    });
+    try {
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+        new HealthyDockerRunner()
+      );
+    } finally {
+      log.mockRestore();
+    }
+    const current = readUpdateState(paths)!.backupPath!;
+    expect(readdirSync(paths.backups).sort()).toEqual(
+      [old[2]!, old[3]!, basename(current)].sort()
+    );
+    expect(messages).toContain(
+      `Removed 2 older update backups from ${paths.backups}: ${old[1]}, ${old[0]}`
+    );
+  });
+
+  test("a failed update deletes no backups", async () => {
+    const { paths } = fixture();
+    const old = [1, 2, 3, 4].map(
+      (month) => `postgres-1.2.2-before-1.2.3-2026-0${month}-01T00-00-00-000Z.sql`
+    );
+    mkdirSync(paths.backups, { recursive: true });
+    for (const name of old) writeFileSync(join(paths.backups, name), "SELECT 1;\n");
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await expect(
+        updateCommand(
+          paths,
+          parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+          new HealthyDockerRunner(false, true)
+        )
+      ).rejects.toThrow("Update failed");
+    } finally {
+      log.mockRestore();
+    }
+    expect(readdirSync(paths.backups)).toHaveLength(5);
   });
 
   test("--when-idle refuses while a bot is working, before it downloads or stops anything", async () => {

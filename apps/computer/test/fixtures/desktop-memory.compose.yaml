@@ -22,7 +22,7 @@ services:
       - ${OPENTEAM_MEMORY_TEST_OUTPUT:?set by test script}/artifacts:/artifacts
   computer-memory-init:
     image: ${OPENTEAM_MEMORY_TEST_IMAGE:-openteam-memory-test:local}
-    entrypoint: [/usr/local/bin/openteam-memory-init]
+    entrypoint: [/usr/lib/openteam/bin/openteam-memory-init]
     pid: service:computer
     network_mode: none
     depends_on:

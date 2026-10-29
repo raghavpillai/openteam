@@ -906,7 +906,8 @@ test('the parent-only dispatch reminder names only tools the parent has and that
       ...(direct.includes('CallDynamicTool') ? runtime.dynamicCatalog(active).flatMap((namespace: any) => namespace.tools.map((tool: any) => tool.name)) : []),
     ]);
   };
-  const parent = new Set([...surface(workerTurn(null)), ...surface(workerTurn(null, { requestSource: 'automation' }))]);
+  // Messages tools are listed while a connected Mac has Messages on.
+  const parent = new Set([...surface(workerTurn(null, { messagesAvailable: true })), ...surface(workerTurn(null, { requestSource: 'automation' }))]);
   for (const type of ['executor', 'knowledgeWork', 'computerUse', 'videoReview', 'watchVideo', undefined]) {
     const child = type ? surface(workerTurn(type)) : new Set<string>();
     const listed = [...parentOnlyToolsFor(type).keys()];
@@ -943,4 +944,16 @@ test('a readonly worker lists and greps with Shell on the box, reads only throug
   expect(calls).toEqual(['search_threads', 'whoami']);
   await expect(runtime.callDynamicTool(readonly, 'call-send', { namespace: 'gmail_work', toolName: 'send_message', arguments: {} }))
     .rejects.toThrow('This tool is unavailable to a read-only plugin agent');
+});
+
+test('Messages tools appear only while a connected Mac has Messages on, and never for workers or routines', () => {
+  const runtime = runtimeTools() as any;
+  const cursor = (active: Record<string, unknown>) =>
+    runtime.dynamicCatalog(active).find((namespace: any) => namespace.name === 'cursor').tools.map((tool: any) => tool.name);
+  const messages = ['FindContacts', 'FindIMessageChats', 'ChatItems', 'SearchIMessages', 'IMessageActivity', 'FetchIMessageAttachment', 'SendIMessage', 'CheckIMessagePermissions'];
+  expect(cursor(workerTurn(null, { messagesAvailable: true }))).toEqual(expect.arrayContaining(messages));
+  for (const active of [workerTurn(null), workerTurn(null, { messagesAvailable: false }), workerTurn(null, { messagesAvailable: true, requestSource: 'automation' }), workerTurn('executor', { messagesAvailable: true })])
+    expect(cursor(active).filter((name: string) => messages.includes(name))).toEqual([]);
+  // The Chrome sign-in import does not depend on Messages.
+  expect(cursor(workerTurn(null))).toContain('RequestCookieOriginApproval');
 });

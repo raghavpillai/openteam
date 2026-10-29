@@ -9,7 +9,8 @@ Your data lives in a database and several Docker volumes. Back them up together,
 | What | Contains |
 | --- | --- |
 | Database | Bots, conversations, memory, run history, plugin accounts, and private skills |
-| `computer_home` volume | Browser profiles, website sign-ins, and model provider sign-ins |
+| `computer_home` volume | Browser profiles, website sign-ins, model provider sign-ins, and software bots installed in their home folder |
+| `computer_local` volume | Software bots installed system-wide in `/usr/local`, and the list of apt packages the computer reinstalls when it starts, with their cached downloads |
 | `agent_data` volume | Skills, routines, bot profiles, and model settings |
 | `workspace` volume | Files in `/workspace` |
 | `assets` volume | Attachments |
@@ -19,6 +20,14 @@ Your data lives in a database and several Docker volumes. Back them up together,
 Backups include sign-ins to websites and services. Store them somewhere private.
 
 The database backup that `openteam update` makes is for rolling back a failed update. It isn't a full backup.
+
+## Update backups
+
+Before each update, `openteam update` saves a copy of the database in the `backups` folder of your install directory, named `postgres-<old version>-before-<new version>-<time>.sql`. If the new version doesn't start, the updater restores the copy it just made and restarts the previous version.
+
+- **Database only.** Update backups don't include the Docker volumes (workspace files, browser sign-ins, attachments, software bots installed) and don't roll them back. The updater restores the previous `.env` and `compose.yaml` itself, from copies it holds during the update. Use [Make a backup](#make-a-backup) for everything else.
+- **The three newest are kept.** After each successful update, the updater deletes older update backups and lists the deleted files in `update.log` in your install directory. A failed update deletes nothing. Other files in the `backups` folder are left alone. To keep an update backup for longer, copy it somewhere else.
+- **Private.** The copies include plugin sign-ins and saved keys. Only your user can read them.
 
 ## Make a backup
 
@@ -37,7 +46,7 @@ oc stop server worker computer
 oc exec -T postgres pg_dump -U openteam -d openteam --format=custom > "$OUT/postgres.dump"
 
 # Back up the volumes
-for v in computer_home agent_data assets workspace box_store; do
+for v in computer_home computer_local agent_data assets workspace box_store; do
   docker run --rm -v "openteam_openteam_$v:/source:ro" -v "$OUT:/backup" alpine:3.22 \
     tar -czf "/backup/openteam_$v.tar.gz" -C /source .
 done
@@ -71,7 +80,7 @@ oc up -d --wait postgres
 oc exec -T postgres pg_restore -U openteam -d openteam < "$OUT/postgres.dump"
 
 # Restore the volumes
-for v in computer_home agent_data assets workspace box_store; do
+for v in computer_home computer_local agent_data assets workspace box_store; do
   docker run --rm -v "openteam_openteam_$v:/target" -v "$OUT:/backup:ro" alpine:3.22 \
     sh -c "find /target -mindepth 1 -delete && tar -xzf /backup/openteam_$v.tar.gz -C /target"
 done

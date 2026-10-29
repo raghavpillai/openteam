@@ -1,4 +1,5 @@
 import { MachineDirectory } from "./machine-directory";
+import { DESKTOP_MESSAGES_TOOLS } from "@openteam/contracts/desktop-capability-names";
 import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 import type { ChildProcess } from "node:child_process";
 import { Readable } from "node:stream";
@@ -6,6 +7,7 @@ import { agentReadStream, agentWriteStream } from "./agent-file-stream";
 import { formatBytes2 } from "@openteam/contracts/reference-formatters";
 import { READ_CHAR_LIMIT, ReadWindowText, formatNotebookForModel, readLineWindow, renderReadText, renderPdfReadText } from "@openteam/contracts/read-output";
 import { boundToolImage, resizeImageForModel } from "./runtime/image-input";
+import { SHELL_ID_VARIABLE } from "./runtime/process-notice";
 import { decodeReadableText, readableTextEncoding, sniffImageMimeType } from "./read-text";
 import { randomInt, randomUUID } from "node:crypto";
 import { constants, createReadStream, createWriteStream } from "node:fs";
@@ -47,7 +49,7 @@ import {
   parseHostShellResponse,
   parseShellAwaitResponse,
 } from "@openteam/contracts/service-protocol";
-import { spawnAgentProcess as spawn, agentProcessIdentity, agentProcessGroupSignaler, sanitizedAgentEnvironment } from "./agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, agentProcessGroupSignaler, AGENT_SEARCH_PATHS, sanitizedAgentEnvironment, withAgentSearchPaths } from "./agent-process";
 import { agentFileIO } from "./agent-file-io";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
@@ -93,8 +95,20 @@ export interface CopyFileInput { computer_path?: string; box_path?: string; mach
 
 export class NativeToolExecutor {
   async desktopCapability(tool: string, botId: string, args: unknown, signal?: AbortSignal, callId?: string, channelId?: string): Promise<Record<string, any>> {
-    const machineId = await this.machines?.preferred(botId, channelId, signal);
-    return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId, machineId }, signal, undefined, 15 * 60_000);
+    if (!(DESKTOP_MESSAGES_TOOLS as readonly string[]).includes(tool)) {
+      const machineId = await this.machines?.preferred(botId, channelId, signal);
+      return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId, machineId }, signal, undefined, 15 * 60_000);
+    }
+    // Messages runs only on a Mac that turned it on; the server picks one when the call names none.
+    const { machineId: requested, ...rest } = (args ?? {}) as Record<string, unknown>;
+    if (!this.machines) throw new Error("Messages needs the OpenTeam server's computer directory");
+    const machineId = await this.machines.messagesMachine(botId, channelId, typeof requested === "string" ? requested : undefined, signal);
+    return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: rest, callId, machineId }, signal, undefined, 15 * 60_000);
+  }
+
+  /** Whether any connected Mac offers Messages right now. */
+  messagesAvailable(signal?: AbortSignal): Promise<boolean> {
+    return this.machines ? this.machines.messagesAvailable(signal).catch(() => false) : Promise.resolve(false);
   }
   private readonly shellJobs: ShellJobRegistry;
   private readonly liveShells = new Map<string, { scope: string; background: boolean; stop: () => void }>();
@@ -188,7 +202,7 @@ export class NativeToolExecutor {
       }), { status: "completed", exitCode: 1 });
     }
     await mkdir(this.terminalDir, { recursive: true });
-    const savedEnvironment = await loadShellEnvironment(this.terminalDir, scope, environment ?? process.env, environment);
+    const savedEnvironment = await loadShellEnvironment(this.terminalDir, scope, environment ?? { ...process.env, ...AGENT_SEARCH_PATHS }, environment);
     const secrets = routing.secrets ?? [];
 
     const shellId = String(randomInt(100000, 2147483647));
@@ -201,7 +215,7 @@ export class NativeToolExecutor {
     const environmentCapture = createShellEnvironmentCapture(dirname(savedEnvironment.path));
     const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", `${SHELL_ENVIRONMENT_CAPTURE}\n${input.command}`], {
       cwd: workingDirectory,
-      env: { ...sanitizedShellEnvironment(savedEnvironment.environment, workingDirectory), ...routing.secretEnvironment, OPENTEAM_DESKTOP_ID: environment?.OPENTEAM_DESKTOP_ID },
+      env: { ...sanitizedShellEnvironment(withAgentSearchPaths(savedEnvironment.environment), workingDirectory), ...routing.secretEnvironment, OPENTEAM_DESKTOP_ID: environment?.OPENTEAM_DESKTOP_ID, [SHELL_ID_VARIABLE]: shellId },
       ...agentProcessIdentity(),
       detached: true,
       stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],
@@ -290,7 +304,7 @@ export class NativeToolExecutor {
         settled = true;
         this.liveShells.delete(shellId);
         clearInterval(headerTimer);
-        try { exitDirectory = (await environmentCapture.persist(savedEnvironment.path, Object.keys(routing.secretEnvironment ?? {}), savedEnvironment.environment))?.PWD; }
+        try { exitDirectory = (await environmentCapture.persist(savedEnvironment.path, [...Object.keys(routing.secretEnvironment ?? {}), SHELL_ID_VARIABLE], savedEnvironment.environment))?.PWD; }
         catch (error) { environmentError = error instanceof Error ? error : new Error("Could not persist shell environment"); }
         await rewriteHeader(abortedAt !== undefined || expired ? "aborted" : exitCode === 0 ? "succeeded" : "failed");
         // A command that ran to completion is reported as such even if its shell
@@ -484,7 +498,7 @@ export class NativeToolExecutor {
 
   async listMachines(signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
     const response = this.machines ? {machines:await this.machines.list(signal)} : await this.hostFetch(HOST_BRIDGE_PATHS.machines,{},signal,parseHostMachinesResponse);
-    return textResult(JSON.stringify({ machines: response.machines.map(machine => ({ machineId:machine.machineId, label:machine.label, connected:(machine as HostMachine & {connected?:boolean}).connected ?? true })) }, null, 2), {
+    return textResult(JSON.stringify({ machines: response.machines.map(machine => ({ machineId:machine.machineId, label:machine.label, connected:(machine as HostMachine & {connected?:boolean}).connected ?? true, messages:(machine as {messages?:string}).messages ?? "unavailable" })) }, null, 2), {
       machines: response.machines,
     });
   }

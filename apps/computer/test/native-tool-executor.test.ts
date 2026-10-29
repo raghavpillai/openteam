@@ -186,6 +186,21 @@ describe("native computer tools", () => {
     expect(spilled.endsWith("49999\n50000\n")).toBe(true);
   });
 
+  shellTest("each Shell command's processes carry its own shell id, which is never saved as shell state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-shell-id-"));
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+    const run = async () => {
+      const result = await executor.shell({ command: "echo \"id=$OPENTEAM_SHELL_ID\"; export OPENTEAM_SHELL_ID=stale", working_directory: root }, root, undefined, undefined, "bot-a");
+      const log = await readFile((result.details as { outputPath: string }).outputPath, "utf8");
+      return { id: /id=(\d+)/.exec(log)?.[1], logName: (result.details as { outputPath: string }).outputPath.split("/").at(-1) };
+    };
+    const first = await run();
+    const second = await run();
+    expect(first.logName).toBe(`${first.id}.log`);
+    expect(second.logName).toBe(`${second.id}.log`);
+    expect(second.id).not.toBe(first.id);
+  });
+
   shellTest("Shell reports the final directory, signal kills and the terminal header", async () => {
     const root = await mkdtemp(join(tmpdir(), "openteam-native-cwd-"));
     await mkdir(join(root, "sub"));

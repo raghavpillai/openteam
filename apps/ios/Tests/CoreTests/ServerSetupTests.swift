@@ -104,6 +104,9 @@ final class InferenceSettingsTests: XCTestCase {
     XCTAssertEqual(
       ProviderErrorText.sentence("TypeError: The model is overloaded."),
       "The AI provider is overloaded right now. Try again in a moment.")
+    XCTAssertEqual(
+      ProviderErrorText.sentence("Inference provider rejected the configuration or request"),
+      "The AI provider didn't accept a request to this model. Choose a different model or reasoning effort.")
     XCTAssertEqual(ProviderErrorText.sentence(#"{"error":"x"}"#), "The AI didn't reply. Try again.")
     // A readable message passes through, and the test state uses the sentence.
     XCTAssertEqual(ProviderErrorText.sentence("Your plan has run out."), "Your plan has run out.")

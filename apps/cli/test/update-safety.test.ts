@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installationPaths } from "../src/config";
 import {
   activeUpdateProcess,
   acquireUpdateLock,
+  pruneUpdateBackups,
   readUpdateEvents,
   readUpdateState,
   writeUpdateState,
@@ -79,5 +80,33 @@ describe("update transaction safety", () => {
       updatedAt: "2026-09-01T00:00:00.000Z",
     });
     expect(activeUpdateProcess(paths)).toBe(process.pid);
+  });
+
+  test("keeps the newest update backups and the current one, and nothing else is touched", () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-update-backups-"));
+    temporaryDirectories.push(directory);
+    const paths = installationPaths(directory);
+    expect(pruneUpdateBackups(paths, null)).toEqual([]);
+    mkdirSync(paths.backups);
+    const backup = (from: string, to: string, at: string) =>
+      `postgres-${from}-before-${to}-${at}.sql`;
+    const names = [
+      backup("0.0.7", "0.0.8", "2026-10-24T10-00-00-000Z"),
+      backup("0.0.8", "0.0.9", "2026-10-26T10-00-00-000Z"),
+      backup("0.0.9", "0.0.10", "2026-10-26T18-00-00-000Z"),
+      backup("0.0.10", "0.0.11", "2026-11-02T09-00-00-000Z"),
+      backup("0.0.11", "0.0.12", "2026-11-09T09-00-00-000Z"),
+      "my-own-dump.sql",
+      "postgres-notes.txt",
+    ];
+    for (const name of names) writeFileSync(join(paths.backups, name), "SELECT 1;\n");
+    // A clock set back makes this update's own backup sort as the oldest; rollback still needs it.
+    const current = join(paths.backups, names[0]!);
+    expect(pruneUpdateBackups(paths, current)).toEqual([names[1]!]);
+    expect(readdirSync(paths.backups).sort()).toEqual([names[0]!, ...names.slice(2)].sort());
+    expect(pruneUpdateBackups(paths, null, 1)).toEqual([names[3]!, names[2]!, names[0]!]);
+    expect(readdirSync(paths.backups).sort()).toEqual(
+      [names[4]!, "my-own-dump.sql", "postgres-notes.txt"].sort()
+    );
   });
 });

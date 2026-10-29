@@ -36,7 +36,9 @@ All bots use the same model. Changes apply to new messages; a task that's alread
 
 New installations have no saved model. After connecting a provider, the model picker defaults to the first available model in its catalog. Save or apply the selection to use it for new tasks. Existing saved model choices are preserved, even when the provider changes its catalog order.
 
-Higher reasoning effort can give better results on hard tasks, but it's slower and uses more of your quota. New installations start at medium. Some models don't support reasoning effort, and the setting is unavailable for them.
+Higher reasoning effort can give better results on hard tasks, but it's slower and uses more of your quota. A newly chosen model starts at medium when it supports it. Switching models keeps your effort when the new model supports it too. Some models don't support reasoning effort, and the setting is unavailable for them. Some require reasoning, so Off isn't offered for them.
+
+If the test message fails, the app says why. Choose a different model, or a different reasoning effort in **Settings → Model**, and the app tests it again.
 
 To script the change:
 

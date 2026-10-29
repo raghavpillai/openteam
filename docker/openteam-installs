@@ -1,0 +1,4 @@
+#!/bin/sh
+# What the computer reinstalls at start: `openteam-installs` lists it,
+# `sudo openteam-installs forget NAME...` stops reinstalling a package.
+exec /usr/lib/openteam/bin/bun /app/apps/computer/dist/installs-cli.js "${@:-status}"

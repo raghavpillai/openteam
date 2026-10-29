@@ -76,6 +76,7 @@ import {
   channelNameChangedEventFor,
   routineChangedActionLabel,
   routineChangedEventFor,
+  turnInterruptedEventFor,
 } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
 import {
@@ -257,6 +258,8 @@ const messagesShareGroup = (
       !channelNameChangedEventFor(next) &&
       !routineChangedEventFor(previous) &&
       !routineChangedEventFor(next) &&
+      !turnInterruptedEventFor(previous) &&
+      !turnInterruptedEventFor(next) &&
       previous.sender === next.sender &&
       (previous.sender !== "agent" || previous.senderBotId === next.senderBotId) &&
       !shouldShowIdleGapTimestamp(previous.createdAt, next.createdAt)
@@ -400,6 +403,7 @@ const MessageRow = memo(function MessageRow({
   }, [entranceActive, entranceKey, onConsumeEntrance]);
   const channelEvent = channelNameChangedEventFor(message);
   const routineEvent = routineChangedEventFor(message);
+  const interruptedEvent = turnInterruptedEventFor(message);
   const from =
     message.sender === "user" ? "user" : message.sender === "system" ? "system" : "assistant";
   const hasAgentGutter = message.sender === "agent" && channel.kind !== "bot_dm";
@@ -409,7 +413,7 @@ const MessageRow = memo(function MessageRow({
   const userReactionSet = ownReactionEmojiSet(message);
   const display = messageDisplayProjection(message);
   const isWidget = messageMetadata(message).type === "widget";
-  const isDraftCard = messageMetadata(message).type === "external-draft";
+  const isDraftCard = messageMetadata(message).type === "external-draft" || messageMetadata(message).type === "imessage-send";
   const { attachments, stagedAttachments, displayContent, files: fileAttachments } = display;
   const stagedImageAttachments = stagedAttachments.filter(
     (attachment) => attachment.kind === "image" && attachment.previewUri
@@ -453,6 +457,19 @@ const MessageRow = memo(function MessageRow({
         data-message-id={message.id}
       >
         Renamed to {channelEvent.to}
+      </div>
+    );
+  }
+  if (interruptedEvent) {
+    return (
+      <div
+        className={`flex justify-center px-5 pb-3 pt-2 text-center text-xs leading-5 text-muted-foreground${
+          separatedFromPrevious ? " mt-3" : ""
+        }`}
+        data-channel-event="turn-interrupted"
+        data-message-id={message.id}
+      >
+        {message.content}
       </div>
     );
   }

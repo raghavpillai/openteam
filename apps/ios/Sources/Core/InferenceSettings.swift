@@ -397,6 +397,13 @@ public enum ProviderErrorText {
         message: "The AI provider is overloaded right now. Try again in a moment.", transient: true)
     }
     if has("timed out", "timeout") { return slow }
+    // The server's word for a request the provider refused as configured, e.g. reasoning off.
+    if has("rejected the configuration or request") {
+      return ModelTestFailure(
+        message:
+          "The AI provider didn't accept a request to this model. Choose a different model or reasoning effort.",
+        transient: false)
+    }
     if has("fetch failed", "econnrefused", "enotfound", "econnreset", "socket hang up") {
       return ModelTestFailure(
         message:

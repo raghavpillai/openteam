@@ -135,6 +135,10 @@ public struct Message: Codable, Identifiable, Sendable, Hashable {
   public var metadata: JSON
   public var createdAt: String
   public var isUser: Bool { sender == "user" && senderBotId == nil }
+  /// A reply cut off by a restart; the content is the notice to show.
+  public var isInterruptedNotice: Bool {
+    sender == "system" && metadata["event"]["type"].string == "turn-interrupted"
+  }
   public var replyTo: String? {
     let s = metadata["replyTo"].string
     return s.isEmpty ? nil : s

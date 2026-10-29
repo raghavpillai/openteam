@@ -38,9 +38,11 @@ let routineExecutions:any[] = [];
 type WebProviderRow = { secret: string | null; check: { status: "passed" | "failed"; message: string; checkedAt: string } | null };
 let webProviders: { selected: Record<WebTool, string | null>; rows: Record<WebTool, Record<string, WebProviderRow>>; patches: unknown[]; checks: unknown[] };
 const deliveries = new Map<string, ChannelMessageView>();
+const uploadedAssets = new Map<string, { data: Uint8Array; mimeType: string }>();
 const wakeups = new Set<() => void>();
 const requestLog: Array<{ method: string; path: string; clientId?: string }> = [];
 function reset() {
+  uploadedAssets.clear();
   snapshot = structuredClone(mobileFixture);
   snapshot.runtime.transcription = "configured";
   sequence = 14; events = []; deliveries.clear(); routines = []; offline = false; dropNextSend = false; authRequired = false;
@@ -126,7 +128,8 @@ const server = Bun.serve({
     // Slow-ASR regression tests must exceed the app's ordinary HTTP deadlines.
     if (path === "/api/v0/transcriptions") server.timeout(request, 150);
     let input: any = {};
-    if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
+    const upload = path === "/api/v0/assets" && method === "POST" ? new Uint8Array(await request.arrayBuffer()) : null;
+    if (!upload && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
     if (path === "/__qa/reset" && method === "POST") { reset(); emit("snapshot.reset"); return response({ ok: true }); }
     if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=["history-pages","scroll-mixed-pages"].includes(input.scene); sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/content" && method === "POST") { snapshot=contentScene(snapshot,input.scene); if(input.scene==='routine-event')routines=[{id:'routine-event-fixture',name:'Morning summary',prompt:'Summarize the morning',schedule:'0 9 * * 1-5',scheduleKind:'cron',timezone:'America/New_York',enabled:false,revision:1,nextRunAt:null,latestExecution:null}]; sequence=400; emit("snapshot.reset"); return response({ok:true}); }
@@ -153,6 +156,7 @@ const server = Bun.serve({
       emit("channel.message.created",channel.id); return response({ok:true});
     }
     if (path === "/__qa/control" && method === "POST") {
+      if (input.transcription !== undefined) snapshot.runtime.transcription = input.transcription;
       if (input.modelSettings) serverSetup = new ServerSetupFixture(true);
       if (input.largeModelCatalog !== undefined) serverSetup.largeModelCatalog = input.largeModelCatalog;
       if (input.onboarding) {
@@ -210,6 +214,15 @@ const server = Bun.serve({
     if (path === "/api/auth/get-session") return response({ session: { id: "fixture" }, user: { id: "fixture-owner", name: "Fixture owner", username: "fixture", email: "fixture@example.invalid" } });
     const invalid = validateFixtureRequest(path,method,input); if(invalid)return response({message:invalid},400);
     requestLog.push({ method, path, ...(input.clientId ? { clientId: input.clientId } : {}) });
+    if (upload) {
+      const assetId = new Bun.CryptoHasher("sha256").update(upload).digest("hex");
+      const fileName = decodeURIComponent(request.headers.get("x-file-name") ?? "File");
+      const mimeType = request.headers.get("content-type") ?? "application/octet-stream";
+      uploadedAssets.set(assetId, { data: upload, mimeType });
+      contentReceipts.push({path, fileName, mimeType, byteSize: upload.byteLength, authenticated: request.headers.has("authorization")});
+      return response({ assetId, fileName, mimeType, byteSize: upload.byteLength,
+        kind: mimeType.startsWith("image/") ? "image" : "file" });
+    }
     const setupResponse = serverSetup.handle(path, method, input, url);
     if (setupResponse) return setupResponse;
     if (process.env.SWIFT_QA_LIVE_SCREEN_URL && /\/screen(?:\/(?:frame|stream|takeover|actions))?$/.test(path)) {
@@ -226,6 +239,8 @@ const server = Bun.serve({
     if(path.startsWith("/api/v0/assets/")){
       contentReceipts.push({path,authenticated:request.headers.has("authorization")});
       const id=path.split('/').at(-1)!;
+      const uploaded = uploadedAssets.get(id);
+      if (uploaded) return new Response(uploaded.data, {headers: {"Content-Type": uploaded.mimeType}});
       const archive=/^([789])\1{63}$/.test(id), photo=/^([1-6])\1{63}$/.test(id)||/^gallery-\d+$/.test(id);
       return new Response(Bun.file(new URL(archive?'./fixtures/media-archive.zip':id==='layout-portrait'?'./fixtures/layout-portrait.png':photo?'./fixtures/media-reference.png':'./fixtures/attachment.png',import.meta.url)),{headers:{'Content-Type':archive?'application/zip':'image/png'}});
     }

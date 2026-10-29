@@ -1241,8 +1241,26 @@ model HostMachine {
   authSessionId String?
   enabled Boolean @default(true)
   lastSeenAt DateTime?
+  // Messages state as the desktop reports it. Only the Mac itself turns Messages on;
+  // null means the app has not reported Messages support (not a Mac, or an older app).
+  messagesEnabled Boolean @default(false)
+  messagesPermissions Json?
+  // Skips the approval card for every SendIMessage on this Mac.
+  messagesSendWithoutAsking Boolean @default(false)
+  messagesAllowedRecipients MessagesAllowedRecipient[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// A handle the user allowed a Mac to text without an approval card.
+model MessagesAllowedRecipient {
+  machineId String
+  machine HostMachine @relation(fields: [machineId], references: [machineId], onDelete: Cascade)
+  recipient String
+  recipientName String?
+  createdAt DateTime @default(now())
+
+  @@id([machineId, recipient])
 }
 
 model ComputerDisplaySettings {

@@ -46,8 +46,10 @@ import XCTest
     XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 20))
     let loading = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
     XCTAssertTrue(loading.waitForNonExistence(timeout: 20), "History never finished positioning")
-    XCTAssertTrue(mic(app).waitForExistence(timeout: 10))
-    XCTAssertTrue(mic(app).isEnabled)
+    if !arguments.contains("--visual-draft-base64") {
+      XCTAssertTrue(mic(app).waitForExistence(timeout: 10))
+      XCTAssertTrue(mic(app).isEnabled)
+    }
     // Snapshot resets intentionally preserve the audit log; each gesture test needs a fresh log.
     try await fixture("/__qa/haptics", method: "DELETE")
     return app
@@ -220,11 +222,14 @@ import XCTest
   }
 
   func testMultilineDraftSurvivesRecordingAndDiscard() async throws {
-    let app = try await launch(appearance: "light")
+    let value = "Keep the first line.\nAnd the second line.\nAnd the third line."
+    // Seed the existing draft so this tests recording/discard independently of
+    // XCTest's multiline keyboard injection and keyboard reconfiguration.
+    let app = try await launch(appearance: "light",
+      arguments: ["--visual-draft-base64", Data(value.utf8).base64EncodedString()])
     let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertEqual(field.value as? String, value)
     field.tap()
-    field.typeText("Keep the first line.\nAnd the second line.\nAnd the third line.")
-    let value = field.value as? String
     app.buttons["attach-button"].tap()
     XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 5))
     app.buttons["Record voice note"].tap()
@@ -236,6 +241,47 @@ import XCTest
     XCTAssertTrue(app.buttons["send-button"].waitForExistence(timeout: 5))
     XCTAssertEqual(field.value as? String, value, "The complete multiline draft must survive")
     XCTAssertTrue(field.isHittable, "The restored draft must be visible and usable")
+    let count = try await uploads()
+    XCTAssertEqual(count, 0)
+  }
+
+  func testBackgroundedRecordingWaitsForExplicitSendAfterReturning() async throws {
+    let app = try await launch(appearance: "light")
+    mic(app).tap()
+    XCTAssertTrue(app.buttons["Send voice note"].waitForExistence(timeout: 5))
+    try await Task.sleep(for: .seconds(1.2))
+    XCUIDevice.shared.press(.home)
+    try await Task.sleep(for: .seconds(1))
+    app.activate()
+    XCTAssertTrue(app.buttons["Send voice note"].waitForExistence(timeout: 5))
+    XCTAssertEqual(app.descendants(matching: .any)["voice-clock"].label, "Voice note ready")
+    let before = try await uploads()
+    XCTAssertEqual(before, 0, "Backgrounding must not transcribe or send")
+    capture("background-review", app)
+    app.buttons["Send voice note"].tap()
+    try await waitForMessage(app, transcript)
+    let after = try await uploads()
+    XCTAssertEqual(after, 1)
+  }
+
+  func testBackgroundedRecordingCanBeDiscardedWithoutChangingMultilineDraft() async throws {
+    let draft = "Keep my instructions.\nKeep this second line.\nAnd the third."
+    let app = try await launch(appearance: "light",
+      arguments: ["--visual-draft-base64", Data(draft.utf8).base64EncodedString()])
+    app.buttons["attach-button"].tap()
+    XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 5))
+    app.buttons["Record voice note"].tap()
+    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
+    try await Task.sleep(for: .seconds(1))
+    XCUIDevice.shared.press(.home)
+    try await Task.sleep(for: .seconds(1))
+    app.activate()
+    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
+    XCTAssertEqual(app.descendants(matching: .any)["voice-clock"].label, "Voice note ready")
+    app.buttons["Discard recording"].tap()
+    XCTAssertTrue(app.buttons["send-button"].waitForExistence(timeout: 5))
+    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertEqual(field.value as? String, draft)
     let count = try await uploads()
     XCTAssertEqual(count, 0)
   }

@@ -9,9 +9,9 @@ test("namespaces are readable service names with the account after --", () => {
     { id: "a1b2c3d4-0000-4000-8000-000000000002", name: "Gmail", alias: "personal 2", createdAt: at(2) },
     { id: "a1b2c3d4-0000-4000-8000-000000000003", name: "Google Calendar", alias: "Zealot", createdAt: at(3) },
     { id: "a1b2c3d4-0000-4000-8000-000000000004", name: "Slack (stealth)", alias: "default", createdAt: at(4) },
-    { id: "a1b2c3d4-0000-4000-8000-000000000005", name: "iMessage (SSH)", alias: "default", createdAt: at(5) },
+    { id: "a1b2c3d4-0000-4000-8000-000000000005", name: "Plaid (Sandbox)", alias: "default", createdAt: at(5) },
   ]);
-  expect([...names.values()]).toEqual(["gmail", "gmail--personal-2", "google-calendar--zealot", "slack-stealth", "imessage-ssh"]);
+  expect([...names.values()]).toEqual(["gmail", "gmail--personal-2", "google-calendar--zealot", "slack-stealth", "plaid-sandbox"]);
 });
 
 test("a newer colliding connection gets a short id suffix and the older keeps its name", () => {

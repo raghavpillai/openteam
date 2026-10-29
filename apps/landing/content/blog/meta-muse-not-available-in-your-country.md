@@ -1,22 +1,22 @@
 ---
 title: Meta Muse isn't available in your country yet. Here's what you can do
 seoTitle: Meta Muse not available in your country? Your options
-description: Meta Muse is in the US, Canada and, since October 23, Japan. What Meta has said, hosted agents sold elsewhere, and self-hosting with OpenTeam.
+description: Meta Muse is in the US, Canada, Japan and, since October 27, Singapore. What Meta has said, agents sold elsewhere, and self-hosting with OpenTeam.
 date: 2026-10-08
-updated: 2026-10-26
+updated: 2026-10-28
 category: Comparisons
 image: /blog/images/openteam-desktop-mobile.png
 imageAlt: The OpenTeam desktop app on a MacBook and the iPhone app, both showing a Research bot's vendor comparison and a weekday routine
 related: grok-bot-vs-meta-muse-vs-openai-dots, introducing-openteam, best-self-hosted-ai-agents
 ---
 
-**As of October 26, 2026, Meta Muse is available in the United States, Canada and Japan. Meta hasn't announced a date for any other country. Elsewhere, you can wait, use a hosted agent sold where you live, or run OpenTeam, an open-source, self-hosted AI agent team that works wherever your model provider does.**
+**As of October 28, 2026, Meta Muse is available in the United States, Canada, Japan and Singapore. Meta hasn't announced a date for any other country. Elsewhere, you can wait, use a hosted agent sold where you live, or run OpenTeam, an open-source, self-hosted AI agent team that works wherever your model provider does.**
 
-We build OpenTeam, so weigh our view accordingly. Every Muse fact below links to Meta or to press coverage. The post describes the situation on October 8, 2026, and was updated on October 26 for Muse's launch in Japan.
+We build OpenTeam, so weigh our view accordingly. Every Muse fact below links to Meta or to press coverage. The post describes the situation on October 8, 2026, and was updated on October 26 for Muse's launch in Japan and on October 28 for Singapore.
 
-## Meta Muse countries: the US, Canada and Japan
+## Meta Muse countries: the US, Canada, Japan and Singapore
 
-Meta [launched Muse on September 8](https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/), "rolling out in the US on iOS, Android, and muse.ai." Canada followed on September 18 ([iPhone in Canada](https://www.iphoneincanada.ca/2026/09/18/metas-muse-ai-agent-is-now-available-in-canada/)). On September 29, Meta's newsroom described Muse as "a personal AI agent available in the US and Canada" ([Meta](https://about.fb.com/news/2026/09/introducing-muse-small-business/)), and its [terms](https://muse.ai/terms) set the minimum age at 18. Japan followed on October 23, the first country outside North America, on iOS, Android and muse.ai ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)).
+Meta [launched Muse on September 8](https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/), "rolling out in the US on iOS, Android, and muse.ai." Canada followed on September 18 ([iPhone in Canada](https://www.iphoneincanada.ca/2026/09/18/metas-muse-ai-agent-is-now-available-in-canada/)). On September 29, Meta's newsroom described Muse as "a personal AI agent available in the US and Canada" ([Meta](https://about.fb.com/news/2026/09/introducing-muse-small-business/)), and its [terms](https://muse.ai/terms) set the minimum age at 18. Japan followed on October 23, the first country outside North America, on iOS, Android and muse.ai ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)). Singapore followed on October 27 on the same platforms, with local connector partners such as Grab, Shopee and Singapore Airlines ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)).
 
 Muse runs on the web, iOS, Android and WhatsApp. It's free to start, with paid plans at $20 and $100 a month, and it asks for a payment card at sign-up ([TechCrunch](https://techcrunch.com/2026/09/08/meta-debuts-its-muse-ai-agent-will-consumers-trust-it/)).
 
@@ -28,11 +28,11 @@ Other sites offer theories about regulators. Meta hasn't confirmed any of them, 
 
 ## Your options if Muse isn't in your country
 
-Availability and US prices come from each vendor's own pages or launch coverage, as of October 8, 2026. The Muse row was updated on October 26.
+Availability and US prices come from each vendor's own pages or launch coverage, as of October 8, 2026. The Muse row was updated on October 28.
 
 | Option | Where it's offered | Cheapest way in | Who runs it |
 |---|---|---|---|
-| Meta Muse | US, Canada and Japan | Free tier, card required | Meta |
+| Meta Muse | US, Canada, Japan and Singapore | Free tier, card required | Meta |
 | Gemini Spark | Where the Gemini app is supported, except the EEA, UK, Switzerland and Nigeria | Google AI Pro or Ultra plan | Google |
 | OpenAI dots | ChatGPT Pro or Business Premium; Pro excludes the EEA, UK and Switzerland | ChatGPT Pro, $100/month | OpenAI |
 | Claude Cowork | Anthropic's supported countries | Claude Pro, $20/month | Anthropic |
@@ -40,7 +40,7 @@ Availability and US prices come from each vendor's own pages or launch coverage,
 
 ### Wait for Muse
 
-If Muse is the product you want, waiting costs nothing. Meta took ten days to add Canada after the US launch and five more weeks to reach Japan. Its Japan announcement didn't say where Muse goes next.
+If Muse is the product you want, waiting costs nothing. Meta took ten days to add Canada after the US launch, five more weeks to reach Japan and four days more for Singapore. Neither of the last two announcements said where Muse goes next.
 
 ### Use a hosted agent sold in your country
 
@@ -72,7 +72,7 @@ Self-hosting also moves the responsibility to you. Your server stores conversati
 
 ![Muse chat in which the agent asks the user to allow or deny an $80 order, with the card and total shown](/blog/images/meta-muse-approval-prompt.png "Muse asks before it places an order. Screenshot: muse.ai, Meta.")
 
-If you're in the US, Canada or Japan and want an agent on your phone in two minutes, Muse is the easier choice.
+If you're in the US, Canada, Japan or Singapore and want an agent on your phone in two minutes, Muse is the easier choice.
 
 ## Frequently asked questions
 
@@ -84,9 +84,9 @@ No. Meta hasn't announced a date for India. Its October 1 India newsroom post sa
 
 No, and Meta has given no date for the UK, Germany, France or any other EU country. Gemini Spark and Pro dots exclude them too, which leaves Claude Cowork and self-hosting as the personal options above.
 
-### Is Meta Muse available in Australia, Singapore or the UAE?
+### Is Meta Muse available in Singapore, Australia or the UAE?
 
-No. Muse covers only the US, Canada and Japan. None of the three is excluded from Gemini Spark or Pro dots, and all three are on Anthropic's and OpenAI's lists.
+In Singapore, yes, since October 27, 2026, on iOS, Android and muse.ai ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)). Not in Australia or the UAE, and Meta hasn't given a date for either. Neither is excluded from Gemini Spark or Pro dots, and both are on Anthropic's and OpenAI's lists.
 
 ### Is Meta Muse available in Japan?
 
@@ -98,7 +98,7 @@ Yes, since September 18, 2026, for people 18 and over.
 
 ### Can I use a VPN to get Meta Muse?
 
-We don't recommend it. Meta offers Muse only in the US, Canada and Japan, and sign-up asks for a payment card. The Muse terms let Meta "suspend or terminate your access to Muse or its features… at any time, for any reason, without prior notice" ([Muse terms](https://muse.ai/terms)). You'd be giving your email, calendar and sign-ins to an agent Meta hasn't launched under your country's privacy law, on an account you could lose mid-task.
+We don't recommend it. Meta offers Muse only in the US, Canada, Japan and Singapore, and sign-up asks for a payment card. The Muse terms let Meta "suspend or terminate your access to Muse or its features… at any time, for any reason, without prior notice" ([Muse terms](https://muse.ai/terms)). You'd be giving your email, calendar and sign-ins to an agent Meta hasn't launched under your country's privacy law, on an account you could lose mid-task.
 
 ### Is there a free, open-source alternative to Meta Muse?
 

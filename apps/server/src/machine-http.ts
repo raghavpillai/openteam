@@ -34,6 +34,11 @@ export async function machineChannelResponse(
     machines.relay.disconnect(machine.machineId, connectionId);
     return new Response(null, { status: 204 });
   }
+  // A desktop reports a settings change at once instead of waiting for its next poll.
+  if (path === `${prefix}/heartbeat` && request.method === "POST") {
+    await machines.heartbeat(machine.machineId, await readJson());
+    return new Response(null, { status: 204 });
+  }
   if (path === `${prefix}/poll` && request.method === "POST") {
     const input = await readJson();
     if (!Array.isArray(input.active) || input.active.length > 32 || input.active.some(id => typeof id !== "string" || id.length > 100)) throw new ApiError(400, "machine_poll_invalid", "Invalid active requests");

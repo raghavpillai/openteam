@@ -62,5 +62,8 @@ describe("release Compose rendering", () => {
     expect(rendered).toContain('cap_add: ["ALL"]');
     expect(rendered).toContain("systempaths=unconfined");
     expect(rendered).toContain("/dev/net/tun:/dev/net/tun");
+    // Bots' system-wide installs live in a volume, which an update's `up` creates.
+    expect(rendered).toContain("- openteam_computer_local:/usr/local");
+    expect(rendered).toMatch(/^ {2}openteam_computer_local:$/m);
   });
 });

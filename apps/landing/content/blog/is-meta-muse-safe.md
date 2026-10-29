@@ -3,6 +3,7 @@ title: "Is Meta Muse safe? What it can see, and what self-hosting changes"
 seoTitle: "Is Meta Muse safe? Privacy, permissions and self-hosting"
 description: Muse has strong guardrails, training on by default and a rocky first month. What it sees, what self-hosted AI agents like OpenTeam change, and a checklist.
 date: 2026-10-25
+updated: 2026-10-28
 category: Comparisons
 image: /blog/images/meta-muse-vs-self-hosted-data.png
 imageAlt: "Muse keeps your data in a VM in Meta's cloud with training on by default; a self-hosted OpenTeam server keeps it on your machine, but a hosted model still sees prompts"
@@ -11,7 +12,7 @@ related: meta-muse-not-available-in-your-country, grok-bot-vs-meta-muse-vs-opena
 
 **Meta Muse is reasonably safe to try if you connect it carefully, but it asks for more trust than most apps. Its agent lives in a dedicated cloud VM behind a gatekeeper it can't override. Meta still trains on your chats by default and can reach your data. OpenTeam, an open-source, self-hosted AI agent team, moves that data to your own server, with fewer guardrails than Muse, not more.**
 
-We build OpenTeam (GPL-3.0), so weigh our view accordingly. On October 25, 2026, Muse was offered in the US, Canada and, since October 23, Japan ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)). We haven't tested it ourselves.
+We build OpenTeam (GPL-3.0), so weigh our view accordingly. On October 25, 2026, Muse was offered in the US, Canada and, since October 23, Japan ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)). Singapore followed on October 27 ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)). We haven't tested it ourselves.
 
 ## Meta Muse vs a self-hosted agent team at a glance
 
@@ -28,7 +29,7 @@ Muse facts come from Meta's [launch post](https://about.fb.com/news/2026/09/intr
 | Prompt-injection defenses | Trained model, classifiers, Sentinel, egress checks | Untrusted-content labels and prompt rules |
 | Open source | No | Yes, GPL-3.0 |
 | Who patches it | Meta | You |
-| Price and regions | Free tier, $20 and $100 plans; US, Canada, Japan | Free; you pay for hardware and model use; any country your provider serves |
+| Price and regions | Free tier, $20 and $100 plans; US, Canada, Japan, Singapore | Free; you pay for hardware and model use; any country your provider serves |
 
 ## What Muse can see and do once you connect it
 

@@ -1,6 +1,6 @@
 # Blog images
 
-Images used in blog posts. Rasters wider than 1600 px were scaled down to 1600 px, and some were converted between PNG, JPEG and WebP; none were cropped or edited. Third-party images were retrieved on 2026-10-12 and 2026-10-13. Each post captions them with their owner.
+Images used in blog posts. Rasters wider than 1600 px were scaled down to 1600 px, and some were converted between PNG, JPEG and WebP. Unless noted below, none were cropped or edited. Third-party images were retrieved on 2026-10-12 and 2026-10-13. Each post captions them with their owner.
 
 ## OpenTeam
 
@@ -30,9 +30,6 @@ Staged screenshots for the Google Docs, Sheets and Slides guide use the same met
 Staged screenshots for the iMessage guide use the same method, with fictional people, businesses and conversations, captured on 2026-10-19:
 
 - `openteam-imessage-catch-up-chat.png`: a bot summarizing texts since the morning, then replying in an existing conversation.
-- `openteam-imessage-ssh-account.png`, `openteam-imessage-ssh-tools.png`: the iMessage (SSH) plugin's account settings with a Mac SSH address, and its tool list with sending turned on.
-- `openteam-imessage-business-reply.png`: a text reply in a fictional airline's Messages for Business chat.
-- `openteam-imessage-unanswered-routine.png`: a weekday routine that summarizes unanswered texts and suggests replies.
 
 Staged screenshots for the Claude Duet comparison use the same method, with fictional people, businesses, invoices and `example.com` addresses, captured on 2026-10-21:
 
@@ -67,6 +64,14 @@ Screenshots for the tested roundup of open-source Grok Bot alternatives are real
 - `openteam-two-bot-handoff.png`: the OpenTeam desktop app on an isolated test server, with the test bots' real replies.
 - `nightly-openbot-sign-in.png`: nightly-labs OpenBot (PolyForm Noncommercial 1.0.0), Mac app v0.51.1, at its required sign-in screen.
 
+Screenshots for the n8n comparison are real captures from our own test in late October 2026 on one cloud VM: n8n Community Edition 2.45.4 in Docker beside OpenTeam's current release, with a throwaway n8n owner account and a temporary bot named Scout. The n8n editor captures were taken with headless Playwright at 2× and scaled to 1600 px; the nodes were arranged in two rows before capture so their labels stay legible. They show n8n's own interface and are credited to n8n in the caption:
+
+- `n8n-workflow-hn-digest.png`: the Hacker News digest workflow after a run.
+- `n8n-workflow-quotes-http-only.png`: the quotes workflow, for the JavaScript page and the login, after a run.
+- `n8n-mcp-server-trigger.png`: the MCP Server Trigger's settings, showing a credential name and no token.
+- `openteam-hn-digest-routine.png`: the OpenTeam desktop app's own components rendered with the test's real messages, a staged clock and sample sidebar bots.
+- `openteam-bot-browser-quotes-login.png`: a real 1280×800 frame of Scout's screen on the quotes.toscrape.com practice site. The browser's extension icons were painted over.
+
 Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG on a 1,000 px canvas, rendered at 2× and scaled to 1600 px wide. Numbers come from the source code. Each post's version frames share one template, so each component stays in the same place as the design grows:
 
 - `memory-design-overview.png`: the memory design's steps, and the first step compared with the final design.
@@ -92,6 +97,11 @@ Diagrams for the iPhone Duo guide and the Meta Muse safety explainer use the sam
 - `meta-muse-what-it-can-reach.png`: what Muse's cloud VM holds and what it can reach once connected.
 - `meta-muse-vs-self-hosted-data.png`: where data goes with Muse and with a self-hosted OpenTeam server.
 - `roundup-test-scorecard.png`: the results of the 2026-10-26 install and task test, from our test logs.
+
+Diagrams for the n8n comparison use the same method. n8n facts come from its docs, pricing page and repository, checked in late October 2026; results come from our test logs:
+
+- `n8n-vs-openteam-scorecard.png`: what happened when n8n and OpenTeam got the same jobs.
+- `n8n-openteam-bridges.png`: three ways to connect n8n and OpenTeam, two tested end to end and one checked in code.
 
 ## Third-party images
 

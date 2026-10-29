@@ -1,0 +1,11 @@
+"Send a task with ${applicationName}" = "Send a task with ${applicationName}";
+"Ask ${bot} in ${applicationName}" = "Ask ${bot} in ${applicationName}";
+"Open a conversation in ${applicationName}" = "Open a conversation in ${applicationName}";
+"Open ${target} in ${applicationName}" = "Open ${target} in ${applicationName}";
+"Run a routine in ${applicationName}" = "Run a routine in ${applicationName}";
+"Run ${routine} in ${applicationName}" = "Run ${routine} in ${applicationName}";
+"Find messages in ${applicationName}" = "Find messages in ${applicationName}";
+"Open a bot in ${applicationName}" = "Open a bot in ${applicationName}";
+"Open bot ${target} in ${applicationName}" = "Open bot ${target} in ${applicationName}";
+"Record a voice note in ${applicationName}" = "Record a voice note in ${applicationName}";
+"Talk to ${bot} in ${applicationName}" = "Talk to ${bot} in ${applicationName}";

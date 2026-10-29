@@ -489,6 +489,29 @@ test("OpenRouter discovers account-filtered tool models and persists capabilitie
   expect((await f.registry.catalog("openrouter")).models).toEqual([]);
 });
 
+test("OpenRouter models that require reasoning can't be saved with it off", async () => {
+  const f = await fixture({
+    openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" },
+  });
+  f.state.body = {
+    data: [
+      {
+        id: "anthropic/claude-sonnet-5.5",
+        architecture: { output_modalities: ["text"] },
+        supported_parameters: ["tools", "reasoning"],
+        reasoning: { mandatory: true },
+      },
+    ],
+  };
+  const settings = { providerId: "openrouter", modelId: "anthropic/claude-sonnet-5.5" };
+  await expect(f.registry.verify({ ...settings, reasoning: "off" })).rejects.toThrow(
+    "does not support reasoning level off"
+  );
+  await f.registry.verify({ ...settings, reasoning: "medium" });
+  const saved = JSON.parse(await readFile(f.path, "utf8"));
+  expect(saved.providers.openrouter.models[0].thinkingLevelMap).toEqual({ off: null });
+});
+
 test("the usable window is the smallest advertised input limit, else the fallback", () => {
   expect(inputWindow([1_050_000, 922_000], 128_000)).toBe(922_000);
   expect(inputWindow([200_000, undefined, "100000", 0, -1, 1.5], 128_000)).toBe(200_000);

@@ -1,12 +1,22 @@
 #!/usr/bin/env node
 
 import "./runtime-compat";
-import { ensureUpdateAgent, runUpdateAgent, UPDATE_AGENT_ENV } from "./update-agent";
+import {
+  ensureUpdateAgent,
+  runUpdateAgent,
+  stopUpdateAgent,
+  UPDATE_AGENT_ENV,
+} from "./update-agent";
 import { renderHelp, renderCommandError } from "./command-ui";
 import { colorEnabled } from "./ui";
 import { resolve } from "node:path";
 import { parseArguments } from "./arguments";
-import { defaultInstallDirectory, installationExists, installationPaths } from "./config";
+import {
+  defaultInstallDirectory,
+  installationExists,
+  installationPaths,
+  readManifest,
+} from "./config";
 import { CLI_VERSION } from "./constants";
 import {
   durableUpdateCommand,
@@ -135,6 +145,12 @@ const main = async (): Promise<void> => {
       break;
   }
   if (["install", "setup", "start", "update"].includes(options.command)) ensureUpdateAgent(paths);
+  // A cancelled uninstall leaves the manifest as it was.
+  if (
+    options.command === "stop" ||
+    (options.command === "uninstall" && (readManifest(paths)?.uninstalledAt ?? true))
+  )
+    stopUpdateAgent(paths);
 };
 
 main().catch((error) => {

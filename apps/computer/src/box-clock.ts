@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { promisify } from "node:util";
 
-const BOX_TIMEZONE = "/usr/local/bin/openteam-box-timezone";
+const BOX_TIMEZONE = "/usr/lib/openteam/bin/openteam-box-timezone";
 const run = promisify(execFile);
 
 const applyWithScript = async (zone: string): Promise<void> => {

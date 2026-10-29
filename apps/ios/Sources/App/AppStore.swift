@@ -1,3 +1,4 @@
+import AppIntents
 import CryptoKit
 import Foundation
 import Observation
@@ -7,6 +8,14 @@ final class AppStore {
   enum Phase { case starting, signedOut, ready }
   enum AuthStep: String, Hashable { case endpoint, credentials }
   var phase: Phase = .starting
+  private(set) var systemScope: String?
+  private(set) var systemDiscoveryEnabled = false
+  var systemDraft: SystemMessageDraft?
+  let botVoiceLaunch = BotVoiceLaunch()
+  private var pendingSystemItem: (id: String, draft: String?, attachments: [Asset], record: Bool, createdAt: Date, requestID: UUID)?
+  private var systemOpenGeneration = UUID()
+  private var systemVoiceRequestID: UUID?
+  private var navigationGeneration = UUID()
   var launchComplete = false
   var authPath: [AuthStep] = []
   var authError: String?
@@ -41,7 +50,12 @@ final class AppStore {
   private var catchUpSync: UUID?
   var connecting = false
   var busy: Set<String> = []
-  var navigation: [String] = []
+  var navigation: [String] = [] {
+    didSet {
+      navigationGeneration = UUID()
+      botVoiceLaunch.cancelPending(unless: navigation.last)
+    }
+  }
   var focusedRoutine: String?
   var focusedMessage: String?
   var activeChannel: String?
@@ -160,6 +174,7 @@ final class AppStore {
     (state.bootstrap?.activeRuns ?? []).filter { $0.channelId == id && $0.isActive }
   }
   func start() async {
+    SystemDiscovery.shared.clear()
     #if DEBUG
       let args = ProcessInfo.processInfo.arguments
       #if targetEnvironment(simulator)
@@ -214,6 +229,16 @@ final class AppStore {
           {
             var value = Draft()
             value.text = args[draftIndex + 1]
+            saveDraft(value, channel: channelID)
+          }
+          // XCTest's launch transport can truncate literal newline arguments.
+          if let draftIndex = args.firstIndex(of: "--visual-draft-base64"),
+            args.indices.contains(draftIndex + 1),
+            let data = Data(base64Encoded: args[draftIndex + 1]),
+            let text = String(data: data, encoding: .utf8)
+          {
+            var value = Draft()
+            value.text = text
             saveDraft(value, channel: channelID)
           }
           navigation = [channelID]
@@ -437,7 +462,15 @@ final class AppStore {
     histories = [:]
     historyLoadFailures.removeAll()
     historyWindows = [:]
+    if let systemScope, systemScope != scope {
+      systemDraft = nil; pendingSystemItem = nil
+      botVoiceLaunch.reset()
+      SystemDiscovery.shared.clear(removeTransfers: true)
+    }
     record = next
+    systemScope = scope
+    systemDiscoveryEnabled = !testing && SystemDiscovery.enabled(scope: scope)
+    SystemDiscovery.shared.clear()
     server = next.server
     userName = next.displayName
     api = nextAPI
@@ -449,6 +482,24 @@ final class AppStore {
       UserDefaults.standard.bool(forKey: OnboardingDecision.key(server: next.server))
         && !onboardingForcedForQA ? .hidden : .undecided
     phase = .ready
+    if systemDiscoveryEnabled { SystemDiscovery.shared.update(session: next, state: nextState) }
+    if let pending = pendingSystemItem {
+      pendingSystemItem = nil
+      if pending.record, pending.requestID == systemOpenGeneration {
+        systemVoiceRequestID = pending.requestID
+      }
+      Task {
+        do {
+          guard pending.requestID == systemOpenGeneration else { return }
+          guard !pending.record || Date.now.timeIntervalSince(pending.createdAt) < 30 else {
+            throw APIError("Run the voice-note shortcut again to start recording.")
+          }
+          try await openSystemItem(pending.id, draft: pending.draft,
+            attachments: pending.attachments, recordVoiceNote: pending.record)
+        }
+        catch { if !UserFacingError.isCancelled(error) { self.error = UserFacingError.message(error) } }
+      }
+    }
     #if canImport(UIKit)
       NativeNotifications.shared.bind(next)
       if launchComplete, requestPushPermission {
@@ -457,8 +508,13 @@ final class AppStore {
     #endif
   }
   private func apply(_ bootstrap: Bootstrap) {
+    let previous = state.bootstrap
+    let directoryChanged = previous?.bots != bootstrap.bots
+      || previous?.channels.map { "\($0.id):\($0.name):\($0.hiddenFromSidebar == true)" }
+        != bootstrap.channels.map { "\($0.id):\($0.name):\($0.hiddenFromSidebar == true)" }
     state.bootstrap = bootstrap
     decideOnboarding()
+    if !testing, directoryChanged { TeamAppShortcuts.updateAppShortcutParameters() }
     for (channel, messages) in Dictionary(grouping: bootstrap.latestMessages, by: \.channelId) {
       // Bootstrap carries only each channel's newest message. A loaded
       // transcript takes new messages from its next history page instead, so
@@ -483,6 +539,7 @@ final class AppStore {
   }
   func persist() {
     guard phase == .ready else { return }
+    if !testing, let record { SystemDiscovery.shared.update(session: record, state: savedSnapshot) }
     persistenceTask?.cancel()
     let epoch = generation
     persistenceTask = Task { [weak self] in
@@ -1251,10 +1308,12 @@ final class AppStore {
   }
   func open(_ channelID: String, messageID: String? = nil) async {
     let epoch = generation
+    let opening = UUID()
+    navigationGeneration = opening
     if let messageID {
       guard await loadContext(channelID, messageID: messageID) else { return }
-      guard epoch == generation else { return }
     }
+    guard epoch == generation, navigationGeneration == opening, !Task.isCancelled else { return }
     focusedMessage = messageID
     navigation = [channelID]
   }
@@ -1272,6 +1331,135 @@ final class AppStore {
       await open(id, messageID: message)
     }
   }
+  func setSystemDiscoveryEnabled(_ enabled: Bool) {
+    guard let record, !testing else { return }
+    systemDiscoveryEnabled = enabled
+    SystemDiscovery.shared.setEnabled(enabled, session: record, state: savedSnapshot)
+  }
+
+  /// Called by OpenIntent and the Siri draft flow. Validate saved identifiers
+  /// against the live account before touching navigation or the existing draft.
+  func openSystemItem(_ value: String, draft text: String? = nil, attachments: [Asset] = [],
+    recordVoiceNote: Bool = false) async throws {
+    let opening = UUID()
+    systemOpenGeneration = opening
+    systemVoiceRequestID = recordVoiceNote ? opening : nil
+    defer { if systemVoiceRequestID == opening { systemVoiceRequestID = nil } }
+    // A saved Bot already identifies a locally known destination. Bring up its
+    // cached chat without waiting for bootstrap; normal foreground sync updates
+    // it independently. Drafting and message lookup keep their live validation.
+    if text == nil, attachments.isEmpty,
+      try await openCachedBot(value, recordVoiceNote: recordVoiceNote, requestID: opening) { return }
+    let client = try await SystemIntentClient.connect()
+    guard opening == systemOpenGeneration else { throw CancellationError() }
+    guard let id = SystemEntityID(value), id.scope == client.scope,
+      [.bot, .conversation, .message].contains(id.kind) else {
+      throw APIError("This item belongs to a different OpenTeam account. Choose it again.")
+    }
+    let target = try client.destination(value, kind: id.kind)
+    if recordVoiceNote {
+      guard id.kind == .bot else { throw APIError("Choose a Bot to record a voice note.") }
+      guard client.bootstrap.runtime["transcription"].string == "configured" else {
+        throw APIError("Configure voice notes in OpenTeam Settings before recording.")
+      }
+    }
+    if phase == .starting {
+      pendingSystemItem = (value, text, attachments, recordVoiceNote, .now, opening)
+      return
+    }
+    guard phase == .ready, systemScope == client.scope else {
+      throw APIError("Connect to this OpenTeam account before opening its content.")
+    }
+    if id.kind == .bot, text == nil {
+      guard try botVoiceLaunch.canOpen(target.id) else { return }
+    }
+    // Refresh the directory so a newly created Bot can be opened immediately.
+    apply(client.bootstrap)
+    if let text {
+      var existing = draft(target.id)
+      guard existing.attachments.count + (existing.stagedFiles?.count ?? 0) + attachments.count <= 6 else {
+        throw APIError("This conversation’s draft already has attachments. Send or clear it first.")
+      }
+      if !text.isEmpty { existing.text += (existing.text.isEmpty ? "" : "\n") + text }
+      existing.attachments += attachments
+      saveDraft(existing, channel: target.id)
+    }
+    await open(target.id, messageID: id.kind == .message ? id.localID : nil)
+    guard opening == systemOpenGeneration else { throw CancellationError() }
+    if id.kind == .bot, text == nil {
+      botVoiceLaunch.open(scope: client.scope, channelID: target.id, record: recordVoiceNote)
+    }
+    if id.kind == .message, focusedMessage != id.localID {
+      throw APIError("This message could not be opened. It may have been removed.")
+    }
+  }
+
+  private func openCachedBot(_ value: String, recordVoiceNote: Bool, requestID: UUID) async throws -> Bool {
+    guard let id = SystemEntityID(value), id.kind == .bot else { return false }
+    let session = try SystemIntentClient.savedSession()
+    let scope = SystemEntityID.scope(server: session.server, userID: session.userID)
+    guard id.scope == scope else {
+      throw APIError("This item belongs to a different OpenTeam account. Choose it again.")
+    }
+    if phase == .starting {
+      pendingSystemItem = (value, nil, [], recordVoiceNote, .now, requestID)
+      return true
+    }
+    guard phase == .ready, systemScope == scope,
+      record?.server == session.server, record?.userID == session.userID,
+      record?.token == session.token else {
+      throw APIError("Connect to this OpenTeam account before opening its content.")
+    }
+    guard let bootstrap = state.bootstrap,
+      let target = ShareDirectory.destinations(bootstrap).first(where: {
+        $0.id == id.channelID && $0.bot?.id == id.localID && $0.bot?.status != "archived"
+      }) else { return false }
+    // If configuration is not cached yet, a fresh response may enable voice
+    // notes. An already configured composer can begin recording immediately.
+    if recordVoiceNote, bootstrap.runtime["transcription"].string != "configured" { return false }
+    guard try botVoiceLaunch.canOpen(target.id) else { return true }
+    await open(target.id)
+    guard requestID == systemOpenGeneration else { throw CancellationError() }
+    botVoiceLaunch.open(scope: scope, channelID: target.id, record: recordVoiceNote)
+    return true
+  }
+
+  /// Leaving the app cancels an unconsumed request, including a live lookup or
+  /// a queued cold-start replay. Returning later must not open the microphone.
+  func cancelPendingVoiceRecording() {
+    if systemVoiceRequestID == systemOpenGeneration { systemOpenGeneration = UUID() }
+    if let pending = pendingSystemItem, pending.record {
+      if pending.requestID == systemOpenGeneration { systemOpenGeneration = UUID() }
+      pendingSystemItem = nil
+    }
+    botVoiceLaunch.cancelPending()
+  }
+
+  func takeBotRecording(for memo: VoiceMemoController, channelID: String,
+    key: String, visible: Bool) -> Bool {
+    guard visible, botVoiceLaunch.pending != nil else { return false }
+    do {
+      guard let record else { throw APIError("Connect before recording to a Bot.") }
+      try SystemIntentClient.validateSession(record)
+    } catch {
+      cancelPendingVoiceRecording()
+      self.error = UserFacingError.message(error)
+      return false
+    }
+    return botVoiceLaunch.takeRecording(for: memo, scope: systemScope,
+      channelID: channelID, key: key, visible: visible)
+  }
+
+  private func clearSystemContent() {
+    systemOpenGeneration = UUID()
+    systemVoiceRequestID = nil
+    botVoiceLaunch.reset()
+    SystemDiscovery.shared.clear(removeTransfers: true)
+    systemScope = nil
+    systemDiscoveryEnabled = false
+    systemDraft = nil
+    pendingSystemItem = nil
+  }
   func signOut() async {
     guard let api, !busy.contains("sign-out") else { return }
     busy.insert("sign-out")
@@ -1288,6 +1476,7 @@ final class AppStore {
         }
       }
       if !testing { try SecureSession.clear() }
+      clearSystemContent()
       #if canImport(UIKit)
         NativeNotifications.shared.reset()
         ConversationDonation.forgetAll()
@@ -1327,6 +1516,7 @@ final class AppStore {
   func beginReauthentication() {
     let defaults = UserDefaults.standard
     defaults.set(true, forKey: LocalDataReset.pendingKey)
+    clearSystemContent()
     lifecycle?.cancel()
     lifecycle = nil
     generation = UUID()
@@ -1400,6 +1590,7 @@ final class AppStore {
   func handle(_ error: Error, quiet: Bool = false) {
     if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
     if let e = error as? APIError, e.unauthorized {
+      clearSystemContent()
       #if canImport(UIKit)
         NativeNotifications.shared.reset()
       #endif

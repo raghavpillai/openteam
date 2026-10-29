@@ -3,7 +3,7 @@ title: "OpenTeam vs Claude Duet: an open-source Claude Duet alternative you run 
 seoTitle: "Open-source Claude Duet alternative: OpenTeam vs Claude Duet"
 description: Claude Duet is US-only, waitlisted and runs in Anthropic's cloud. OpenTeam is an open-source, self-hosted alternative you can run today, with any model.
 date: 2026-10-21
-updated: 2026-10-26
+updated: 2026-10-28
 category: Comparisons
 image: /blog/images/claude-duet-scorecard.png
 imageAlt: A comparison table of Claude Duet and OpenTeam covering availability, source code, where each runs, models, agents, check frequency, browser takeover, texts and calls, local files and usage limits
@@ -127,7 +127,7 @@ Bots share a `/workspace` folder and website sign-ins: sign in to a site once, o
 
 This is where Duet stops by design: it doesn't text other people, doesn't make calls and can't see your computer. OpenTeam bots can do all three.
 
-- **Texts.** With the desktop app on your Mac, bots can read and send Messages, iMessage and SMS, and start new conversations. For a Mac that stays on, the iMessage (SSH) plugin can reply in existing chats once you turn replies on. Our [guide to an AI iMessage assistant](/blog/ai-imessage-assistant) covers both paths.
+- **Texts.** With the desktop app on your Mac and Messages turned on, bots can read and send Messages, iMessage and SMS, and start new conversations. Each text waits on an approval card unless you allow that person. Our [guide to an AI iMessage assistant](/blog/ai-imessage-assistant) covers setup.
 - **Phone calls.** Add [call4me](https://call4.me/) as a custom MCP server and a bot can phone a business for you, at $0.25 a minute. See [how to make phone calls from OpenTeam](/blog/ai-agent-phone-calls).
 - **Your own computer.** The desktop app connects your Mac or Linux PC, so bots can run commands, read your files and copy them to and from their `/workspace`. On a Mac they can also read your contacts and import your Chrome sign-ins into their browser.
 
@@ -203,7 +203,7 @@ If you're in the US, on Pro or Max, and want a proactive agent on your phone wit
 ## Other Claude Duet alternatives
 
 - **[OpenAI dots](https://learn.chatgpt.com/docs/dots)** are always-on ChatGPT agents, each with its own cloud computer. Personal dots need ChatGPT Pro and exclude the EEA, UK and Switzerland. See [Grok Bot vs Meta Muse vs OpenAI dots](/blog/grok-bot-vs-meta-muse-vs-openai-dots).
-- **[Meta Muse](https://www.meta.com/help/subscriptions/1021145227643680/)** has a free tier and paid plans from $20 a month, in the US, Canada and, since October 23, Japan. If you're elsewhere, see [Meta Muse not available in your country?](/blog/meta-muse-not-available-in-your-country).
+- **[Meta Muse](https://www.meta.com/help/subscriptions/1021145227643680/)** has a free tier and paid plans from $20 a month, in the US, Canada, Japan and, since October 27, Singapore. If you're elsewhere, see [Meta Muse not available in your country?](/blog/meta-muse-not-available-in-your-country).
 - **Grok Bot** comes with Cursor Premium ($30 a month) and higher plans, in xAI's cloud. See our [open-source Grok Bot alternative](/blog/open-source-grok-bot-alternative).
 - **Claude Cowork** is Anthropic's agent inside the main Claude app. It waits for you to start a chat rather than coming to you. See our [Claude Cowork alternative that runs on your own server](/blog/claude-cowork-alternative).
 - **Other open-source options** include MausBot, Rakazo, Hermes Agent and OpenClaw, compared in [best self-hosted AI agents](/blog/best-self-hosted-ai-agents).

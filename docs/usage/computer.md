@@ -38,8 +38,20 @@ profiles, writable kernel filesystems, an executable `/tmp`, and `/dev/net/tun` 
 VPN clients. Main, executor, computerUse and knowledgeWork workers can use sudo;
 video workers review supplied media without tools. This shares the
 Docker host kernel; it does not provide a separate VM security boundary.
-System packages survive restarts but must be reinstalled after container recreation
-or upgrades. VPN applications may still need service configuration.
+VPN applications may still need service configuration.
+
+## What restarts and updates keep
+
+When OpenTeam updates, or recreates the computer after a settings change, the computer starts again from a fresh image and keeps only these:
+
+- The bots' home folder and `/workspace`.
+- `/usr/local`, where `sudo pip install`, `sudo npm install -g`, `make install` and hand-copied tools go.
+- apt packages. The computer records each package a bot installs, the apt sources and keys it added, and `.deb` files it installed, and reinstalls them in the background when it starts. Packages from Debian come back at the new image's version.
+- pip and npm packages, which are reinstalled or rebuilt when an update changes the Python or Node.js version.
+
+Everything else, such as `/tmp`, manual changes under `/etc`, and files in `/opt` or other folders, starts fresh. The image's own tools and libraries always come back as the image's version, so an update's fixes reach every bot. Commands bots add to `/usr/local/bin` or their home folder run by name, but a copy with the same name as one of the system's tools doesn't replace it; bots call such a copy by its full path.
+
+If a package can't come back (its apt source is gone, or it was installed from a `.deb` that wasn't kept), each bot is told once, and the computer tries again only after its image changes. Bots run `openteam-installs` to see what's recorded and `sudo openteam-installs forget NAME` to drop a package. To start over with no installed software, stop OpenTeam and remove the `openteam_openteam_computer_local` volume.
 
 ## Use your own computer
 
@@ -54,9 +66,20 @@ With your permission, a bot can:
 
 Bots don't get a view of your screen or control of your mouse and keyboard. They work through commands and files.
 
-Bots execute commands, transfers, and available native tools directly on enrolled computers. To stop access, disable the computer under **Settings → Computer → Computers** or close the desktop app.
+Bots execute commands, transfers, and available native tools directly on enrolled computers. To stop access, disable the computer from its **…** menu under **Settings → Computer → Manage devices** or close the desktop app.
 
-Your computer may ask you to grant OpenTeam permissions, such as access to Contacts. To read Messages, turn on Full Disk Access for OpenTeam in **System Settings → Privacy & Security**; macOS doesn't ask for this one.
+Your computer may ask you to grant OpenTeam permissions, such as access to Contacts.
+
+### Messages on a Mac
+
+Bots can use Messages only on a Mac where you turn it on:
+
+1. On that Mac, open **Settings → Computer** in the desktop app and turn on **Use Messages**, or choose **Set up** next to **Messages** under **This Mac** in **Marketplace**.
+2. A window lists the macOS permissions Messages needs. Choose **Allow** next to each: **Automation** lets bots send through Messages, **Contacts** lets them find people by name, and **Full Disk Access** lets them search your texts. macOS doesn't ask for Full Disk Access, so **Allow** opens System Settings, where you turn on OpenTeam. Reopen the window any time from **macOS permissions** in the same section. If a bot needs a permission you haven't granted, the window opens on that Mac.
+
+Before a bot sends a text, a **Send this message?** card shows the recipient, the text and the Mac it goes out from, in the desktop and iPhone apps. Choose **Send**, **Discard**, or **Always allow** to let bots text that person from that Mac without asking. **Send Without Asking** skips the card for every text. **Allowed recipients** under **Settings → Computer → Messages** lists the people you've allowed, with a button to remove each. Turning Messages off and on again clears both.
+
+With Messages on for more than one Mac, a bot uses the Mac you last wrote from, or the only one that's online. A Mac goes offline when it sleeps or its app closes, so closing a MacBook moves Messages to another Mac that's awake. **Settings → Computer → Manage devices** shows each computer as online now or when it was last opened, and whether Messages is on there. The iPhone app has the same list under **Settings → Manage devices**.
 
 Keep the desktop app open while a bot works on your computer. When you give a task, say which computer you mean, because the bot's Linux computer and your own computer have different files.
 

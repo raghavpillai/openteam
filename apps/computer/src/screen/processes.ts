@@ -2,7 +2,7 @@ import { type ChildProcess } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { join } from "node:path";
-import { spawnAgentProcess as spawn, agentProcessIdentity, sanitizedAgentEnvironment } from "../agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, AGENT_SEARCH_PATHS, sanitizedAgentEnvironment } from "../agent-process";
 import type { ScreenSession } from "./types";
 
 export const SCREEN_HEALTH_CHECK_INTERVAL_MS = 2_000;
@@ -186,10 +186,14 @@ export async function viewerHttpResponds(port: number): Promise<boolean> {
   }
 }
 
+/** The desktop's own programs keep the computer's fixed PATH; its terminal gets the bots' (OPENTEAM_AGENT_PATH). */
 export function environment(home: string, session: ScreenSession): NodeJS.ProcessEnv {
   const environment = sanitizedAgentEnvironment(process.env);
   return {
     ...environment,
+    NODE_PATH: AGENT_SEARCH_PATHS.NODE_PATH,
+    BUN_INSTALL_BIN: AGENT_SEARCH_PATHS.BUN_INSTALL_BIN,
+    OPENTEAM_AGENT_PATH: AGENT_SEARCH_PATHS.PATH,
     HOME: home,
     OPENTEAM_DESKTOP_ID: session.botId,
     DISPLAY: `:${session.display}`,

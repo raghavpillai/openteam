@@ -26,7 +26,7 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
       for (const id of ids) {
         const env = await broker.commandEnvironment(id, "/workspace");
         const browser = await chromium.launch({
-          executablePath: "/usr/local/bin/google-chrome",
+          executablePath: "/usr/lib/openteam/bin/google-chrome",
           headless: false,
           env: env as Record<string, string>,
           args: ["--no-sandbox", "--disable-dev-shm-usage", "--window-size=1280,800"],
@@ -142,7 +142,7 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
       console.info("Pause interrupts a native Unicode input batch; the X11 keymap is unchanged");
 
       const viewerBrowser = await chromium.launch({
-        executablePath: "/usr/local/bin/google-chrome",
+        executablePath: "/usr/lib/openteam/bin/google-chrome",
         args: ["--no-sandbox"],
       });
       browsers.push(viewerBrowser);

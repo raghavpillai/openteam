@@ -145,6 +145,7 @@ struct ChatView: View {
     .chatFloatingBars(top: { if sideChrome?.holdsAllControls == true { titleBar } else { header } }, bottom: {
       if !showsLoadError { ComposerView(channel: channel).disabled(!didPositionHistory) }
     })
+    .padding(.trailing, sideChrome?.contentInset ?? 0)
     .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
     .toolbar(.hidden, for: .navigationBar).background(NativeBackGesture().frame(width: 0, height: 0))
     .navigationDestination(isPresented: $details) {
@@ -243,6 +244,10 @@ struct ChatView: View {
         if message.metadata["event"]["type"].string == "name-changed" {
           Label("Renamed to " + message.metadata["event"]["to"].string, systemImage: "pencil")
             .font(.system(size: 12)).foregroundStyle(NativePalette.muted).frame(maxWidth: .infinity)
+        } else if message.isInterruptedNotice {
+          Text(message.content).font(.system(size: 12)).foregroundStyle(NativePalette.muted)
+            .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.horizontal, 24)
+            .accessibilityIdentifier("interrupted-notice-" + message.id)
         } else {
           MessageRow(message: message, channel: channel, onReply: { reply(message) },
             onThread: { branchesReplies = true; thread = message },
@@ -350,8 +355,9 @@ struct ChatView: View {
   }
   private var sideControls: some View {
     VStack(spacing: 12) {
-      if sideChrome?.holdsAllControls == true { leadingButton }
+      Spacer(minLength: 12)
       computerButton
+      if sideChrome?.holdsAllControls == true || leadingControl != nil { leadingButton }
     }.foregroundStyle(NativePalette.text)
   }
   @ViewBuilder private var computerButton: some View {
@@ -376,7 +382,11 @@ struct ChatView: View {
   }
   var header: some View {
     HStack(spacing: 8) {
-      leadingButton
+      if sideChrome == nil {
+        leadingButton
+      } else {
+        Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+      }
       titleButton.frame(maxWidth: .infinity)
       // Equal side slots keep the pill on the screen's center, including groups
       // without a Computer action. Long names truncate within the middle slot.
@@ -534,7 +544,7 @@ struct MessageRow: View {
       } else {
         bubble
       }
-    }
+    }.modifier(SystemMessageContext(message: message, channel: channel))
   }
   private var bubble: some View {
     HStack(alignment: .bottom, spacing: 0) {
@@ -561,8 +571,8 @@ struct MessageRow: View {
             MessageReplyQuote(replyID: reply, channelID: channel.id, ownerID: message.id,
               onOpen: onReplyContext.map { action in { action(reply) } })
           }
-          // A draft card shows its own title; its text is only the chat-list preview.
-          if !message.displayContent.isEmpty, message.metadata["type"].string != "external-draft" {
+          // Draft and approval cards show their own title; their text is only the chat-list preview.
+          if !message.displayContent.isEmpty, !["external-draft", "imessage-send"].contains(message.metadata["type"].string) {
             Group {
               if RichMarkdownView.required(message.displayContent) {
                 RichMarkdownView(source: message.displayContent, forceDark: message.isUser).frame(
@@ -1023,6 +1033,7 @@ struct ThreadPage: View {
           replyRootID: branchesReplies ? nil : root.id, focusOnAppear: true, focusRequest: focusRequest)
           .disabled(!ready)
       })
+      .padding(.trailing, sideChrome?.contentInset ?? 0)
       .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
       .navigationDestination(item: $exchange) { BotExchangeView(channel: channel, peer: $0) }
       .navigationDestination(isPresented: $details) { ConversationDetails(channelID: channel.id) }

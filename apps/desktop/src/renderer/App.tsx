@@ -83,6 +83,7 @@ import { SidebarBotOrderContext } from "./lib/sidebar-bot-order";
 import { sidebarChannelOrder } from "./lib/sidebar-rows";
 import { readThemePreference, setThemePreference, THEME_CHANGE_EVENT } from "./lib/theme";
 import { useOpenTeam } from "./state/use-openteam";
+import { MessagesGrantsPrompt } from "./components/openteam/settings/messages-permissions-dialog";
 
 const Onboarding = lazy(() =>
   import("./components/openteam/onboarding").then((module) => ({ default: module.Onboarding }))
@@ -1716,6 +1717,7 @@ export default function App() {
             )}
           </section>
 
+          <MessagesGrantsPrompt />
           {loadedSurfaces.current.dialogs && (
             <Suspense fallback={null}>
               <DesktopDialogs

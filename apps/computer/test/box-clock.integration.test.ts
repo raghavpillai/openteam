@@ -15,7 +15,7 @@ const asBox = (script: string) => {
   return run.stdout.trim();
 };
 const applyZone = (value: string) =>
-  spawnSync("/usr/local/bin/openteam-box-timezone", ["apply", value], { encoding: "utf8" });
+  spawnSync("/usr/lib/openteam/bin/openteam-box-timezone", ["apply", value], { encoding: "utf8" });
 
 /** `date +%z` style offset of the configured zone at a moment, from Intl's own data. */
 const offset = (date: Date, timeZone = zone!) => {
@@ -34,7 +34,7 @@ test.skipIf(inImage)("the computer image ships the clock script and zone data", 
   const file = (path: string) => Bun.file(new URL(`../../../${path}`, import.meta.url)).text();
   const dockerfile = await file("docker/computer.Dockerfile");
   expect(dockerfile).toMatch(/apt-get install[\s\S]*?\btzdata\b/);
-  expect(dockerfile).toContain("COPY docker/openteam-box-timezone /usr/local/bin/openteam-box-timezone");
+  expect(dockerfile).toContain("COPY docker/openteam-box-timezone /usr/lib/openteam/bin/openteam-box-timezone");
 });
 
 test.skipIf(!inImage)("the box clock runs in the configured time zone", () => {
@@ -68,7 +68,7 @@ test.skipIf(!inImage)("the clock script resolves letter case and refuses unknown
       expect(run.stderr).toContain("the box clock stays on UTC");
       expect(realpathSync("/etc/localtime")).toBe(realpathSync("/usr/share/zoneinfo/Etc/UTC"));
     }
-    expect(spawnSync("/usr/local/bin/openteam-box-timezone", ["apply"]).status).toBe(2);
+    expect(spawnSync("/usr/lib/openteam/bin/openteam-box-timezone", ["apply"]).status).toBe(2);
   } finally {
     expect(applyZone(zone!).status).toBe(0);
   }

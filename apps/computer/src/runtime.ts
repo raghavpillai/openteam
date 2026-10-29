@@ -63,7 +63,9 @@ import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
 import { endTurnHoldExtension } from "./runtime/end-turn-hold";
 import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
-import { DiskPressureMonitor, diskPressureReminderStepPersisted } from "./runtime/disk-pressure";
+import { DiskPressureMonitor, reminderStepPersisted } from "./runtime/disk-pressure";
+import { INSTALL_NOTICE_TYPE, InstallNotice } from "./runtime/install-notice";
+import { PROCESS_NOTICE_TYPE, ProcessNotice } from "./runtime/process-notice";
 
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath, existingContextSessionPath } from "./runtime/session-path";
@@ -104,6 +106,8 @@ export class ComputerRuntime {
   private readonly workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
   // The reference watches its workspace, data and temp volumes and keeps its ledger in its data root.
   private readonly diskPressure = new DiskPressureMonitor([this.workspaceRoot, this.agentDir, tmpdir()], join(this.agentDir, "disk-pressure-reminders.json"));
+  private readonly installNotice = new InstallNotice(join(this.agentDir, "install-reminders.json"));
+  private readonly processNotice = new ProcessNotice(join(this.agentDir, "terminals"), join(this.agentDir, "stopped-processes.json"));
 
   private modelRuntime: ModelRuntime | null = null;
   private readonly inferenceProviders = new InferenceProviderService(
@@ -223,6 +227,11 @@ export class ComputerRuntime {
     await this.inferenceProviders.disconnect(providerId);
   }
 
+  /** At shutdown: note the programs bots left running, which this stop ends. */
+  recordLeftRunningProcesses(): Promise<void> {
+    return this.processNotice.record();
+  }
+
   closeIdleProviderConnections(): void {
     this.providerConnections.close();
     this.inferenceConnections.close();
@@ -319,8 +328,11 @@ export class ComputerRuntime {
       }
       // Routine runs can't message the user, so they neither own forms nor use up the low-disk reminder.
       if (!active.subagentType && active.requestSource !== "automation") {
+        active.messagesAvailable = await this.tools.messagesAvailable();
         await this.tools.userForms.beginTurn(active.botId, active.runId);
         active.diskPressureEpisode = await this.diskPressure.claim(active.botId).catch(() => null);
+        active.installNotice = await this.installNotice.claim(active.botId).catch(() => null);
+        active.processNotice = await this.processNotice.claim(active.botId).catch(() => null);
       }
       await this.botStore?.openForWake(active.botId);
       await this.botStore?.recordRequestId(active.botId, active.runId);
@@ -864,8 +876,14 @@ export class ComputerRuntime {
       // A stop settles as cancelled, so the run it ends is never read as cut off and redone.
       if (active.stopped && status === "interrupted") status = "cancelled";
       if (active.diskPressureReminded && active.diskPressureEpisode != null && active.session &&
-        diskPressureReminderStepPersisted(active.session.messages as Array<{ role: string }>))
+        reminderStepPersisted(active.session.messages as Array<{ role: string }>))
         await this.diskPressure.commit(active.botId, active.diskPressureEpisode);
+      if (active.installReminded && active.installNotice && active.session &&
+        reminderStepPersisted(active.session.messages as Array<{ role: string }>, INSTALL_NOTICE_TYPE))
+        await this.installNotice.commit(active.botId, active.installNotice.episode);
+      if (active.processReminded && active.processNotice && active.session &&
+        reminderStepPersisted(active.session.messages as Array<{ role: string }>, PROCESS_NOTICE_TYPE))
+        await this.processNotice.commit(active.botId, active.processNotice.keys);
       this.compaction.parkBackground(active.contextSessionId);
       attachSession(active);
       if (this.botStore) {

@@ -181,7 +181,14 @@ contextBridge.exposeInMainWorld("openteam", {
   },
   computer: {
     get: () => ipcRenderer.invoke("openteam:computer:get"),
-    update: (request: { machineLabel: string }) => ipcRenderer.invoke("openteam:computer:update", request),
+    update: (request: { machineLabel?: string; messagesEnabled?: boolean }) => ipcRenderer.invoke("openteam:computer:update", request),
+    messagesPermissions: (request?: "fullDiskAccess" | "automation" | "contacts") => ipcRenderer.invoke("openteam:computer:messages-permissions", request ?? null),
+    messagesIcon: (): Promise<string | null> => ipcRenderer.invoke("openteam:computer:messages-icon"),
+    onMessagesGrantsNeeded: (listener: () => void) => {
+      const handler = () => listener();
+      ipcRenderer.on("openteam:messages-grants-needed", handler);
+      return () => { ipcRenderer.removeListener("openteam:messages-grants-needed", handler); };
+    },
   },
   files: {
     downloadAll: (files: Array<{ fileName: string; url: string }>) =>

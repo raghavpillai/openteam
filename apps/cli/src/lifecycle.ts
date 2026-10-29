@@ -55,6 +55,7 @@ import {
   acquireUpdateLock,
   assertUpdatePreflight,
   createDatabaseBackup,
+  pruneUpdateBackups,
   readUpdateState,
   restoreDatabaseBackup,
   writeUpdateState,
@@ -569,6 +570,17 @@ const updateCommandUnlocked = async (
     );
     throw new CliError(
       `Update failed and the previous Compose configuration was restored${recoveryDetail}${databaseRecoveryError ? `; database restore also failed: ${databaseRecoveryError}` : ""}: ${cause}`
+    );
+  }
+  try {
+    const removed = pruneUpdateBackups(paths, backupPath);
+    if (removed.length)
+      console.log(
+        `Removed ${removed.length} older update backup${removed.length === 1 ? "" : "s"} from ${paths.backups}: ${removed.join(", ")}`
+      );
+  } catch (error) {
+    console.warn(
+      `Could not remove older update backups: ${error instanceof Error ? error.message : error}`
     );
   }
   const completion = cliPromotion

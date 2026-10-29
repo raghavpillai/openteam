@@ -21,6 +21,14 @@ Backups include sign-ins to websites and services. Store them somewhere private.
 
 The database backup that `openteam update` makes is for rolling back a failed update. It isn't a full backup.
 
+## Update backups
+
+Before each update, `openteam update` saves a copy of the database in the `backups` folder of your install directory, named `postgres-<old version>-before-<new version>-<time>.sql`. If the new version doesn't start, the updater restores the copy it just made and restarts the previous version.
+
+- **Database only.** Update backups don't include the Docker volumes (workspace files, browser sign-ins, attachments, software bots installed) and don't roll them back. The updater restores the previous `.env` and `compose.yaml` itself, from copies it holds during the update. Use [Make a backup](#make-a-backup) for everything else.
+- **The three newest are kept.** After each successful update, the updater deletes older update backups and lists the deleted files in `update.log` in your install directory. A failed update deletes nothing. Other files in the `backups` folder are left alone. To keep an update backup for longer, copy it somewhere else.
+- **Private.** The copies include plugin sign-ins and saved keys. Only your user can read them.
+
 ## Make a backup
 
 These commands work in Bash or zsh on macOS and Linux. They pause your bots while the backup runs, so let active work finish first.

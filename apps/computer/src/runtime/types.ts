@@ -96,6 +96,9 @@ export interface ActiveTurn {
   /** Likewise for installs the computer's last start could not bring back, or rebuilt. */
   installNotice?: { episode: string; content: string } | null;
   installReminded?: boolean;
+  /** Likewise for programs the bot left running that a restart stopped. */
+  processNotice?: { keys: string[]; content: string } | null;
+  processReminded?: boolean;
   /** A typed message superseded this run; calls it cut off say so. */
   interruptedByUserAt?: number;
   /** Stopped through the cancel-run API (the user's stop or StopSubagent): the turn settles as cancelled. */

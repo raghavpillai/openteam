@@ -30,6 +30,7 @@ import { communicationReminder, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder, 
 import { compactRepeatedDiscovery } from "./discovery-context";
 import { DISK_PRESSURE_REMINDER } from "./disk-pressure";
 import { INSTALL_NOTICE_TYPE } from "./install-notice";
+import { PROCESS_NOTICE_TYPE } from "./process-notice";
 
 const TOO_MANY_MEDIA_MARKERS = [
   "request contained too many images or documents",
@@ -156,6 +157,14 @@ export function compactionExtension(
           active.installReminded = true;
           await active.session.sendCustomMessage(
             { customType: INSTALL_NOTICE_TYPE, content: active.installNotice.content, display: false, details: { episode: active.installNotice.episode, origin: "host" } },
+            { triggerTurn: false }
+          );
+          event.messages = [...event.messages, active.session.messages.at(-1)!];
+        }
+        if (active.processNotice && !active.processReminded && active.session) {
+          active.processReminded = true;
+          await active.session.sendCustomMessage(
+            { customType: PROCESS_NOTICE_TYPE, content: active.processNotice.content, display: false, details: { origin: "host" } },
             { triggerTurn: false }
           );
           event.messages = [...event.messages, active.session.messages.at(-1)!];

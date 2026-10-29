@@ -7,6 +7,7 @@ import { agentReadStream, agentWriteStream } from "./agent-file-stream";
 import { formatBytes2 } from "@openteam/contracts/reference-formatters";
 import { READ_CHAR_LIMIT, ReadWindowText, formatNotebookForModel, readLineWindow, renderReadText, renderPdfReadText } from "@openteam/contracts/read-output";
 import { boundToolImage, resizeImageForModel } from "./runtime/image-input";
+import { SHELL_ID_VARIABLE } from "./runtime/process-notice";
 import { decodeReadableText, readableTextEncoding, sniffImageMimeType } from "./read-text";
 import { randomInt, randomUUID } from "node:crypto";
 import { constants, createReadStream, createWriteStream } from "node:fs";
@@ -214,7 +215,7 @@ export class NativeToolExecutor {
     const environmentCapture = createShellEnvironmentCapture(dirname(savedEnvironment.path));
     const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", `${SHELL_ENVIRONMENT_CAPTURE}\n${input.command}`], {
       cwd: workingDirectory,
-      env: { ...sanitizedShellEnvironment(withAgentSearchPaths(savedEnvironment.environment), workingDirectory), ...routing.secretEnvironment, OPENTEAM_DESKTOP_ID: environment?.OPENTEAM_DESKTOP_ID },
+      env: { ...sanitizedShellEnvironment(withAgentSearchPaths(savedEnvironment.environment), workingDirectory), ...routing.secretEnvironment, OPENTEAM_DESKTOP_ID: environment?.OPENTEAM_DESKTOP_ID, [SHELL_ID_VARIABLE]: shellId },
       ...agentProcessIdentity(),
       detached: true,
       stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],
@@ -303,7 +304,7 @@ export class NativeToolExecutor {
         settled = true;
         this.liveShells.delete(shellId);
         clearInterval(headerTimer);
-        try { exitDirectory = (await environmentCapture.persist(savedEnvironment.path, Object.keys(routing.secretEnvironment ?? {}), savedEnvironment.environment))?.PWD; }
+        try { exitDirectory = (await environmentCapture.persist(savedEnvironment.path, [...Object.keys(routing.secretEnvironment ?? {}), SHELL_ID_VARIABLE], savedEnvironment.environment))?.PWD; }
         catch (error) { environmentError = error instanceof Error ? error : new Error("Could not persist shell environment"); }
         await rewriteHeader(abortedAt !== undefined || expired ? "aborted" : exitCode === 0 ? "succeeded" : "failed");
         // A command that ran to completion is reported as such even if its shell

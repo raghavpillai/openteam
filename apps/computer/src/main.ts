@@ -681,6 +681,7 @@ const shutdown = (): Promise<void> => {
   server.stop();
   runtime.closeIdleProviderConnections();
   shutdownPromise = Promise.all([
+    runtime.recordLeftRunningProcesses().catch((error) => console.warn(`Left-running process record failed: ${String(error)}`)),
     stdioMcp.closeAll(),
     (async () => {
       await Promise.all([agentStores.closeAll(), screens.shutdown()]);

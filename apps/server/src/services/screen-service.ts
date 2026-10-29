@@ -292,7 +292,6 @@ export class ScreenService {
         "settings",
         "bookmarks",
         "history",
-        "open-tabs",
       ],
       browserTargetRouting: "bot-owned-tabs",
     };

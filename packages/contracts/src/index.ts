@@ -1053,7 +1053,6 @@ export interface ScreenStatusView {
     | "settings"
     | "bookmarks"
     | "history"
-    | "open-tabs"
   >;
   browserTargetRouting: "bot-owned-tabs";
 }

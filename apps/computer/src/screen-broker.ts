@@ -763,7 +763,6 @@ export class ScreenBroker {
         "settings",
         "bookmarks",
         "history",
-        "open-tabs",
       ],
       browserTargetRouting: "bot-owned-tabs",
       error: session.error,

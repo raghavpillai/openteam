@@ -14,6 +14,31 @@ describe("graphical screen lifecycle", () => {
     home = undefined;
   });
 
+  test("asks for a snapshot only of the profile whose browser a bot used", async () => {
+    home = await mkdtemp(join(tmpdir(), "openteam-screen-browser-use-"));
+    const broker = new ScreenBroker(home);
+    const session = { botId: "nova", profileDirectory: join(home, "chrome-profile-2") } as ScreenSession;
+    Object.assign(broker, {
+      readySession: async () => session,
+      withInput: async (_session: ScreenSession, _actor: string, operation: () => Promise<unknown>) => operation(),
+    });
+    (broker as unknown as { sessions: Map<string, ScreenSession> }).sessions.set("nova", session);
+    expect(broker.takeBrowserUse("nova")).toBeNull();
+    await broker.withAgentBrowserInput("nova", "/workspace", async () => undefined);
+    expect(broker.takeBrowserUse("nova")).toBe("chrome-profile-2");
+    expect(broker.takeBrowserUse("nova")).toBeNull();
+  });
+
+  test("does not advertise per-tab state that a restart cannot bring back", () => {
+    const broker = new ScreenBroker("/tmp/no-io-needed") as unknown as {
+      statusFor(session: Partial<ScreenSession>): { browserStateCoverage: string[] };
+    };
+    const coverage = broker.statusFor({ botId: "nova", state: "ready", humanTakeoverUntil: 0 }).browserStateCoverage;
+    expect(coverage).toContain("local-storage");
+    expect(coverage).not.toContain("session-storage");
+    expect(coverage).not.toContain("open-tabs");
+  });
+
   test("tombstones destroyed bots so a late inspector poll cannot recreate them", async () => {
     home = await mkdtemp(join(tmpdir(), "openteam-screen-broker-"));
     const mappingPath = join(home, ".sand-window-assignments.json");

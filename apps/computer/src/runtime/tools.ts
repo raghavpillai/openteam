@@ -926,6 +926,8 @@ export class RuntimeTools {
   }
 
   private async formBrowser(botId: string, existingEndpoint?: string): Promise<FormBrowser> {
+    // A form fills the already connected browser without asking the screen for it.
+    this.screens.noteBrowserUse(botId);
     const sessions = () =>
       [...this.browserUseSessions.entries()].filter(
         ([id, session]) =>

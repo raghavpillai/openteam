@@ -2,7 +2,7 @@ import { removeDesktopMemory } from "./desktop-memory";
 import { type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmod, chown, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { ComputerUseActionInput, ScreenActionInput, ScreenClipboardInput, ScreenClipboardView } from "@openteam/contracts";
 import { performClipboardOperation } from "./screen/clipboard";
 import { spawnAgentProcess as spawn, agentProcessIdentity, AGENT_SEARCH_PATHS, assignAgentOwnership } from "./agent-process";
@@ -72,6 +72,8 @@ export class ScreenBroker {
   private readonly activeAgentInput = new WeakMap<ScreenSession, AbortController>();
   private readonly readySessions = new Map<string, Promise<ScreenSession>>();
   private readonly profilePublishes = new Set<Promise<void>>();
+  /** Bots whose screen was driven since their profile was last requested for a snapshot. */
+  private readonly browserUse = new Set<string>();
 
   constructor(
     private readonly home = process.env.HOME ?? "/home/box",
@@ -185,6 +187,7 @@ export class ScreenBroker {
     actor: "agent" | "human"
   ): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
+    this.noteBrowserUse(botId);
     return this.withInput(session, actor, async (signal) => {
       const env = environment(this.home, session);
       switch (input.action) {
@@ -257,6 +260,7 @@ export class ScreenBroker {
   ): Promise<Buffer> {
     externalSignal?.throwIfAborted();
     const session = await this.readySession(botId, cwd);
+    this.noteBrowserUse(botId);
     return this.withInput(session, "agent", async (controlSignal) => {
       const signal = externalSignal && controlSignal ? AbortSignal.any([externalSignal, controlSignal]) : externalSignal ?? controlSignal;
       signal?.throwIfAborted();
@@ -294,12 +298,15 @@ export class ScreenBroker {
     cwd: string,
     operation: (signal?: AbortSignal) => Promise<T>
   ): Promise<T> {
-    return this.withInput(await this.readySession(botId, cwd), "agent", operation);
+    const session = await this.readySession(botId, cwd);
+    this.noteBrowserUse(botId);
+    return this.withInput(session, "agent", operation);
   }
 
   async browserEndpointForAgent(botId: string, cwd: string): Promise<string> {
     const session = await this.readySession(botId, cwd);
     this.assertAgentControl(session);
+    this.noteBrowserUse(botId);
     const endpoint = `http://127.0.0.1:${session.browserDebugPort}`;
     if (!(await this.browserIsReady(endpoint))) this.openApp(session, "chromium");
     for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -315,6 +322,21 @@ export class ScreenBroker {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     throw new Error("Chromium did not expose its page-control endpoint");
+  }
+
+  /** Records that a bot's browser or desktop was used, for the next turn-end snapshot. */
+  noteBrowserUse(botId: string): void {
+    this.browserUse.add(botId);
+  }
+
+  /**
+   * The profile directory name of a bot whose browser or desktop was used since
+   * the last call, so a turn end snapshots only browsers that turn could have changed.
+   */
+  takeBrowserUse(botId: string): string | null {
+    const session = this.sessions.get(botId);
+    if (!this.browserUse.delete(botId) || !session) return null;
+    return basename(session.profileDirectory);
   }
 
   async takeover(botId: string, cwd: string, active: boolean): Promise<ScreenStatus> {
@@ -753,7 +775,6 @@ export class ScreenBroker {
       browserStateCoverage: [
         "cookies",
         "local-storage",
-        "session-storage",
         "indexed-db",
         "service-workers",
         "cache-storage",

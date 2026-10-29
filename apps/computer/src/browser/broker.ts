@@ -41,6 +41,12 @@ interface BrowserTarget {
   browserContextId?: string;
 }
 
+/** What a bot's browser last held for an origin, and the shared copy at that moment. */
+interface OriginSync {
+  local: string;
+  shared: string;
+}
+
 const storageGroup = (target: BrowserTarget): string =>
   JSON.stringify([target.browserContextId ?? "", target.origin]);
 
@@ -55,6 +61,11 @@ export class BrowserBroker {
   private readonly attaching = new Map<string, Promise<void>>();
   private readonly cookies = new Map<string, BrowserCookie>();
   private readonly origins = new Map<string, BrowserOriginState>();
+  private readonly originDigests = new WeakMap<BrowserOriginState, string>();
+  // Kept across browser launches, so a launch can tell whether its own profile
+  // or the shared copy changed since the broker last saw that browser.
+  private readonly synced = new Map<string, Map<string, OriginSync>>();
+  private syncedChanged = false;
   private readonly stateDirectory: string;
   private readonly keyPath: string;
   private readonly storePath: string;
@@ -163,7 +174,7 @@ export class BrowserBroker {
     await this.setCookies(peer, [...this.cookies.values()]);
     peer.baseline = await this.readCookies(peer.cdp);
     await peer.cdp.call("Target.setDiscoverTargets", { discover: true });
-    await this.refreshTargets(peer, true);
+    await this.refreshTargets(peer);
     await this.save();
     if (!this.timer) {
       this.timer = setInterval(() => this.schedulePeriodicSync(), 1_500);
@@ -220,7 +231,7 @@ export class BrowserBroker {
     for (const peer of [...this.peers.values()]) {
       if (failed.has(peer)) continue;
       try {
-        await this.refreshTargets(peer, false);
+        await this.refreshTargets(peer);
         const observed = new Map<string, string>();
         observedStates.set(peer, observed);
         for (const target of peer.targets.values()) {
@@ -240,7 +251,7 @@ export class BrowserBroker {
             this.origins.set(target.origin, snapshot);
             changedOrigins.set(target.origin, snapshot);
           }
-          peer.originBaselines.set(target.origin, digest);
+          this.setBaseline(peer, target.origin, digest);
         }
       } catch {
         this.peerFailed(peer);
@@ -251,7 +262,7 @@ export class BrowserBroker {
     for (const [key, cookie] of updates) this.cookies.set(key, cookie);
     for (const key of deletions.keys()) this.cookies.delete(key);
     const changedDigests = new Map(
-      [...changedOrigins].map(([origin, snapshot]) => [origin, stateDigest(snapshot)])
+      [...changedOrigins].map(([origin, snapshot]) => [origin, this.digestOf(snapshot)])
     );
     for (const peer of [...this.peers.values()]) {
       if (failed.has(peer) || (!changed && !peer.stale)) continue;
@@ -289,7 +300,7 @@ export class BrowserBroker {
             if (restored) {
               const restoredDigest = stateDigest(restored);
               if (restoredDigest === changedDigests.get(origin)) applied.add(group);
-              peer.originBaselines.set(origin, restoredDigest);
+              this.setBaseline(peer, origin, restoredDigest);
             }
           }
         }
@@ -308,7 +319,7 @@ export class BrowserBroker {
         for (const origin of changedOrigins.keys()) peer.originBaselines.delete(origin);
       }
     }
-    if (changed) await this.save();
+    if (changed || this.syncedChanged) await this.save();
   }
 
   private peerFailed(peer: Peer): void {
@@ -338,7 +349,7 @@ export class BrowserBroker {
     }
   }
 
-  private async refreshTargets(peer: Peer, restoreAuthority: boolean): Promise<void> {
+  private async refreshTargets(peer: Peer): Promise<void> {
     const result = await peer.cdp.call<{
       targetInfos?: Array<{ targetId?: string; type?: string; url?: string; browserContextId?: string }>;
     }>("Target.getTargets");
@@ -361,18 +372,57 @@ export class BrowserBroker {
       } else if (target.origin !== origin) {
         target.origin = origin;
       }
+      if (peer.originBaselines.has(origin)) continue;
       const authority = this.origins.get(origin);
-      if (authority && (restoreAuthority || !peer.originBaselines.has(origin))) {
-        await this.writeOriginState(peer, target, authority);
+      const sync = this.synced.get(peer.botId)?.get(origin);
+      if (authority && sync?.shared === this.digestOf(authority)) {
+        // The shared copy is unchanged since this browser last matched it, so a
+        // difference is this browser's own newer change, made after the
+        // broker's last look (for example on a page left within one sync pass).
+        const local = await this.readOriginState(peer, target);
+        if (!local) continue;
+        const digest = stateDigest(local);
+        if (digest !== sync.local) {
+          // Keep it; the next pass sees it as this browser's change and shares it.
+          peer.originBaselines.set(origin, sync.local);
+          continue;
+        }
+        if (digest === sync.shared) {
+          this.setBaseline(peer, origin, digest);
+          continue;
+        }
       }
-      if (!peer.originBaselines.has(origin)) {
-        const snapshot = await this.readOriginState(peer, target);
-        if (snapshot) peer.originBaselines.set(origin, stateDigest(snapshot));
-      }
+      if (authority) await this.writeOriginState(peer, target, authority);
+      const snapshot = await this.readOriginState(peer, target);
+      if (snapshot) this.setBaseline(peer, origin, stateDigest(snapshot));
     }
     for (const [targetId] of peer.targets) {
       if (!active.has(targetId)) peer.targets.delete(targetId);
     }
+  }
+
+  private digestOf(state: BrowserOriginState): string {
+    let digest = this.originDigests.get(state);
+    if (digest === undefined) {
+      digest = stateDigest(state);
+      this.originDigests.set(state, digest);
+    }
+    return digest;
+  }
+
+  private setBaseline(peer: Peer, origin: string, local: string): void {
+    peer.originBaselines.set(origin, local);
+    const authority = this.origins.get(origin);
+    const shared = authority ? this.digestOf(authority) : local;
+    let records = this.synced.get(peer.botId);
+    if (!records) {
+      records = new Map();
+      this.synced.set(peer.botId, records);
+    }
+    const previous = records.get(origin);
+    if (previous?.local === local && previous.shared === shared) return;
+    records.set(origin, { local, shared });
+    this.syncedChanged = true;
   }
 
   private async readOriginState(
@@ -473,7 +523,7 @@ export class BrowserBroker {
       this.savedDigest = createHash("sha256").update(key).update(plaintext, "utf8").digest("hex");
       const unpacked = JSON.parse(plaintext) as
         | unknown[]
-        | { version?: unknown; cookies?: unknown; origins?: unknown };
+        | { version?: unknown; cookies?: unknown; origins?: unknown; synced?: unknown };
       const cookieValues = Array.isArray(unpacked)
         ? unpacked
         : Array.isArray(unpacked.cookies)
@@ -505,6 +555,17 @@ export class BrowserBroker {
             this.origins.set(origin, state as BrowserOriginState);
         }
       }
+      if (!Array.isArray(unpacked) && unpacked.synced && typeof unpacked.synced === "object") {
+        for (const [botId, value] of Object.entries(unpacked.synced)) {
+          if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+          const records = new Map<string, OriginSync>();
+          for (const [origin, pair] of Object.entries(value)) {
+            if (Array.isArray(pair) && typeof pair[0] === "string" && typeof pair[1] === "string")
+              records.set(origin, { local: pair[0], shared: pair[1] });
+          }
+          this.synced.set(botId, records);
+        }
+      }
     } catch {
       // The first launch has no authority store. A corrupt store is safely ignored.
     }
@@ -526,6 +587,13 @@ export class BrowserBroker {
     // Freeze map membership before the first await. Reconciliation replaces
     // snapshot objects; their nested data is immutable while being saved.
     const origins = [...this.origins];
+    const synced = Object.fromEntries(
+      [...this.synced].map(([botId, records]) => [
+        botId,
+        Object.fromEntries([...records].map(([origin, { local, shared }]) => [origin, [local, shared]])),
+      ])
+    );
+    this.syncedChanged = false;
     const key = await this.key();
     const parts = new Map<string, unknown>();
     const snapshot = {
@@ -534,6 +602,7 @@ export class BrowserBroker {
       origins: Object.fromEntries(
         origins.map(([origin, state]) => [origin, splitAuthorityParts(state, key, parts).value])
       ),
+      synced,
     };
     await mkdir(this.partsDirectory, { recursive: true, mode: 0o700 });
     const existing = new Set(

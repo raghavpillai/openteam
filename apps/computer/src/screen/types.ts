@@ -45,7 +45,6 @@ export interface ScreenStatus {
   browserStateCoverage: Array<
     | "cookies"
     | "local-storage"
-    | "session-storage"
     | "indexed-db"
     | "service-workers"
     | "cache-storage"

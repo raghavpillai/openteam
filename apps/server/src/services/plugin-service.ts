@@ -51,6 +51,7 @@ import { parseAuthMode } from "../auth-mode";
 // Health checks before stopped processes resumed on use wrote this for every
 // connection whose process was missing after a restart.
 const STOPPED_RUNTIME_MESSAGE = "Local runtime unavailable: MCP process is not connected. Reconnect to try again.";
+const COMPUTER_UNREACHABLE_MESSAGE = "Local runtime unavailable: The computer is not reachable. This reconnects when it is back.";
 
 const runAuthentication = async <A>(effect: Effect.Effect<A, Error>): Promise<A> => {
   const result = await Effect.runPromise(Effect.either(effect));
@@ -1270,9 +1271,18 @@ export class PluginService {
         try {
           // Discovery can spawn an OAuth bridge and open a browser. Background
           // health checks only observe the existing runtime; retries are explicit.
-          const runtime = await this.transport.stdioStatus(connection.id);
+          const runtime = await this.transport.stdioStatus(connection.id).catch(() => null);
           const current = await this.connectionOrThrow(connection.id);
           if (current.updatedAt.getTime() !== connection.updatedAt.getTime()) continue;
+          if (!runtime) {
+            // While the computer is down, only a working connection changes state,
+            // so a pending sign-in or an earlier failure keeps its own reason.
+            if (current.status === "ready") await this.prisma.pluginConnection.updateMany({
+              where: { id: connection.id, updatedAt: connection.updatedAt },
+              data: { status: "error", statusMessage: COMPUTER_UNREACHABLE_MESSAGE, lastCheckedAt: new Date() },
+            });
+            continue;
+          }
           if (runtime.state === "starting") {
             if (current.status !== "needs_auth") await this.prisma.pluginConnection.updateMany({
               where: { id: connection.id, updatedAt: connection.updatedAt },
@@ -1284,10 +1294,15 @@ export class PluginService {
             // A restart or plugin update stopped this process. A connection that was
             // working starts on its next call; calls never retry a failed start.
             if (current.status === "ready") continue;
-            if (current.statusMessage === STOPPED_RUNTIME_MESSAGE) {
+            if (
+              current.statusMessage === STOPPED_RUNTIME_MESSAGE ||
+              current.statusMessage === COMPUTER_UNREACHABLE_MESSAGE
+            ) {
               await this.markReady(current, toolSnapshot(current.toolSnapshot), "connection.resumed");
               continue;
             }
+            // A process that failed before the restart keeps its reason.
+            if (current.status !== "needs_auth") continue;
             throw new Error("Sign-in was interrupted when the computer restarted. Reconnect to try again.");
           }
           if (runtime.state !== "ready")

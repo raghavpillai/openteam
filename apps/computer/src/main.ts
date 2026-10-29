@@ -66,14 +66,16 @@ const boxStore = new BoxStoreSync({
 });
 await boxStore.start();
 const transcripts = new TranscriptMirror();
-const runtime = new ComputerRuntime(screens, agentStores, ({ botId }) =>
+const runtime = new ComputerRuntime(screens, agentStores, ({ botId, screenBotId }) => {
+  // Only the browser this turn used; other running profiles keep the periodic interval.
+  const profile = screens.takeBrowserUse(screenBotId);
   boxStore.scheduleSnapshot(5_000, {
     agentIds: [botId],
     workspace: true,
     pi: true,
-    chrome: true,
-  })
-);
+    ...(profile ? { chromeProfiles: [profile] } : {}),
+  });
+});
 const stdioMcp = new McpRuntimeRouter(new StdioMcpManager());
 
 const json = (value: unknown, status = 200, headers: Record<string, string> = {}) =>

@@ -867,6 +867,30 @@ test('browser workers retain their parent desktop session', async () => {
   expect(used).toEqual(['first','other']);
 });
 
+test('browser calls and forms on an already connected browser mark that desktop for the turn-end snapshot', async () => {
+  const tools = runtimeTools() as any;
+  let connects = 0;
+  tools.screens.readySession = async () => tools.screens.sessions.get('desktop-a');
+  tools.screens.browserIsReady = async () => true;
+  tools.screens.browserBroker = {attach: async () => undefined};
+  const browserEndpointForAgent = tools.screens.browserEndpointForAgent.bind(tools.screens);
+  tools.screens.browserEndpointForAgent = (...args: unknown[]) => { connects += 1; return browserEndpointForAgent(...args); };
+  tools.screens.sessions.set('desktop-a', {botId:'desktop-a', profileDirectory:'/home/box/chrome-profile-2', browserDebugPort:9301, humanTakeoverUntil:0, agentInputPaused:false});
+  tools.browserUseSessions.set('worker',{connected:true, configureUploads(){}, registerPrivateValues(){}, async execute(){ return {content:[],details:{}}; }});
+  tools.browserSessionScreens.set('worker','desktop-a');
+  const turn={botId:'worker',screenBotId:'desktop-a',cwd:'/workspace',runId:'run',requestSource:'turn'};
+  for (let call = 0; call < 2; call += 1) {
+    await tools.callBrowserUse(turn,'browser_console_messages',{});
+    expect(tools.screens.takeBrowserUse('desktop-a')).toBe('chrome-profile-2');
+    expect(tools.screens.takeBrowserUse('desktop-a')).toBeNull();
+  }
+  expect(connects).toBe(2);
+  // A user's form submission reuses the connected browser without asking the screen for it.
+  await tools.formBrowser('desktop-a');
+  expect(connects).toBe(2);
+  expect(tools.screens.takeBrowserUse('desktop-a')).toBe('chrome-profile-2');
+});
+
 test('Task reads subagent_type spellings as their type and reports a refused dispatch as Error: reason', async () => {
   const runtime = runtimeTools() as any;
   const previousFetch = globalThis.fetch;

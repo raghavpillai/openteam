@@ -38,6 +38,8 @@ export interface BoxStoreDirtyHint {
   workspace?: boolean;
   pi?: boolean;
   chrome?: boolean;
+  /** Profile directories under home (`chrome-profile`, `chrome-profile-2`) to capture even while their browser runs. */
+  chromeProfiles?: readonly string[];
 }
 
 export interface BoxStoreSyncMetrics {

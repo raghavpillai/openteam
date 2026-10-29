@@ -30,6 +30,11 @@ import {
 } from "./box-store/manifest";
 
 const CHROME_PROFILE_SOURCE = /^home\/box\/chrome-profile(?:-\d+)?$/;
+const CHROME_PROFILE_NAME = /^chrome-profile(?:-\d+)?$/;
+const BROWSER_STATE_SOURCE =
+  /^home\/box\/(?:chrome-profile(?:-\d+)?|\.openteam\/browser-(?:authority(?:\.key|\.json\.enc|\.parts)?|profile-authority)|\.pki\/nssdb)$/;
+const BROWSER_STATE_FILE =
+  /^(home\/box\/(?:chrome-profile(?:-\d+)?|\.openteam\/browser-(?:authority(?:\.key|\.json\.enc|\.parts)?|profile-authority)|\.pki\/nssdb))(?:\/|$)/;
 /** How often a periodic snapshot recaptures a profile whose Chromium is still running. */
 export const CHROME_PROFILE_SNAPSHOT_INTERVAL_MS = 30 * 60_000;
 
@@ -53,6 +58,7 @@ export class BoxStoreSync {
   private pendingFullSnapshot = false;
   private readonly pendingDirtyPrefixes = new Set<string>();
   private pendingChromeSnapshot = false;
+  private readonly pendingChromeProfiles = new Set<string>();
   private readonly chromeProfileIntervalMs: number;
   private readonly chromeProfileCapturedAt = new Map<string, number>();
   private readonly metrics: BoxStoreSyncMetrics = {
@@ -153,7 +159,8 @@ export class BoxStoreSync {
         if (
           this.pendingFullSnapshot ||
           this.pendingDirtyPrefixes.size > 0 ||
-          this.pendingChromeSnapshot
+          this.pendingChromeSnapshot ||
+          this.pendingChromeProfiles.size > 0
         ) {
           this.startScheduledRun();
         }
@@ -173,7 +180,8 @@ export class BoxStoreSync {
       this.scheduledRerun ||
       this.pendingFullSnapshot ||
       this.pendingDirtyPrefixes.size > 0 ||
-      this.pendingChromeSnapshot
+      this.pendingChromeSnapshot ||
+      this.pendingChromeProfiles.size > 0
     );
   }
 
@@ -181,12 +189,16 @@ export class BoxStoreSync {
     // A full snapshot may defer running browser profiles, so an explicit
     // browser request must survive being merged into one.
     if (hint.chrome) this.pendingChromeSnapshot = true;
+    for (const name of hint.chromeProfiles ?? []) {
+      if (CHROME_PROFILE_NAME.test(name)) this.pendingChromeProfiles.add(name);
+    }
     if (
       hint.all !== false &&
       !hint.sand &&
       !hint.workspace &&
       !hint.pi &&
       !hint.chrome &&
+      !hint.chromeProfiles?.length &&
       !hint.agentIds?.length &&
       !hint.sandPaths?.length
     ) {
@@ -222,17 +234,19 @@ export class BoxStoreSync {
   }
 
   private consumeDirtyHint(): BoxStoreDirtyHint {
+    const chrome = this.pendingChromeSnapshot;
+    // A whole-browser request already captures every profile.
+    const chromeProfiles = chrome ? [] : [...this.pendingChromeProfiles].sort();
+    this.pendingChromeSnapshot = false;
+    this.pendingChromeProfiles.clear();
+    const profiles = chromeProfiles.length ? { chromeProfiles } : {};
     if (this.pendingFullSnapshot) {
-      const chrome = this.pendingChromeSnapshot;
       this.pendingFullSnapshot = false;
       this.pendingDirtyPrefixes.clear();
-      this.pendingChromeSnapshot = false;
-      return chrome ? { all: true, chrome } : { all: true };
+      return chrome ? { all: true, chrome } : { all: true, ...profiles };
     }
     const prefixes = collapseLogicalPrefixes(this.pendingDirtyPrefixes);
     this.pendingDirtyPrefixes.clear();
-    const chrome = this.pendingChromeSnapshot;
-    this.pendingChromeSnapshot = false;
     return {
       all: false,
       sand: prefixes.includes("home/box/sand-data"),
@@ -251,6 +265,7 @@ export class BoxStoreSync {
         return [prefix.slice("home/box/sand-data/".length)];
       }),
       chrome,
+      ...profiles,
     };
   }
 
@@ -295,6 +310,7 @@ export class BoxStoreSync {
         hint.workspace ||
         hint.pi ||
         hint.chrome ||
+        hint.chromeProfiles?.length ||
         hint.agentIds?.length ||
         hint.sandPaths?.length
     );
@@ -304,7 +320,9 @@ export class BoxStoreSync {
     // like clean roots in a partial snapshot.
     const deferredProfiles =
       fullSnapshot && !hint.chrome && startingManifest && signatureCache
-        ? await this.deferredChromeProfiles(sources, startedAt)
+        ? (await this.deferredChromeProfiles(sources, startedAt)).filter(
+            (logical) => !hint.chromeProfiles?.includes(logical.slice("home/box/".length))
+          )
         : [];
     const dirtyPrefixes = fullSnapshot
       ? sources
@@ -523,23 +541,20 @@ export class BoxStoreSync {
       }
       prefixes.add(`home/box/sand-data/${segments.join("/")}`);
     }
-    if (hint.chrome) {
+    if (hint.chrome || hint.chromeProfiles?.length) {
+      // A request for one profile still captures the shared sign-in state.
+      const requested = (root: string) =>
+        hint.chrome ||
+        !CHROME_PROFILE_SOURCE.test(root) ||
+        Boolean(hint.chromeProfiles?.includes(root.slice("home/box/".length)));
       for (const source of sources) {
-        if (
-          /^home\/box\/chrome-profile(?:-\d+)?$/.test(source.logical) ||
-          /^home\/box\/\.openteam\/browser-(?:authority(?:\.key|\.json\.enc|\.parts)?|profile-authority)$/.test(
-            source.logical
-          ) ||
-          source.logical === "home/box/.pki/nssdb"
-        ) {
+        if (BROWSER_STATE_SOURCE.test(source.logical) && requested(source.logical)) {
           prefixes.add(source.logical);
         }
       }
       for (const file of manifest.files) {
-        const match = file.path.match(
-          /^(home\/box\/(?:chrome-profile(?:-\d+)?|\.openteam\/browser-(?:authority(?:\.key|\.json\.enc|\.parts)?|profile-authority)|\.pki\/nssdb))(?:\/|$)/
-        );
-        if (match?.[1]) prefixes.add(match[1]);
+        const root = file.path.match(BROWSER_STATE_FILE)?.[1];
+        if (root && requested(root)) prefixes.add(root);
       }
     }
     return collapseLogicalPrefixes(prefixes);

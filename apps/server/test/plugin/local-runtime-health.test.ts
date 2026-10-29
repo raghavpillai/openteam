@@ -113,3 +113,78 @@ test("background MCP health observes processes and resumes stopped connections o
     await service.close();
   }
 });
+
+test("a connection the computer could not answer for returns to ready, and a pending sign-in still says it was interrupted", async () => {
+  let reachable = true;
+  let state = "ready";
+  const resumed: string[] = [];
+  const make = (status: string, statusMessage: string) => ({
+    id: crypto.randomUUID(),
+    transport: "stdio",
+    status,
+    configuration: {},
+    statusMessage,
+    updatedAt: new Date(),
+    toolSnapshot: [{ name: "echo", description: "Echo", inputSchema: { type: "object" } }] as unknown[],
+    installation: { status: "installed" },
+  });
+  let connections = [
+    make("ready", ""),
+    make("needs_auth", "Local runtime starting: Complete any browser sign-in prompt. Reconnect to retry."),
+    make("error", "Local runtime unavailable: MCP process exited. Reconnect to try again."),
+  ];
+  const update = (id: string, data: Partial<(typeof connections)[number]>) => {
+    connections = connections.map((connection) =>
+      connection.id === id
+        ? { ...connection, ...data, updatedAt: new Date(connection.updatedAt.getTime() + 1) }
+        : connection
+    );
+  };
+  const prisma = {
+    pluginConnection: {
+      findMany: async () => structuredClone(connections),
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        structuredClone(connections.find((connection) => connection.id === where.id)),
+      updateMany: async ({ where, data }: { where: { id: string }; data: Partial<(typeof connections)[number]> }) => {
+        update(where.id, data);
+        return { count: 1 };
+      },
+    },
+  } as unknown as PrismaClient;
+  const service = new PluginService(prisma, async () => {
+    if (!reachable) throw new Error("getaddrinfo ENOTFOUND computer");
+    return Response.json({ state, tools: state === "ready" ? connections[0]!.toolSnapshot : [] });
+  });
+  const internal = service as unknown as {
+    refreshLocalConnections(): Promise<void>;
+    markReady(connection: { id: string }, tools: unknown[], kind?: string): Promise<void>;
+  };
+  internal.markReady = async (connection, tools, kind) => {
+    resumed.push(kind ?? "connection.ready");
+    update(connection.id, { status: "ready", statusMessage: "", toolSnapshot: tools });
+  };
+  try {
+    // Only the computer restarts; the server keeps checking.
+    reachable = false;
+    for (let i = 0; i < 3; i++) await internal.refreshLocalConnections();
+    const [working, signingIn, failed] = connections;
+    expect(working!.status).toBe("error");
+    expect(working!.statusMessage).toContain("The computer is not reachable");
+    expect(signingIn!.status).toBe("needs_auth");
+    expect(failed!.statusMessage).toBe("Local runtime unavailable: MCP process exited. Reconnect to try again.");
+
+    // The computer is back and its processes are stopped until their next call.
+    reachable = true;
+    state = "stopped";
+    for (let i = 0; i < 3; i++) await internal.refreshLocalConnections();
+    const [back, interrupted, stillFailed] = connections;
+    expect(back!.status).toBe("ready");
+    expect(back!.toolSnapshot).toHaveLength(1);
+    expect(resumed).toEqual(["connection.resumed"]);
+    expect(interrupted!.status).toBe("error");
+    expect(interrupted!.statusMessage).toContain("Sign-in was interrupted");
+    expect(stillFailed!.statusMessage).toBe("Local runtime unavailable: MCP process exited. Reconnect to try again.");
+  } finally {
+    await service.close();
+  }
+});

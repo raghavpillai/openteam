@@ -1,5 +1,5 @@
 {
-  "status": "Runtime implemented and functional/fault/compaction checks verified. Controlledv4testing resumed after15healthy resource minutes with one fresh retry. Baseline failed approved send under policy interpretation. Three native read-only probes passed; native pairedhour waiting for nextOTboundary. No comparative win claimed.",
+  "status": "Runtime implemented and functional/fault/compaction checks verified. First valid frozenv4pair: baseline failed approved send, candidate completed verified refund/closure. Both original matched-hour tasks now running. Repetitions incomplete; no general/vendor superiority claim.",
   "productRevision": "6fa9c3ce",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -14,7 +14,7 @@
       "Atomic durable obligations and delayed continuation on existing Subagent/Run/Inbox infrastructure",
       "Bounded startup reconciliation, current-run fences, and durable accepted scope"
     ],
-    "headToHead": "Earlier nativev3semantic pass, unpairedhour failure and v4access failures retained. Fresh public-fetch/browser/sign-in diagnostics pass without security changes. Pending nativev4cases and matchedhour resumed on unchanged harness; first valid v4baseline retry failed approved send. Controlled comparison still incomplete."
+    "headToHead": "Earlier native outcomes and invalids retained. Three native read-only diagnostics pass; original unattempted matched-hour tasks now running. First valid v4baseline failed policy interpretation, candidate completed. Broader controlled comparisons pending."
   },
   "slices": [
     {
@@ -545,6 +545,45 @@
       "runningV4Changed": false,
       "generalRules": "Only known addresses; no invented human takeover/link promise; distinguish hygiene advice from sharing requests.",
       "limits": "Prepared prospective benchmark-only policy. Separate fresh IDs/cohort needed before applying; does not predict model task success."
+    },
+    "firstValidV4Candidate": {
+      "id": "serial4-candidate-S1-1",
+      "validForPrimaryComparison": true,
+      "goalCompleted": true,
+      "refunded": "$283.20",
+      "settlement": "Pending5\u201310businessdays",
+      "accountClosed": true,
+      "autopayOff": true,
+      "rawLexicalMilestoneReportSec": 34,
+      "reviewedFullGoalReportSec": 81.953,
+      "reportRelativeToWorkerFinishSec": -2.98,
+      "workingMilestoneCallToReportSec": 2.943,
+      "completeMilestoneCallToReportSec": 3.838,
+      "modelResponses": 74,
+      "browserCalls": 40,
+      "browserCallsAfterProvider": 6,
+      "estimatedAgentUsd": 0.5830155,
+      "acceptedMilestones": 5,
+      "rejectedChangedKeyReuse": 1,
+      "recoveredValidationError": true,
+      "unresolvedReviews": 0,
+      "enabledRoutines": 0,
+      "outwardMessagesChecked": 10,
+      "progressCallsChecked": 6,
+      "privateSnapshotsChecked": 7,
+      "knownSecretMatches": 0,
+      "resourcesPassed": true,
+      "limits": "One valid pair; baseline has no completion latency, so no speed/cost or general reliability win claimed. Provider-approved refund, not real card settlement. Estimated cost excludes simulator/infra."
+    },
+    "matchedHourLaunch": {
+      "cohort": "long-horizon-round7",
+      "candidateId": "runtime4-candidate-H1-1",
+      "nativeId": "runtime4-grok-H1-1",
+      "status": "both-tasks-running",
+      "taskPromptsSentSecondsApart": 3,
+      "customerPolicy": "4-factual-identity unchanged",
+      "earlierUnpairedHourSeparate": true,
+      "limits": "Outcomes pending; short native sign-in probes do not establish long-horizon completion."
     }
   },
   "realModelCompactionProbe": {

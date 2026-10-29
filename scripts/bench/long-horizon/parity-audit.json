@@ -1,5 +1,5 @@
 {
-  "auditedAt": "2026-10-29T01:16:32.968357+00:00",
+  "auditedAt": "2026-10-29T01:25:13.509746+00:00",
   "productRevision": "6fa9c3ce",
   "referenceBuild": "Captured Grok snapshots October19\u201321; live0.78.1update/restart explicitly authorized and verified. Cloud tools/model/reasoning/cost remain partly opaque.",
   "method": "Revisit the historical G1\u2013G14 gap list against the current source and real-loop tests. Prompt/catalog assertions establish surface parity only; live outcomes are reported separately.",
@@ -231,7 +231,7 @@
       "matched": false,
       "limits": "One unpaired native case; remote model/reasoning/cost unknown. Current status truth is separate from requested goal completion."
     },
-    "currentControlState": "OTcontrolledv4cases resumed with one fresh resource retry; baseline approved-send policy interpretation failure retained as valid negative. Three native read-only diagnostics passed; native waiting on matchedhour before remaining18unattemptedv4cases. Earlier native invalids retained; no security change.",
+    "currentControlState": "First valid controlledv4pair audited: baseline drafting-policy failure, candidate full verified resolution. Both native0.78.1and candidate matched-hour tasks running after byte-identical frozen harness check; earlier invalid attempts retained.",
     "cleanupObservation": "Ownhourbenchmark bot removed through native confirmation, absent fromsidebar, no post-deletion ownaccount page activity at boundedcheck. Private-bot team-automation list returns featureoff, so cloudcascade semantics are not independently attested.",
     "nativeV4AccessReview": {
       "cohort": "long-horizon-round7",
@@ -305,6 +305,45 @@
       "runningV4Changed": false,
       "generalRules": "Only known addresses; no invented human takeover/link promise; distinguish hygiene advice from sharing requests.",
       "limits": "Prepared prospective benchmark-only policy. Separate fresh IDs/cohort needed before applying; does not predict model task success."
+    },
+    "firstValidV4Candidate": {
+      "id": "serial4-candidate-S1-1",
+      "validForPrimaryComparison": true,
+      "goalCompleted": true,
+      "refunded": "$283.20",
+      "settlement": "Pending5\u201310businessdays",
+      "accountClosed": true,
+      "autopayOff": true,
+      "rawLexicalMilestoneReportSec": 34,
+      "reviewedFullGoalReportSec": 81.953,
+      "reportRelativeToWorkerFinishSec": -2.98,
+      "workingMilestoneCallToReportSec": 2.943,
+      "completeMilestoneCallToReportSec": 3.838,
+      "modelResponses": 74,
+      "browserCalls": 40,
+      "browserCallsAfterProvider": 6,
+      "estimatedAgentUsd": 0.5830155,
+      "acceptedMilestones": 5,
+      "rejectedChangedKeyReuse": 1,
+      "recoveredValidationError": true,
+      "unresolvedReviews": 0,
+      "enabledRoutines": 0,
+      "outwardMessagesChecked": 10,
+      "progressCallsChecked": 6,
+      "privateSnapshotsChecked": 7,
+      "knownSecretMatches": 0,
+      "resourcesPassed": true,
+      "limits": "One valid pair; baseline has no completion latency, so no speed/cost or general reliability win claimed. Provider-approved refund, not real card settlement. Estimated cost excludes simulator/infra."
+    },
+    "matchedHourLaunch": {
+      "cohort": "long-horizon-round7",
+      "candidateId": "runtime4-candidate-H1-1",
+      "nativeId": "runtime4-grok-H1-1",
+      "status": "both-tasks-running",
+      "taskPromptsSentSecondsApart": 3,
+      "customerPolicy": "4-factual-identity unchanged",
+      "earlierUnpairedHourSeparate": true,
+      "limits": "Outcomes pending; short native sign-in probes do not establish long-horizon completion."
     }
   },
   "stagedClientReadOnlyReview": {

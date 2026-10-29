@@ -22,6 +22,14 @@ final class ConversationComputerTests: XCTestCase {
     Message(id: sequence, sequence: sequence, channelId: "group", sender: "agent",
       senderBotId: bot.id, content: "Reply", metadata: metadata, createdAt: "2026-09-20T12:00:00Z")
   }
+  func testOnlyOneBotGroupChatsShowAGroupLabel() throws {
+    var (channel, _) = try fixture()
+    XCTAssertFalse(channel.showsGroupLabel)
+    channel.members = Array(channel.members.prefix(1))
+    XCTAssertTrue(channel.showsGroupLabel)
+    channel.kind = "bot_dm"
+    XCTAssertFalse(channel.showsGroupLabel)
+  }
   func testLatestReplyUsesNumericSequenceRegardlessOfHistoryOrder() throws {
     let (channel, bots) = try fixture()
     let messages = [reply("100", bots[2]), reply("9", bots[0]), reply("10", bots[1])]

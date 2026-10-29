@@ -1,10 +1,17 @@
 import { expect, test } from "bun:test";
-import type { BotView, ChannelMessageView, RunItemView, RunView } from "@openteam/contracts";
+import type {
+  BotView,
+  ChannelMessageView,
+  ChannelView,
+  RunItemView,
+  RunView,
+} from "@openteam/contracts";
 import {
   firstUnreadMessageId,
   groupChatActivity,
   groupParticipantNames,
   groupSenderColors,
+  showsGroupLabel,
 } from "../../src/renderer/lib/group-chat-presentation";
 
 const bots = new Map(
@@ -103,4 +110,11 @@ test("unread boundary uses exact server sequences and skips outgoing/system mess
   expect(firstUnreadMessageId(messages, "9007199254740995")).toBeNull();
   expect(firstUnreadMessageId(messages, null)).toBeNull();
   expect(firstUnreadMessageId(messages, "invalid")).toBeNull();
+});
+
+test("labels a one-Bot group chat so it doesn't read like that Bot's own chat", () => {
+  const members = (...ids: string[]) => ids.map((botId) => ({ botId })) as ChannelView["members"];
+  expect(showsGroupLabel({ kind: "group", members: members("0") })).toBe(true);
+  expect(showsGroupLabel({ kind: "group", members: members("0", "1") })).toBe(false);
+  expect(showsGroupLabel({ kind: "bot_dm", members: members("0") })).toBe(false);
 });

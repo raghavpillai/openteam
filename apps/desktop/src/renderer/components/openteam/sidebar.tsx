@@ -49,6 +49,7 @@ import { accountPresentation } from "../../lib/account";
 import { channelMessageSummary } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
 import { requestDesktopUpdateRestart } from "../../lib/desktop-update";
+import { showsGroupLabel } from "../../lib/group-chat-presentation";
 import {
   COMPACT_SIDEBAR_WIDTH,
   MIN_EXPANDED_SIDEBAR_WIDTH,
@@ -931,9 +932,9 @@ const ChannelRow = memo(function ChannelRow({
             <span className="min-w-0 truncate text-[14px] font-medium">
               <BotName name={channel.name} />
             </span>
-            {bot?.title ? (
+            {bot?.title || showsGroupLabel(channel) ? (
               <span className="max-w-24 shrink-0 truncate rounded-[4px] bg-black/[0.07] px-1.5 py-px text-[11px] font-normal leading-[15px] text-foreground-secondary dark:bg-white/[0.1] dark:text-[#ababab]">
-                {bot.title}
+                {bot?.title || "Group"}
               </span>
             ) : null}
             {pinned && (

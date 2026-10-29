@@ -111,6 +111,9 @@ public struct Channel: Codable, Identifiable, Sendable, Hashable {
   public var notificationState: JSON?
   public var updatedAt: String
   public var isGroup: Bool { kind == "group" }
+  /// A group chat with one bot is named after that bot by default, so without a label its
+  /// row reads exactly like the bot's own chat.
+  public var showsGroupLabel: Bool { isGroup && members.count == 1 }
 }
 public struct Asset: Codable, Sendable, Hashable, Identifiable {
   public var assetId: String

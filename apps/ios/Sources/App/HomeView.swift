@@ -843,6 +843,12 @@ struct ChannelRow: View {
         HStack(alignment: .firstTextBaseline) {
           Text(channel.name).font(.body.weight(.medium)).foregroundStyle(NativePalette.text)
             .lineLimit(1)
+          if channel.showsGroupLabel {
+            Text("Group").font(.system(size: 12)).foregroundStyle(NativePalette.muted)
+              .padding(.horizontal, 6).padding(.vertical, 1)
+              .background(NativePalette.text.opacity(0.07), in: RoundedRectangle(cornerRadius: 4))
+              .layoutPriority(1)
+          }
           Spacer(minLength: 8)
           if let date = last?.date {
             Text(dateLabel(date)).font(.system(size: 13)).foregroundStyle(NativePalette.faint)

@@ -1,5 +1,5 @@
 {
-  "status": "General parent-request ownership and stable cache prefixes implemented and locally verified. Immutable4b source passed narrow-approval and real-hour provider/claim/ownership audits. Matching native hour and current-source held-out restart/read-only validation remain running; exclusions and prior negatives are retained.",
+  "status": "General parent-request ownership and stable cache prefixes implemented and locally verified. Immutable4b source passed narrow-approval and real-hour audits. Native0.78.1missed the matched question deadline; harness ended before its next scheduled check, so later recovery is untested. Current-source held-out restart/read-only validation remains running.",
   "productRevision": "4b552998",
   "reference": {
     "source": "Captured Grok runtime/prompts/tools snapshots from October 19\u201321, 2026, plus support trace comparisons",
@@ -213,7 +213,7 @@
     "Cost estimates may omit cancelled or missing provider responses",
     "Resource-affected attempts and stopped cohorts are retained separately; interim cache metrics from a failed task do not establish cost per completed goal."
   ],
-  "updatedAt": "2026-10-29T09:26:01.956653+00:00",
+  "updatedAt": "2026-10-29T09:41:28.188308+00:00",
   "liveValidation": {
     "realQueueHourSoaks": {
       "passed": 4,

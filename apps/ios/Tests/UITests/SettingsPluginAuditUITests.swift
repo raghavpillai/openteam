@@ -127,7 +127,7 @@ import XCTest
     XCTAssertTrue(app.buttons["Light"].waitForExistence(timeout: 5))
     app.buttons["Light"].tap()
     XCTAssertTrue(
-      app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Day")).firstMatch
+      app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Light · ")).firstMatch
         .waitForExistence(timeout: 5))
     capture("appearance-light", app)
     app.buttons["appearance-picker"].tap()

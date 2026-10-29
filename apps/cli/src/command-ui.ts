@@ -3,6 +3,7 @@ import { delimiter, join } from "node:path";
 import { CLI_UPDATE_TARGET_ENV, isStandaloneCliExecutable } from "./cli-update";
 import type { InstallationPaths } from "./config";
 import { defaultInstallDirectory } from "./config";
+import { providerDisplayName } from "./model-provider-options";
 import type { ProviderRow, ModelRow } from "./providers";
 export { renderStatus } from "./status-ui";
 import type { PersistedUpdateState } from "./update-safety";
@@ -120,7 +121,7 @@ export const renderProviderCatalog = (
             .join(" / ") || "Ambient credentials";
       view.row(
         provider.id,
-        `${provider.name} · ${provider.models} chat models · ${auth}${provider.custom ? " · custom" : ""}${active ? " · selected" : ""}`,
+        `${providerDisplayName(provider)} · ${provider.models} chat models · ${auth}${provider.custom ? " · custom" : ""}${active ? " · selected" : ""}`,
         {
           mark: active ? "●" : provider.configured ? "✓" : "·",
           tone: provider.configured ? "success" : "muted",
@@ -197,7 +198,7 @@ export const renderModelCatalog = (
     (p) => (!providerId || p.id === providerId) && p.modelStatus === "unavailable"
   ))
     view.notice(
-      `${provider.name}: ${provider.modelMessage ?? "Model discovery is unavailable. Reconnect the provider and retry."}`,
+      `${providerDisplayName(provider)}: ${provider.modelMessage ?? "Model discovery is unavailable. Reconnect the provider and retry."}`,
       "warning"
     );
   if (!models.length)

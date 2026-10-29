@@ -91,7 +91,7 @@ struct SettingsView: View {
           } label: {
             LabeledContent(
               "Appearance",
-              value: (appearance == "system" ? "System" : appearance == "dark" ? "Night" : "Day")
+              value: (appearance == "system" ? "System" : appearance == "dark" ? "Dark" : "Light")
                 + " · " + accent.capitalized
             ).frame(maxWidth: .infinity).contentShape(Rectangle())
           }.accessibilityIdentifier("appearance-picker").foregroundStyle(NativePalette.text)

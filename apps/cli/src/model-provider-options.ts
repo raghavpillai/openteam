@@ -17,6 +17,11 @@ export const PROVIDER_GROUPS = [
   "Other connections",
 ] as const;
 
+/** The plan people pay for ("ChatGPT", "Claude") instead of the runtime's name, as in the apps. */
+const PLAN_NAMES: Record<string, string> = { "openai-codex": "ChatGPT", "claude-code": "Claude" };
+export const providerDisplayName = (provider: { id: string; name: string }): string =>
+  PLAN_NAMES[provider.id] ?? provider.name;
+
 /** Keep access method separate from connection state. */
 export const modelProviderOptions = (providers: ModelProvider[]): ProviderOption[] =>
   providers.flatMap((provider) => {
@@ -36,15 +41,13 @@ export const modelProviderOptions = (providers: ModelProvider[]): ProviderOption
             ? "Other connections"
             : "APIs";
       const label =
-        provider.id === "openai-codex"
-          ? "Codex"
-          : provider.id === "openai"
-            ? "OpenAI"
-            : provider.id === "anthropic"
-              ? subscription
-                ? "Claude Code"
-                : "Anthropic"
-              : provider.name;
+        provider.id === "openai"
+          ? "OpenAI"
+          : provider.id === "anthropic"
+            ? subscription
+              ? "Claude"
+              : "Anthropic"
+            : providerDisplayName(provider);
       return {
         id: `provider:${provider.id}${methods.length > 1 ? `:${method!.type}` : ""}`,
         provider,
@@ -61,9 +64,9 @@ export const modelProviderOptions = (providers: ModelProvider[]): ProviderOption
               : "Connect",
         detail: subscription
           ? provider.id === "claude-code"
-            ? "Claude Code sign-in"
+            ? "Claude sign-in"
             : provider.id === "openai-codex"
-              ? "Codex sign-in"
+              ? "ChatGPT sign-in"
               : method!.label
           : method?.type === "api_key"
             ? "API key access"
@@ -78,7 +81,7 @@ export const modelProviderAccess = (provider: ModelProvider): string => {
   const accessLabel = (option: ProviderOption) =>
     `${option.label} · ${option.group === "Subscriptions" ? "Subscription" : option.group === "APIs" ? "API" : option.group === "Custom endpoints" ? "Custom" : "Account"}`;
   if (active) return accessLabel(active);
-  if (options.length > 1) return `${provider.name} · Subscription or API`;
+  if (options.length > 1) return `${providerDisplayName(provider)} · Subscription or API`;
   const option = options[0];
-  return option ? accessLabel(option) : provider.name;
+  return option ? accessLabel(option) : providerDisplayName(provider);
 };

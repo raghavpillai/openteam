@@ -4,6 +4,7 @@ import {
   modelProviderAccess,
   modelProviderOptions,
   PROVIDER_GROUPS,
+  providerDisplayName,
 } from "./model-provider-options";
 import type {
   ModelCatalog,
@@ -529,7 +530,8 @@ export class ModelSession implements InteractiveSession<ModelExit> {
         const provider = catalog.providers.find((p) => p.id === providerId);
         this.notice = {
           text:
-            provider?.modelMessage ?? `Choose a chat model from ${provider?.name ?? providerId}.`,
+            provider?.modelMessage ??
+            `Choose a chat model from ${provider ? providerDisplayName(provider) : providerId}.`,
           tone: provider?.modelMessage ? "warning" : "info",
         };
       } else if (id === "reconnect-provider") {

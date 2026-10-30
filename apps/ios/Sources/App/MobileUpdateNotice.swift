@@ -12,6 +12,7 @@ struct MobileUpdateBadge: View {
           .padding(.horizontal, 10).frame(minHeight: 32)
           .foregroundStyle(.white).background(NativePalette.link, in: Capsule())
           .frame(minHeight: 44)
+          .contentShape(Rectangle())
       }.buttonStyle(.plain)
         .disabled(updates.openingTestFlight)
         .accessibilityLabel("Update available. Open TestFlight")

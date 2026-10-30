@@ -49,6 +49,10 @@ let searchResults: unknown[] | null = null;
 let functionality = new FunctionalFixtures();
 let serverSetup = new ServerSetupFixture();
 let screen = {state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
+let serverRelease: any;
+let serverUpdate: any;
+let busyBots: any[] = [];
+let serverUpdateRequests: unknown[] = [];
 let contentReceipts:any[] = [];
 let routineExecutions:any[] = [];
 type WebProviderRow = { secret: string | null; check: { status: "passed" | "failed"; message: string; checkedAt: string } | null };
@@ -68,6 +72,9 @@ function reset() {
   failures = {}; searchResults = null; authExpired = false; invalidServer = false; missingToken = false;
   functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
   serverSetup = new ServerSetupFixture();
+  serverRelease = { releaseVersion: "0.0.0", apiProtocolVersion: 1, minimumClientVersion: "0.0.0", maximumClientVersionExclusive: "1.0.0", recommendedClientVersion: "0.0.0", updateChannel: "beta" };
+  serverUpdate = { updaterAvailable: true, status: "ready", phase: null, targetVersion: null, message: null, jobId: null, safeToCloseDesktop: false };
+  busyBots = []; serverUpdateRequests = [];
   webProviders = { selected: { search: null, fetch: DEFAULT_FETCH_PROVIDER }, rows: { search: {}, fetch: {} }, patches: [], checks: [] };
   memories = [{ id: "memory-fixture", content: "Prefers concise summaries and clear next steps.", createdAt: 1789473600000, kind: "profile" }];
   settings = { version: 2, pinnedIds: [], unreadIds: [], unassignedCollapsed: false, sections: [], sectionByChannel: {}, channelOrderByGroup: {} };
@@ -172,6 +179,9 @@ const server = Bun.serve({
       emit("channel.message.created",channel.id); return response({ok:true});
     }
     if (path === "/__qa/control" && method === "POST") {
+      if (input.serverRelease) Object.assign(serverRelease, input.serverRelease);
+      if (input.serverUpdate) Object.assign(serverUpdate, input.serverUpdate);
+      if (input.busyBots) busyBots = input.busyBots;
       if (input.transcription !== undefined) snapshot.runtime.transcription = input.transcription;
       if (input.modelSettings) serverSetup = new ServerSetupFixture(true);
       if (input.largeModelCatalog !== undefined) serverSetup.largeModelCatalog = input.largeModelCatalog;
@@ -206,7 +216,7 @@ const server = Bun.serve({
       if ("searchResults" in input) searchResults = input.searchResults;
       emit("snapshot.reset"); return response({ ok: true });
     }
-    if (path === "/__qa/state") return response({ transcription: keyQA ? await keyStore.view() : serverSetup.voice, transcriptionPatches: keyPatches, messages: snapshot.channelMessages, requests: requestLog, modelSettings: { inference: serverSetup.inference, saves: serverSetup.saves, tests: serverSetup.tests }, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
+    if (path === "/__qa/state") return response({ transcription: keyQA ? await keyStore.view() : serverSetup.voice, transcriptionPatches: keyPatches, messages: snapshot.channelMessages, requests: requestLog, serverRelease, serverUpdate, serverUpdateRequests, modelSettings: { inference: serverSetup.inference, saves: serverSetup.saves, tests: serverSetup.tests }, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
     if (path === "/__qa/haptics") {
       if (method === "POST") hapticAudit.push(input);
       if (method === "DELETE") hapticAudit = [];
@@ -283,12 +293,23 @@ const server = Bun.serve({
       else{message.metadata.computerHandoffState=input.action==="start"?"active":"completed";screen.humanTakeover=input.action==="start";}
       emit("channel.message.updated",message.channelId);return response({accepted:true,message});
     }
+    if (path === "/api/v0/system/version") return response(serverRelease);
+    if (path === "/api/v0/system/busy-bots") return response({ bots: busyBots });
+    if (path === "/api/v0/system/update") {
+      if (method === "POST") {
+        if (busyBots.length) return response({ message: "A bot is still working. Nothing changed." }, 409);
+        if (!serverUpdate.updaterAvailable) return response({ message: "The host updater is unavailable." }, 503);
+        if (input.targetVersion !== "0.0.11") return response({ message: "Unexpected update target." }, 400);
+        serverUpdateRequests.push(input);
+        Object.assign(serverUpdate, { status: "updating", phase: "pulling", targetVersion: input.targetVersion, message: "Pulling OpenTeam 0.0.11 container images", safeToCloseDesktop: true });
+      }
+      return response(serverUpdate);
+    }
     const functional = await functionality.handle(path,method,input,url,snapshot.bots);
     if (functional) return functional;
     if (path === "/api/v0/client-bootstrap") return response(bootstrap());
     if (path === "/api/v0/client-snapshot") return response({ ...snapshot, cursor: String(sequence) });
     if (path === "/api/v0/client-runtime") return response({ runtime: snapshot.runtime });
-    if (path === "/api/v0/system/version") return response({ releaseVersion: "0.0.0", apiProtocolVersion: 1, minimumClientVersion: "0.0.0", maximumClientVersionExclusive: "1.0.0", recommendedClientVersion: "0.0.0", updateChannel: "beta" });
     if (path === "/api/v0/settings") return response({ settings: { sidebarPreferences: settings }, valid: true });
     if (path === "/api/v0/server-settings/web-providers" || (path === "/api/v0/server-settings/web-providers/check" && method === "POST")) {
       if (method === "PATCH") webProviders.patches.push(input);

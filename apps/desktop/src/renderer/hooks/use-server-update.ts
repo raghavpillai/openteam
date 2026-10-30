@@ -2,7 +2,7 @@ import {
   compareOpenTeamVersions,
   openTeamCompatibility,
 } from "@openteam/contracts/version-compatibility";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useServerUpdateStatus } from "./use-server-update-status";
 
 /**
@@ -15,9 +15,12 @@ export function useServerUpdate() {
   const {
     status: server,
     loading: serverLoading,
+    reconnecting: serverReconnecting,
+    startedAt: serverStartedAt,
+    observedAt: serverObservedAt,
     refresh: refreshServer,
     updateServer: requestServerUpdate,
-  } = useServerUpdateStatus(clientUpdate?.latestVersion ?? clientVersion);
+  } = useServerUpdateStatus(clientVersion);
 
   useEffect(() => {
     let active = true;
@@ -42,24 +45,15 @@ export function useServerUpdate() {
       recommendedClientVersion: server?.recommendedClientVersion,
     }
   );
-  const newerDesktopReleaseAvailable =
-    Boolean(clientUpdate?.latestVersion) &&
-    (compareOpenTeamVersions(clientUpdate?.latestVersion ?? clientVersion, clientVersion) ?? 0) > 0;
-  const serverTarget = useMemo(() => {
-    if (compatibility === "server-update-required") return clientVersion;
-    if (compatibility === "unknown") return null;
-    if (newerDesktopReleaseAvailable) return null;
-    if (!server?.currentVersion || !clientUpdate?.latestVersion) return null;
-    return (compareOpenTeamVersions(clientUpdate.latestVersion, server.currentVersion) ?? 0) > 0
-      ? clientUpdate.latestVersion
+  // Compare with the installed desktop even if its update feed is unavailable.
+  // A newer desktop release must not move the server ahead of this client.
+  const serverTarget =
+    compatibility === "server-update-required" ||
+    (compatibility === "update-recommended" &&
+      server?.currentVersion &&
+      (compareOpenTeamVersions(clientVersion, server.currentVersion) ?? 0) > 0)
+      ? clientVersion
       : null;
-  }, [
-    clientUpdate?.latestVersion,
-    clientVersion,
-    compatibility,
-    newerDesktopReleaseAvailable,
-    server?.currentVersion,
-  ]);
   const serverNeedsUpdate =
     !serverLoading &&
     Boolean(server) &&
@@ -77,6 +71,9 @@ export function useServerUpdate() {
     setClientUpdate,
     server,
     serverLoading,
+    serverReconnecting,
+    serverStartedAt,
+    serverObservedAt,
     refreshServer,
     compatibility,
     serverTarget,

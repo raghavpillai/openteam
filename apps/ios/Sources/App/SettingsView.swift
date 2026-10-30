@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Settings pages that other screens open directly.
-enum SettingsRoute: Hashable { case model, voiceNotes }
+enum SettingsRoute: Hashable { case model, voiceNotes, server, updates }
 
 struct SettingsView: View {
   @Environment(AppStore.self) private var store
@@ -70,6 +70,10 @@ struct SettingsView: View {
             }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
               .contentShape(Rectangle())
           }.accessibilityIdentifier("providers-settings")
+          NavigationLink("Server", value: SettingsRoute.server)
+            .accessibilityIdentifier("server-settings")
+          NavigationLink("Updates", value: SettingsRoute.updates)
+            .accessibilityIdentifier("updates-settings")
         } header: {
           Text("Server").font(.system(size: 13)).foregroundStyle(NativePalette.faint)
         }
@@ -106,8 +110,6 @@ struct SettingsView: View {
           Link("Help Center", destination: URL(string: "https://github.com/raghavpillai/openteam#readme")!)
         }
         Section {
-          NavigationLink("Manage devices") { ManageDevicesView() }
-          NavigationLink("Server status") { ServerStatusView() }
           Button(store.requiresAuthentication ? "Sign out" : "Disconnect", role: .destructive) {
             signOut = true
           }.disabled(store.busy.contains("sign-out")).accessibilityIdentifier("sign-out")
@@ -125,6 +127,8 @@ struct SettingsView: View {
           switch route {
           case .model: ModelSettingsView()
           case .voiceNotes: VoiceNotesSettingsView()
+          case .server: ServerStatusView()
+          case .updates: UpdatesSettingsView()
           }
         }
         .toolbar {
@@ -314,16 +318,37 @@ struct ManageDevicesView: View {
 
 struct ServerStatusView: View {
   @Environment(AppStore.self) private var store
+  @State private var release: ServerRelease?
   var body: some View {
     NativeForm {
+      Section("Connected server") {
+        NavigationLink(value: SettingsRoute.updates) {
+          HStack {
+            VStack(alignment: .leading, spacing: 3) {
+              Text(release.map { "Server \($0.releaseVersion)" } ?? "Server version unknown")
+              Text(store.server).font(.footnote).foregroundStyle(NativePalette.muted)
+            }
+            Spacer()
+            Text("View updates").font(.subheadline).foregroundStyle(NativePalette.link)
+          }
+        }.accessibilityIdentifier("server-view-updates")
+      }
       ServerActivitySection()
       Section("Services") {
         ForEach(store.runtime.statusRows, id: \.label) { row in
           LabeledContent(row.label, value: row.value)
         }
       }
-      Button("Refresh") { Task { await store.refresh() } }
-    }.navigationTitle("Server status")
+      Section {
+        NavigationLink("Manage devices") { ManageDevicesView() }
+          .accessibilityIdentifier("server-manage-devices")
+      }
+      Button("Refresh") { Task { await loadRelease(); await store.refresh() } }
+    }.navigationTitle("Server").navigationBarTitleDisplayMode(.inline)
+      .task { await loadRelease() }
+  }
+  private func loadRelease() async {
+    release = try? await store.request("/api/v0/system/version").decode(ServerRelease.self)
   }
 }
 

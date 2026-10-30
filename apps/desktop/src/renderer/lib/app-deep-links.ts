@@ -16,7 +16,7 @@ const viewByAnchor: Record<SettingsAnchor, SettingsView> = {
   "inference-model": "model",
   "inference-reasoning": "model",
   "update-status": "updates",
-  "server-update": "computer",
+  "server-update": "updates",
   "tailscale-https": "server",
   "automatic-updates": "updates",
   "web-search-provider": "providers",

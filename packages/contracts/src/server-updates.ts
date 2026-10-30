@@ -26,6 +26,31 @@ export interface ServerUpdateHeartbeat {
   jobId?: string | null;
 }
 
+/** Milestones from the host updater, not an estimate of bytes or time remaining. */
+export const SERVER_UPDATE_STEPS = ["Prepare", "Download", "Back up", "Restart", "Verify"] as const;
+
+export function serverUpdateProgress(phase: string | null | undefined) {
+  const phases: Record<string, { step: number; title: string }> = {
+    queued: { step: 0, title: "Preparing update" },
+    checking: { step: 0, title: "Preparing update" },
+    downloading: { step: 1, title: "Verifying the release" },
+    pulling: { step: 1, title: "Downloading update" },
+    "backing-up": { step: 2, title: "Protecting your data" },
+    restarting: { step: 3, title: "Restarting services" },
+    verifying: { step: 4, title: "Checking server health" },
+    "updating-cli": { step: 4, title: "Finishing up" },
+    complete: { step: 5, title: "Update complete" },
+  };
+  return {
+    step: phases[phase ?? ""]?.step ?? null,
+    title:
+      phase === "rolling-back"
+        ? "Restoring the previous version"
+        : (phases[phase ?? ""]?.title ?? "Update in progress"),
+    rollingBack: phase === "rolling-back",
+  };
+}
+
 const BUSY_NOTE = "Nothing changed; try again when";
 
 /** Who an update is waiting for, by the names the user knows them by: "Scout is still working". */

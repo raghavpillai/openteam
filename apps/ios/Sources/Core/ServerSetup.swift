@@ -211,7 +211,7 @@ public struct RuntimeStatus: Equatable, Sendable {
     }
   }
   public var serverReady: Bool { serverChecks.allSatisfy(\.ready) }
-  /// Every service for Settings → Server status, with friendly names.
+  /// Every service for Settings → Server, with friendly names.
   public var statusRows: [(label: String, value: String)] {
     let labels: [String: String] = [
       "server": "Server", "database": "Database", "queue": "Task queue",

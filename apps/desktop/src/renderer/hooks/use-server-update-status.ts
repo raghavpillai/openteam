@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../client/openteam-api";
 import { API_BASE } from "../client/http";
+import { readServerUpdateSnapshot, saveServerUpdateSnapshot } from "../lib/server-update-cache";
 import { isOpenTeamVersion } from "@openteam/contracts/version-compatibility";
 
 const manualCommand = (targetVersion: string | null) =>
@@ -26,59 +27,120 @@ const unavailableStatus = (targetVersion: string | null): OpenTeamServerUpdateSt
 });
 
 export function useServerUpdateStatus(targetVersion: string | null) {
-  const [status, setStatus] = useState<OpenTeamServerUpdateStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const loaded = useRef(false);
+  const [view, setView] = useState(() => {
+    const cached = readServerUpdateSnapshot(API_BASE, localStorage);
+    return {
+      status: cached?.status ?? (null as OpenTeamServerUpdateStatus | null),
+      loading: !cached,
+      reconnecting: Boolean(cached),
+      startedAt: cached?.startedAt ?? null,
+      observedAt: cached?.observedAt ?? (null as number | null),
+    };
+  });
+  const inFlight = useRef(false);
+  const posting = useRef(false);
+  const generation = useRef(0);
+
+  useEffect(() => {
+    saveServerUpdateSnapshot(
+      API_BASE,
+      view.status && view.observedAt !== null
+        ? { status: view.status, observedAt: view.observedAt, startedAt: view.startedAt }
+        : null,
+      localStorage
+    );
+  }, [view.status, view.observedAt, view.startedAt]);
 
   const refresh = useCallback(async () => {
-    if (!loaded.current) setLoading(true);
-    const [release, update] = await Promise.all([
-      api.systemVersion().catch(() => null),
-      api.serverUpdateStatus().catch(() => null),
-    ]);
-    setStatus((previous) => {
-      // Maintenance restarts the API. Keep progress and versions until it reconnects.
-      if (!release && !update && previous) return previous;
-      const next = { ...unavailableStatus(targetVersion), ...update };
-      return {
-        ...next,
-        currentVersion: release?.releaseVersion ?? previous?.currentVersion ?? null,
-        apiProtocolVersion: release?.apiProtocolVersion ?? previous?.apiProtocolVersion ?? null,
-        minimumClientVersion: release?.minimumClientVersion ?? null,
-        maximumClientVersionExclusive: release?.maximumClientVersionExclusive ?? null,
-        recommendedClientVersion: release?.recommendedClientVersion ?? null,
-        targetVersion: update?.targetVersion ?? targetVersion,
-        message:
-          release || previous?.currentVersion
-            ? next.message
-            : "This server does not report its release version. Update it before using a newer client.",
-      };
-    });
-    loaded.current = true;
-    setLoading(false);
+    if (inFlight.current || posting.current) return;
+    inFlight.current = true;
+    const requestGeneration = generation.current;
+    try {
+      const [release, update] = await Promise.all([
+        api.systemVersion().catch(() => null),
+        api.serverUpdateStatus().catch(() => null),
+      ]);
+      if (requestGeneration !== generation.current) return;
+      setView((previous) => {
+        if (!release && !update && previous.status)
+          return { ...previous, loading: false, reconnecting: true };
+        const keepProgress =
+          previous.status?.status === "updating" &&
+          (!update || (!release && update.status === "updated"));
+        const next = {
+          ...unavailableStatus(targetVersion),
+          ...(keepProgress ? previous.status : update),
+        };
+        // The host assigns its own job ID after the API queues the request.
+        const sameJob =
+          next.targetVersion === previous.status?.targetVersion &&
+          (next.jobId === previous.status?.jobId ||
+            ["checking", "queued"].includes(previous.status?.phase ?? ""));
+        return {
+          status: {
+            ...next,
+            currentVersion: release?.releaseVersion ?? previous.status?.currentVersion ?? null,
+            apiProtocolVersion:
+              release?.apiProtocolVersion ?? previous.status?.apiProtocolVersion ?? null,
+            minimumClientVersion:
+              release?.minimumClientVersion ?? previous.status?.minimumClientVersion ?? null,
+            maximumClientVersionExclusive:
+              release?.maximumClientVersionExclusive ??
+              previous.status?.maximumClientVersionExclusive ??
+              null,
+            recommendedClientVersion:
+              release?.recommendedClientVersion ??
+              previous.status?.recommendedClientVersion ??
+              null,
+            targetVersion: update?.targetVersion ?? targetVersion,
+            message:
+              release || previous.status?.currentVersion
+                ? next.message
+                : "Could not verify the connected server. Reconnecting…",
+          },
+          loading: false,
+          reconnecting: !release || !update,
+          startedAt: sameJob ? previous.startedAt : null,
+          observedAt: update && !keepProgress ? Date.now() : previous.observedAt,
+        };
+      });
+    } finally {
+      inFlight.current = false;
+    }
   }, [targetVersion]);
 
   const updateServer = useCallback(async (version: string) => {
-    const next = await api.updateServer(version);
-    setStatus((previous) => ({ ...unavailableStatus(version), ...previous, ...next }));
+    posting.current = true;
+    generation.current++;
+    try {
+      const next = await api.updateServer(version);
+      setView((previous) => ({
+        ...previous,
+        status: { ...unavailableStatus(version), ...previous.status, ...next },
+        loading: false,
+        reconnecting: false,
+        startedAt: Date.now(),
+        observedAt: Date.now(),
+      }));
+    } finally {
+      posting.current = false;
+    }
   }, []);
 
   useEffect(() => {
     void refresh();
     const refreshOnFocus = () => void refresh();
     window.addEventListener("focus", refreshOnFocus);
-    const interval = window.setInterval(refreshOnFocus, 60_000);
-    return () => {
-      window.removeEventListener("focus", refreshOnFocus);
-      window.clearInterval(interval);
-    };
+    return () => window.removeEventListener("focus", refreshOnFocus);
   }, [refresh]);
 
   useEffect(() => {
-    if (status?.status !== "updating") return;
-    const interval = window.setInterval(() => void refresh(), 1_500);
+    const interval = window.setInterval(
+      () => void refresh(),
+      view.status?.status === "updating" ? 1_500 : view.reconnecting ? 5_000 : 60_000
+    );
     return () => window.clearInterval(interval);
-  }, [refresh, status?.status]);
+  }, [refresh, view.status?.status, view.reconnecting]);
 
-  return { status, loading, refresh, updateServer };
+  return { ...view, refresh, updateServer };
 }

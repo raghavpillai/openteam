@@ -1,7 +1,7 @@
 import type { BusyBotsView } from "@openteam/contracts";
 import { isUpdateBusyMessage, stillWorking } from "@openteam/contracts/server-updates";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { CircleCheck } from "lucide-react";
+import { CircleCheck, Server } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { API_BASE } from "../../../client/http";
@@ -9,8 +9,9 @@ import { useServerUpdate } from "../../../hooks/use-server-update";
 import { cn } from "../../../lib/cn";
 import { inSidebarOrder, useSidebarBotOrder } from "../../../lib/sidebar-bot-order";
 import { SectionLabel, SettingsGroup } from "./ui";
+import { ServerUpdateProgressPanel } from "./server-update-progress";
 
-const FAILED = "The computer update failed. Try again.";
+const FAILED = "The server update failed. Try again.";
 const BUSY_POLL_MS = 2_000;
 const CONFIRM_RESET_MS = 3_000;
 
@@ -61,13 +62,24 @@ export function ConfirmButton({
 }
 
 /** Updates the server, worker and computer together, once no bot is working. */
-export function ComputerUpdateSettings() {
+export function ServerUpdateSettings({
+  update: serverUpdate,
+}: {
+  update: ReturnType<typeof useServerUpdate>;
+}) {
   const {
+    clientVersion,
+    compatibility,
     server,
+    serverLoading,
+    serverReconnecting,
+    serverStartedAt,
+    serverObservedAt,
+    serverTarget,
     serverNeedsUpdate,
     serverUpdating,
     updateServer,
-  } = useServerUpdate();
+  } = serverUpdate;
   const sidebarOrder = useSidebarBotOrder();
   const [busyBots, setBusyBots] = useState<BusyBotsView["bots"]>([]);
   const [starting, setStarting] = useState(false);
@@ -90,17 +102,22 @@ export function ComputerUpdateSettings() {
 
   const updating = starting || serverUpdating;
   const knownVersion = Boolean(server?.currentVersion);
-  const state = !server
-    ? "loading"
-    : updating
-      ? "updating"
-      : !knownVersion || (serverNeedsUpdate && !server.updaterAvailable)
-        ? "unavailable"
-        : !serverNeedsUpdate && server.status !== "error"
-          ? "up-to-date"
-          : busyBots.length > 0
-            ? "busy"
-            : "ready";
+  const state =
+    !server || serverLoading
+      ? "loading"
+      : updating
+        ? "updating"
+        : serverReconnecting ||
+            !knownVersion ||
+            compatibility === "unknown" ||
+            (serverNeedsUpdate && !server.updaterAvailable) ||
+            (!serverNeedsUpdate && server.status === "error")
+          ? "unavailable"
+          : !serverNeedsUpdate && server.status !== "error"
+            ? "up-to-date"
+            : busyBots.length > 0
+              ? "busy"
+              : "ready";
   const busyInOrder = state === "busy" ? inSidebarOrder(busyBots, sidebarOrder) : [];
   const stopTarget = busyInOrder[0];
 
@@ -130,12 +147,18 @@ export function ComputerUpdateSettings() {
 
   const failure = error ?? (server?.status === "error" ? server.message : null);
   const extraCopy =
-    state === "busy" ? (
+    state === "loading" ? (
+      "Checking the connected server…"
+    ) : state === "busy" ? (
       `${stillWorking(busyInOrder.map((bot) => bot.name))}. Update will be available when every agent is done.`
     ) : state === "updating" ? (
-      server?.message
+      (server?.message ?? "Updating the server…")
     ) : state === "unavailable" ? (
-      server?.message
+      serverReconnecting ? (
+        "Could not reach the server. Reconnecting automatically."
+      ) : (
+        (server?.message ?? "Could not verify the server update status. Check for updates again.")
+      )
     ) : failure && state !== "up-to-date" ? (
       isUpdateBusyMessage(failure) ? (
         failure
@@ -145,6 +168,8 @@ export function ComputerUpdateSettings() {
           <span className="block text-foreground-tertiary">{failure}</span>
         </>
       )
+    ) : state === "ready" && serverTarget ? (
+      `Update to ${serverTarget} is available.`
     ) : null;
 
   const updateButton = (
@@ -162,51 +187,77 @@ export function ComputerUpdateSettings() {
       <SectionLabel>Connected server</SectionLabel>
       <SettingsGroup>
         <div
-          className="flex min-h-[52px] items-center gap-5 py-2.5"
+          className="min-h-[52px] py-2.5"
           data-settings-anchor="server-update"
           data-update-state={state}
         >
-          <div className="min-w-0 flex-1">
-            <div className="text-[12.5px] leading-[17px] text-foreground">
-              {new URL(API_BASE).host}
-            </div>
-            <div className="mt-px max-w-[440px] text-[12px] leading-4 text-foreground-secondary">
-              Bots keep their files, installed software and browser sign-ins. Open browser tabs
-              aren’t reopened.
-            </div>
-            {extraCopy ? (
-              <div
-                aria-live="polite"
-                className="mt-px max-w-[440px] text-[12px] leading-4 text-foreground-secondary"
-              >
-                {extraCopy}
+          <div className="flex flex-wrap items-center gap-3">
+            <Server aria-hidden className="size-4 shrink-0 self-start mt-1 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-medium leading-5 text-foreground">
+                Server {server?.currentVersion ?? "version unknown"}
               </div>
-            ) : null}
-            {state === "up-to-date" ? (
-              <div
-                className="mt-2 flex items-center gap-1.5 text-[12px] text-foreground-secondary"
-                role="status"
-              >
-                <CircleCheck aria-hidden className="size-3.5" />
-                Your server is on the latest version
+              <div className="mt-px text-[12px] leading-4 text-foreground-secondary">
+                {new URL(API_BASE).host}
               </div>
-            ) : null}
-          </div>
-          {state === "up-to-date" ? null : (
-            <div className="flex shrink-0 items-center gap-2">
-              {stopTarget ? (
-                <ConfirmButton
-                  key={stopTarget.botId}
-                  label={`Stop ${stopTarget.name}`}
-                  onConfirm={() => void stop(stopTarget.botId)}
-                  pending={stopping}
-                />
+              {extraCopy && state !== "updating" ? (
+                <div
+                  aria-live="polite"
+                  className="mt-px max-w-[440px] text-[12px] leading-4 text-foreground-secondary"
+                >
+                  {extraCopy}
+                </div>
               ) : null}
-              {updateButton}
+              {state === "up-to-date" ? (
+                <div
+                  className="mt-2 flex items-center gap-1.5 text-[12px] text-foreground-secondary"
+                  role="status"
+                >
+                  <CircleCheck aria-hidden className="size-3.5" />
+                  {compatibility === "client-update-required"
+                    ? "Update the desktop app to match this server."
+                    : compatibility === "update-recommended"
+                      ? "This server is newer than the installed desktop."
+                      : `Your server matches desktop ${clientVersion}.`}
+                </div>
+              ) : null}
             </div>
-          )}
+            {state === "up-to-date" || state === "updating" ? null : (
+              <div className="flex shrink-0 items-center gap-2">
+                {stopTarget ? (
+                  <ConfirmButton
+                    key={stopTarget.botId}
+                    label={`Stop ${stopTarget.name}`}
+                    onConfirm={() => void stop(stopTarget.botId)}
+                    pending={stopping}
+                  />
+                ) : null}
+                {updateButton}
+              </div>
+            )}
+          </div>
+          {state === "updating" ? (
+            <ServerUpdateProgressPanel
+              phase={starting ? "checking" : (server?.phase ?? null)}
+              message={server?.message ?? null}
+              reconnecting={serverReconnecting}
+              safeToClose={server?.safeToCloseDesktop ?? false}
+              startedAt={serverStartedAt}
+              observedAt={serverObservedAt}
+            />
+          ) : null}
+          {state !== "updating" ? (
+            <details className="mt-3 border-t border-black/[0.06] pt-2 text-[11px] leading-4 text-muted-foreground dark:border-white/[0.07]">
+              <summary className="w-fit cursor-pointer hover:text-foreground">
+                What stays after updating?
+              </summary>
+              <p className="mt-1.5 max-w-[480px]">
+                Bots keep their files, installed software and browser sign-ins. Open browser tabs
+                aren’t reopened.
+              </p>
+            </details>
+          ) : null}
         </div>
-
       </SettingsGroup>
     </>
   );

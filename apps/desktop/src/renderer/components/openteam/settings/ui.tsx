@@ -1,6 +1,28 @@
 import type { ReactNode } from "react";
-import type { SettingsAnchor } from "../../../lib/app-deep-links";
+import { OPENTEAM_DEEP_LINK_EVENT, type SettingsAnchor } from "../../../lib/app-deep-links";
 import { cn } from "../../../lib/cn";
+
+export function SettingsLink({
+  anchor,
+  children,
+}: {
+  anchor: SettingsAnchor;
+  children: ReactNode;
+}) {
+  const url = `openteam://app/v1/settings?id=${anchor}`;
+  return (
+    <a
+      className="whitespace-nowrap text-[13px] text-foreground underline underline-offset-2 hover:opacity-80"
+      href={url}
+      onClick={(event) => {
+        event.preventDefault();
+        window.dispatchEvent(new CustomEvent(OPENTEAM_DEEP_LINK_EVENT, { detail: { url } }));
+      }}
+    >
+      {children}
+    </a>
+  );
+}
 
 export function InteractiveSwitch({
   checked,
@@ -89,9 +111,18 @@ export function SettingsRow({
   );
 }
 
-export function SettingsHeading({ children, anchor }: { children: ReactNode; anchor?: SettingsAnchor }) {
+export function SettingsHeading({
+  children,
+  anchor,
+}: {
+  children: ReactNode;
+  anchor?: SettingsAnchor;
+}) {
   return (
-    <h2 className="mb-7 px-2 text-[17px] font-medium leading-6 tracking-[-0.018em]" data-settings-anchor={anchor}>
+    <h2
+      className="mb-7 px-2 text-[17px] font-medium leading-6 tracking-[-0.018em]"
+      data-settings-anchor={anchor}
+    >
       {children}
     </h2>
   );

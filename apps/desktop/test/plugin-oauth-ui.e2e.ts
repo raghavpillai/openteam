@@ -45,6 +45,10 @@ await context.route("**/*", (route) => {
 await page.addInitScript(() => {
   const target = window as any;
   target.openteam = {
+    computer: {
+      get: async () => ({ messagesSupported: false }),
+      messagesPermissions: async () => null,
+    },
     pluginOAuth: {
       start: (id: string, force = false) => target.fixtureOAuthStart(id, force),
       cancel: (id: string, state: string) => target.fixtureOAuthCancel(id, state),
@@ -89,12 +93,12 @@ try {
   await page.screenshot({ path: resolve(output, "waiting.png"), fullPage: true });
   await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
   await page
-    .getByText("Ready to authorize", { exact: true })
+    .getByText("Sign-in needed", { exact: true })
     .first()
     .waitFor();
   await provider.close();
   provider = await openProvider(() =>
-    page.getByRole("button", { name: "Authorize", exact: true }).click()
+    page.getByRole("button", { name: "Sign in", exact: true }).click()
   );
   await provider.getByRole("button", { name: "Authorize Account A" }).click();
   await provider

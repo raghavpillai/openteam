@@ -46,15 +46,6 @@ final class AuthFlowUITests: XCTestCase {
     // from the end of the transition while the control is still moving toward them.
     Thread.sleep(forTimeInterval: 0.5)
   }
-  /// On iOS 27 the form can still be moving while the keyboard's Passwords bar
-  /// settles, so a single tap may land where the field was. Tap until it has focus.
-  func focus(_ field: XCUIElement) {
-    for _ in 0..<5 {
-      field.tap()
-      if (field.value(forKey: "hasKeyboardFocus") as? Bool) == true { return }
-      Thread.sleep(forTimeInterval: 0.4)
-    }
-  }
   func replace(_ element: XCUIElement, _ text: String) {
     waitForArrival(element)
     let app = XCUIApplication()
@@ -75,10 +66,17 @@ final class AuthFlowUITests: XCTestCase {
   }
   func signIn(_ app: XCUIApplication, password: String = "fixture-only") {
     // Outside --ui-testing the app prefills the last username for this server.
-    replace(app.textFields["username-field"], "fixture")
-    focus(app.secureTextFields["password-field"])
-    app.secureTextFields["password-field"].typeText(password)
-    app.buttons["sign-in-button"].tap()
+    let username = app.textFields["username-field"]
+    replace(username, "fixture")
+    // Use the native Next/Go actions so the Passwords bar cannot intercept a
+    // coordinate tap on an adjacent field during reauthentication.
+    username.typeText("\n")
+    let passwordField = app.secureTextFields["password-field"]
+    let focused = XCTNSPredicateExpectation(predicate: NSPredicate { element, _ in
+      (element as? XCUIElement)?.value(forKey: "hasKeyboardFocus") as? Bool == true
+    }, object: passwordField)
+    XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 10), .completed)
+    passwordField.typeText(password + "\n")
   }
   func dismissPasswordPrompt(_ app: XCUIApplication) {
     let prompt = app.buttons["Not Now"]

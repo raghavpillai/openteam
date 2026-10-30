@@ -152,6 +152,9 @@ export function visualFixture(base: any, scene: string) {
         // Insert a timestamp row roughly every dozen messages.
         row.createdAt = new Date(date.getTime() - (count - i) * 1000 - Math.floor((count - i) / 12) * 600_000).toISOString();
       }
+    } else if(scene === "background-activity") {
+      message(channel.id, "user", "Can you check the shipping receipt?", 1);
+      message(channel.id, "agent", "I’m checking the receipt. I’ll send you the tracking number when it’s ready.", 2);
     } else if(scene === "empty-chat") {
       // No messages: initial positioning must still dismiss the native spinner.
     } else if(scene === "history-pages" || scene === "window-history") {

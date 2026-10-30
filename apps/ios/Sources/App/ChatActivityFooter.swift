@@ -13,16 +13,18 @@ struct ChatActivityFooter: View {
   var showsActivity = true
   @State private var visible = false
   @State private var mode: RobotAvatarMode = .still
-  private var activity: RobotAvatarMode? {
-    let runs = store.activeRuns(channel.id)
-    return !showsActivity || runs.isEmpty ? nil
-      : .thinking
+  @State private var activityText: String?
+  private var activity: ConversationActivity? {
+    guard showsActivity else { return nil }
+    return ConversationActivity.resolve(
+      channel: channel, botId: store.bot(for: channel)?.id,
+      runs: store.activeRuns(channel.id), subagents: store.state.bootstrap?.subagents ?? [])
   }
   var body: some View {
     VStack(spacing: 0) {
       let runs = store.activeRuns(channel.id)
       if let bot = store.bots.first(where: { $0.id == runs.first?.botId }) ?? store.bot(for: channel) {
-        BotActivityRow(bot: bot, mode: mode, visible: visible)
+        BotActivityRow(bot: bot, mode: mode, visible: visible, text: activityText)
       } else if activity != nil {
         ProgressView().frame(height: 54).padding(.bottom, 12)
       }
@@ -38,7 +40,11 @@ struct ChatActivityFooter: View {
       // the content, so the row's self-sized height is unchanged.
       .frame(maxHeight: .infinity, alignment: .top)
       .task(id: activity) {
-        if let activity { mode = activity; visible = true }
+        if let activity {
+          activityText = activity == .background ? "Working in the background" : nil
+          mode = .thinking
+          visible = true
+        }
         else {
           mode = .still
           if visible && !reduceMotion { try? await Task.sleep(for: .seconds(RobotMotion.transitionDuration)) }

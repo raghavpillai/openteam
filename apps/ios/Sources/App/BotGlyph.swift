@@ -266,6 +266,7 @@ struct BotActivityRow: View {
   let bot: Bot
   let mode: RobotAvatarMode
   let visible: Bool
+  var text: String?
   var body: some View {
     HStack {
       // Keep the row geometry while giving the desktop artwork the reference's
@@ -276,12 +277,16 @@ struct BotActivityRow: View {
         .opacity(visible ? 1 : 0)
         .animation(
           reduceMotion ? nil : .easeOut(duration: visible ? 0.18 : 0.12), value: visible)
-      Spacer()
+      if let text {
+        Text(text).font(.body).foregroundStyle(NativePalette.muted)
+          .opacity(visible ? 1 : 0)
+      }
+      Spacer(minLength: 0)
     }.frame(height: visible ? 50 : 0).padding(.top, visible ? 2 : 0)
       .padding(.bottom, visible ? 12 : 0)
       .clipped()
       .accessibilityElement(children: .ignore)
-      .accessibilityLabel(bot.name + (mode == .idle ? " needs input" : " is working"))
+      .accessibilityLabel(text ?? (bot.name + (mode == .idle ? " needs input" : " is working")))
       .accessibilityIdentifier("bot-activity").accessibilityHidden(!visible)
   }
 }

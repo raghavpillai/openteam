@@ -80,7 +80,7 @@ function emit(topic = "channel.message.created", entityId: string | null = null)
 function bootstrap(): ClientBootstrapView {
   return { cursor: String(sequence), workspace: snapshot.workspace, bots: snapshot.bots, channels: snapshot.channels,
     latestMessages: pagedHistory ? snapshot.channelMessages.slice(-60) : snapshot.channelMessages, activeRuns: snapshot.runs,
-    channelRounds: [], subagents: [], runtime: snapshot.runtime, capabilities: { } as any };
+    channelRounds: [], subagents: snapshot.subagents, runtime: snapshot.runtime, capabilities: { } as any };
 }
 const response = (data: unknown, status = 200) => Response.json(data, { status });
 /** Mirrors the server's Settings → Providers rules and messages. Checks are deterministic:
@@ -202,6 +202,7 @@ const server = Bun.serve({
       if (input.expireTakeover) screen.humanTakeover = false;
       authExpired = input.authExpired ?? authExpired; invalidServer = input.invalidServer ?? invalidServer; missingToken = input.missingToken ?? missingToken;
       if (input.failures) failures = input.failures;
+      if (input.subagents) snapshot.subagents = input.subagents;
       if ("searchResults" in input) searchResults = input.searchResults;
       emit("snapshot.reset"); return response({ ok: true });
     }
@@ -310,7 +311,7 @@ const server = Bun.serve({
       const page = pagedHistory ? messages.slice(-60) : messages;
       return response({ channelId, messages: page, threadContext: [], threadContextTruncated: false, beforeSequence: page[0]?.sequence ?? null, hasMore: pagedHistory && messages.length > page.length, revision: String(sequence) });
     }
-    if (path.endsWith("/client-state")) return response({ channelId: path.split("/")[4], revision: String(sequence), channelRounds: [], runs: snapshot.runs, runItems: [], subagents: [], truncated: { channelRounds:false, runs:false, runItems:false, subagents:false } });
+    if (path.endsWith("/client-state")) return response({ channelId: path.split("/")[4], revision: String(sequence), channelRounds: [], runs: snapshot.runs, runItems: [], subagents: snapshot.subagents.filter(task => task.parentChannelId === path.split("/")[4]), truncated: { channelRounds:false, runs:false, runItems:false, subagents:false } });
     if (path.includes("/message-deliveries/")) {
       const message = deliveries.get(path.split("/").at(-1)!);
       return response({ clientId: path.split("/").at(-1), status: message ? "accepted" : "not_found", message: message ?? null, acceptedAtMs: message ? Date.now() : null });

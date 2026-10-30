@@ -224,6 +224,8 @@ public struct Bootstrap: Codable, Sendable {
   public var channels: [Channel]
   public var latestMessages: [Message]
   public var activeRuns: [Run]
+  // Older disk snapshots predate background task activity.
+  public var subagents: [SubagentActivity]?
   public var runtime: JSON
 }
 public struct History: Codable, Sendable {
@@ -251,6 +253,15 @@ public struct ChannelState: Decodable, Sendable {
   public var channelId: String
   public var revision: String
   public var runs: [Run]
+  public var subagents: [SubagentActivity]?
+}
+public struct SubagentActivity: Codable, Identifiable, Sendable {
+  public var id: String
+  public var parentBotId: String
+  public var parentChannelId: String
+  public var runInBackground: Bool
+  public var status: String
+  public var isActive: Bool { ["provisioning", "queued", "running"].contains(status) }
 }
 public struct ProductEvent: Decodable, Sendable {
   public var sequence: String

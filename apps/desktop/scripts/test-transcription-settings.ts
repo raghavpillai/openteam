@@ -87,7 +87,7 @@ try {
   const key = page.getByLabel("Transcription API key");
   const language = page.getByLabel("Transcription language");
   const deleteKey = page.getByRole("button", { name: "Delete key", exact: true });
-  const credentials = page.getByTestId("transcription-credentials");
+  const credentials = page.locator(".transcription-settings");
   await open();
   assert(
     (await key.inputValue()) === "",

@@ -1,7 +1,8 @@
 import XCTest
 
 @MainActor final class VoiceNotesSettingsUITests: XCTestCase {
-  private let base = "http://127.0.0.1:20072"
+  private let base = ProcessInfo.processInfo.environment["VOICE_SETTINGS_QA_SERVER"]
+    ?? "http://127.0.0.1:20072"
   private let path = "/api/v0/server-settings/transcription"
 
   private func request(_ path: String, _ body: [String: Any]? = nil) async throws -> [String: Any] {

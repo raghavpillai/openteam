@@ -107,6 +107,7 @@ describe("provider-first chat registry", () => {
       { id: "gpt-chat", input_modalities: ["text", "image"] },
       { id: "gpt-6-new-vision", input_modalities: ["text", "image", "audio"] },
       { id: "gpt-6-new-text", input_modalities: ["text"] },
+      { id: "magpie-vision", modalities: { input: ["text", "image"] } },
       { id: "gpt-6-unknown" },
     ] };
     const catalog = await f.registry.catalog("openai");
@@ -114,6 +115,7 @@ describe("provider-first chat registry", () => {
       ["gpt-chat", ["text", "image"]],
       ["gpt-6-new-vision", ["text", "image"]],
       ["gpt-6-new-text", ["text"]],
+      ["magpie-vision", ["text", "image"]],
       ["gpt-6-unknown", ["text"]],
     ]);
     f.runtime.registerProvider("openai", { models: [{ ...catalog.models[0]!, input: ["text", "image"] }] } as never);

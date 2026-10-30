@@ -59,8 +59,13 @@ export const openRouterEndpointPromptCap = (body: unknown): number | undefined =
 const validId = (v: unknown): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= 256 && !/[\p{Cc}\p{Cf}]/u.test(v);
 const advertisedInput = (entry: Entry): ChatModel["input"] | undefined => {
-  if (!Array.isArray(entry.input_modalities)) return undefined;
-  return entry.input_modalities.includes("image") ? ["text", "image"] : ["text"];
+  const modalities = Array.isArray(entry.input_modalities)
+    ? entry.input_modalities
+    : object(entry.modalities) && Array.isArray(entry.modalities.input)
+      ? entry.modalities.input
+      : undefined;
+  if (!modalities) return undefined;
+  return modalities.includes("image") ? ["text", "image"] : ["text"];
 };
 const reasoningLevel = (value: unknown): PiReasoningLevel | undefined => {
   const normalized = value === "none" ? "off" : value;

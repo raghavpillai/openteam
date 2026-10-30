@@ -34,7 +34,8 @@ struct VoiceNotesSettingsView: View {
             .accessibilityIdentifier("voice-enabled")
         } footer: {
           SettingsFooter(
-            "Turn recordings into text you can review before sending. Shared by all apps connected to this server.")
+            "Turn recordings into text you can review before sending. Shared by all apps connected to this server."
+          )
         }
         Section {
           HStack(spacing: 12) {
@@ -82,23 +83,38 @@ struct VoiceNotesSettingsView: View {
               : "Choose the transcription model for recorded messages.")
         }
         Section {
-          SecureField(hasSavedKey ? "Key saved" : "API key", text: $draft.apiKey)
+          HStack {
+            SecureField(
+              hasSavedKey ? savedView?.apiKeySuffix.map { "••••" + $0 } ?? "Key saved" : "API key",
+              text: $draft.apiKey
+            )
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .textContentType(.password)
             .focused($focused, equals: .apiKey)
             .accessibilityLabel("Transcription API key")
             .accessibilityIdentifier("voice-api-key")
-          if savedView?.hasApiKey == true, draft.sameEndpoint(as: savedView) {
-            Toggle("Remove saved key", isOn: $draft.removeKey).tint(NativePalette.destructive)
-              .accessibilityIdentifier("voice-remove-key")
+            if savedView?.hasApiKey == true {
+              Button(draft.removeKey ? "Undo deletion" : "Delete key") {
+                focused = nil
+                draft.removeKey.toggle()
+                draft.apiKey = ""
+                operation.failure = nil
+              }.buttonStyle(.borderless).foregroundStyle(NativePalette.destructive)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("voice-remove-key")
+            }
           }
         } header: {
           SettingsHeader("API key")
         } footer: {
           SettingsFooter(
-            hasSavedKey
-              ? "A key is saved. Leave blank to keep it."
-              : "Separate from chat sign-in. Keys stay on your server.")
+            draft.removeKey
+              ? "Key will be deleted when you save."
+              : hasSavedKey
+                ? "Enter a new key to replace it."
+                : savedView?.hasApiKey == true
+                  ? "Enter a replacement key or delete the saved key to change endpoints."
+                  : "Separate from chat sign-in. Keys stay on your server.")
         }
         Section {
           TextField("Automatic", text: $draft.settings.language)
@@ -109,7 +125,8 @@ struct VoiceNotesSettingsView: View {
         } header: {
           SettingsHeader("Language")
         } footer: {
-          SettingsFooter("Leave blank for automatic detection, or enter a language code such as en.")
+          SettingsFooter(
+            "Leave blank for automatic detection, or enter a language code such as en.")
         }
         Section {
           HStack(spacing: 10) {

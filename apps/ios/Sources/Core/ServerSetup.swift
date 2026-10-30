@@ -56,14 +56,19 @@ public struct TranscriptionSettings: Codable, Sendable, Equatable {
 public struct TranscriptionSettingsView: Codable, Sendable, Equatable {
   public var settings: TranscriptionSettings
   public var hasApiKey: Bool
+  public var apiKeySuffix: String?
   public var configured: Bool
-  public init(settings: TranscriptionSettings, hasApiKey: Bool = false, configured: Bool = false) {
+  public init(
+    settings: TranscriptionSettings, hasApiKey: Bool = false, configured: Bool = false,
+    apiKeySuffix: String? = nil
+  ) {
     self.settings = settings
     self.hasApiKey = hasApiKey
+    self.apiKeySuffix = apiKeySuffix
     self.configured = configured
   }
   private enum CodingKeys: String, CodingKey {
-    case enabled, provider, baseUrl, model, language, hasApiKey, configured
+    case enabled, provider, baseUrl, model, language, hasApiKey, configured, apiKeySuffix
   }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -74,6 +79,12 @@ public struct TranscriptionSettingsView: Codable, Sendable, Equatable {
       model: try c.decode(String.self, forKey: .model),
       language: try c.decode(String.self, forKey: .language))
     hasApiKey = try c.decode(Bool.self, forKey: .hasApiKey)
+    let suffix = try c.decodeIfPresent(String.self, forKey: .apiKeySuffix)
+    apiKeySuffix =
+      hasApiKey && suffix?.count == 4
+        && suffix?.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+          == false
+      ? suffix : nil
     configured = try c.decode(Bool.self, forKey: .configured)
   }
   public func encode(to encoder: Encoder) throws {
@@ -84,6 +95,7 @@ public struct TranscriptionSettingsView: Codable, Sendable, Equatable {
     try c.encode(settings.model, forKey: .model)
     try c.encode(settings.language, forKey: .language)
     try c.encode(hasApiKey, forKey: .hasApiKey)
+    try c.encodeIfPresent(apiKeySuffix, forKey: .apiKeySuffix)
     try c.encode(configured, forKey: .configured)
   }
   /// The Settings row summary: "Off", or the provider in use.
@@ -133,7 +145,8 @@ public struct TranscriptionDraft: Equatable, Sendable {
   }
   public func changed(from saved: TranscriptionSettingsView?) -> Bool {
     guard let saved else { return true }
-    return !apiKey.isEmpty || removeKey || saved.settings != settings
+    return !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || removeKey
+      || saved.settings != settings
   }
   /// The PUT body: omitting `apiKey` keeps the saved key; null removes it.
   public var body: JSON {
@@ -205,7 +218,8 @@ public struct RuntimeStatus: Equatable, Sendable {
       "computer": "Bot computer", "inference": "Model", "transcription": "Voice notes",
     ]
     let order = ["server", "database", "queue", "computer", "inference", "transcription"]
-    let keys = order.filter { values[$0] != nil } + values.keys.filter { !order.contains($0) }.sorted()
+    let keys =
+      order.filter { values[$0] != nil } + values.keys.filter { !order.contains($0) }.sorted()
     return keys.map { key in
       (labels[key] ?? key.capitalized, Self.describe(values[key] ?? ""))
     }

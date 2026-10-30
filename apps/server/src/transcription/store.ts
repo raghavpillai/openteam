@@ -75,7 +75,6 @@ export function parseTranscriptionSettings(input: unknown): TranscriptionSetting
     value.apiKey !== undefined &&
     value.apiKey !== null &&
     (typeof value.apiKey !== "string" ||
-      !value.apiKey.trim() ||
       value.apiKey.length > 20_000 ||
       /[\x00-\x1f\x7f]/.test(value.apiKey))
   ) {
@@ -87,7 +86,7 @@ export function parseTranscriptionSettings(input: unknown): TranscriptionSetting
     baseUrl,
     model,
     language,
-    ...(value.apiKey !== undefined
+    ...(value.apiKey !== undefined && !(typeof value.apiKey === "string" && !value.apiKey.trim())
       ? { apiKey: typeof value.apiKey === "string" ? value.apiKey.trim() : null }
       : {}),
   };
@@ -150,9 +149,12 @@ export class TranscriptionStore {
   private viewOf(settings: StoredSettings): TranscriptionSettingsView {
     const { version: _version, encryptedApiKey, ...view } = settings;
     let keyValid = true;
+    let apiKeySuffix: string | null = null;
     if (encryptedApiKey) {
       try {
-        this.decrypt(encryptedApiKey);
+        const key = this.decrypt(encryptedApiKey);
+        // Never disclose an entire short credential.
+        if (key.length > 4) apiKeySuffix = key.slice(-4);
       } catch {
         keyValid = false;
       }
@@ -160,6 +162,7 @@ export class TranscriptionStore {
     return {
       ...view,
       hasApiKey: Boolean(encryptedApiKey),
+      apiKeySuffix,
       configured:
         keyValid &&
         view.enabled &&
@@ -231,6 +234,10 @@ export class TranscriptionStore {
         const previous = await this.read().catch(() => null);
         const sameEndpoint =
           previous?.provider === parsed.provider && previous?.baseUrl === parsed.baseUrl;
+        if (previous?.encryptedApiKey && !sameEndpoint && parsed.apiKey === undefined)
+          throw invalid(
+            "Enter a replacement key or explicitly delete the saved key before changing the transcription endpoint."
+          );
         // Never carry a credential to a newly selected endpoint implicitly.
         const encryptedApiKey =
           parsed.apiKey === undefined

@@ -345,6 +345,26 @@ final class InferenceSettingsTests: XCTestCase {
 }
 
 final class ServerSetupTests: XCTestCase {
+  func testSavedSuffixBlankEditsAndProviderReturn() throws {
+    let saved = try JSONDecoder().decode(TranscriptionSettingsView.self, from: Data(
+      #"{"enabled":true,"provider":"openai","baseUrl":"https://api.openai.com/v1","model":"gpt-transcribe","language":"","hasApiKey":true,"apiKeySuffix":"A7z9","configured":true,"apiKey":"unexpected-private-key"}"#.utf8))
+    XCTAssertEqual(saved.apiKeySuffix, "A7z9")
+    XCTAssertFalse(String(describing: saved).contains("unexpected-private-key"))
+    var draft = TranscriptionDraft(saved)
+    draft.apiKey = "   "
+    XCTAssertFalse(draft.changed(from: saved))
+    XCTAssertNil(draft.body.object["apiKey"])
+    draft.choose(.deepgram)
+    XCTAssertNil(draft.body.object["apiKey"])
+    XCTAssertTrue(saved.hasApiKey)
+    draft.choose(.openai)
+    XCTAssertTrue(draft.hasSavedKey(saved))
+    XCTAssertEqual(saved.apiKeySuffix, "A7z9")
+    draft.removeKey = true
+    XCTAssertEqual(draft.body.object["apiKey"], .null)
+    draft.removeKey = false
+    XCTAssertNil(draft.body.object["apiKey"])
+  }
   func testTranscriptionDraftKeepsReplacesOrRemovesTheKey() throws {
     let saved = try JSONDecoder().decode(
       TranscriptionSettingsView.self,

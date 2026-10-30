@@ -17,6 +17,32 @@
 .transcription-input:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 30%, transparent);
 }
+.transcription-key-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 270px;
+  max-width: 100%;
+}
+.transcription-key-control .transcription-input {
+  flex: 1;
+  min-width: 0;
+}
+.transcription-delete-key {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 6px;
+  border-radius: 8px;
+  color: var(--destructive);
+  font-size: 12px;
+}
+.transcription-delete-key:hover {
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+.transcription-delete-key:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
 @container (max-width: 480px) {
   .transcription-setting-row {
     flex-direction: column;
@@ -28,6 +54,9 @@
     min-width: 0;
   }
   .transcription-input {
+    width: 100%;
+  }
+  .transcription-key-control {
     width: 100%;
   }
 }

@@ -44,6 +44,7 @@ describe("transcription settings and credentials", () => {
     const view = await config.save({ ...settings, apiKey: "test-private-key" });
     expect(view.configured).toBe(true);
     expect(view.hasApiKey).toBe(true);
+    expect(view.apiKeySuffix).toBe("-key");
     expect(JSON.stringify(view)).not.toContain("test-private-key");
     expect(await readFile(config.path, "utf8")).not.toContain("test-private-key");
     expect((await stat(config.path)).mode & 0o777).toBe(0o600);
@@ -52,8 +53,45 @@ describe("transcription settings and credentials", () => {
     ).toBe("test-private-key");
     await config.save({ ...settings, model: "another" });
     expect((await config.credentials()).apiKey).toBe("test-private-key");
-    await config.save({ ...settings, baseUrl: "http://different.test/v1" });
+    await expect(config.save({ ...settings, baseUrl: "http://different.test/v1" })).rejects.toThrow(
+      "replacement key"
+    );
+    expect((await config.credentials()).apiKey).toBe("test-private-key");
+    await config.save({ ...settings, baseUrl: "http://different.test/v1", apiKey: null });
     expect((await config.credentials()).apiKey).toBeNull();
+    expect((await config.view()).apiKeySuffix).toBeNull();
+  });
+  test("blank edits preserve the key and suffix through restart; replacement and deletion are explicit", async () => {
+    const config = await store();
+    expect((await config.view()).apiKeySuffix).toBeNull();
+    await config.save({ ...settings, apiKey: "synthetic-key-A7z9" });
+    for (const apiKey of [undefined, "", "   "]) {
+      const view = await config.save({ ...settings, language: "fr", apiKey });
+      expect(view.apiKeySuffix).toBe("A7z9");
+      expect(view).not.toHaveProperty("apiKey");
+      expect((await config.credentials()).apiKey).toBe("synthetic-key-A7z9");
+    }
+    expect(
+      (await new TranscriptionStore(config.path, () => "a".repeat(40)).view()).apiKeySuffix
+    ).toBe("A7z9");
+    expect(
+      (await new TranscriptionStore(config.path, () => "b".repeat(40)).view()).apiKeySuffix
+    ).toBeNull();
+    const changed = { ...settings, baseUrl: "http://different.test/v1" };
+    const before = await readFile(config.path, "utf8");
+    await expect(config.save({ ...changed, apiKey: "" })).rejects.toThrow("replacement key");
+    expect(await readFile(config.path, "utf8")).toBe(before);
+    expect((await config.save({ ...changed, apiKey: "replacement-B8x2" })).apiKeySuffix).toBe(
+      "B8x2"
+    );
+    expect((await config.save({ ...changed, apiKey: null })).hasApiKey).toBe(false);
+    expect((await config.view()).apiKeySuffix).toBeNull();
+  });
+  test("a short saved key is never exposed in full as its suffix", async () => {
+    const config = await store();
+    const view = await config.save({ ...settings, apiKey: "abcd" });
+    expect(view.hasApiKey).toBe(true);
+    expect(view.apiKeySuffix).toBeNull();
   });
   test("validates enabled settings and never accepts embedded URL credentials", async () => {
     const config = await store();
@@ -464,7 +502,7 @@ describe("Deepgram transcription", () => {
     const config = await store();
     await config.save({ ...settings, apiKey: "synthetic-custom-key" });
     const { apiKey: _key, ...draft } = deepgram;
-    await expect(config.save(draft)).rejects.toThrow("Deepgram API key");
+    await expect(config.save(draft)).rejects.toThrow("replacement key");
     await expect(config.discoveryCredentials(draft)).rejects.toThrow("Deepgram API key");
     const view = await config.save({ ...deepgram, baseUrl: "https://different.test/v1" });
     expect(view).toMatchObject({ configured: true, hasApiKey: true, baseUrl: deepgram.baseUrl });
@@ -473,7 +511,7 @@ describe("Deepgram transcription", () => {
     expect(
       (await new TranscriptionStore(config.path, () => "a".repeat(40)).credentials()).apiKey
     ).toBe(deepgram.apiKey);
-    await config.save({ ...settings, enabled: false });
+    await config.save({ ...settings, enabled: false, apiKey: null });
     expect((await config.view()).hasApiKey).toBe(false);
   });
 

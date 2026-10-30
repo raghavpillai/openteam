@@ -11,8 +11,24 @@ import { validateFixtureRequest } from "./validate-fixture-request";
 import { ServerSetupFixture } from "./server-setup-fixture";
 import { validateUserFormValues } from "../../../packages/contracts/src/user-forms";
 import { DEFAULT_FETCH_PROVIDER, WEB_PROVIDER_LISTS, WEB_TOOLS, webProviderInfo, type WebProviderInfo, type WebTool } from "../../../packages/contracts/src/web-search";
+import { TranscriptionStore } from "../../server/src/transcription/store";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const port = Number(process.env.SWIFT_PARITY_PORT || 19997);
+// Dedicated key-parity scenarios exercise the production encrypted store.
+const keyQA = port === 20081;
+const keyDirectory = mkdtempSync(join(tmpdir(), "openteam-native-key-"));
+process.on("exit", () => rmSync(keyDirectory, { recursive: true, force: true }));
+const keyStore = new TranscriptionStore(join(keyDirectory, "settings.json"), () => "qa-encryption-secret".repeat(3));
+const keyPatches: unknown[] = [];
+async function resetKeys() {
+  if (!keyQA) return;
+  keyPatches.length = 0;
+  await keyStore.save({ enabled: true, provider: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-transcribe", language: "", apiKey: "synthetic-key-A7z9" });
+}
+await resetKeys();
 let snapshot: ClientSnapshot;
 let hapticAudit: unknown[] = [];
 let settings: any;
@@ -130,7 +146,7 @@ const server = Bun.serve({
     let input: any = {};
     const upload = path === "/api/v0/assets" && method === "POST" ? new Uint8Array(await request.arrayBuffer()) : null;
     if (!upload && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
-    if (path === "/__qa/reset" && method === "POST") { reset(); emit("snapshot.reset"); return response({ ok: true }); }
+    if (path === "/__qa/reset" && method === "POST") { reset(); await resetKeys(); emit("snapshot.reset"); return response({ ok: true }); }
     if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=["history-pages","scroll-mixed-pages"].includes(input.scene); sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/content" && method === "POST") { snapshot=contentScene(snapshot,input.scene); if(input.scene==='routine-event')routines=[{id:'routine-event-fixture',name:'Morning summary',prompt:'Summarize the morning',schedule:'0 9 * * 1-5',scheduleKind:'cron',timezone:'America/New_York',enabled:false,revision:1,nextRunAt:null,latestExecution:null}]; sequence=400; emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/motion" && method === "POST") {
@@ -189,7 +205,7 @@ const server = Bun.serve({
       if ("searchResults" in input) searchResults = input.searchResults;
       emit("snapshot.reset"); return response({ ok: true });
     }
-    if (path === "/__qa/state") return response({ messages: snapshot.channelMessages, requests: requestLog, modelSettings: { inference: serverSetup.inference, saves: serverSetup.saves, tests: serverSetup.tests }, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
+    if (path === "/__qa/state") return response({ transcription: keyQA ? await keyStore.view() : serverSetup.voice, transcriptionPatches: keyPatches, messages: snapshot.channelMessages, requests: requestLog, modelSettings: { inference: serverSetup.inference, saves: serverSetup.saves, tests: serverSetup.tests }, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
     if (path === "/__qa/haptics") {
       if (method === "POST") hapticAudit.push(input);
       if (method === "DELETE") hapticAudit = [];
@@ -222,6 +238,19 @@ const server = Bun.serve({
       contentReceipts.push({path, fileName, mimeType, byteSize: upload.byteLength, authenticated: request.headers.has("authorization")});
       return response({ assetId, fileName, mimeType, byteSize: upload.byteLength,
         kind: mimeType.startsWith("image/") ? "image" : "file" });
+    }
+    if (keyQA && path === "/api/v0/server-settings/transcription") {
+      if (method === "GET") return response(await keyStore.view());
+      if (method === "PUT") {
+        keyPatches.push({ ...input, ...(typeof input.apiKey === "string" ? { apiKey: "[replacement]" } : {}) });
+        try {
+          const value = await keyStore.save(input);
+          snapshot.runtime.transcription = value.configured ? "configured" : "missing";
+          return response(value);
+        } catch (error) {
+          return response({ message: (error as Error).message }, 400);
+        }
+      }
     }
     const setupResponse = serverSetup.handle(path, method, input, url);
     if (setupResponse) return setupResponse;

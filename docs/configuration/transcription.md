@@ -28,6 +28,8 @@ Voice notes need a transcription service. Set it up once on the server and it wo
 
 Transcription uses its own API key. A ChatGPT or Claude sign-in for chat doesn't cover it. Changing the default model for new selections does not migrate an existing saved model.
 
+Saved keys show only their last four characters. Blank edits keep the saved key. To remove it, choose **Delete key**, then **Save**; **Undo deletion** cancels a pending deletion. Changing providers or endpoints requires a replacement key or explicit deletion, so the saved key is never silently removed or sent to a different service.
+
 To choose a microphone on desktop, open **Settings → General → System → Microphone**.
 The **Microphone access** row shows whether permission is allowed, blocked, or not yet requested. Choose **Enable microphone** to request access, or **System settings** to manage it on macOS or Windows. The status refreshes when you return to OpenTeam.
 

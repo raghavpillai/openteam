@@ -304,7 +304,9 @@ Transcription offers
 OpenAI or an OpenAI-compatible audio endpoint, model browsing or manual model ID entry, language,
 and a masked API key. Browsing does not save or enable transcription. Model discovery filters out
 known chat, embedding, image, and speech-generation models. Saved keys stay on the server, blank key edits
-keep them, and changing endpoints never transfers a stored key. Use **Remove saved key** to clear it.
+keep them. Saved keys show only their last four characters. Use **Delete key**, then **Save transcription**,
+to clear one; **Undo key deletion** cancels a pending deletion. Changing endpoints requires a replacement
+key or explicit deletion and never transfers a stored key.
 **Test saved connection** checks the provider and model catalog; send a voice note to verify actual
 audio transcription. Transcription needs its own API credentials, separate from ChatGPT sign-in.
 

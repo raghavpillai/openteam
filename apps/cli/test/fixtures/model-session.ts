@@ -79,6 +79,7 @@ export const modelFixture = () => {
     model: "speech-small",
     language: "",
     hasApiKey: true,
+    apiKeySuffix: "A7z9",
     configured: true,
   };
   const calls = {
@@ -133,6 +134,14 @@ export const modelFixture = () => {
     async saveTranscription(value) {
       calls.transcription.push({ ...value });
       const { apiKey, ...settings } = value;
+      if (
+        transcription.hasApiKey &&
+        apiKey === undefined &&
+        (value.provider !== transcription.provider || value.baseUrl !== transcription.baseUrl)
+      )
+        throw new Error(
+          "Enter a replacement key or explicitly delete the saved key before changing the transcription endpoint."
+        );
       const hasApiKey =
         apiKey === undefined
           ? transcription.hasApiKey &&
@@ -142,6 +151,7 @@ export const modelFixture = () => {
       transcription = {
         ...settings,
         hasApiKey,
+        apiKeySuffix: hasApiKey ? (apiKey ? apiKey.slice(-4) : transcription.apiKeySuffix) : null,
         configured:
           value.enabled &&
           Boolean(value.baseUrl && value.model) &&

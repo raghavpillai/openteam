@@ -189,6 +189,8 @@ export class ServerSetupFixture {
         const { apiKey, ...settings } = input as TranscriptionSettingsInput;
         const same =
           settings.provider === this.voice.provider && settings.baseUrl === this.voice.baseUrl;
+        if (!same && this.voice.hasApiKey && apiKey === undefined)
+          return Response.json({ message: "Enter a replacement key or explicitly delete the saved key before changing the transcription endpoint." }, { status: 400 });
         const hasApiKey =
           typeof apiKey === "string"
             ? Boolean(apiKey)
@@ -198,6 +200,7 @@ export class ServerSetupFixture {
         this.voice = {
           ...settings,
           hasApiKey,
+          apiKeySuffix: hasApiKey ? typeof apiKey === "string" && apiKey.length > 4 ? apiKey.slice(-4) : this.voice.apiKeySuffix ?? null : null,
           configured:
             settings.enabled &&
             Boolean(settings.baseUrl && settings.model) &&

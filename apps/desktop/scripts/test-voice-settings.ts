@@ -126,7 +126,7 @@ try {
     assert.equal(setup.voice.provider, "deepgram");
     assert.equal(setup.voice.configured, true);
     assert.equal(await key.inputValue(), "");
-    assert.equal(await key.getAttribute("placeholder"), "Key saved");
+    assert.equal(await key.getAttribute("placeholder"), "••••-key");
     failCheck = true;
     await button("Test connection").click();
     await page
@@ -153,13 +153,13 @@ try {
     await button("Close").click();
     await button("Open settings").click();
     await openVoice();
-    await page.getByPlaceholder("Key saved").waitFor();
+    await page.getByPlaceholder("••••-key").waitFor();
     assert.equal(await field("language").inputValue(), "en");
     assert.equal(
       await page.getByRole("combobox", { name: "Transcription provider" }).innerText(),
       "Deepgram"
     );
-    await page.getByRole("switch", { name: "Remove transcription API key" }).click();
+    await button("Delete key").click();
     await page.getByRole("switch", { name: "Enable voice notes" }).click();
     await save("Saved. Voice notes are disabled.");
     assert.equal(setup.voice.hasApiKey, false);

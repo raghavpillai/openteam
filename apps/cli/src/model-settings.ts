@@ -39,6 +39,7 @@ export interface TranscriptionDraft {
 }
 export interface TranscriptionView extends Omit<TranscriptionDraft, "apiKey"> {
   hasApiKey: boolean;
+  apiKeySuffix?: string | null;
   configured: boolean;
 }
 export type ModelCheck = { level: "pass" | "warn" | "fail"; detail: string };
@@ -83,7 +84,11 @@ const transcription = (value: unknown): TranscriptionView => {
     !["openai", "deepgram", "openai-compatible"].includes(String(value.provider)) ||
     !["baseUrl", "model", "language"].every((key) => typeof value[key] === "string") ||
     typeof value.hasApiKey !== "boolean" ||
-    typeof value.configured !== "boolean"
+    typeof value.configured !== "boolean" ||
+    (value.apiKeySuffix != null &&
+      (typeof value.apiKeySuffix !== "string" ||
+        value.apiKeySuffix.length !== 4 ||
+        /[\x00-\x1f\x7f]/.test(value.apiKeySuffix)))
   )
     throw invalid();
   // Never retain an unexpected credential field from a response.
@@ -94,6 +99,9 @@ const transcription = (value: unknown): TranscriptionView => {
     model: value.model as string,
     language: value.language as string,
     hasApiKey: value.hasApiKey,
+    apiKeySuffix: value.hasApiKey
+      ? ((value.apiKeySuffix as string | null | undefined) ?? null)
+      : null,
     configured: value.configured,
   };
 };

@@ -84,7 +84,7 @@ export function TranscriptionSettingsPanel() {
   const hasSavedKey = sameEndpoint && saved?.hasApiKey && !removeKey;
   const changed =
     saved &&
-    (apiKey !== "" ||
+    (apiKey.trim() !== "" ||
       removeKey ||
       (["enabled", "provider", "baseUrl", "model", "language"] as const).some(
         (key) => saved[key] !== draft[key]
@@ -101,7 +101,7 @@ export function TranscriptionSettingsPanel() {
           baseUrl: draft.baseUrl.trim(),
           model: draft.model.trim(),
           language: draft.language.trim(),
-          ...(key ? { apiKey: key } : removeKey ? { apiKey: null } : {}),
+          ...(removeKey ? { apiKey: null } : key ? { apiKey: key } : {}),
         })
       );
       setSaved(value);
@@ -218,7 +218,11 @@ export function TranscriptionSettingsPanel() {
                     <SelectItem value="openai-compatible">
                       <span className="flex items-center gap-2">
                         {/* A custom service has no brand; iPhone shows the same sparkles. */}
-                        <Sparkles aria-hidden className="size-3.5 text-violet-500" strokeWidth={1.8} />
+                        <Sparkles
+                          aria-hidden
+                          className="size-3.5 text-violet-500"
+                          strokeWidth={1.8}
+                        />
                         Custom / OpenAI-compatible
                       </span>
                     </SelectItem>
@@ -259,90 +263,101 @@ export function TranscriptionSettingsPanel() {
               }
             />
           </SettingsGroup>
-          <SectionLabel>Credentials and language</SectionLabel>
-          <SettingsGroup className="transcription-fields">
-            <SettingsRow
-              title="API key"
-              className="transcription-setting-row"
-              description={
-                hasSavedKey
-                  ? "A key is saved. Leave blank to keep it."
-                  : "Separate from chat sign-in. Keys stay on your server."
-              }
-              control={
-                <input
-                  className={inputClass}
-                  type="password"
-                  autoComplete="new-password"
-                  aria-label="Transcription API key"
-                  value={apiKey}
-                  placeholder={hasSavedKey ? "Key saved" : "API key"}
-                  onChange={(e) => {
-                    setApiKey(e.target.value);
-                    if (e.target.value) setRemoveKey(false);
-                    setMessage("");
-                  }}
-                />
-              }
-            />
-            {saved.hasApiKey && sameEndpoint ? (
+          <div className="mt-7" data-testid="transcription-credentials">
+            <SectionLabel>Credentials and language</SectionLabel>
+            <SettingsGroup className="transcription-fields">
               <SettingsRow
-                title="Remove saved key"
+                title="API key"
+                className="transcription-setting-row"
+                description={
+                  removeKey
+                    ? "Key will be deleted when you save."
+                    : hasSavedKey
+                      ? "Enter a new key to replace it."
+                      : saved.hasApiKey
+                        ? "Enter a replacement key or delete the saved key to change endpoints."
+                        : "Separate from chat sign-in. Keys stay on your server."
+                }
                 control={
-                  <InteractiveSwitch
-                    label="Remove transcription API key"
-                    checked={removeKey}
-                    onChange={(value) => {
-                      setRemoveKey(value);
-                      if (value) setApiKey("");
-                      setMessage("");
-                    }}
+                  <div className="transcription-key-control">
+                    <input
+                      className={inputClass}
+                      type="password"
+                      autoComplete="new-password"
+                      aria-label="Transcription API key"
+                      value={apiKey}
+                      placeholder={
+                        hasSavedKey
+                          ? saved.apiKeySuffix
+                            ? `••••${saved.apiKeySuffix}`
+                            : "Key saved"
+                          : "API key"
+                      }
+                      onChange={(e) => {
+                        setApiKey(e.target.value);
+                        if (e.target.value.trim()) setRemoveKey(false);
+                        setMessage("");
+                      }}
+                    />
+                    {saved.hasApiKey ? (
+                      <button
+                        type="button"
+                        className="transcription-delete-key"
+                        onClick={() => {
+                          setRemoveKey((value) => !value);
+                          setApiKey("");
+                          setMessage("");
+                        }}
+                      >
+                        {removeKey ? "Undo deletion" : "Delete key"}
+                      </button>
+                    ) : null}
+                  </div>
+                }
+              />
+              <SettingsRow
+                title="Language"
+                className="transcription-setting-row"
+                description="Leave blank to detect automatically, or use a code such as en."
+                control={
+                  <input
+                    className={inputClass}
+                    aria-label="Transcription language"
+                    spellCheck={false}
+                    value={draft.language}
+                    placeholder="Automatic"
+                    onChange={(e) => change("language", e.target.value)}
                   />
                 }
               />
+            </SettingsGroup>
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                className={secondaryButton}
+                disabled={Boolean(busy) || Boolean(changed) || !saved.configured}
+                onClick={() => void check()}
+              >
+                {busy === "check" ? <LoadingOrb aria-hidden size={14} /> : null} Test connection
+              </button>
+              <button
+                type="button"
+                className={primaryButton}
+                disabled={Boolean(busy) || !changed}
+                onClick={() => void save()}
+              >
+                {busy === "save" ? <LoadingOrb aria-hidden size={14} /> : null} Save
+              </button>
+            </div>
+            {message ? (
+              <p
+                role={failed ? "alert" : "status"}
+                className={`mt-3 text-[12px] leading-5 ${failed ? "text-red-600 dark:text-red-400" : "text-foreground-secondary"}`}
+              >
+                {message}
+              </p>
             ) : null}
-            <SettingsRow
-              title="Language"
-              className="transcription-setting-row"
-              description="Leave blank to detect automatically, or use a code such as en."
-              control={
-                <input
-                  className={inputClass}
-                  aria-label="Transcription language"
-                  spellCheck={false}
-                  value={draft.language}
-                  placeholder="Automatic"
-                  onChange={(e) => change("language", e.target.value)}
-                />
-              }
-            />
-          </SettingsGroup>
-          <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
-            <button
-              type="button"
-              className={secondaryButton}
-              disabled={Boolean(busy) || Boolean(changed) || !saved.configured}
-              onClick={() => void check()}
-            >
-              {busy === "check" ? <LoadingOrb aria-hidden size={14} /> : null} Test connection
-            </button>
-            <button
-              type="button"
-              className={primaryButton}
-              disabled={Boolean(busy) || !changed}
-              onClick={() => void save()}
-            >
-              {busy === "save" ? <LoadingOrb aria-hidden size={14} /> : null} Save
-            </button>
           </div>
-          {message ? (
-            <p
-              role={failed ? "alert" : "status"}
-              className={`mt-3 text-[12px] leading-5 ${failed ? "text-red-600 dark:text-red-400" : "text-foreground-secondary"}`}
-            >
-              {message}
-            </p>
-          ) : null}
         </fieldset>
       )}
     </div>

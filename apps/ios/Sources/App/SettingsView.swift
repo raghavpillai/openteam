@@ -5,6 +5,7 @@ enum SettingsRoute: Hashable { case model, voiceNotes }
 
 struct SettingsView: View {
   @Environment(AppStore.self) private var store
+  @Environment(MobileUpdates.self) private var mobileUpdates
   @Environment(\.dismiss) private var dismiss
   @AppStorage("appearance") private var appearance = "system"
   @AppStorage("accent") private var accent = "black"
@@ -18,6 +19,9 @@ struct SettingsView: View {
   var body: some View {
     NavigationStack(path: $path) {
       NativeList {
+        if mobileUpdates.availableRelease != nil {
+          Section { MobileUpdateNotice() }
+        }
         Section {
           NavigationLink {
             AccountConnectionView()

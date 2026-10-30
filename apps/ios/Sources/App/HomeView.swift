@@ -348,6 +348,7 @@ struct HomeView: View {
         .accessibilityIdentifier("syncing-state")
       }
       Spacer()
+      MobileUpdateBadge()
       if !barRegions.hasHinge && barRegions.sideEdge == nil {
         ChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
           .accessibilityIdentifier("search-button")

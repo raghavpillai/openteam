@@ -121,6 +121,33 @@ secrets and upload procedure are documented in [Releasing OpenTeam](../../.githu
 Besides the app and notification profiles, it needs `IOS_SHARE_PROFILE_BASE64`.
 Uploading an archive does not establish Apple processing or tester availability.
 
+### In-app update notice
+
+The home-screen Update badge and the notice at the top of Settings open the
+OpenTeam public beta in TestFlight, with the HTTPS invitation as a fallback.
+The app checks `https://openteam.so/ios-update.json` on launch, on returning to
+the foreground (at most once every 15 minutes), and every six hours while active.
+It compares both the marketing version and build number, independently of the
+self-hosted server. Offline checks retain the last successfully fetched release.
+
+After confirming a build is available to the **public TestFlight group**, update
+`apps/landing/public/ios-update.json` and deploy the landing site:
+
+```json
+{
+  "release": {
+    "version": "0.0.11",
+    "buildNumber": "62",
+    "bundleIdentifier": "dev.openbot.mobile"
+  }
+}
+```
+
+Use the version and build number Apple has made available, not a pending archive.
+The initial `{"release": null}` intentionally advertises no unverified builds.
+Set it back to null to withdraw a notice. Opening TestFlight keeps the notice
+visible until a new app build is installed or the published notice is withdrawn.
+
 For local distribution, archive the Release scheme in Xcode using the configured
 team and distribute the archive through Organizer. The app and its
 `OpenTeamNotifications` and `OpenTeamShare` extensions each require a matching

@@ -35,7 +35,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { Collapsible } from "radix-ui";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { signOut } from "../../client/auth";
 import { useAuthSession } from "../../hooks/use-auth-session";
@@ -48,7 +48,7 @@ import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import { accountPresentation } from "../../lib/account";
 import { channelMessageSummary } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
-import { requestDesktopUpdateRestart } from "../../lib/desktop-update";
+import { desktopUpdateProgress, requestDesktopUpdateRestart } from "../../lib/desktop-update";
 import { showsGroupLabel } from "../../lib/group-chat-presentation";
 import {
   COMPACT_SIDEBAR_WIDTH,
@@ -109,6 +109,7 @@ import { Input } from "../ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { BotAvatar, ChannelAvatar } from "./avatar";
 import { BotName, BotRenameContext } from "./bot-name";
+import { DesktopUpdateCard } from "./desktop-update-card";
 import { SidebarCollapseMotion, SidebarMotion } from "./sidebar-motion";
 import { SidebarActivityProvider, useSidebarComposing } from "./sidebar-activity";
 import { SidebarUnreadAvatar, SidebarUnreadDot } from "./sidebar-unread";
@@ -218,18 +219,77 @@ export function AccountMenu({
   const openingUpdateDialog = useRef(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [update, setUpdate] = useState<OpenTeamUpdateStatus | null>(null);
-  useEffect(
-    () =>
-      window.openteam?.updates.onClientProgress((next) => {
-        setUpdate(next);
-        if (next.status === "downloaded") {
-          openingUpdateDialog.current = true;
-          setMenuOpen(false);
-        }
-      }),
-    []
+  const [startingDownload, setStartingDownload] = useState(false);
+  const startingDownloadRef = useRef(false);
+  const updateDescriptionId = useId();
+  useEffect(() => {
+    let active = true;
+    let receivedProgress = false;
+    const unsubscribe = window.openteam?.updates.onClientProgress((next) => {
+      receivedProgress = true;
+      if (!active) return;
+      setUpdate(next);
+      if (next.status === "downloaded") {
+        openingUpdateDialog.current = true;
+        setMenuOpen(false);
+      }
+    });
+    // The badge must be visible before the account menu has ever been opened.
+    void window.openteam?.updates
+      .status()
+      .then((next) => {
+        if (active && !receivedProgress) setUpdate(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, []);
+  const hasUpdate = ["available", "downloading", "downloaded", "installing"].includes(
+    update?.status ?? ""
   );
-  const menuItem = "h-8 gap-2 rounded-[8px] px-2 text-[13px] font-normal leading-[19.5px]";
+  const progress = update ? desktopUpdateProgress(update) : null;
+  const updateLabel =
+    update?.status === "downloaded"
+      ? "Restart"
+      : update?.status === "downloading"
+        ? progress === null
+          ? "Updating"
+          : `${progress}%`
+        : update?.status === "installing"
+          ? "Restarting"
+          : "Update";
+  const updateDescription =
+    update?.status === "downloaded"
+      ? "Update ready. Restart to update OpenTeam."
+      : update?.status === "downloading"
+        ? `Downloading OpenTeam update${progress === null ? "" : `, ${progress}%`}.`
+        : update?.status === "installing"
+          ? "Restarting OpenTeam to install the update."
+          : "An OpenTeam update is available.";
+  const downloadUpdate = async () => {
+    if (!update || startingDownloadRef.current) return;
+    setUpdateError(null);
+    if (update.status === "downloaded") {
+      openingUpdateDialog.current = true;
+      setMenuOpen(false);
+      requestDesktopUpdateRestart(update);
+      return;
+    }
+    if (update.status !== "available") return;
+    startingDownloadRef.current = true;
+    setStartingDownload(true);
+    try {
+      await window.openteam?.updates.openDownload();
+    } catch {
+      setUpdateError("Could not download the update. Try again from update settings.");
+    } finally {
+      startingDownloadRef.current = false;
+      setStartingDownload(false);
+    }
+  };
+  const menuItem = "h-[34px] gap-2.5 rounded-[8px] px-2.5 text-[13px] font-normal leading-[19.5px]";
   const openExternal = (url: string) => window.open(url, "_blank", "noopener,noreferrer");
 
   return (
@@ -250,7 +310,35 @@ export function AccountMenu({
             .catch(() => setUpdateError("Could not check for updates. Try again from Settings."));
         }}
       >
-        <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
+        <div className="relative min-w-0" data-account-update={hasUpdate || undefined}>
+          <DropdownMenuTrigger aria-describedby={hasUpdate ? updateDescriptionId : undefined} asChild>
+            {children}
+          </DropdownMenuTrigger>
+          {hasUpdate ? (
+            <>
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute flex items-center justify-center gap-1 rounded-full bg-blue-600 font-medium text-white shadow-[0_0_0_2px_var(--sidebar)] dark:bg-blue-400 dark:text-[#10243a]",
+                  compact
+                    ? "right-1 top-1 size-4"
+                    : "right-2 top-1/2 h-5 -translate-y-1/2 px-1.5 text-[10px]"
+                )}
+                data-desktop-update-badge={update?.status}
+              >
+                {update?.status === "downloaded" ? (
+                  <RotateCw className="size-2.5" strokeWidth={2.5} />
+                ) : (
+                  <ArrowUp className="size-2.5" strokeWidth={2.5} />
+                )}
+                {!compact ? updateLabel : null}
+              </span>
+              <span className="sr-only" id={updateDescriptionId} role="status">
+                {updateDescription}
+              </span>
+            </>
+          ) : null}
+        </div>
         <DropdownMenuContent
           align={compact ? "end" : "start"}
           aria-label="Account"
@@ -259,51 +347,16 @@ export function AccountMenu({
             event.preventDefault();
             openingUpdateDialog.current = false;
           }}
-          className="w-[228px] rounded-[13px] border-0 bg-[#fcfcfc] p-1.5 antialiased shadow-[inset_0_0_0_0.5px_#d9d9d9,0_8px_22px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.04)] dark:bg-popover dark:shadow-[inset_0_0_0_0.5px_#3a3a3a,0_8px_22px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.04)]"
+          className="w-[264px] max-w-[calc(100vw-16px)] rounded-[16px] border-0 bg-[#fcfcfc] p-2 antialiased shadow-[inset_0_0_0_0.5px_#d9d9d9,0_8px_22px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.04)] dark:bg-popover dark:shadow-[inset_0_0_0_0.5px_#3a3a3a,0_8px_22px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.04)]"
           side={compact ? "right" : "top"}
           sideOffset={8}
         >
-          {["available", "downloading", "downloaded", "installing"].includes(
-            update?.status ?? ""
-          ) ? (
-            <div className="mb-1 flex h-[46px] items-center gap-2 rounded-[12px] bg-[#e3efff] pl-3 pr-2.5 text-[#0879e8] dark:bg-[#1b3b62] dark:text-[#469ffe]">
-              <span aria-live="polite" className="relative top-px min-w-0 flex-1 text-[13px]">
-                {update?.status === "downloading"
-                  ? "Downloading update"
-                  : update?.status === "installing"
-                    ? "Restarting…"
-                    : "New update available"}
-              </span>
-              <button
-                className="h-[26px] min-w-[47.5px] shrink-0 rounded-[6px] bg-[#fafafa] px-[5.5px] text-[13px] text-[#141414] hover:bg-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#469ffe]"
-                disabled={["downloading", "installing"].includes(update?.status ?? "")}
-                onClick={() => {
-                  setUpdateError(null);
-                  if (update?.status === "downloaded") {
-                    openingUpdateDialog.current = true;
-                    setMenuOpen(false);
-                    requestDesktopUpdateRestart(update);
-                    return;
-                  }
-                  void window.openteam?.updates
-                    .openDownload()
-                    .catch(() =>
-                      setUpdateError(
-                        "Could not download the update. Try again from update settings."
-                      )
-                    );
-                }}
-                type="button"
-              >
-                <span className="relative top-px">
-                  {update?.status === "downloading"
-                    ? `${Math.round(update.progress ?? 0)}%`
-                    : update?.status === "installing"
-                      ? "Restarting"
-                      : "Install"}
-                </span>
-              </button>
-            </div>
+          {hasUpdate && update ? (
+            <DesktopUpdateCard
+              onUpdate={() => void downloadUpdate()}
+              startingDownload={startingDownload}
+              update={update}
+            />
           ) : null}
           {updateError ? (
             <p className="px-2 py-1 text-[12px] text-destructive" role="alert">
@@ -320,7 +373,7 @@ export function AccountMenu({
             Get OpenTeam for iOS
           </DropdownMenuItem>
           <DropdownMenuItem className={menuItem} onSelect={onOpenSettings}><Settings className="size-4" strokeWidth={1.85} />Settings</DropdownMenuItem>
-          <DropdownMenuSeparator />
+          <DropdownMenuSeparator className="mx-1 my-1.5" />
           <DropdownMenuItem className={menuItem} onSelect={() => setSignOutOpen(true)}>
             <LogOut className="size-4" strokeWidth={1.85} />
             Log out

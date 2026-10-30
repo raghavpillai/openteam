@@ -5,6 +5,7 @@ import SwiftUI
 struct OpenTeamApp: App {
   @UIApplicationDelegateAdaptor(NotificationAppDelegate.self) private var notificationDelegate
   @State private var store: AppStore
+  @State private var mobileUpdates = MobileUpdates()
   @AppStorage("appearance") private var appearance = "system"
   @AppStorage("accent") private var accent = "black"
   @Environment(\.scenePhase) private var scenePhase
@@ -34,6 +35,7 @@ struct OpenTeamApp: App {
         #endif
       }
       .environment(store)
+      .environment(mobileUpdates)
       .foregroundStyle(NativePalette.text, NativePalette.muted, NativePalette.faint)
       .tint(accent == "blue" ? NativePalette.link : NativePalette.text)
       .toggleStyle(SwitchToggleStyle(tint: NativePalette.toggle))
@@ -47,6 +49,13 @@ struct OpenTeamApp: App {
         }
       }
       .onChange(of: appearance, initial: true) { _, value in Self.syncLaunchScreen(value) }
+      .task(id: scenePhase) {
+        guard scenePhase == .active, !Self.systemTestHost else { return }
+        repeat {
+          await mobileUpdates.refresh()
+          do { try await Task.sleep(for: .seconds(6 * 60 * 60)) } catch { return }
+        } while !Task.isCancelled
+      }
       .onOpenURL { url in Task { await store.deepLink(url) } }
       .sheet(item: $store.systemDraft) { draft in
         SystemDraftPicker(draft: draft).environment(store)

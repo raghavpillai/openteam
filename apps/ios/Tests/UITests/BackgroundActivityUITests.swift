@@ -45,7 +45,7 @@ import XCTest
     // The bootstrap alone must reveal a queued task with no active parent run.
     XCTAssertTrue(activity.waitForExistence(timeout: 15))
     XCTAssertEqual(activity.label, "Working in the background")
-    XCTAssertTrue(activity.isHittable)
+    await waitForActivity(activity, visible: true)
 
     try await control("__qa/motion", ["active": true])
     let foreground = NSPredicate(format: "label == %@", "New Bot is working")

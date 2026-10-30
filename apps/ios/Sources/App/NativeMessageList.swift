@@ -35,6 +35,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
   var request: HistoryScrollRequest?
   var onPositioned: () -> Void = {}
   var onScroll: (_ atBottom: Bool, _ following: Bool) -> Void = { _, _ in }
+  var onDismissKeyboard: () -> Void = {}
 
   func makeUIViewController(context: Context) -> HistoryListController {
     MessageDocuments.prewarm()
@@ -43,11 +44,13 @@ struct NativeMessageList: UIViewControllerRepresentable {
     controller.initialLayout = initialLayout
     controller.onPositioned = onPositioned
     controller.onScroll = onScroll
+    controller.onDismissKeyboard = onDismissKeyboard
     return controller
   }
   func updateUIViewController(_ controller: HistoryListController, context: Context) {
     controller.onPositioned = onPositioned
     controller.onScroll = onScroll
+    controller.onDismissKeyboard = onDismissKeyboard
     controller.update(items, request: request)
   }
 }
@@ -78,6 +81,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var followingAtDragStart = false
   /// Height of a keyboard this drag dismissed (keyboardDismissMode is onDrag).
   private var keyboardDismissedByDrag: CGFloat?
+  private var keyboardTransition: (deadline: CFTimeInterval, options: UIView.AnimationOptions)?
   private var readingAnchor: Anchor?
   private var relocationSnapshot: UIView?
   private var relocationReveal: DispatchWorkItem?
@@ -129,6 +133,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
   var initialLayout = NativeMessageList.InitialLayout.settled
   var onPositioned: () -> Void = {}
   var onScroll: (Bool, Bool) -> Void = { _, _ in }
+  var onDismissKeyboard: () -> Void = {}
 
   override func loadView() {
     view = HistoryViewport()
@@ -163,6 +168,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
     NotificationCenter.default.addObserver(
       self, selector: #selector(keyboardWillHide(_:)),
       name: UIResponder.keyboardWillHideNotification, object: nil)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(keyboardWillChangeFrame(_:)),
+      name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
     table.register(UITableViewCell.self, forCellReuseIdentifier: "message")
     table.willLayout = { [weak self] in self?.captureLayoutStart() }
     table.didLayout = { [weak self] in self?.didLayout() }
@@ -297,6 +305,13 @@ struct NativeMessageList: UIViewControllerRepresentable {
     let heights = [UIResponder.keyboardFrameEndUserInfoKey, UIResponder.keyboardFrameBeginUserInfoKey]
       .compactMap { (info?[$0] as? CGRect)?.height }
     keyboardDismissedByDrag = heights.max() ?? 0
+  }
+  @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+    guard view.window != nil else { return }
+    let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
+    let curve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+    keyboardTransition = (CACurrentMediaTime() + (duration > 0 ? duration : 0.25),
+      UIView.AnimationOptions(rawValue: curve << 16).union([.beginFromCurrentState, .allowUserInteraction]))
   }
   private var windowIDs: [String] {
     Array(orderedIDs.dropFirst(windowStart).prefix(windowSize))
@@ -577,7 +592,19 @@ struct NativeMessageList: UIViewControllerRepresentable {
       positioning = false
     } else if resized && following && !table.isDragging && !scrollingToTarget {
       positioning = true
-      if footerResized && !viewportResized && !UIAccessibility.isReduceMotionEnabled {
+      if viewportResized, let transition = keyboardTransition,
+        transition.deadline > CACurrentMediaTime(), !UIAccessibility.isReduceMotionEnabled {
+        // UIKit receives the final keyboard-safe bounds in one layout pass.
+        // Move the scroll offset with the keyboard's UIKit curve as well, so
+        // the transcript doesn't jump to its final position ahead of the bar.
+        let target = bottomOffset
+        table.setContentOffset(CGPoint(x: 0, y: previousBottom), animated: false)
+        CATransaction.begin()
+        CATransaction.setDisableActions(false)
+        UIView.animate(withDuration: transition.deadline - CACurrentMediaTime(), delay: 0,
+          options: transition.options) { self.table.contentOffset = target }
+        CATransaction.commit()
+      } else if footerResized && !viewportResized && !UIAccessibility.isReduceMotionEnabled {
         // Hosting cells report the footer's final intrinsic height. Follow that
         // change with the same timing as the robot instead of jumping 64 points.
         startFooterFollow(
@@ -888,15 +915,34 @@ struct NativeMessageList: UIViewControllerRepresentable {
     guard let path = source.indexPath(for: anchor.id) else { return }
     positioning = true
     defer { positioning = false }
+    // A keyboard resize can move the saved reading position outside the new
+    // viewport. Mounting that row and restoring its now-offscreen offset would
+    // immediately unmount it and request the same layout again indefinitely.
+    let estimated = table.rectForRow(at: path)
+    let expectedTop = anchor.bottom ? anchor.offset - estimated.height : anchor.offset
+    let visibleTop = table.adjustedContentInset.top
+    let visibleBottom = table.bounds.height - table.adjustedContentInset.bottom
+    if readingAnchor != nil,
+      expectedTop >= visibleBottom || expectedTop + estimated.height <= visibleTop {
+      readingAnchor = captureAnchor()
+      return
+    }
     // Resolve estimated heights around the anchor, then restore its pixel offset.
     if table.indexPathsForVisibleRows?.contains(path) != true {
       table.scrollToRow(at: path, at: .top, animated: false)
       table.layoutIfNeeded()
     }
     let rect = table.rectForRow(at: path)
-    let y = (anchor.bottom ? rect.maxY : rect.minY) - anchor.offset
+    // Keyboard dismissal enlarges the viewport. An anchor captured in the
+    // smaller viewport can now lie past the scrollable end; repeatedly writing
+    // that offset fights UIKit's clamping and schedules another layout forever.
+    let desired = (anchor.bottom ? rect.maxY : rect.minY) - anchor.offset
+    let y = min(bottomOffset.y, max(-table.adjustedContentInset.top, desired))
     if abs(table.contentOffset.y - y) > 0.5 {
       table.setContentOffset(CGPoint(x: 0, y: y), animated: false)
+    }
+    if abs(desired - y) > 0.5, readingAnchor != nil {
+      readingAnchor = captureAnchor()
     }
   }
   func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -907,6 +953,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     if let id = source.itemIdentifier(for: indexPath) { measuredHeights[id] = cell.bounds.height }
   }
   func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+    onDismissKeyboard()
     // The finger takes over at once, wherever a glide or follow has reached.
     stopGlide()
     stopFooterFollow()
@@ -1114,6 +1161,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
   @objc private func dismissKeyboard(_ gesture: UITapGestureRecognizer) {
     defer { keyboardDismissedByDrag = nil }
     guard view.safeAreaLayoutGuide.layoutFrame.contains(gesture.location(in: view)) else { return }
+    onDismissKeyboard()
     view.window?.endEditing(true)
   }
   func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
@@ -1154,13 +1202,17 @@ extension HistoryListController {
     // Committed geometry, or the presentation of animations committed with it.
     let presented = table.layer.animationKeys()?.isEmpty == false
       ? table.layer.presentation()?.bounds.origin.y ?? committedOffset : committedOffset
+    // The table deliberately paints beyond its model bounds under the floating
+    // bars. During a keyboard animation those bounds already have their final
+    // height; retain rows still painted in the window's presentation instead.
+    let viewportHeight = view.window.map { view.convert($0.bounds, from: $0).maxY } ?? view.bounds.height
     var rows: [[Any]] = []
     var hiddenDocuments = 0
     for row in committedRows {
       let frame = row.cell?.layer.animationKeys()?.isEmpty == false
         ? row.cell?.layer.presentation()?.frame ?? row.frame : row.frame
       let y = frame.minY - presented + table.frame.minY
-      guard y + frame.height > 0, y < view.bounds.height else { continue }
+      guard y + frame.height > 0, y < viewportHeight else { continue }
       rows.append([row.id, (Double(y) * 100).rounded() / 100, (Double(frame.height) * 100).rounded() / 100])
       hiddenDocuments += row.hidden
     }

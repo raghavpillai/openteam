@@ -319,6 +319,85 @@ import XCTest
     }
   }
 
+  func testKeyboardPreservesComposerWidthAndDraftWrapping() async throws {
+    continueAfterFailure = false
+    for appearance in ["light", "dark"] {
+      try await control("__qa/scene", ["scene": "motion-reference"])
+      let app = XCUIApplication()
+      app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+        "--appearance", appearance, "--open-channel", "visual-chat"]
+      app.launch()
+      defer { app.terminate() }
+      let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      XCTAssertTrue(input.waitForExistence(timeout: 15))
+      XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+        .firstMatch.waitForNonExistence(timeout: 15))
+      let closed = input.frame
+      input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      XCTAssertEqual(input.frame.minX, closed.minX, accuracy: 1,
+        "Opening the keyboard must not slide the placeholder sideways")
+      XCTAssertEqual(input.frame.width, closed.width, accuracy: 1,
+        "Keyboard avoidance must not change the editor's line wrapping")
+      let draft = "Keep this draft wrapped the same way when the keyboard opens and closes. "
+        + "The text and the glass should travel together."
+      input.typeText(draft)
+      let editing = input.frame
+      XCTAssertGreaterThan(editing.height, closed.height + 10)
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+      XCTAssertEqual(input.value as? String, draft)
+      XCTAssertEqual(input.frame.minX, editing.minX, accuracy: 1)
+      XCTAssertEqual(input.frame.width, editing.width, accuracy: 1)
+      XCTAssertEqual(input.frame.height, editing.height, accuracy: 1,
+        "A multiline draft must not reflow when the keyboard closes")
+      input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      XCTAssertEqual(input.frame.height, editing.height, accuracy: 1)
+      XCTAssertEqual(input.value as? String, draft)
+    }
+  }
+
+  func testRepeatedKeyboardTransitionsKeepDraft() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "motion-reference"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--appearance", "dark", "--open-channel", "visual-chat",
+      "--trace-composer-latency", "--trace-scroll-frames", "--ui-testing-scroll-geometry"]
+    app.launch()
+    defer { app.terminate() }
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(input.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+      .firstMatch.waitForNonExistence(timeout: 15))
+    let closed = input.frame
+    var draft = ""
+    for cycle in 0..<3 {
+      mark("open-\(cycle)")
+      input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      XCTAssertEqual(input.frame.minX, closed.minX, accuracy: 1)
+      XCTAssertEqual(input.frame.width, closed.width, accuracy: 1)
+      if cycle == 1 {
+        draft = "Keyboard motion check"
+        input.typeText(draft)
+      }
+      try await Task.sleep(for: .milliseconds(500))
+      mark("close-\(cycle)")
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+      if !draft.isEmpty { XCTAssertEqual(input.value as? String, draft) }
+      XCTAssertEqual(input.frame.minY, closed.minY, accuracy: 1)
+      try await Task.sleep(for: .milliseconds(500))
+    }
+    let timing = XCTAttachment(data: try JSONSerialization.data(withJSONObject: marks, options: .prettyPrinted),
+      uniformTypeIdentifier: "public.json")
+    timing.name = "keyboard-cycle-timestamps"
+    timing.lifetime = .keepAlways
+    add(timing)
+  }
+
   func testHistoryScrollDismissesKeyboardAndPreservesDraft() async throws {
     continueAfterFailure = false
     func waitForKeyboard(_ app: XCUIApplication, visible: Bool) -> Bool {
@@ -351,7 +430,7 @@ import XCTest
           thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)),
           withVelocity: .slow, thenHoldForDuration: 0.1)
         XCTAssertTrue(waitForKeyboard(app, visible: false),
-          "Scrolling history must dismiss the keyboard in either direction")
+          "Scrolling history must dismiss the keyboard in either direction; app=\(app.frame), input=\(input.frame), keyboards=\(app.keyboards.allElementsBoundByIndex.map(\.frame))")
         XCTAssertGreaterThan(input.frame.minY, app.frame.maxY * 0.8)
         XCTAssertEqual(input.value as? String, "Keep this draft")
         capture("scroll-dismiss-\(appearance)-\(dy)", app)

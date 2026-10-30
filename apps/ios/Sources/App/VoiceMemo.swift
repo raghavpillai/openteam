@@ -797,7 +797,7 @@ struct VoiceKnob: View {
 
   private var look: Look {
     switch memo.phase {
-    case .holding, .locked, .review:
+    case .holding, .locked, .review, .cancelling:
       return Look(center: VoiceBar.sendCenter, size: CGSize(width: VoiceBar.button, height: VoiceBar.button),
         fill: NativePalette.text, ink: NativePalette.onPrimary, symbol: "arrow.up", iconSize: 17, hit: 48)
     case .transcribing:
@@ -809,15 +809,23 @@ struct VoiceKnob: View {
     }
   }
 
-  private var visible: Bool { memo.phase != .cancelling && (memo.phase != .idle || available) }
+  private var retiring: Bool { memo.phase == .cancelling }
+  private var retirementAnimation: Animation {
+    if reduceMotion { return .easeOut(duration: 0.12) }
+    return retiring ? .easeOut(duration: 0.16)
+      : .spring(response: 0.3, dampingFraction: 0.84).delay(0.06)
+  }
 
   var body: some View {
     // Not rendered while Send owns the slot: an invisible element would still be announced
     // and found by UI tests. No press can be in flight then (the mic needs an empty draft).
-    if visible {
-      // Discard owns the slot until its animation completes; don't flash a mic
-      // behind the falling trash or leave a fading interactive Send behind.
+    if memo.phase != .idle || available {
+      // Keep the same gesture host while Send shrinks away. The mic returns with
+      // the closing composer; the retiring control is already inert and hidden
+      // from accessibility while the trash animation owns the bar.
       knob.transition(.identity)
+        .allowsHitTesting(!retiring)
+        .accessibilityHidden(retiring)
     }
   }
 
@@ -831,12 +839,15 @@ struct VoiceKnob: View {
       Image(systemName: look.symbol)
         .font(.system(size: look.iconSize, weight: look.symbol == "mic.fill" ? .regular : .semibold))
         .foregroundStyle(look.ink)
-        .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
+        .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace.upUp))
         .frame(width: 24, height: 24).clipped()
     }
     // Discord greys Send out while a release would cancel.
-    .opacity(armed ? 0.35 : 1)
-    .scaleEffect(memo.phase == .pressing ? 0.88 : 1)
+    .opacity(retiring ? 0 : armed ? 0.35 : 1)
+    // Animate the artwork inside the persistent hit target, so the gesture and
+    // the shared glass/layout spring keep their original coordinate space.
+    .scaleEffect(reduceMotion ? 1 : retiring ? 0.55 : memo.phase == .pressing ? 0.88 : 1)
+    .animation(retirementAnimation, value: retiring)
     .frame(width: look.hit, height: look.hit)
     .contentShape(Rectangle())
     .gesture(VoicePressGesture(
@@ -1334,9 +1345,10 @@ struct VoiceBarSurface: View, @preconcurrency Animatable {
   @ViewBuilder private var surface: some View {
     if #available(iOS 26, *) {
       Color.clear.glassEffect(material, in: shape)
-        // Only the glass leaf suppresses implicit interpolation. The enclosing
-        // Animatable view must keep sampling the actual shared spring.
-        .transaction { $0.animation = nil }
+        // The shape already samples the shared voice spring. Suppress a second
+        // glass interpolation only when that shape changes; keyboard movement
+        // must retain its animation so the surface stays with its controls.
+        .transaction(value: progress) { $0.animation = nil }
     } else {
       shape.fill(.regularMaterial)
         .shadow(color: .black.opacity(scheme == .dark ? 0 : 0.08), radius: 10, y: 3)

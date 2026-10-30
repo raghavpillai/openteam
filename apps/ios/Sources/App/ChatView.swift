@@ -18,6 +18,7 @@ struct ChatView: View {
   @State private var modals = MessageModalPresenter()
   @State private var bottomVisible = true
   @State private var followsLatest = true
+  @State private var dismissFocusRequest: UUID?
   /// The newest message sequence on screen when the list stopped following.
   @State private var seenThroughSequence: String?
   @State private var scrollRequest: HistoryScrollRequest?
@@ -72,7 +73,8 @@ struct ChatView: View {
               seenThroughSequence = store.messages(channel.id).last?.sequence
             }
             if bottom && following && !hasLater { Task { await store.markRead(channel.id) } }
-          }
+          },
+          onDismissKeyboard: { dismissFocusRequest = UUID() }
         )
         .opacity(didPositionHistory ? 1 : 0)
         .allowsHitTesting(didPositionHistory)
@@ -143,7 +145,9 @@ struct ChatView: View {
     }
     .nativeCanvas()
     .chatFloatingBars(top: { if sideChrome?.holdsAllControls == true { titleBar } else { header } }, bottom: {
-      if !showsLoadError { ComposerView(channel: channel).disabled(!didPositionHistory) }
+      if !showsLoadError {
+        ComposerView(channel: channel, dismissFocusRequest: dismissFocusRequest).disabled(!didPositionHistory)
+      }
     })
     .padding(.trailing, sideChrome?.contentInset ?? 0)
     .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
@@ -987,6 +991,7 @@ struct ThreadPage: View {
   @State private var ready = false
   @State private var showsLoading = false
   @State private var focusRequest = UUID()
+  @State private var dismissFocusRequest: UUID?
   private var draftKey: String { channel.id + (branchesReplies ? ":thread:" : ":reply:") + root.id }
   private var messages: [Message] {
     ThreadProjection.messages(root: root, in: store.messages(channel.id), includeInlineReplies: !branchesReplies)
@@ -1006,7 +1011,8 @@ struct ThreadPage: View {
     ZStack {
       NativeMessageList(items: rows, initialTarget: initialFocus ?? "bottom", initialLayout: .nextLayout,
         request: scrollRequest,
-        onPositioned: { ready = true })
+        onPositioned: { ready = true },
+        onDismissKeyboard: { dismissFocusRequest = UUID() })
         .opacity(ready ? 1 : 0).allowsHitTesting(ready).accessibilityHidden(!ready)
       if !ready && showsLoading {
         LoadingOrb(label: "Loading thread").accessibilityIdentifier("thread-loading").offset(y: -20)
@@ -1027,7 +1033,8 @@ struct ThreadPage: View {
       }, bottom: {
         ComposerView(channel: channel, draftKey: draftKey,
           threadRootID: branchesReplies ? root.id : nil,
-          replyRootID: branchesReplies ? nil : root.id, focusOnAppear: true, focusRequest: focusRequest)
+          replyRootID: branchesReplies ? nil : root.id, focusOnAppear: true, focusRequest: focusRequest,
+          dismissFocusRequest: dismissFocusRequest)
           .disabled(!ready)
       })
       .padding(.trailing, sideChrome?.contentInset ?? 0)

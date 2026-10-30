@@ -16,6 +16,7 @@ struct ComposerView: View {
   @State private var hasAppeared = false
   @State private var visible = false
   var focusRequest: UUID? = nil
+  var dismissFocusRequest: UUID? = nil
   private var focusedReply: Bool { threadRootID != nil || replyRootID != nil }
   private var key: String { draftKey ?? channel.id }
   @State private var photos: [PhotosPickerItem] = []
@@ -29,9 +30,6 @@ struct ComposerView: View {
   @State private var pillHeight: CGFloat = 44
   @State private var pluginMentions: [JSON] = []
   @FocusState private var focused: Bool
-  // Focus arrives before the keyboard is ready, especially on its first launch.
-  // Changing the safe-area inset then makes history jump before the keyboard moves.
-  @State private var keyboardPresented = false
   private var draft: Draft { store.draft(key) }
   private var attachmentCount: Int { draft.attachments.count + (draft.stagedFiles?.count ?? 0) }
   private var text: Binding<String> {
@@ -54,8 +52,8 @@ struct ComposerView: View {
   var body: some View {
     VStack(spacing: 0) {
       messageControls
-    }.padding(.horizontal, keyboardPresented ? 18 : 30).padding(.top, 4)
-      .padding(.bottom, keyboardPresented ? 18 : -4)
+    }.padding(.horizontal, 30).padding(.top, 4)
+      .padding(.bottom, 12)
       // The voice glow rises from the bottom of the screen, behind the composer.
       .background(alignment: .bottom) {
         GeometryReader { composer in
@@ -84,18 +82,6 @@ struct ComposerView: View {
         }
         #endif
       }
-      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
-        if focused {
-          ChatKeyboardMotion.update(note, reduceMotion: reduceMotion) { keyboardPresented = true }
-        }
-      }
-      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { note in
-        ChatKeyboardMotion.update(note, reduceMotion: reduceMotion) { keyboardPresented = false }
-      }
-      .animation(
-        reduceMotion ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: 0.24),
-        value: draft.text.isEmpty
-      )
       .task(id: channel.id) {
         if let botID = store.bot(for: channel)?.id ?? channel.members.first?.botId {
           do {
@@ -106,6 +92,7 @@ struct ComposerView: View {
       }
       .onChange(of: draft.replyTo) { _, id in if id != nil && !focusOnAppear { focused = true } }
       .onChange(of: focusRequest) { _, _ in focused = true }
+      .onChange(of: dismissFocusRequest) { _, _ in focused = false }
       .background(ComposerFocusLifecycle {
         if focusOnAppear && !hasAppeared { focused = true }
         hasAppeared = true
@@ -305,6 +292,7 @@ struct ComposerView: View {
           // The visible pill is 36 × 28; its separate 44-point hit area keeps
           // sending/recording reachable without changing the reference inset.
           trailingAction.padding(.trailing, 5)
+            .animation(contentAnimation, value: hasContent)
         }
         if uploading {
           HStack {
@@ -365,6 +353,7 @@ struct ComposerView: View {
     }
     .overlay(alignment: .bottomTrailing) {
       VoiceKnob(memo: memo, available: !hasContent, enabled: transcriptionConfigured && !uploading)
+        .animation(contentAnimation, value: hasContent)
     }
     .overlay(alignment: .topTrailing) {
       ZStack {
@@ -384,6 +373,9 @@ struct ComposerView: View {
   }
   private var focusPadding: some View {
     Color.clear.contentShape(Rectangle()).onTapGesture { focused = true }
+  }
+  private var contentAnimation: Animation? {
+    reduceMotion ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: 0.24)
   }
   private var mentionToken: String? {
     let token = text.wrappedValue.components(separatedBy: .whitespacesAndNewlines).last ?? ""

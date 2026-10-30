@@ -36,12 +36,14 @@ import XCTest
     add(image)
   }
 
-  private func launch(appearance: String = "dark", arguments: [String] = []) async throws -> XCUIApplication {
+  private func launch(appearance: String = "dark", arguments: [String] = [],
+    scene: String? = nil, channel: String = "channel-research") async throws -> XCUIApplication {
     continueAfterFailure = false
     try await fixture("/__qa/reset")
+    if let scene { try await fixture("/__qa/scene", ["scene": scene]) }
     let app = XCUIApplication()
     app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance,
-      "--open-channel", "channel-research", "--qa-synthetic-voice", "--haptic-audit", "--qa-session", UUID().uuidString] + arguments
+      "--open-channel", channel, "--qa-synthetic-voice", "--haptic-audit", "--qa-session", UUID().uuidString] + arguments
     app.launch()
     XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 20))
     let loading = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
@@ -243,6 +245,123 @@ import XCTest
     XCTAssertTrue(field.isHittable, "The restored draft must be visible and usable")
     let count = try await uploads()
     XCTAssertEqual(count, 0)
+  }
+
+  func testKeyboardToVoiceAndBackPreservesMultilineGeometryInBothAppearances() async throws {
+    let draft = "Keep the first line.\nAnd the second line.\nAnd the third line."
+    var marks: [[String: Any]] = []
+    for appearance in ["light", "dark"] {
+      let app = try await launch(appearance: appearance,
+        arguments: ["--visual-draft-base64", Data(draft.utf8).base64EncodedString()])
+      let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      var open: CGRect?
+      for cycle in 0..<2 {
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        let frame = field.frame
+        if let open {
+          XCTAssertEqual(frame.minX, open.minX, accuracy: 1)
+          XCTAssertEqual(frame.width, open.width, accuracy: 1)
+          XCTAssertEqual(frame.height, open.height, accuracy: 1)
+        } else { open = frame }
+        let editing = try XCTUnwrap(open)
+        marks.append(["phase": "\(appearance)-\(cycle)-keyboard", "time": Date().timeIntervalSince1970])
+        app.buttons["attach-button"].tap()
+        XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 5))
+        app.buttons["Record voice note"].tap()
+        XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5),
+          "Recording must dismiss the draft keyboard")
+        let bars = app.descendants(matching: .any).matching(identifier: "voice-memo-bar")
+        XCTAssertEqual(bars.count, 1)
+        XCTAssertEqual(bars.firstMatch.frame.height, 64, accuracy: 1)
+        XCTAssertEqual(app.buttons["Send voice note"].frame.midY,
+          app.buttons["Discard recording"].frame.midY, accuracy: 1)
+        capture("\(appearance)-keyboard-to-recording-\(cycle)", app)
+        marks.append(["phase": "\(appearance)-\(cycle)-recording", "time": Date().timeIntervalSince1970])
+        app.buttons["Discard recording"].tap()
+        XCTAssertTrue(app.buttons["send-button"].waitForExistence(timeout: 5))
+        // Match the existing return-to-editing behavior: a draft that had the
+        // keyboard before recording resumes editing after discard.
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        let restored = expectation(for: NSPredicate { _, _ in
+          let frame = field.frame
+          return abs(frame.minX - editing.minX) < 1 && abs(frame.minY - editing.minY) < 1
+            && abs(frame.width - editing.width) < 1 && abs(frame.height - editing.height) < 1
+        }, evaluatedWith: field)
+        await fulfillment(of: [restored], timeout: 5)
+        XCTAssertEqual(field.value as? String, draft)
+        XCTAssertTrue(field.isHittable)
+        capture("\(appearance)-restored-draft-\(cycle)", app)
+        marks.append(["phase": "\(appearance)-\(cycle)-restored", "time": Date().timeIntervalSince1970])
+      }
+      let count = try await uploads()
+      XCTAssertEqual(count, 0, "Discarding must keep the draft local")
+      app.terminate()
+    }
+    let evidence = XCTAttachment(data: try JSONSerialization.data(withJSONObject: marks, options: .prettyPrinted),
+      uniformTypeIdentifier: "public.json")
+    evidence.name = "voice-keyboard-transitions"
+    evidence.lifetime = .keepAlways
+    add(evidence)
+  }
+
+  func testScrolledUpVoiceCancellationRestoresComposerAndReadingPosition() async throws {
+    var marks: [[String: Any]] = []
+    for appearance in ["dark", "light"] {
+      let app = try await launch(appearance: appearance, scene: "history-pages", channel: "visual-chat")
+      defer { app.terminate() }
+      let history = app.tables["chat-history"]
+      history.swipeDown()
+      XCTAssertTrue(app.buttons["Latest messages"].waitForExistence(timeout: 5))
+      let candidates = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Page message '"))
+        .allElementsBoundByIndex
+      let anchor = try XCTUnwrap(candidates.first {
+        $0.isHittable && $0.frame.midY > 130 && $0.frame.midY < min(450, app.frame.height - 180)
+      })
+      let label = anchor.label
+      let readingY = anchor.frame.midY
+      let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      let idle = input.frame
+      func mark(_ phase: String) {
+        marks.append(["phase": appearance + "-" + phase, "time": Date().timeIntervalSince1970,
+          "anchor": label, "anchorY": app.staticTexts[label].frame.midY])
+      }
+      func assertRestored(_ phase: String) async throws {
+        XCTAssertTrue(mic(app).waitForExistence(timeout: 5))
+        try await Task.sleep(for: .milliseconds(700))
+        capture(appearance + "-scrolled-" + phase, app)
+        mark(phase)
+        XCTAssertEqual(input.frame.minX, idle.minX, accuracy: 1)
+        XCTAssertEqual(input.frame.minY, idle.minY, accuracy: 1)
+        XCTAssertEqual(input.frame.width, idle.width, accuracy: 1)
+        XCTAssertEqual(input.frame.height, idle.height, accuracy: 1)
+        XCTAssertEqual(app.staticTexts[label].frame.midY, readingY, accuracy: 2,
+          "Cancelling a recording must keep the message being read in place")
+        XCTAssertTrue(app.buttons["Latest messages"].exists, "Recording must not jump to the latest message")
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+      }
+      capture(appearance + "-scrolled-before-recording", app)
+      mark("before-recording")
+      mic(app).tap()
+      XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
+      XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "voice-memo-bar").firstMatch.frame.height,
+        64, accuracy: 1)
+      capture(appearance + "-scrolled-recording", app)
+      mark("before-discard")
+      app.buttons["Discard recording"].tap()
+      try await assertRestored("after-discard")
+      mark("before-slide-cancel")
+      holdAndSlide(app, dx: -170, dy: 0)
+      try await assertRestored("after-slide-cancel")
+      let count = try await uploads()
+      XCTAssertEqual(count, 0)
+    }
+    let evidence = XCTAttachment(data: try JSONSerialization.data(withJSONObject: marks, options: .prettyPrinted),
+      uniformTypeIdentifier: "public.json")
+    evidence.name = "scrolled-voice-cancellation"
+    evidence.lifetime = .keepAlways
+    add(evidence)
   }
 
   func testBackgroundedRecordingWaitsForExplicitSendAfterReturning() async throws {

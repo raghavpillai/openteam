@@ -466,7 +466,8 @@ export class ChatProviderRegistry {
   }
   async verify(settings: ServerInferenceSettings): Promise<void> {
     // Check retirements before making network requests, and access before accepting a saved choice.
-    if (this.runtime().getModel(settings.providerId, settings.modelId))
+    const existingModel = this.runtime().getModel(settings.providerId, settings.modelId);
+    if (existingModel)
       requireInferenceModel(this.runtime(), settings);
     const catalog = await this.catalog(settings.providerId);
     const provider = catalog.providers.find((p) => p.id === settings.providerId);
@@ -492,7 +493,8 @@ export class ChatProviderRegistry {
     if (
       settings.providerId === "openrouter" ||
       settings.providerId === "openai-codex" ||
-      !this.runtime().getModel(settings.providerId, settings.modelId)
+      !existingModel ||
+      JSON.stringify(existingModel.input) !== JSON.stringify(model.input)
     ) {
       const document = await configFile(this.modelsPath);
       document.providers ??= {};

@@ -144,6 +144,19 @@ describe("provider-first chat registry", () => {
       id: "auto/deepseek-v4.1-flash",
       input: ["text", "image"],
     });
+
+    f.runtime.registerProvider("magpie", {
+      models: [{ ...catalog.models[0]!, input: ["text"] }],
+    } as never);
+    await f.registry.verify({
+      providerId: "magpie",
+      modelId: "auto/deepseek-v4.1-flash",
+      reasoning: "off",
+    });
+    const saved = JSON.parse(await readFile(f.path, "utf8")) as {
+      providers: { magpie: { models: Array<{ input: string[] }> } };
+    };
+    expect(saved.providers.magpie.models[0]?.input).toEqual(["text", "image"]);
   });
   test("exposes only Anthropic, OpenAI auth modes, and explicitly added custom providers", async () => {
     const f = await fixture();

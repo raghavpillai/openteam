@@ -5,7 +5,7 @@ import type {
 } from "@openteam/contracts/plugin-management";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
-import { inputClass, PluginButton, PluginField, usePluginOperation } from "./plugin-ui";
+import { inputClass, PluginButton, PluginField, PluginSelect, usePluginOperation } from "./plugin-ui";
 import { PluginAuthorization, openAutomaticPluginSignIn } from "./plugin-authorization";
 import { pluginAuthorization, pluginProviderSetupSteps, pluginProviderSetupDescription } from "@openteam/product-core/plugin-authorization";
 
@@ -143,12 +143,18 @@ export function ConnectionConfiguration({
       )}
       {connection.auth === "oauth" && (
         <PluginField label="Sign-in callback" help="Automatic uses your HTTPS server callback, or manual callback paste for HTTP. Google needs a Web application client for HTTPS and a Desktop app client for manual paste. Both work independently of the desktop app.">
-          <select className={inputClass} aria-label="Sign-in callback" value={callbackMode} onChange={event => setCallbackMode(event.target.value as NonNullable<PluginConfigurationInput["oauthCallbackMode"]>)}>
-            <option value="auto">Automatic (recommended)</option>
-            <option value="manual" disabled={config.manualCallbackSupported === false}>Paste callback URL</option>
-            <option value="desktop">Desktop listener (advanced)</option>
-            <option value="server">Server callback</option>
-          </select>
+          <PluginSelect
+            className={inputClass}
+            label="Sign-in callback"
+            value={callbackMode}
+            onChange={value => setCallbackMode(value as NonNullable<PluginConfigurationInput["oauthCallbackMode"]>)}
+            options={[
+              { value: "auto", label: "Automatic (recommended)" },
+              { value: "manual", label: "Paste callback URL", disabled: config.manualCallbackSupported === false },
+              { value: "desktop", label: "Desktop listener (advanced)" },
+              { value: "server", label: "Server callback" },
+            ]}
+          />
           {callbackMode === "desktop" && <PluginField label="Desktop callback port" help="Use 0 to select an available port. If your provider requires a fixed URL, register http://127.0.0.1:PORT/callback and enter that port here.">
             <input className={inputClass} aria-label="Desktop callback port" type="number" min={0} max={65535} value={loopbackPort} onChange={event => setLoopbackPort(Number(event.target.value))} />
           </PluginField>}
@@ -183,28 +189,25 @@ export function ConnectionConfiguration({
         >
           {field.secret ? (
             <div className="flex gap-2">
-              <select
+              <PluginSelect
                 className={inputClass}
-                aria-label={`${field.label} action`}
+                label={`${field.label} action`}
                 value={secrets[field.key]?.action ?? "keep"}
-                onChange={(event) =>
+                onChange={(value) =>
                   setSecrets({
                     ...secrets,
                     [field.key]:
-                      event.target.value === "replace"
+                      value === "replace"
                         ? { action: "replace", value: "" }
-                        : { action: event.target.value as "keep" | "clear" },
+                        : { action: value as "keep" | "clear" },
                   })
                 }
-              >
-                <option value="keep">
-                  {config.configuredSecrets.includes(field.key)
-                    ? "Keep saved value"
-                    : "Not configured"}
-                </option>
-                <option value="replace">Replace</option>
-                <option value="clear">Clear</option>
-              </select>
+                options={[
+                  { value: "keep", label: config.configuredSecrets.includes(field.key) ? "Keep saved value" : "Not configured" },
+                  { value: "replace", label: "Replace" },
+                  { value: "clear", label: "Clear" },
+                ]}
+              />
               {secrets[field.key]?.action === "replace" && (
                 <input
                   aria-label={field.label}
@@ -222,24 +225,21 @@ export function ConnectionConfiguration({
               )}
             </div>
           ) : field.enum ? (
-            <select
+            <PluginSelect
               className={inputClass}
-              aria-label={field.label}
+              label={field.label}
               value={String(values[field.key] ?? field.default ?? "")}
-              onChange={(event) =>
+              onChange={(next) =>
                 setValues({
                   ...values,
-                  [field.key]: field.enum!.find((value) => String(value) === event.target.value)!,
+                  [field.key]: field.enum!.find((value) => String(value) === next)!,
                 })
               }
-            >
-              <option value="">Choose…</option>
-              {field.enum.map((value) => (
-                <option key={String(value)} value={String(value)}>
-                  {String(value)}
-                </option>
-              ))}
-            </select>
+              options={[
+                ...(!field.enum.some(value => String(value) === "") ? [{ value: "", label: "Choose…" }] : []),
+                ...field.enum.map(value => ({ value: String(value), label: String(value) })),
+              ]}
+            />
           ) : field.type === "boolean" ? (
             <input
               aria-label={field.label}
@@ -341,15 +341,17 @@ export function ConnectionConfiguration({
           )}
           {connection.auth === "oauth" && (
             <PluginField label="OAuth client authentication">
-              <select
+              <PluginSelect
                 className={inputClass}
-                value={authMethod}
-                onChange={(event) => setAuthMethod(event.target.value as typeof authMethod)}
-              >
-                <option value="none">Public client (PKCE)</option>
-                <option value="client_secret_post">Client secret in request</option>
-                <option value="client_secret_basic">Client secret via HTTP Basic</option>
-              </select>
+                label="OAuth client authentication"
+                value={authMethod ?? "none"}
+                onChange={(value) => setAuthMethod(value as typeof authMethod)}
+                options={[
+                  { value: "none", label: "Public client (PKCE)" },
+                  { value: "client_secret_post", label: "Client secret in request" },
+                  { value: "client_secret_basic", label: "Client secret via HTTP Basic" },
+                ]}
+              />
             </PluginField>
           )}
           <p className="break-all text-xs text-foreground-secondary">
@@ -492,22 +494,19 @@ export function ConnectionConfiguration({
       {connection.tools.length > 0 && (
         <section className="grid gap-3 rounded-xl border border-black/10 p-4 dark:border-white/10">
           <h4 className="text-[13px] font-medium">Test a tool</h4>
-          <select
+          <PluginSelect
             className={inputClass}
-            aria-label="Tool to test"
+            label="Tool to test"
             value={testTool}
-            onChange={(event) => {
-              setTestTool(event.target.value);
+            onChange={(value) => {
+              setTestTool(value);
               setTestResult("");
             }}
-          >
-            <option value="">Choose a tool…</option>
-            {connection.tools.map((tool) => (
-              <option key={tool.name} value={tool.name}>
-                {tool.name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: "", label: "Choose a tool…" },
+              ...connection.tools.map(tool => ({ value: tool.name, label: tool.name })),
+            ]}
+          />
           <PluginField label="Test arguments (JSON)">
             <textarea
               className={inputClass}

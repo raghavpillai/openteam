@@ -1,3 +1,4 @@
+import { PluginSelect } from "./plugin-ui";
 import type { PluginConnectionView } from "@openteam/contracts";
 import { Check, SquarePen, Plus, Settings2 } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -200,18 +201,13 @@ export function AddPluginAccount({
           }}
         >
           {choices.length > 1 && (
-            <select
-              aria-label="Connector for new account"
+            <PluginSelect
+              label="Connector for new account"
               className="h-8 rounded-md bg-background px-2 text-[12px]"
               value={connector}
-              onChange={(e) => setConnector(e.target.value)}
-            >
-              {choices.map((c) => (
-                <option value={c.connectorKey} key={c.connectorKey}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onChange={setConnector}
+              options={choices.map(c => ({ value: c.connectorKey, label: c.name }))}
+            />
           )}
           <input
             ref={labelRef}

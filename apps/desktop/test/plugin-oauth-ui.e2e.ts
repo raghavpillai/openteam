@@ -113,12 +113,14 @@ try {
     "Connected account must execute a real fixture tool"
   );
   await page.getByRole("button", { name: "default account settings", exact: true }).click();
-  await page.getByLabel("Sign-in callback", { exact: true }).selectOption("server");
+  await page.getByRole("combobox", { name: "Sign-in callback", exact: true }).click();
+  await page.getByRole("option", { name: "Server callback", exact: true }).click();
   await page.getByRole("button", { name: "Save callback settings", exact: true }).click();
-  await page.waitForFunction(() => (document.querySelector('select[aria-label="Sign-in callback"]') as HTMLSelectElement)?.value === "server");
+  await page.getByRole("combobox", { name: "Sign-in callback", exact: true }).filter({ hasText: "Server callback" }).waitFor();
   await page.getByRole("button", { name: "Save callback settings", exact: true }).waitFor();
   assert((await client.pluginConfiguration(connection.id)).oauthCallbackMode === "server", "Callback mode must persist in DB");
-  await page.getByLabel("Sign-in callback", { exact: true }).selectOption("desktop");
+  await page.getByRole("combobox", { name: "Sign-in callback", exact: true }).click();
+  await page.getByRole("option", { name: "Desktop listener (advanced)", exact: true }).click();
   await page.getByRole("button", { name: "Save callback settings", exact: true }).click();
   await page.screenshot({ path: resolve(output, "callback-settings.png"), fullPage: true });
   provider = await openProvider(() => page.getByRole("button", { name: "Authenticate", exact: true }).click());

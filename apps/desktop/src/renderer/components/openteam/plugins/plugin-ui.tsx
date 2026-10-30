@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { api } from "../../../client/openteam-api";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
+import { cn } from "../../../lib/cn";
 
 export const inputClass =
   "w-full min-w-0 min-h-9 rounded-[8px] border border-black/10 bg-[#7777770a] px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-white/15";
@@ -33,23 +34,29 @@ export function PluginSelect<Value extends string>({
   value,
   onChange,
   options,
+  className,
+  disabled,
 }: {
   label: string;
   value: Value;
   onChange: (value: Value) => void;
-  options: ReadonlyArray<{ value: Value; label: string }>;
+  options: ReadonlyArray<{ value: Value; label: string; disabled?: boolean }>;
+  className?: string;
+  disabled?: boolean;
 }) {
+  // Radix reserves an empty value for placeholders; settings may select it explicitly.
+  const encode = (value: string) => `value:${value}`;
   return (
-    <Select onValueChange={(next) => onChange(next as Value)} value={value}>
+    <Select onValueChange={(next) => onChange(next.slice(6) as Value)} value={encode(value)} disabled={disabled}>
       <SelectTrigger
         aria-label={label}
-        className="h-auto min-h-9 w-full rounded-[8px] border-black/10 bg-[#7777770a] px-3 py-2 text-[13px] text-foreground shadow-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-white/15 [&>span]:truncate"
+        className={cn("h-auto min-h-9 w-full rounded-[8px] border-black/10 bg-[#7777770a] px-3 py-2 text-[13px] text-foreground shadow-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-white/15 [&>span]:truncate", className)}
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent className="rounded-[10px]">
+      <SelectContent className="max-w-[calc(100vw-16px)] rounded-[10px]">
         {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
+          <SelectItem key={option.value} value={encode(option.value)} disabled={option.disabled}>
             {option.label}
           </SelectItem>
         ))}

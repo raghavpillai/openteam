@@ -1,3 +1,4 @@
+import { PluginSelect } from "./plugins/plugin-ui";
 import type {
 PluginCatalogItemView,
 PluginConnectionView,
@@ -785,12 +786,18 @@ function ConnectionSettingsRow({
       {connection.auth === "oauth" && onConfigureCallback ? (
         <div className="mt-3 grid gap-2 text-[10.5px]">
           <label className="grid gap-1">Sign-in callback
-            <select className={field} aria-label="Sign-in callback" value={callbackMode} onChange={event => setCallbackMode(event.target.value as OAuthCallbackSettings["oauthCallbackMode"])}>
-              <option value="auto">Automatic (recommended)</option>
-              <option value="manual" disabled={!manualSupported}>Paste callback URL</option>
-              <option value="desktop">Desktop listener (advanced)</option>
-              <option value="server">Server callback</option>
-            </select>
+            <PluginSelect
+              className={field}
+              label="Sign-in callback"
+              value={callbackMode}
+              onChange={value => setCallbackMode(value as OAuthCallbackSettings["oauthCallbackMode"])}
+              options={[
+                { value: "auto", label: "Automatic (recommended)" },
+                { value: "manual", label: "Paste callback URL", disabled: !manualSupported },
+                { value: "desktop", label: "Desktop listener (advanced)" },
+                { value: "server", label: "Server callback" },
+              ]}
+            />
           </label>
           {callbackMode === "desktop" && <label className="grid gap-1">Desktop callback port (0 = automatic)
             <input className={field} aria-label="Desktop callback port" type="number" min={0} max={65535} value={callbackPort} onChange={event => setCallbackPort(Number(event.target.value))} />

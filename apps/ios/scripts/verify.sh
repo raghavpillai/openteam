@@ -10,7 +10,7 @@ cleanup() {
   for fixture_pid in $fixture_pids; do kill "$fixture_pid" 2>/dev/null || true; done
 }
 trap cleanup EXIT
-for fixture_port in 19997 19992 20070 20071 20072 20081; do
+for fixture_port in 19997 19992 20070 20071 20072 20081 20085; do
   if curl --max-time 2 --silent --fail "http://127.0.0.1:$fixture_port/health" | rg -q 'swift-parity-fixture'; then
     echo "Using the running loopback parity fixture on $fixture_port."
   else

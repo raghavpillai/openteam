@@ -403,7 +403,7 @@ final class AuthFlowUITests: XCTestCase {
       app.buttons["connect-button"].tap()
       XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 10))
       XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
-      XCTAssertTrue(app.secureTextFields["password-field"].isHittable)
+      waitForArrival(app.secureTextFields["password-field"])
       capture("restored-credentials-keyboard-" + appearance, app)
       app.textFields["username-field"].typeText("fixture")
       app.secureTextFields["password-field"].tap()

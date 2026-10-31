@@ -136,7 +136,7 @@ struct SystemIntentClient {
   }
 
   func upload(_ files: [IntentFile]) async throws -> [Asset] {
-    guard files.count <= 6 else { throw APIError("A message can contain up to six attachments.") }
+    guard files.count <= Draft.maxAttachments else { throw APIError("A message can contain up to \(Draft.maxAttachments) attachments.") }
     var assets: [Asset] = []
     for file in files {
       try validateSession()

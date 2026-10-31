@@ -11,7 +11,7 @@ import cursorToolsDocument from "./cursor-tools.json";
 export * from "./user-forms";
 export { formatUserFormReceipt } from "./user-form-receipts";
 import nativeToolsDocument from "./native-tools.json";
-import type { ClientCapabilities } from "./capabilities";
+import { CLIENT_CAPABILITIES, type ClientCapabilities } from "./capabilities";
 import { PI_REASONING_LEVELS, type RuntimeEngine } from "./inference";
 import type { AgentNotificationKind, ChannelNotificationState, NotificationReadState } from "./notification-content";
 
@@ -283,7 +283,7 @@ export const SendMessageInput = Schema.Struct({
   replyToMessageId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
   richText: Schema.optional(Schema.String),
   isFork: Schema.optional(Schema.Boolean),
-  attachments: Schema.optional(Schema.Array(AssetRef).pipe(Schema.maxItems(6))),
+  attachments: Schema.optional(Schema.Array(AssetRef).pipe(Schema.maxItems(CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage))),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
 }).pipe(
   Schema.filter(

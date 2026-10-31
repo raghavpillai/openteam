@@ -1,3 +1,4 @@
+import { CLIENT_CAPABILITIES } from "@openteam/contracts";
 import type {
   AssetKind,
   AssetRef,
@@ -529,7 +530,7 @@ const parsePayload = (value: unknown): DurableSendPayload | null => {
   }
   return {
     content: value.content,
-    attachments: parsedAssets.slice(0, 6),
+    attachments: parsedAssets.slice(0, CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage),
     ...(parsedStaged.length > 0 ? { stagedAttachments: parsedStaged } : {}),
     ...(isRecord(value.consumedDraft)
       ? {

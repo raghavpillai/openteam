@@ -1,7 +1,7 @@
 /** Product limits enforced by the server and advertised to clients at bootstrap. */
 export const CLIENT_CAPABILITIES = {
   uploads: {
-    maxAttachmentsPerMessage: 6,
+    maxAttachmentsPerMessage: 20,
     maxRegularBytes: 25 * 1024 * 1024,
     maxVideoBytes: 200 * 1024 * 1024,
   },

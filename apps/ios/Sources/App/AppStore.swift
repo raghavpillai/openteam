@@ -588,8 +588,8 @@ final class AppStore {
   func stage(_ data: Data, name: String, mime: String, channel: String) throws {
     guard let disk else { throw APIError("Connect to a server before attaching a file.") }
     var draft = draft(channel)
-    guard draft.attachments.count + (draft.stagedFiles?.count ?? 0) < 6 else {
-      throw APIError("A message can contain up to six attachments.")
+    guard draft.attachments.count + (draft.stagedFiles?.count ?? 0) < Draft.maxAttachments else {
+      throw APIError("A message can contain up to \(Draft.maxAttachments) attachments.")
     }
     let file = try disk.stage(data, fileName: name, mimeType: mime)
     draft.stagedFiles = (draft.stagedFiles ?? []) + [file]
@@ -1126,10 +1126,10 @@ final class AppStore {
     var draft = next.drafts[channelID] ?? Draft()
     guard
       draft.attachments.count + (draft.stagedFiles?.count ?? 0) + pending.input.attachments.count
-        + (pending.stagedFiles?.count ?? 0) <= 6
+        + (pending.stagedFiles?.count ?? 0) <= Draft.maxAttachments
     else {
       error =
-        "This draft would have more than 6 attachments. Choose another conversation or remove an attachment from its draft first."
+        "This draft would have more than \(Draft.maxAttachments) attachments. Choose another conversation or remove an attachment from its draft first."
       return false
     }
     if !pending.input.content.isEmpty {
@@ -1377,7 +1377,7 @@ final class AppStore {
     apply(client.bootstrap)
     if let text {
       var existing = draft(target.id)
-      guard existing.attachments.count + (existing.stagedFiles?.count ?? 0) + attachments.count <= 6 else {
+      guard existing.attachments.count + (existing.stagedFiles?.count ?? 0) + attachments.count <= Draft.maxAttachments else {
         throw APIError("This conversation’s draft already has attachments. Send or clear it first.")
       }
       if !text.isEmpty { existing.text += (existing.text.isEmpty ? "" : "\n") + text }

@@ -99,7 +99,7 @@ struct ComposerView: View {
       }.frame(width: 0, height: 0))
       .photosPicker(
         isPresented: $photoLibrary, selection: $photos,
-        maxSelectionCount: max(1, 6 - attachmentCount), matching: .images
+        maxSelectionCount: max(1, Draft.maxAttachments - attachmentCount), matching: .images
       )
       .fileImporter(
         isPresented: $files, allowedContentTypes: [.item], allowsMultipleSelection: true
@@ -107,12 +107,12 @@ struct ComposerView: View {
         switch result {
         case .success(let urls):
           Task {
-            if urls.count > max(0, 6 - attachmentCount) {
+            if urls.count > max(0, Draft.maxAttachments - attachmentCount) {
               NativeHaptics.play(.error, source: "composer.attachment-limit")
               store.error =
-                "You can attach up to six files. The first available files have been kept."
+                "You can attach up to \(Draft.maxAttachments) files. The first available files have been kept."
             }
-            for url in urls.prefix(max(0, 6 - attachmentCount)) {
+            for url in urls.prefix(max(0, Draft.maxAttachments - attachmentCount)) {
               let access = url.startAccessingSecurityScopedResource()
               defer { if access { url.stopAccessingSecurityScopedResource() } }
               do {
@@ -137,7 +137,7 @@ struct ComposerView: View {
       }
       .onChange(of: photos) { _, items in
         Task {
-          for item in items.prefix(max(0, 6 - attachmentCount)) {
+          for item in items.prefix(max(0, Draft.maxAttachments - attachmentCount)) {
             do {
               if let data = try await item.loadTransferable(type: Data.self) {
                 let type = item.supportedContentTypes.first ?? .jpeg
@@ -201,7 +201,7 @@ struct ComposerView: View {
     return HStack(alignment: .bottom, spacing: 10) {
       NativeAttachmentMenu(
         enabled: !uploading,
-        attachmentsEnabled: attachmentCount < 6,
+        attachmentsEnabled: attachmentCount < Draft.maxAttachments,
         // SwiftUI draws the persistent + → trash symbol below. UIKit keeps the menu target.
         color: .clear,
         photos: { photoLibrary = true }, files: { files = true }, camera: { camera = true },
@@ -516,8 +516,8 @@ struct CameraPicker: UIViewControllerRepresentable {
   }
 }
 
-/// A child presentation keeps the composer first responder and gives each menu
-/// the same measured row geometry without UIKit choosing a different source inset.
+/// The system menu springs from the button wherever the composer sits (including
+/// beside the sidebar on a wide or unfolded display) and leaves the keyboard up.
 private struct NativeAttachmentMenu: View {
   let enabled: Bool
   let attachmentsEnabled: Bool
@@ -539,8 +539,9 @@ private struct NativeAttachmentMenu: View {
   var body: some View {
     NativeActionMenu(symbol: "plus", pointSize: 16, title: "Attach",
       identifier: "attach-button", panelIdentifier: "attachment-menu-panel",
-      hapticSource: "composer.attach", anchor: .aboveLeading,
-      enabled: enabled && (attachmentsEnabled || voice != nil), color: color, actions: actions)
+      hapticSource: "composer.attach",
+      enabled: enabled && (attachmentsEnabled || voice != nil), color: color, systemMenu: true,
+      actions: actions)
   }
 }
 

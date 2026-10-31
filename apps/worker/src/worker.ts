@@ -16,7 +16,7 @@ import type {
   SubagentType,
 } from "@openteam/contracts";
 import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
-import { formatPiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
+import { CLIENT_CAPABILITIES, formatPiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
 import { selectTaskConfiguration, parseTaskConfiguration, subagentUsesParentConnectors, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
 import { finalizeInterruptedItems } from "./interrupted-progress";
 import { dispatchComputerTurn } from "./runtime-dispatch";
@@ -342,7 +342,7 @@ const assetRefs = (value: unknown): AssetRef[] => {
           String((candidate as { kind?: unknown }).kind)
         )
     )
-    .slice(0, 6);
+    .slice(0, CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage);
 };
 
 /** The computer settled the turn as stopped (the cancel-run API), even before the server records the cancel. */

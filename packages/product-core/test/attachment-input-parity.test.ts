@@ -47,15 +47,13 @@ describe("GrokBot input policy shared by desktop and iOS", () => {
     const selection = [
       file("empty.txt", 0),
       file("big.png", 26_214_401),
-      ...Array.from({ length: 5 }, (_, i) => file(`valid-${i}.txt`)),
+      ...Array.from({ length: limits.maxAttachmentsPerMessage - 1 }, (_, i) => file(`valid-${i}.txt`)),
     ];
     const result = selectAttachments(selection, 0, limits);
-    expect(result.accepted.map((f) => f.fileName)).toEqual([
-      "valid-0.txt",
-      "valid-1.txt",
-      "valid-2.txt",
-      "valid-3.txt",
-    ]);
+    // The two rejected files still use their slots: only the first max - 2 valid files fit.
+    expect(result.accepted.map((f) => f.fileName)).toEqual(
+      Array.from({ length: limits.maxAttachmentsPerMessage - 2 }, (_, i) => `valid-${i}.txt`)
+    );
     expect(result.notice).toContain('"empty.txt" is empty, so it wasn\'t attached.');
     expect(result.notice).toContain('"big.png" is too large to attach (max 25 MB).');
     expect(selectAttachments([file("big.mp4", 209_715_201)], 0, limits).notice).toBe(
@@ -64,10 +62,11 @@ describe("GrokBot input policy shared by desktop and iOS", () => {
   });
 
   test("uses only the remaining capacity and preserves selection order", () => {
-    const selection = Array.from({ length: 7 }, (_, i) => file(`file-${i}.txt`));
-    for (const staged of [0, 1, 5, 6, 7]) {
+    const max = limits.maxAttachmentsPerMessage;
+    const selection = Array.from({ length: max + 1 }, (_, i) => file(`file-${i}.txt`));
+    for (const staged of [0, 1, max - 1, max, max + 1]) {
       const result = selectAttachments(selection, staged, limits);
-      expect(result.accepted).toEqual(selection.slice(0, Math.max(0, 6 - staged)));
+      expect(result.accepted).toEqual(selection.slice(0, Math.max(0, max - staged)));
       expect(result.notice).not.toBeNull();
     }
   });

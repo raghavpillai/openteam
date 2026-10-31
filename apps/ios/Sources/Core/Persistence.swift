@@ -1,6 +1,8 @@
 import Foundation
 
 public struct Draft: Codable, Sendable, Equatable {
+  /// Matches the server's `maxAttachmentsPerMessage` (packages/contracts/src/capabilities.ts).
+  public static let maxAttachments = 20
   public var widgetSelections: [String: [String]]?
   public var widgetResponse: WidgetComposerResponse?
   public var text: String = ""

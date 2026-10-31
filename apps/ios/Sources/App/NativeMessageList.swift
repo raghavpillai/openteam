@@ -605,6 +605,12 @@ struct NativeMessageList: UIViewControllerRepresentable {
         UIView.animate(withDuration: transition.deadline - CACurrentMediaTime(), delay: 0,
           options: transition.options) { self.table.contentOffset = target }
         CATransaction.commit()
+      } else if viewportResized, let resize = table.layer.animation(forKey: "bounds.size"),
+        !UIAccessibility.isReduceMotionEnabled {
+        // The keyboard's safe-area change can lay out before its frame
+        // notification arrives (iOS 27), while UIKit already animates this
+        // table's bounds. Follow that animation instead of jumping to the bottom.
+        followViewport(from: previousBottom, to: bottomOffset.y, matching: resize)
       } else if viewportResized && abs(viewportChange) <= 120
         && abs(bottomOffset.y - previousBottom) > 0.5 && !UIAccessibility.isReduceMotionEnabled {
         // The voice bar grows and shrinks the composer without a keyboard
@@ -1076,6 +1082,34 @@ struct NativeMessageList: UIViewControllerRepresentable {
     guard reported?.0 != value.0 || reported?.1 != value.1 else { return }
     reported = value
     DispatchQueue.main.async { [weak self] in self?.onScroll(value.0, value.1) }
+  }
+  /// Moves the scroll layer's presentation with the timing of an animation already
+  /// running on the table (a keyboard resize), while the model holds the final offset.
+  private func followViewport(from start: CGFloat, to target: CGFloat, matching resize: CAAnimation) {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    table.setContentOffset(CGPoint(x: 0, y: target), animated: false)
+    let movement: CABasicAnimation
+    if let spring = resize as? CASpringAnimation {
+      let follow = CASpringAnimation(keyPath: "bounds.origin.y")
+      follow.mass = spring.mass
+      follow.stiffness = spring.stiffness
+      follow.damping = spring.damping
+      follow.initialVelocity = spring.initialVelocity
+      movement = follow
+    } else {
+      movement = CABasicAnimation(keyPath: "bounds.origin.y")
+    }
+    movement.fromValue = start
+    movement.toValue = target
+    movement.duration = resize.duration
+    movement.beginTime = resize.beginTime
+    movement.speed = resize.speed
+    movement.timeOffset = resize.timeOffset
+    movement.timingFunction = resize.timingFunction
+    movement.fillMode = .backwards
+    table.layer.add(movement, forKey: "viewport-follow")
+    CATransaction.commit()
   }
   private func startFooterFollow(duration: CFTimeInterval, from offset: CGFloat) {
     stopGlide()

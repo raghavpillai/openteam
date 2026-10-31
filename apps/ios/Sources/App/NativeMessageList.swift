@@ -531,6 +531,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     let footerGrowing = (footerHeight ?? 0) > (lastFooterHeight ?? 0)
     lastFooterHeight = footerHeight
     let viewportResized = table.bounds.size != lastBounds
+    let viewportChange = table.bounds.height - lastBounds.height
     for path in table.indexPathsForVisibleRows ?? [] {
       if let id = source.itemIdentifier(for: path), let cell = table.cellForRow(at: path) {
         measuredHeights[id] = cell.bounds.height
@@ -603,6 +604,22 @@ struct NativeMessageList: UIViewControllerRepresentable {
         CATransaction.setDisableActions(false)
         UIView.animate(withDuration: transition.deadline - CACurrentMediaTime(), delay: 0,
           options: transition.options) { self.table.contentOffset = target }
+        CATransaction.commit()
+      } else if viewportResized && abs(viewportChange) <= 120
+        && abs(bottomOffset.y - previousBottom) > 0.5 && !UIAccessibility.isReduceMotionEnabled {
+        // The voice bar grows and shrinks the composer without a keyboard
+        // notification. Follow it on the bar's own spring instead of moving the
+        // transcript to its new bottom in one frame. Keyboard-sized changes keep
+        // the path above: restoring the old bottom in a much taller viewport
+        // would briefly scroll the transcript out of view.
+        let target = bottomOffset
+        table.setContentOffset(CGPoint(x: 0, y: previousBottom), animated: false)
+        CATransaction.begin()
+        CATransaction.setDisableActions(false)
+        UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.84,
+          initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+          self.table.contentOffset = target
+        }
         CATransaction.commit()
       } else if footerResized && !viewportResized && !UIAccessibility.isReduceMotionEnabled {
         // Hosting cells report the footer's final intrinsic height. Follow that

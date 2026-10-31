@@ -59,8 +59,13 @@ export const openRouterEndpointPromptCap = (body: unknown): number | undefined =
 const validId = (v: unknown): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= 256 && !/[\p{Cc}\p{Cf}]/u.test(v);
 const advertisedInput = (entry: Entry): ChatModel["input"] | undefined => {
-  if (!Array.isArray(entry.input_modalities)) return undefined;
-  return entry.input_modalities.includes("image") ? ["text", "image"] : ["text"];
+  const modalities = Array.isArray(entry.input_modalities)
+    ? entry.input_modalities
+    : object(entry.modalities) && Array.isArray(entry.modalities.input)
+      ? entry.modalities.input
+      : undefined;
+  if (!modalities) return undefined;
+  return modalities.includes("image") ? ["text", "image"] : ["text"];
 };
 const reasoningLevel = (value: unknown): PiReasoningLevel | undefined => {
   const normalized = value === "none" ? "off" : value;
@@ -461,7 +466,8 @@ export class ChatProviderRegistry {
   }
   async verify(settings: ServerInferenceSettings): Promise<void> {
     // Check retirements before making network requests, and access before accepting a saved choice.
-    if (this.runtime().getModel(settings.providerId, settings.modelId))
+    const existingModel = this.runtime().getModel(settings.providerId, settings.modelId);
+    if (existingModel)
       requireInferenceModel(this.runtime(), settings);
     const catalog = await this.catalog(settings.providerId);
     const provider = catalog.providers.find((p) => p.id === settings.providerId);
@@ -487,7 +493,8 @@ export class ChatProviderRegistry {
     if (
       settings.providerId === "openrouter" ||
       settings.providerId === "openai-codex" ||
-      !this.runtime().getModel(settings.providerId, settings.modelId)
+      !existingModel ||
+      JSON.stringify(existingModel.input) !== JSON.stringify(model.input)
     ) {
       const document = await configFile(this.modelsPath);
       document.providers ??= {};

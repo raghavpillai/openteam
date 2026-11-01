@@ -182,14 +182,14 @@ export type UpdateBotInput = typeof UpdateBotInput.Type;
 export const PushDevicePlatform = Schema.Literal("ios", "android");
 export type PushDevicePlatform = typeof PushDevicePlatform.Type;
 
-/** Native iOS APNs registration; the hex device token is lowercased by the server. */
+/** Native APNs or FCM registration; APNs hex tokens are lowercased by the server. */
 export const RegisterPushDeviceInput = Schema.Struct({
   installationId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(200)),
-  platform: Schema.Literal("ios"),
-  pushToken: Schema.String.pipe(Schema.pattern(/^(?:[a-fA-F0-9]{2}){32,100}$/)),
-  provider: Schema.Literal("apns"),
-  apnsEnvironment: Schema.Literal("development", "production"),
-  apnsTopic: Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9.-]{2,199}$/)),
+  platform: PushDevicePlatform,
+  pushToken: Schema.String.pipe(Schema.minLength(20), Schema.maxLength(4096)),
+  provider: Schema.Literal("apns", "fcm"),
+  apnsEnvironment: Schema.optional(Schema.Literal("development", "production")),
+  apnsTopic: Schema.optional(Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9.-]{2,199}$/))),
   notificationScope: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
   locale: Schema.optional(Schema.String.pipe(Schema.minLength(2), Schema.maxLength(35))),
@@ -1815,7 +1815,7 @@ export * from "./web-search";
 export const UpdateNotificationPresenceInput = Schema.Struct({
   clientId: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)),
   sequence: Schema.Number.pipe(Schema.int(), Schema.between(0, 2_147_483_647)),
-  platform: Schema.Literal("macos", "ios"),
+  platform: Schema.Literal("macos", "ios", "android"),
   active: Schema.Boolean,
   idleSeconds: Schema.optional(Schema.Number.pipe(Schema.finite(), Schema.between(0, 2_147_483_647))),
 });

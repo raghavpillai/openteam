@@ -20,6 +20,7 @@ test("Mac system idle cutoff and disconnected-client expiry are separate limits"
   expect(notificationPresenceLifetime(input)).toBe(0);
   expect(notificationPresenceLifetime({ ...input, active: false, idleSeconds: 0 })).toBe(0);
   expect(notificationPresenceLifetime({ ...input, platform: "ios" })).toBe(60_000);
+  expect(notificationPresenceLifetime({ ...input, platform: "android" })).toBe(60_000);
 });
 test("foreground iPhone wins simultaneous activity; preference and expiry restore delivery", () => {
   const routing = {
@@ -38,7 +39,7 @@ test("presence API rejects invalid IDs, platforms, ordering and idle values", ()
   expect(parse(input)).toEqual(input);
   for (const patch of [
     { clientId: "x" },
-    { platform: "android" },
+    { platform: "windows" },
     { active: "true" },
     { sequence: -1 },
     { sequence: 1.5 },

@@ -100,18 +100,21 @@ export class NotificationService {
           "Refresh authentication before registering this push device"
         );
       }
-      if (
-        input.provider !== "apns" || input.platform !== "ios" ||
-        !/^(?:[a-f0-9]{2}){32,100}$/i.test(input.pushToken) ||
-        !input.apnsEnvironment || !input.apnsTopic || !input.notificationScope
-      ) {
+      const validApns = input.platform === "ios" && input.provider === "apns" &&
+        /^(?:[a-f0-9]{2}){32,100}$/i.test(input.pushToken) &&
+        Boolean(input.apnsEnvironment && input.apnsTopic && input.notificationScope);
+      const validFcm = input.platform === "android" && input.provider === "fcm" &&
+        /^[A-Za-z0-9:_-]{20,4096}$/.test(input.pushToken) && Boolean(input.notificationScope);
+      if (!validApns && !validFcm) {
         throw new ApiError(400, "invalid_push_registration", "The push token and delivery settings do not match");
       }
-      const pushToken = input.pushToken.toLowerCase();
+      // APNs tokens are hexadecimal and canonicalized; FCM registration tokens
+      // are opaque and case-sensitive, so preserve them byte-for-byte.
+      const pushToken = input.provider === "apns" ? input.pushToken.toLowerCase() : input.pushToken;
       const transport = {
         provider: input.provider,
-        apnsEnvironment: input.apnsEnvironment,
-        apnsTopic: input.apnsTopic,
+        apnsEnvironment: input.apnsEnvironment ?? null,
+        apnsTopic: input.apnsTopic ?? null,
         notificationScope: input.notificationScope,
       };
       const now = new Date();

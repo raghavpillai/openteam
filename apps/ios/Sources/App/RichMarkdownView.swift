@@ -179,6 +179,9 @@ private struct MarkdownDocument: UIViewRepresentable {
     init(_ parent: MarkdownDocument) {
       self.parent = parent
       super.init()
+      #if DEBUG
+      SuspendedDocumentFixture.observe()
+      #endif
       NotificationCenter.default.addObserver(
         self, selector: #selector(suspend), name: UIApplication.didEnterBackgroundNotification, object: nil)
       NotificationCenter.default.addObserver(
@@ -355,7 +358,11 @@ private struct MarkdownDocument: UIViewRepresentable {
   private static let observer = NotificationCenter.default.addObserver(
     forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
   ) { _ in MainActor.assumeIsolated { active = false } }
-  static var hanging: Bool { _ = observer; return active }
+  /// Called as each document appears. Observing only from the first render
+  /// missed the app leaving when no render had started yet, and the render on
+  /// return then hung too.
+  static func observe() { _ = observer }
+  static var hanging: Bool { observe(); return active }
 }
 #endif
 

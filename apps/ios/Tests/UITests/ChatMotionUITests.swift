@@ -939,9 +939,17 @@ import XCTest
     XCTAssertTrue(prompt.exists && lookup.exists && result.exists)
     XCTAssertEqual(lookup.frame.minY - prompt.frame.maxY, 12, accuracy: 0.5)
     XCTAssertEqual(result.frame.minY - lookup.frame.maxY, 8, accuracy: 0.5)
-    XCTAssertEqual(prompt.frame.height, 106, accuracy: 0.5)
-    XCTAssertEqual(lookup.frame.height, 40, accuracy: 0.5)
-    XCTAssertEqual(result.frame.height, 84, accuracy: 0.5)
+    // Text bubbles are 9 + 9 points of padding around whole 22-point line boxes. These
+    // replies end within a few points of the bubble's text width, so where they wrap
+    // depends on the runtime's font metrics; check the line boxes, not one line break.
+    func assertLineBoxes(_ element: XCUIElement, lines expected: ClosedRange<Double>, _ name: String) {
+      let lines = (element.frame.height - 18) / 22
+      XCTAssertEqual(lines, lines.rounded(), accuracy: 0.03, "\(name) must be whole 22-point line boxes")
+      XCTAssertTrue(expected.contains(lines.rounded()), "\(name) has \(lines.rounded()) lines")
+    }
+    assertLineBoxes(prompt, lines: 4...5, "The prompt bubble")
+    assertLineBoxes(lookup, lines: 1...2, "The lookup bubble")
+    assertLineBoxes(result, lines: 3...4, "The result bubble")
     capture("reference-before-send", app)
     mark("reference-send")
     app.buttons["send-button"].tap()

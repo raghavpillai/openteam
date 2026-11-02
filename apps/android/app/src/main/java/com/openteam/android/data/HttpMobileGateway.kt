@@ -67,6 +67,7 @@ interface LiveMessagingApi {
 
     suspend fun pollEvents(waitMs: Int = 25_000): EventBatch
     suspend fun deliveryStatus(channelId: String, clientId: String): DeliveryLookup
+    fun toChatMessage(message: MobileMessage): ChatMessage
 }
 
 class HttpMobileGateway(context: Context) :
@@ -586,6 +587,8 @@ class HttpMobileGateway(context: Context) :
             contextMessageId = projection.metadata.string("contextMessageId", "parentMessageId").ifBlank { projection.replyToMessageId },
         )
     }
+
+    override fun toChatMessage(message: MobileMessage): ChatMessage = message.toChatMessage()
 
     private fun JsonObject.toChatHistoryPage(): ChatHistoryPage = ChatHistoryPage(
         messages = arrayAt("messages").mapNotNull { it.jsonObjectOrNull()?.toChatMessage() },

@@ -10,11 +10,14 @@ import com.openteam.android.data.Conversation
 import com.openteam.android.data.Delivery
 import com.openteam.android.data.DraftStore
 import com.openteam.android.data.HttpMobileGateway
+import com.openteam.android.data.LiveMessagingApi
 import com.openteam.android.data.MobileGateway
 import com.openteam.android.data.MobileFeatureApi
 import com.openteam.android.data.MessageAttachment
 import com.openteam.android.data.MobileSession
 import com.openteam.android.data.OutgoingShare
+import com.openteam.android.data.OutboxStore
+import com.openteam.android.data.PendingSend
 import com.openteam.android.data.PreviewMobileGateway
 import com.openteam.android.data.ServerValidationApi
 import com.openteam.android.data.SidebarPreferences
@@ -48,6 +51,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.net.URI
 import java.net.URLDecoder
@@ -78,6 +83,7 @@ data class AppState(
     val pendingShare: SharePayload? = null,
     val pendingExternalUrl: String? = null,
     val pendingOutgoingShare: OutgoingShare? = null,
+    val outbox: List<PendingSend> = emptyList(),
     val features: FeatureState = FeatureState(),
 )
 
@@ -97,6 +103,7 @@ class AppViewModel @JvmOverloads constructor(
     private val gateway: MobileGateway = HttpMobileGateway(application),
     private val previewGateway: MobileGateway = PreviewMobileGateway(),
     private val drafts: DraftStore = DraftStore(application),
+    private val outboxStore: OutboxStore = OutboxStore(application),
     private val featureGateway: FeatureGateway? = null,
 ) : AndroidViewModel(application) {
     private val settingsPreferences = application.getSharedPreferences("openteam-settings", 0)
@@ -105,6 +112,7 @@ class AppViewModel @JvmOverloads constructor(
         ?: (gateway as? MobileFeatureApi)?.let(::LiveFeatureGateway)
         ?: UnsupportedFeatureGateway
     private var searchGeneration = 0L
+    private var outboxJob: Job? = null
     private val mutableState = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = mutableState.asStateFlow()
     private val voiceController = VoiceRecordingController(
@@ -121,9 +129,12 @@ class AppViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             runCatching { gateway.restoreSession() }.getOrNull()?.let { session ->
                 activeGateway = gateway
-                mutableState.update { it.copy(session = session) }
+                mutableState.update {
+                    it.copy(session = session, outbox = outboxStore.read(accountScope(session)))
+                }
                 loadDirectory()
                 loadFeatureData()
+                flushOutbox()
             }
         }
     }
@@ -195,10 +206,25 @@ class AppViewModel @JvmOverloads constructor(
                     mutableState.update { it.copy(error = failure?.message ?: "Attachment upload failed.", loading = false) }
                 } else {
                     val displayText = text.ifBlank { attachments.joinToString(", ") { it.name } }
-                    val optimistic = ChatMessage(newClientId(), "You", displayText, isMine = true, delivery = Delivery.SENDING, attachments = attachments)
-                    mutableState.update { it.copy(messages = it.messages + optimistic, draft = "", loading = false) }
+                    val id = newClientId()
+                    val optimistic = ChatMessage(id, "You", displayText, isMine = true, delivery = Delivery.SENDING, attachments = attachments)
+                    val pending = PendingSend(
+                        id = id,
+                        channelId = conversationId,
+                        content = text,
+                        attachments = attachments.map(Attachment::messageRef),
+                    )
+                    mutableState.update {
+                        it.copy(
+                            messages = it.messages + optimistic,
+                            draft = "",
+                            loading = false,
+                            outbox = it.outbox + pending,
+                        )
+                    }
                     if (session != null) drafts.put(accountScope(session), conversationId, "")
-                    deliver(conversationId, optimistic, text, attachments.map(Attachment::messageRef))
+                    persistOutbox()
+                    flushOutbox()
                 }
             }
         }
@@ -262,6 +288,8 @@ class AppViewModel @JvmOverloads constructor(
                     mutableState.update { it.copy(session = session, loading = false) }
                     loadDirectory()
                     loadFeatureData()
+                    mutableState.update { it.copy(outbox = outboxStore.read(accountScope(session))) }
+                    flushOutbox()
                 },
                 onFailure = { error -> mutableState.update { it.copy(loading = false, error = error.message) } },
             )
@@ -414,15 +442,45 @@ class AppViewModel @JvmOverloads constructor(
         if (text.isEmpty() && attachments.isEmpty()) return
         val id = newClientId()
         val optimistic = ChatMessage(id, "You", text, isMine = true, delivery = Delivery.SENDING, attachments = attachments)
-        mutableState.update { it.copy(messages = it.messages + optimistic, draft = "", pendingAttachments = emptyList(), error = null) }
+        val pending = PendingSend(
+            id = id,
+            channelId = conversationId,
+            content = text,
+            attachments = attachments.map(Attachment::messageRef),
+        )
+        mutableState.update {
+            it.copy(
+                messages = it.messages + optimistic,
+                draft = "",
+                pendingAttachments = emptyList(),
+                outbox = it.outbox + pending,
+                error = null,
+            )
+        }
         current.session?.let { drafts.put(accountScope(it), conversationId, "") }
-        deliver(conversationId, optimistic)
+        persistOutbox()
+        flushOutbox()
     }
 
     fun retryMessage(messageId: String) {
         val current = mutableState.value
         val conversationId = current.activeConversationId ?: return
         val message = current.messages.firstOrNull { it.id == messageId && it.delivery == Delivery.FAILED } ?: return
+        val queued = current.outbox.firstOrNull { it.id == messageId }
+        if (queued != null) {
+            mutableState.update { state ->
+                state.copy(
+                    outbox = state.outbox.map { if (it.id == messageId) it.copy(failure = null) else it },
+                    messages = state.messages.map {
+                        if (it.id == messageId) it.copy(delivery = Delivery.SENDING) else it
+                    },
+                    error = null,
+                )
+            }
+            persistOutbox()
+            flushOutbox()
+            return
+        }
         mutableState.update { state ->
             state.copy(
                 messages = state.messages.map { if (it.id == messageId) it.copy(delivery = Delivery.SENDING) else it },
@@ -430,6 +488,16 @@ class AppViewModel @JvmOverloads constructor(
             )
         }
         deliver(conversationId, message.copy(delivery = Delivery.SENDING))
+    }
+
+    fun discardQueuedMessage(messageId: String) {
+        mutableState.update { state ->
+            state.copy(
+                outbox = state.outbox.filterNot { it.id == messageId },
+                messages = state.messages.filterNot { it.id == messageId },
+            )
+        }
+        persistOutbox()
     }
 
     private fun deliver(
@@ -455,6 +523,81 @@ class AppViewModel @JvmOverloads constructor(
                 },
             )
         }
+    }
+
+    private fun persistOutbox() {
+        val session = mutableState.value.session ?: return
+        outboxStore.write(accountScope(session), mutableState.value.outbox)
+    }
+
+    private fun flushOutbox() {
+        if (outboxJob?.isActive == true) return
+        outboxJob = viewModelScope.launch {
+            val live = activeGateway as? LiveMessagingApi ?: return@launch
+            while (isActive) {
+                val pending = mutableState.value.outbox.firstOrNull { it.failure == null } ?: return@launch
+                val delivery = try {
+                    live.deliveryStatus(pending.channelId, pending.id)
+                } catch (_: Throwable) {
+                    return@launch
+                }
+                val delivered = delivery?.message
+                when {
+                    delivered != null -> acceptQueuedMessage(pending.id, live.toChatMessage(delivered))
+                    delivery?.status?.lowercase() in setOf("pending", "processing") -> return@launch
+                    delivery?.status?.lowercase() in setOf("rejected", "failed") -> {
+                        failQueuedMessage(pending.id, delivery.messageText ?: "The server rejected this message.")
+                        return@launch
+                    }
+                    else -> {
+                        activeGateway.send(
+                            pending.channelId,
+                            pending.content,
+                            pending.id,
+                            pending.attachments,
+                        ).fold(
+                            onSuccess = { acceptQueuedMessage(pending.id, it) },
+                            onFailure = {
+                                failQueuedMessage(
+                                    pending.id,
+                                    it.message ?: "Message could not be sent. Retry when connected.",
+                                )
+                                return@launch
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun acceptQueuedMessage(clientId: String, accepted: ChatMessage) {
+        mutableState.update { state ->
+            state.copy(
+                outbox = state.outbox.filterNot { it.id == clientId },
+                messages = state.messages.map { message ->
+                    if (message.id == clientId || message.clientId == clientId) {
+                        accepted.copy(delivery = Delivery.SENT)
+                    } else {
+                        message
+                    }
+                },
+            )
+        }
+        persistOutbox()
+    }
+
+    private fun failQueuedMessage(clientId: String, failure: String) {
+        mutableState.update { state ->
+            state.copy(
+                outbox = state.outbox.map { if (it.id == clientId) it.copy(failure = failure) else it },
+                messages = state.messages.map {
+                    if (it.id == clientId) it.copy(delivery = Delivery.FAILED) else it
+                },
+                error = failure,
+            )
+        }
+        persistOutbox()
     }
 
     fun uploadChatAttachment(uri: String) {
@@ -556,7 +699,11 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     fun signOut() {
-        mutableState.value.session?.let { drafts.clearAccount(accountScope(it)) }
+        mutableState.value.session?.let {
+            drafts.clearAccount(accountScope(it))
+            outboxStore.clear(accountScope(it))
+        }
+        outboxJob?.cancel()
         viewModelScope.launch { runCatching { activeGateway.signOut() } }
         activeGateway = gateway
         mutableState.value = AppState()
@@ -583,6 +730,7 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     override fun onCleared() {
+        outboxJob?.cancel()
         voiceController.close()
         super.onCleared()
     }

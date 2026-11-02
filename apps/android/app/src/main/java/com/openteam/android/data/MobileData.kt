@@ -4,6 +4,7 @@ import com.openteam.features.Attachment
 import com.openteam.features.Reaction
 import com.openteam.features.RichMessage
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.Serializable
 import java.util.UUID
 
 data class Conversation(
@@ -134,12 +135,22 @@ interface ServerValidationApi {
 
 data class OutgoingShare(val uri: String, val mimeType: String, val fileName: String)
 
+@Serializable
 data class MessageAttachment(
     val assetId: String,
     val fileName: String,
     val mimeType: String,
     val byteSize: Long,
     val kind: String,
+)
+
+@Serializable
+data class PendingSend(
+    val id: String,
+    val channelId: String,
+    val content: String,
+    val attachments: List<MessageAttachment> = emptyList(),
+    val failure: String? = null,
 )
 
 data class ChatHistoryPage(

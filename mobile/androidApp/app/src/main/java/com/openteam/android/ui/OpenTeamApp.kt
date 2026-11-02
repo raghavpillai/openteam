@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +60,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -112,6 +116,8 @@ import androidx.navigation.navArgument
 import com.openteam.android.AppViewModel
 import com.openteam.android.data.ChatMessage
 import com.openteam.android.data.Conversation
+import com.openteam.android.data.SidebarPreferences
+import com.openteam.android.data.SidebarSection
 import com.openteam.features.Attachment
 import com.openteam.features.FeatureOperationState
 import com.openteam.features.FeatureLoadState
@@ -134,6 +140,11 @@ import com.openteam.platform.AndroidVncWebViewRenderer
 import com.openteam.platform.ComputerVncGrant
 import com.openteam.platform.VncRendererState
 import java.net.URI
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private const val LOGIN = "login"
 private const val DIRECTORY = "directory"
@@ -143,7 +154,6 @@ private const val COMPUTER = "bot/{conversationId}/computer"
 private const val MARKETPLACE = "marketplace"
 private const val ROUTINES = "routines"
 private const val ROUTINE_EDITOR = "routines/editor"
-private const val ACCOUNT = "account"
 private const val SETTINGS = "settings"
 private const val PROVIDERS = "providers"
 private const val WEB_PROVIDERS = "web-providers"
@@ -215,26 +225,23 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             DirectoryScreen(
                 accountName = state.session?.accountName.orEmpty(),
                 rows = state.conversations,
+                sidebar = state.sidebar,
                 share = state.pendingShare,
                 onOpen = { conversation ->
                     appViewModel.openConversation(conversation.id)
                     navController.navigate("chat/${conversation.id}")
                 },
                 onShareTarget = appViewModel::selectShareTarget,
-                onSignOut = {
-                    appViewModel.signOut()
-                    navController.navigate(LOGIN) { popUpTo(navController.graph.id) { inclusive = true } }
-                },
                 onRoutines = { navController.navigate(ROUTINES) },
-                onAccount = { navController.navigate(ACCOUNT) },
                 onSettings = { navController.navigate(SETTINGS) },
-                onProviders = { navController.navigate(PROVIDERS) },
-                onWebProviders = { navController.navigate(WEB_PROVIDERS) },
-                onPlugins = { navController.navigate(PLUGINS) },
-                onMarketplace = { navController.navigate(MARKETPLACE) },
                 onBotDetails = { conversation ->
                     navController.navigate("bot/${conversation.id}/details")
                 },
+                onTogglePin = appViewModel::togglePinned,
+                onMoveToSection = { conversationId, sectionId ->
+                    appViewModel.moveToSection(conversationId, sectionId)
+                },
+                onToggleSection = appViewModel::toggleSection,
             )
         }
         composable(BOT_DETAILS, arguments = listOf(navArgument("conversationId") { type = NavType.StringType })) { entry ->
@@ -340,29 +347,20 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 )
             }
         }
-        composable(ACCOUNT) {
-            BackHandler { navController.popBackStack() }
-            AccountMemoryScreen(
-                state = state.features.account,
-                onRetry = appViewModel::loadFeatureData,
-                onEditMemory = { },
-                onClearMemory = appViewModel::clearMemory,
-                onReset = appViewModel::resetLocalData,
-                onSignOut = {
-                    appViewModel.signOut()
-                    navController.navigate(LOGIN) { popUpTo(navController.graph.id) { inclusive = true } }
-                },
-            )
-        }
         composable(SETTINGS) {
             BackHandler { navController.popBackStack() }
             SettingsScreen(
                 settings = state.features.settings,
+                accountName = state.session?.accountName.orEmpty(),
+                server = state.session?.server.orEmpty(),
                 onChange = appViewModel::saveSettings,
                 onSignOut = {
                     appViewModel.signOut()
                     navController.navigate(LOGIN) { popUpTo(navController.graph.id) { inclusive = true } }
                 },
+                onBack = { navController.popBackStack() },
+                onProviders = { navController.navigate(PROVIDERS) },
+                onWebProviders = { navController.navigate(WEB_PROVIDERS) },
             )
         }
         composable(PROVIDERS) {
@@ -370,6 +368,8 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             ProviderSettingsScreen(
                 state = state.features.providers,
                 onRetry = appViewModel::loadFeatureData,
+                onBack = { navController.popBackStack() },
+                language = state.features.settings.language,
                 onConnect = appViewModel::connectProvider,
                 onDisconnect = appViewModel::disconnectProvider,
                 onModelChange = { provider, model -> appViewModel.connectProvider(provider.copy(selectedModel = model)) },
@@ -381,6 +381,8 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             WebProviderSettingsScreen(
                 state = state.features.webProviders,
                 onRetry = appViewModel::loadFeatureData,
+                onBack = { navController.popBackStack() },
+                language = state.features.settings.language,
                 onSelect = appViewModel::selectWebProvider,
                 onSaveKey = { tool, provider, key -> appViewModel.saveWebProvider(tool, provider, key) },
                 onRemoveKey = { tool, provider -> appViewModel.saveWebProvider(tool, provider, "") },
@@ -828,49 +830,60 @@ private fun ServerChip(server: String) {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun DirectoryScreen(
     accountName: String,
     rows: List<Conversation>,
+    sidebar: SidebarPreferences,
     share: SharePayload?,
     onOpen: (Conversation) -> Unit,
     onShareTarget: (String) -> Unit,
-    onSignOut: () -> Unit,
     onRoutines: () -> Unit,
-    onAccount: () -> Unit,
     onSettings: () -> Unit,
-    onProviders: () -> Unit,
-    onWebProviders: () -> Unit,
-    onPlugins: () -> Unit,
-    onMarketplace: () -> Unit,
     onBotDetails: (Conversation) -> Unit,
+    onTogglePin: (String) -> Unit,
+    onMoveToSection: (String, String?) -> Unit,
+    onToggleSection: (String?) -> Unit,
 ) {
     var searchVisible by remember { mutableStateOf(false) }
-    var moreMenuVisible by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
-    val featuredRows = rows.filter { it.isBot }.take(3).ifEmpty { rows.take(2) }
+    var rowMenuId by remember { mutableStateOf<String?>(null) }
     val visibleRows = rows.filter {
         query.isBlank() ||
             it.title.contains(query, ignoreCase = true) ||
-            it.subtitle.contains(query, ignoreCase = true)
+            (it.preview?.contains(query, ignoreCase = true) == true)
     }
+    // Only manually pinned chats appear in the top row, and they are removed from the
+    // grouped list below so each chat is shown in exactly one place.
+    val grouped = remember(visibleRows, sidebar) { groupConversations(visibleRows, sidebar) }
+    val pinnedRows = grouped.pinned
+    val unassignedRows = grouped.unassigned
+    val showSectionHeadings = grouped.showUnassignedHeading
+    val settingsLabel = stringResource(com.openteam.android.R.string.directory_settings)
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {},
                 navigationIcon = {
-                    Box(
-                        Modifier.padding(start = 14.dp).size(44.dp).clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = .13f)),
-                        contentAlignment = Alignment.Center,
+                    IconButton(
+                        onClick = onSettings,
+                        modifier = Modifier.padding(start = 10.dp).size(48.dp).semantics {
+                            contentDescription = settingsLabel
+                        },
                     ) {
-                        Text(
-                            accountName.take(1).uppercase().ifBlank { "O" },
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f),
-                            fontWeight = FontWeight.Medium,
-                            style = MaterialTheme.typography.titleLarge,
-                        )
+                        Box(
+                            Modifier.size(36.dp).clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = .13f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                accountName.take(1).uppercase().ifBlank { "O" },
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f),
+                                fontWeight = FontWeight.Medium,
+                                style = MaterialTheme.typography.titleLarge,
+                            )
+                        }
                     }
                 },
                 actions = {
@@ -884,50 +897,6 @@ private fun DirectoryScreen(
                         contentDescription = stringResource(com.openteam.android.R.string.directory_create),
                         onClick = onRoutines,
                     )
-                    Box {
-                        IosChromeIcon(
-                            icon = { Icon(Icons.Default.MoreHoriz, contentDescription = null) },
-                            contentDescription = stringResource(com.openteam.android.R.string.directory_more),
-                            onClick = { moreMenuVisible = true },
-                        )
-                        DropdownMenu(
-                            expanded = moreMenuVisible,
-                            onDismissRequest = { moreMenuVisible = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(com.openteam.android.R.string.directory_account)) },
-                                onClick = { moreMenuVisible = false; onAccount() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(com.openteam.android.R.string.directory_models)) },
-                                onClick = { moreMenuVisible = false; onProviders() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(com.openteam.android.R.string.directory_search_short)) },
-                                onClick = { moreMenuVisible = false; onWebProviders() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(com.openteam.android.R.string.directory_plugins)) },
-                                onClick = { moreMenuVisible = false; onPlugins() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(com.openteam.android.R.string.directory_marketplace)) },
-                                onClick = { moreMenuVisible = false; onMarketplace() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(com.openteam.android.R.string.directory_routines)) },
-                                onClick = { moreMenuVisible = false; onRoutines() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(com.openteam.android.R.string.directory_more)) },
-                                onClick = { moreMenuVisible = false; onSettings() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(com.openteam.android.R.string.directory_sign_out)) },
-                                onClick = { moreMenuVisible = false; onSignOut() },
-                            )
-                        }
-                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -943,13 +912,38 @@ private fun DirectoryScreen(
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)) {
-            if (featuredRows.isNotEmpty()) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp, bottom = 10.dp),
-                ) {
-                    items(featuredRows, key = { "featured-${it.id}" }) { row ->
-                        FeaturedBotCard(row, onClick = { onOpen(row) })
+            if (pinnedRows.isNotEmpty()) {
+                if (pinnedRows.size == 1) {
+                    // A single pinned chat sits centered; more than one scrolls from the left.
+                    val pinned = pinnedRows.first()
+                    Box(
+                        Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        PinnedBotCard(
+                            conversation = pinned,
+                            unread = pinned.unread > 0 || sidebar.isUnread(pinned.id),
+                            onClick = { if (share == null) onOpen(pinned) else onShareTarget(pinned.id) },
+                            onLongClick = {
+                                if (share == null) onTogglePin(pinned.id) else onShareTarget(pinned.id)
+                            },
+                        )
+                    }
+                } else {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp, bottom = 10.dp),
+                    ) {
+                        items(pinnedRows, key = { "pinned-${it.id}" }) { row ->
+                            PinnedBotCard(
+                                conversation = row,
+                                unread = row.unread > 0 || sidebar.isUnread(row.id),
+                                onClick = { if (share == null) onOpen(row) else onShareTarget(row.id) },
+                                onLongClick = {
+                                    if (share == null) onTogglePin(row.id) else onShareTarget(row.id)
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -991,59 +985,64 @@ private fun DirectoryScreen(
                 verticalArrangement = Arrangement.spacedBy(0.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 28.dp),
             ) {
-                items(visibleRows, key = Conversation::id) { row ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(18.dp))
-                            .testTag("conversation-${row.id}")
-                            .clickable {
-                            if (share == null) onOpen(row) else onShareTarget(row.id)
-                        },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 0.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
-                                Modifier.size(46.dp).clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.secondaryContainer),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    row.title.take(1).uppercase(),
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(row.title, fontWeight = FontWeight.Medium)
-                                Text(
-                                    row.subtitle.ifBlank {
-                                        stringResource(com.openteam.android.R.string.directory_no_messages)
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                )
-                            }
-                            if (row.unread > 0) {
-                                Box(
-                                    Modifier.padding(start = 10.dp).size(10.dp).clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.secondary),
-                                )
-                            }
-                            IconButton(
-                                onClick = { onBotDetails(row) },
-                                modifier = Modifier.testTag("bot-details-${row.id}"),
-                            ) {
-                                Icon(
-                                    Icons.Default.MoreHoriz,
-                                    contentDescription = stringResource(com.openteam.android.R.string.directory_bot_details),
-                                )
-                            }
+                grouped.sections.forEach { group ->
+                    val section = group.section
+                    val members = group.conversations
+                    item(key = "section-${section.id}") {
+                        DirectorySectionHeader(
+                            name = section.name,
+                            collapsed = section.collapsed,
+                            count = members.size,
+                            onClick = { onToggleSection(section.id) },
+                        )
+                    }
+                    if (!section.collapsed) {
+                        items(members, key = Conversation::id) { row ->
+                            DirectoryConversationRow(
+                                row = row,
+                                unread = row.unread > 0 || sidebar.isUnread(row.id),
+                                pinned = false,
+                                sections = sidebar.sections,
+                                shareActive = share != null,
+                                menuExpanded = rowMenuId == row.id,
+                                onOpen = { onOpen(row) },
+                                onShareTarget = { onShareTarget(row.id) },
+                                onBotDetails = { onBotDetails(row) },
+                                onTogglePin = { onTogglePin(row.id) },
+                                onMoveToSection = { sectionId -> onMoveToSection(row.id, sectionId) },
+                                onOpenMenu = { rowMenuId = row.id },
+                                onDismissMenu = { rowMenuId = null },
+                            )
                         }
+                    }
+                }
+                if (showSectionHeadings) {
+                    item(key = "section-unassigned") {
+                        DirectorySectionHeader(
+                            name = stringResource(com.openteam.android.R.string.directory_section_unassigned),
+                            collapsed = sidebar.unassignedCollapsed,
+                            count = unassignedRows.size,
+                            onClick = { onToggleSection(null) },
+                        )
+                    }
+                }
+                if (!showSectionHeadings || !sidebar.unassignedCollapsed) {
+                    items(unassignedRows, key = Conversation::id) { row ->
+                        DirectoryConversationRow(
+                            row = row,
+                            unread = row.unread > 0 || sidebar.isUnread(row.id),
+                            pinned = false,
+                            sections = sidebar.sections,
+                            shareActive = share != null,
+                            menuExpanded = rowMenuId == row.id,
+                            onOpen = { onOpen(row) },
+                            onShareTarget = { onShareTarget(row.id) },
+                            onBotDetails = { onBotDetails(row) },
+                            onTogglePin = { onTogglePin(row.id) },
+                            onMoveToSection = { sectionId -> onMoveToSection(row.id, sectionId) },
+                            onOpenMenu = { rowMenuId = row.id },
+                            onDismissMenu = { rowMenuId = null },
+                        )
                     }
                 }
             }
@@ -1051,13 +1050,30 @@ private fun DirectoryScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FeaturedBotCard(conversation: Conversation, onClick: () -> Unit) {
+private fun PinnedBotCard(
+    conversation: Conversation,
+    unread: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     Column(
-        modifier = Modifier.width(108.dp).testTag("featured-${conversation.id}").clickable(onClick = onClick),
+        modifier = Modifier.width(100.dp)
+            .testTag("pinned-${conversation.id}")
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        BotAvatar(conversation, size = 82.dp)
+        Box {
+            BotAvatar(conversation, size = 80.dp)
+            if (unread) {
+                Box(
+                    Modifier.align(Alignment.BottomEnd).size(13.dp).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.secondary)
+                        .border(2.dp, MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                )
+            }
+        }
         Spacer(Modifier.height(7.dp))
         Text(
             conversation.title,
@@ -1065,14 +1081,149 @@ private fun FeaturedBotCard(conversation: Conversation, onClick: () -> Unit) {
             fontWeight = FontWeight.Medium,
             maxLines = 1,
         )
-        if (conversation.isBot) {
-            Box(
-                Modifier.padding(top = 5.dp).size(7.dp).clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.secondary),
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DirectoryConversationRow(
+    row: Conversation,
+    unread: Boolean,
+    pinned: Boolean,
+    sections: List<SidebarSection>,
+    shareActive: Boolean,
+    menuExpanded: Boolean,
+    onOpen: () -> Unit,
+    onShareTarget: () -> Unit,
+    onBotDetails: () -> Unit,
+    onTogglePin: () -> Unit,
+    onMoveToSection: (String?) -> Unit,
+    onOpenMenu: () -> Unit,
+    onDismissMenu: () -> Unit,
+) {
+    val timestamp = conversationTimestampLabel(
+        row.updatedAt,
+        yesterday = stringResource(com.openteam.android.R.string.directory_yesterday),
+    )
+    Box {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .testTag("conversation-${row.id}")
+                .combinedClickable(
+                    onClick = { if (shareActive) onShareTarget() else onOpen() },
+                    onLongClick = { if (shareActive) onShareTarget() else onOpenMenu() },
+                )
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BotAvatar(row, size = 46.dp)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        row.title,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (timestamp != null) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            timestamp,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .8f),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        row.preview ?: stringResource(com.openteam.android.R.string.directory_no_messages),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (unread) {
+                        Box(
+                            Modifier.padding(start = 8.dp).size(10.dp).clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.secondary),
+                        )
+                    }
+                }
+            }
+        }
+        DropdownMenu(expanded = menuExpanded, onDismissRequest = onDismissMenu) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        stringResource(
+                            if (pinned) com.openteam.android.R.string.directory_unpin
+                            else com.openteam.android.R.string.directory_pin,
+                        ),
+                    )
+                },
+                onClick = { onDismissMenu(); onTogglePin() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(com.openteam.android.R.string.directory_bot_details)) },
+                onClick = { onDismissMenu(); onBotDetails() },
+            )
+            sections.forEach { section ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(com.openteam.android.R.string.directory_move_to_section, section.name)) },
+                    onClick = { onDismissMenu(); onMoveToSection(section.id) },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text(stringResource(com.openteam.android.R.string.directory_section_unassigned)) },
+                onClick = { onDismissMenu(); onMoveToSection(null) },
             )
         }
     }
 }
+
+@Composable
+private fun DirectorySectionHeader(
+    name: String,
+    collapsed: Boolean,
+    count: Int,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(top = 18.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (collapsed) "$name $count" else name,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(6.dp))
+        Icon(
+            if (collapsed) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .6f),
+            modifier = Modifier.size(16.dp),
+        )
+    }
+}
+
+private fun conversationTimestampLabel(iso: String?, yesterday: String): String? {
+    if (iso.isNullOrBlank()) return null
+    val zoned = runCatching { Instant.parse(iso).atZone(ZoneId.systemDefault()) }.getOrNull() ?: return null
+    val date = zoned.toLocalDate()
+    val today = LocalDate.now(zoned.zone)
+    return when {
+        date == today -> DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault()).format(zoned)
+        date == today.minusDays(1) -> yesterday
+        date.isAfter(today.minusDays(7)) ->
+            DateTimeFormatter.ofPattern("EEEE", Locale.getDefault()).format(zoned)
+        else -> DateTimeFormatter.ofPattern("M/d/yy", Locale.getDefault()).format(zoned)
+    }
+}
+
 
 @Composable
 private fun BotAvatar(conversation: Conversation, size: androidx.compose.ui.unit.Dp) {

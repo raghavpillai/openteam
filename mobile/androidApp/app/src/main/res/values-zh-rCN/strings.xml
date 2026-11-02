@@ -36,6 +36,7 @@
     <string name="directory_greeting">欢迎回来</string>
     <string name="directory_search">搜索对话</string>
     <string name="directory_create">创建对话</string>
+    <string name="directory_settings">设置</string>
     <string name="directory_more">更多设置</string>
     <string name="directory_sign_out">退出登录</string>
     <string name="directory_routines">例行任务</string>
@@ -72,6 +73,11 @@
     <string name="directory_spaces">你的空间</string>
     <string name="directory_spaces_detail">人员和频道，集中在一起。</string>
     <string name="directory_no_messages">还没有消息</string>
+    <string name="directory_section_unassigned">未分组</string>
+    <string name="directory_pin">Pin 到顶部</string>
+    <string name="directory_unpin">取消 Pin</string>
+    <string name="directory_move_to_section">移动到「%1$s」</string>
+    <string name="directory_yesterday">昨天</string>
     <string name="directory_share_title">选择一个对话进行分享</string>
     <string name="directory_search_label">搜索对话</string>
     <string name="common_clear">清除</string>

@@ -153,12 +153,14 @@ data class AccountMemoryState(val profile: AccountProfile, val memories: List<Me
 data class AppSettings(
     val appearance: Appearance = Appearance.System,
     val accent: Accent = Accent.Black,
+    val language: Language = Language.English,
     val timeZone: String = "UTC",
     val haptics: Boolean = true,
     val notifications: NotificationPreferences = NotificationPreferences(),
 ) {
     enum class Appearance { System, Light, Dark }
     enum class Accent { Black, Blue, Purple, Green }
+    enum class Language { English, Chinese }
 }
 
 data class NotificationPreferences(

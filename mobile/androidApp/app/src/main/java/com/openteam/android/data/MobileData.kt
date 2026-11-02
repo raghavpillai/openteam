@@ -15,8 +15,70 @@ data class Conversation(
     val avatarUrl: String? = null,
     val botId: String? = null,
     val isBot: Boolean = false,
+    val isGroup: Boolean = false,
     val updatedLabel: String? = null,
+    /** One-line preview of the newest message, shown in the conversation list. */
+    val latestPreview: String? = null,
+    /** ISO timestamp of the channel's newest activity, used for ordering and labels. */
+    val updatedAt: String? = null,
+) {
+    /** Text shown under the title: the latest message, else the bot/channel description. */
+    val preview: String?
+        get() = latestPreview?.takeIf { it.isNotBlank() } ?: subtitle.takeIf { it.isNotBlank() }
+}
+
+/** A user-created sidebar group ("section") that conversations can be filed into. */
+data class SidebarSection(
+    val id: String,
+    val name: String,
+    val collapsed: Boolean = false,
 )
+
+/**
+ * Mirrors the cross-client sidebar preferences: which conversations are pinned to the
+ * top, which are manually unread, and how the rest are grouped and ordered.
+ */
+data class SidebarPreferences(
+    val pinnedIds: List<String> = emptyList(),
+    val unreadIds: List<String> = emptyList(),
+    val unassignedCollapsed: Boolean = false,
+    val sections: List<SidebarSection> = emptyList(),
+    val sectionByChannel: Map<String, String> = emptyMap(),
+    val channelOrderByGroup: Map<String, List<String>> = emptyMap(),
+) {
+    fun isPinned(conversationId: String): Boolean = pinnedIds.contains(conversationId)
+
+    fun isUnread(conversationId: String): Boolean = unreadIds.contains(conversationId)
+
+    fun sectionIdFor(conversationId: String): String? = sectionByChannel[conversationId]
+
+    fun togglePin(conversationId: String): SidebarPreferences =
+        if (pinnedIds.contains(conversationId)) {
+            copy(pinnedIds = pinnedIds - conversationId)
+        } else {
+            copy(pinnedIds = pinnedIds + conversationId)
+        }
+
+    fun moveToSection(conversationId: String, sectionId: String?): SidebarPreferences =
+        copy(
+            sectionByChannel = if (sectionId.isNullOrBlank()) {
+                sectionByChannel - conversationId
+            } else {
+                sectionByChannel + (conversationId to sectionId)
+            },
+        )
+
+    fun toggleSection(sectionId: String?): SidebarPreferences =
+        if (sectionId.isNullOrBlank()) {
+            copy(unassignedCollapsed = !unassignedCollapsed)
+        } else {
+            copy(
+                sections = sections.map {
+                    if (it.id == sectionId) it.copy(collapsed = !it.collapsed) else it
+                },
+            )
+        }
+}
 
 data class ChatMessage(
     val id: String,
@@ -141,6 +203,12 @@ interface MobileGateway {
         clientId: String,
         attachments: List<Attachment>,
     ): Result<ChatMessage> = send(conversationId, text, clientId)
+
+    /** Server-stored pins, groups, and ordering used by the conversation list. */
+    suspend fun sidebarPreferences(): SidebarPreferences = SidebarPreferences()
+
+    /** Persists the sidebar preferences and returns the server's stored view. */
+    suspend fun saveSidebarPreferences(preferences: SidebarPreferences): SidebarPreferences = preferences
 }
 
 /** UI adapter seam; replace with the shared mobile-core repository when available. */
@@ -168,6 +236,10 @@ class PreviewMobileGateway : MobileGateway {
 
     override suspend fun send(conversationId: String, text: String, clientId: String, attachments: List<MessageAttachment>) =
         Result.success(ChatMessage(clientId, "You", text, isMine = true))
+
+    override suspend fun sidebarPreferences(): SidebarPreferences = SidebarPreferences()
+
+    override suspend fun saveSidebarPreferences(preferences: SidebarPreferences): SidebarPreferences = preferences
 }
 
 fun newClientId(): String = UUID.randomUUID().toString()

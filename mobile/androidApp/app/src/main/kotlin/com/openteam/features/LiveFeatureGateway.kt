@@ -269,6 +269,7 @@ private fun ProviderConnection.toJson() = buildJsonObject {
 private fun AppSettings.toJson() = buildJsonObject {
     put("appearance", appearance.name.lowercase())
     put("accent", accent.name.lowercase())
+    put("language", language.name.lowercase())
     put("timeZone", timeZone)
     put("haptics", haptics)
     put("notifications", buildJsonObject {

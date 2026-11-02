@@ -28,6 +28,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -93,7 +94,16 @@ class HttpMobileGateway(context: Context) :
         server = saved.server
         token = saved.token
         accountName = saved.userId
-        return MobileSession(saved.server, saved.userId)
+        val restoredDisplayName = runCatching {
+            jsonRequest(saved.server, "/api/auth/get-session", token = saved.token).body
+                .objectAt("user")
+                .let { user ->
+                    listOf(user.string("username"), user.string("name"), user.string("email"))
+                        .firstOrNull(String::isNotBlank)
+                }
+        }.getOrNull()
+        accountName = restoredDisplayName ?: saved.userId
+        return MobileSession(saved.server, accountName.orEmpty())
     }
 
     override suspend fun signOut() {
@@ -135,7 +145,7 @@ class HttpMobileGateway(context: Context) :
                     ?: throw IllegalStateException("The server did not complete sign-in. Try again or contact your administrator.")
                 val user = login.body.objectAt("user")
                 userId = user.string("id").ifBlank { username.trim() }
-                displayName = listOf(user.string("name"), user.string("username"), user.string("email"))
+                displayName = listOf(user.string("username"), user.string("name"), user.string("email"))
                     .firstOrNull(String::isNotBlank) ?: username.trim()
             }
 
@@ -328,28 +338,141 @@ class HttpMobileGateway(context: Context) :
     private fun applyBootstrap(bootstrap: JsonObject) {
         bots = bootstrap.arrayAt("bots").mapNotNull { it.jsonObjectOrNull() }.associateBy { it.string("id") }
         channels = bootstrap.arrayAt("channels").mapNotNull { it.jsonObjectOrNull() }.associateBy { it.string("id") }
+        // Bootstrap carries each channel's newest message so the list can show a preview
+        // without downloading full histories.
+        val latestByChannel = bootstrap.arrayAt("latestMessages")
+            .mapNotNull { it.jsonObjectOrNull() }
+            .associateBy { it.string("channelId") }
         directory = channels.values
             .filterNot { it.boolean("hiddenFromSidebar") }
             .map { channel ->
+                val channelId = channel.string("id")
                 val botId = channel.botIdFromDirectKey()
                 val bot = bots[botId]
-                val title = if (channel.string("kind") == "bot_dm") {
+                val kind = channel.string("kind")
+                val title = if (kind == "bot_dm") {
                     bot?.botDisplayName().orEmpty()
                 } else channel.string("name")
+                val latest = latestByChannel[channelId]
                 Conversation(
-                    id = channel.string("id"),
+                    id = channelId,
                     title = title.ifBlank { "Conversation" },
-                    subtitle = if (channel.string("kind") == "bot_dm") bot?.string("description").orEmpty() else channel.string("description"),
+                    subtitle = if (kind == "bot_dm") bot?.string("description").orEmpty() else channel.string("description"),
                     unread = channel.int("unreadCount").coerceAtLeast(0),
                     avatarColor = bot?.string("color").orEmpty(),
                     avatarUrl = bot?.string("avatarUrl", "avatar")?.ifBlank { null },
                     botId = botId.ifBlank { null },
-                    isBot = channel.string("kind") == "bot_dm",
+                    isBot = kind == "bot_dm",
+                    isGroup = kind == "group",
                     updatedLabel = channel.string("updatedLabel", "lastUpdatedLabel").ifBlank { null },
+                    latestPreview = latest?.let(::messagePreviewText),
+                    updatedAt = channel.string("updatedAt").ifBlank { latest?.string("createdAt").orEmpty() }.takeIf { it.isNotBlank() },
                 )
             }
             .sortedBy { it.title.lowercase() }
     }
+
+    override suspend fun sidebarPreferences(): SidebarPreferences {
+        val activeServer = ensureConnected()
+        val root = jsonRequest(activeServer, "/api/v0/settings", token = token).body
+        return parseSidebarPreferences(root.objectAt("settings"))
+    }
+
+    override suspend fun saveSidebarPreferences(preferences: SidebarPreferences): SidebarPreferences {
+        val activeServer = ensureConnected()
+        val body = buildJsonObject {
+            put("version", 2)
+            put("pinnedIds", buildJsonArray { preferences.pinnedIds.forEach { add(it) } })
+            put("unreadIds", buildJsonArray { preferences.unreadIds.forEach { add(it) } })
+            put("unassignedCollapsed", preferences.unassignedCollapsed)
+            put("sections", buildJsonArray {
+                preferences.sections.forEach { section ->
+                    add(buildJsonObject {
+                        put("id", section.id)
+                        put("name", section.name)
+                        put("collapsed", section.collapsed)
+                    })
+                }
+            })
+            put("sectionByChannel", buildJsonObject {
+                preferences.sectionByChannel.forEach { (channelId, sectionId) -> put(channelId, sectionId) }
+            })
+            put("channelOrderByGroup", buildJsonObject {
+                preferences.channelOrderByGroup.forEach { (group, ids) ->
+                    put(group, buildJsonArray { ids.forEach { add(it) } })
+                }
+            })
+        }
+        val result = runCatching {
+            jsonRequest(activeServer, "/api/v0/settings/sidebar", HttpMethod.PATCH, token = token, body = body).body
+        }
+        return result.getOrNull()?.let(::parseSidebarPreferences) ?: preferences
+    }
+
+    /** Parses the flat v2 `sidebarPreferences` object, either standalone or nested under settings. */
+    private fun parseSidebarPreferences(settings: JsonObject): SidebarPreferences {
+        if (settings.int("version") == 2) return parseSidebarPreferencesV2(settings)
+        val v2 = settings["sidebarPreferences"]?.jsonObjectOrNull()
+        if (v2 != null && v2.int("version") == 2) return parseSidebarPreferencesV2(v2)
+
+        // Legacy root settings: pinned agent ids and sections, already mapped to channel ids.
+        val pinned = settings.arrayAt("pinnedAgentIds").mapNotNull { it.asString() }
+        val rawSections = settings.arrayAt("sidebarSections").mapNotNull { it.jsonObjectOrNull() }
+        if (pinned.isEmpty() && rawSections.isEmpty()) return SidebarPreferences()
+        val unassigned = rawSections.firstOrNull { it.string("id") == "__agents__" }
+        val assigned = rawSections.filter { it.string("id") != "__agents__" && it.string("id").isNotBlank() }
+        return SidebarPreferences(
+            pinnedIds = pinned.distinct(),
+            unassignedCollapsed = unassigned?.boolean("isCollapsed") ?: false,
+            sections = assigned.map { section ->
+                SidebarSection(
+                    id = section.string("id"),
+                    name = section.string("name"),
+                    collapsed = section.boolean("isCollapsed"),
+                )
+            },
+            sectionByChannel = assigned.flatMap { section ->
+                section.arrayAt("agentIds").mapNotNull { it.asString() }.map { it to section.string("id") }
+            }.toMap(),
+        )
+    }
+
+    private fun parseSidebarPreferencesV2(v2: JsonObject): SidebarPreferences = SidebarPreferences(
+        pinnedIds = v2.arrayAt("pinnedIds").mapNotNull { it.asString() }.distinct(),
+        unreadIds = v2.arrayAt("unreadIds").mapNotNull { it.asString() }.distinct(),
+        unassignedCollapsed = v2.boolean("unassignedCollapsed"),
+        sections = v2.arrayAt("sections").mapNotNull { it.jsonObjectOrNull() }.map { section ->
+            SidebarSection(
+                id = section.string("id"),
+                name = section.string("name"),
+                collapsed = section.boolean("collapsed"),
+            )
+        }.filter { it.id.isNotBlank() },
+        sectionByChannel = v2.objectAt("sectionByChannel").mapNotNull { (channelId, value) ->
+            value.asString()?.let { channelId to it }
+        }.toMap(),
+        channelOrderByGroup = v2.objectAt("channelOrderByGroup").mapNotNull { (group, value) ->
+            value.jsonArrayOrEmpty()?.let { group to it.mapNotNull { item -> item.asString() } }
+        }.toMap(),
+    )
+
+    /** A one-line, plain-text preview of a message for the conversation list. */
+    private fun messagePreviewText(message: JsonObject): String? {
+        val firstLine = message.string("content")
+            .lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() }
+            ?: return null
+        val plain = firstLine
+            .replace(Regex("!\\[[^\\]]*\\]\\([^)]*\\)"), "")
+            .replace(Regex("\\[([^\\]]*)\\]\\([^)]*\\)"), "$1")
+            .replace(Regex("[`*_>#~|]+"), "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (plain.isEmpty()) return null
+        return if (plain.length > 120) plain.take(119) + "…" else plain
+    }
+
 
     private suspend fun ensureConnected(): String = server ?: throw IllegalStateException("Sign in to a server first.")
 

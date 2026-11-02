@@ -17,6 +17,7 @@ import com.openteam.android.data.MobileSession
 import com.openteam.android.data.OutgoingShare
 import com.openteam.android.data.PreviewMobileGateway
 import com.openteam.android.data.ServerValidationApi
+import com.openteam.android.data.SidebarPreferences
 import com.openteam.android.data.VoiceTranscriptionApi
 import com.openteam.android.data.newClientId
 import com.openteam.android.navigation.ChatTarget
@@ -53,6 +54,7 @@ import java.net.URLDecoder
 data class AppState(
     val session: MobileSession? = null,
     val conversations: List<Conversation> = emptyList(),
+    val sidebar: SidebarPreferences = SidebarPreferences(),
     val activeConversationId: String? = null,
     val activeMessageId: String? = null,
     val messages: List<ChatMessage> = emptyList(),
@@ -93,6 +95,7 @@ class AppViewModel @JvmOverloads constructor(
     private val drafts: DraftStore = DraftStore(application),
     private val featureGateway: FeatureGateway? = null,
 ) : AndroidViewModel(application) {
+    private val settingsPreferences = application.getSharedPreferences("openteam-settings", 0)
     private var activeGateway: MobileGateway = gateway
     private var activeFeatureGateway: FeatureGateway = featureGateway
         ?: (gateway as? MobileFeatureApi)?.let(::LiveFeatureGateway)
@@ -265,6 +268,40 @@ class AppViewModel @JvmOverloads constructor(
             runCatching { activeGateway.conversations() }
                 .onSuccess { rows -> mutableState.update { it.copy(conversations = rows) } }
                 .onFailure { error -> mutableState.update { it.copy(error = error.message) } }
+            // Load pins and grouping after the directory so both requests settle in order.
+            runCatching { activeGateway.sidebarPreferences() }
+                .onSuccess { preferences -> mutableState.update { it.copy(sidebar = preferences) } }
+        }
+    }
+
+    /** Refreshes server-stored pins and section grouping for the conversation list. */
+    fun loadSidebar() {
+        viewModelScope.launch {
+            runCatching { activeGateway.sidebarPreferences() }
+                .onSuccess { preferences -> mutableState.update { it.copy(sidebar = preferences) } }
+        }
+    }
+
+    fun togglePinned(conversationId: String) {
+        saveSidebar(mutableState.value.sidebar.togglePin(conversationId))
+    }
+
+    fun moveToSection(conversationId: String, sectionId: String?) {
+        saveSidebar(mutableState.value.sidebar.moveToSection(conversationId, sectionId))
+    }
+
+    fun toggleSection(sectionId: String?) {
+        saveSidebar(mutableState.value.sidebar.toggleSection(sectionId))
+    }
+
+    /** Applies a sidebar change optimistically, then persists it to the server. */
+    private fun saveSidebar(next: SidebarPreferences) {
+        val previous = mutableState.value.sidebar
+        mutableState.update { it.copy(sidebar = next) }
+        viewModelScope.launch {
+            runCatching { activeGateway.saveSidebarPreferences(next) }
+                .onSuccess { saved -> mutableState.update { it.copy(sidebar = saved) } }
+                .onFailure { mutableState.update { it.copy(sidebar = previous, error = it.error ?: "无法保存排序设置。") } }
         }
     }
 
@@ -584,6 +621,7 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     fun saveSettings(settings: AppSettings) {
+        settingsPreferences.edit().putString("language", settings.language.name).apply()
         mutableState.update { it.copy(features = it.features.copy(settings = settings)) }
         runFeatureOperation {
             activeFeatureGateway.saveSettings(settings).onSuccess { saved ->
@@ -690,7 +728,11 @@ class AppViewModel @JvmOverloads constructor(
     private fun loadSettings() {
         viewModelScope.launch {
             activeFeatureGateway.loadSettings().onSuccess { value ->
-                mutableState.update { it.copy(features = it.features.copy(settings = value)) }
+                val language = when (settingsPreferences.getString("language", null)) {
+                    AppSettings.Language.Chinese.name -> AppSettings.Language.Chinese
+                    else -> AppSettings.Language.English
+                }
+                mutableState.update { it.copy(features = it.features.copy(settings = value.copy(language = language))) }
             }
         }
     }

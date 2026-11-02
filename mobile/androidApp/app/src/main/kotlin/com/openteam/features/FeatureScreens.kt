@@ -10,6 +10,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,9 +20,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -31,6 +36,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -58,8 +65,21 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 @Composable
-private fun FeaturePage(title: String, content: @Composable () -> Unit) {
-    Scaffold(topBar = { TopAppBar(title = { Text(title) }) }) { padding ->
+private fun FeaturePage(title: String, onBack: (() -> Unit)? = null, content: @Composable () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    onBack?.let {
+                        IconButton(onClick = it) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                },
+                title = { Text(title) },
+            )
+        },
+    ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) { content() }
     }
 }
@@ -473,28 +493,274 @@ fun AccountMemoryScreen(
 }
 
 @Composable
-fun SettingsScreen(settings: AppSettings, onChange: (AppSettings) -> Unit, onSignOut: () -> Unit) {
+fun SettingsScreen(
+    settings: AppSettings,
+    accountName: String,
+    server: String,
+    onChange: (AppSettings) -> Unit,
+    onSignOut: () -> Unit,
+    onBack: () -> Unit,
+    onProviders: () -> Unit,
+    onWebProviders: () -> Unit,
+) {
     var confirmSignOut by remember { mutableStateOf(false) }
-    FeaturePage("Settings") {
-        LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Text("Appearance", style = MaterialTheme.typography.titleMedium) }
-            item { ChoiceRow("Theme", AppSettings.Appearance.entries, settings.appearance, { onChange(settings.copy(appearance = it)) }, { it.name }) }
-            item { ChoiceRow("Accent", AppSettings.Accent.entries, settings.accent, { onChange(settings.copy(accent = it)) }, { it.name }) }
-            item { OutlinedTextField(settings.timeZone, { onChange(settings.copy(timeZone = it)) }, label = { Text("Time zone") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
-            item { Row(verticalAlignment = Alignment.CenterVertically) { Text("App haptics", modifier = Modifier.weight(1f)); Switch(checked = settings.haptics, onCheckedChange = { onChange(settings.copy(haptics = it)) }) } }
-            item { Text("Notifications", style = MaterialTheme.typography.titleMedium) }
-            item { NotificationToggle("Messages", settings.notifications.messages) { onChange(settings.copy(notifications = settings.notifications.copy(messages = it))) } }
-            item { NotificationToggle("Mentions", settings.notifications.mentions) { onChange(settings.copy(notifications = settings.notifications.copy(mentions = it))) } }
-            item { NotificationToggle("Routine runs", settings.notifications.routineRuns) { onChange(settings.copy(notifications = settings.notifications.copy(routineRuns = it))) } }
-            item { TextButton(onClick = { confirmSignOut = true }) { Text("Sign out", color = MaterialTheme.colorScheme.error) } }
+    val language = settings.language
+    val text: (String, String) -> String = { english, chinese ->
+        if (language == AppSettings.Language.Chinese) chinese else english
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = text("Back", "返回"))
+                    }
+                },
+                title = {
+                    Column {
+                        Text(text("Settings", "设置"))
+                        Text(
+                            text("Application preferences", "应用偏好"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+    ) { padding ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 14.dp, bottom = 28.dp),
+        ) {
+            item {
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(48.dp).background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                accountName.take(1).uppercase().ifBlank { "O" },
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                style = MaterialTheme.typography.titleLarge,
+                            )
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(accountName.ifBlank { "OpenTeam" }, fontWeight = FontWeight.SemiBold)
+                            Text(server, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(text("Connected", "已连接"), style = MaterialTheme.typography.labelSmall, color = Color(0xFF277A45))
+                        }
+                    }
+                }
+            }
+
+            item { SettingsSectionTitle(text("Appearance", "外观")) }
+            item {
+                SettingsGroup {
+                    SettingsRow(text("Theme", "主题"), text("Choose the app theme", "选择应用主题")) {
+                        ChoiceChips(
+                            choices = AppSettings.Appearance.entries,
+                            selected = settings.appearance,
+                            label = { choice ->
+                                when (choice) {
+                                    AppSettings.Appearance.System -> text("System", "系统")
+                                    AppSettings.Appearance.Light -> text("Light", "浅色")
+                                    AppSettings.Appearance.Dark -> text("Dark", "深色")
+                                }
+                            },
+                            onSelected = { onChange(settings.copy(appearance = it)) },
+                        )
+                    }
+                    SettingsRow(text("Accent", "强调色"), text("Choose the interface accent", "选择界面强调色")) {
+                        ChoiceChips(
+                            choices = AppSettings.Accent.entries,
+                            selected = settings.accent,
+                            label = { choice ->
+                                when (choice) {
+                                    AppSettings.Accent.Black -> text("Black", "黑色")
+                                    AppSettings.Accent.Blue -> text("Blue", "蓝色")
+                                    AppSettings.Accent.Purple -> text("Purple", "紫色")
+                                    AppSettings.Accent.Green -> text("Green", "绿色")
+                                }
+                            },
+                            onSelected = { onChange(settings.copy(accent = it)) },
+                        )
+                    }
+                }
+            }
+
+            item { SettingsSectionTitle(text("Language", "语言")) }
+            item {
+                SettingsGroup {
+                    SettingsRow(text("Interface language", "界面语言"), text("Choose the language used by settings", "选择设置界面使用的语言")) {
+                        ChoiceChips(
+                            choices = AppSettings.Language.entries,
+                            selected = language,
+                            label = { choice -> if (choice == AppSettings.Language.Chinese) "中文" else "English" },
+                            onSelected = { onChange(settings.copy(language = it)) },
+                        )
+                    }
+                }
+            }
+
+            item { SettingsSectionTitle(text("Preferences", "偏好设置")) }
+            item {
+                SettingsGroup {
+                    SettingsRow(text("Time zone", "时区"), text("Used for routines and timestamps", "用于例行任务和时间戳"), inline = false) {
+                        OutlinedTextField(
+                            value = settings.timeZone,
+                            onValueChange = { onChange(settings.copy(timeZone = it)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text(text("Time zone", "时区")) },
+                        )
+                    }
+                    SettingsRow(text("App haptics", "应用触感反馈"), text("Vibrate for important interactions", "重要交互时提供震动反馈")) {
+                        Switch(checked = settings.haptics, onCheckedChange = { onChange(settings.copy(haptics = it)) })
+                    }
+                }
+            }
+
+            item { SettingsSectionTitle(text("Notifications", "通知")) }
+            item {
+                SettingsGroup {
+                    SettingsToggleRow(text("Messages", "消息"), text("Notify about new messages", "新消息提醒"), settings.notifications.messages) {
+                        onChange(settings.copy(notifications = settings.notifications.copy(messages = it)))
+                    }
+                    SettingsToggleRow(text("Mentions", "提及"), text("Notify when you are mentioned", "有人提及时提醒"), settings.notifications.mentions) {
+                        onChange(settings.copy(notifications = settings.notifications.copy(mentions = it)))
+                    }
+                    SettingsToggleRow(text("Routine runs", "例行任务运行"), text("Notify when scheduled work runs", "计划任务运行时提醒"), settings.notifications.routineRuns) {
+                        onChange(settings.copy(notifications = settings.notifications.copy(routineRuns = it)))
+                    }
+                }
+            }
+
+            item { SettingsSectionTitle(text("Connections", "连接")) }
+            item {
+                SettingsGroup {
+                    SettingsActionRow(text("AI model", "AI 模型"), text("Choose the provider and model used by bots", "选择 Bot 使用的服务商和模型"), text("Open", "打开"), onProviders)
+                    SettingsActionRow(text("Web providers", "网络服务商"), text("Choose search and page-fetch services", "选择搜索和网页抓取服务"), text("Open", "打开"), onWebProviders)
+                }
+            }
+
+            item {
+                SettingsGroup {
+                    Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { confirmSignOut = true }) {
+                            Text(text("Sign out", "退出登录"), color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
         }
-        if (confirmSignOut) {
-            AlertDialog(
-                onDismissRequest = { confirmSignOut = false },
-                title = { Text("Sign out?") },
-                text = { Text("You will need to sign in again to use this server.") },
-                confirmButton = { TextButton(onClick = { confirmSignOut = false; onSignOut() }) { Text("Sign out", color = MaterialTheme.colorScheme.error) } },
-                dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") } },
+    }
+
+    if (confirmSignOut) {
+        AlertDialog(
+            onDismissRequest = { confirmSignOut = false },
+            title = { Text(text("Sign out?", "退出登录？")) },
+            text = { Text(text("You will need to sign in again to use this server.", "你需要重新登录才能使用此服务器。")) },
+            confirmButton = {
+                TextButton(onClick = { confirmSignOut = false; onSignOut() }) {
+                    Text(text("Sign out", "退出登录"), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text(text("Cancel", "取消")) } },
+        )
+    }
+}
+
+@Composable
+private fun SettingsSectionTitle(title: String) {
+    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+}
+
+@Composable
+private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(content = content)
+    }
+}
+
+@Composable
+private fun SettingsRow(title: String, description: String, inline: Boolean = true, content: @Composable () -> Unit) {
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp),
+    ) {
+        val stacked = !inline || maxWidth < 520.dp
+        if (stacked) {
+            Column(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                Column(Modifier.widthIn(max = 360.dp)) {
+                    Text(title, fontWeight = FontWeight.Medium)
+                    Text(
+                        description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Box(
+                    Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    content()
+                }
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    Modifier.weight(1f).widthIn(max = 320.dp),
+                ) {
+                    Text(title, fontWeight = FontWeight.Medium)
+                    Text(
+                        description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(title: String, description: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    SettingsRow(title, description) {
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun SettingsActionRow(title: String, description: String, action: String, onClick: () -> Unit) {
+    SettingsRow(title, description) {
+        TextButton(onClick = onClick) { Text(action) }
+    }
+}
+
+@Composable
+private fun <T> ChoiceChips(choices: List<T>, selected: T, label: (T) -> String, onSelected: (T) -> Unit) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        choices.forEach { choice ->
+            FilterChip(
+                selected = choice == selected,
+                onClick = { onSelected(choice) },
+                label = { Text(label(choice)) },
             )
         }
     }
@@ -514,33 +780,48 @@ private fun NotificationToggle(label: String, enabled: Boolean, onChange: (Boole
 fun ProviderSettingsScreen(
     state: FeatureLoadState<List<ProviderConnection>>,
     onRetry: () -> Unit,
+    onBack: () -> Unit,
+    language: AppSettings.Language,
     onConnect: (ProviderConnection, String?) -> Unit,
     onDisconnect: (ProviderConnection) -> Unit,
     onModelChange: (ProviderConnection, String) -> Unit,
     onReasoningChange: (ProviderConnection, String) -> Unit,
 ) {
     var pendingDisconnect by remember { mutableStateOf<ProviderConnection?>(null) }
-    FeaturePage("Providers") {
+    val text: (String, String) -> String = { english, chinese -> if (language == AppSettings.Language.Chinese) chinese else english }
+    FeaturePage(text("AI model", "AI 模型"), onBack = onBack) {
         LoadStateContent(state, onRetry) { providers ->
-            LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 14.dp, bottom = 28.dp)) {
+                item { SettingsSectionTitle(text("Choose the provider and model used by bots.", "选择 Bot 使用的服务商和模型。")) }
                 items(providers, key = { it.id }) { provider ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) { Text(provider.name, Modifier.weight(1f), fontWeight = FontWeight.Bold); Text(if (provider.connected) "Connected" else "Disconnected") }
+                    SettingsGroup {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(provider.name, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    if (provider.connected) text("Connected", "已连接") else text("Disconnected", "未连接"),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (provider.connected) Color(0xFF277A45) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             provider.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                             if (!provider.connected) {
                                 if (provider.authMode == AuthMode.ApiKey) {
                                     var apiKey by remember(provider.id) { mutableStateOf("") }
-                                    OutlinedTextField(apiKey, { apiKey = it }, label = { Text(if (provider.apiKeySaved) "Replace API key" else "API key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
-                                    Button(onClick = { onConnect(provider.copy(apiKeySaved = true), apiKey.takeIf { it.isNotBlank() }); apiKey = "" }, enabled = apiKey.isNotBlank() || provider.apiKeySaved) { Text("Save and connect") }
+                                    OutlinedTextField(apiKey, { apiKey = it }, label = { Text(if (provider.apiKeySaved) text("Replace API key", "替换 API 密钥") else text("API key", "API 密钥")) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
+                                    Button(onClick = { onConnect(provider.copy(apiKeySaved = true), apiKey.takeIf { it.isNotBlank() }); apiKey = "" }, enabled = apiKey.isNotBlank() || provider.apiKeySaved) { Text(text("Save and connect", "保存并连接")) }
                                 } else {
-                                    Button(onClick = { onConnect(provider, null) }) { Text(if (provider.authMode == AuthMode.OAuth) "Connect with OAuth" else "Connect") }
+                                    Button(onClick = { onConnect(provider, null) }) { Text(if (provider.authMode == AuthMode.OAuth) text("Connect with OAuth", "使用 OAuth 连接") else text("Connect", "连接")) }
                                 }
                             }
                             else {
-                                ChoiceRow("Model", provider.models, provider.selectedModel ?: provider.models.firstOrNull().orEmpty(), { onModelChange(provider, it) }, { it })
-                                ChoiceRow("Reasoning", provider.reasoningLevels, provider.selectedReasoning ?: provider.reasoningLevels.firstOrNull().orEmpty(), { onReasoningChange(provider, it) }, { it })
-                                TextButton(onClick = { pendingDisconnect = provider }) { Text("Disconnect") }
+                                SettingsRow(text("Model", "模型"), text("Used by this provider", "此服务商使用的模型"), inline = false) {
+                                    ChoiceChips(provider.models, provider.selectedModel ?: provider.models.firstOrNull().orEmpty(), { it }) { onModelChange(provider, it) }
+                                }
+                                SettingsRow(text("Reasoning", "推理强度"), text("How much effort the model uses", "模型使用的推理强度"), inline = false) {
+                                    ChoiceChips(provider.reasoningLevels, provider.selectedReasoning ?: provider.reasoningLevels.firstOrNull().orEmpty(), { it }) { onReasoningChange(provider, it) }
+                                }
+                                TextButton(onClick = { pendingDisconnect = provider }) { Text(text("Disconnect", "断开连接"), color = MaterialTheme.colorScheme.error) }
                             }
                         }
                     }
@@ -550,10 +831,10 @@ fun ProviderSettingsScreen(
         pendingDisconnect?.let { provider ->
             AlertDialog(
                 onDismissRequest = { pendingDisconnect = null },
-                title = { Text("Disconnect ${provider.name}?") },
-                text = { Text("The server will remove this provider connection and its selected model.") },
-                confirmButton = { TextButton(onClick = { pendingDisconnect = null; onDisconnect(provider) }) { Text("Disconnect", color = MaterialTheme.colorScheme.error) } },
-                dismissButton = { TextButton(onClick = { pendingDisconnect = null }) { Text("Cancel") } },
+                title = { Text(text("Disconnect ${provider.name}?", "断开 ${provider.name}？")) },
+                text = { Text(text("The server will remove this provider connection and its selected model.", "服务器将移除此服务商连接及其已选模型。")) },
+                confirmButton = { TextButton(onClick = { pendingDisconnect = null; onDisconnect(provider) }) { Text(text("Disconnect", "断开连接"), color = MaterialTheme.colorScheme.error) } },
+                dismissButton = { TextButton(onClick = { pendingDisconnect = null }) { Text(text("Cancel", "取消")) } },
             )
         }
     }
@@ -563,16 +844,19 @@ fun ProviderSettingsScreen(
 fun WebProviderSettingsScreen(
     state: FeatureLoadState<WebProvidersState>,
     onRetry: () -> Unit,
+    onBack: () -> Unit,
+    language: AppSettings.Language,
     onSelect: (tool: String, provider: WebProvider) -> Unit,
     onSaveKey: (tool: String, provider: WebProvider, key: String) -> Unit,
     onRemoveKey: (tool: String, provider: WebProvider) -> Unit,
     onCheck: (tool: String, provider: WebProvider) -> Unit,
 ) {
-    FeaturePage("Web providers") {
+    val text: (String, String) -> String = { english, chinese -> if (language == AppSettings.Language.Chinese) chinese else english }
+    FeaturePage(text("Web providers", "网络服务商"), onBack = onBack) {
         LoadStateContent(state, onRetry) { providers ->
-            LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item { WebProviderTool("Search", "search", providers.search, onSelect, onSaveKey, onRemoveKey, onCheck) }
-                item { WebProviderTool("Fetch", "fetch", providers.fetch, onSelect, onSaveKey, onRemoveKey, onCheck) }
+            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 14.dp, bottom = 28.dp)) {
+                item { WebProviderTool(text("Search", "搜索"), text("The service bots use to find information on the web.", "Bot 用于在网络上查找信息的服务。"), "search", providers.search, language, onSelect, onSaveKey, onRemoveKey, onCheck) }
+                item { WebProviderTool(text("Fetch", "抓取"), text("How bots read a web page without opening their browser.", "Bot 不打开浏览器时读取网页的方式。"), "fetch", providers.fetch, language, onSelect, onSaveKey, onRemoveKey, onCheck) }
             }
         }
     }
@@ -581,42 +865,45 @@ fun WebProviderSettingsScreen(
 @Composable
 private fun WebProviderTool(
     title: String,
+    description: String,
     tool: String,
     providers: List<WebProvider>,
+    language: AppSettings.Language,
     onSelect: (String, WebProvider) -> Unit,
     onSaveKey: (String, WebProvider, String) -> Unit,
     onRemoveKey: (String, WebProvider) -> Unit,
     onCheck: (String, WebProvider) -> Unit,
 ) {
+    val text: (String, String) -> String = { english, chinese -> if (language == AppSettings.Language.Chinese) chinese else english }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        Text(if (tool == "search") "The service bots use to find information on the web." else "How bots read a web page without opening their browser.", style = MaterialTheme.typography.bodySmall)
+        SettingsSectionTitle(title)
+        Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         providers.forEach { provider ->
             var key by remember(provider.id) { mutableStateOf("") }
             var confirmRemove by remember(provider.id) { mutableStateOf(false) }
-            Card(Modifier.fillMaxWidth()) {
+            SettingsGroup {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = provider.selected, onClick = { if (provider.ready || !provider.requiresApiKey) onSelect(tool, provider) })
                         Column(Modifier.weight(1f)) { Text(provider.name, fontWeight = FontWeight.Medium); Text(provider.description, style = MaterialTheme.typography.bodySmall) }
-                        Text(if (provider.check?.passed == true) "Checked" else if (provider.requiresApiKey && !provider.ready) "Add API key" else "Not checked", style = MaterialTheme.typography.labelSmall)
+                        Text(if (provider.check?.passed == true) text("Checked", "已检查") else if (provider.requiresApiKey && !provider.ready) text("Add API key", "添加 API 密钥") else text("Not checked", "未检查"), style = MaterialTheme.typography.labelSmall)
                     }
                     if (provider.requiresApiKey) {
-                        OutlinedTextField(key, { key = it }, label = { Text(if (provider.secretSaved) "Replace API key" else "API key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        OutlinedTextField(key, { key = it }, label = { Text(if (provider.secretSaved) text("Replace API key", "替换 API 密钥") else text("API key", "API 密钥")) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Button(onClick = { onSaveKey(tool, provider, key); key = "" }, enabled = key.isNotBlank()) { Text("Save") }
-                            if (provider.secretSaved && !provider.selected) TextButton(onClick = { confirmRemove = true }) { Text("Remove key") }
-                            TextButton(onClick = { onCheck(tool, provider) }, enabled = provider.ready || key.isNotBlank()) { Text("Check") }
+                            Button(onClick = { onSaveKey(tool, provider, key); key = "" }, enabled = key.isNotBlank()) { Text(text("Save", "保存")) }
+                            if (provider.secretSaved && !provider.selected) TextButton(onClick = { confirmRemove = true }) { Text(text("Remove key", "删除密钥")) }
+                            TextButton(onClick = { onCheck(tool, provider) }, enabled = provider.ready || key.isNotBlank()) { Text(text("Check", "检查")) }
                         }
                     }
                     provider.check?.let { check -> Text(check.message, color = if (check.passed) Color(0xFF277A45) else MaterialTheme.colorScheme.error) }
                     if (confirmRemove) {
                         AlertDialog(
                             onDismissRequest = { confirmRemove = false },
-                            title = { Text("Remove API key?") },
-                            text = { Text("The saved key for ${provider.name} will be removed from the server.") },
-                            confirmButton = { TextButton(onClick = { confirmRemove = false; onRemoveKey(tool, provider) }) { Text("Remove", color = MaterialTheme.colorScheme.error) } },
-                            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } },
+                            title = { Text(text("Remove API key?", "删除 API 密钥？")) },
+                            text = { Text(text("The saved key for ${provider.name} will be removed from the server.", "服务器将删除 ${provider.name} 的已保存密钥。")) },
+                            confirmButton = { TextButton(onClick = { confirmRemove = false; onRemoveKey(tool, provider) }) { Text(text("Remove", "删除"), color = MaterialTheme.colorScheme.error) } },
+                            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text(text("Cancel", "取消")) } },
                         )
                     }
                 }

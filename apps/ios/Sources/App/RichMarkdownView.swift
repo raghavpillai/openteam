@@ -352,15 +352,16 @@ private struct MarkdownDocument: UIViewRepresentable {
 
 #if DEBUG
 /// `--ui-testing-suspend-document`: renders that start before the app first
-/// leaves the foreground never finish, as when iOS suspends WebKit.
+/// returns to the foreground never finish, as when iOS suspends WebKit with the
+/// app. That includes renders started just after the app left, which is when
+/// the renderer page usually finishes loading in the test.
 @MainActor enum SuspendedDocumentFixture {
   private static var active = ProcessInfo.processInfo.arguments.contains("--ui-testing-suspend-document")
   private static let observer = NotificationCenter.default.addObserver(
-    forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+    forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
   ) { _ in MainActor.assumeIsolated { active = false } }
-  /// Called as each document appears. Observing only from the first render
-  /// missed the app leaving when no render had started yet, and the render on
-  /// return then hung too.
+  /// Called before the first document observes the app returning, so this
+  /// observer runs first and the renders documents restart on return finish.
   static func observe() { _ = observer }
   static var hanging: Bool { observe(); return active }
 }

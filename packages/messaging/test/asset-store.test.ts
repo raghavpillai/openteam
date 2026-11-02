@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { MAX_TURN_INLINE_IMAGES } from "@openteam/contracts";
+import { MAX_TURN_INLINE_IMAGE_BYTES, MAX_TURN_INLINE_IMAGES } from "@openteam/contracts";
 import { AssetStore } from "../src";
 
 const roots: string[] = [];
@@ -328,17 +328,32 @@ describe("content-addressed attachment store", () => {
     ]);
   });
 
-  test("shows at most a turn's worth of images inline", async () => {
+  test("shows every photo of a full message inline", async () => {
     const root = await temporaryRoot();
     const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const refs = await Promise.all(Array.from({ length: MAX_TURN_INLINE_IMAGES + 2 }, (_, index) => {
+    const refs = await Promise.all(Array.from({ length: MAX_TURN_INLINE_IMAGES }, (_, index) => {
       const bytes = png();
       bytes.writeUInt32BE(index + 2, 16);
       return store.ingestBytes({ fileName: `photo-${index}.png`, bytes });
     }));
     const images = await store.runtimeImages(refs);
-    expect(images.map(image => image.url)).toEqual(await Promise.all(refs.slice(0, MAX_TURN_INLINE_IMAGES)
+    expect(images.map(image => image.url)).toEqual(await Promise.all(refs
       .map(async ref => `data:image/png;base64,${(await readFile(store.contentPath(ref.assetId))).toString("base64")}`)));
+  });
+
+  test("stops adding inline images before the turn outgrows its request", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const size = 24 * 1024 * 1024;
+    const refs = [];
+    for (let index = 0; index < 4; index++) {
+      const bytes = Buffer.concat([png(), Buffer.alloc(size)]);
+      bytes.writeUInt32BE(index + 2, 16);
+      refs.push(await store.ingestBytes({ fileName: `large-${index}.png`, bytes }));
+    }
+    const images = await store.runtimeImages(refs);
+    expect(images).toHaveLength(Math.floor(MAX_TURN_INLINE_IMAGE_BYTES / refs[0]!.byteSize));
+    expect(images.reduce((total, image) => total + image.url.length, 0)).toBeLessThan(128 * 1024 * 1024);
   });
 
   test("normalizes agent data URLs immediately instead of persisting inline bytes", async () => {

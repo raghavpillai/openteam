@@ -1298,8 +1298,11 @@ export const DynamicToolCallRequest = Schema.Struct({
 });
 export type DynamicToolCallRequest = typeof DynamicToolCallRequest.Type;
 
-/** Images a turn shows the model inline. A message can carry more; the rest stay files on the box. */
-export const MAX_TURN_INLINE_IMAGES = 6;
+/** Images a turn shows the model inline: every photo a message can carry, as in the reference. */
+export const MAX_TURN_INLINE_IMAGES = CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage;
+/** Raw image bytes a turn sends inline. Base64 grows them by a third, and the computer's server
+ * refuses request bodies over Bun's 128 MiB default, so a turn stops adding images before that. */
+export const MAX_TURN_INLINE_IMAGE_BYTES = 80 * 1024 * 1024;
 export const ComputerTurnRequest = Schema.Struct({
   runId: Schema.String,
   botId: Schema.String,

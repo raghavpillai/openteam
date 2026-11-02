@@ -24,3 +24,9 @@ test("a nameless file is described at the path its detected type gave it",()=>{
  const a={...ref('a','1089646'),mimeType:'application/pdf',kind:'pdf' as const};const path='/attachments/'+a.assetId+'.pdf';
  expect(rows(attachmentContext([path],[a]))).toEqual([{path,original_filename:'1089646',byte_length:12,mime_type:'application/pdf'}]);
 });
+test("an image the model already sees says so, in the reference's words",()=>{
+ const photo={...ref('c','IMG_0004.jpg'),mimeType:'image/jpeg',kind:'image' as const},doc=ref('d','notes.txt');
+ const rows2=rows(attachmentContext(['/attachments/'+photo.assetId+'.jpg','/attachments/'+doc.assetId+'.txt'],[photo,doc],new Set([photo.assetId])));
+ expect(rows2[0].note).toBe('an image already shown to you inline, so use this path only when you need to send it on');
+ expect(rows2[1].note).toBeUndefined();
+});

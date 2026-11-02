@@ -17,13 +17,17 @@ export function attachmentStorageName(asset: Pick<AssetRef, "assetId" | "fileNam
 
 /** Only describe paths actually materialized; never align metadata by array index,
  * since missing or invalid assets can be skipped during materialization. */
-export function attachmentContext(paths: readonly string[], attachments: readonly AssetRef[]): string {
+export function attachmentContext(paths: readonly string[], attachments: readonly AssetRef[],
+  inlineAssetIds: ReadonlySet<string> = new Set()): string {
   return [...new Set(paths)].map((path) => {
     const matches = attachments.filter((asset) => basename(path) === attachmentStorageName(asset));
     const names = [...new Set(matches.map((asset) => asset.fileName))];
     return `- ${JSON.stringify({ path,
       ...(names.length === 1 ? { original_filename: names[0] } : names.length ? { original_filenames: names } : {}),
       ...(matches[0] ? { byte_length: matches[0].byteSize, mime_type: matches[0].mimeType } : {}),
+      // The reference's wording for an image the model already sees in the message.
+      ...(matches.some((asset) => inlineAssetIds.has(asset.assetId))
+        ? { note: "an image already shown to you inline, so use this path only when you need to send it on" } : {}),
     })}`;
   }).join("\n");
 }

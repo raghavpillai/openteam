@@ -7,7 +7,7 @@ import { link, mkdir, open, readdir, readFile, realpath, rm, stat } from "node:f
 import { isIP } from "node:net";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ApiError, MAX_TURN_INLINE_IMAGES, type AssetKind, type AssetRef } from "@openteam/contracts";
+import { ApiError, MAX_TURN_INLINE_IMAGE_BYTES, MAX_TURN_INLINE_IMAGES, type AssetKind, type AssetRef } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
@@ -360,6 +360,19 @@ const classifyStaged = async (
   const dimensions = await jpegDimensionsFromFile(path, byteSize);
   return dimensions ? { ...detected, ...dimensions } : detected;
 };
+
+/** A message's images in order, until the turn's count or byte budget runs out. */
+export function inlineTurnImages(refs: readonly AssetRef[]): AssetRef[] {
+  const inline: AssetRef[] = [];
+  let bytes = 0;
+  for (const ref of refs) {
+    if (ref.kind !== "image") continue;
+    if (inline.length === MAX_TURN_INLINE_IMAGES || bytes + ref.byteSize > MAX_TURN_INLINE_IMAGE_BYTES) break;
+    inline.push(ref);
+    bytes += ref.byteSize;
+  }
+  return inline;
+}
 
 export class AssetStore {
   readonly root: string;
@@ -734,13 +747,12 @@ export class AssetStore {
     return parsed;
   }
 
-  /** The first images a turn shows the model inline. Every attachment, these included, is
-   * also saved on the box and listed in the message, so the bot can open the rest there. */
+  /** The images a turn shows the model inline. Every attachment, these included, is also saved
+   * on the box and listed in the message, so the bot can still open any image left out here. */
   async runtimeImages(refs: readonly AssetRef[]): Promise<Array<{ url: string; alt?: string }>> {
-    const normalized = (await this.normalizeRefs(refs.filter((ref) => ref.kind === "image")))
-      .slice(0, MAX_TURN_INLINE_IMAGES);
+    const inline = inlineTurnImages(await this.normalizeRefs(refs.filter((ref) => ref.kind === "image")));
     return Promise.all(
-      normalized.map(async (ref) => ({
+      inline.map(async (ref) => ({
         url: `data:${ref.mimeType};base64,${(await readFile(this.blobPath(ref.assetId))).toString("base64")}`,
         ...(ref.alt ? { alt: ref.alt } : {}),
       }))

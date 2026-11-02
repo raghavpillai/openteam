@@ -46,7 +46,7 @@ import {
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { fromPrisma, type PgBoss } from "pg-boss";
 import { AgentDataStore, type AgentPromptContext } from "./agent-data";
-import { AssetStore, MAX_MESSAGE_ASSETS } from "./asset-store";
+import { AssetStore, MAX_MESSAGE_ASSETS, inlineTurnImages } from "./asset-store";
 import {
   GROUP_MAX_MEMBER_TURNS,
   GROUP_MAX_MEMBERS,
@@ -986,7 +986,7 @@ export class AgentMessaging {
         ? []
         : preparedAttachmentPaths ?? await this.agentData.materializeAttachments(bot.id, input.clientId, attachments);
     const runtimeContent = attachmentPaths.length
-      ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentContext(attachmentPaths, attachments)}`
+      ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentContext(attachmentPaths, attachments, new Set(inlineTurnImages(attachments).map((asset) => asset.assetId)))}`
       : baseRuntimeContent;
     const message = await tx.message.create({
       data: {

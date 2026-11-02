@@ -137,20 +137,7 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
       await store.materializeAttachments(botId, "same-bytes-second-message", [a2aImage])
     ).toEqual(a2aAttachmentPaths);
 
-    const userShard = join(root, "user-memory", "by-agent", botId, "profile.md");
-    const projectShard = join(
-      root,
-      "projects",
-      "lifecycle",
-      "memory",
-      "by-agent",
-      botId,
-      "profile.md"
-    );
-    await mkdir(join(userShard, ".."), { recursive: true });
-    await mkdir(join(projectShard, ".."), { recursive: true });
-    await writeFile(userShard, "- (2026-08-27) Keep user memory.\n");
-    await writeFile(projectShard, "- (2026-08-27) Keep project memory.\n");
+    await store.writeMemory(botId, { scope: "user", tier: "profile", fact: "Keep user memory." }, { source: "tool" });
 
     const bots = new BotService(
       prisma,
@@ -183,13 +170,11 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
     const routines = new RoutineService(
       prisma,
       {
-        defaultTimeZone: "UTC",
         enqueueWake: async () => {
           throw new Error("not used by this test");
         },
       },
-      store,
-      "UTC"
+      store
     );
     await expect(
       routines.mutate(botId, crypto.randomUUID(), null, {
@@ -206,9 +191,9 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
         status: "active",
       });
     }
-    expect(await readFile(userShard, "utf8")).toContain("Keep user memory");
-    expect(await readFile(projectShard, "utf8")).toContain("Keep project memory");
+    expect(await prisma.memoryFact.count({ where: { namespace: `user:agent:${botId}`, fact: "Keep user memory." } })).toBe(1);
   } finally {
+    await prisma.memoryFact.deleteMany({ where: { writtenByBotId: botId } }).catch(() => undefined);
     await prisma.bot
       .deleteMany({ where: { id: { in: [botId, childBotId] } } })
       .catch(() => undefined);

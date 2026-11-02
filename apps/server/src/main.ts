@@ -1,3 +1,4 @@
+import { ServerUpdates, serverUpdateRoute } from "./server-updates";
 import { internalNotificationsRoute } from "./routes/internal-notifications";
 import { machineChannelResponse } from "./machine-http";
 import { connectorTransferResponse, boundedRequest } from "./connector-transfer-http";
@@ -49,6 +50,7 @@ if (process.argv[2] === "owner-credentials") {
 }
 
 const app = new AppService(authMode);
+const serverUpdates = new ServerUpdates(app.agentData.assetRoot, release.releaseVersion);
 
 await Effect.runPromise(app.boot());
 
@@ -118,6 +120,11 @@ const server = Bun.serve<VncConnection | NetworkConnection>({
         return await app.machines.relay.forward(machineRelay[1]!, machineRelay[2]!, request);
       }
       request=boundedRequest(request,280*1024*1024);
+      if (path === "/api/internal/system/update-agent") {
+        if (!authorizedInternal(request)) return json({ error: { code: "unauthorized" } }, 401);
+        if (request.method !== "POST") return json({ error: { code: "method_not_allowed" } }, 405);
+        return json(serverUpdates.heartbeat(await request.json()));
+      }
       const automationHook = path.match(/^\/api\/automation-hooks\/([a-zA-Z0-9_-]{1,100})$/);
       if (automationHook && request.method === "POST") {
         const native=await app.automationWebhooks.receive(automationHook[1]!,request);
@@ -216,24 +223,15 @@ const server = Bun.serve<VncConnection | NetworkConnection>({
         if (!authorizedInternal(request)) return json({error:{code:"unauthorized",message:"Unauthorized"}},401);
         if(path === "/api/internal/machines" && request.method === "GET")return json(await app.machines.list());
         if(path === "/api/internal/machines/preferred" && request.method === "GET")return json(await app.machines.preferred(url.searchParams.get("botId") ?? "", url.searchParams.get("channelId") ?? undefined));
+        if(path === "/api/internal/machines/messages" && request.method === "GET")return json(await app.machines.messagesMachine(url.searchParams.get("botId") ?? "", url.searchParams.get("channelId") ?? undefined, url.searchParams.get("machineId") ?? undefined));
         if(path === "/api/internal/machines/register" && request.method === "POST")return json(await app.machines.save(await request.json()));
         if(path === "/api/internal/machines/observe" && request.method === "POST")return json(await app.machines.observe(await request.json()));
         return json({error:{code:"not_found",message:"Not found"}},404);
       }
-      if (path === "/api/internal/plugins/host-components" || /^\/api\/internal\/plugins\/[^/]+\/host-refresh$/.test(path)) {
-        // The CLI refreshes plugin host parts after an update with the installation's control token.
-        if (!authorizedInternal(request))
-          return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
-        if (request.method === "GET" && path === "/api/internal/plugins/host-components")
-          return json({ components: await app.plugins.hostComponents() });
-        if (request.method === "POST" && path.endsWith("/host-refresh")) {
-          const body = (await request.json().catch(() => null)) as { refreshed?: unknown; detail?: unknown } | null;
-          if (typeof body?.refreshed !== "boolean")
-            return json({ error: { code: "invalid_request", message: "refreshed must be a boolean" } }, 400);
-          return json(await app.plugins.hostRefreshed(decodeURIComponent(path.split("/")[4]!), body.refreshed,
-            typeof body.detail === "string" ? body.detail.slice(0, 300) : undefined));
-        }
-        return json({ error: { code: "method_not_allowed", message: "Method not allowed" } }, 405);
+      if (request.method === "GET" && path === "/api/internal/busy-bots") {
+        // `openteam update --when-idle` asks with the installation's control token before it stops anything.
+        if (!authorizedInternal(request)) return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        return json(await run(app.busyBots()));
       }
       if (path === "/api/internal/server-settings/web-search/credentials" || path === "/api/internal/server-settings/web-fetch/credentials") {
         if (!authorizedInternal(request))
@@ -296,6 +294,8 @@ const server = Bun.serve<VncConnection | NetworkConnection>({
         }
         authenticatedSessionId = session.session.id;
       }
+      if (path === "/api/system/update")
+        return await serverUpdateRoute(request, serverUpdates, authenticatedSessionId);
       if (request.method === "POST" && vncMatch) {
         const response = json(await vnc.issue(vncMatch[1]!, authenticatedSessionId, request.headers.get("origin")));
         response.headers.set("cache-control", "no-store");

@@ -31,7 +31,14 @@ const fetchText = async (url: string, accept = "text/plain"): Promise<string> =>
     );
   }
   if (!response.ok) throw new CliError(`Could not download ${url} (HTTP ${response.status})`);
-  return response.text();
+  try {
+    return await response.text();
+  } catch (error) {
+    // A body that stalls or drops after the headers fails here.
+    throw new CliError(
+      `Could not download ${url}: ${error instanceof Error ? error.message : error}`
+    );
+  }
 };
 
 const escapedPattern = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

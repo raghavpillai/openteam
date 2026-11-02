@@ -300,12 +300,16 @@ try {
     "-e",
     "OPENTEAM_NODE_BINARY=/tmp/node-with-test-ca",
     "--shm-size=512m",
-    "--cap-drop=ALL",
-    "--cap-add=CHOWN",
-    "--cap-add=DAC_OVERRIDE",
-    "--cap-add=FOWNER",
-    "--cap-add=SETGID",
-    "--cap-add=SETUID",
+    // Match main's computer namespace/bootstrap requirements in this disposable VM.
+    "--cap-add=ALL",
+    "--security-opt=seccomp=unconfined",
+    "--security-opt=apparmor=unconfined",
+    "--security-opt=label=disable",
+    "--security-opt=systempaths=unconfined",
+    "--device=/dev/net/tun:/dev/net/tun",
+    "--cgroupns=private",
+    "--memory=3g",
+    "--memory-swap=3g",
     "-v",
     `${workspaceVolume}:/workspace`,
     "-v",
@@ -389,7 +393,7 @@ try {
       names.computer,
       "sh",
       "-c",
-      "mkdir -p /home/box/.pki/nssdb && /tmp/certutil -N --empty-password -d sql:/home/box/.pki/nssdb && /tmp/certutil -A -d sql:/home/box/.pki/nssdb -n isolated-network-test -t 'C,,' -i /tmp/cert.pem && chown -R 1001:1000 /home/box/.pki"
+      "mkdir -p /home/box/.pki/nssdb && /tmp/certutil -N --empty-password -d sql:/home/box/.pki/nssdb && /tmp/certutil -A -d sql:/home/box/.pki/nssdb -n isolated-network-test -t 'C,,' -i /tmp/cert.pem && chown -R 1000:1000 /home/box/.pki"
     )
   );
   await command(docker("start", names.server, names["device-a"], names["device-b"]));

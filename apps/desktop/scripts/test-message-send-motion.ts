@@ -23,7 +23,7 @@ try {
         ...process.env,
         ELECTRON_RUN_AS_NODE: undefined,
         MESSAGE_MOTION_DIR: directory,
-        MESSAGE_MOTION_URL: `${server.resolvedUrls!.local[0]}test/browser/message-send-motion.html${process.argv.includes("--legacy") ? "?legacy" : ""}`,
+        MESSAGE_MOTION_URL: `${server.resolvedUrls!.local[0]}test/browser/message-send-motion.html`,
       },
       stdout: "pipe",
       stderr: "pipe",

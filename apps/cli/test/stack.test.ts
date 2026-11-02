@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import {
   describePortOccupant,
@@ -8,6 +8,7 @@ import {
   portConflictMessage,
   portRequirementsFromEnvironment,
 } from "../src/stack";
+import * as ports from "../src/ports";
 
 class DockerPsRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
@@ -28,8 +29,8 @@ class DockerPsRunner implements CommandRunner {
   }
 }
 
-const withListener = async (run: (port: number) => Promise<void>) => {
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
+const withListener = async (run: (port: number) => Promise<void>, hostname = "127.0.0.1") => {
+  const server = Bun.serve({ hostname, port: 0, fetch: () => new Response("ok") });
   try {
     if (!server.port) throw new Error("Expected Bun to allocate a port");
     await run(server.port);
@@ -167,6 +168,55 @@ describe("stack inspection", () => {
     });
   });
 
+  test("probes the wildcard address where a loopback bind can succeed beside it", () => {
+    expect(ports.probeHosts("127.0.0.1", "darwin")).toEqual(["127.0.0.1", "0.0.0.0"]);
+    expect(ports.probeHosts("100.64.0.1", "darwin")).toEqual(["100.64.0.1", "127.0.0.1", "0.0.0.0"]);
+    expect(ports.probeHosts("0.0.0.0", "darwin")).toEqual(["0.0.0.0", "127.0.0.1"]);
+    expect(ports.probeHosts("127.0.0.1", "win32")).toEqual(["127.0.0.1", "0.0.0.0"]);
+    // Linux refuses the loopback bind itself, so a wildcard probe would only add false conflicts.
+    expect(ports.probeHosts("127.0.0.1", "linux")).toEqual(["127.0.0.1"]);
+  });
+
+  test("reports a loopback port that another container publishes on every address", async () => {
+    await withListener(async (port) => {
+      const runner = new DockerPsRunner({ [String(port)]: "other-computer-1\tother" });
+      const conflict = await findPortConflict(
+        runner,
+        portRequirementsFromEnvironment(
+          new Map([["OPENTEAM_API_PORT", String(port)]]),
+          new Set(["computer"])
+        )
+      );
+      expect(conflict).toMatchObject({ port, container: "other-computer-1", project: "other" });
+      expect(portConflictMessage(conflict!)).toContain(
+        `port ${port} is already in use by container other-computer-1 (Compose project other). Stop that stack with \`docker compose -p other down\``
+      );
+      expect(await ports.firstUnavailablePort("127.0.0.1", [port])).toBe(port);
+      expect(await ports.suggestApiPort("127.0.0.1", port)).not.toBe(port);
+    }, "0.0.0.0");
+  });
+
+  test("checks every probed address for each viewer port", async () => {
+    const probed: string[] = [];
+    const available = spyOn(ports, "portAvailable").mockImplementation(async (host, port) => {
+      probed.push(`${host}:${port}`);
+      return !(host === "0.0.0.0" && port === 6201);
+    });
+    try {
+      const conflict = await findPortConflict(new DockerPsRunner(), {
+        ...portRequirementsFromEnvironment(new Map(), new Set(["server"])),
+      });
+      if (process.platform === "linux") {
+        expect(conflict).toBeNull();
+      } else {
+        expect(conflict).toEqual({ port: 6201, host: "0.0.0.0" });
+        expect(probed).toEqual(["127.0.0.1:6200", "0.0.0.0:6200", "127.0.0.1:6201", "0.0.0.0:6201"]);
+      }
+    } finally {
+      available.mockRestore();
+    }
+  });
+
   test("explains each kind of conflict with a stop command", () => {
     expect(
       portConflictMessage({
@@ -179,7 +229,7 @@ describe("stack inspection", () => {
       "OpenTeam cannot start because port 6200 is already in use by container openteam-dev-computer-1 (Compose project openteam-dev). Stop that stack with `docker compose -p openteam-dev down`; the screen-viewer range 6200-6299 is fixed."
     );
     expect(portConflictMessage({ port: 8787, host: "127.0.0.1" })).toBe(
-      "OpenTeam cannot start because port 8787 is already in use by another process on this machine. Stop the process that holds it, or choose another API port with openteam setup --advanced."
+      "OpenTeam cannot start because port 8787 is already in use by another process on this machine. Find it with `lsof -nP -iTCP:8787 -sTCP:LISTEN` and stop it, or choose another API port with openteam setup --advanced."
     );
     expect(portConflictMessage({ port: 443, host: "0.0.0.0", container: "nginx" })).toBe(
       "OpenTeam cannot start because port 443 is already in use by container nginx. Stop it with `docker stop nginx`, or rerun setup and choose Existing HTTPS proxy."

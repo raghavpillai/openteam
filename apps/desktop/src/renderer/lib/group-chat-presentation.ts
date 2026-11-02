@@ -1,4 +1,10 @@
-import type { BotView, ChannelMessageView, RunItemView, RunView } from "@openteam/contracts";
+import type {
+  BotView,
+  ChannelMessageView,
+  ChannelView,
+  RunItemView,
+  RunView,
+} from "@openteam/contracts";
 import {
   BOT_AVATAR_COLORS,
   BOT_AVATAR_COLOR_NAMES,
@@ -51,6 +57,12 @@ export function groupParticipantNames(names: readonly string[]): string {
   return displayed.length < 2
     ? (displayed[0] ?? "Bot")
     : `${displayed.slice(0, -1).join(", ")} and ${displayed.at(-1)}`;
+}
+
+/** A group chat with one Bot is named after that Bot by default, so without a label its
+ * row reads exactly like the Bot's own chat. */
+export function showsGroupLabel(channel: Pick<ChannelView, "kind" | "members">): boolean {
+  return channel.kind === "group" && channel.members.length === 1;
 }
 
 export type GroupActivity = {

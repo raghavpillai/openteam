@@ -2,13 +2,12 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import type { BotAgentStore } from "../bot-agent-store";
 import { safeToolResult, textFromContent, thinkingFromContent, toolItem } from "./content";
+import { observeGraphicalToolResult } from "./graphical-completion";
 import type { ActiveTurn } from "./types";
 
-function isBackgroundStatusCheck(toolName: string, args: unknown): boolean {
-  if (toolName === "CheckSubagent") return true;
-  if (toolName !== "CallDynamicTool" || !args || typeof args !== "object") return false;
-  const input = args as Record<string, unknown>;
-  return input.namespace === "cursor" && input.toolName === "CheckSubagent";
+/** A delivered send or closing reaction. */
+export function markDelivered(active: ActiveTurn): void {
+  active.sentMessageCount += 1;
 }
 
 export function startAgentMessage(active: ActiveTurn, itemId: string): void {
@@ -98,37 +97,21 @@ export function routeEvent(
         if (active.initialUserClientId) active.session?.sessionManager.appendCustomEntry("openteam-input-receipt", { messageId: `input:${active.initialUserClientId}` });
         active.initialUserStarted = true;
         active.queue.push({ type: "prompt.delivered", turnId: active.turnId });
-        return;
-      }
-      const steer = active.pendingSteers.shift();
-      if (steer) {
-        active.session?.sessionManager?.appendCustomEntry("openteam-input-receipt", { messageId: `input:${steer.clientMessageId}` });
-        active.queue.push({
-          type: "input.delivered",
-          turnId: active.turnId,
-          inboxId: steer.inboxId,
-          clientMessageId: steer.clientMessageId,
-        });
       }
       return;
     }
     if (message.role !== "assistant") return;
-    // Capture the finite delivery batch before any tool executes. A text reply
-    // ending the turn must not discard attachments already emitted with it.
+    // Capture the response's calls before any executes. A send that ends the
+    // turn still runs the calls emitted with it, once each; later responses get none.
+    active.pendingResponseCalls = new Map();
+    active.responseCallEnds = new Map();
+    active.failedResponseCalls = [];
+    active.failedResponseSends = new Set();
     if (!active.endTurnRequested) {
-      active.finishDeliveryAttachments = false;
-      active.pendingDeliveryAttachments = new Map();
-      active.pendingDeliveryCleanup = new Map();
+      active.finishResponseCalls = false;
       if (Array.isArray(message.content)) for (const part of message.content) {
-        if (part?.type === "toolCall" && part.name === "SendToUser" &&
-            part.arguments?.type === "attachment" && typeof part.id === "string") {
-          active.pendingDeliveryAttachments.set(part.id, JSON.stringify(part.arguments));
-        }
-        if (part?.type === "toolCall" && part.name === "CallDynamicTool" &&
-            part.arguments?.namespace === "cursor" && part.arguments?.toolName === "StopSubagent" &&
-            typeof part.id === "string") {
-          active.pendingDeliveryCleanup.set(part.id, JSON.stringify(part.arguments));
-        }
+        if (part?.type === "toolCall" && typeof part.id === "string")
+          active.pendingResponseCalls.set(part.id, JSON.stringify(part.arguments));
       }
     }
     active.lastStopReason = message.stopReason ?? null;
@@ -142,6 +125,7 @@ export function routeEvent(
       turnId: active.turnId,
     });
     if (text && active.currentAssistantId) {
+      active.lastAgentMessage = { id: active.currentAssistantId, text };
       startAgentMessage(active, active.currentAssistantId);
       active.queue.push({
         type: "item.completed",
@@ -180,20 +164,16 @@ export function routeEvent(
   }
 
   if (event.type === "tool_execution_start") {
-    // Schema discovery and a status-only poll may leave an already-announced
-    // background handoff intact. Loading metadata does not produce a task result.
-    // Defer its delivery obligation until the host's result proves it is pending.
-    const deliveryCleanup = active.endTurnRequested === true && active.finishDeliveryAttachments === true &&
-      event.toolName === "CallDynamicTool" &&
-      active.pendingDeliveryCleanup?.get(event.toolCallId) === JSON.stringify(event.args);
-    if (active.sentMessageCount > 0 && !deliveryCleanup && event.toolName !== "GetDynamicTools" && !isBackgroundStatusCheck(event.toolName, event.args)) {
-      active.toolActivityAfterLastSend = true;
-    }
     active.toolArgs.set(event.toolCallId, {
       toolName: event.toolName,
       args: event.args,
-      deliveryCleanup,
+      responseCall: active.pendingResponseCalls?.get(event.toolCallId) === JSON.stringify(event.args),
     });
+    if (active.responseCallEnds && !active.responseCallEnds.has(event.toolCallId)) {
+      let settle!: () => void;
+      const ended = new Promise<void>((resolve) => { settle = resolve; });
+      active.responseCallEnds.set(event.toolCallId, { ended, settle });
+    }
     active.queue.push({
       type: "item.started",
       turnId: active.turnId,
@@ -204,24 +184,11 @@ export function routeEvent(
 
   if (event.type === "tool_execution_end") {
     const stored = active.toolArgs.get(event.toolCallId);
-    if (stored?.toolName === "GetDynamicTools" && active.sentMessageCount > 0) {
-      const result = event.result as {isError?: boolean} | undefined;
-      if (event.isError || result?.isError) active.toolActivityAfterLastSend = true;
-      // Successful discovery never clears earlier work or a failed delivery.
-    }
-    if (stored?.deliveryCleanup) {
-      const result = event.result as {details?: {deliveryCleanup?: boolean}; isError?: boolean} | undefined;
-      if (event.isError || result?.isError || result?.details?.deliveryCleanup !== true)
-        active.toolActivityAfterLastSend = true;
-    }
-    if (stored && isBackgroundStatusCheck(stored.toolName, stored.args) && active.sentMessageCount > 0) {
-      const result = event.result as {details?: {tool?: string; pendingBackgroundWork?: boolean}} | undefined;
-      if (event.isError || result?.details?.tool !== "CheckSubagent" || result.details.pendingBackgroundWork !== true) {
-        active.toolActivityAfterLastSend = true;
-      }
-      // Never clear prior/concurrent activity: a pending worker cannot excuse
-      // another undelivered result or a failed SendToUser call.
-    }
+    const outcome = event.result as {isError?: boolean; content?: unknown} | undefined;
+    const failed = event.isError || outcome?.isError === true;
+    observeGraphicalToolResult(active, failed, textFromContent(outcome?.content));
+    if (stored?.responseCall && failed) active.failedResponseCalls?.push(event.toolCallId);
+    active.responseCallEnds?.get(event.toolCallId)?.settle();
     active.queue.push({
       type: "item.completed",
       turnId: active.turnId,

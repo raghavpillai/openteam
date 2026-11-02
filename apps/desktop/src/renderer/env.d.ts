@@ -28,11 +28,30 @@ interface Window {
       close(): Promise<void>;
       onResult(callback: (result: { connectionId: string; status: "ready" | "cancelled" | "error"; message?: string }) => void): () => void;
     };
+    /** An OpenTeam server installed on this computer by the CLI, if any. */
+    localServer?: {
+      detect(): Promise<{ url: string; username?: string } | null>;
+    };
+    /** Catches a model provider's localhost sign-in redirect on this computer. */
+    providerSignIn?: {
+      capture(
+        authorizationUrl: string,
+        redirectUri: string
+      ): Promise<
+        | { status: "captured"; callbackUrl: string }
+        | { status: "unavailable"; message: string }
+        | { status: "cancelled" }
+      >;
+      cancel(): Promise<void>;
+    };
     computer: {
       network: () => Promise<import("@openteam/contracts/browser-network").NetworkSharingStatus | null>;
       shareNetwork: (enabled: boolean) => Promise<import("@openteam/contracts/browser-network").NetworkSharingStatus>;
       get: () => Promise<OpenTeamComputerSettings>;
-      update: (request: { machineLabel: string }) => Promise<OpenTeamComputerSettings>;
+      update: (request: { machineLabel?: string; messagesEnabled?: boolean }) => Promise<OpenTeamComputerSettings>;
+      messagesPermissions: (request?: "fullDiskAccess" | "automation" | "contacts") => Promise<OpenTeamMessagesPermissions | null>;
+      messagesIcon?: () => Promise<string | null>;
+      onMessagesGrantsNeeded?: (listener: () => void) => () => void;
     };
     files: {
       downloadAll: (
@@ -55,17 +74,7 @@ interface Window {
       openDownload: () => Promise<void>;
       installClient: () => Promise<void>;
       onClientProgress: (listener: (status: OpenTeamUpdateStatus) => void) => () => void;
-      serverStatus: (request: {
-        serverUrl: string;
-        targetVersion?: string | null;
-        sshTarget?: string | null;
-      }) => Promise<OpenTeamServerUpdateStatus>;
-      updateServer: (request: {
-        serverUrl: string;
-        targetVersion?: string | null;
-        sshTarget?: string | null;
-      }) => Promise<OpenTeamServerUpdateStatus>;
-      onServerProgress: (listener: (status: OpenTeamServerUpdateStatus) => void) => () => void;
+
     };
     microphone: {
       status: () => Promise<{
@@ -81,25 +90,12 @@ interface Window {
       activity: () => Promise<{ active: boolean; idleSeconds: number }>;
       onActivityChange: (callback: () => void) => () => void;
       sync: (snapshot: {
-        notificationRouting?: import("@openteam/contracts/notification-presence").NotificationRouting;
         cursor?: string;
-        channels?: Array<
+        channels: Array<
           import("@openteam/contracts/notification-content").ChannelNotificationState & {
             unreadCount: number;
           }
         >;
-        agents: Array<{
-          botId: string;
-          channelId: string;
-          name: string;
-          notificationsEnabled: boolean;
-          hiddenFromSidebar: boolean;
-          isRunning: boolean;
-          awaitingReason: string | null;
-          lastMessageId: string | null;
-          lastMessagePreview: string | null;
-          unreadCount: number;
-        }>;
       }) => void;
       setVisibleChannel: (channelId: string | null) => void;
       status: () => Promise<{
@@ -115,7 +111,9 @@ interface Window {
       main: Electron.ProcessMemoryInfo;
       gpu: Electron.GPUFeatureStatus;
     }>;
-    onNotificationClick: (listener: (channelId: string) => void) => () => void;
+    onNotificationClick: (
+      listener: (target: { channelId: string; threadMessageId?: string }) => void
+    ) => () => void;
     versions: Readonly<{ app: string; electron: string; chrome: string }>;
   };
 }
@@ -132,6 +130,14 @@ interface OpenTeamComputerSettings {
     machineId: string;
     label: string;
   };
+  messagesEnabled: boolean;
+  messagesSupported: boolean;
+}
+
+interface OpenTeamMessagesPermissions {
+  fullDiskAccess: boolean;
+  automation: "granted" | "denied" | "notAsked" | "unknown";
+  contacts: "granted" | "denied" | "notAsked" | "unknown";
 }
 
 interface OpenTeamUpdateStatus {
@@ -162,30 +168,12 @@ interface OpenTeamUpdateStatus {
   track: "stable";
 }
 
-interface OpenTeamServerUpdateStatus {
+type OpenTeamServerUpdateStatus = import("@openteam/contracts").ServerUpdateView & {
   serverUrl: string;
   currentVersion: string | null;
-  targetVersion: string | null;
   apiProtocolVersion: number | null;
   minimumClientVersion: string | null;
   maximumClientVersionExclusive: string | null;
   recommendedClientVersion: string | null;
-  updateMethod: "local" | "ssh" | "manual";
-  updaterAvailable: boolean;
-  status: "ready" | "updating" | "updated" | "unavailable" | "error";
-  phase:
-    | "checking"
-    | "downloading"
-    | "backing-up"
-    | "pulling"
-    | "restarting"
-    | "verifying"
-    | "updating-cli"
-    | "rolling-back"
-    | "complete"
-    | null;
-  message: string | null;
   manualCommand: string;
-  jobId: string | null;
-  safeToCloseDesktop: boolean;
-}
+};

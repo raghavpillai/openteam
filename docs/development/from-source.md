@@ -22,7 +22,7 @@ bun run prepare:plugins
 cp .env.example .env
 ```
 
-In `.env`, replace `OPENTEAM_CONTROL_TOKEN` and `OPENTEAM_AUTH_SECRET` with different random values. Generate each with `openssl rand -hex 32`. Set `OPENTEAM_TIME_ZONE` to your time zone. Don't commit `.env`.
+In `.env`, replace `OPENTEAM_CONTROL_TOKEN` and `OPENTEAM_AUTH_SECRET` with different random values. Generate each with `openssl rand -hex 32`. Don't commit `.env`.
 
 ## Start the server
 

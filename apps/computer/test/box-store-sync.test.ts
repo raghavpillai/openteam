@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type BoxStoreDirtyHint, type BoxStoreManifest, BoxStoreSync } from "../src/box-store-sync";
@@ -376,5 +376,186 @@ describe("OpenTeam-compatible box-store synchronization", () => {
       hasLiveAgentHandle: (id) => id === "probe",
     });
     await expect(liveTarget.copyIn()).rejects.toThrow("live-agent");
+  });
+
+  test("skips Chromium caches in profiles while keeping sign-in state and same-named workspace folders", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-chrome-caches-"));
+    const home = join(root, "home");
+    const sandRoot = join(home, "sand-data");
+    const workspaceRoot = join(root, "workspace");
+    const profile = join(home, "chrome-profile-2");
+    const cached = [
+      "Default/Service Worker/CacheStorage/origin/entry_0",
+      "component_crx_cache/component",
+      "extensions_crx_cache/extension",
+      "Default/DawnGraphiteCache/data_1",
+      "Default/DawnWebGPUCache/data_1",
+    ];
+    const kept = ["Default/Cookies", "Default/Service Worker/ScriptCache/script", "Default/Local Storage/leveldb/000003.log"];
+    for (const path of [...cached, ...kept, "../../workspace/CacheStorage/note.txt"]) {
+      await mkdir(join(profile, path, ".."), { recursive: true });
+      await writeFile(join(profile, path), path);
+    }
+    await mkdir(sandRoot, { recursive: true });
+    const sync = new BoxStoreSync({ storeRoot: join(root, "store"), home, sandRoot, workspaceRoot });
+    const paths = (await sync.snapshotOut()).files.map(({ path }) => path);
+    expect(paths).toEqual([
+      ...kept.map((path) => `home/box/chrome-profile-2/${path}`).sort(),
+      "workspace/CacheStorage/note.txt",
+    ]);
+    const chrome = (await sync.snapshotOut({ all: false, chrome: true })).files.map(({ path }) => path);
+    expect(chrome).toEqual(paths);
+  });
+
+  test("snapshots a running browser's profile at most once per interval, and on browser requests and exit", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-live-profile-"));
+    const home = join(root, "home");
+    const sandRoot = join(home, "sand-data");
+    const workspaceRoot = join(root, "workspace");
+    const profile = join(home, "chrome-profile");
+    await mkdir(join(profile, "Default"), { recursive: true });
+    await mkdir(sandRoot, { recursive: true });
+    await mkdir(workspaceRoot, { recursive: true });
+    // Chromium holds this symlink for as long as it runs and removes it on exit.
+    await symlink("openteam-1234", join(profile, "SingletonLock"));
+    const preferences = join(profile, "Default", "Preferences");
+    const note = join(workspaceRoot, "note.txt");
+    const sync = new BoxStoreSync({ storeRoot: join(root, "store"), home, sandRoot, workspaceRoot });
+    const hash = (manifest: BoxStoreManifest, path: string) =>
+      manifest.files.find((file) => file.path === path)?.sha256;
+    const saved = async (manifest: BoxStoreManifest, path: string) =>
+      (await readFile(join(root!, "store", "blobs", hash(manifest, path)!), "utf8"));
+    const profilePath = "home/box/chrome-profile/Default/Preferences";
+
+    await writeFile(preferences, "v1");
+    await writeFile(note, "w1");
+    expect(await saved(await sync.snapshotOut(), profilePath)).toBe("v1");
+
+    await writeFile(preferences, "v2");
+    await writeFile(note, "w2");
+    const periodic = await sync.snapshotOut();
+    expect(await saved(periodic, profilePath)).toBe("v1");
+    expect(await saved(periodic, "workspace/note.txt")).toBe("w2");
+    expect(periodic.tombstones ?? []).toEqual([]);
+
+    expect(await saved(await sync.snapshotOut({ all: true, chrome: true }), profilePath)).toBe("v2");
+    await writeFile(preferences, "v3");
+    expect(await saved(await sync.snapshotOut({ all: false, chrome: true }), profilePath)).toBe("v3");
+
+    await writeFile(preferences, "v4");
+    expect(await saved(await sync.snapshotOut(), profilePath)).toBe("v3");
+    await rm(join(profile, "SingletonLock"));
+    expect(await saved(await sync.snapshotOut(), profilePath)).toBe("v4");
+
+    const shortInterval = new BoxStoreSync({
+      storeRoot: join(root, "store"),
+      home,
+      sandRoot,
+      workspaceRoot,
+      chromeProfileIntervalMs: 1_000,
+    });
+    await symlink("openteam-1234", join(profile, "SingletonLock"));
+    await shortInterval.snapshotOut();
+    await writeFile(preferences, "v5");
+    expect(await saved(await shortInterval.snapshotOut(), profilePath)).toBe("v4");
+    await Bun.sleep(1_100);
+    expect(await saved(await shortInterval.snapshotOut(), profilePath)).toBe("v5");
+  });
+
+  test("keeps a pending browser request when a periodic full snapshot absorbs it", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-chrome-merge-"));
+    let releaseFirst: (() => void) | undefined;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    class ControlledSync extends BoxStoreSync {
+      readonly hints: BoxStoreDirtyHint[] = [];
+
+      override async snapshotOut(
+        hint: BoxStoreDirtyHint = { all: true }
+      ): Promise<BoxStoreManifest> {
+        this.hints.push(hint);
+        if (this.hints.length === 1) await firstGate;
+        return {
+          version: 1,
+          revision: this.hints.length,
+          generatedAt: new Date(0).toISOString(),
+          files: [],
+          tombstones: [],
+          etag: `run-${this.hints.length}`,
+        };
+      }
+    }
+    const sync = new ControlledSync({ storeRoot: join(root, "replica") });
+    sync.scheduleSnapshot(0, { workspace: true });
+    await Bun.sleep(5);
+    sync.scheduleSnapshot(0, { agentIds: ["agent-a"], chrome: true });
+    sync.scheduleSnapshot(0, { all: true });
+    releaseFirst?.();
+    await sync.flushScheduledSnapshots();
+    expect(sync.hints).toHaveLength(2);
+    expect(sync.hints[1]).toEqual({ all: true, chrome: true });
+
+    sync.scheduleSnapshot(0, { all: true });
+    await sync.flushScheduledSnapshots();
+    expect(sync.hints[2]).toEqual({ all: true });
+  });
+
+  test("a turn's browser request captures only that bot's running profile", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-profile-request-"));
+    const home = join(root, "home");
+    const sandRoot = join(home, "sand-data");
+    const workspaceRoot = join(root, "workspace");
+    await mkdir(sandRoot, { recursive: true });
+    await mkdir(workspaceRoot, { recursive: true });
+    const used = "home/box/chrome-profile-2/Default/Preferences";
+    const idle = "home/box/chrome-profile/Default/Preferences";
+    for (const name of ["chrome-profile", "chrome-profile-2"]) {
+      await mkdir(join(home, name, "Default"), { recursive: true });
+      // Both browsers are running.
+      await symlink("openteam-1234", join(home, name, "SingletonLock"));
+    }
+    const write = (path: string, value: string) => writeFile(join(home, path.slice("home/box/".length)), value);
+    const sync = new BoxStoreSync({ storeRoot: join(root, "store"), home, sandRoot, workspaceRoot });
+    const saved = async (manifest: BoxStoreManifest, path: string) =>
+      readFile(join(root!, "store", "blobs", manifest.files.find((file) => file.path === path)!.sha256), "utf8");
+
+    await write(used, "v1");
+    await write(idle, "v1");
+    await sync.snapshotOut();
+    await write(used, "v2");
+    await write(idle, "v2");
+    const turnEnd = await sync.snapshotOut({ all: false, chromeProfiles: ["chrome-profile-2"] });
+    expect(await saved(turnEnd, used)).toBe("v2");
+    expect(await saved(turnEnd, idle)).toBe("v1");
+
+    // A periodic full snapshot that absorbs the request still captures that profile.
+    await write(used, "v3");
+    await write(idle, "v3");
+    const merged = await sync.snapshotOut({ all: true, chromeProfiles: ["chrome-profile-2"] });
+    expect(await saved(merged, used)).toBe("v3");
+    expect(await saved(merged, idle)).toBe("v1");
+  });
+
+  test("keeps a pending profile request when a periodic full snapshot absorbs it", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-profile-merge-"));
+    const hints: BoxStoreDirtyHint[] = [];
+    class RecordingSync extends BoxStoreSync {
+      override async snapshotOut(hint: BoxStoreDirtyHint = { all: true }): Promise<BoxStoreManifest> {
+        hints.push(hint);
+        return { version: 1, revision: hints.length, generatedAt: new Date(0).toISOString(), files: [], tombstones: [], etag: `run-${hints.length}` };
+      }
+    }
+    const sync = new RecordingSync({ storeRoot: join(root, "replica") });
+    sync.scheduleSnapshot(0, { agentIds: ["agent-a"], workspace: true, pi: true, chromeProfiles: ["chrome-profile-2", "../escape"] });
+    sync.scheduleSnapshot(0, { all: true });
+    await sync.flushScheduledSnapshots();
+    expect(hints).toEqual([{ all: true, chromeProfiles: ["chrome-profile-2"] }]);
+
+    // A turn that used no browser asks for none.
+    sync.scheduleSnapshot(0, { agentIds: ["agent-a"], workspace: true, pi: true });
+    await sync.flushScheduledSnapshots();
+    expect(hints[1]?.chrome).toBeFalsy();
+    expect(hints[1]?.chromeProfiles).toBeUndefined();
   });
 });

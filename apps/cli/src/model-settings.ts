@@ -11,7 +11,7 @@ export type ModelProvider = {
   modelMessage?: string;
   custom?: boolean;
   authType?: "oauth" | "api_key" | null;
-  authMethods?: Array<{ type: "oauth" | "api_key"; label: string; subscription: boolean }>;
+  authMethods: Array<{ type: "oauth" | "api_key"; label: string; subscription: boolean }>;
 };
 export type ModelChoice = {
   providerId: string;
@@ -39,6 +39,7 @@ export interface TranscriptionDraft {
 }
 export interface TranscriptionView extends Omit<TranscriptionDraft, "apiKey"> {
   hasApiKey: boolean;
+  apiKeySuffix?: string | null;
   configured: boolean;
 }
 export type ModelCheck = { level: "pass" | "warn" | "fail"; detail: string };
@@ -83,7 +84,11 @@ const transcription = (value: unknown): TranscriptionView => {
     !["openai", "deepgram", "openai-compatible"].includes(String(value.provider)) ||
     !["baseUrl", "model", "language"].every((key) => typeof value[key] === "string") ||
     typeof value.hasApiKey !== "boolean" ||
-    typeof value.configured !== "boolean"
+    typeof value.configured !== "boolean" ||
+    (value.apiKeySuffix != null &&
+      (typeof value.apiKeySuffix !== "string" ||
+        value.apiKeySuffix.length !== 4 ||
+        /[\x00-\x1f\x7f]/.test(value.apiKeySuffix)))
   )
     throw invalid();
   // Never retain an unexpected credential field from a response.
@@ -94,6 +99,9 @@ const transcription = (value: unknown): TranscriptionView => {
     model: value.model as string,
     language: value.language as string,
     hasApiKey: value.hasApiKey,
+    apiKeySuffix: value.hasApiKey
+      ? ((value.apiKeySuffix as string | null | undefined) ?? null)
+      : null,
     configured: value.configured,
   };
 };
@@ -113,7 +121,8 @@ export const createModelSettingsAPI = (paths: InstallationPaths): ModelSettingsA
         typeof value.id !== "string" ||
         typeof value.name !== "string" ||
         typeof value.connected !== "boolean" ||
-        typeof value.modelCount !== "number"
+        typeof value.modelCount !== "number" ||
+        !Array.isArray(value.authMethods)
       )
         throw invalid();
       return {
@@ -126,16 +135,14 @@ export const createModelSettingsAPI = (paths: InstallationPaths): ModelSettingsA
         custom: typeof value.custom === "boolean" ? value.custom : undefined,
         authType:
           value.authType === "oauth" || value.authType === "api_key" ? value.authType : null,
-        authMethods: Array.isArray(value.authMethods)
-          ? value.authMethods.flatMap((method) =>
-              object(method) &&
-              (method.type === "oauth" || method.type === "api_key") &&
-              typeof method.label === "string" &&
-              typeof method.subscription === "boolean"
-                ? [{ type: method.type, label: method.label, subscription: method.subscription }]
-                : []
-            )
-          : undefined,
+        authMethods: value.authMethods.flatMap((method) =>
+          object(method) &&
+          (method.type === "oauth" || method.type === "api_key") &&
+          typeof method.label === "string" &&
+          typeof method.subscription === "boolean"
+            ? [{ type: method.type, label: method.label, subscription: method.subscription }]
+            : []
+        ),
       };
     });
     const models = body.models.map((value) => {

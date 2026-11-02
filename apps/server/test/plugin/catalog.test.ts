@@ -1,25 +1,11 @@
 import { createUtilityPluginFixture } from "./fixtures/utility-plugin";
 import { describe, expect, test } from "bun:test";
-import { pluginCatalog, validatePluginCatalog } from "../../src/plugins/catalog";
+import { validatePluginCatalog } from "@openteam/plugin-sdk";
+import { pluginCatalog } from "@openteam/plugins";
 import { boundPluginResult } from "../../src/services/plugin-service";
-import { catalogView } from "../../src/services/plugin/values";
+import { PLUGIN_RESULT_TEXT_LIMIT } from "../../src/services/plugin/values";
 
 describe("plugin catalog", () => {
-  test("installed snapshots receive catalog artwork without adopting a newer definition", () => {
-    const current = pluginCatalog.find((plugin) => plugin.key === "gmail")!;
-    const pinned = {
-      ...current,
-      icon: undefined,
-      logoUrl: null,
-      binaryFiles: undefined,
-      version: "1.0.0",
-      description: "Pinned behavior",
-    };
-    const view = catalogView(pinned, true, current);
-    expect(view.logoUrl).toStartWith("data:image/png;base64,");
-    expect(view.version).toBe("1.0.0");
-    expect(view.description).toBe("Pinned behavior");
-  });
   test("ships normalized, unique plugin and connector identifiers", () => {
     expect(() => validatePluginCatalog(pluginCatalog)).not.toThrow();
     expect(new Set(pluginCatalog.map((plugin) => plugin.key)).size).toBe(pluginCatalog.length);
@@ -122,9 +108,9 @@ describe("plugin catalog", () => {
     let nested: unknown = "hidden";
     for (let depth = 0; depth < 10; depth += 1) nested = { next: nested };
     const result = boundPluginResult({
-      text: "x".repeat(100_010),
       rows: Array.from({ length: 120 }, (_, index) => index),
       nested,
+      text: "x".repeat(PLUGIN_RESULT_TEXT_LIMIT + 10),
     }) as { text: string; rows: unknown[]; nested: unknown };
     expect(result.text).toEndWith("[truncated]");
     expect(result.rows).toHaveLength(101);
@@ -137,7 +123,8 @@ describe("plugin catalog", () => {
       content: [{ type: "image", data, mimeType: "image/png" }, { type: "text", text: "x".repeat(100_010) }],
     }) as { content: Array<Record<string, string>> };
     expect(result.content[0]).toEqual({ type: "image", data, mimeType: "image/png" });
-    expect(result.content[1]!.text).toEndWith("[truncated]");
+    // A long thread stays whole; the computer spills it to a file rather than the context.
+    expect(result.content[1]!.text).toBe("x".repeat(100_010));
     const huge = boundPluginResult({ content: [{ type: "image", data: "A".repeat(3 * 1024 * 1024), mimeType: "image/png" }] }) as { content: Array<Record<string, string>> };
     expect(huge.content[0]).toEqual({ type: "text", text: expect.stringContaining("image omitted") });
   });

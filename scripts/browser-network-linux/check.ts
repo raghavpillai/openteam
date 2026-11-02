@@ -89,7 +89,7 @@ if (phase === "initial") {
 } else token = JSON.parse(await readFile(stateFile, "utf8")).token;
 await until(async () => (await computer("/v1/browser-network")).ready, "computer network worker");
 
-// These are headed browsers created by the actual image's ScreenBroker, running as runner UID 1001.
+// These are headed browsers created by the actual image's ScreenBroker, running as box UID 1000.
 const browsers: Awaited<ReturnType<typeof chromium.connectOverCDP>>[] = [];
 const pages: any[] = [];
 for (let i = 0; i < 2; i++) {

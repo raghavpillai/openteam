@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attachmentRoots, loadAttachmentImages } from "../../src/runtime/attachments";
 
-test("attachment overflow is reported instead of silently dropping the ninth file", async () => {
+test("attachment overflow is reported instead of silently dropping the 65th file", async () => {
   const previous = process.env.OPENTEAM_AGENT_DATA_ROOT;
   const dir = await realpath(await mkdtemp(join(tmpdir(), "attachment-count-")));
   process.env.OPENTEAM_AGENT_DATA_ROOT = dir;
@@ -13,14 +13,15 @@ test("attachment overflow is reported instead of silently dropping the ninth fil
     const root = attachmentRoots(owner)[1]!;
     await mkdir(root, { recursive: true });
     const paths = await Promise.all(
-      Array.from({ length: 9 }, async (_, i) => {
+      Array.from({ length: 65 }, async (_, i) => {
         const path = join(root, `${i}.png`);
         await writeFile(path, Buffer.from(`distinct image ${i}`));
         return path;
       })
     );
-    expect((await loadAttachmentImages(root, paths.slice(0, 8), owner)).images).toHaveLength(8);
-    await expect(loadAttachmentImages(root, paths, owner)).rejects.toThrow("at most 8");
+    expect((await loadAttachmentImages(root, paths.slice(0, 64), owner)).images).toHaveLength(64);
+    await expect(loadAttachmentImages(root, paths, owner)).rejects.toThrow("A subagent can take at most 64 images in file_attachments. Attach fewer and try again.");
+    await expect(loadAttachmentImages(root, [join(root, "missing.png")], owner)).rejects.toThrow(`Couldn't read the attached image ${join(root, "missing.png")}: it was not found or is over 25 MB.`);
   } finally {
     if (previous === undefined) delete process.env.OPENTEAM_AGENT_DATA_ROOT;
     else process.env.OPENTEAM_AGENT_DATA_ROOT = previous;
@@ -62,6 +63,16 @@ test.skipIf(!Bun.which("ffmpeg"))(
       );
       const image = join(root, "last.png");
       await writeFile(image, png);
+      // Each clip gives up to 12 frames; one slot stays reserved for every later attachment.
+      const many = Array(60).fill(image);
+      const crowded = await loadAttachmentImages(root, [video, video, ...many], owner);
+      try {
+        expect(crowded.images).toHaveLength(64);
+        expect(crowded.images.slice(-60).every((item) => item.mimeType === "image/png")).toBe(true);
+        expect(crowded.images.filter((item) => item.mimeType === "image/jpeg")).toHaveLength(4);
+      } finally {
+        await Promise.all(crowded.tempDirectories.map((path) => rm(path, { recursive: true, force: true })));
+      }
       for (const imageCount of [1, 6]) {
         const loaded = await loadAttachmentImages(
           root,
@@ -69,7 +80,7 @@ test.skipIf(!Bun.which("ffmpeg"))(
           owner
         );
         try {
-          expect(loaded.images.length).toBeLessThanOrEqual(16);
+          expect(loaded.images.length).toBeLessThanOrEqual(64);
           expect(loaded.images.slice(-imageCount)).toEqual(
             Array(imageCount).fill({
               type: "image",
@@ -77,9 +88,7 @@ test.skipIf(!Bun.which("ffmpeg"))(
               data: png.toString("base64"),
             })
           );
-          expect(loaded.images.filter((image) => image.mimeType === "image/jpeg").length).toBe(
-            16 - imageCount
-          );
+          expect(loaded.images.filter((image) => image.mimeType === "image/jpeg").length).toBe(24);
         } finally {
           await Promise.all(
             loaded.tempDirectories.map((path) => rm(path, { recursive: true, force: true }))

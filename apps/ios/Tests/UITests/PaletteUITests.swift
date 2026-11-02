@@ -41,11 +41,17 @@ import XCTest
     let app = launch("light")
     for appearance in ["light", "dark", "light"] {
       app.buttons["settings-button"].tap()
-      XCTAssertTrue(app.buttons["appearance-picker"].waitForExistence(timeout: 5))
+      // Appearance sits below the Server rows, so scroll Settings until it is on screen.
+      XCTAssertTrue(app.buttons["account-settings"].waitForExistence(timeout: 5))
+      let picker = app.buttons["appearance-picker"]
+      for _ in 0..<4 where !(picker.exists && picker.isHittable) { app.swipeUp() }
+      XCTAssertTrue(picker.isHittable)
       app.buttons["appearance-picker"].tap()
       app.buttons[appearance.capitalized].tap()
       capture("settings-" + appearance, app)
-      app.buttons["account-settings"].tap()
+      let account = app.buttons["account-settings"]
+      for _ in 0..<4 where !account.isHittable { app.swipeDown() }
+      account.tap()
       let server = app.descendants(matching: .any).matching(identifier: "account-server").firstMatch
       XCTAssertTrue(server.waitForExistence(timeout: 5))
       XCTAssertTrue([server.label, server.value as? String ?? ""].joined(separator: " ").contains(base))

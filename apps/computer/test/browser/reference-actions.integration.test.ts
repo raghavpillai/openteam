@@ -33,7 +33,7 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
     try {
       const url = `http://127.0.0.1:${server.port}/`;
       expect(text(await session.execute("browser_navigate", { url }))).toStartWith(
-        `Navigated to ${url}\n\nCurrent page: Contract fixture (${url})`
+        `### Result\nNavigated to ${url}\n### Page\n- Page URL: ${url}\n- Page Title: Contract fixture`
       );
       const snapshot = text(await session.execute("browser_snapshot", {}));
       expect(snapshot).toContain("Captured page snapshot (3 interactive refs)");
@@ -42,66 +42,43 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
           .split("\n")
           .find((line) => line.includes("[ref=") && line.includes(label))!
           .match(/\[ref=(e\d+)\]/)![1]!;
-      const held = await session.execute("browser_click", {
-        ref: ref("Hold"),
+      const clicked = await session.execute("browser_click", {
+        target: ref("Hold"),
         element: "Hold",
-        holdDurationMs: 120,
         modifiers: ["Shift"],
-        offsetX: 5,
       });
-      expect(text(held)).toStartWith("Clicked Hold\n\nCurrent page:");
+      expect(text(clicked)).toStartWith("### Result\nClicked Hold\n### Page\n- Page URL:");
       const page = await (session as any).ensurePage();
-      expect(await page.evaluate(() => (window as any).holds.at(-1))).toBeGreaterThanOrEqual(100);
+      expect(await page.evaluate(() => (window as any).holds.length)).toBe(1);
+      // browser_type fills the whole text at once, replacing what was there.
+      await page.locator("input").fill("old value");
       expect(
-        text(
-          await session.execute("browser_fill", {
-            ref: ref("Name"),
-            element: "Name",
-            value: "Fixture",
-          })
-        )
-      ).toStartWith("Filled Name\n\nCurrent page:");
+        text(await session.execute("browser_type", { target: ref("Name"), element: "Name", text: "Fixture" }))
+      ).toStartWith("### Result\nFilled Name\n### Page");
       expect(await page.locator("input").inputValue()).toBe("Fixture");
+      await session.execute("browser_type", { target: ref("Name"), element: "Name", text: "!", slowly: true });
+      expect(await page.locator("input").inputValue()).toBe("Fixture!");
       const selected = await session.execute("browser_select_option", {
-        ref: ref("Region"),
+        target: ref("Region"),
         element: "Region",
         values: ["new york"],
       });
       expect(text(selected)).toStartWith(
-        'Selected ["ny"] in Region (matched the requested value to the page\'s option by its visible label)'
+        '### Result\nSelected ["ny"] in Region (matched the requested value to the page\'s option by its visible label)'
       );
       expect(await page.locator("select").inputValue()).toBe("ny");
-      expect(
-        text(
-          await session.execute("browser_scroll", {
-            ref: ref("Hold"),
-            element: "Hold",
-            deltaY: 900,
-          })
-        )
-      ).toStartWith("Scrolled Hold into view");
-      expect(await page.evaluate(() => (window as any).wheels)).toBe(0);
-      expect(text(await session.execute("browser_scroll", { deltaX: 15 }))).toStartWith(
-        "Scrolled by (15, 0)"
-      );
-      const boxResult = await session.execute("browser_get_bounding_box", {
-        ref: ref("Hold"),
-        element: "Hold",
-      });
-      expect(text(boxResult)).toContain("Bounding box for Hold\n\nCurrent page:");
-      expect(text(boxResult)).toContain('"width":150');
+      const scoped = text(await session.execute("browser_snapshot", { target: ref("Region"), depth: 3 }));
+      expect(scoped).toContain("### Snapshot");
+      expect(scoped).toContain("New York");
+      expect(scoped).not.toContain("Scroll area");
       const tabs = await session.execute("browser_tabs", { action: "list" });
-      expect(text(tabs)).toStartWith("Listed 1 tab(s)\n\n[");
+      expect(text(tabs)).toBe(`### Open tabs\n- 0: (current) [Contract fixture](${url})`);
+      const opened = text(await session.execute("browser_tabs", { action: "new", url }));
+      expect(opened).toContain(`### Open tabs\n- 0: [Contract fixture](${url})\n- 1: (current) [Contract fixture](${url})`);
       const shot = await session.execute("browser_take_screenshot", {});
-      expect(text(shot)).toStartWith("Saved a screenshot to ");
+      expect(text(shot)).toStartWith("### Result\nSaved a screenshot to ");
       const image = await readFile(shot.details.path as string);
       expect(image.subarray(1, 4).toString()).toBe("PNG");
-      const cdp = await session.execute("browser_cdp", {
-        method: "Runtime.evaluate",
-        params: { expression: "1+1", returnByValue: true },
-      });
-      expect(text(cdp)).toStartWith("Ran CDP Runtime.evaluate\n\nCurrent page:");
-      expect((cdp.details.result as any).result.value).toBe(2);
     } finally {
       await browser.close();
       await driver.stop();

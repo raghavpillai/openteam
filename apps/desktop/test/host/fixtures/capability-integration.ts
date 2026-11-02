@@ -108,11 +108,10 @@ try {
   const snapshot = await browser.execute("browser_snapshot", {});
   assert(!JSON.stringify(snapshot).includes(secret));
   await assert.rejects(
-    browser.execute("browser_cdp", {
-      method: "Runtime.evaluate",
-      params: { expression: 'document.querySelector("input").value' },
+    browser.execute("browser_run_code", {
+      code: 'async (page) => page.locator("input").first().inputValue()',
     }),
-    /private login data/
+    /protected login values/
   );
   assert.deepEqual(
     await browser.importPrivateCookies([

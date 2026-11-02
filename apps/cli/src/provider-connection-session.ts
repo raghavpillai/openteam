@@ -43,9 +43,9 @@ export class ProviderConnectionSession implements InteractiveSession<ConnectionR
   }
   private get name() {
     return this.providerId === "claude-code"
-      ? "Claude Code"
+      ? "Claude"
       : this.providerId === "openai-codex"
-        ? "Codex"
+        ? "ChatGPT"
         : this.providerId === "openai"
           ? "OpenAI"
           : this.providerId === "anthropic"

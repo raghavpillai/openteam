@@ -11,7 +11,6 @@ Manage your server with the `openteam` command on the host.
 | `openteam start` | Starts the server and waits until it's ready |
 | `openteam stop` | Stops the server. Your data is kept. |
 | `openteam logs --follow` | Streams logs from all services |
-| `openteam setup` | Reruns guided setup, for example to change your model provider |
 | `openteam setup` | Changes connection mode, including Tailscale HTTPS |
 | `openteam setup --advanced` | Also changes API port, time zone, and tasks at once |
 | `openteam tailscale enable [--https-port <port>]` | Configures and verifies private HTTPS through Serve |

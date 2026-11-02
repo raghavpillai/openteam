@@ -33,14 +33,15 @@ import XCTest
     if required { app.launchArguments.append("--show-login") }
     app.launch()
     if required {
+      waitForArrival(app.buttons["get-started"])
       app.buttons["get-started"].tap()
+      waitForArrival(app.buttons["connect-button"])
       app.buttons["connect-button"].tap()
       XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 12))
+      waitForArrival(app.textFields["username-field"])
       app.textFields["username-field"].tap()
-      app.textFields["username-field"].typeText("fixture")
-      app.secureTextFields["password-field"].tap()
-      app.secureTextFields["password-field"].typeText("fixture-only")
-      app.buttons["sign-in-button"].tap()
+      app.textFields["username-field"].typeText("fixture\n")
+      app.secureTextFields["password-field"].typeText("fixture-only\n")
     }
     XCTAssertTrue(app.buttons["channel-channel-research"].waitForExistence(timeout: 15))
     if required {
@@ -54,6 +55,13 @@ import XCTest
     }
     app.buttons["channel-channel-research"].tap()
     return app
+  }
+  private func waitForArrival(_ element: XCUIElement) {
+    let ready = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hittable == true"), object: element)
+    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
+    // Navigation reports destination frames before the push finishes.
+    Thread.sleep(forTimeInterval: 0.5)
   }
   func capture(_ name: String, _ app: XCUIApplication) {
     let a = XCTAttachment(screenshot: app.screenshot())

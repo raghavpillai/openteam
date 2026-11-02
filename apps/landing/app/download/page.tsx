@@ -64,7 +64,7 @@ export default function DownloadPage() {
         <section id="server" className="dl-step ot-bot-section">
           <div className="dl-step-heading">
             <h2>Install the server.</h2>
-            <p>Run guided setup on a VPS, home server, or spare machine. Create your account and connect a model.</p>
+            <p>Run guided setup on a VPS, home server, or spare machine. It sets up the connection and your account.</p>
           </div>
           <div className="dl-step-content">
             <div className="dl-terminal">
@@ -122,7 +122,7 @@ export default function DownloadPage() {
         <section id="desktop" className="dl-step ot-bot-section">
           <div className="dl-step-heading">
             <h2>Download the app.</h2>
-            <p>Enter the server URL from setup, sign in, and create your first agent.</p>
+            <p>Enter the server URL from setup, sign in, connect a model, and create your first agent.</p>
           </div>
           <div className="dl-step-content">
             <DownloadOptions />

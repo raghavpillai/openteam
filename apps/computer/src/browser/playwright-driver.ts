@@ -31,6 +31,8 @@ export const outOfProcessPlaywright = async (): Promise<OutOfProcessPlaywright> 
         const child = originalFork(modulePath, args, {
           ...(options as childProcess.ForkOptions),
           execPath: nodeBinary(),
+          // The driver runs in Node; inherited Bun flags such as --smol are invalid there.
+          execArgv: (options as childProcess.ForkOptions).execArgv ?? [],
         });
         const invalidate = () => {
           if (playwrightDriver === generation) playwrightDriver = null;

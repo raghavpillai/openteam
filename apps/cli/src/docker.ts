@@ -149,6 +149,8 @@ export class ComposeProject {
   ): void {
     const result = this.run(args, options);
     if (result.status !== 0) {
+      // Ctrl-C reaches Docker Compose too; it stops and exits 130.
+      if (result.status === 130) throw new CliError("Docker Compose was interrupted.", 130);
       const exhausted = options.inherit
         ? args[0] === "up" && addressPoolsExhausted(this.runner)
         : `${result.stderr}${result.stdout}`.includes(ADDRESS_POOLS_EXHAUSTED);

@@ -86,7 +86,7 @@ const neutralPackageImports = new Map<string, ReadonlySet<string>>([
   ["product-core", new Set(["@openteam/contracts"])],
   ["design-tokens", new Set(["@openteam/contracts"])],
 ]);
-const platformImportPrefixes = ["electron", "expo", "react", "react-native"];
+const platformImportPrefixes = ["electron", "react"];
 for (const [packageName, allowedWorkspaceImports] of neutralPackageImports) {
   for (const file of await walk(resolve(root, "packages", packageName, "src"))) {
     for (const imported of await importsFor(file)) {

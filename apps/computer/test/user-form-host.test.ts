@@ -3,7 +3,7 @@ import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatUserFormReceipt, parseUserForm } from "@openteam/contracts";
-import { UserFormHost, formVaultKey, type FormBrowser } from "../src/user-form-host";
+import { FormPreparationError, UserFormHost, formVaultKey, type FormBrowser } from "../src/user-form-host";
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
@@ -84,7 +84,7 @@ test("form preflight reports omitted controls and preserves that diagnostic on r
  f.browser.prepare=async()=>({binding:{pageId:"page",domain:"example.com"},reachable:["email"],failureKinds:{password:"in_unreachable_frame"}});
  const prepared=await f.host.prepare("bot","partial",form);
  expect(prepared.fields.map(field=>field.id)).toEqual(["email"]);
- expect(prepared.preflightNote).toContain("cross-origin iframe");
+ expect(prepared.preflightNote).toContain("inside a frame the host could not inspect (still loading or unreadable)");
  expect(await f.host.prepare("bot","partial",form)).toEqual(prepared);
  f.browser.prepare=async()=>({binding:{pageId:"page",domain:"example.com"},reachable:[],failureKinds:{email:"in_unreachable_frame",password:"in_unreachable_frame"}});
  await expect(f.host.prepare("bot","structural",form)).rejects.toThrow("was NOT shown");
@@ -136,4 +136,59 @@ test("opening the screen settles a form without filling or retaining submitted v
   expect(formatUserFormReceipt(receipt)).toContain("on the screen instead");
   expect(await f.host.submit("bot", "on-screen", { password: "never-filled" })).toEqual(receipt);
   expect(f.fills).toEqual([]); expect(f.entered()).toBe(0);
+});
+
+test("fill receipts drop values a remap cannot cure and report kinds as the reference does", async () => {
+  const f = await fixture();
+  const checkout = { title: "Pay", instruction: "Card", domain: "example.com", fields: [
+    { id: "cc", label: "Card number", type: "text", secret: true, target: { kind: "ref", value: "e1" } },
+    { id: "zip", label: "ZIP", type: "text", target: { kind: "ref", value: "e2" } },
+  ] };
+  const failures: Record<string, unknown> = { cc: Object.assign(new Error("Frame origin refused"), { kind: "frame_origin_refused" }), zip: new Error("target_hidden") };
+  f.browser.fill = async (_, field) => { throw failures[field.id]; };
+  await f.host.prepare("bot", "frames", checkout);
+  const receipt = await f.host.submit("bot", "frames", { cc: "4242424242424242", zip: "94110" });
+  expect(receipt.fields).toEqual([{ id: "cc", status: "dropped" }, { id: "zip", status: "held" }]);
+  expect(receipt.fillFailureKinds).toEqual({ cc: "frame_origin_refused", zip: "hidden_target" });
+  const text = formatUserFormReceipt(receipt);
+  expect(text).toContain("- cc (text): FILL FAILED: the target sits in an embedded frame the host does not write into for the consented site");
+  // The first pass reports a hidden twin as a missing target; only a remap names it hidden.
+  expect(text).toContain("- zip (text): NOT FILLED: nothing on the live page matched its target. The host still HOLDS the submitted value.");
+  expect(text).toContain('REMAP OFFERED: the user is NOT being asked again. The host still holds the submitted value of "zip"');
+  expect(text).not.toContain("4242424242424242");
+
+  f.browser.fill = async () => { throw Object.assign(new Error("The form page changed domain"), { kind: "domain_mismatch", liveHost: "evil.example" }); };
+  await f.host.prepare("bot", "moved", checkout);
+  const mismatch = await f.host.submit("bot", "moved", { cc: "4242424242424242", zip: "94110" });
+  expect(mismatch.fillFailureKinds).toBeUndefined();
+  expect(mismatch.fields.map(field => field.status)).toEqual(["dropped", "dropped"]);
+  expect(formatUserFormReceipt(mismatch)).toContain("- cc (text): FILL FAILED (the target was gone, unresolvable, or the fill errored)");
+
+  const offline = new UserFormHost(f.root, async () => { throw new Error("browser down"); });
+  await f.host.prepare("bot", "offline", checkout);
+  const unreachable = await offline.submit("bot", "offline", { cc: "4242424242424242", zip: "94110" });
+  expect(unreachable.fields.map(field => field.status)).toEqual(["dropped", "dropped"]);
+  expect(formatUserFormReceipt(unreachable)).toContain("FILL FAILED: the host could not reach the box browser");
+});
+
+test("preflight refusals carry status-only bodies, and an unreachable browser is retried once", async () => {
+  const f = await fixture();
+  f.browser.prepare = async () => ({ binding: { pageId: "page", domain: "example.com" }, reachable: [], failureKinds: { email: "in_closed_shadow", password: "in_unreachable_frame" } });
+  const structural = await f.host.prepare("bot", "structural", form).catch(error => error);
+  expect(structural).toBeInstanceOf(FormPreparationError);
+  expect(structural.body).toEqual({ error: "form_preflight_failed", fieldKinds: { email: "in_closed_shadow", password: "in_unreachable_frame" } });
+  expect(structural.message).toStartWith('The form "Sign in" was NOT shown and nothing was asked of the user');
+  let attempts = 0;
+  f.browser.prepare = async (requested) => {
+    if (++attempts === 1) throw new Error("connect ECONNREFUSED");
+    return { binding: { pageId: "page", domain: "example.com" }, reachable: requested.fields.map((field) => field.id) };
+  };
+  expect((await f.host.prepare("bot", "retried", form)).fields).toHaveLength(2);
+  expect(attempts).toBe(2);
+  f.browser.prepare = async () => { throw new Error("Browser has been closed"); };
+  const down = await f.host.prepare("bot", "down", form).catch(error => error);
+  expect(down.body).toEqual({ error: "form_driver_unavailable" });
+  expect(down.message).toContain("the host could not reach the box browser at request time");
+  f.browser.prepare = async () => { throw Object.assign(new Error("No live browser tab matches the form domain."), { kind: "tab_missing" }); };
+  await expect(f.host.prepare("bot", "tab", form)).rejects.toMatchObject({ kind: "tab_missing" });
 });

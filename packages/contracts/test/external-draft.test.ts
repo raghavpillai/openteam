@@ -39,3 +39,67 @@ test('the main-tool parser keeps waitForReview and the captured draft rules', as
  expect(normalizeMainToolArguments('DraftExternalMessage', args)).toMatchObject({ waitForReview: true });
  expect(() => normalizeMainToolArguments('DraftExternalMessage', { ...args, channelId: 'C123456789' })).toThrow('only valid with platform:slack');
 });
+
+test("draft argument problems are named per field, and a lone recipient is a list", async () => {
+ const { normalizeMainToolArguments } = await import('../src/reference-main-parsers');
+ const email = { platform: 'email', providerIdentifier: 'gmail', from: 'me@example.com', to: ['ann@example.com'], subject: 'Hi', body: 'Hello' };
+ const refusal = (args: unknown) => { try { normalizeMainToolArguments('DraftExternalMessage', args); } catch (error) { return (error as Error).message; } throw new Error('accepted'); };
+ expect(refusal({ ...email, to: undefined })).toBe('Invalid arguments:\nto: to is required when platform is email');
+ expect(refusal({ ...email, from: undefined })).toBe('Invalid arguments:\nfrom: from is required when platform is email');
+ expect(refusal({ ...email, to: ['Ann <ann@x.com>'] })).toBe('Invalid arguments:\nto: to must carry plain email address(es) like user@example.com, not a display name or "Name <addr>" form. Got: Ann <ann@x.com>');
+ expect(refusal({ ...email, target: '#general' })).toBe('Invalid arguments:\ntarget: target is only valid with platform:slack and cannot be included in a platform:email draft. It would be silently dropped. Nothing was drafted. Re-send with only the fields that belong to platform:email.');
+ expect(normalizeMainToolArguments('DraftExternalMessage', { ...email, to: 'ann@example.com' }).to).toEqual(['ann@example.com']);
+});
+
+test("the draft receipt names the sending address", async () => {
+ const { renderControlResult } = await import('../src/tool-results');
+ expect(renderControlResult('DraftExternalMessage', { sent: true, message_id: 'm1' }, { platform: 'email', from: 'me@example.com', to: ['ann@example.com'] })).toBe(
+  'Draft email from me@example.com to ann@example.com is now an editable card in the chat (id: m1). Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.'
+ );
+});
+
+test('a model email draft is unwrapped once; Slack drafts and user edits keep their lines', async () => {
+ const { parseDraftExternalMessage } = await import('../src/external-draft-body');
+ const wrapped = 'Thanks for sending over the revised proposal yesterday. I went through\nthe pricing section with the team this morning and we are aligned on\nthe overall structure.\n\nBest,\nRaghav';
+ const email = { platform: 'email', providerIdentifier: 'p', from: 'me@example.com', to: ['ann@example.com'], subject: 'Hi', body: wrapped };
+ expect(parseDraftExternalMessage(email).body).toBe('Thanks for sending over the revised proposal yesterday. I went through the pricing section with the team this morning and we are aligned on the overall structure.\n\nBest,\nRaghav');
+ expect(parseExternalDraft(email).body).toBe(wrapped);
+ expect(editExternalDraft(parseExternalDraft(email), { body: wrapped }).body).toBe(wrapped);
+ const slack = { platform: 'slack', providerIdentifier: 'p', target: '#general', channelId: 'C0123456789', body: wrapped };
+ expect(parseDraftExternalMessage(slack).body).toBe(wrapped);
+});
+
+test('HTML in an email body and Slack markup in a Slack body are refused before a card exists', async () => {
+ const { parseDraftExternalMessage, slackBodyProblems } = await import('../src/external-draft-body');
+ const { normalizeMainToolArguments } = await import('../src/reference-main-parsers');
+ const email = { platform: 'email', providerIdentifier: 'p', from: 'me@example.com', to: ['ann@example.com'], subject: 'Hi', body: '<p>Hello Dana,</p><p>See you Friday.</p>' };
+ const html = 'body is plain text, so </p> would reach the recipient as literal text. Nothing was drafted. Rewrite body as plain text: blank lines between paragraphs, "- " before list items.';
+ expect(() => parseDraftExternalMessage(email)).toThrow(html);
+ expect(() => normalizeMainToolArguments('DraftExternalMessage', email)).toThrow('body is plain text, so </p> would reach the recipient as literal text. Nothing was drafted.');
+ expect(parseDraftExternalMessage({ ...email, body: 'Is 3 < 5 > 2? Yes.' }).body).toBe('Is 3 < 5 > 2? Yes.');
+ const slack = { platform: 'slack', providerIdentifier: 'p', target: '#general', channelId: 'C0123456789' };
+ expect(() => parseDraftExternalMessage({ ...slack, body: '• one\n• two' })).toThrow(
+  'body is standard markdown that is converted for Slack, so Slack\'s own syntax in it would not render as written. Nothing was drafted. Fix body and call this tool again: start each list item with "- ", not •.');
+ expect(() => parseDraftExternalMessage({ ...slack, body: '• See <https://x.com|x>\n```js run this\ncode\n```' })).toThrow(
+  'Fix body and call this tool again: write each link as [label](url), not <url|label>; start each list item with "- ", not •; put each ``` of a code block on its own line, with nothing after the opening one but an optional language name.');
+ expect(parseDraftExternalMessage({ ...slack, body: '- one\n- two [x](https://x.com)\n```js\nconst a = "• <https://a.b|c>";\n```' }).body).toContain('- one');
+ // Cases checked against the reference implementation.
+ for (const [body, problems] of [
+  ['```js\ncode\n```', []], ['text ```\ncode\n```', ['fence_text']], ['```\ncode\n``` after', ['fence_text']],
+  ['`• inline` fine', []], ['``` code ```', []], ['~~~\n• inside\n~~~', []], ['```\n<https://a.b|c>\n```', []],
+ ] as const) expect([...slackBodyProblems(body)]).toEqual([...problems]);
+});
+
+test("the draft contract carries the 10-21 field wording with OpenTeam's adaptations", async () => {
+ const { referenceTool } = await import('../src/tool-contracts');
+ const draft = referenceTool('DraftExternalMessage');
+ const fields = draft.inputSchema.properties;
+ expect(fields.to.description).toStartWith('Required for email. The recipient(s)');
+ expect(fields.subject.description).toBe('Required for email. The subject line.');
+ expect(fields.replyToMessageId.description).toBe("Optional, email only. The provider's id of the message being replied to, the ONLY key a reply threads on; omit it for a fresh email.");
+ expect(fields.target.description).toStartWith('Required for Slack. Where the message goes');
+ expect(fields.channelId.description).toStartWith('Required for Slack. The channel or DM conversation id');
+ expect(fields.from.description).toStartWith('Required for email. The plain address');
+ expect(draft.description).toContain('OpenTeam verifies the routing (sending address, channel, reply target) before the card appears, shows it on the card, and refuses the draft');
+ expect(Object.keys(fields)).not.toContain('forwardMessageId');
+});

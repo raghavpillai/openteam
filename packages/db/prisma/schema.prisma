@@ -128,11 +128,6 @@ enum InboxStatus {
   failed
 }
 
-enum InboxDeliveryMode {
-  turn
-  steer
-}
-
 enum OutboxStatus {
   pending
   delivering
@@ -175,8 +170,6 @@ enum IdempotencyStatus {
 enum MemoryScope {
   agent
   user
-  project
-  conversation
 }
 
 enum MemoryTier {
@@ -196,6 +189,7 @@ enum SubagentStatus {
   provisioning
   queued
   running
+  waiting
   completed
   failed
   stopped
@@ -247,9 +241,8 @@ model Bot {
   draftingDisabled Boolean      @default(false)
   /// Lowercased addresses this Bot may email without a review card.
   draftAllowedRecipients String[] @default([])
-  dreamingEnabled     Boolean     @default(false)
-  episodePending      Int         @default(0)
-  episodeTurns        Json        @default("[]")
+  /// Exchanges whose memory extraction has not finished; one left after a restart is reviewed with the next turn.
+  pendingMemoryExchanges Json     @default("[]")
   avatarPath       String?
   defaultDirectory String
   status           BotStatus    @default(provisioning)
@@ -274,10 +267,7 @@ model Bot {
   writtenMemoryFacts MemoryFact[]      @relation("MemoryFactWriter")
   savedSkills      SavedSkill[]
   routines         Routine[]
-  promptSnapshot   AgentPromptSnapshot?
   fileStates       AgentFileState[]
-  projectMemberships ProjectMember[]
-  createdProjects  Project[]           @relation("ProjectCreator")
   connectorStates  BotConnectorState[]
   todos            TodoItem[]
   parentSubagents  Subagent[]           @relation("ParentSubagents")
@@ -285,7 +275,6 @@ model Bot {
   pluginActivities PluginActivity[]
   pluginInvocations PluginInvocation[]
   contextSessions ContextSession[]
-  memoryConversations MemoryConversation[]
   processSecrets ProcessSecret[]
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -315,6 +304,8 @@ model Subagent {
   childBotId       String         @unique @db.Uuid
   childBot         Bot            @relation("ChildSubagent", fields: [childBotId], references: [id], onDelete: Cascade)
   parentRunId      String         @db.Uuid
+  requestRunId     String?        @db.Uuid
+  requestRun       Run?           @relation("RequestSubagents", fields: [requestRunId], references: [id], onDelete: SetNull)
   parentChannelId  String         @db.Uuid
   currentRunId     String?        @unique @db.Uuid
   launchCallId     String
@@ -323,13 +314,17 @@ model Subagent {
   subagentType     String
   model            String?
   reasoning        String?
-  // Existing rows predate combined workers; new launches always store their selected mode.
-  combinedComputerUse Boolean @default(false)
   taskConfiguration Json?
   fileAttachments  Json           @default("[]")
-  runInBackground  Boolean        @default(true)
   readOnly         Boolean        @default(false)
   status           SubagentStatus @default(provisioning)
+  // Durable obligations survive a parked turn, process restart and context compaction.
+  progress         Json?
+  progressRevision Int            @default(0)
+  scopeUpdates     Json           @default("[]")
+  recoveryAttempts Int            @default(0)
+  nextCheckAt      DateTime?
+  deadlineAt       DateTime?
   result           String?
   error            Json?
   outputPath       String
@@ -343,6 +338,8 @@ model Subagent {
   @@unique([parentBotId, launchCallId])
   @@index([parentBotId, status, createdAt])
   @@index([childBotId, status])
+  @@index([status, nextCheckAt])
+  @@index([requestRunId, status])
 }
 
 model SubagentAttempt {
@@ -356,7 +353,6 @@ model SubagentAttempt {
   description       String
   prompt            String
   fileAttachments   Json           @default("[]")
-  runInBackground   Boolean        @default(true)
   status            SubagentStatus @default(provisioning)
   result            String?
   error             Json?
@@ -376,48 +372,24 @@ model MemoryFact {
   namespace      String
   scope          MemoryScope
   tier           MemoryTier  @default(log)
-  projectSlug    String?
-  memoryConversationId String? @db.Uuid
-  memoryConversation MemoryConversation? @relation(fields: [memoryConversationId], references: [id], onDelete: Cascade)
   fact           String
   factHash       String
   logicalId      String      @default("")
-  sourcePath     String      @default("")
+  // Insertion order within the namespace; breaks createdAt ties.
   sourceOrdinal  Int         @default(0)
-  sourceLine     Int         @default(0)
   importance     Float       @default(1)
-  origin         String      @default("legacy")
+  // How the fact was saved: tool, extract or template.
+  origin         String      @default("tool")
+  // The run that saved the fact, when there was one.
+  turnId         String?
   writtenByBotId String?      @db.Uuid
   writtenByBot   Bot?         @relation("MemoryFactWriter", fields: [writtenByBotId], references: [id], onDelete: SetNull)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  @@unique([namespace, sourcePath, sourceOrdinal])
   @@index([namespace, logicalId, createdAt])
   @@index([namespace, tier, updatedAt])
   @@index([writtenByBotId, updatedAt])
-  @@index([memoryConversationId, tier, createdAt])
-}
-
-// Audience partitions preserve the audience at capture time. Membership changes
-// create a new partition rather than exposing older room facts to new members.
-model MemoryConversation {
-  id          String @id @default(uuid()) @db.Uuid
-  botId       String @db.Uuid
-  bot         Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
-  address     String
-  audienceKey String
-  userScope   String
-  defaultScope String
-  teamShared  Boolean @default(false)
-  episodeTurns Json @default("[]")
-  facts       MemoryFact[]
-  runs        Run[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([botId, address, audienceKey])
-  @@index([botId, audienceKey])
 }
 
 model SavedSkill {
@@ -518,34 +490,15 @@ model RoutineExecution {
   completedAt       DateTime?
   skipReason        String?
   error             Json?
+  // Listener events this execution's wake delivers, and the delivery keys it absorbed
+  // while an earlier execution was queued or running.
+  events            Json?
+  coalescedKeys     String[]               @default([])
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
 
   @@index([routineId, createdAt])
   @@index([status, createdAt])
-}
-
-model Project {
-  slug           String          @id
-  name           String
-  description    String          @default("")
-  workingDirectory String
-  createdByBotId String?         @db.Uuid
-  createdByBot   Bot?            @relation("ProjectCreator", fields: [createdByBotId], references: [id], onDelete: SetNull)
-  members        ProjectMember[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-}
-
-model ProjectMember {
-  projectSlug String   
-  project     Project  @relation(fields: [projectSlug], references: [slug], onDelete: Cascade)
-  botId       String   @db.Uuid
-  bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
-  joinedAt    DateTime @default(now())
-
-  @@id([projectSlug, botId])
-  @@index([botId, joinedAt])
 }
 
 model BotConnectorState {
@@ -750,35 +703,11 @@ model ContextPromptSnapshot {
   systemDescription     String         @default("")
   announcedName         String         @default("")
   announcedDescription  String         @default("")
-  memoryEpoch           Int            @default(-1)
-  memoryRender          String         @default("")
-  memoryHasFacts        Boolean        @default(false)
-  memoryAudienceKey     String         @default("")
   skillEpoch            Int            @default(-1)
   skillRender           String         @default("")
   promptSections        Json           @default("{}")
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
-}
-
-model AgentPromptSnapshot {
-  botId                 String   @id @db.Uuid
-  bot                   Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
-  profileEpoch          Int      @default(-1)
-  profileSection        String   @default("")
-  systemName            String   @default("")
-  systemDescription     String   @default("")
-  announcedName         String   @default("")
-  announcedDescription  String   @default("")
-  memoryEpoch           Int      @default(-1)
-  memoryRender          String   @default("")
-  memoryHasFacts        Boolean  @default(false)
-  memoryAudienceKey     String   @default("")
-  skillEpoch            Int      @default(-1)
-  skillRender           String   @default("")
-  promptSections        Json     @default("{}")
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
 }
 
 model AgentFileState {
@@ -826,8 +755,6 @@ model Run {
   bot            Bot          @relation(fields: [botId], references: [id], onDelete: Cascade)
   conversationId String       @db.Uuid
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  memoryConversationId String? @db.Uuid
-  memoryConversation MemoryConversation? @relation(fields: [memoryConversationId], references: [id], onDelete: SetNull)
   userMessageId  String       @unique @db.Uuid
   status         RunStatus    @default(queued)
   runtimeTurnId  String?
@@ -836,6 +763,13 @@ model Run {
   inferenceReasoning String?
   taskConfiguration Json?
   origin         RunOrigin    @default(user)
+  // A parent request can outlive this model turn and several scoped workers.
+  requestProgress Json?
+  requestRevision Int @default(0)
+  requestNextCheckAt DateTime?
+  requestReconciliations Int @default(0)
+  requestStoppedAt DateTime?
+  requestedSubagents Subagent[] @relation("RequestSubagents")
   channelId      String?      @db.Uuid
   channel        Channel?     @relation(fields: [channelId], references: [id], onDelete: SetNull)
   deliveryId     String?      @unique @db.Uuid
@@ -858,6 +792,7 @@ model Run {
   @@index([botId, status])
   @@index([conversationId, createdAt])
   @@index([channelId, createdAt])
+  @@index([requestNextCheckAt])
 }
 
 model AutomationResult {
@@ -882,7 +817,6 @@ model InboxEvent {
   idempotencyKey String       @unique
   type           String       
   payload        Json
-  deliveryMode   InboxDeliveryMode @default(turn)
   status         InboxStatus  @default(pending)
   priority       Int          @default(0)
   attempts       Int          @default(0)
@@ -894,7 +828,7 @@ model InboxEvent {
   updatedAt      DateTime     @updatedAt
 
   @@index([botId, status, priority, availableAt, createdAt])
-  @@index([botId, deliveryMode, status])
+  @@index([botId, status])
 }
 
 model BotRunLease {
@@ -934,7 +868,7 @@ model PushDevice {
   installationId String             @unique
   platform       PushDevicePlatform
   pushToken      String             @unique
-  provider       String             @default("expo")
+  provider       String             @default("apns")
   apnsEnvironment String?
   apnsTopic      String?
   notificationScope String?
@@ -1251,19 +1185,15 @@ model TaskSettings {
 
 /// Selected search provider; null means search is off. Credentials live in WebToolProvider.
 model WebSearchSettings {
-  id              String   @id @default("global")
-  provider        String?
-  /// Legacy key, migrated to WebToolProvider by raw-schema.sql and kept null.
-  apiKey          String?
-  updatedAt       DateTime @updatedAt
+  id        String   @id @default("global")
+  provider  String?
+  updatedAt DateTime @updatedAt
 }
 
 /// Selected fetch provider; no row means the built-in fetcher and a null provider turns fetch off.
 model WebFetchSettings {
   id        String   @id @default("global")
   provider  String?  @default("builtin")
-  /// Legacy key, migrated to WebToolProvider by raw-schema.sql and kept null.
-  apiKey    String?
   updatedAt DateTime @updatedAt
 }
 
@@ -1311,8 +1241,26 @@ model HostMachine {
   authSessionId String?
   enabled Boolean @default(true)
   lastSeenAt DateTime?
+  // Messages state as the desktop reports it. Only the Mac itself turns Messages on;
+  // null means the app has not reported Messages support (not a Mac, or an older app).
+  messagesEnabled Boolean @default(false)
+  messagesPermissions Json?
+  // Skips the approval card for every SendIMessage on this Mac.
+  messagesSendWithoutAsking Boolean @default(false)
+  messagesAllowedRecipients MessagesAllowedRecipient[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// A handle the user allowed a Mac to text without an approval card.
+model MessagesAllowedRecipient {
+  machineId String
+  machine HostMachine @relation(fields: [machineId], references: [machineId], onDelete: Cascade)
+  recipient String
+  recipientName String?
+  createdAt DateTime @default(now())
+
+  @@id([machineId, recipient])
 }
 
 model ComputerDisplaySettings {
@@ -1356,6 +1304,15 @@ model NotificationPresence {
   updatedAt DateTime @updatedAt
   @@index([expiresAt])
   @@index([authSessionId])
+}
+
+/// The user's time zone. The apps report the zone their device detects; an override chosen in
+/// Settings wins. Routines, the box clock and the prompt's Time section all use override ?? detected.
+model UserTimeZoneSettings {
+  id        String   @id @default("global")
+  detected  String?
+  override  String?
+  updatedAt DateTime @updatedAt
 }
 
 model NotificationPreferences {

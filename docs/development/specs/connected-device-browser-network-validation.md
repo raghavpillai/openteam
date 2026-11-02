@@ -1,6 +1,24 @@
 # Browser network implementation validation
 
-Validated November 1, 2026 on `feat/connected-device-browser-network`. This is a local implementation, not a deployment or signed desktop release.
+Validated November 1–2, 2026 on `feat/connected-device-browser-network`. This is a local implementation, not a deployment or signed desktop release.
+
+## Integration with current main — November 2, 2026
+
+Merged `origin/main` at `6e6be7e2cf4a182af8d1002c768d84318da22fdb` and resolved all eleven conflicting files. Both sides' package exports, computer install CLI, shutdown recording, desktop enrollment/Messages support, server settings and fixture routes are retained. Browser-network deep links now use the shared settings-anchor contract and still open Server; model links retain main's separate Model page.
+
+iOS has one Server entry containing browser priorities and the existing server sections. Native reorder handles stay enabled; Manage devices and Updates navigate through the enclosing settings path so editing does not suppress navigation. The existing updates UI test now scrolls to offscreen controls and exercises Manage devices/back before the update flow.
+
+Merged-tree validation:
+
+- **374 server tests pass**, 153 guarded integrations skipped; **707 desktop/shared tests pass**, one existing integration skipped; **198 Swift core tests pass**; **three computer network tests pass**. The explicit browser-network deep-link panel assertion also passes.
+- **32 desktop UI assertions pass**. Both native iOS tests pass together on an isolated iPhone Air / iOS 26.5 simulator: ranking, privacy, quality and fallback; then Manage devices, update confirmation, busy-bot refusal and server restart recovery. The native build uses **Xcode 27.1**, required by current main's fold-layout API; the default Xcode 26.6 cannot compile that API.
+- **43 freshly rebuilt production-image Linux checks pass**, including real browser/device routing and DNS, both diagnostics, transfers, the one-minute soak, ranked failover/stable return, both service restarts, worker crash, frozen provider and sign-out. Frozen-provider fallback measured **4421 ms**, including test startup and two browser navigations; this remains a controlled VM measurement. The 256 MiB TLS transfer validated every byte in **1397 ms**.
+- The Linux harness now matches main's computer bootstrap capabilities and runner UID **1000** and bounds the computer container to **3 GiB** inside the disposable VM. The initial run exposed the old harness's incompatible mount permissions; the corrected complete run passed. Per-desktop memory-helper coverage belongs to main's separate memory harness; it is not enabled by this network harness.
+- Frozen lockfile installation, desktop/server/computer/SDK typechecks, all three production builds, architecture boundaries and `git diff --check origin/main` pass.
+
+The desktop **bundle-budget gate does not pass** after integrating main. A separate clean checkout of the same main commit reproduces the **same ten failing budgets**; existing limits were not increased. Main versus merged: renderer **16,955,998 → 16,971,075 bytes**, signed-in startup **1,691,093 → 1,691,635 bytes**, Electron runtime **2,515,454 → 2,594,812 bytes**. The dedicated network settings closure is **16,298 bytes**, within its 25,000-byte ceiling. The earlier passing budget results below apply to the earlier base, not this merged revision. Both builds used the same local Bun 1.3.8 runner; Linux used the pinned Bun 1.4.2.
+
+Evidence remains local under `output/browser-network-merge/`: `linux-final/result.json`, phase logs/image identities, `IntegratedUI.xcresult`, `ios-summary.json`, suite/build logs and separate main/merged bundle measurements. The temporary baseline checkout, dedicated simulator, Colima VM/data and test containers/networks/volumes were removed; test result bundles remain available. Physical WAN/lid/VPN and signed-installer limitations below still apply.
 
 ## Faster failover and active-exit quality — November 2, 2026
 

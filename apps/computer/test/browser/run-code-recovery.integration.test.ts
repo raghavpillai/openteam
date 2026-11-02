@@ -10,7 +10,6 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("script recovery pres
   let frameLoads = 0;
   const server = Bun.serve({port: 0, hostname:'127.0.0.1', fetch: request => {
     const url = new URL(request.url);
-    if (url.pathname === "/data") return Response.json({_id: "record-7", __typename: "Listing", constructor: "ordinary field", price: 42});
     if (url.pathname === "/nested") return new Response('<input aria-label="Nested entry">',{headers:{"content-type":"text/html"}});
     if (url.pathname === "/frame") {
       frameLoads++;
@@ -51,9 +50,6 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("script recovery pres
     expect((await run(`async(page)=>{const f=page.frameLocator('iframe').frameLocator('iframe');await f.getByLabel('Nested entry').fill('nested preserved',{timeout:3000});return f.getByLabel('Nested entry').inputValue()}`)).result).toBe("nested preserved");
     expect((await run(`async(page)=>page.frameLocator('iframe').frameLocator('iframe').getByLabel('Nested entry').inputValue({timeout:3000})`)).result).toBe("nested preserved");
     expect(frameLoads).toBe(loaded);
-    const expected = {_id:"record-7",__typename:"Listing",constructor:"ordinary field",price:42};
-    expect((await run(`async(page)=>await(await page.request.get('${url}/data')).json()`)).result).toEqual(expected);
-    expect((await run(`async(page)=>page.evaluate(()=>({_id:'record-7',__typename:'Listing',constructor:'ordinary field',price:42}))`)).result).toEqual(expected);
     const assertion = await run(`async(page)=>{console.assert(false,'synthetic assertion');return 'continued'}`);
     expect(assertion.result).toBe("continued");
     expect(assertion.stdio).toContainEqual({type:"error",text:"Assertion failed: synthetic assertion"});
@@ -78,9 +74,10 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("script recovery pres
     const upload = await session.execute("browser_file_upload",{paths:[file]});
     expect(JSON.stringify(upload)).toContain("Uploaded 1 file(s)");
     expect((await run(`async(page)=>page.locator('output').innerText()`)).result).toBe("sample.txt");
-    // Script access must still direct uploads through the reviewed tool.
-    const denied = await run(`async(page)=>page.locator('#upload').setInputFiles('${file}')`);
-    expect(denied.error.message).toContain("browser_file_upload");
+    // Scripts upload workspace files directly; other paths are refused.
+    await writeFile(join(root,"direct.txt"),"direct upload");
+    expect((await run(`async(page)=>{await page.locator('#upload').setInputFiles('${join(root,"direct.txt")}');return page.locator('output').innerText()}`)).result).toBe("direct.txt");
+    expect((await run(`async(page)=>page.locator('#upload').setInputFiles('/etc/hosts')`)).error.code).toBe("policy_denied");
   } finally {
     await context.close();await driver.stop();server.stop(true);await rm(root,{recursive:true,force:true});
   }

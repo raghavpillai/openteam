@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct BrowserNetworkSettingsView: View {
+  var navigate: (SettingsRoute) -> Void
   @Environment(AppStore.self) private var store
   @Environment(\.scenePhase) private var scenePhase
   @State private var view: BrowserNetworkView?
@@ -94,13 +95,13 @@ struct BrowserNetworkSettingsView: View {
             .accessibilityIdentifier("network-discard").foregroundStyle(NativePalette.muted) }
         }
         if operation.failure != nil { Section { FormStatus(operation: operation) } }
-        Section { NavigationLink("Server status") { ServerStatusView() }.environment(\.editMode, .constant(.inactive)) }
       } else {
         Section {
           FormStatus(operation: operation)
           if operation.failure != nil { Button("Retry") { Task { await load() } } }
         }
       }
+      ServerStatusSections(navigate: navigate).environment(\.editMode, .constant(.inactive))
     }.environment(\.editMode, .constant(.active))
       .listStyle(.insetGrouped).listSectionSpacing(20)
       .navigationTitle("Server").navigationBarTitleDisplayMode(.inline)

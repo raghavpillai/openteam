@@ -17,7 +17,6 @@ import {
   Hash,
   Link,
   ListRestart,
-  LoaderCircle,
   Monitor,
   Moon,
   Palette,
@@ -40,6 +39,7 @@ import {
   searchTimeLabel,
 } from "../../lib/search";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
+import { LoadingOrb } from "../ui/loading-orb";
 import { BotAvatar, ChannelAvatar } from "./avatar";
 
 const SEARCH_DEBOUNCE_MS = 50;
@@ -508,7 +508,7 @@ function OpenSearchDialog({
             })
           ) : loading ? (
             <div className="grid h-full place-items-center text-foreground-tertiary">
-              <LoaderCircle aria-label="Searching" className="size-5 animate-spin" />
+              <LoadingOrb label="Searching" />
             </div>
           ) : error ? (
             <div className="grid h-full place-items-center px-8 text-center">

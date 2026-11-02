@@ -21,7 +21,7 @@ export function SmartNotificationSettings() {
           if (active) apply(value);
         })
         .catch(() => {
-          /* Older servers don't expose this setting. */
+          /* The section stays hidden until the setting loads. */
         });
     };
     refresh();
@@ -37,11 +37,11 @@ export function SmartNotificationSettings() {
       <SectionLabel>Notifications</SectionLabel>
       <SettingsGroup>
         <SettingsRow
-          title="Pause alerts on other devices while I’m active"
-          description="Use your iPhone while OpenTeam is open there. Otherwise, keep phone alerts quiet while you’re using your Mac. Phone alerts resume after five minutes of Mac inactivity."
+          title="Pause iPhone alerts while I’m using this Mac"
+          description="Phone alerts stay quiet while you’re using your Mac, unless OpenTeam is open on your iPhone. They resume after five minutes of Mac inactivity."
           control={
             <InteractiveSwitch
-              label="Pause alerts on other devices while I’m active"
+              label="Pause iPhone alerts while I’m using this Mac"
               checked={enabled}
               disabled={saving}
               onChange={(value) => {

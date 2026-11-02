@@ -11,6 +11,8 @@ export const UPDATE_EVENTS_FILENAME = "update-events.jsonl";
 export const UPDATE_LOG_FILENAME = "update.log";
 export const UPDATE_LOCK_DIRECTORY = "update.lock";
 export const BACKUP_DIRECTORY = "backups";
+/** Database backups from the newest updates that a successful update keeps. */
+export const UPDATE_BACKUPS_KEPT = 3;
 export const PROJECT_NAME = "openteam";
 export const API_PORT = 8787;
 export const VIEWER_PORT_START = 6200;

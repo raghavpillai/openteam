@@ -23,6 +23,26 @@ test("poll results accept MCP text or structured content and surface tool errors
   );
 });
 
+test("a failed database read skips the poll pass instead of rejecting", async () => {
+  const outage = { pluginConnection: { findMany: () => Promise.reject(new Error("Connection terminated unexpectedly")) } };
+  const poller = new PluginEventPoller(
+    outage as never,
+    async () => undefined,
+    async () => undefined
+  );
+  const warn = console.warn;
+  const warnings: unknown[] = [];
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.join(" "));
+  };
+  try {
+    await expect(poller.pollDue()).resolves.toBeUndefined();
+  } finally {
+    console.warn = warn;
+  }
+  expect(warnings).toEqual(["Plugin event poll failed: Connection terminated unexpectedly"]);
+});
+
 test("declared event polls run on their interval, force the manifest source, and save the cursor after dispatch", async () => {
   if (!url) return;
   const prisma = createPrismaClient(url);

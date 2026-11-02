@@ -1,6 +1,8 @@
 import { useRef, useState, type ReactNode } from "react";
 import { api } from "../../../client/openteam-api";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
+import { cn } from "../../../lib/cn";
 
 export const inputClass =
   "w-full min-w-0 min-h-9 rounded-[8px] border border-black/10 bg-[#7777770a] px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-white/15";
@@ -20,10 +22,46 @@ export function PluginButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex min-h-[26px] shrink-0 whitespace-nowrap cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 py-1 text-[13px] outline-none transition-colors duration-120 ease-out focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-default disabled:opacity-40 ${primary ? "bg-foreground text-background" : "bg-[#77777717] hover:bg-[#7777772b]"}`}
+      className={`inline-flex min-h-[26px] shrink-0 whitespace-nowrap cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 py-1 text-[13px] outline-none transition-colors duration-120 ease-out focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-default disabled:opacity-40 ${primary ? "bg-foreground text-background disabled:bg-[#77777717] disabled:text-foreground" : "bg-[#77777717] enabled:hover:bg-[#7777772b]"}`}
     >
       {children}
     </button>
+  );
+}
+/** The app's Select, sized like the other plugin fields, instead of a native dropdown. */
+export function PluginSelect<Value extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  className,
+  disabled,
+}: {
+  label: string;
+  value: Value;
+  onChange: (value: Value) => void;
+  options: ReadonlyArray<{ value: Value; label: string; disabled?: boolean }>;
+  className?: string;
+  disabled?: boolean;
+}) {
+  // Radix reserves an empty value for placeholders; settings may select it explicitly.
+  const encode = (value: string) => `value:${value}`;
+  return (
+    <Select onValueChange={(next) => onChange(next.slice(6) as Value)} value={encode(value)} disabled={disabled}>
+      <SelectTrigger
+        aria-label={label}
+        className={cn("h-auto min-h-9 w-full rounded-[8px] border-black/10 bg-[#7777770a] px-3 py-2 text-[13px] text-foreground shadow-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-white/15 [&>span]:truncate", className)}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="max-w-[calc(100vw-16px)] rounded-[10px]">
+        {options.map((option) => (
+          <SelectItem key={option.value} value={encode(option.value)} disabled={option.disabled}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 export function PluginField({

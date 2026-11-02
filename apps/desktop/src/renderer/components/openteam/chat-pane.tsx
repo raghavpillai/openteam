@@ -47,7 +47,6 @@ import {
   Download,
   Ellipsis,
   File,
-  LoaderCircle,
   LockKeyhole,
   MessageCircle,
   Reply,
@@ -77,6 +76,7 @@ import {
   channelNameChangedEventFor,
   routineChangedActionLabel,
   routineChangedEventFor,
+  turnInterruptedEventFor,
 } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
 import {
@@ -258,6 +258,8 @@ const messagesShareGroup = (
       !channelNameChangedEventFor(next) &&
       !routineChangedEventFor(previous) &&
       !routineChangedEventFor(next) &&
+      !turnInterruptedEventFor(previous) &&
+      !turnInterruptedEventFor(next) &&
       previous.sender === next.sender &&
       (previous.sender !== "agent" || previous.senderBotId === next.senderBotId) &&
       !shouldShowIdleGapTimestamp(previous.createdAt, next.createdAt)
@@ -323,8 +325,8 @@ interface MessageTimelineEntry {
   delivery: DurableSendRecord | null;
 }
 
-const messageImages = (message: ChannelMessageView) => {
-  const canonical = messageAssets(message)
+const messageImages = (message: ChannelMessageView) =>
+  messageAssets(message)
     .filter((attachment) => attachment.kind === "image")
     .map((attachment) => ({
       url: api.assetUrl(attachment),
@@ -332,31 +334,6 @@ const messageImages = (message: ChannelMessageView) => {
       width: attachment.width,
       height: attachment.height,
     }));
-  if (canonical.length > 0) return canonical;
-
-  const legacyImages = messageMetadata(message).images;
-  if (!Array.isArray(legacyImages)) return [];
-  return legacyImages.flatMap((image) => {
-    if (!image || typeof image !== "object" || Array.isArray(image)) return [];
-    const { url, alt, width, height } = image as Record<string, unknown>;
-    if (
-      typeof url !== "string" ||
-      !(
-        url.startsWith("/api/v0/assets/") ||
-        url.startsWith("data:image/") ||
-        url.startsWith("https://")
-      )
-    ) {
-      return [];
-    }
-    return [{
-      url,
-      ...(typeof alt === "string" ? { alt } : {}),
-      ...(typeof width === "number" ? { width } : {}),
-      ...(typeof height === "number" ? { height } : {}),
-    }];
-  });
-};
 
 const copyMessage = (message: ChannelMessageView) => {
   if (!navigator.clipboard) return;
@@ -426,6 +403,7 @@ const MessageRow = memo(function MessageRow({
   }, [entranceActive, entranceKey, onConsumeEntrance]);
   const channelEvent = channelNameChangedEventFor(message);
   const routineEvent = routineChangedEventFor(message);
+  const interruptedEvent = turnInterruptedEventFor(message);
   const from =
     message.sender === "user" ? "user" : message.sender === "system" ? "system" : "assistant";
   const hasAgentGutter = message.sender === "agent" && channel.kind !== "bot_dm";
@@ -435,7 +413,7 @@ const MessageRow = memo(function MessageRow({
   const userReactionSet = ownReactionEmojiSet(message);
   const display = messageDisplayProjection(message);
   const isWidget = messageMetadata(message).type === "widget";
-  const isDraftCard = messageMetadata(message).type === "external-draft";
+  const isDraftCard = messageMetadata(message).type === "external-draft" || messageMetadata(message).type === "imessage-send";
   const { attachments, stagedAttachments, displayContent, files: fileAttachments } = display;
   const stagedImageAttachments = stagedAttachments.filter(
     (attachment) => attachment.kind === "image" && attachment.previewUri
@@ -479,6 +457,19 @@ const MessageRow = memo(function MessageRow({
         data-message-id={message.id}
       >
         Renamed to {channelEvent.to}
+      </div>
+    );
+  }
+  if (interruptedEvent) {
+    return (
+      <div
+        className={`flex justify-center px-5 pb-3 pt-2 text-center text-xs leading-5 text-muted-foreground${
+          separatedFromPrevious ? " mt-3" : ""
+        }`}
+        data-channel-event="turn-interrupted"
+        data-message-id={message.id}
+      >
+        {message.content}
       </div>
     );
   }
@@ -958,7 +949,7 @@ export const ChatPane = memo(function ChatPane({
   onOpenBotProfile,
 }: ChatPaneProps) {
   const now = useDayClock(active);
-  // Until the first history page arrives the spinner covers the transcript.
+  // Until the first history page arrives the loading orb covers the transcript.
   // Rows measured then (a bootstrap preview) would keep stale heights and jump
   // the transcript once the real page renders around them.
   const messages = initialHistoryPending ? EMPTY_PANE_MESSAGES : loadedMessages;
@@ -1085,13 +1076,6 @@ export const ChatPane = memo(function ChatPane({
     }
     setComposerRecovery({ id: recovery.nonce, payload: recovery.payload, message: recovery.failure?.message, durable: true });
   }, [channel.id, channelRecoveries, composerRecovery, messagesById]);
-  const messagesByAddress = useMemo(
-    () =>
-      new Map(
-        visibleMessages.map(({ message }) => [channelMessageAddress(message), message] as const)
-      ),
-    [visibleMessages]
-  );
   const threads = useMemo(
     () => deriveThreads(visibleMessages.map(({ message }) => message)),
     [visibleMessages]
@@ -1105,13 +1089,16 @@ export const ChatPane = memo(function ChatPane({
     }
     return null;
   }, [focusMessage, messagesById, threads]);
+  const openedThreadFocus = useRef<number | null>(null);
   useEffect(() => {
-    if (!focusedThreadRootId) return;
-    // A fresh search focus must reopen/refocus an already-known thread root.
-    void focusMessage?.nonce;
+    const nonce = focusMessage?.nonce;
+    // Open once per focus request (search result or alert click): a thread the
+    // user closed must stay closed when later messages arrive.
+    if (!focusedThreadRootId || nonce === undefined || openedThreadFocus.current === nonce) return;
     if (threadCloseTimer.current) window.clearTimeout(threadCloseTimer.current);
     const root = messagesById.get(focusedThreadRootId);
     if (!root) return;
+    openedThreadFocus.current = nonce;
     setThreadState({
       open: true,
       pin: mergeThreadTrayPin({
@@ -1387,6 +1374,7 @@ export const ChatPane = memo(function ChatPane({
     committedGroupRuns.current = retained;
     return groupChatActivity(activeRuns, botById, itemsByRun, retained);
   }, [botById, channel.id, channel.kind, itemsByRun, runs]);
+  const hasWaitingRequest = runs.some(run => run.channelId === channel.id && run.botId === selectedBot?.id && run.requestState === "waiting");
   const hasBackgroundTask = useMemo(
     () =>
       channel.kind === "bot_dm" &&
@@ -1394,14 +1382,13 @@ export const ChatPane = memo(function ChatPane({
         (task) =>
           task.parentChannelId === channel.id &&
           task.parentBotId === selectedBot?.id &&
-          task.runInBackground &&
           ACTIVE_ASYNC_TASK_STATUSES.has(task.status)
       ),
     [channel.id, channel.kind, selectedBot?.id, subagents]
   );
   const wantsThinkingIndicator = groupActivity
     ? groupActivity.workers.length + groupActivity.readers.length > 0
-    : Boolean((activeRun || hasBackgroundTask) && !(visibleMessages.length === 0 && onboardingInProgress));
+    : Boolean((activeRun || hasBackgroundTask || hasWaitingRequest) && !(visibleMessages.length === 0 && onboardingInProgress));
   // A run usually starts from a message this transcript has not received yet.
   // Appearing first, the indicator would then be pushed down by that message.
   // Only its appearance waits; an indicator already showing stays put.
@@ -1416,10 +1403,12 @@ export const ChatPane = memo(function ChatPane({
     thinkingShownRef.current = thinkingPhase !== "hidden";
   }, [thinkingPhase]);
   const thinkingText = useMemo(() => {
-    return groupActivity?.text ?? (hasBackgroundTask && !activeRun
+    return groupActivity?.text ?? (hasWaitingRequest && !activeRun
+      ? "Waiting for a result"
+      : hasBackgroundTask && !activeRun
       ? "Working in the background"
       : thinkingActivity(activeRun ? itemsByRun.get(activeRun.id) : undefined));
-  }, [activeRun, groupActivity, hasBackgroundTask, itemsByRun]);
+  }, [activeRun, groupActivity, hasBackgroundTask, hasWaitingRequest, itemsByRun]);
   const unreadMessageId = firstUnreadMessageId(mainMessages, unreadVisit.current.through);
   const lastThinkingText = useRef({ channelId: channel.id, text: thinkingText });
   if (showThinkingIndicator || lastThinkingText.current.channelId !== channel.id) {
@@ -1563,7 +1552,7 @@ export const ChatPane = memo(function ChatPane({
                         from={entry.type === "message" && entry.message.sender === "user" ? "user" : "other"}
                       >
                       {entry.type === "thinking" ? (
-                        <BotThinkingSlot bot={entry.bot} phase={entry.phase} activity={lastThinkingText.current.text} persistent={hasBackgroundTask && !activeRun} group={channel.kind === "group"} groupStart={channel.kind === "group" && mainMessages.length > 0 && mainMessages.at(-1)?.sender !== "agent"} groupActivity={groupActivity ? { ...groupActivity, text: lastThinkingText.current.text } : undefined} />
+                        <BotThinkingSlot bot={entry.bot} phase={entry.phase} activity={lastThinkingText.current.text} persistent={(hasBackgroundTask || hasWaitingRequest) && !activeRun} group={channel.kind === "group"} groupStart={channel.kind === "group" && mainMessages.length > 0 && mainMessages.at(-1)?.sender !== "agent"} groupActivity={groupActivity ? { ...groupActivity, text: lastThinkingText.current.text } : undefined} />
                       ) : entry.type === "a2a" ? (
                         <A2AActivityRow
                           count={entry.entries.length}
@@ -1625,11 +1614,7 @@ export const ChatPane = memo(function ChatPane({
                           onOpenBotChat={onOpenBotChat}
                           onOpenBotProfile={onOpenBotProfile}
                           replyPreview={(() => {
-                            const preview = replyTargetFor(
-                              entry.message,
-                              messagesById,
-                              messagesByAddress
-                            );
+                            const preview = replyTargetFor(entry.message, messagesById);
                             if (!preview) return null;
                             return {
                               content:

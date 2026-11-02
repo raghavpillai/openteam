@@ -28,7 +28,7 @@ describe.skipIf(process.platform === "win32")("install and setup preflight", () 
   for (const command of ["install", "setup"] as const) {
     for (const installed of [false, true]) {
       test.each([
-        ["missing", "The docker command was not found"],
+        ["missing", "Docker is required."],
         ["stopped", "could not connect to its engine"],
         ["compose-missing", "Neither the Docker Compose plugin"],
         ["compose-old", "2.20.0"],
@@ -87,9 +87,20 @@ describe.skipIf(process.platform === "win32")("install and setup preflight", () 
           const output = `${stdout}\n${stderr}`.replace(/\s+/g, " ");
           expect(code).toBe(2);
           expect(output).toContain(message);
-          expect(output).toContain("NEXT STEPS");
-          expect(output).toContain("openteam setup --dir");
-          expect(output).toContain("paused");
+          if (scenario === "missing") {
+            // Missing Docker gets one short answer instead of a diagnostic report.
+            expect(output).toContain(
+              process.platform === "linux"
+                ? "Install Docker Engine and the Compose plugin: https://docs.docker.com/engine/install/"
+                : "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
+            );
+            expect(output).toContain("Then run: openteam setup --dir");
+            expect(output).not.toContain("NEXT STEPS");
+          } else {
+            expect(output).toContain("NEXT STEPS");
+            expect(output).toContain("openteam setup --dir");
+            expect(output).toContain("paused");
+          }
           expect(output).not.toContain("Unexpected Docker command");
           expect(output).not.toContain("requires a terminal");
           expect(output).not.toContain("Downloading");
@@ -179,8 +190,8 @@ describe.skipIf(process.platform === "win32" || !python)("preflight terminal out
         expect(code).toBe(2);
         expect(stderr).toBe("");
         const output = stripVTControlCharacters(stdout).replace(/\r/g, "");
-        expect(output).toContain("NEXT STEPS");
-        expect(output.replace(/\s+/g, " ")).toContain("The CLI is available");
+        expect(output.replace(/\s+/g, " ")).toContain("Docker is required.");
+        expect(output.replace(/\s+/g, " ")).toContain("Then run: openteam setup --dir");
         expect(output.split("\n").every((line) => terminalTextWidth(line) <= columns)).toBe(true);
       } finally {
         rmSync(directory, { recursive: true, force: true });

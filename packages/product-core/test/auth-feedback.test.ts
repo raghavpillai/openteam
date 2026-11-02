@@ -43,6 +43,19 @@ describe("shared onboarding error copy", () => {
       authErrorMessage(new Error("Rejected AUTH_TOKEN=synthetic-test-token"), "Could not sign in")
     ).toBe("Rejected AUTH_TOKEN=[REDACTED]");
   });
+  test("hides the error class Electron keeps from a main-process sign-in", () => {
+    const remote = (message: string) =>
+      new Error(`Error invoking remote method 'openteam:auth:sign-in': ${message}`);
+    expect(authErrorMessage(remote("OpenTeamClientError: fetch failed"), "Could not sign in")).toBe(
+      "Could not reach this OpenTeam server. Check the address and your connection."
+    );
+    expect(
+      authErrorMessage(
+        remote("OpenTeamClientError: The server took too long to respond. Please try again."),
+        "Could not sign in"
+      )
+    ).toBe("The server took too long to respond. Please try again.");
+  });
   test("turns a malformed sign-in success into a recovery action", () => {
     expect(
       authErrorMessage(

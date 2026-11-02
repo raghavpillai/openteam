@@ -1,4 +1,13 @@
-import { CloudDownload, Globe, Monitor, Server, Settings, X } from "lucide-react";
+import {
+  BrainCircuit,
+  CloudDownload,
+  Globe,
+  Mic,
+  Monitor,
+  Server,
+  Settings,
+  X,
+} from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   type SettingsAnchor,
@@ -17,12 +26,16 @@ import {
 
 const loadGeneralSettings = () => import("./general");
 const loadComputerSettings = () => import("./computer");
+const loadModelSettings = () => import("./model");
+const loadVoiceSettings = () => import("./transcription");
 const loadServerSettings = () => import("./server");
 const loadProvidersSettings = () => import("./providers");
 const loadUpdatesSettings = () => import("./updates");
 
 const GeneralSettings = lazy(loadGeneralSettings);
 const ComputerSettings = lazy(loadComputerSettings);
+const ModelSettings = lazy(loadModelSettings);
+const VoiceSettings = lazy(loadVoiceSettings);
 const ServerSettings = lazy(loadServerSettings);
 const ProvidersSettings = lazy(loadProvidersSettings);
 const UpdatesSettings = lazy(loadUpdatesSettings);
@@ -30,6 +43,8 @@ const UpdatesSettings = lazy(loadUpdatesSettings);
 const sectionLoaders: Record<SettingsView, () => Promise<unknown>> = {
   general: loadGeneralSettings,
   computer: loadComputerSettings,
+  model: loadModelSettings,
+  voice: loadVoiceSettings,
   server: loadServerSettings,
   providers: loadProvidersSettings,
   updates: loadUpdatesSettings,
@@ -38,6 +53,8 @@ const sectionLoaders: Record<SettingsView, () => Promise<unknown>> = {
 const sectionComponents = {
   general: GeneralSettings,
   computer: ComputerSettings,
+  model: ModelSettings,
+  voice: VoiceSettings,
   server: ServerSettings,
   providers: ProvidersSettings,
   updates: UpdatesSettings,
@@ -51,6 +68,8 @@ const navigation: Array<{
 }> = [
   { id: "general", label: "General", icon: Settings, available: true },
   { id: "computer", label: "Computer", icon: Monitor, available: true },
+  { id: "model", label: "Model", icon: BrainCircuit, available: true },
+  { id: "voice", label: "Voice notes", icon: Mic, available: true },
   { id: "server", label: "Server", icon: Server, available: true },
   { id: "providers", label: "Providers", icon: Globe, available: true },
   { id: "updates", label: "Updates", icon: CloudDownload, available: true },

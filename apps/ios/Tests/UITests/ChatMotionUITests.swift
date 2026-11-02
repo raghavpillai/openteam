@@ -2,7 +2,7 @@ import XCTest
 
 /// Record this deterministic scenario with simctl recordVideo for frame inspection.
 @MainActor final class ChatMotionUITests: XCTestCase {
-  let base = URL(string: "http://127.0.0.1:20070")!
+  let base = URL(string: ProcessInfo.processInfo.environment["CHAT_MOTION_SERVER"] ?? "http://127.0.0.1:20070")!
   var marks: [[String: Any]] = []
   func control(_ path: String, _ body: [String: Any]) async throws {
     var request = URLRequest(url: base.appendingPathComponent(path))
@@ -319,6 +319,85 @@ import XCTest
     }
   }
 
+  func testKeyboardPreservesComposerWidthAndDraftWrapping() async throws {
+    continueAfterFailure = false
+    for appearance in ["light", "dark"] {
+      try await control("__qa/scene", ["scene": "motion-reference"])
+      let app = XCUIApplication()
+      app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+        "--appearance", appearance, "--open-channel", "visual-chat"]
+      app.launch()
+      defer { app.terminate() }
+      let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      XCTAssertTrue(input.waitForExistence(timeout: 15))
+      XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+        .firstMatch.waitForNonExistence(timeout: 15))
+      let closed = input.frame
+      input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      XCTAssertEqual(input.frame.minX, closed.minX, accuracy: 1,
+        "Opening the keyboard must not slide the placeholder sideways")
+      XCTAssertEqual(input.frame.width, closed.width, accuracy: 1,
+        "Keyboard avoidance must not change the editor's line wrapping")
+      let draft = "Keep this draft wrapped the same way when the keyboard opens and closes. "
+        + "The text and the glass should travel together."
+      input.typeText(draft)
+      let editing = input.frame
+      XCTAssertGreaterThan(editing.height, closed.height + 10)
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+      XCTAssertEqual(input.value as? String, draft)
+      XCTAssertEqual(input.frame.minX, editing.minX, accuracy: 1)
+      XCTAssertEqual(input.frame.width, editing.width, accuracy: 1)
+      XCTAssertEqual(input.frame.height, editing.height, accuracy: 1,
+        "A multiline draft must not reflow when the keyboard closes")
+      input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      XCTAssertEqual(input.frame.height, editing.height, accuracy: 1)
+      XCTAssertEqual(input.value as? String, draft)
+    }
+  }
+
+  func testRepeatedKeyboardTransitionsKeepDraft() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "motion-reference"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--appearance", "dark", "--open-channel", "visual-chat",
+      "--trace-composer-latency", "--trace-scroll-frames", "--ui-testing-scroll-geometry"]
+    app.launch()
+    defer { app.terminate() }
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(input.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+      .firstMatch.waitForNonExistence(timeout: 15))
+    let closed = input.frame
+    var draft = ""
+    for cycle in 0..<3 {
+      mark("open-\(cycle)")
+      input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      XCTAssertEqual(input.frame.minX, closed.minX, accuracy: 1)
+      XCTAssertEqual(input.frame.width, closed.width, accuracy: 1)
+      if cycle == 1 {
+        draft = "Keyboard motion check"
+        input.typeText(draft)
+      }
+      try await Task.sleep(for: .milliseconds(500))
+      mark("close-\(cycle)")
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+      if !draft.isEmpty { XCTAssertEqual(input.value as? String, draft) }
+      XCTAssertEqual(input.frame.minY, closed.minY, accuracy: 1)
+      try await Task.sleep(for: .milliseconds(500))
+    }
+    let timing = XCTAttachment(data: try JSONSerialization.data(withJSONObject: marks, options: .prettyPrinted),
+      uniformTypeIdentifier: "public.json")
+    timing.name = "keyboard-cycle-timestamps"
+    timing.lifetime = .keepAlways
+    add(timing)
+  }
+
   func testHistoryScrollDismissesKeyboardAndPreservesDraft() async throws {
     continueAfterFailure = false
     func waitForKeyboard(_ app: XCUIApplication, visible: Bool) -> Bool {
@@ -351,7 +430,7 @@ import XCTest
           thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)),
           withVelocity: .slow, thenHoldForDuration: 0.1)
         XCTAssertTrue(waitForKeyboard(app, visible: false),
-          "Scrolling history must dismiss the keyboard in either direction")
+          "Scrolling history must dismiss the keyboard in either direction; app=\(app.frame), input=\(input.frame), keyboards=\(app.keyboards.allElementsBoundByIndex.map(\.frame))")
         XCTAssertGreaterThan(input.frame.minY, app.frame.maxY * 0.8)
         XCTAssertEqual(input.value as? String, "Keep this draft")
         capture("scroll-dismiss-\(appearance)-\(dy)", app)
@@ -528,6 +607,136 @@ import XCTest
     capture("offline-cached-chat-readable", app)
     app.terminate()
   }
+  /// Sample committed display frames rather than XCTest's settled frames, which
+  /// cannot distinguish a smooth keyboard transition from a one-frame jump.
+  func testKeyboardAndArrivalsAnimateTranscript() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "dark-chat-seven"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--appearance", "dark", "--open-channel", "visual-chat",
+      "--ui-testing-scroll-geometry", "--trace-scroll-frames", "--trace-composer-latency"]
+    app.launch()
+    defer { app.terminate() }
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(input.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+      .waitForNonExistence(timeout: 15))
+    let history = app.tables["chat-history"]
+    func geometry() throws -> [String: Any] {
+      let value = try XCTUnwrap(history.value as? String)
+      return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(value.utf8)) as? [String: Any])
+    }
+    let initial = try geometry()
+    let rows = try XCTUnwrap(initial["rows"] as? [[String: Any]])
+    let id = try XCTUnwrap(rows.last(where: { ($0["id"] as? String)?.hasPrefix("visual-message-") == true })?["id"] as? String)
+    func position(_ value: [String: Any]) throws -> Double {
+      let rows = try XCTUnwrap(value["rows"] as? [[String: Any]])
+      return try XCTUnwrap(rows.first(where: { $0["id"] as? String == id })?["y"] as? Double)
+    }
+    func assertSmooth(since start: Double, from: Double, to: Double) throws {
+      let frames = try XCTUnwrap(geometry()["motion"] as? [[String: Any]])
+      let positions: [Double] = frames.filter { ($0["t"] as? Double ?? 0) > start }.compactMap { frame in
+        (frame["rows"] as? [[Any]])?.first(where: { $0.first as? String == id })?[1] as? Double
+      }
+      let low = min(from, to), high = max(from, to)
+      let intermediate = positions.filter { $0 > low + 2 && $0 < high - 2 }
+      XCTAssertGreaterThan(Set(intermediate.map { Int($0.rounded()) }).count, 4,
+        "The transcript must move through intermediate positions with the keyboard")
+      let samples = [from] + positions + [to]
+      let largestStep = zip(samples, samples.dropFirst()).map { abs($1 - $0) }.max() ?? 0
+      XCTAssertLessThan(largestStep, abs(to - from) * 0.65,
+        "The transcript must not jump most of the keyboard distance in one frame")
+    }
+    func lastTime() throws -> Double {
+      let frames = try XCTUnwrap(geometry()["motion"] as? [[String: Any]])
+      return try XCTUnwrap(frames.last?["t"] as? Double)
+    }
+    let closedY = try position(initial)
+    let opening = try lastTime()
+    input.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+    try await Task.sleep(for: .milliseconds(700))
+    let openY = try position(geometry())
+    XCTAssertLessThan(openY, closedY - 100)
+    try assertSmooth(since: opening, from: closedY, to: openY)
+    let closing = try lastTime()
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+    try await Task.sleep(for: .milliseconds(700))
+    let returnedY = try position(geometry())
+    XCTAssertEqual(returnedY, closedY, accuracy: 3)
+    try assertSmooth(since: closing, from: openY, to: returnedY)
+    let arrival = try lastTime()
+    try await control("__qa/motion", ["active": false, "content": "Animated incoming message."])
+    XCTAssertTrue(app.staticTexts["Animated incoming message."].waitForExistence(timeout: 5))
+    try await Task.sleep(for: .milliseconds(700))
+    let afterArrival = try position(geometry())
+    XCTAssertLessThan(afterArrival, returnedY - 20)
+    try assertSmooth(since: arrival, from: returnedY, to: afterArrival)
+  }
+
+  /// The voice bar changes the composer height without a keyboard notification. The
+  /// transcript must follow it rather than reaching its new bottom in one frame.
+  func testVoiceBarAnimatesTranscript() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "dark-chat-seven"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--appearance", "dark", "--open-channel", "visual-chat", "--qa-synthetic-voice",
+      "--ui-testing-scroll-geometry", "--trace-scroll-frames"]
+    app.launch()
+    defer { app.terminate() }
+    let mic = app.buttons["voice-record-button"]
+    XCTAssertTrue(mic.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+      .waitForNonExistence(timeout: 15))
+    try await Task.sleep(for: .seconds(1))
+    let history = app.tables["chat-history"]
+    func geometry() throws -> [String: Any] {
+      let value = try XCTUnwrap(history.value as? String)
+      return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(value.utf8)) as? [String: Any])
+    }
+    let rows = try XCTUnwrap(try geometry()["rows"] as? [[String: Any]])
+    let id = try XCTUnwrap(rows.last(where: { ($0["id"] as? String)?.hasPrefix("visual-message-") == true })?["id"] as? String)
+    func position() throws -> Double {
+      let rows = try XCTUnwrap(try geometry()["rows"] as? [[String: Any]])
+      return try XCTUnwrap(rows.first(where: { $0["id"] as? String == id })?["y"] as? Double)
+    }
+    func lastTime() throws -> Double {
+      try XCTUnwrap((try geometry()["motion"] as? [[String: Any]])?.last?["t"] as? Double)
+    }
+    func assertSmooth(since start: Double, from: Double, to: Double, _ what: String) throws {
+      let frames = try XCTUnwrap(try geometry()["motion"] as? [[String: Any]])
+      let positions: [Double] = frames.filter { ($0["t"] as? Double ?? 0) > start }.compactMap { frame in
+        (frame["rows"] as? [[Any]])?.first(where: { $0.first as? String == id })?[1] as? Double
+      }
+      let low = min(from, to), high = max(from, to)
+      let intermediate = positions.filter { $0 > low + 1 && $0 < high - 1 }
+      XCTAssertGreaterThan(Set(intermediate.map { Int($0.rounded()) }).count, 2,
+        "The transcript must move through intermediate positions when \(what)")
+      let samples = [from] + positions + [to]
+      let largestStep = zip(samples, samples.dropFirst()).map { abs($1 - $0) }.max() ?? 0
+      XCTAssertLessThan(largestStep, abs(to - from) * 0.65,
+        "The transcript must not jump most of the way in one frame when \(what)")
+    }
+    let restingY = try position()
+    let growing = try lastTime()
+    mic.tap()
+    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
+    try await Task.sleep(for: .milliseconds(900))
+    let recordingY = try position()
+    XCTAssertLessThan(recordingY, restingY - 5, "The taller voice bar must lift the transcript")
+    try assertSmooth(since: growing, from: restingY, to: recordingY, "the voice bar grows")
+    let shrinking = try lastTime()
+    app.buttons["Discard recording"].tap()
+    XCTAssertTrue(mic.waitForExistence(timeout: 5))
+    try await Task.sleep(for: .milliseconds(1500))
+    let returnedY = try position()
+    XCTAssertEqual(returnedY, restingY, accuracy: 3)
+    try assertSmooth(since: shrinking, from: recordingY, to: returnedY, "the composer returns")
+  }
+
   func testKeyboardSendAndActivityTransitions() async throws {
     continueAfterFailure = false
     try await control("__qa/scene", ["scene": "dark-chat-seven"])
@@ -730,9 +939,17 @@ import XCTest
     XCTAssertTrue(prompt.exists && lookup.exists && result.exists)
     XCTAssertEqual(lookup.frame.minY - prompt.frame.maxY, 12, accuracy: 0.5)
     XCTAssertEqual(result.frame.minY - lookup.frame.maxY, 8, accuracy: 0.5)
-    XCTAssertEqual(prompt.frame.height, 106, accuracy: 0.5)
-    XCTAssertEqual(lookup.frame.height, 40, accuracy: 0.5)
-    XCTAssertEqual(result.frame.height, 84, accuracy: 0.5)
+    // Text bubbles are 9 + 9 points of padding around whole 22-point line boxes. These
+    // replies end within a few points of the bubble's text width, so where they wrap
+    // depends on the runtime's font metrics; check the line boxes, not one line break.
+    func assertLineBoxes(_ element: XCUIElement, lines expected: ClosedRange<Double>, _ name: String) {
+      let lines = (element.frame.height - 18) / 22
+      XCTAssertEqual(lines, lines.rounded(), accuracy: 0.03, "\(name) must be whole 22-point line boxes")
+      XCTAssertTrue(expected.contains(lines.rounded()), "\(name) has \(lines.rounded()) lines")
+    }
+    assertLineBoxes(prompt, lines: 4...5, "The prompt bubble")
+    assertLineBoxes(lookup, lines: 1...2, "The lookup bubble")
+    assertLineBoxes(result, lines: 3...4, "The result bubble")
     capture("reference-before-send", app)
     mark("reference-send")
     app.buttons["send-button"].tap()

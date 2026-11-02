@@ -18,7 +18,19 @@ export const printSetupCancelled = (paths: InstallationPaths): void => {
   console.log(view.toString());
 };
 
-/** Wait before automatic setup only. Raw input consumes Esc/Enter/paste immediately. */
+export type CountdownKey = "start" | "cancel" | null;
+
+/**
+ * Enter starts now; Esc, q, Ctrl-C, or Ctrl-D cancel. Raw input arrives in chunks, so a
+ * lone Esc is distinct from arrow keys, and a paste that contains a newline is ignored.
+ */
+export const countdownKey = (chunk: string): CountdownKey => {
+  if (/[\x03\x04]/.test(chunk) || /^(?:\x1b+|q|Q)$/.test(chunk)) return "cancel";
+  if (/^[\r\n]+$/.test(chunk)) return "start";
+  return null;
+};
+
+/** Wait before automatic setup only. Raw input consumes keys and pastes immediately. */
 export const waitForAutomaticSetup = (): Promise<boolean> => {
   const input = process.stdin;
   const output = process.stdout;
@@ -29,8 +41,8 @@ export const waitForAutomaticSetup = (): Promise<boolean> => {
     const animated = process.env.TERM !== "dumb";
     const view = new TerminalReport();
     view.section("Ready for setup");
-    view.text("Next: set up your server and account.");
-    view.text("Press any key to cancel.", "muted");
+    view.text("Next: choose how you'll connect and create your account.");
+    view.text("Press Enter to start now, or Esc to cancel.", "muted");
     output.write(`${view.toString()}\n\n`);
     let finished = false;
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -40,7 +52,7 @@ export const waitForAutomaticSetup = (): Promise<boolean> => {
       if (finished) return;
       finished = true;
       clearInterval(timer);
-      input.off("data", cancel);
+      input.off("data", pressed);
       input.off("end", cancel);
       input.off("error", failed);
       process.off("SIGINT", cancel);
@@ -52,6 +64,10 @@ export const waitForAutomaticSetup = (): Promise<boolean> => {
       else resolve(proceed);
     };
     const cancel = () => finish(false);
+    const pressed = (chunk: Buffer | string) => {
+      const key = countdownKey(chunk.toString());
+      if (key) finish(key === "start");
+    };
     const failed = (error: unknown) => finish(false, error);
     const started = performance.now();
     const tick = () => {
@@ -66,7 +82,7 @@ export const waitForAutomaticSetup = (): Promise<boolean> => {
     };
     try {
       input.setRawMode(true);
-      input.on("data", cancel);
+      input.on("data", pressed);
       input.on("end", cancel);
       input.on("error", failed);
       process.on("SIGINT", cancel);

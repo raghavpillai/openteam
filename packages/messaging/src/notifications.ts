@@ -4,10 +4,9 @@ import {
   type ChannelNotificationState,
   type ChannelNotificationView,
   agentNotificationPresentation,
-  notificationMessageInputReason,
-  notificationMessagePreview,
   truncateNotificationText,
 } from "@openteam/contracts";
+import { channelMessageSummary } from "@openteam/product-core/channel-events";
 import { Prisma } from "@openteam/db";
 
 type NotificationInput = Omit<AgentNotificationPayload, "badgeCount" | "notificationSequence">;
@@ -39,7 +38,10 @@ export const publishChannelNotification = async (
     return;
   input = {
     ...input,
-    title: truncateNotificationText(bot.name),
+    // A group's alert is titled with the group; the sender avatar still shows which Bot.
+    title: truncateNotificationText(
+      channel.kind === "group" && channel.name.trim() ? channel.name : bot.name
+    ),
     sender: {
       name: truncateNotificationText(bot.name),
       icon: normalizeRobotAvatarShape(bot.icon),
@@ -112,23 +114,21 @@ export const publishMessageNotification = async (
   }
 ): Promise<void> => {
   if (!message.senderBotId) return;
-  if (
-    message.metadata &&
-    typeof message.metadata === "object" &&
-    ("fromAgent" in message.metadata || "toAgent" in message.metadata)
-  )
-    return;
+  const metadata =
+    message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+      ? (message.metadata as Record<string, unknown>)
+      : {};
+  if ("fromAgent" in metadata || "toAgent" in metadata) return;
   const bot = await tx.bot.findUnique({
     where: { id: message.senderBotId },
     select: { name: true },
   });
   if (!bot) return;
-  const reason = notificationMessageInputReason(message);
-  const kind = reason ? "agent-needs-input" : "message";
+  const kind = "message";
   const { title, body } = agentNotificationPresentation({
     kind,
     botName: bot.name,
-    body: reason ?? notificationMessagePreview(message),
+    body: messageNotificationBody(message),
   });
   await publishChannelNotification(tx, `message:${message.id}`, {
     schemaVersion: 1,
@@ -137,11 +137,28 @@ export const publishMessageNotification = async (
     channelId: message.channelId,
     runId: message.sourceRunId ?? "",
     messageSequence: message.sequence.toString(),
+    ...(metadata.branched === true ? { threadMessageId: message.id } : {}),
     title,
     body,
-    deepLink: `openteam:///chat/${message.channelId}`,
   });
 };
+
+/** The same plain-text line the chat list shows: first line of text, "Sent 1 image", a card's prompt. */
+export const messageNotificationBody = (message: {
+  id: string;
+  channelId: string;
+  sequence: bigint;
+  senderBotId: string | null;
+  sourceRunId: string | null;
+  content: string;
+  metadata: unknown;
+}): string =>
+  channelMessageSummary({
+    ...message,
+    sequence: message.sequence.toString(),
+    sender: "agent",
+    createdAt: "",
+  });
 
 /** Bounded alert history plus durable read markers; missing history never means read. */
 export const channelNotificationStates = async (
@@ -167,13 +184,14 @@ export const channelNotificationStates = async (
         FROM (SELECT n.payload, n.sequence FROM "ChannelNotification" n
           JOIN "Bot" bot ON bot.id = n."botId"
           WHERE n."channelId" = requested."channelId" AND NOT n.revoked
+            AND n.kind IN ('message', 'reaction')
             AND bot."notificationsEnabled" AND NOT bot."hiddenFromSidebar"
-            AND CASE WHEN n.kind = 'reaction' OR n."messageSequence" IS NULL
+            AND CASE WHEN n.kind = 'reaction'
               THEN n.sequence > COALESCE(state."lastReadNotificationSequence", 0)
               ELSE n."messageSequence" > COALESCE(state."lastReadSequence", 0) END
           ORDER BY n.sequence DESC LIMIT 100) alert), '[]'::jsonb) AS notifications,
       (SELECT COUNT(*) FROM "ChannelNotification" n WHERE n."channelId" = requested."channelId"
-        AND NOT n.revoked AND (n.kind = 'reaction' OR n."messageSequence" IS NULL)
+        AND NOT n.revoked AND n.kind = 'reaction'
         AND EXISTS (SELECT 1 FROM "Bot" b WHERE b.id = n."botId" AND b."notificationsEnabled" AND NOT b."hiddenFromSidebar")
         AND n.sequence > COALESCE(state."lastReadNotificationSequence", 0)) AS "activityUnreadCount"
     FROM unnest(${channelIds}::uuid[]) requested("channelId")

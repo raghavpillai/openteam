@@ -11,20 +11,16 @@ export type ReplyTarget = {
 
 export const messageAddress = (message: ReplyTarget): string => {
   const metadata = metadataRecord(message.metadata);
-  if (typeof metadata.address === "string") return metadata.address;
-  if (message.sender === "user") return `t${message.sequence}u`;
-  return typeof metadata.address === "string" ? metadata.address : `t${message.sequence}a0`;
+  return typeof metadata.address === "string" ? metadata.address : message.id;
 };
 
-export const formatUserPrompt = (sequence: bigint | string, content: string, reply?: ReplyTarget | null) => {
-  const address = typeof sequence === "string" ? sequence : `t${sequence}u`;
-  if (!reply) return content ? `[${address}] ${content}` : `[${address}]`;
-  return [
+/** As in the reference, the address and each leading note sit on their own line above the message. */
+export const formatUserPrompt = (address: string, content: string, reply?: ReplyTarget | null) =>
+  [
     `[${address}]`,
-    `[In reply to ${messageAddress(reply)}: ${JSON.stringify(reply.content)}]`,
+    ...(reply ? [`[In reply to ${messageAddress(reply)}: ${JSON.stringify(reply.content)}]`] : []),
     ...(content ? [content] : []),
   ].join("\n");
-};
 
 export const formatDirectMentionContext = (
   content: string,

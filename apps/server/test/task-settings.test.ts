@@ -17,7 +17,7 @@ test("Task settings verify every model before changing the saved configuration",
     return { ok: true };
   }) as never);
   const profile = { name: "quick", description: "Small jobs", providerId: "openai", modelId: "available", reasoning: "low" as const };
-  const desired = { combinedComputerUse: false, executorProfiles: [profile], defaultExecutorProfile: "quick" };
+  const desired = { executorProfiles: [profile], defaultExecutorProfile: "quick" };
   await expect(Effect.runPromise(service.updateTaskSettings({ ...desired, executorProfiles: [profile, { ...profile, name: "deep", modelId: "unavailable" }] }))).rejects.toThrow("Model unavailable");
   expect(saved).toEqual(defaultTaskConfiguration());
   expect(verified).toEqual(["available", "unavailable"]);

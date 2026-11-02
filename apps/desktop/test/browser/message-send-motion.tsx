@@ -152,9 +152,7 @@ async function scenario(kind: "bot_dm" | "group", historyCount: number, delay: n
   check(before, `${id}: optimistic message missing`);
   accept!();
   await pause(50);
-  // ?legacy reproduces the old bootstrap SQL, which dropped the client ID.
-  const { clientId: _clientId, ...bootstrapEcho } = echo!;
-  messages.push(new URLSearchParams(location.search).has("legacy") ? bootstrapEcho : echo!);
+  messages.push(echo!);
   render();
   await pause(500);
   const after = document.querySelector<HTMLElement>('[data-role="user"][data-message-id]');

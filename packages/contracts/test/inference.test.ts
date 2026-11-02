@@ -36,14 +36,16 @@ describe("Pi inference model references", () => {
   });
 
   test("accepts qualified model ids including nested provider model paths", () => {
-    expect(parsePiModelRef("anthropic/claude-opus-4-1", "openai-codex")).toEqual({
+    expect(parsePiModelRef("anthropic/claude-opus-4-1")).toEqual({
       providerId: "anthropic",
       modelId: "claude-opus-4-1",
     });
-    expect(parsePiModelRef("openrouter/anthropic/claude", "openai")).toEqual({
+    expect(parsePiModelRef("openrouter/anthropic/claude")).toEqual({
       providerId: "openrouter",
       modelId: "anthropic/claude",
     });
+    for (const unqualified of ["claude-opus-4-1", "/claude-opus-4-1", "anthropic/"])
+      expect(() => parsePiModelRef(unqualified)).toThrow();
   });
 
   test("rejects unsafe provider ids", () => {

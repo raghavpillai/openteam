@@ -31,7 +31,7 @@ Drive writes use Google's `drive.file` scope, which covers files an app created 
 ## What you need
 
 - An OpenTeam server on 0.0.3 or later, and the desktop app for macOS (Apple silicon) or Linux (x64), or the iPhone beta on TestFlight.
-- A model that handles tool calls well. One model serves every bot, set in **Settings → Server → Model and reasoning**.
+- A model that handles tool calls well. One model serves every bot, set in **Settings → Model**.
 - A Google account that can create a Google Cloud project. On Workspace, an administrator may need to allow your app ([Control which apps access Google Workspace data](https://knowledge.workspace.google.com/admin/apps/control-which-apps-access-google-workspace-data)).
 - Your server address: `https://` needs a **Web application** OAuth client, `http://` a **Desktop app** client. See our [Tailscale HTTPS guide](/blog/tailscale-https-self-hosted-ai-agents) for a private HTTPS address.
 

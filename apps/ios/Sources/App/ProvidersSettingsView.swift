@@ -139,7 +139,7 @@ struct WebToolProvidersView: View {
   }
   @ViewBuilder private func mark(selected: Bool, pending: Bool) -> some View {
     if pending {
-      ProgressView()
+      LoadingOrb(label: "Saving")
     } else if selected {
       Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(.tint)
     }
@@ -230,7 +230,7 @@ struct WebProviderDetailView: View {
           HStack {
             Text("Check connection")
             Spacer()
-            if checking { ProgressView() }
+            if checking { LoadingOrb(label: "Checking") }
           }
         }.disabled(missing).accessibilityIdentifier("provider-check")
         if let check = state.check {

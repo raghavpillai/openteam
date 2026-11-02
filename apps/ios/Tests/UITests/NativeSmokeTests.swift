@@ -123,7 +123,8 @@ final class NativeSmokeTests: XCTestCase {
   func testSettingsAppearanceSearchAndCreate() async throws {
     let app = try await launch()
     app.buttons["settings-button"].tap()
-    XCTAssertTrue(app.buttons["appearance-picker"].waitForExistence(timeout: 5))
+    revealAppearance(app)
+    XCTAssertTrue(app.buttons["appearance-picker"].isHittable)
     capture("native-settings-light", app)
     app.buttons["appearance-picker"].tap()
     app.buttons["Dark"].tap()
@@ -134,6 +135,7 @@ final class NativeSmokeTests: XCTestCase {
     capture("native-chat-dark", app)
     app.buttons["chat-back"].tap()
     app.buttons["settings-button"].tap()
+    revealAppearance(app)
     app.buttons["appearance-picker"].tap()
     app.buttons["Light"].tap()
     app.buttons["sheet-close"].tap()
@@ -158,6 +160,12 @@ final class NativeSmokeTests: XCTestCase {
     app.buttons["create-confirm"].tap()
     XCTAssertTrue(input(app).waitForExistence(timeout: 10))
     XCTAssertTrue(app.buttons["conversation-details"].exists)
+  }
+  /// Appearance sits below the Server rows, so scroll Settings until it is on screen.
+  private func revealAppearance(_ app: XCUIApplication) {
+    XCTAssertTrue(app.buttons["account-settings"].waitForExistence(timeout: 5))
+    let appearance = app.buttons["appearance-picker"]
+    for _ in 0..<4 where !(appearance.exists && appearance.isHittable) { app.swipeUp() }
   }
   func testOfflineMessageReconcilesAfterReconnect() async throws {
     let app = try await launch()

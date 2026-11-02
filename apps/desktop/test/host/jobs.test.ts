@@ -2,7 +2,8 @@ import { readLimitNotice } from "@openteam/contracts/read-output";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { ShellJobRegistry } from "@openteam/shell-jobs";
 import {
   executeRead,
   executeHostJob,
@@ -91,15 +92,33 @@ test("host AwaitShell cancellation stops the wait without terminating the comman
   }
 });
 
+test("host shell logs use the box terminal header and footer, which a fresh registry recovers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "host-terminal-format-"));
+  try {
+    const result = await executeShell(
+      { command: "printf 'out\\n'; exit 3", description: "Exit three", working_directory: root, block_until_ms: 5_000 },
+      root
+    );
+    expect(result).toMatchObject({ status: "completed", exit_code: 3 });
+    const log = await readFile(result.output_path, "utf8");
+    expect(log).toMatch(new RegExp(`^---\\npid: \\d+\\ncwd: "${root}"\\ncommand: "printf 'out\\\\\\\\n'; exit 3"\\ntitle: "Exit three"\\nstatus: failed   \\nstarted_at: \\S+\\nrunning_for_ms: \\d+ *\\n---\\nout\\n\\n---\\nexit_code: 3\\nelapsed_ms: \\d+\\nended_at: \\S+\\n---\\n$`));
+    // After a host utility restart, AwaitShell reads the outcome back from the footer.
+    const recovered = await new ShellJobRegistry({ directory: root }).await({ shell_id: result.shell_id, block_until_ms: 0 }, resolve(root));
+    expect(recovered).toMatchObject({ status: "completed", exit_code: 3 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 describe("host file text projection", () => {
   test("preserves line numbering, offsets, limits, CRLF, and trailing lines", () => {
     expect(numberText("alpha\r\nbeta\ngamma\n", undefined, undefined)).toEqual({
       text: "     1|alpha\n     2|beta\n     3|gamma\n     4|",
       lines: 4,
     });
-    expect(numberText("alpha\nbeta\ngamma", 2, 1)).toEqual({ text: "... 1 lines not shown ...\n     2|beta\n... 1 lines not shown ...", lines: 1 });
+    expect(numberText("alpha\nbeta\ngamma", 2, 1)).toEqual({ text: "... 1 line not shown ...\n     2|beta\n... 1 line not shown ...", lines: 1 });
     expect(numberText("alpha\nbeta\ngamma", -2, undefined)).toEqual({
-      text: "... 1 lines not shown ...\n     2|beta\n     3|gamma",
+      text: "... 1 line not shown ...\n     2|beta\n     3|gamma",
       lines: 2,
     });
     expect(() => numberText("alpha", 99, undefined)).toThrow("Offset 99 is beyond file length (1 lines)");
@@ -290,7 +309,7 @@ describe("host shell resource controls", () => {
         );
         expect(result.status).toBe("failed");
         expect(result.output).toContain("timed out after 250 ms");
-        expect(await readFile(result.output_path, "utf8")).toContain("status: timed out");
+        expect(await readFile(result.output_path, "utf8")).toMatch(/\nstatus: aborted  \n[^]*\n---\nexit_code: (-?\d+|unknown)\nelapsed_ms: \d+\nended_at: \S+\n---\n$/);
         const pids = await readPids(tree.marker);
         await waitFor(() => pids.every((pid) => !processAlive(pid)));
       } finally {
@@ -328,9 +347,7 @@ describe("host shell resource controls", () => {
         await waitFor(() => pids.every((pid) => !processAlive(pid)));
         const [logName] = (await readdir(root)).filter((name) => name.endsWith(".log"));
         expect(logName).toBeDefined();
-        expect(await readFile(join(root, logName as string), "utf8")).toContain(
-          "status: cancelled"
-        );
+        expect(await readFile(join(root, logName as string), "utf8")).toContain("\nstatus: aborted  \n");
       } finally {
         await terminateHostChildren();
         await rm(root, { recursive: true, force: true });
@@ -365,9 +382,7 @@ describe("host shell resource controls", () => {
 
         expect(hostShellCapacitySnapshot()).toEqual({ active: 0, queued: 0 });
         await waitFor(() => pids.every((pid) => !processAlive(pid)));
-        expect(await readFile(result.output_path, "utf8")).toContain(
-          "status: terminated: app shutting down"
-        );
+        expect(await readFile(result.output_path, "utf8")).toContain("\nstatus: aborted  \n");
       } finally {
         await terminateHostChildren();
         await rm(root, { recursive: true, force: true });

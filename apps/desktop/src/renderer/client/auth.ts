@@ -26,7 +26,6 @@ const API_BASE = resolveConfiguredApiBase(
   localStorage,
   import.meta.env.VITE_OPENTEAM_API_URL
 );
-const LEGACY_TOKEN_KEY = "openteam:auth-token";
 const USER_KEY = "openteam:auth-user";
 export const AUTH_REQUIRED_EVENT = "openteam:auth-required";
 
@@ -57,8 +56,6 @@ export const subscribeAuthSnapshot = authStore.subscribe;
 let token: string | null = null;
 let desktopMachineId: string | undefined;
 export const getDesktopMachineId = () => desktopMachineId;
-let legacyToken: string | null = localStorage.getItem(LEGACY_TOKEN_KEY);
-localStorage.removeItem(LEGACY_TOKEN_KEY);
 let credentialGeneration = 0;
 let tokenReadRequest: Promise<string | null> | null = null;
 let refreshRequest: Promise<OpenTeamAuthSnapshot> | null = null;
@@ -82,15 +79,7 @@ const loadAuthToken = (): Promise<string | null> => {
     const bridge = authBridge();
     if (bridge) stored = (await readNativeAuthWithDeadline(bridge.readToken())).token;
     if (generation !== credentialGeneration) return token;
-    const next = stored || legacyToken;
-    legacyToken = null;
-    if (!stored && next && bridge) {
-      // One-time migration from the old renderer localStorage token. It was
-      // deleted synchronously above before any network request can use it.
-      await bridge.writeToken(next);
-    }
-    if (generation !== credentialGeneration) return token;
-    token = next;
+    token = stored;
     return token;
   })().finally(() => {
     tokenReadRequest = null;
@@ -98,10 +87,17 @@ const loadAuthToken = (): Promise<string | null> => {
   return tokenReadRequest;
 };
 
+// Set when the server turned this device's sign-in down (it expired or was revoked), so the
+// sign-in screens open on the account step for the same server and say why.
+let serverSignOut: { username: string } | null = null;
+export const SERVER_SIGN_OUT_NOTE = "You were signed out. Sign in again to continue.";
+/** Whether the server signed this device out, and the account it was signed in as. */
+export const getServerSignOut = () => serverSignOut;
+
 const persistAuthToken = async (next: string | null): Promise<void> => {
+  if (next) serverSignOut = null;
   if (!next) desktopMachineId = undefined;
   const generation = ++credentialGeneration;
-  legacyToken = null;
   const bridge = authBridge();
   if (!next) token = null;
   if (bridge) {
@@ -123,7 +119,6 @@ export const clearAuthToken = (expectedToken?: string | null): void => {
   if (expectedToken !== undefined && expectedToken !== token) return;
   credentialGeneration += 1;
   token = null;
-  legacyToken = null;
   cacheUser(null);
   void authBridge()
     ?.clearToken()
@@ -136,6 +131,18 @@ export const clearAuthToken = (expectedToken?: string | null): void => {
     user: null,
   });
   window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+};
+
+const rememberServerSignOut = () => {
+  const user = readCachedUser();
+  serverSignOut = { username: user?.username ?? "" };
+};
+
+/** A request was refused as signed out: sign in again, to the same server and account. */
+export const expireAuthToken = (expectedToken: string | null): void => {
+  if (expectedToken !== token) return;
+  rememberServerSignOut();
+  clearAuthToken(expectedToken);
 };
 
 export const authHeaders = (): HeadersInit => {
@@ -151,7 +158,11 @@ export const refreshAuthSession = (): Promise<OpenTeamAuthSnapshot> => {
       client: authClient(),
       loadToken: loadAuthToken,
     });
-    if (assessment.clearCredentials) await removeAuthCredentials();
+    if (assessment.clearCredentials) {
+      // A saved sign-in the server no longer accepts, as opposed to auth being turned off.
+      if (assessment.status === "signed-out") rememberServerSignOut();
+      await removeAuthCredentials();
+    }
     if (assessment.user) cacheUser(assessment.user);
     if (assessment.status === "authenticated") void authBridge()?.connectMachine?.(API_BASE).then(result => { desktopMachineId = result.machineId; }).catch(() => undefined);
     return authStore.publish({

@@ -57,7 +57,6 @@ describe("durable message acceptance boundary", () => {
       skipBootstrapForUser: async () => "bootstrap-run-1",
       acceptDirectUserMessage: async (_tx:unknown,input:{content:string}) => (runtimeContent=input.content,{
         run: { id: "run-direct" },
-        steer: null,
         interruptRunId: null,
       }),
       scheduleTranscriptProjection: async () => undefined,

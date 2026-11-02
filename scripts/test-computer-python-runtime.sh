@@ -6,7 +6,7 @@ image=${1:?Usage: bash scripts/test-computer-python-runtime.sh IMAGE}
 docker run --rm -i --network none --entrypoint sh "$image" <<'CONTAINER'
 set -eu
 mkdir -p /home/box/.local/share/private /home/box/.cache /home/box/.pi/agent
-chmod 700 /home/box/.local /home/box/.cache /home/box/.local/share/private
+chmod 700 /home/box/.local/share/private
 printf synthetic > /home/box/.pi/agent/auth.json
 printf synthetic > /home/box/.local/share/private/token
 cat > /tmp/runner-check.sh <<'RUNNER'
@@ -20,7 +20,7 @@ python3 -m venv /workspace/qa-venv
 /workspace/qa-venv/bin/python -m pip --version
 printf 'Runner package paths, venv and credential isolation passed\n'
 RUNNER
-exec /usr/local/bin/openteam-computer-entrypoint runuser -u runner -- sh /tmp/runner-check.sh
+exec /usr/lib/openteam/bin/openteam-computer-entrypoint runuser -u runner -- sh /tmp/runner-check.sh
 CONTAINER
 
 docker run --rm -i --network none --entrypoint sh "$image" <<'CONTAINER'
@@ -28,10 +28,23 @@ set -eu
 mkdir -p /home/box/.cache /home/box/.pi/agent
 chmod 700 /home/box/.pi/agent
 ln -s /home/box/.pi/agent /home/box/.cache/pip
-if /usr/local/bin/openteam-computer-entrypoint true; then
+if /usr/lib/openteam/bin/openteam-computer-entrypoint true; then
   echo 'Unexpectedly accepted a redirected package directory' >&2
   exit 1
 fi
 test "$(stat -c %a /home/box/.pi/agent)" = 700
 printf 'Redirected package directory rejected without exposing target\n'
+CONTAINER
+
+docker run --rm -i --network none --entrypoint sh "$image" <<'CONTAINER'
+set -eu
+# /usr/local is kept and shared by every bot, so one bot's copy of a system tool there
+# mustn't replace it in login shells either.
+printf '#!/bin/sh\necho bot copy\n' > /usr/local/bin/python3
+chmod 0755 /usr/local/bin/python3
+for shell in "bash -lc" "sudo -i sh -c" "su - -c" "su - box -c" "runuser -u box -- bash -lc"; do
+  found=$($shell 'command -v python3')
+  test "$found" = /usr/bin/python3 || { echo "$shell finds $found" >&2; exit 1; }
+done
+printf 'Login shells find the system tools before /usr/local\n'
 CONTAINER

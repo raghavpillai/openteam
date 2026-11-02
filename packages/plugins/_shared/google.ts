@@ -160,6 +160,10 @@ export class GoogleApi {
 export class ToolContent {
   constructor(readonly content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>) {}
 }
+/** Return from a tool's run to add text notes after the JSON result, which stays pageable through read_result. */
+export class ToolNotes {
+  constructor(readonly value: unknown, readonly notes: string[]) {}
+}
 
 export async function servePlugin(name: string, tools: Tool[]) {
   const store = new ResultStore(name);
@@ -183,6 +187,11 @@ export async function servePlugin(name: string, tools: Tool[]) {
       if (!result.valid) throw new Error(`Invalid tool arguments: ${result.errorMessage}`);
       const value = await match.entry.run(args);
       if (value instanceof ToolContent) return { content: value.content };
+      if (value instanceof ToolNotes)
+        return { content: [
+          { type: "text", text: JSON.stringify(await store.capture(value.value)) },
+          ...value.notes.map((text) => ({ type: "text" as const, text })),
+        ] };
       return { content: [{ type: "text", text: JSON.stringify(request.params.name === "read_result" ? value : await store.capture(value)) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Google tool failed";

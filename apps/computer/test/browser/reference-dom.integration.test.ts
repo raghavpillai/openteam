@@ -20,9 +20,9 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("reference snapshots 
   let snapshot=text(await session.execute("browser_snapshot",{}));
   expect(snapshot).toContain("Visible heading");expect(snapshot).toContain("Shadow field");expect(snapshot).toContain("Frame field");expect(snapshot).toContain("[gen=");
   const ref=(label:string)=>snapshot.split('\n').find(line=>line.includes('[ref=')&&line.includes(label))!.match(/\[ref=(e\d+)\]/)![1]!;
-  snapshot=text(await session.execute("browser_fill",{ref:ref("Shadow field"),element:"Shadow field",value:"shadow fixture"}));
-  snapshot=text(await session.execute("browser_fill",{ref:ref("Frame field"),element:"Frame field",value:"frame fixture"}));
-  snapshot=text(await session.execute("browser_fill",{ref:ref("Masked number"),element:"Masked number",value:"12345"}));
+  snapshot=text(await session.execute("browser_type",{target:ref("Shadow field"),element:"Shadow field",text:"shadow fixture"}));
+  snapshot=text(await session.execute("browser_type",{target:ref("Frame field"),element:"Frame field",text:"frame fixture"}));
+  snapshot=text(await session.execute("browser_type",{target:ref("Masked number"),element:"Masked number",text:"12345"}));
   const page=await (session as any).ensurePage();expect(await page.locator('#masked').inputValue()).toBe("12345");
   const binding=(await session.formPages("127.0.0.1"))[0]!;
   const replacement={id:"replacement",label:"Replaceable",type:"text" as const,target:{kind:"ref" as const,value:ref("Replaceable")}};
@@ -34,7 +34,6 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("reference snapshots 
   await session.fillForm(binding,{id:"code",label:"Code",type:"otp",target:{kind:"selector",value:'#otp input:first-child'}} as any,"731942");
   expect(await page.locator('#otp input').evaluateAll((nodes:HTMLInputElement[])=>nodes.map(node=>node.value).join(''))).toBe("731942");
   snapshot=text(await session.execute("browser_snapshot",{}));expect(snapshot).not.toContain("731942");expect(snapshot).not.toContain("private replacement");
-  await expect(session.execute("browser_cdp",{method:"Runtime.evaluate",params:{expression:'btoa(document.querySelector("#replaceable").value)',returnByValue:true}})).rejects.toThrow("private login data");
   await page.locator('#replaceable').evaluate((node:HTMLElement)=>node.style.display='none');
   expect(await session.prepareForm(binding,{title:"Hidden",instruction:"Fixture",domain:"127.0.0.1",fields:[{id:"hidden",label:"Replaceable",type:"text",target:{kind:"selector",value:'#replaceable'}}]})).toMatchObject({reachable:[],failureKinds:{hidden:"hidden_target"}});
   await expect(session.fillForm(binding,{id:"hidden",label:"Replaceable",type:"text",target:{kind:"selector",value:'#replaceable'}},"never written")).rejects.toThrow("hidden");

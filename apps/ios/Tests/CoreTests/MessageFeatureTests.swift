@@ -35,6 +35,16 @@ final class MessageFeatureTests: XCTestCase {
     XCTAssertEqual(outgoing.name, "To")
     XCTAssertNil(BotExchangePeer(.object([:])))
   }
+  func testRestartNoticeIsASystemEventOnly() throws {
+    var notice = Message(id: "n", sequence: "1", channelId: "c", sender: "system", content: "This reply was interrupted by a restart.",
+      metadata: try json(#"{"type":"event","event":{"type":"turn-interrupted","reason":"restart"}}"#), createdAt: "")
+    XCTAssertTrue(notice.isInterruptedNotice)
+    notice.sender = "agent"
+    XCTAssertFalse(notice.isInterruptedNotice)
+    notice.sender = "system"
+    notice.metadata = try json(#"{"type":"event","event":{"type":"name-changed"}}"#)
+    XCTAssertFalse(notice.isInterruptedNotice)
+  }
   func testDeletedRoutineCannotNavigateAndMalformedEventsStayOrdinaryMessages() throws {
     let event = try XCTUnwrap(RoutineMessageEvent(try json(#"{"type":"event","event":{"type":"automation-changed","action":"deleted","automationId":"routine-1","automationName":"Morning"}}"#)))
     XCTAssertFalse(event.canOpen)

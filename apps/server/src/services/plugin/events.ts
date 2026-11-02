@@ -78,9 +78,14 @@ export class PluginEventPoller {
 
   pollDue(): Promise<void> {
     // One pass at a time in this process; the claim below covers other processes.
-    this.running ??= this.pollAll().finally(() => {
-      this.running = null;
-    });
+    // A database outage skips this pass; the next tick retries.
+    this.running ??= this.pollAll()
+      .catch((error) => {
+        console.warn(`Plugin event poll failed: ${error instanceof Error ? error.message : String(error)}`);
+      })
+      .finally(() => {
+        this.running = null;
+      });
     return this.running;
   }
 

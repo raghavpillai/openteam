@@ -10,7 +10,7 @@ cleanup() {
   for fixture_pid in $fixture_pids; do kill "$fixture_pid" 2>/dev/null || true; done
 }
 trap cleanup EXIT
-for fixture_port in 19997 19992 20070; do
+for fixture_port in 19997 19992 20070 20071 20072 20081 20085; do
   if curl --max-time 2 --silent --fail "http://127.0.0.1:$fixture_port/health" | rg -q 'swift-parity-fixture'; then
     echo "Using the running loopback parity fixture on $fixture_port."
   else
@@ -29,11 +29,13 @@ bun apps/ios/scripts/export-robot-artwork.ts --check > "$result_dir/robot-source
 swift test --package-path apps/ios > "$result_dir/core-tests.log" 2>&1
 bun test ./packages/client-core/test > "$result_dir/client-tests.log" 2>&1
 test_status=0
+# SystemIntegrationUITests exercise real Keychain persistence; keep simulator
+# entitlements with ad hoc signing rather than disabling signing for this run.
 xcodebuild -project apps/ios/OpenTeamNative.xcodeproj -scheme OpenTeamNative \
   -destination "platform=iOS Simulator,id=$simulator_id" \
   -derivedDataPath apps/ios/.build-ios \
   -parallel-testing-enabled NO -resultBundlePath "$result_dir/Native.xcresult" \
-  test > "$result_dir/simulator-tests.log" 2>&1 || test_status=$?
+  CODE_SIGN_IDENTITY=- test > "$result_dir/simulator-tests.log" 2>&1 || test_status=$?
 xcrun xcresulttool get test-results summary --path "$result_dir/Native.xcresult" > "$result_dir/summary.json"
 if (( test_status != 0 )); then
   echo "Simulator tests failed; inspect $result_dir/summary.json and simulator-tests.log."

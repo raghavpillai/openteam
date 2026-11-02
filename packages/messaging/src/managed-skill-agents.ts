@@ -1,4 +1,4 @@
-/** Agents a managed skill is for. Skills that name none are for the main agent. */
+/** Worker types that also carry a managed skill in their own catalog. Every managed skill is in the main agent's catalog. */
 export const managedSkillAgents = (skill: object): string[] | undefined => {
   const agents = (skill as { agents?: unknown }).agents;
   return Array.isArray(agents) && agents.every((agent) => typeof agent === "string")
@@ -6,5 +6,3 @@ export const managedSkillAgents = (skill: object): string[] | undefined => {
     : undefined;
 };
 
-export const managedSkillIsForMain = (skill: object): boolean =>
-  managedSkillAgents(skill)?.includes("main") ?? true;

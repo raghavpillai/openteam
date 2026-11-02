@@ -44,10 +44,6 @@ const createRuntime = () =>
     modelsPath,
     modelsStorePath,
     allowModelNetwork: false,
-    settingsPath: join(
-      process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data",
-      "settings.json"
-    ),
   });
 
 // Await the write so large JSON responses are fully flushed through Docker's stdout pipe.
@@ -396,6 +392,7 @@ const main = async (): Promise<void> => {
       input: model.input,
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
+      ...(model.recommended ? { recommended: true } : {}),
     }));
     if (command === "providers") await writeJson(providers);
     else if (command === "models") await writeJson(models);

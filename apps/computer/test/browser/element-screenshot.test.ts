@@ -5,7 +5,7 @@ test('screenshot contract exposes element target without changing viewport defau
  const tool=BROWSER_USE_TOOLS.find(t=>t.name==='browser_take_screenshot')!;
  const props=(tool.inputSchema as any).properties;
  expect(props.target.type).toBe('string');expect(props.element.type).toBe('string');
- expect(props.fullPage.type).toBe('boolean');expect(props.viewId.type).toBe('string');
+ expect(props.fullPage.type).toBe('boolean');expect(props.viewId).toBeUndefined();
 });
 
 test('element screenshot rejects combining target and full page before capturing',async()=>{

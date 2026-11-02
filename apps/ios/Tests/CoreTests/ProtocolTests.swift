@@ -64,11 +64,13 @@ final class ProtocolTests: XCTestCase {
       URLComponents(url: api.url("/x", query: ["q": "a&b"]), resolvingAgainstBaseURL: false)?
         .queryItems?.first?.value, "a&b")
     for invalid in [
-      "", "example.com", "file:///tmp", "https://user:secret@example.com",
-      "https://example.com?token=x", "https://example.com#x", "http://",
+      "", "file:///tmp", "https://user:secret@example.com", "user:secret@example.com",
+      "https://example.com?token=x", "https://example.com#x", "http://", "not a URL",
     ] {
       XCTAssertThrowsError(try API(server: invalid), invalid)
     }
+    // A bare address gets the scheme its kind of host usually serves.
+    XCTAssertEqual(try API(server: "example.com").baseURL.absoluteString, "https://example.com")
     XCTAssertEqual(API.segment("a/b?c"), "a%2Fb%3Fc")
   }
   func testTimelineTimestampsIgnoreBranchedRepliesAndRefreshEditedMessages() throws {

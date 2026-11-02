@@ -20,7 +20,9 @@ try {
   const small = await session.execute("browser_navigate", { url: server.url.href });
   assert.ok(JSON.stringify(small.content).includes("Small control"));
   const expected = "🧭 café\n".repeat(20000) + "END-OF-RESULT";
-  const result = await session.execute("browser_cdp", { method: "Runtime.evaluate", params: { expression: JSON.stringify(expected), returnByValue: true } });
+  const page = await (session as any).ensurePage();
+  await page.setContent(`<pre>${expected}</pre>`);
+  const result = await session.execute("browser_find", { text: "café" });
   const text = result.content.filter(p => p.type === "text").map(p => p.text).join("\n");
   assert.ok(Buffer.byteLength(text) < 10000);
   const path = text.match(/^Large browser output saved to: (.+) \(\d+ bytes\)/)?.[1];

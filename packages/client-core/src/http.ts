@@ -40,6 +40,33 @@ export const normalizeBaseUrl = (value: string): string => {
   return trimmed.replace(/\/+$/, "");
 };
 
+/**
+ * Adds the scheme people leave off when copying a server address. Setup prints HTTPS
+ * addresses without a port, and plain-HTTP addresses (home network, VPN, or a public
+ * IP) with one, so an explicit port other than 443 means HTTP. Without a port, local
+ * names (IPs, localhost, .local, single words) mean HTTP and domain names mean HTTPS.
+ */
+export const withDefaultScheme = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
+  const authority = trimmed.split(/[/?#]/, 1)[0] ?? "";
+  const bracket = authority.startsWith("[") ? authority.indexOf("]") : -1;
+  const host = (
+    bracket >= 0 ? authority.slice(0, bracket + 1) : (authority.split(":", 1)[0] ?? "")
+  ).toLowerCase();
+  const port = (bracket >= 0 ? authority.slice(bracket + 1) : authority.slice(host.length)).replace(
+    /^:/,
+    ""
+  );
+  const local =
+    host.startsWith("[") ||
+    host === "localhost" ||
+    host.endsWith(".local") ||
+    !host.includes(".") ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+  return `${local || (port && port !== "443") ? "http" : "https"}://${trimmed}`;
+};
+
 export const normalizeOptionalBaseUrl = (value: string | null | undefined): string | null => {
   if (!value?.trim()) return null;
   return normalizeBaseUrl(value);

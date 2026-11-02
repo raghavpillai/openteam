@@ -8,6 +8,8 @@ struct ChatView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.chatLeadingControl) private var leadingControl
+  @Environment(\.sideChrome) private var sideChrome
   let channel: Channel
   @State private var details = false
   @State private var duplicatedChannel: String?
@@ -16,6 +18,7 @@ struct ChatView: View {
   @State private var modals = MessageModalPresenter()
   @State private var bottomVisible = true
   @State private var followsLatest = true
+  @State private var dismissFocusRequest: UUID?
   /// The newest message sequence on screen when the list stopped following.
   @State private var seenThroughSequence: String?
   @State private var scrollRequest: HistoryScrollRequest?
@@ -70,7 +73,8 @@ struct ChatView: View {
               seenThroughSequence = store.messages(channel.id).last?.sequence
             }
             if bottom && following && !hasLater { Task { await store.markRead(channel.id) } }
-          }
+          },
+          onDismissKeyboard: { dismissFocusRequest = UUID() }
         )
         .opacity(didPositionHistory ? 1 : 0)
         .allowsHitTesting(didPositionHistory)
@@ -78,7 +82,7 @@ struct ChatView: View {
         .overlay(alignment: .bottomTrailing) { latestButton }
       }
       if !didPositionHistory && !showsLoadError {
-        ProgressView().controlSize(.regular).accessibilityLabel("Loading messages")
+        LoadingOrb(label: "Loading messages")
           .accessibilityIdentifier("chat-loading").frame(maxWidth: .infinity, maxHeight: .infinity)
           .offset(y: -20)
       }
@@ -140,9 +144,13 @@ struct ChatView: View {
       }
     }
     .nativeCanvas()
-    .chatFloatingBars(top: { header }, bottom: {
-      if !showsLoadError { ComposerView(channel: channel).disabled(!didPositionHistory) }
+    .chatFloatingBars(top: { if sideChrome?.holdsAllControls == true { titleBar } else { header } }, bottom: {
+      if !showsLoadError {
+        ComposerView(channel: channel, dismissFocusRequest: dismissFocusRequest).disabled(!didPositionHistory)
+      }
     })
+    .padding(.trailing, sideChrome?.contentInset ?? 0)
+    .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
     .toolbar(.hidden, for: .navigationBar).background(NativeBackGesture().frame(width: 0, height: 0))
     .navigationDestination(isPresented: $details) {
       ConversationDetails(channelID: channel.id, onDuplicate: { duplicatedChannel = $0 })
@@ -240,6 +248,10 @@ struct ChatView: View {
         if message.metadata["event"]["type"].string == "name-changed" {
           Label("Renamed to " + message.metadata["event"]["to"].string, systemImage: "pencil")
             .font(.system(size: 12)).foregroundStyle(NativePalette.muted).frame(maxWidth: .infinity)
+        } else if message.isInterruptedNotice {
+          Text(message.content).font(.system(size: 12)).foregroundStyle(NativePalette.muted)
+            .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.horizontal, 24)
+            .accessibilityIdentifier("interrupted-notice-" + message.id)
         } else {
           MessageRow(message: message, channel: channel, onReply: { reply(message) },
             onThread: { branchesReplies = true; thread = message },
@@ -324,36 +336,74 @@ struct ChatView: View {
     } else { scrollRequest = HistoryScrollRequest(id: id, animated: false) }
     store.focusedMessage = nil
   }
-  var header: some View {
-    HStack(spacing: 8) {
+  @ViewBuilder private var leadingButton: some View {
+    if let leadingControl {
+      ChatChromeButton(title: leadingControl.title, symbol: "sidebar.left", symbolSize: 17,
+        symbolWeight: .regular, regularInLightMode: true) { leadingControl.action() }
+        .accessibilityIdentifier("chat-sidebar")
+    } else {
       ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
         regularInLightMode: true) { dismiss() }
         .accessibilityIdentifier(
           "chat-back")
-      Button {
-        details = true
-      } label: {
-        HStack(spacing: 9) {
-          ChannelAvatar(channel: channel, size: 27, groupStyle: .inline)
-          Text(store.channel(channel.id)?.name ?? channel.name).font(.body.weight(.medium))
-            .lineLimit(1)
-        }.padding(.leading, 10).padding(.trailing, 14).padding(.vertical, 8)
-          .frame(minHeight: 44).nativeChatGlass()
-      }.buttonStyle(.plain).accessibilityIdentifier("conversation-details")
-        .frame(maxWidth: .infinity)
+    }
+  }
+  /// Beside a side region the conversation's name stays a horizontal title, as
+  /// text does in system bars, and its buttons move to the region.
+  private var titleBar: some View {
+    HStack {
+      titleButton
+      Spacer(minLength: 0)
+    }.padding(.horizontal, 14).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+      .foregroundStyle(NativePalette.text)
+  }
+  private var sideControls: some View {
+    VStack(spacing: 12) {
+      Spacer(minLength: 12)
+      computerButton
+      if sideChrome?.holdsAllControls == true || leadingControl != nil { leadingButton }
+    }.foregroundStyle(NativePalette.text)
+  }
+  @ViewBuilder private var computerButton: some View {
+    if let bot = store.computerBot(for: channel) {
+      ChatChromeButton(title: "Computer", symbol: "display", symbolSize: 16) {
+        // Freeze the target for this presentation even if another bot replies.
+        computerBot = bot
+      }.accessibilityValue(bot.name)
+    }
+  }
+  private var titleButton: some View {
+    Button {
+      details = true
+    } label: {
+      HStack(spacing: 9) {
+        ChannelAvatar(channel: channel, size: 27, groupStyle: .inline)
+        Text(store.channel(channel.id)?.name ?? channel.name).font(.body.weight(.medium))
+          .lineLimit(1)
+      }.padding(.leading, 10).padding(.trailing, 14).padding(.vertical, 8)
+        .frame(minHeight: 44).nativeChatGlass()
+    }.buttonStyle(.plain).accessibilityIdentifier("conversation-details")
+  }
+  var header: some View {
+    HStack(spacing: 8) {
+      if sideChrome == nil {
+        leadingButton
+      } else {
+        Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+      }
+      titleButton.frame(maxWidth: .infinity)
       // Equal side slots keep the pill on the screen's center, including groups
       // without a Computer action. Long names truncate within the middle slot.
+      // Beside a side region, Computer sits in it, below the status bar.
       Group {
-        if let bot = store.computerBot(for: channel) {
-          ChatChromeButton(title: "Computer", symbol: "display", symbolSize: 16) {
-            // Freeze the target for this presentation even if another bot replies.
-            computerBot = bot
-          }.accessibilityValue(bot.name)
+        if sideChrome == nil, store.computerBot(for: channel) != nil {
+          computerButton
         } else {
           Color.clear.accessibilityHidden(true)
         }
       }.frame(width: 44, height: 44)
-    }.padding(.horizontal, 18).padding(.vertical, 6).foregroundStyle(NativePalette.text)
+    }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+      .foregroundStyle(NativePalette.text)
   }
   func timestamp(_ date: Date) -> String {
     let formatter = DateFormatter()
@@ -498,7 +548,7 @@ struct MessageRow: View {
       } else {
         bubble
       }
-    }
+    }.modifier(SystemMessageContext(message: message, channel: channel))
   }
   private var bubble: some View {
     HStack(alignment: .bottom, spacing: 0) {
@@ -525,8 +575,8 @@ struct MessageRow: View {
             MessageReplyQuote(replyID: reply, channelID: channel.id, ownerID: message.id,
               onOpen: onReplyContext.map { action in { action(reply) } })
           }
-          // A draft card shows its own subject; its text is only the chat-list preview.
-          if !message.displayContent.isEmpty, message.metadata["type"].string != "external-draft" {
+          // Draft and approval cards show their own title; their text is only the chat-list preview.
+          if !message.displayContent.isEmpty, !["external-draft", "imessage-send"].contains(message.metadata["type"].string) {
             Group {
               if RichMarkdownView.required(message.displayContent) {
                 RichMarkdownView(source: message.displayContent, forceDark: message.isUser).frame(
@@ -772,12 +822,11 @@ struct MessageActionsView: View {
 struct MarkdownText: View {
   let source: String
   var textColor: Color = NativePalette.text
-  /// Links take the app tint, which is also the fill of your own bubble. There they
-  /// use the text color and an underline instead, so they stay readable and visible.
+  /// Received links stay blue even with the monochrome app accent. Your own
+  /// links use the bubble's text color; underlines distinguish links in both.
   var ownMessage = false
   func inline(_ block: String) -> AttributedString {
-    let text = MessageTextCache.inline(block)
-    return ownMessage ? Self.underliningLinks(text) : text
+    Self.underliningLinks(MessageTextCache.inline(block))
   }
   static func underliningLinks(_ text: AttributedString) -> AttributedString {
     var text = text
@@ -791,10 +840,8 @@ struct MarkdownText: View {
       RichMarkdownView(source: source)
     } else if IdentifierMessageText.requiresNativeWrapping(source) {
       IdentifierMessageText(source: source, color: textColor)
-    } else if ownMessage {
-      blocks.tint(textColor)
     } else {
-      blocks
+      blocks.tint(ownMessage ? textColor : NativePalette.link)
     }
   }
   private var blocks: some View {
@@ -930,6 +977,7 @@ struct ThreadView: View {
 struct ThreadPage: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.sideChrome) private var sideChrome
   let root: Message
   let channel: Channel
   var initialFocus: String?
@@ -943,18 +991,31 @@ struct ThreadPage: View {
   @State private var ready = false
   @State private var showsLoading = false
   @State private var focusRequest = UUID()
+  @State private var dismissFocusRequest: UUID?
   private var draftKey: String { channel.id + (branchesReplies ? ":thread:" : ":reply:") + root.id }
   private var messages: [Message] {
     ThreadProjection.messages(root: root, in: store.messages(channel.id), includeInlineReplies: !branchesReplies)
+  }
+  private var backButton: some View {
+    ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
+      regularInLightMode: true) {
+      UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+      dismiss()
+    }.accessibilityIdentifier("thread-back").foregroundStyle(NativePalette.text)
+  }
+  /// Folded, Back moves into the side region, as in the conversation.
+  @ViewBuilder private var sideControls: some View {
+    if sideChrome?.holdsAllControls == true { backButton }
   }
   var body: some View {
     ZStack {
       NativeMessageList(items: rows, initialTarget: initialFocus ?? "bottom", initialLayout: .nextLayout,
         request: scrollRequest,
-        onPositioned: { ready = true })
+        onPositioned: { ready = true },
+        onDismissKeyboard: { dismissFocusRequest = UUID() })
         .opacity(ready ? 1 : 0).allowsHitTesting(ready).accessibilityHidden(!ready)
       if !ready && showsLoading {
-        ProgressView().accessibilityIdentifier("thread-loading").offset(y: -20)
+        LoadingOrb(label: "Loading thread").accessibilityIdentifier("thread-loading").offset(y: -20)
       }
     }.accessibilityIdentifier("reply-page-" + root.id)
       // Cached reply rows need one layout settle. Avoid flashing a spinner in
@@ -966,19 +1027,18 @@ struct ThreadPage: View {
       .messageModalHost(modals).nativeCanvas().toolbar(.hidden, for: .navigationBar)
       .chatFloatingBars(top: {
         HStack {
-          ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
-            regularInLightMode: true) {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            dismiss()
-          }.accessibilityIdentifier("thread-back")
+          if sideChrome?.holdsAllControls != true { backButton }
           Spacer()
-        }.padding(.horizontal, 18).padding(.vertical, 6)
+        }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
       }, bottom: {
         ComposerView(channel: channel, draftKey: draftKey,
           threadRootID: branchesReplies ? root.id : nil,
-          replyRootID: branchesReplies ? nil : root.id, focusOnAppear: true, focusRequest: focusRequest)
+          replyRootID: branchesReplies ? nil : root.id, focusOnAppear: true, focusRequest: focusRequest,
+          dismissFocusRequest: dismissFocusRequest)
           .disabled(!ready)
       })
+      .padding(.trailing, sideChrome?.contentInset ?? 0)
+      .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
       .navigationDestination(item: $exchange) { BotExchangeView(channel: channel, peer: $0) }
       .navigationDestination(isPresented: $details) { ConversationDetails(channelID: channel.id) }
       .background(NativeBackGesture().frame(width: 0, height: 0))

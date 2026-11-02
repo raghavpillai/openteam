@@ -1,4 +1,5 @@
-import { type PluginDefinition, pluginCatalog, validatePluginCatalog } from "./catalog";
+import { clonePluginDefinition, type PluginDefinition, validatePluginCatalog } from "@openteam/plugin-sdk";
+import { pluginCatalog } from "@openteam/plugins";
 
 type JsonObject = Record<string, unknown>;
 
@@ -29,7 +30,7 @@ const isPluginDefinition = (value: unknown): value is PluginDefinition => {
 
 export const bundledOpenTeamMarketplace: OpenTeamMarketplaceManifest = {
   schemaVersion: 1,
-  revision: "2026.09.24.3",
+  revision: "2026.10.28.1",
   plugins: pluginCatalog,
 };
 
@@ -51,7 +52,7 @@ export const parseOpenTeamMarketplace = (value: unknown): OpenTeamMarketplaceMan
   if (!Array.isArray(manifest.plugins) || !manifest.plugins.every(isPluginDefinition)) {
     throw new Error("OpenTeam marketplace plugins are invalid");
   }
-  const plugins = structuredClone(manifest.plugins) as PluginDefinition[];
+  const plugins = (manifest.plugins as PluginDefinition[]).map(clonePluginDefinition);
   validatePluginCatalog(plugins);
   return {
     schemaVersion: 1,
@@ -77,7 +78,7 @@ export class OpenTeamMarketplaceSource {
   async plugins(): Promise<PluginDefinition[]> {
     const manifest = await this.manifest();
     return manifest.plugins.map((plugin) => ({
-      ...structuredClone(plugin),
+      ...clonePluginDefinition(plugin),
       sourceRevision: plugin.sourceRevision ?? manifest.revision,
     }));
   }

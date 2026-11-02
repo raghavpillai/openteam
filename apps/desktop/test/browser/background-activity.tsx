@@ -50,7 +50,6 @@ const task: SubagentActivityView = {
   currentRunId: "child-run",
   description: "Refresh the contacts",
   subagentType: "executor",
-  runInBackground: true,
   status: "running",
   summary: null,
   errorMessage: null,
@@ -202,10 +201,9 @@ else
       for (const patch of [
         { parentChannelId: "another-chat" },
         { parentBotId: "another-bot" },
-        { runInBackground: false },
       ]) {
         tasks = [{ ...task, ...patch }];
-        await expectCaption(null, `${theme}: unrelated or foreground child stays excluded`);
+        await expectCaption(null, `${theme}: unrelated child stays excluded`);
       }
       tasks = [];
       await expectCaption(null, `${theme}: idle conversation stays idle`);

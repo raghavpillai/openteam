@@ -1,23 +1,16 @@
 import { suppressMobileNotification } from "@openteam/contracts/notification-presence";
-import { notificationRouting } from "@openteam/messaging";
+import { notificationRouting, unreadBadgeCount } from "@openteam/messaging";
 import { ApnsSettingsStore } from "@openteam/db/apns-settings";
 import {
-  type AgentNotificationPayload,
-  agentNotificationDeliveryPolicy,
   PUSH_DELIVERY_ADVISORY_LOCK,
   type PushNotificationPayload,
-  truncateNotificationText,
   isAgentNotificationKind,
   notificationIsRead,
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
-import { unreadBadgeCount as countUnreadMessages } from "@openteam/messaging";
 import { ApnsClient } from "./apns";
 
-const EXPO_SEND_URL = "https://exp.host/--/api/v2/push/send";
-const EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
 const MAX_ATTEMPTS = 5;
-const RECEIPT_DELAY_MS = 15 * 60_000;
 const PUSH_DELIVERY_TRANSACTION_TIMEOUT_MS = 20_000;
 
 type ClaimedDelivery = {
@@ -28,19 +21,6 @@ type ClaimedDelivery = {
   attempts: number;
 };
 
-type PushTicket = {
-  status?: unknown;
-  id?: unknown;
-  message?: unknown;
-  details?: { error?: unknown };
-};
-
-type PushReceipt = {
-  status?: unknown;
-  message?: unknown;
-  details?: { error?: unknown };
-};
-
 const json = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 
@@ -49,15 +29,6 @@ const retryAt = (attempt: number): Date =>
 
 const errorMessage = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
-
-export const truncateNotificationBody = truncateNotificationText;
-
-
-type QueuedAgentNotificationPayload = Omit<AgentNotificationPayload, "badgeCount"> & {
-  badgeCount?: number;
-};
-
-export const unreadBadgeCount = countUnreadMessages;
 
 export type PushAuthenticationMode = "disabled" | "required";
 
@@ -123,64 +94,6 @@ export const claimOutboxDeliveries = async (
       delivery."attempts"
   `);
 
-export const enqueuePushNotification = async (
-  tx: Prisma.TransactionClient,
-  deliveryKey: string,
-  payload: QueuedAgentNotificationPayload,
-  authMode = pushAuthenticationModeFromEnvironment()
-): Promise<void> => {
-  const devices = await tx.pushDevice.findMany({
-    where: deliverablePushDeviceWhere(authMode),
-    select: { id: true },
-  });
-  if (devices.length === 0) return;
-  const fullPayload: AgentNotificationPayload = {
-    ...payload,
-    badgeCount:
-      payload.badgeCount ??
-      Math.max(payload.kind === "agent-needs-input" ? 1 : 0, await unreadBadgeCount(tx)),
-  };
-  await tx.outboxDelivery.createMany({
-    data: devices.map((device) => ({
-      deliveryKey: `${deliveryKey}:${device.id}`,
-      topic: "push.notification",
-      target: device.id,
-      payload: json(fullPayload),
-    })),
-    skipDuplicates: true,
-  });
-};
-
-export const expoPushMessage = (
-  pushToken: string,
-  payload: PushNotificationPayload,
-  badgeCount = payload.badgeCount
-) => {
-  const deliveredPayload: PushNotificationPayload = { ...payload, badgeCount };
-  if (payload.kind === "badge-sync") {
-    return {
-      to: pushToken,
-      badge: Math.max(0, Math.floor(badgeCount)),
-      data: deliveredPayload,
-      _contentAvailable: true,
-      priority: "normal",
-    };
-  }
-  const policy = agentNotificationDeliveryPolicy(payload.kind);
-  return {
-    to: pushToken,
-    title: payload.title,
-    body: truncateNotificationBody(payload.body),
-    sound: policy.sound ?? undefined,
-    badge: Math.max(0, Math.floor(badgeCount)),
-    data: deliveredPayload,
-    _contentAvailable: true,
-    mutableContent: true,
-    threadId: payload.channelId,
-    ttl: 3600,
-  };
-};
-
 type PushAttempt = { delivery: ClaimedDelivery; device: Prisma.PushDeviceGetPayload<{}>; payload: PushNotificationPayload };
 
 export class PushNotificationDispatcher {
@@ -188,8 +101,6 @@ export class PushNotificationDispatcher {
 
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly request: typeof fetch = fetch,
-    private readonly accessToken = process.env.EXPO_ACCESS_TOKEN?.trim() || null,
     private readonly authMode = pushAuthenticationModeFromEnvironment(),
     private readonly apns = new ApnsClient(async () => (await new ApnsSettingsStore(prisma).load()).config)
   ) {}
@@ -203,18 +114,9 @@ export class PushNotificationDispatcher {
     this.draining = true;
     try {
       await this.drainNotifications();
-      await this.drainReceipts();
     } finally {
       this.draining = false;
     }
-  }
-
-  private headers(): HeadersInit {
-    return {
-      accept: "application/json",
-      "content-type": "application/json",
-      ...(this.accessToken ? { authorization: `Bearer ${this.accessToken}` } : {}),
-    };
   }
 
   private async claim(topic: string, limit: number) {
@@ -313,18 +215,7 @@ export class PushNotificationDispatcher {
               });
             }
             if (attempted.length === 0) return;
-            await Promise.all([
-              this.deliverNative(tx, attempted.filter(item => item.device.provider === "apns"), currentBadgeCount),
-              this.deliverExpo(tx, attempted.filter(item => item.device.provider !== "apns"), currentBadgeCount)
-                .catch(async error => {
-                  // An Expo outage must not roll back already accepted native pushes.
-                  for (const item of attempted.filter(item => item.device.provider !== "apns")) {
-                    await tx.outboxDelivery.update({ where: { id: item.delivery.id }, data: {
-                      status: "failed", availableAt: retryAt(item.delivery.attempts), error: json({ message: errorMessage(error) }),
-                    } });
-                  }
-                }),
-            ]);
+            await this.deliver(tx, attempted, currentBadgeCount);
           },
           {
             maxWait: PUSH_DELIVERY_TRANSACTION_TIMEOUT_MS,
@@ -346,7 +237,7 @@ export class PushNotificationDispatcher {
     }
   }
 
-  private async deliverNative(tx: Prisma.TransactionClient, attempted: PushAttempt[], badgeCount: number) {
+  private async deliver(tx: Prisma.TransactionClient, attempted: PushAttempt[], badgeCount: number) {
     await Promise.all(attempted.map(async item => {
       try {
         const result = await this.apns.send(item.device, item.payload, badgeCount, item.delivery.deliveryKey);
@@ -367,66 +258,6 @@ export class PushNotificationDispatcher {
     }));
   }
 
-  private async deliverExpo(tx: Prisma.TransactionClient, attempted: PushAttempt[], currentBadgeCount: number) {
-    if (!attempted.length) return;
-    const response = await this.request(EXPO_SEND_URL, {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify(
-        attempted.map(({ device, payload }) =>
-          expoPushMessage(device.pushToken, payload, currentBadgeCount)
-        )
-      ),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) throw new Error(`Expo push request failed (${response.status})`);
-    const body = (await response.json()) as { data?: PushTicket[] };
-    const tickets = Array.isArray(body.data) ? body.data : [];
-    for (const [index, item] of attempted.entries()) {
-      const ticket = tickets[index];
-      const deviceError = ticket?.details?.error === "DeviceNotRegistered";
-      if (deviceError) {
-        await tx.pushDevice.updateMany({
-          where: { id: item.device.id },
-          data: { enabled: false },
-        });
-      }
-      if (ticket?.status !== "ok" || typeof ticket.id !== "string") {
-        await tx.outboxDelivery.update({
-          where: { id: item.delivery.id },
-          data: {
-            status: deviceError ? "delivered" : "failed",
-            attempts: deviceError ? MAX_ATTEMPTS : item.delivery.attempts,
-            deliveredAt: deviceError ? new Date() : null,
-            availableAt: retryAt(item.delivery.attempts),
-            error: json({
-              message:
-                typeof ticket?.message === "string"
-                  ? ticket.message
-                  : "Expo did not return a push ticket",
-              details: ticket?.details ?? null,
-            }),
-          },
-        });
-        continue;
-      }
-      await tx.outboxDelivery.update({
-        where: { id: item.delivery.id },
-        data: { status: "delivered", deliveredAt: new Date(), error: Prisma.DbNull },
-      });
-      await tx.outboxDelivery.createMany({
-        data: {
-          deliveryKey: `${item.delivery.deliveryKey}:receipt`,
-          topic: "push.receipt",
-          target: item.device.id,
-          payload: json({ ticketId: ticket.id }),
-          availableAt: new Date(Date.now() + RECEIPT_DELAY_MS),
-        },
-        skipDuplicates: true,
-      });
-    }
-  }
-
   private async notificationIsDeliverable(
     tx: Prisma.TransactionClient,
     payload: PushNotificationPayload
@@ -445,106 +276,18 @@ export class PushNotificationDispatcher {
       channel.hiddenFromSidebar
     )
       return false;
-    if (payload.notificationSequence) {
-      const activity = await tx.channelNotification.findUnique({
-        where: { sequence: BigInt(payload.notificationSequence) },
-      });
-      if (!activity || activity.revoked) return false;
-      return (
-        !state ||
-        !notificationIsRead(
-          { ...payload, notificationSequence: payload.notificationSequence },
-          {
-            lastReadSequence: state.lastReadSequence.toString(),
-            lastReadNotificationSequence: state.lastReadNotificationSequence.toString(),
-          }
-        )
-      );
-    }
-    // Drain old queued completion payloads safely during a rolling upgrade.
-    const message = await tx.channelMessage.findFirst({
-      where: { channelId: payload.channelId, sourceRunId: payload.runId, sender: "agent" },
-      orderBy: { sequence: "desc" },
+    // Alerts are durable channel activity; a payload without its sequence is not deliverable.
+    if (!payload.notificationSequence) return false;
+    const activity = await tx.channelNotification.findUnique({
+      where: { sequence: BigInt(payload.notificationSequence) },
     });
-    return !message || !state || message.sequence > state.lastReadSequence;
-  }
-
-  private async drainReceipts(): Promise<void> {
-    while (true) {
-      const deliveries = await this.claim("push.receipt", 1_000);
-      if (deliveries.length === 0) return;
-      const ticketIds = deliveries.flatMap((delivery) => {
-        const payload = delivery.payload as { ticketId?: unknown };
-        return typeof payload.ticketId === "string" ? [payload.ticketId] : [];
-      });
-      if (ticketIds.length === 0) {
-        await this.prisma.outboxDelivery.updateMany({
-          where: { id: { in: deliveries.map((delivery) => delivery.id) } },
-          data: { status: "delivered", deliveredAt: new Date() },
-        });
-        continue;
-      }
-      try {
-        const response = await this.request(EXPO_RECEIPTS_URL, {
-          method: "POST",
-          headers: this.headers(),
-          body: JSON.stringify({ ids: ticketIds }),
-          signal: AbortSignal.timeout(15_000),
-        });
-        if (!response.ok) throw new Error(`Expo receipt request failed (${response.status})`);
-        const body = (await response.json()) as { data?: Record<string, PushReceipt> };
-        const receipts = body.data ?? {};
-        await this.prisma.$transaction(async (tx) => {
-          for (const delivery of deliveries) {
-            const payload = delivery.payload as { ticketId?: unknown };
-            const ticketId = typeof payload.ticketId === "string" ? payload.ticketId : "";
-            const receipt = receipts[ticketId];
-            if (!receipt) {
-              await tx.outboxDelivery.update({
-                where: { id: delivery.id },
-                data: {
-                  status: "failed",
-                  availableAt: retryAt(delivery.attempts),
-                  error: json({ message: "Expo receipt is not ready" }),
-                },
-              });
-              continue;
-            }
-            const deviceError = receipt.details?.error === "DeviceNotRegistered";
-            if (deviceError) {
-              await tx.pushDevice.updateMany({
-                where: { id: delivery.target },
-                data: { enabled: false },
-              });
-            }
-            await tx.outboxDelivery.update({
-              where: { id: delivery.id },
-              data: {
-                status: "delivered",
-                deliveredAt: new Date(),
-                error:
-                  receipt.status === "ok"
-                    ? Prisma.DbNull
-                    : json({
-                        message: receipt.message ?? "Push receipt failed",
-                        details: receipt.details,
-                      }),
-              },
-            });
-          }
-        });
-      } catch (error) {
-        for (const delivery of deliveries) {
-          await this.prisma.outboxDelivery.update({
-            where: { id: delivery.id },
-            data: {
-              status: "failed",
-              availableAt: retryAt(delivery.attempts),
-              error: json({ message: errorMessage(error) }),
-            },
-          });
-        }
-      }
-    }
+    if (!activity || activity.revoked) return false;
+    return (
+      !state ||
+      !notificationIsRead(payload, {
+        lastReadSequence: state.lastReadSequence.toString(),
+        lastReadNotificationSequence: state.lastReadNotificationSequence.toString(),
+      })
+    );
   }
 }

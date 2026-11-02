@@ -47,13 +47,18 @@ import com.openteam.platform.VoiceRecordingController
 import com.openteam.platform.VoiceRecordingState
 import com.openteam.platform.VoiceTranscriber
 import com.openteam.mobile.core.HttpMethod
+import com.openteam.mobile.core.ProductEvent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import java.net.URI
 import java.net.URLDecoder
 
@@ -112,6 +117,7 @@ class AppViewModel @JvmOverloads constructor(
         ?: (gateway as? MobileFeatureApi)?.let(::LiveFeatureGateway)
         ?: UnsupportedFeatureGateway
     private var searchGeneration = 0L
+    private var syncJob: Job? = null
     private var outboxJob: Job? = null
     private val mutableState = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = mutableState.asStateFlow()
@@ -134,6 +140,7 @@ class AppViewModel @JvmOverloads constructor(
                 }
                 loadDirectory()
                 loadFeatureData()
+                startLiveSync()
                 flushOutbox()
             }
         }
@@ -289,6 +296,7 @@ class AppViewModel @JvmOverloads constructor(
                     loadDirectory()
                     loadFeatureData()
                     mutableState.update { it.copy(outbox = outboxStore.read(accountScope(session))) }
+                    startLiveSync()
                     flushOutbox()
                 },
                 onFailure = { error -> mutableState.update { it.copy(loading = false, error = error.message) } },
@@ -395,6 +403,7 @@ class AppViewModel @JvmOverloads constructor(
                             historyLoading = false,
                         )
                     }
+                    markConversationRead(id, page.messages)
                 }
                 .onFailure { error -> mutableState.update { it.copy(error = error.message) } }
         }
@@ -600,6 +609,70 @@ class AppViewModel @JvmOverloads constructor(
         persistOutbox()
     }
 
+    private fun startLiveSync() {
+        syncJob?.cancel()
+        val live = activeGateway as? LiveMessagingApi ?: return
+        syncJob = viewModelScope.launch {
+            var failureDelay = 500L
+            while (isActive && mutableState.value.session != null) {
+                try {
+                    live.syncEvents(::handleProductEvent)
+                    flushOutbox()
+                    failureDelay = 500L
+                } catch (_: Throwable) {
+                    delay(failureDelay)
+                    failureDelay = (failureDelay * 2).coerceAtMost(15_000L)
+                }
+            }
+        }
+    }
+
+    private fun handleProductEvent(event: ProductEvent) {
+        if (!event.topic.startsWith("channel.")) return
+        val channelId = event.payload["channelId"]?.jsonPrimitive?.contentOrNull
+        loadDirectory()
+        if (channelId == null || channelId == mutableState.value.activeConversationId) {
+            mutableState.value.activeConversationId?.let(::refreshConversation)
+        }
+    }
+
+    private fun refreshConversation(conversationId: String) {
+        viewModelScope.launch {
+            runCatching { activeGateway.historyPage(conversationId) }
+                .onSuccess { page ->
+                    mutableState.update {
+                        it.copy(
+                            messages = page.messages,
+                            threadContext = page.threadContext,
+                            threadContextTruncated = page.threadContextTruncated,
+                            historyBeforeSequence = page.beforeSequence,
+                            hasMoreHistory = page.hasMoreBefore,
+                            historyLoading = false,
+                        )
+                    }
+                    markConversationRead(conversationId, page.messages)
+                }
+        }
+    }
+
+    private fun markConversationRead(conversationId: String, messages: List<ChatMessage>) {
+        val live = activeGateway as? LiveMessagingApi ?: return
+        val through = messages.lastOrNull()?.sequence?.takeIf(String::isNotBlank) ?: return
+        viewModelScope.launch {
+            runCatching { live.markRead(conversationId, through) }
+                .onSuccess {
+                    mutableState.update { state ->
+                        state.copy(
+                            conversations = state.conversations.map {
+                                if (it.id == conversationId) it.copy(unread = 0) else it
+                            },
+                            sidebar = state.sidebar.copy(unreadIds = state.sidebar.unreadIds - conversationId),
+                        )
+                    }
+                }
+        }
+    }
+
     fun uploadChatAttachment(uri: String) {
         runFeatureOperation {
             activeFeatureGateway.uploadAttachment(uri)
@@ -703,6 +776,7 @@ class AppViewModel @JvmOverloads constructor(
             drafts.clearAccount(accountScope(it))
             outboxStore.clear(accountScope(it))
         }
+        syncJob?.cancel()
         outboxJob?.cancel()
         viewModelScope.launch { runCatching { activeGateway.signOut() } }
         activeGateway = gateway
@@ -730,6 +804,7 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     override fun onCleared() {
+        syncJob?.cancel()
         outboxJob?.cancel()
         voiceController.close()
         super.onCleared()

@@ -14,8 +14,11 @@ import com.openteam.mobile.core.HttpMethod
 import com.openteam.mobile.core.DeliveryLookup
 import com.openteam.mobile.core.EventPollRequest
 import com.openteam.mobile.core.EventBatch
+import com.openteam.mobile.core.EventSynchronizer
+import com.openteam.mobile.core.MobileClock
 import com.openteam.mobile.core.MobileMessage
 import com.openteam.mobile.core.MobileRequest
+import com.openteam.mobile.core.ProductEvent
 import com.openteam.mobile.core.Session
 import com.openteam.mobile.core.TransportMobileSyncApi
 import com.openteam.mobile.core.mobileJson
@@ -68,6 +71,12 @@ interface LiveMessagingApi {
     suspend fun pollEvents(waitMs: Int = 25_000): EventBatch
     suspend fun deliveryStatus(channelId: String, clientId: String): DeliveryLookup
     fun toChatMessage(message: MobileMessage): ChatMessage
+    suspend fun syncEvents(applyEvent: suspend (ProductEvent) -> Unit): Int
+    suspend fun markRead(
+        channelId: String,
+        throughSequence: String?,
+        throughNotificationSequence: String? = null,
+    ): JsonObject
 }
 
 class HttpMobileGateway(context: Context) :
@@ -311,6 +320,43 @@ class HttpMobileGateway(context: Context) :
             if (error.error.status == 401) signOut()
             throw error
         }
+    }
+
+    override suspend fun syncEvents(applyEvent: suspend (ProductEvent) -> Unit): Int {
+        val activeSession = session ?: throw IllegalStateException("Sign in to a server first.")
+        val key = accountKey(activeSession.server, activeSession.userId)
+        val synchronizer = EventSynchronizer(
+            accountKey = key,
+            server = activeSession.server,
+            token = activeSession.token,
+            store = syncState,
+            api = syncApi,
+            clock = object : MobileClock {
+                override fun nowUtc(): String = Instant.now().toString()
+            },
+            applyEvent = applyEvent,
+            onUnauthorized = { signOut() },
+        )
+        return synchronizer.pollOnce()
+    }
+
+    override suspend fun markRead(
+        channelId: String,
+        throughSequence: String?,
+        throughNotificationSequence: String?,
+    ): JsonObject {
+        val activeServer = ensureConnected()
+        val body = buildJsonObject {
+            throughSequence?.let { put("throughSequence", it) }
+            throughNotificationSequence?.let { put("throughNotificationSequence", it) }
+        }
+        return jsonRequest(
+            activeServer,
+            "/api/v0/channels/${pathSegment(channelId)}/read",
+            HttpMethod.POST,
+            token = token,
+            body = body,
+        ).body
     }
 
     override suspend fun messageContext(messageId: String, before: Int, after: Int): ChatHistoryPage {

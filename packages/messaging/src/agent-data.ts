@@ -54,6 +54,7 @@ import {
 import type { ComputerInferenceRequest } from "@openteam/contracts/service-protocol";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { type FSWatcher, watch } from "chokidar";
+import { attachmentStorageName } from "./attachment-context";
 import { snapshotWatchedFiles } from "./file-watch-snapshot";
 import {
   deleteAutomationFolder,
@@ -3284,10 +3285,6 @@ export class AgentDataStore {
         } catch {
           continue;
         }
-        const candidateExtension = extname(attachment.fileName).toLowerCase();
-        const extension = /^\.[a-z0-9]{1,12}$/.test(candidateExtension)
-          ? candidateExtension
-          : ".bin";
         const temporary = join(stagingDirectory, `.attachment-part-${randomUUID()}`);
         if (
           !(await stageAttachmentCopy({
@@ -3302,7 +3299,7 @@ export class AgentDataStore {
         staged.push({
           assetId: attachment.assetId,
           temporary,
-          path: join(directory, `${attachment.assetId}${extension}`),
+          path: join(directory, attachmentStorageName(attachment)),
         });
       }
       if (staged.length === 0) return [];

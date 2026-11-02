@@ -7,7 +7,7 @@ import { link, mkdir, open, readdir, readFile, realpath, rm, stat } from "node:f
 import { isIP } from "node:net";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ApiError, type AssetKind, type AssetRef } from "@openteam/contracts";
+import { ApiError, MAX_TURN_INLINE_IMAGES, type AssetKind, type AssetRef } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
@@ -734,8 +734,11 @@ export class AssetStore {
     return parsed;
   }
 
+  /** The first images a turn shows the model inline. Every attachment, these included, is
+   * also saved on the box and listed in the message, so the bot can open the rest there. */
   async runtimeImages(refs: readonly AssetRef[]): Promise<Array<{ url: string; alt?: string }>> {
-    const normalized = await this.normalizeRefs(refs.filter((ref) => ref.kind === "image"));
+    const normalized = (await this.normalizeRefs(refs.filter((ref) => ref.kind === "image")))
+      .slice(0, MAX_TURN_INLINE_IMAGES);
     return Promise.all(
       normalized.map(async (ref) => ({
         url: `data:${ref.mimeType};base64,${(await readFile(this.blobPath(ref.assetId))).toString("base64")}`,

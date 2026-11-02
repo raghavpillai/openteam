@@ -1298,6 +1298,8 @@ export const DynamicToolCallRequest = Schema.Struct({
 });
 export type DynamicToolCallRequest = typeof DynamicToolCallRequest.Type;
 
+/** Images a turn shows the model inline. A message can carry more; the rest stay files on the box. */
+export const MAX_TURN_INLINE_IMAGES = 6;
 export const ComputerTurnRequest = Schema.Struct({
   runId: Schema.String,
   botId: Schema.String,
@@ -1329,7 +1331,7 @@ export const ComputerTurnRequest = Schema.Struct({
   reasoning: Schema.Literal(...PI_REASONING_LEVELS),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),
   attachmentOwnerBotId: Schema.optional(Schema.String),
-  images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
+  images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(MAX_TURN_INLINE_IMAGES))),
   dynamicNamespaces: Schema.optional(Schema.Array(PluginDynamicNamespace)),
   pluginRuntimePackages: Schema.optional(Schema.Array(Schema.Unknown)),
 });

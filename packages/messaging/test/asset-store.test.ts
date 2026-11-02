@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { MAX_TURN_INLINE_IMAGES } from "@openteam/contracts";
 import { AssetStore } from "../src";
 
 const roots: string[] = [];
@@ -325,6 +326,19 @@ describe("content-addressed attachment store", () => {
       { url: `data:image/png;base64,${firstBytes.toString("base64")}`, alt: "First" },
       { url: `data:image/png;base64,${secondBytes.toString("base64")}` },
     ]);
+  });
+
+  test("shows at most a turn's worth of images inline", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const refs = await Promise.all(Array.from({ length: MAX_TURN_INLINE_IMAGES + 2 }, (_, index) => {
+      const bytes = png();
+      bytes.writeUInt32BE(index + 2, 16);
+      return store.ingestBytes({ fileName: `photo-${index}.png`, bytes });
+    }));
+    const images = await store.runtimeImages(refs);
+    expect(images.map(image => image.url)).toEqual(await Promise.all(refs.slice(0, MAX_TURN_INLINE_IMAGES)
+      .map(async ref => `data:image/png;base64,${(await readFile(store.contentPath(ref.assetId))).toString("base64")}`)));
   });
 
   test("normalizes agent data URLs immediately instead of persisting inline bytes", async () => {

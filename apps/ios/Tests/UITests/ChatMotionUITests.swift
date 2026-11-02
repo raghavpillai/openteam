@@ -504,6 +504,41 @@ import XCTest
   /// The + tray: the camera adds a photo to the draft, the photo opens full screen,
   /// and the photo panel's back button closes the tray. The simulator has no
   /// camera, so a still stands in for its feed.
+  func testChatMediaAndFileCards() async throws {
+    continueAfterFailure = false
+    try await control("__qa/reset", [:])
+    try await control("__qa/content", ["scene": "media-chat"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "channel-research"]
+    app.launch()
+    defer { app.terminate() }
+    let photo = app.buttons["attachment-media-photo"], video = app.buttons["attachment-media-video"]
+    let pdf = app.buttons["attachment-" + String(repeating: "a", count: 64)]
+    let nameless = app.buttons["attachment-" + String(repeating: "b", count: 64)]
+    XCTAssertTrue(video.waitForExistence(timeout: 15))
+    XCTAssertTrue(pdf.waitForExistence(timeout: 5))
+    // Photos keep their shape; a video sits whole in a wider, fixed frame.
+    XCTAssertGreaterThan(photo.frame.height, photo.frame.width)
+    XCTAssertEqual(video.frame.width / video.frame.height, 292 / 208, accuracy: 0.02)
+    XCTAssertGreaterThan(video.frame.width, photo.frame.width)
+    // File cards share one width, whatever their names, and say what they are.
+    XCTAssertEqual(pdf.frame.width, nameless.frame.width, accuracy: 1)
+    XCTAssertTrue(app.staticTexts["PDF · 818 KB"].exists)
+    XCTAssertTrue(app.staticTexts["1.2 MB"].exists)
+
+    video.tap()
+    XCTAssertTrue(app.buttons["composer-video-play"].waitForExistence(timeout: 10))
+    app.buttons["composer-photo-close"].tap()
+    XCTAssertTrue(app.buttons["composer-video-play"].waitForNonExistence(timeout: 5))
+    photo.tap()
+    XCTAssertTrue(app.buttons["photo-close"].waitForExistence(timeout: 10))
+    app.buttons["photo-close"].tap()
+    XCTAssertTrue(app.buttons["photo-close"].waitForNonExistence(timeout: 5))
+    pdf.tap()
+    XCTAssertTrue(app.buttons["file-preview-close"].waitForExistence(timeout: 10))
+    app.buttons["file-preview-close"].tap()
+  }
+
   func testAttachmentTrayCameraViewerAndPhotos() async throws {
     continueAfterFailure = false
     try await control("__qa/scene", ["scene": "empty-chat"])

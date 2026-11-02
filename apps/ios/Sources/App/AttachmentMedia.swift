@@ -94,7 +94,10 @@ struct AttachmentView: View {
   private var isVideo: Bool { asset.mimeType.hasPrefix("video/") }
   /// Short videos load their first frame with the row; longer ones on tap.
   private var previewsVideo: Bool { isVideo && asset.byteSize <= 30 * 1024 * 1024 }
-  private var previewSize: CGSize { AttachmentImageFile.previewSize(width: asset.width, height: asset.height) }
+  /// Videos sit whole in a fixed black frame, letterboxed like the reference; photos take their own shape.
+  private var previewSize: CGSize {
+    isVideo ? CGSize(width: 292, height: 208) : AttachmentImageFile.previewSize(width: asset.width, height: asset.height)
+  }
   private var galleryID: String { messageID + ":" + asset.id + ":" + asset.fileName }
   private var gallery: [GalleryItem] {
     let items = store.messages(channelID).flatMap { message in
@@ -117,10 +120,15 @@ struct AttachmentView: View {
       } label: {
         if isImage || isVideo {
           ZStack {
-            NativePalette.surface
+            if isVideo { Color.black } else { NativePalette.surface }
             if let image = loaded?.image {
-              Image(uiImage: image).resizable().scaledToFill()
-                .frame(width: previewSize.width, height: previewSize.height).clipped()
+              if isVideo {
+                Image(uiImage: image).resizable().scaledToFit()
+                  .frame(width: previewSize.width, height: previewSize.height)
+              } else {
+                Image(uiImage: image).resizable().scaledToFill()
+                  .frame(width: previewSize.width, height: previewSize.height).clipped()
+              }
             } else if failure != nil && isImage {
               Label("Image unavailable", systemImage: "arrow.clockwise").font(.caption)
                 .foregroundStyle(NativePalette.muted)

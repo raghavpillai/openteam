@@ -140,18 +140,21 @@ struct AttachmentView: View {
           }.frame(width: previewSize.width, height: previewSize.height)
             .clipShape(RoundedRectangle(cornerRadius: 16))
         } else {
-          HStack(spacing: 10) {
-            Image(systemName: archive ? "archivebox" : "doc")
-              .font(.system(size: 16)).foregroundStyle(archive ? Color(hex: "C9A333") : NativePalette.muted)
-              .frame(width: 28, height: 28).background(NativePalette.selection, in: RoundedRectangle(cornerRadius: 9))
+          HStack(spacing: 14) {
+            FileGlyph(kind: fileKind).frame(width: 34, height: 42)
             VStack(alignment: .leading, spacing: 3) {
-              fileName.font(.system(size: 16, weight: .medium)).lineLimit(1).truncationMode(.middle)
-              Text(loading ? "Opening…" : fileSize)
-                .font(.system(size: 12)).foregroundStyle(NativePalette.faint)
+              Text(asset.fileName).font(.system(size: 17)).foregroundStyle(NativePalette.text)
+                .lineLimit(1).truncationMode(.middle)
+              Text(loading ? "Opening…" : fileDetail)
+                .font(.system(size: 15)).foregroundStyle(NativePalette.muted).lineLimit(1)
             }
+            Spacer(minLength: 0)
             if loading { LoadingOrb(size: 16, label: "Opening") }
-          }.padding(.horizontal, 13).padding(.vertical, 10)
-            .background(NativePalette.assistant, in: RoundedRectangle(cornerRadius: 20))
+          }.padding(.leading, 16).padding(.trailing, 18).padding(.vertical, 14)
+            .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in min(width * 0.8, 340) }
+            .background(NativePalette.background, in: RoundedRectangle(cornerRadius: 26))
+            .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(NativePalette.separator, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 26))
         }
       }.buttonStyle(.plain).disabled(loading && !isImage)
         .accessibilityLabel((isVideo ? "Play " : "Open ") + asset.fileName)
@@ -161,8 +164,16 @@ struct AttachmentView: View {
     }
     .task(id: asset.id) { if isImage || previewsVideo { await load(open: false) } }
   }
-  private var archive: Bool {
-    ["zip", "tar", "gz", "7z", "rar"].contains((asset.fileName as NSString).pathExtension.lowercased())
+  private var fileExtension: String { (asset.fileName as NSString).pathExtension.lowercased() }
+  private var fileKind: FileGlyph.Kind {
+    if asset.mimeType == "application/pdf" || fileExtension == "pdf" { return .pdf }
+    if ["zip", "tar", "gz", "7z", "rar"].contains(fileExtension) { return .archive }
+    if fileExtension.isEmpty && ["", "application/octet-stream"].contains(asset.mimeType) { return .unknown }
+    return .document
+  }
+  /// "PDF · 818 KB", or just the size when the file has no type.
+  private var fileDetail: String {
+    fileKind == .unknown || fileExtension.isEmpty ? fileSize : fileExtension.uppercased() + " · " + fileSize
   }
   private var fileSize: String {
     let bytes = Double(asset.byteSize)
@@ -170,12 +181,6 @@ struct AttachmentView: View {
     guard bytes >= 1_000 else { return "\(asset.byteSize) bytes" }
     let value = bytes / unit.0
     return value.formatted(.number.precision(.fractionLength(value < 10 ? 1 : 0))) + " " + unit.1
-  }
-  private var fileName: Text {
-    let name = asset.fileName as NSString
-    guard !name.pathExtension.isEmpty else { return Text(asset.fileName).foregroundColor(NativePalette.text) }
-    return Text(name.deletingPathExtension).foregroundColor(NativePalette.text)
-      + Text("." + name.pathExtension).foregroundColor(NativePalette.faint)
   }
   private func presentFile(_ file: LoadedAttachment?) {
     guard let file else { return }
@@ -488,5 +493,68 @@ private struct ForwardAttachmentView: View {
           }
         }
     }.interactiveDismissDisabled(sending)
+  }
+}
+
+/// A page with a folded corner, marked by what the file is: a red band for PDFs,
+/// a question mark when the file has no type.
+struct FileGlyph: View {
+  enum Kind { case pdf, archive, document, unknown }
+  let kind: Kind
+
+  var body: some View {
+    GeometryReader { proxy in
+      let width = proxy.size.width, height = proxy.size.height
+      ZStack(alignment: .topLeading) {
+        FoldedPage(fold: width * 0.34).fill(Color(.systemGray4))
+        switch kind {
+        case .pdf:
+          FoldedPage(fold: width * 0.34).fill(Color(hex: "D0393E"))
+            .mask(alignment: .bottom) { Rectangle().frame(height: height * 0.3) }
+          lines(width: width, height: height, rows: 2)
+          RoundedRectangle(cornerRadius: 2).fill(Color(.systemGray))
+            .frame(width: width * 0.34, height: height * 0.18)
+            .offset(x: width * 0.48, y: height * 0.36)
+        case .archive:
+          VStack(spacing: height * 0.05) {
+            ForEach(0..<4, id: \.self) { _ in Rectangle().fill(Color(.systemGray)).frame(width: width * 0.14, height: height * 0.06) }
+          }.frame(width: width).offset(y: height * 0.12)
+        case .document:
+          lines(width: width, height: height, rows: 4)
+        case .unknown:
+          Text("?").font(.system(size: height * 0.42, weight: .regular)).foregroundStyle(Color(.systemGray))
+            .frame(width: width, height: height).offset(y: height * 0.05)
+        }
+      }
+    }
+    .accessibilityHidden(true)
+  }
+
+  private func lines(width: CGFloat, height: CGFloat, rows: Int) -> some View {
+    VStack(alignment: .leading, spacing: height * 0.07) {
+      ForEach(0..<rows, id: \.self) { row in
+        Capsule().fill(Color(.systemGray))
+          .frame(width: width * (row == 0 ? 0.36 : rows == 2 ? 0.28 : 0.62), height: height * 0.055)
+      }
+    }.offset(x: width * 0.14, y: height * 0.3)
+  }
+}
+
+private struct FoldedPage: Shape {
+  let fold: CGFloat
+  func path(in rect: CGRect) -> Path {
+    let radius = rect.width * 0.12
+    var path = Path()
+    path.move(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+    path.addLine(to: CGPoint(x: rect.maxX - fold, y: rect.minY))
+    path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + fold))
+    path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+    path.addQuadCurve(to: CGPoint(x: rect.maxX - radius, y: rect.maxY), control: CGPoint(x: rect.maxX, y: rect.maxY))
+    path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+    path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - radius), control: CGPoint(x: rect.minX, y: rect.maxY))
+    path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+    path.addQuadCurve(to: CGPoint(x: rect.minX + radius, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
+    path.closeSubpath()
+    return path
   }
 }

@@ -17,7 +17,7 @@ bash scripts/android/qa.sh unit
 bash scripts/android/qa.sh assemble
 ```
 
-The script uses `mobile/androidApp/gradlew` when a wrapper is supplied by the Android owners; otherwise it uses `gradle` from `PATH`. It does not start a server or modify signing state. To run connected tests, boot an emulator or attach a device and set its serial:
+The script uses `apps/android/gradlew` when a wrapper is supplied by the Android owners; otherwise it uses `gradle` from `PATH`. It does not start a server or modify signing state. To run connected tests, boot an emulator or attach a device and set its serial:
 
 ```sh
 ANDROID_SERIAL=emulator-5554 bash scripts/android/qa.sh instrumentation

@@ -3,14 +3,14 @@ name: Android QA
 on:
   push:
     paths:
-      - "mobile/androidApp/**"
+      - "apps/android/**"
       - "mobile/shared/**"
       - "docs/android/**"
       - "scripts/android/**"
       - ".github/workflows/android.yml"
   pull_request:
     paths:
-      - "mobile/androidApp/**"
+      - "apps/android/**"
       - "mobile/shared/**"
       - "docs/android/**"
       - "scripts/android/**"

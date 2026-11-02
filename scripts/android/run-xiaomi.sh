@@ -135,14 +135,14 @@ if (( DO_BUILD )); then
     exit 1
   }
   echo "Gradle JDK: $JAVA_HOME_SELECTED"
-  APK_PATH="$ROOT_DIR/mobile/androidApp/app/build/outputs/apk/debug/androidApp-debug.apk"
+  APK_PATH="$ROOT_DIR/apps/android/app/build/outputs/apk/debug/androidApp-debug.apk"
   ( cd "$ROOT_DIR" && \
     JAVA_HOME="$JAVA_HOME_SELECTED" ANDROID_SERIAL="$SERIAL" \
     ./gradlew --no-daemon :mobile:androidApp:assembleDebug )
 fi
 
 if [[ -z "$APK_PATH" ]]; then
-  APK_PATH="$ROOT_DIR/mobile/androidApp/app/build/outputs/apk/debug/androidApp-debug.apk"
+  APK_PATH="$ROOT_DIR/apps/android/app/build/outputs/apk/debug/androidApp-debug.apk"
 fi
 if [[ ! -f "$APK_PATH" ]]; then
   echo "APK not found: $APK_PATH" >&2

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
-ANDROID_DIR="$ROOT_DIR/mobile/androidApp"
+ANDROID_DIR="$ROOT_DIR/apps/android"
 REPORT_PATH="${ANDROID_QA_REPORT_PATH:-$ROOT_DIR/output/android-qa/parity-report.md}"
 
 usage() {
@@ -36,7 +36,7 @@ gradle_command() {
   elif command -v gradle >/dev/null 2>&1; then
     (cd "$ANDROID_DIR" && gradle --no-daemon "$@")
   else
-    echo "Gradle is required. Install Gradle or provide mobile/androidApp/gradlew." >&2
+    echo "Gradle is required. Install Gradle or provide apps/android/gradlew." >&2
     return 127
   fi
 }

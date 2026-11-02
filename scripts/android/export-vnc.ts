@@ -41,6 +41,6 @@ canvas{outline:none;max-width:100%;max-height:100%}
 </body>
 </html>`;
 
-const output = resolve(root, "mobile/androidApp/app/src/main/assets/openteam-vnc/index.html");
+const output = resolve(root, "apps/android/app/src/main/assets/openteam-vnc/index.html");
 await Bun.write(output, html);
 console.log(`Generated ${output} (${Buffer.byteLength(html)} bytes).`);

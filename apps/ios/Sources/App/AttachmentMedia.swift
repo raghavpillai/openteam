@@ -151,15 +151,16 @@ struct AttachmentView: View {
           HStack(spacing: 14) {
             FileGlyph(kind: fileKind).frame(width: 34, height: 42)
             VStack(alignment: .leading, spacing: 3) {
-              Text(asset.fileName).font(.system(size: 17)).foregroundStyle(NativePalette.text)
+              Text(asset.fileName).font(.body).foregroundStyle(NativePalette.text)
                 .lineLimit(1).truncationMode(.middle)
               Text(loading ? "Opening…" : fileDetail)
-                .font(.system(size: 15)).foregroundStyle(NativePalette.muted).lineLimit(1)
+                .font(.subheadline).foregroundStyle(NativePalette.muted).lineLimit(1)
             }
             Spacer(minLength: 0)
             if loading { LoadingOrb(size: 16, label: "Opening") }
           }.padding(.leading, 16).padding(.trailing, 18).padding(.vertical, 14)
             .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in min(width * 0.8, 340) }
+            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
             .background(NativePalette.background, in: RoundedRectangle(cornerRadius: 26))
             .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(NativePalette.separator, lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 26))

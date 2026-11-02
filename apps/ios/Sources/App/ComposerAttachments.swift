@@ -20,7 +20,8 @@ struct PendingAttachment: Identifiable {
 }
 
 private enum ComposerMedia {
-  static let side: CGFloat = 120
+  /// Short screens (an iPhone on its side) keep the field above the keyboard with smaller tiles.
+  static func side(_ height: UserInterfaceSizeClass?) -> CGFloat { height == .compact ? 72 : 120 }
   static let radius: CGFloat = 16
   static func duration(_ seconds: Double) -> String {
     guard seconds.isFinite, seconds >= 0 else { return "0:00" }
@@ -36,15 +37,17 @@ struct ComposerThumbnail: View {
   let media: ComposerPhoto
   let open: () -> Void
   let remove: () -> Void
+  @Environment(\.verticalSizeClass) private var heightClass
   @State private var image: UIImage?
   @State private var duration: Double?
   var body: some View {
-    Button(action: open) {
+    let side = ComposerMedia.side(heightClass)
+    return Button(action: open) {
       ZStack(alignment: .bottomLeading) {
         NativePalette.surface
         if let image {
           Image(uiImage: image).resizable().scaledToFill()
-            .frame(width: ComposerMedia.side, height: ComposerMedia.side).clipped()
+            .frame(width: side, height: side).clipped()
             .transition(.opacity)
         }
         if let duration {
@@ -55,7 +58,7 @@ struct ComposerThumbnail: View {
             .padding(7)
         }
       }
-      .frame(width: ComposerMedia.side, height: ComposerMedia.side)
+      .frame(width: side, height: side)
       .clipShape(RoundedRectangle(cornerRadius: ComposerMedia.radius, style: .continuous))
       .contentShape(RoundedRectangle(cornerRadius: ComposerMedia.radius, style: .continuous))
     }
@@ -67,7 +70,8 @@ struct ComposerThumbnail: View {
         Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
           .frame(width: 22, height: 22)
           .background(Color.black.opacity(0.62), in: Circle())
-          .frame(width: 44, height: 44)
+          // A small tile keeps its middle for opening, so × takes a smaller target there.
+          .frame(width: heightClass == .compact ? 32 : 44, height: heightClass == .compact ? 32 : 44)
           .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
@@ -80,11 +84,11 @@ struct ComposerThumbnail: View {
         let asset = media.asset
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: ComposerMedia.side * 3, height: ComposerMedia.side * 3)
+        generator.maximumSize = CGSize(width: 360, height: 360)
         decoded = (try? await generator.image(at: .zero).image).map { UIImage(cgImage: $0) }
         duration = (try? await asset.load(.duration)).map(\.seconds)
       } else {
-        decoded = (try? await AttachmentImageFile.decode(media.url, maximumPixels: Int(ComposerMedia.side * 3)))
+        decoded = (try? await AttachmentImageFile.decode(media.url, maximumPixels: 360))
           .flatMap { $0 }.map { UIImage(cgImage: $0) }
       }
       withAnimation(.easeOut(duration: 0.2)) { image = decoded }
@@ -95,12 +99,13 @@ struct ComposerThumbnail: View {
 /// A picked item still copying out of the library, with its progress.
 struct ComposerPendingThumbnail: View {
   let progress: Double
+  @Environment(\.verticalSizeClass) private var heightClass
   var body: some View {
     ZStack {
       NativePalette.surface
       ProgressRing(progress: progress).frame(width: 30, height: 30)
     }
-    .frame(width: ComposerMedia.side, height: ComposerMedia.side)
+    .frame(width: ComposerMedia.side(heightClass), height: ComposerMedia.side(heightClass))
     .clipShape(RoundedRectangle(cornerRadius: ComposerMedia.radius, style: .continuous))
     .accessibilityElement()
     .accessibilityLabel("Preparing attachment")
@@ -151,18 +156,24 @@ struct ComposerGalleryView: View {
   var body: some View {
     // Pages keep the safe area, so their controls stay clear of the Dynamic
     // Island and of side regions such as the folded Duo's status strip.
-    TabView(selection: $selection) {
-      ForEach(gallery.items) { item in
-        Group {
-          if item.isVideo {
-            ComposerVideoViewer(video: item, active: selection == item.url, showsClose: false, closing: closing)
-          } else {
-            ComposerPhotoViewer(photo: item, showsClose: false, closing: closing)
+    // Paged TabViews can keep a page's old height after the device turns, which left a
+    // landscape iPad photo short and pinned to the top; each page takes the measured size.
+    GeometryReader { proxy in
+      TabView(selection: $selection) {
+        ForEach(gallery.items) { item in
+          Group {
+            if item.isVideo {
+              ComposerVideoViewer(video: item, active: selection == item.url, showsClose: false, closing: closing)
+            } else {
+              ComposerPhotoViewer(photo: item, showsClose: false, closing: closing)
+            }
           }
-        }.tag(item.url)
+          .frame(width: proxy.size.width, height: proxy.size.height)
+          .tag(item.url)
+        }
       }
+      .tabViewStyle(.page(indexDisplayMode: .never))
     }
-    .tabViewStyle(.page(indexDisplayMode: .never))
     .accessibilityIdentifier("composer-gallery")
     .background(Color.black.ignoresSafeArea())
     // One Close for every page: leading over a video, whose trailing corner holds

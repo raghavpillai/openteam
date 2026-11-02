@@ -122,6 +122,42 @@ describe("provider-first chat registry", () => {
     f.state.body = { data: [{ id: "gpt-chat" }] };
     expect((await f.registry.catalog("openai")).models[0]?.input).toEqual(["text", "image"]);
   });
+  test("accepts Magpie's nested input modalities for custom providers", async () => {
+    const f = await fixture({
+      magpie: { baseUrl: "https://magpie.test/v1", api: "openai-completions" },
+    });
+    f.connected.clear();
+    f.connected.add("magpie");
+    f.state.body = {
+      data: [
+        {
+          id: "auto/deepseek-v4.1-flash",
+          modalities: { input: ["text", "image"] },
+          supported_parameters: ["tools"],
+        },
+      ],
+    };
+
+    const catalog = await f.registry.catalog("magpie");
+
+    expect(catalog.models[0]).toMatchObject({
+      id: "auto/deepseek-v4.1-flash",
+      input: ["text", "image"],
+    });
+
+    f.runtime.registerProvider("magpie", {
+      models: [{ ...catalog.models[0]!, input: ["text"] }],
+    } as never);
+    await f.registry.verify({
+      providerId: "magpie",
+      modelId: "auto/deepseek-v4.1-flash",
+      reasoning: "off",
+    });
+    const saved = JSON.parse(await readFile(f.path, "utf8")) as {
+      providers: { magpie: { models: Array<{ input: string[] }> } };
+    };
+    expect(saved.providers.magpie.models[0]?.input).toEqual(["text", "image"]);
+  });
   test("exposes only Anthropic, OpenAI auth modes, and explicitly added custom providers", async () => {
     const f = await fixture();
     const catalog = await f.registry.catalog();

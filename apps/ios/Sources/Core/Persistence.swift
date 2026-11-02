@@ -103,6 +103,25 @@ public struct DiskStore: Sendable {
     try directory.setResourceValues(values)
     return file
   }
+  /// Copies a file into the staging folder; videos are too large to hold in memory.
+  public func stage(fileAt source: URL, fileName: String, mimeType: String) throws -> StagedFile {
+    let size = try source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+    try AttachmentLimits.validate(byteCount: size, mimeType: mimeType)
+    let file = StagedFile(id: UUID().uuidString, fileName: fileName, mimeType: mimeType, byteSize: size)
+    try FileManager.default.createDirectory(
+      at: attachmentDirectory, withIntermediateDirectories: true)
+    let target = try fileURL(file)
+    try FileManager.default.copyItem(at: source, to: target)
+    #if os(iOS)
+      try FileManager.default.setAttributes(
+        [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: target.path)
+    #endif
+    var directory = attachmentDirectory
+    var values = URLResourceValues()
+    values.isExcludedFromBackup = true
+    try directory.setResourceValues(values)
+    return file
+  }
   public func fileURL(_ file: StagedFile) throws -> URL {
     guard UUID(uuidString: file.id) != nil else {
       throw APIError("The saved attachment has an invalid identifier.")

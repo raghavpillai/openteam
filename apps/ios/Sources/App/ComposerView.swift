@@ -22,8 +22,12 @@ struct ComposerView: View {
   @State private var photos: [PhotosPickerItem] = []
   @State private var photoLibrary = false
   @State private var files = false
-  @State private var camera = false
   @State private var uploading = false
+  /// The message capsule in window coordinates, where the tray settles after adding.
+  @State private var composerFrame: CGRect = .zero
+  @State private var viewing: ComposerPhoto?
+  /// Picked photos and videos still being copied out of the library.
+  @State private var pending: [PendingAttachment] = []
   @StateObject private var memo = VoiceMemoController()
   @Environment(\.chatColumnLeading) private var columnLeading
   /// The idle pill's height, where the gooey merge starts from.
@@ -31,7 +35,9 @@ struct ComposerView: View {
   @State private var pluginMentions: [JSON] = []
   @FocusState private var focused: Bool
   private var draft: Draft { store.draft(key) }
-  private var attachmentCount: Int { draft.attachments.count + (draft.stagedFiles?.count ?? 0) }
+  private var attachmentCount: Int {
+    draft.attachments.count + (draft.stagedFiles?.count ?? 0) + pending.count
+  }
   private var text: Binding<String> {
     Binding(
       get: { draft.text },
@@ -154,17 +160,11 @@ struct ComposerView: View {
           photos = []
         }
       }
-      .sheet(isPresented: $camera) {
-        CameraPicker { image in
-          camera = false
-          if let data = image?.jpegData(compressionQuality: 0.9) {
-            Task {
-              do { try await upload(data, name: "Camera.jpg", mime: "image/jpeg") } catch {
-                NativeHaptics.failure(error, source: "composer.error")
-                store.handle(error)
-              }
-            }
-          }
+      .fullScreenCover(item: $viewing, onDismiss: { focused = true }) { photo in
+        if photo.isVideo {
+          ComposerVideoViewer(video: photo) { focused = true }
+        } else {
+          ComposerPhotoViewer(photo: photo) { focused = true }
         }
       }
       .onChange(of: scenePhase) { _, phase in
@@ -199,15 +199,9 @@ struct ComposerView: View {
   private var messageControls: some View {
     let bar = memo.showsBar
     return HStack(alignment: .bottom, spacing: 10) {
-      NativeAttachmentMenu(
-        enabled: !uploading,
-        attachmentsEnabled: attachmentCount < Draft.maxAttachments,
-        // SwiftUI draws the persistent + → trash symbol below. UIKit keeps the menu target.
-        color: .clear,
-        photos: { photoLibrary = true }, files: { files = true }, camera: { camera = true },
-        voice: (!draft.text.isEmpty || attachmentCount > 0) && transcriptionConfigured
-          ? { startLockedRecording() } : nil
-      ).frame(width: 44, height: 44)
+      // SwiftUI draws the persistent + → trash symbol below. UIKit keeps the tray's target.
+      AttachmentTrayButton(enabled: !uploading) { trayActions }
+        .frame(width: 44, height: 44)
         .allowsHitTesting(!bar).accessibilityHidden(bar)
       VStack(spacing: 0) {
         if !focusedReply, let reply = draft.replyTo {
@@ -233,8 +227,18 @@ struct ComposerView: View {
         }
         if attachmentCount > 0 {
           ScrollView(.horizontal) {
-            HStack {
+            HStack(spacing: 7) {
               ForEach(draft.stagedFiles ?? []) { file in
+                if file.mimeType.hasPrefix("image/") || file.mimeType.hasPrefix("video/"),
+                  let url = store.stagedFileURL(file) {
+                  let media = ComposerPhoto(url: url, name: file.fileName, mimeType: file.mimeType)
+                  ComposerThumbnail(media: media) {
+                    focused = false
+                    viewing = media
+                  } remove: {
+                    store.removeStagedFile(file, channel: key)
+                  }.transition(.opacity.combined(with: .scale(scale: 0.9)))
+                } else {
                 HStack {
                   Image(systemName: file.mimeType.hasPrefix("image/") ? "photo" : "doc")
                   Text(file.fileName).lineLimit(1)
@@ -242,6 +246,11 @@ struct ComposerView: View {
                     store.removeStagedFile(file, channel: key)
                   }.labelStyle(.iconOnly)
                 }.font(.caption).padding(10).background(NativePalette.surface, in: Capsule())
+                }
+              }
+              ForEach(pending) { item in
+                ComposerPendingThumbnail(progress: item.progress)
+                  .transition(.opacity.combined(with: .scale(scale: 0.9)))
               }
               ForEach(draft.attachments) { asset in
                 HStack {
@@ -255,7 +264,8 @@ struct ComposerView: View {
                 }.font(.caption).padding(10).background(NativePalette.surface, in: Capsule())
               }
             }.padding(8)
-          }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: attachmentCount)
+          }.scrollIndicators(.hidden)
         }
         if !mentions.isEmpty {
           ScrollView(.horizontal) {
@@ -294,7 +304,7 @@ struct ComposerView: View {
           trailingAction.padding(.trailing, 5)
             .animation(contentAnimation, value: hasContent)
         }
-        if uploading {
+        if uploading && pending.isEmpty {
           HStack {
             LoadingOrb(size: 16).accessibilityHidden(true)
             Text("Preparing attachment…").font(.caption)
@@ -312,6 +322,7 @@ struct ComposerView: View {
       .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
         if !memo.showsBar { pillHeight = height }
       }
+      .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { composerFrame = $0 }
       .clipShape(VoiceComposerShape(progress: bar ? 1 : 0, pillHeight: Double(pillHeight), contentInset: 54))
       .frame(height: bar ? VoiceBar.height : nil, alignment: .bottom)
       .foregroundStyle(NativePalette.text)
@@ -475,6 +486,58 @@ struct ComposerView: View {
     }
     memo.report = { error in store.handle(error) }
   }
+  private var trayActions: AttachmentTrayActions {
+    let remaining = max(0, Draft.maxAttachments - attachmentCount)
+    return AttachmentTrayActions(
+      remaining: remaining,
+      voice: (!draft.text.isEmpty || attachmentCount > 0) && transcriptionConfigured
+        ? { startLockedRecording() } : nil,
+      photos: { results in addPhotos(results) },
+      camera: { data in
+        focused = true
+        Task {
+          do { try await upload(data, name: "Camera.jpg", mime: "image/jpeg") } catch {
+            NativeHaptics.failure(error, source: "composer.error")
+            store.handle(error)
+          }
+        }
+      },
+      files: { files = true },
+      allPhotos: { photoLibrary = true },
+      composerFrame: { composerFrame == .zero ? nil : composerFrame })
+  }
+  private func addPhotos(_ results: [PHPickerResult]) {
+    focused = true
+    let picks = Array(results.prefix(max(0, Draft.maxAttachments - attachmentCount)))
+    let items = picks.map { PendingAttachment(video: $0.isVideo) }
+    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { pending += items }
+    Task {
+      uploading = true
+      defer { uploading = false }
+      for (pick, item) in zip(picks, items) {
+        do {
+          let media = try await pick.load { value in
+            if let index = pending.firstIndex(where: { $0.id == item.id }) { pending[index].progress = value }
+          }
+          switch media {
+          case .data(let data, let type):
+            try store.stage(data, name: "Photo.\(type.preferredFilenameExtension ?? "jpg")",
+              mime: type.preferredMIMEType ?? "image/jpeg", channel: key)
+          case .file(let url, let type):
+            defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+            try store.stage(fileAt: url, name: "Video.\(type.preferredFilenameExtension ?? "mov")",
+              mime: type.preferredMIMEType ?? "video/quicktime", channel: key)
+          }
+          withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { pending.removeAll { $0.id == item.id } }
+        } catch {
+          withAnimation { pending.removeAll { items.map(\.id).contains($0.id) } }
+          NativeHaptics.failure(error, source: "composer.error")
+          store.handle(error)
+          break
+        }
+      }
+    }
+  }
   func upload(_ data: Data, name: String, mime: String) async throws {
     uploading = true
     defer { uploading = false }
@@ -494,54 +557,37 @@ private struct ComposerSendStyle: ButtonStyle {
   }
 }
 
-struct CameraPicker: UIViewControllerRepresentable {
-  var completion: (UIImage?) -> Void
-  func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
-  func makeUIViewController(context: Context) -> UIImagePickerController {
-    let picker = UIImagePickerController()
-    picker.sourceType = .camera
-    picker.delegate = context.coordinator
-    return picker
-  }
-  func updateUIViewController(_ controller: UIImagePickerController, context: Context) {}
-  final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate
-  {
-    let completion: (UIImage?) -> Void
-    init(completion: @escaping (UIImage?) -> Void) { self.completion = completion }
-    func imagePickerController(
-      _ picker: UIImagePickerController,
-      didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-    ) { completion(info[.originalImage] as? UIImage) }
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { completion(nil) }
-  }
-}
-
-/// The system menu springs from the button wherever the composer sits (including
-/// beside the sidebar on a wide or unfolded display) and leaves the keyboard up.
-private struct NativeAttachmentMenu: View {
+/// The composer's + target. It opens the attachment tray, which grows out of it.
+private struct AttachmentTrayButton: UIViewRepresentable {
+  @Environment(\.isEnabled) private var environmentEnabled
   let enabled: Bool
-  let attachmentsEnabled: Bool
-  let color: Color
-  let photos: () -> Void, files: () -> Void, camera: () -> Void
-  var voice: (() -> Void)?
-  private var actions: [NativeMenuAction] {
-    var items: [NativeMenuAction] = [
-      .init(title: "Attach Image", symbol: "photo.on.rectangle", enabled: attachmentsEnabled, action: photos),
-      .init(title: "Take Photo", symbol: "camera",
-        enabled: attachmentsEnabled && UIImagePickerController.isSourceTypeAvailable(.camera), action: camera),
-      .init(title: "Choose File", symbol: "folder", enabled: attachmentsEnabled, action: files),
-    ]
-    // The mic becomes Send while drafting. Keep voice insertion reachable
-    // without changing the empty composer's three attachment options.
-    if let voice { items.append(.init(title: "Record voice note", symbol: "mic.fill", action: voice)) }
-    return items
+  let actions: () -> AttachmentTrayActions
+  func makeCoordinator() -> Coordinator { Coordinator() }
+  func makeUIView(context: Context) -> UIButton {
+    let button = UIButton(type: .system)
+    button.setImage(UIImage(systemName: "plus",
+      withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)), for: .normal)
+    button.tintColor = .clear
+    button.accessibilityLabel = "Attach"
+    button.accessibilityIdentifier = "attach-button"
+    let coordinator = context.coordinator
+    button.addAction(UIAction { [weak button, weak coordinator] _ in
+      guard let button, let coordinator else { return }
+      NativeHaptics.play(.light, source: "composer.attach")
+      AttachmentTray.shared.present(from: button, actions: coordinator.actions())
+    }, for: .touchUpInside)
+    return button
   }
-  var body: some View {
-    NativeActionMenu(symbol: "plus", pointSize: 16, title: "Attach",
-      identifier: "attach-button", panelIdentifier: "attachment-menu-panel",
-      hapticSource: "composer.attach",
-      enabled: enabled && (attachmentsEnabled || voice != nil), color: color, systemMenu: true,
-      actions: actions)
+  func updateUIView(_ button: UIButton, context: Context) {
+    button.isEnabled = enabled && environmentEnabled
+    context.coordinator.actions = actions
+  }
+  static func dismantleUIView(_ button: UIButton, coordinator: Coordinator) { AttachmentTray.shared.close() }
+  @MainActor final class Coordinator {
+    var actions: () -> AttachmentTrayActions = {
+      AttachmentTrayActions(remaining: 0, photos: { _ in }, camera: { _ in }, files: {}, allPhotos: {},
+        composerFrame: { nil })
+    }
   }
 }
 

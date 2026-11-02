@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// Record this deterministic scenario with simctl recordVideo for frame inspection.
@@ -500,6 +501,62 @@ import XCTest
     add(timing)
   }
 
+  /// The + tray: the camera adds a photo to the draft, the photo opens full screen,
+  /// and the photo panel's back button closes the tray. The simulator has no
+  /// camera, so a still stands in for its feed.
+  func testAttachmentTrayCameraViewerAndPhotos() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "empty-chat"])
+    let still = FileManager.default.temporaryDirectory.appendingPathComponent("camera-fixture.jpg")
+    let image = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 800)).image { context in
+      UIColor.systemTeal.setFill()
+      context.fill(CGRect(x: 0, y: 0, width: 600, height: 800))
+    }
+    try XCTUnwrap(image.jpegData(compressionQuality: 0.8)).write(to: still)
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "visual-chat",
+      "-ui-testing-camera-fixture", still.path]
+    app.launch()
+    defer { app.terminate() }
+    let attach = app.buttons["attach-button"]
+    XCTAssertTrue(attach.waitForExistence(timeout: 15))
+    let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
+
+    attach.tap()
+    app.buttons["attach-camera"].tap()
+    let shutter = app.buttons["attach-shutter"]
+    XCTAssertTrue(shutter.waitForExistence(timeout: 5))
+    shutter.tap()
+    let photo = app.buttons["composer-photo"]
+    XCTAssertTrue(photo.waitForExistence(timeout: 5), "The shot must land in the draft")
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 3))
+
+    photo.tap()
+    let close = app.buttons["composer-photo-close"]
+    XCTAssertTrue(close.waitForExistence(timeout: 5))
+    close.tap()
+    XCTAssertTrue(close.waitForNonExistence(timeout: 5))
+
+    attach.tap()
+    app.buttons["attach-photos"].tap()
+    XCTAssertTrue(app.buttons["attach-add-photos"].waitForExistence(timeout: 5))
+    app.buttons["attach-back"].tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 3))
+    XCTAssertEqual(app.buttons.matching(identifier: "composer-photo").count, 1)
+
+    // A panel can't cover the keyboard, so it goes down and Back brings it up again.
+    let keyboard = app.keyboards.firstMatch
+    if !keyboard.exists {
+      app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.tap()
+    }
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+    attach.tap()
+    app.buttons["attach-camera"].tap()
+    XCTAssertTrue(shutter.waitForExistence(timeout: 5))
+    XCTAssertTrue(keyboard.waitForNonExistence(timeout: 3))
+    app.buttons["attach-back"].tap()
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 3), "Back must return the keyboard")
+  }
   func testEmptyChatFinishesLoadingAndCanSend() async throws {
     continueAfterFailure = false
     try await control("__qa/scene", ["scene": "empty-chat"])

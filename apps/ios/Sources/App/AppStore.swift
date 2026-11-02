@@ -586,12 +586,18 @@ final class AppStore {
     persist()
   }
   func stage(_ data: Data, name: String, mime: String, channel: String) throws {
+    try stage(channel: channel) { try $0.stage(data, fileName: name, mimeType: mime) }
+  }
+  func stage(fileAt url: URL, name: String, mime: String, channel: String) throws {
+    try stage(channel: channel) { try $0.stage(fileAt: url, fileName: name, mimeType: mime) }
+  }
+  private func stage(channel: String, write: (DiskStore) throws -> StagedFile) throws {
     guard let disk else { throw APIError("Connect to a server before attaching a file.") }
     var draft = draft(channel)
     guard draft.attachments.count + (draft.stagedFiles?.count ?? 0) < Draft.maxAttachments else {
       throw APIError("A message can contain up to \(Draft.maxAttachments) attachments.")
     }
-    let file = try disk.stage(data, fileName: name, mimeType: mime)
+    let file = try write(disk)
     draft.stagedFiles = (draft.stagedFiles ?? []) + [file]
     var next = savedSnapshot
     next.drafts[channel] = draft
@@ -602,6 +608,7 @@ final class AppStore {
       throw error
     }
   }
+  func stagedFileURL(_ file: StagedFile) -> URL? { try? disk?.fileURL(file) }
   func removeStagedFile(_ file: StagedFile, channel: String) {
     var next = savedSnapshot
     next.drafts[channel]?.stagedFiles?.removeAll { $0.id == file.id }

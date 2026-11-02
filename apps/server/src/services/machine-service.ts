@@ -6,6 +6,7 @@ import { MachineRelay } from "../machine-relay";
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 export class MachineService {
+  onNetworkRevoke: (machineId: string) => void = () => {};
   constructor(private readonly db: PrismaClient, private readonly token: string, private readonly fetcher: typeof fetch = fetch, readonly relay = new MachineRelay(), private readonly authDisabled = false) {}
 
   async list(probe = false) {
@@ -60,6 +61,7 @@ export class MachineService {
       await tx.hostMachine.upsert({ where: { machineId: input.machineId as string }, create: { machineId: input.machineId as string, ...data }, update: data });
     });
     this.relay.disconnect(input.machineId);
+    this.onNetworkRevoke(input.machineId);
     return { machineId: input.machineId, credential };
   }
 
@@ -107,12 +109,12 @@ export class MachineService {
   async revokeSession(authSessionId: string) {
     const rows = await this.db.hostMachine.findMany({ where: { authSessionId }, select: { machineId: true } });
     await this.db.hostMachine.updateMany({ where: { authSessionId }, data: { credentialHash: null, lastSeenAt: null } });
-    for (const row of rows) this.relay.disconnect(row.machineId);
+    for (const row of rows) { this.relay.disconnect(row.machineId); this.onNetworkRevoke(row.machineId); }
   }
 
   async setEnabled(machineId: string, enabled: boolean) {
     await this.db.hostMachine.update({ where: { machineId }, data: { enabled, ...(!enabled ? { credentialHash: null, lastSeenAt: null } : {}) } });
-    if (!enabled) this.relay.disconnect(machineId);
+    if (!enabled) { this.relay.disconnect(machineId); this.onNetworkRevoke(machineId); }
     return { updated: true };
   }
   async remove(machineId: string) {

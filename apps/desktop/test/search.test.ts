@@ -137,6 +137,7 @@ describe("local action matching", () => {
     expect(SETTINGS_PALETTE_SECTIONS.map((settings) => settings.label)).toEqual([
       "General",
       "Computer",
+      "Server: Browser network",
       "Updates",
     ]);
   });

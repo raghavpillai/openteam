@@ -44,7 +44,8 @@
     "./read-transcript": "./src/read-transcript.ts",
     "./read-agent-activity": "./src/read-agent-activity.ts",
     "./notification-presence": "./src/notification-presence.ts",
-    "./tailscale": "./src/tailscale.ts"
+    "./tailscale": "./src/tailscale.ts",
+    "./browser-network": "./src/browser-network.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",

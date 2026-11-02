@@ -1,6 +1,8 @@
 /** Loopback-only, in-memory contract fixture shared by Swift UI tests and the RN reference.
  * Never use this harness as a product server. No model, external messages, or real accounts run here.
  */
+import { CLIENT_CAPABILITIES } from "../../../packages/contracts/src/capabilities";
+import { BrowserNetworkFixture } from "./browser-network-fixture";
 import { mobileFixture } from "./fixtures/snapshot";
 import type { ChannelMessageView, ClientBootstrapView, ClientSnapshot } from "../../../packages/contracts/src/index";
 import { visualFixture } from "./visual-fixtures";
@@ -29,6 +31,7 @@ let memories: any[] = [];
 let pagedHistory = false;
 let failures: Record<string, {status?: number; message?: string; count?: number; delayMs?: number}> = {};
 let searchResults: unknown[] | null = null;
+let browserNetwork = new BrowserNetworkFixture();
 let functionality = new FunctionalFixtures();
 let screen = {state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
 let contentReceipts:any[] = [];
@@ -46,6 +49,7 @@ function reset() {
   pagedHistory = false;
   requestLog.length = 0;
   failures = {}; searchResults = null; authExpired = false; invalidServer = false; missingToken = false;
+  browserNetwork = new BrowserNetworkFixture();
   functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
   webProviders = { selected: { search: null, fetch: DEFAULT_FETCH_PROVIDER }, rows: { search: {}, fetch: {} }, patches: [], checks: [] };
   memories = [{ id: "memory-fixture", content: "Prefers concise summaries and clear next steps.", createdAt: 1789473600000, kind: "profile" }];
@@ -59,7 +63,7 @@ function emit(topic = "channel.message.created", entityId: string | null = null)
 function bootstrap(): ClientBootstrapView {
   return { cursor: String(sequence), workspace: snapshot.workspace, bots: snapshot.bots, channels: snapshot.channels,
     latestMessages: pagedHistory ? snapshot.channelMessages.slice(-60) : snapshot.channelMessages, activeRuns: snapshot.runs,
-    channelRounds: [], subagents: [], runtime: snapshot.runtime, capabilities: { } as any };
+    channelRounds: [], subagents: [], runtime: snapshot.runtime, capabilities: CLIENT_CAPABILITIES };
 }
 const response = (data: unknown, status = 200) => Response.json(data, { status });
 /** Mirrors the server's Settings → Providers rules and messages. Checks are deterministic:
@@ -124,6 +128,7 @@ const server = Bun.serve({
     if (path === "/api/v0/transcriptions") server.timeout(request, 150);
     let input: any = {};
     if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
+    if (path === "/__qa/browser-network" && method === "POST") { browserNetwork.control(input); return response(browserNetwork.view()); }
     if (path === "/__qa/reset" && method === "POST") { reset(); emit("snapshot.reset"); return response({ ok: true }); }
     if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=["history-pages","scroll-mixed-pages"].includes(input.scene); sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/content" && method === "POST") { snapshot=contentScene(snapshot,input.scene); if(input.scene==='routine-event')routines=[{id:'routine-event-fixture',name:'Morning summary',prompt:'Summarize the morning',schedule:'0 9 * * 1-5',scheduleKind:'cron',timezone:'America/New_York',enabled:false,revision:1,nextRunAt:null,latestExecution:null}]; sequence=400; emit("snapshot.reset"); return response({ok:true}); }
@@ -176,7 +181,7 @@ const server = Bun.serve({
       if ("searchResults" in input) searchResults = input.searchResults;
       emit("snapshot.reset"); return response({ ok: true });
     }
-    if (path === "/__qa/state") return response({ messages: snapshot.channelMessages, requests: requestLog, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
+    if (path === "/__qa/state") return response({ messages: snapshot.channelMessages, requests: requestLog, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, browserNetwork: browserNetwork.view(), networkPatches: browserNetwork.patches, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
     if (path === "/__qa/haptics") {
       if (method === "POST") hapticAudit.push(input);
       if (method === "DELETE") hapticAudit = [];
@@ -227,6 +232,7 @@ const server = Bun.serve({
       else{message.metadata.computerHandoffState=input.action==="start"?"active":"completed";screen.humanTakeover=input.action==="start";}
       emit("channel.message.updated",message.channelId);return response({accepted:true,message});
     }
+    const networkResponse = browserNetwork.handle(path,method,input); if(networkResponse) return networkResponse;
     const functional = await functionality.handle(path,method,input,url,snapshot.bots);
     if (functional) return functional;
     if (path === "/api/v0/client-bootstrap") return response(bootstrap());
@@ -273,7 +279,7 @@ const server = Bun.serve({
       if (dropNextSend) { dropNextSend = false; return response({ error: { message: "Simulated lost acknowledgment after durable acceptance" } }, 503); }
       return response({ message });
     }
-    if (path.endsWith("/read")) {const channel=snapshot.channels.find(c=>c.id===path.split("/")[4]);if(channel){channel.unreadCount=0;channel.notificationState={...channel.notificationState,lastReadSequence:input.throughSequence} as any;}return response({ channelId: path.split("/")[4], lastReadSequence: input.throughSequence ?? "0", unreadCount: 0 });}
+    if (path.endsWith("/read")) {const channel=snapshot.channels.find(c=>c.id===path.split("/")[4]);if(channel){channel.unreadCount=0;channel.notificationState={channelId:channel.id,lastReadNotificationSequence:"0",notificationCursor:"0",notifications:[],activityUnreadCount:0,...channel.notificationState,lastReadSequence:input.throughSequence ?? "0"} as any;}return response({ channelId: path.split("/")[4], lastReadSequence: input.throughSequence ?? "0", unreadCount: 0 });}
     if (path === "/api/v0/search") {
       const q = (url.searchParams.get("q") ?? "").toLowerCase();
       if (searchResults) return response({ query: q, results: searchResults });

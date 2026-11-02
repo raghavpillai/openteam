@@ -27,6 +27,7 @@
     "test:health:chaos": "bun scripts/test-health-chaos.ts",
     "test:cli:e2e": "bun scripts/test-cli-e2e.ts",
     "test:auth:e2e": "bun scripts/test-auth-e2e.ts",
+    "test:browser-network:linux": "bun scripts/test-browser-network-linux.ts",
     "db:generate": "bun --filter @openteam/db db:generate",
     "db:push": "bun --filter @openteam/db db:push",
     "db:deploy": "bun --filter @openteam/db db:deploy",

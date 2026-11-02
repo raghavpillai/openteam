@@ -1,4 +1,5 @@
 import { type ChildProcess } from "node:child_process";
+import { managedBrowserNetworkArguments } from "./browser-network";
 import { randomBytes } from "node:crypto";
 import { chmod, chown, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -491,7 +492,19 @@ export class ScreenBroker {
         true
       );
       await this.waitForEndpoint(
-        () => exists(`/tmp/.X11-unix/X${session.display}`),
+        async () => {
+          // A container restart can retain the previous X socket. Probe the
+          // server itself before starting clients on the restored display.
+          try {
+            await run("xset", ["-display", display, "q"], {
+              env: environment(this.home, session),
+              signal: AbortSignal.timeout(1_000),
+            });
+            return true;
+          } catch {
+            return false;
+          }
+        },
         `Virtual display :${session.display}`,
         session,
         xvfb
@@ -621,6 +634,7 @@ export class ScreenBroker {
           "--password-store=basic",
           "--hide-crash-restore-bubble",
           "--disable-features=Translate",
+          ...managedBrowserNetworkArguments(),
           `--user-data-dir=${session.profileDirectory}`,
           "--remote-debugging-address=127.0.0.1",
           "--remote-allow-origins=*",

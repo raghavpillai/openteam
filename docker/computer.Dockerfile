@@ -133,6 +133,7 @@ COPY --from=build --chown=box:box /app/node_modules /app/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/node_modules /app/apps/computer/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/dist/main.js /app/apps/computer/dist/main.js
 COPY --from=build --chown=box:box /app/apps/computer/dist/provider-cli.js /app/apps/computer/dist/provider-cli.js
+COPY --from=build --chown=box:box /app/apps/computer/dist/browser-network-worker.mjs /app/apps/computer/dist/browser-network-worker.mjs
 COPY --chown=box:box docker/computer-entrypoint.sh /usr/local/bin/openteam-computer-entrypoint
 COPY --chown=box:box docker/openteam-pi-auth /usr/local/bin/openteam-pi-auth
 COPY --chown=box:box docker/desktop /usr/share/openteam-desktop

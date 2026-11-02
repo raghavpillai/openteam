@@ -192,6 +192,8 @@ const lazyBudgets: Record<string, number> = {
   settingsAbout: 10_000,
   settingsGeneral: 30_000,
   settingsComputer: 31_000,
+  // Dedicated network priority controls, including their on-demand stylesheet.
+  settingsNetwork: 25_000,
   settingsServer: 35_000,
   // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).
   settingsProviders: 30_000,

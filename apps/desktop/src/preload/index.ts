@@ -189,6 +189,8 @@ contextBridge.exposeInMainWorld("openteam", {
     },
   },
   computer: {
+    network: () => ipcRenderer.invoke("openteam:network:get"),
+    shareNetwork: (enabled: boolean) => ipcRenderer.invoke("openteam:network:share", enabled),
     get: () => ipcRenderer.invoke("openteam:computer:get"),
     update: (request: { machineLabel: string }) => ipcRenderer.invoke("openteam:computer:update", request),
   },

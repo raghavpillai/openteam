@@ -112,7 +112,10 @@ export function SettingsPanel({
       <DialogContent
         onCloseAutoFocus={(event) => {
           const trigger = document.querySelector<HTMLElement>("[data-sidebar-account-trigger]");
-          if (trigger) { event.preventDefault(); trigger.focus(); }
+          if (trigger) {
+            event.preventDefault();
+            trigger.focus();
+          }
         }}
         className="grid h-[min(700px,calc(100vh-96px))] w-[min(900px,calc(100vw-40px))] max-w-none grid-cols-[198px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[15px] border-black/10 bg-[#fcfcfc] p-0 shadow-[0_22px_70px_rgba(0,0,0,0.20)] dark:border-[#303030] dark:bg-[#070707] max-[512px]:grid-cols-1 max-[512px]:grid-rows-[auto_minmax(0,1fr)]"
         showCloseButton={false}
@@ -176,7 +179,9 @@ export function SettingsPanel({
           >
             {/* Providers renders its own heading, with a breadcrumb on its Search and Fetch pages. */}
             {view === "providers" ? null : (
-              <SettingsHeading>{navigation.find((item) => item.id === view)?.label ?? "General"}</SettingsHeading>
+              <SettingsHeading>
+                {navigation.find((item) => item.id === view)?.label ?? "General"}
+              </SettingsHeading>
             )}
             <Suspense fallback={null}>
               <ActiveSection />

@@ -1,4 +1,5 @@
 import { FormPreparationError } from "./user-form-host";
+import { startBrowserNetwork } from "./browser-network";
 import { FORM_PREPARATION_FAILURE_MESSAGES } from "@openteam/contracts";
 import { timingSafeEqual } from "node:crypto";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
@@ -36,6 +37,7 @@ import { TranscriptMirror } from "./transcript-mirror";
 const port = Number(process.env.OPENTEAM_COMPUTER_PORT ?? 8790);
 const controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
 const workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
+const browserNetwork = await startBrowserNetwork(process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787", controlToken);
 const readiness = new ComputerReadiness(() => checkAgentWorkspace(workspaceRoot));
 let displayCache: { width: number; height: number; until: number } | undefined;
 const screens = new ScreenBroker(undefined, async () => {
@@ -209,8 +211,17 @@ const server = Bun.serve({
       }
     }
     if (!authorized(request)) return json({ error: "unauthorized" }, 401);
+    if (url.pathname === "/v1/browser-network" && request.method === "GET") return json(browserNetwork.status());
 
     try {
+      if (url.pathname === "/v1/browser-network/quality" && request.method === "POST") {
+        try { return json(await browserNetwork.quality(), 200, { "cache-control": "no-store" }); }
+        catch { return json({ error: "Could not test the active browser connection" }, 503); }
+      }
+      if (url.pathname === "/v1/browser-network/egress" && request.method === "POST") {
+        try { return json(await browserNetwork.egress()); }
+        catch { return json({ error: "Could not check browser exit connection" }, 503); }
+      }
       if (request.method === "GET" && url.pathname === "/v1/task-capabilities") {
         return json({
           boxAvailable: await readiness.check(),
@@ -708,6 +719,7 @@ const shutdown = (): Promise<void> => {
   server.stop();
   runtime.closeIdleProviderConnections();
   shutdownPromise = Promise.all([
+    browserNetwork.close(),
     stdioMcp.closeAll(),
     (async () => {
       await agentStores.closeAll();

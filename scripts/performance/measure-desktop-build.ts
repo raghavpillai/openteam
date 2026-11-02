@@ -467,6 +467,7 @@ const readLazyClosures = async () => {
       settingsShell: ["src/renderer/components/openteam/settings/panel.tsx"],
       settingsAbout: ["src/renderer/components/openteam/settings/about.tsx"],
       settingsGeneral: ["src/renderer/components/openteam/settings/general.tsx"],
+      settingsNetwork: ["src/renderer/components/openteam/settings/browser-network.tsx"],
       settingsComputer: ["src/renderer/components/openteam/settings/computer.tsx"],
       settingsServer: ["src/renderer/components/openteam/settings/server.tsx"],
       settingsProviders: ["src/renderer/components/openteam/settings/providers.tsx"],

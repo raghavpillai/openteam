@@ -29,6 +29,8 @@ interface Window {
       onResult(callback: (result: { connectionId: string; status: "ready" | "cancelled" | "error"; message?: string }) => void): () => void;
     };
     computer: {
+      network: () => Promise<import("@openteam/contracts/browser-network").NetworkSharingStatus | null>;
+      shareNetwork: (enabled: boolean) => Promise<import("@openteam/contracts/browser-network").NetworkSharingStatus>;
       get: () => Promise<OpenTeamComputerSettings>;
       update: (request: { machineLabel: string }) => Promise<OpenTeamComputerSettings>;
     };

@@ -51,6 +51,10 @@ struct SettingsView: View {
           }.accessibilityIdentifier("providers-settings")
         }
         Section {
+          NavigationLink("Server") { BrowserNetworkSettingsView() }
+            .accessibilityIdentifier("server-settings")
+        }
+        Section {
           NavigationLink("Bot notifications") { notificationSettings }
           NavigationLink("Hidden conversations") { HiddenConversationsView() }
         } header: {
@@ -85,7 +89,6 @@ struct SettingsView: View {
           ) { Text("Send Feedback") }
         }
         Section {
-          NavigationLink("Server status") { ServerStatusView() }
           Button(store.requiresAuthentication ? "Sign out" : "Disconnect", role: .destructive) {
             signOut = true
           }.disabled(store.busy.contains("sign-out")).accessibilityIdentifier("sign-out")

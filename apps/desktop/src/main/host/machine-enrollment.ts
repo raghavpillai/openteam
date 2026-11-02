@@ -1,7 +1,8 @@
 import { HOST_BRIDGE_PATHS } from "@openteam/contracts/service-protocol";
 
 interface RelayRequest { id: string; method: string; path: string; headers: Record<string, string>; hasBody: boolean }
-interface Enrollment { credential: string; connectionId: string; serverUrl: string }
+export interface DesktopEnrollmentConnection { credential: string; connectionId: string; serverUrl: string }
+type Enrollment = DesktopEnrollmentConnection;
 interface Options {
   machineId: string;
   localUrl: string;
@@ -10,6 +11,7 @@ interface Options {
   getIdentity: () => Promise<{ label: string }>;
   fetch?: typeof fetch;
   retryMs?: number;
+  onConnection?: (connection: DesktopEnrollmentConnection | null) => void;
 }
 
 /** A signed-in desktop opens outbound requests only. No public listening port is required. */
@@ -41,6 +43,7 @@ export class DesktopMachineEnrollment {
     const running = this.running;
     const connection = this.current;
     this.current = undefined;
+    this.options.onConnection?.(null);
     this.serverUrl = undefined;
     this.connectionError = null;
     this.controller?.abort();
@@ -85,6 +88,7 @@ export class DesktopMachineEnrollment {
         enrollment.connectionId = connection.connectionId;
         signal.throwIfAborted();
         this.current = enrollment;
+        this.options.onConnection?.(enrollment);
         this.connectionError = null;
         this.seen.clear();
         while (!signal.aborted) {
@@ -121,7 +125,7 @@ export class DesktopMachineEnrollment {
         if (!signal.aborted) this.connectionError = error instanceof Error ? error.message : "Could not connect this computer. Retrying automatically.";
       }
       finally {
-        if (this.current === enrollment) this.current = undefined;
+        if (this.current === enrollment) { this.current = undefined; this.options.onConnection?.(null); }
         for (const active of this.active.values()) active.abort();
         this.active.clear();
         if (enrollment) await this.channel(enrollment, "/disconnect", { method: "POST", signal: AbortSignal.timeout(2_000) }).catch(() => {});

@@ -34,6 +34,7 @@ import { useVoiceShortcuts } from "../../hooks/use-voice-shortcuts";
 import { insertVoiceTranscript, voiceInsertionRange } from "../../lib/voice-insertion";
 import { fileDragContainsFiles } from "../../lib/file-drop";
 import type { MentionOption } from "../../lib/mentions";
+import { FileGlyph, fileGlyphVariant, formatAttachmentSize } from "../openteam/attachment-visuals";
 import { ImageAttachment } from "../openteam/image-attachment";
 import { MentionEditor } from "../openteam/mention-editor";
 import type { VoiceMemoMode } from "../openteam/voice-memo/voice-memo-layer";
@@ -815,7 +816,7 @@ export function PromptInput({
             )}
 
             {attachments.length > 0 && (
-              <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1 pt-0.5">
+              <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1.5 pt-1.5 [scrollbar-width:none]">
                 {attachments.map((attachment) => {
                   const remove = () => {
                     if (attachment.staged && !attachment.recoveryOwned) {
@@ -841,27 +842,26 @@ export function PromptInput({
                     />
                   ) : (
                     <div
-                      className="group/file relative flex h-[72px] w-[220px] shrink-0 items-center gap-2 rounded-[14px] border border-black/10 bg-background px-3 dark:border-white/15"
+                      className="group/file relative flex h-14 w-[351px] max-w-[calc(100%-8px)] shrink-0 items-center gap-2 rounded-[10px] bg-white p-2 shadow-[0_0_0_0.5px_rgba(28,28,28,0.08),0_1px_4px_0_rgba(28,28,28,0.07),0_6px_12px_0_rgba(28,28,28,0.035)] dark:bg-[#1f1f1f] dark:shadow-[0_0_0_0.5px_#f5f5f51f]"
+                      data-composer-file=""
                       key={attachment.id}
                     >
-                      <File className="size-5 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-medium">{attachment.file.name}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {Math.max(
-                            1,
-                            Math.ceil((attachment.asset?.byteSize ?? attachment.file.size) / 1024)
-                          )}{" "}
-                          KB
+                      <FileGlyph variant={fileGlyphVariant(attachment.file.name)} />
+                      <div className="flex min-w-0 flex-1 flex-col gap-px">
+                        <div className="truncate text-[14px] font-medium leading-5 text-[#1c1c1c] dark:text-[#f5f5f5]">
+                          {attachment.file.name}
+                        </div>
+                        <div className="truncate text-[13px] leading-[18px] text-[#1c1c1cad] dark:text-[#f5f5f5a8]">
+                          {formatAttachmentSize(attachment.asset?.byteSize ?? attachment.file.size)}
                         </div>
                       </div>
                       <button
                         aria-label={`Remove ${attachment.file.name}`}
-                        className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/85 text-white opacity-0 transition group-hover/file:opacity-100"
+                        className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-[#1c1c1c] text-[#fcfcfc] opacity-0 transition focus-visible:opacity-100 group-hover/file:opacity-100 dark:bg-[#f5f5f5] dark:text-[#121212]"
                         onClick={remove}
                         type="button"
                       >
-                        <X className="size-4" />
+                        <X className="size-3" strokeWidth={2.4} />
                       </button>
                     </div>
                   );

@@ -9,13 +9,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
-  File,
-  FileJson,
-  FileSpreadsheet,
   FileText,
   Maximize2,
   Music2,
-  Video,
   X,
 } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
@@ -28,8 +24,8 @@ import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import {
   type AttachmentPreviewKind,
   attachmentPreviewKind,
-  formatAttachmentBytes,
 } from "../../lib/attachment-preview";
+import { FileGlyph, fileGlyphVariant, formatAttachmentSize } from "./attachment-visuals";
 import { cn } from "../../lib/cn";
 import { MessageResponse } from "../ai-elements/message";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
@@ -59,23 +55,7 @@ export const downloadAttachments = async (attachments: readonly AssetRef[]) => {
   return { canceled: false, saved: files.length, directory: null };
 };
 
-const iconForKind = (kind: AttachmentPreviewKind) => {
-  if (kind === "video") return Video;
-  if (kind === "audio") return Music2;
-  if (kind === "json") return FileJson;
-  if (kind === "table") return FileSpreadsheet;
-  if (kind === "pdf" || kind === "docx" || kind === "markdown" || kind === "text") return FileText;
-  return File;
-};
-
 const previewable = (kind: AttachmentPreviewKind) => kind !== "unknown";
-
-const splitFileName = (fileName: string) => {
-  const dot = fileName.lastIndexOf(".");
-  return dot > 0
-    ? { base: fileName.slice(0, dot), extension: fileName.slice(dot) }
-    : { base: fileName, extension: "" };
-};
 
 const readBoundedResponse = async (
   response: Response,
@@ -448,50 +428,34 @@ function LoadedDocumentPreview({
 export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
   const [open, setOpen] = useState(false);
   const kind = attachmentPreviewKind(attachment);
-  const Icon = iconForKind(kind);
-  const name = splitFileName(attachment.fileName);
   const canPreview = previewable(kind);
 
   return (
     <>
-      <article className="group/file my-1 flex w-fit min-w-[min(220px,100%)] max-w-[min(340px,100%)] items-center gap-2 rounded-[12px] border-[0.5px] border-black/[0.075] bg-background px-2 py-2 text-left shadow-[0_1px_2px_rgba(0,0,0,0.02)] dark:border-white/[0.1] dark:bg-[#181818]">
+      <article
+        className="w-[354px] max-w-full rounded-[22px] bg-white shadow-[0_0_0_0.5px_rgba(28,28,28,0.08),0_1px_4px_0_rgba(28,28,28,0.07),0_6px_12px_0_rgba(28,28,28,0.035)] dark:bg-[#1f1f1f] dark:shadow-[0_0_0_0.5px_#f5f5f51f]"
+        data-file-attachment-card=""
+      >
         <button
-          aria-label={canPreview ? `Open ${attachment.fileName}` : undefined}
+          aria-label={canPreview ? `Open ${attachment.fileName}` : attachment.fileName}
           className={cn(
-            "flex min-w-0 flex-1 items-center gap-2 rounded-[8px] text-left outline-none",
+            "flex w-full min-w-0 items-center gap-2.5 rounded-[22px] p-4 text-left outline-none",
             canPreview && "cursor-pointer focus-visible:ring-2 focus-visible:ring-ring/35"
           )}
           disabled={!canPreview}
           onClick={() => canPreview && setOpen(true)}
           type="button"
         >
-          <span className="grid size-9 shrink-0 place-items-center rounded-[9px] bg-black/[0.045] dark:bg-white/[0.07]">
-            <Icon className="size-[17px] text-foreground-secondary" strokeWidth={1.65} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13px] font-medium leading-[17px]">
-              {name.base}
-              <span className="text-foreground-tertiary">{name.extension}</span>
+          <FileGlyph variant={fileGlyphVariant(attachment.fileName)} />
+          <span className="flex min-w-0 flex-1 flex-col gap-px">
+            <span className="truncate text-[14px] font-medium leading-5 text-[#1c1c1c] dark:text-[#f5f5f5]">
+              {attachment.fileName}
             </span>
-            <span className="mt-px block text-[10.5px] leading-4 text-foreground-tertiary">
-              {formatAttachmentBytes(attachment.byteSize)}
+            <span className="truncate text-[13px] leading-[18px] text-[#1c1c1cad] dark:text-[#f5f5f5a8]">
+              {formatAttachmentSize(attachment.byteSize)}
             </span>
           </span>
         </button>
-        <a
-          aria-label={`Download ${attachment.fileName}`}
-          className="grid size-8 shrink-0 place-items-center rounded-[8px] text-foreground-tertiary opacity-75 outline-none transition hover:bg-black/[0.045] hover:text-foreground group-hover/file:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/35 dark:hover:bg-white/[0.07]"
-          download={attachment.fileName}
-          href={api.assetUrl(attachment, true)}
-          onClick={(event) => {
-            event.preventDefault();
-            void downloadAttachments([attachment]).catch((error) =>
-              toast.error(clientErrorMessage(error, "Couldn’t download file"))
-            );
-          }}
-        >
-          <Download className="size-4" strokeWidth={1.75} />
-        </a>
       </article>
 
       <Dialog onOpenChange={setOpen} open={open}>
@@ -555,7 +519,7 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
 
 export function MessageFileAttachments({ attachments }: { attachments: readonly AssetRef[] }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex max-w-full flex-col gap-1.5">
       {attachments.map((attachment) => (
         <FileAttachmentCard
           attachment={attachment}

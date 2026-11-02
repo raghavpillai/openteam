@@ -1,11 +1,13 @@
 package com.openteam.android.features
 
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.openteam.android.data.ChatMessage
 import com.openteam.android.ui.ChatContextSummary
+import com.openteam.features.MarkdownMessage
 import com.openteam.features.RichMessage
 import com.openteam.features.RichMessageBlock
 import com.openteam.features.RichFormField
@@ -70,5 +72,32 @@ class RichMessageRendererTest {
         compose.onNodeWithTag("thread-context-title").assertExists()
         compose.onNodeWithTag("thread-context-truncated").assertExists()
         compose.onNodeWithText("Earlier reply").assertExists()
+    }
+
+    @Test
+    fun markdownRendererStylesCommonBlocksWithoutShowingSyntaxMarkers() {
+        compose.setContent {
+            MarkdownMessage("# Heading\n\n- **First item**\n- `inline code`")
+        }
+
+        compose.onNodeWithText("Heading").assertExists()
+        compose.onNodeWithText("First item").assertExists()
+        compose.onNodeWithText("inline code", substring = true).assertExists()
+        compose.onNodeWithText("# Heading", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun markdownRendererRendersPipeTableAsAlignedCells() {
+        compose.setContent {
+            MarkdownMessage(
+                "| Order | Amount |\n| :--- | ---: |\n| 2610210023 | 316.66 |",
+            )
+        }
+
+        compose.onNodeWithText("Order").assertExists()
+        compose.onNodeWithText("Amount").assertExists()
+        compose.onNodeWithText("2610210023").assertExists()
+        compose.onNodeWithText("316.66").assertExists()
+        compose.onNodeWithText("| Order | Amount |", substring = true).assertDoesNotExist()
     }
 }

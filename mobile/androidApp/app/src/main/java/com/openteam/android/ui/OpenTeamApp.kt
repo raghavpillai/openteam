@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Share
@@ -116,6 +117,7 @@ import androidx.navigation.navArgument
 import com.openteam.android.AppViewModel
 import com.openteam.android.data.ChatMessage
 import com.openteam.android.data.Conversation
+import com.openteam.android.data.SearchResult
 import com.openteam.android.data.SidebarPreferences
 import com.openteam.android.data.SidebarSection
 import com.openteam.features.Attachment
@@ -127,7 +129,7 @@ import com.openteam.features.ReactionState
 import com.openteam.features.ReactionsAndActionsRow
 import com.openteam.features.RichMessageCardScreen
 import com.openteam.features.ChatAttachmentStrip
-import com.openteam.features.AccountMemoryScreen
+import com.openteam.features.MarkdownMessage
 import com.openteam.features.PluginsScreen
 import com.openteam.features.ProviderSettingsScreen
 import com.openteam.features.RoutineEditorScreen
@@ -225,6 +227,9 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             DirectoryScreen(
                 accountName = state.session?.accountName.orEmpty(),
                 rows = state.conversations,
+                searchResults = state.searchResults,
+                searchLoading = state.searchLoading,
+                searchError = state.searchError,
                 sidebar = state.sidebar,
                 share = state.pendingShare,
                 onOpen = { conversation ->
@@ -234,6 +239,14 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onShareTarget = appViewModel::selectShareTarget,
                 onRoutines = { navController.navigate(ROUTINES) },
                 onSettings = { navController.navigate(SETTINGS) },
+                onSearch = appViewModel::search,
+                onClearSearch = appViewModel::clearSearch,
+                onOpenSearchResult = { result ->
+                    result.channelId?.let { conversationId ->
+                        appViewModel.openConversation(conversationId, result.messageId)
+                        navController.navigate("chat/$conversationId")
+                    }
+                },
                 onBotDetails = { conversation ->
                     navController.navigate("bot/${conversation.id}/details")
                 },
@@ -291,12 +304,14 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             LaunchedEffect(id) { if (state.activeConversationId != id) appViewModel.openConversation(id) }
             BackHandler { navController.popBackStack() }
             ChatScreen(
+                conversationId = id,
                 title = conversation?.title ?: "Conversation",
                 messages = state.messages,
                 targetMessageId = state.activeMessageId,
                 draft = state.draft,
                 error = state.error,
                 onBack = { navController.popBackStack() },
+                onBotDetails = { navController.navigate("bot/$id/details") },
                 onDraftChange = appViewModel::updateDraft,
                 onSend = appViewModel::sendDraft,
                 onRetry = appViewModel::retryMessage,
@@ -835,12 +850,18 @@ private fun ServerChip(server: String) {
 private fun DirectoryScreen(
     accountName: String,
     rows: List<Conversation>,
+    searchResults: List<SearchResult>,
+    searchLoading: Boolean,
+    searchError: String?,
     sidebar: SidebarPreferences,
     share: SharePayload?,
     onOpen: (Conversation) -> Unit,
     onShareTarget: (String) -> Unit,
     onRoutines: () -> Unit,
     onSettings: () -> Unit,
+    onSearch: (String, String) -> Unit,
+    onClearSearch: () -> Unit,
+    onOpenSearchResult: (SearchResult) -> Unit,
     onBotDetails: (Conversation) -> Unit,
     onTogglePin: (String) -> Unit,
     onMoveToSection: (String, String?) -> Unit,
@@ -848,19 +869,18 @@ private fun DirectoryScreen(
 ) {
     var searchVisible by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
+    var searchFilter by remember { mutableStateOf(SearchFilter.All) }
     var rowMenuId by remember { mutableStateOf<String?>(null) }
-    val visibleRows = rows.filter {
-        query.isBlank() ||
-            it.title.contains(query, ignoreCase = true) ||
-            (it.preview?.contains(query, ignoreCase = true) == true)
-    }
     // Only manually pinned chats appear in the top row, and they are removed from the
     // grouped list below so each chat is shown in exactly one place.
-    val grouped = remember(visibleRows, sidebar) { groupConversations(visibleRows, sidebar) }
+    val grouped = remember(rows, sidebar) { groupConversations(rows, sidebar) }
     val pinnedRows = grouped.pinned
     val unassignedRows = grouped.unassigned
     val showSectionHeadings = grouped.showUnassignedHeading
     val settingsLabel = stringResource(com.openteam.android.R.string.directory_settings)
+    LaunchedEffect(searchVisible, query, searchFilter) {
+        if (searchVisible) onSearch(query, searchFilter.apiValue) else onClearSearch()
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -888,11 +908,6 @@ private fun DirectoryScreen(
                 },
                 actions = {
                     IosChromeIcon(
-                        icon = { Icon(Icons.Default.Search, contentDescription = null) },
-                        contentDescription = stringResource(com.openteam.android.R.string.directory_search),
-                        onClick = { searchVisible = !searchVisible },
-                    )
-                    IosChromeIcon(
                         icon = { Icon(Icons.Default.Add, contentDescription = null) },
                         contentDescription = stringResource(com.openteam.android.R.string.directory_create),
                         onClick = onRoutines,
@@ -905,13 +920,34 @@ private fun DirectoryScreen(
             )
         },
         bottomBar = {
-            if (!searchVisible) {
-                FloatingSearchBar(onClick = { searchVisible = true })
-            }
+            if (searchVisible) {
+                ExpandedSearchBar(
+                    query = query,
+                    onQueryChange = { query = it },
+                    onClear = { query = "" },
+                    onClose = {
+                        searchVisible = false
+                        query = ""
+                        searchFilter = SearchFilter.All
+                    },
+                )
+            } else FloatingSearchBar(onClick = { searchVisible = true })
         },
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)) {
+            if (searchVisible) {
+                SearchFilterRow(selected = searchFilter, onSelected = { searchFilter = it })
+            }
+            if (searchVisible && query.isNotBlank()) {
+                SearchResultsList(
+                    results = searchResults,
+                    loading = searchLoading,
+                    error = searchError,
+                    conversations = rows,
+                    onSelect = onOpenSearchResult,
+                )
+            } else {
             if (pinnedRows.isNotEmpty()) {
                 if (pinnedRows.size == 1) {
                     // A single pinned chat sits centered; more than one scrolls from the left.
@@ -946,22 +982,6 @@ private fun DirectoryScreen(
                         }
                     }
                 }
-            }
-            if (searchVisible) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    singleLine = true,
-                    label = { Text(stringResource(com.openteam.android.R.string.directory_search_label)) },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = stringResource(com.openteam.android.R.string.common_clear))
-                            }
-                        }
-                    },
-                )
             }
             if (share != null) {
                 Spacer(Modifier.height(8.dp))
@@ -1046,6 +1066,142 @@ private fun DirectoryScreen(
                     }
                 }
             }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchResultsList(
+    results: List<SearchResult>,
+    loading: Boolean,
+    error: String?,
+    conversations: List<Conversation>,
+    onSelect: (SearchResult) -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 28.dp),
+    ) {
+        if (loading) {
+            item(key = "search-loading") {
+                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+        }
+        if (error != null) {
+            item(key = "search-error") {
+                Text(
+                    error,
+                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+        items(results, key = { "search-${it.kind}-${it.id}" }) { result ->
+            SearchResultRow(
+                result = result,
+                conversation = conversations.firstOrNull { it.id == result.channelId },
+                onClick = { onSelect(result) },
+            )
+        }
+        if (!loading && error == null && results.isEmpty()) {
+            item(key = "search-empty") {
+                Text(
+                    stringResource(com.openteam.android.R.string.search_no_results),
+                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchResultRow(
+    result: SearchResult,
+    conversation: Conversation?,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clickable(enabled = result.channelId != null, onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (conversation != null) {
+            BotAvatar(conversation, size = 46.dp)
+        } else {
+            Box(
+                Modifier.size(46.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(result.title.take(1).uppercase().ifBlank { "O" })
+            }
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    result.title,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    result.kind.replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (result.subtitle.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    result.subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+        }
+    }
+}
+
+private enum class SearchFilter(val apiValue: String, val labelRes: Int) {
+    All("all", com.openteam.android.R.string.search_filter_all),
+    Messages("messages", com.openteam.android.R.string.search_filter_messages),
+    Robots("bots", com.openteam.android.R.string.search_filter_robots),
+    Groups("channels", com.openteam.android.R.string.search_filter_groups),
+    Files("files", com.openteam.android.R.string.search_filter_files),
+    ScheduledTasks("routines", com.openteam.android.R.string.search_filter_scheduled_tasks),
+    Other("links", com.openteam.android.R.string.search_filter_other),
+}
+
+@Composable
+private fun SearchFilterRow(selected: SearchFilter, onSelected: (SearchFilter) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+            .padding(top = 4.dp, bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        SearchFilter.values().forEach { filter ->
+            val active = filter == selected
+            Text(
+                stringResource(filter.labelRes),
+                modifier = Modifier.clip(CircleShape)
+                    .background(
+                        if (active) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.surface,
+                    )
+                    .clickable { onSelected(filter) }
+                    .padding(horizontal = 18.dp, vertical = 11.dp),
+                color = if (active) MaterialTheme.colorScheme.surface
+                else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyLarge,
+            )
         }
     }
 }
@@ -1270,6 +1426,55 @@ private fun FloatingSearchBar(onClick: () -> Unit) {
     }
 }
 
+@Composable
+private fun ExpandedSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClear: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().imePadding().padding(horizontal = 18.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            placeholder = { Text(stringResource(com.openteam.android.R.string.directory_search_dock)) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = onClear) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = stringResource(com.openteam.android.R.string.common_clear),
+                        )
+                    }
+                }
+            },
+            shape = RoundedCornerShape(28.dp),
+        )
+        IconButton(
+            onClick = onClose,
+            modifier = Modifier.size(56.dp).clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surface)
+                .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.outline.copy(alpha = .35f),
+                    CircleShape,
+                ),
+        ) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = stringResource(com.openteam.android.R.string.directory_close_search),
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BotDetailsScreen(
@@ -1307,7 +1512,7 @@ private fun BotDetailsScreen(
             }
             Box {
                 ProfileChromeButton(
-                    contentDescription = stringResource(com.openteam.android.R.string.directory_more),
+                    contentDescription = stringResource(com.openteam.android.R.string.directory_settings),
                     onClick = { moreMenuVisible = true },
                 ) {
                     Icon(Icons.Default.MoreHoriz, contentDescription = null)
@@ -1627,12 +1832,14 @@ private fun IosChromeIcon(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatScreen(
+    conversationId: String,
     title: String,
     messages: List<ChatMessage>,
     targetMessageId: String?,
     draft: String,
     error: String?,
     onBack: () -> Unit,
+    onBotDetails: () -> Unit,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     onRetry: (String) -> Unit,
@@ -1663,12 +1870,22 @@ private fun ChatScreen(
     var forwardingAttachment by remember { mutableStateOf<Attachment?>(null) }
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { onUpload(it.toString()) } }
     val contextRows = threadContext.take(com.openteam.android.data.ChatHistoryPage.DEFAULT_CONTEXT_LIMIT)
+    var hasPositionedInitialMessages by remember(conversationId) { mutableStateOf(false) }
+    var lastMessageId by remember(conversationId) { mutableStateOf<String?>(null) }
     LaunchedEffect(messages, targetMessageId, threadContext, historyLoading) {
-        if (historyLoading) return@LaunchedEffect
+        if (historyLoading || messages.isEmpty()) return@LaunchedEffect
         val index = targetMessageId?.let { id -> messages.indexOfFirst { it.id == id } }
             ?.takeIf { it >= 0 }?.let { it + if (contextRows.isNotEmpty()) 1 else 0 }
             ?: (messages.lastIndex + if (contextRows.isNotEmpty()) 1 else 0)
-        if (index >= 0) listState.animateScrollToItem(index)
+        if (index < 0) return@LaunchedEffect
+        val newestMessageId = messages.lastOrNull()?.id
+        if (!hasPositionedInitialMessages || targetMessageId != null) {
+            listState.scrollToItem(index)
+            hasPositionedInitialMessages = true
+        } else if (newestMessageId != lastMessageId) {
+            listState.animateScrollToItem(index)
+        }
+        lastMessageId = newestMessageId
     }
     forwardingAttachment?.let { attachment ->
         AlertDialog(
@@ -1703,6 +1920,17 @@ private fun ChatScreen(
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(com.openteam.android.R.string.chat_back),
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = onBotDetails,
+                        modifier = Modifier.testTag("bot-details"),
+                    ) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = stringResource(com.openteam.android.R.string.chat_bot_details),
                         )
                     }
                 },
@@ -1876,7 +2104,14 @@ private fun MessageBubble(
                         Text("Replying to $reply", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     message.displayBody?.let { body ->
-                        Text(body, color = if (message.isMine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                        MarkdownMessage(
+                            markdown = body,
+                            contentColor = if (message.isMine) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
                     }
                     message.richMessage?.let { rich ->
                         RichMessageCardScreen(

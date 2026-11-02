@@ -135,7 +135,7 @@ fun RichMessageCardScreen(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             message.blocks.forEach { block ->
                 when (block) {
-                    is RichMessageBlock.Markdown -> Text(block.text, style = MaterialTheme.typography.bodyLarge)
+                    is RichMessageBlock.Markdown -> MarkdownMessage(block.text)
                     is RichMessageBlock.Code -> CodeBlock(block.language, block.code)
                     is RichMessageBlock.Math -> CodeBlock("math", block.expression)
                     is RichMessageBlock.Mermaid -> CodeBlock("mermaid", block.source)

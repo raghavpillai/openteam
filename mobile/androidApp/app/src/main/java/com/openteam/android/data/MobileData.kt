@@ -27,6 +27,18 @@ data class Conversation(
         get() = latestPreview?.takeIf { it.isNotBlank() } ?: subtitle.takeIf { it.isNotBlank() }
 }
 
+data class SearchResult(
+    val id: String,
+    val kind: String,
+    val title: String,
+    val subtitle: String,
+    val channelId: String? = null,
+    val messageId: String? = null,
+    val botId: String? = null,
+    val url: String? = null,
+    val createdAt: String? = null,
+)
+
 /** A user-created sidebar group ("section") that conversations can be filed into. */
 data class SidebarSection(
     val id: String,
@@ -182,6 +194,7 @@ interface MobileGateway {
     suspend fun signOut() = Unit
     suspend fun signIn(server: String, username: String, credential: String): Result<MobileSession>
     suspend fun conversations(): List<Conversation>
+    suspend fun search(query: String, category: String = "all"): List<SearchResult> = emptyList()
     suspend fun history(conversationId: String): List<ChatMessage>
     suspend fun historyPage(conversationId: String): ChatHistoryPage = ChatHistoryPage(history(conversationId))
     suspend fun historyPage(

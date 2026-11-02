@@ -182,6 +182,26 @@ class HttpMobileGateway(context: Context) :
         return directory
     }
 
+    override suspend fun search(query: String, category: String): List<SearchResult> {
+        val activeServer = ensureConnected()
+        val path = "/api/search?q=${pathSegment(query.take(200))}&category=${pathSegment(category)}"
+        return jsonRequest(activeServer, path, token = token).body.arrayAt("results")
+            .mapNotNull { it.jsonObjectOrNull() }
+            .map { result ->
+                SearchResult(
+                    id = result.string("id"),
+                    kind = result.string("kind"),
+                    title = result.string("title"),
+                    subtitle = result.string("subtitle"),
+                    channelId = result.string("channelId").ifBlank { null },
+                    messageId = result.string("messageId").ifBlank { null },
+                    botId = result.string("botId").ifBlank { null },
+                    url = result.string("url").ifBlank { null },
+                    createdAt = result.string("createdAt").ifBlank { null },
+                )
+            }
+    }
+
     override suspend fun request(
         method: HttpMethod,
         path: String,

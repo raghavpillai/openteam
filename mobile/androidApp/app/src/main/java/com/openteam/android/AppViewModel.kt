@@ -19,6 +19,7 @@ import com.openteam.android.data.PreviewMobileGateway
 import com.openteam.android.data.ServerValidationApi
 import com.openteam.android.data.SidebarPreferences
 import com.openteam.android.data.VoiceTranscriptionApi
+import com.openteam.android.data.SearchResult
 import com.openteam.android.data.newClientId
 import com.openteam.android.navigation.ChatTarget
 import com.openteam.android.navigation.DeepLinkRouter
@@ -54,6 +55,9 @@ import java.net.URLDecoder
 data class AppState(
     val session: MobileSession? = null,
     val conversations: List<Conversation> = emptyList(),
+    val searchResults: List<SearchResult> = emptyList(),
+    val searchLoading: Boolean = false,
+    val searchError: String? = null,
     val sidebar: SidebarPreferences = SidebarPreferences(),
     val activeConversationId: String? = null,
     val activeMessageId: String? = null,
@@ -100,6 +104,7 @@ class AppViewModel @JvmOverloads constructor(
     private var activeFeatureGateway: FeatureGateway = featureGateway
         ?: (gateway as? MobileFeatureApi)?.let(::LiveFeatureGateway)
         ?: UnsupportedFeatureGateway
+    private var searchGeneration = 0L
     private val mutableState = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = mutableState.asStateFlow()
     private val voiceController = VoiceRecordingController(
@@ -272,6 +277,36 @@ class AppViewModel @JvmOverloads constructor(
             runCatching { activeGateway.sidebarPreferences() }
                 .onSuccess { preferences -> mutableState.update { it.copy(sidebar = preferences) } }
         }
+    }
+
+    fun search(query: String, category: String) {
+        val normalized = query.trim()
+        val generation = ++searchGeneration
+        if (normalized.isBlank()) {
+            mutableState.update { it.copy(searchResults = emptyList(), searchLoading = false, searchError = null) }
+            return
+        }
+        mutableState.update { it.copy(searchLoading = true, searchError = null) }
+        viewModelScope.launch {
+            runCatching { activeGateway.search(normalized, category) }
+                .onSuccess { results ->
+                    if (generation != searchGeneration) return@onSuccess
+                    mutableState.update {
+                        it.copy(searchResults = results, searchLoading = false, searchError = null)
+                    }
+                }
+                .onFailure { error ->
+                    if (generation != searchGeneration) return@onFailure
+                    mutableState.update {
+                        it.copy(searchResults = emptyList(), searchLoading = false, searchError = error.message)
+                    }
+                }
+        }
+    }
+
+    fun clearSearch() {
+        searchGeneration += 1
+        mutableState.update { it.copy(searchResults = emptyList(), searchLoading = false, searchError = null) }
     }
 
     /** Refreshes server-stored pins and section grouping for the conversation list. */

@@ -27,6 +27,8 @@ export class NetworkConsentStore {
     return `${url.href.replace(/\/$/, "")}#${deploymentId}`;
   }
   async allowed(serverUrl: string, deploymentId: string) {
+    // A reconnect must not observe consent from before a queued local revoke.
+    await this.writes;
     return (await this.read())[this.key(serverUrl, deploymentId)] === true;
   }
   set(serverUrl: string, deploymentId: string, enabled: boolean) {
@@ -45,6 +47,27 @@ export class NetworkConsentStore {
   }
 }
 
+/** OS enumeration order and hardware metadata do not change the usable network. */
+export function networkFingerprint(interfaces = networkInterfaces()) {
+  return JSON.stringify(
+    Object.entries(interfaces)
+      .flatMap(([name, addresses]) =>
+        (addresses ?? [])
+          .filter((address) => !address.internal)
+          .map((address) =>
+            JSON.stringify([
+              name,
+              address.family,
+              address.address,
+              address.netmask,
+              "scopeid" in address ? address.scopeid : 0,
+            ])
+          )
+      )
+      .sort()
+  );
+}
+
 /** Only main-process enrollment and locally validated IPC may reach this controller. */
 export class DesktopBrowserNetwork {
   private connection: DesktopEnrollmentConnection | null = null;
@@ -55,6 +78,9 @@ export class DesktopBrowserNetwork {
   private permissionRevision = 0;
   private suspended = false;
   private timer?: ReturnType<typeof setInterval>;
+  private retry?: ReturnType<typeof setTimeout>;
+  private identityAbort?: AbortController;
+  private identityAttempt = 0;
   private fingerprint = "";
   constructor(
     private readonly machineId: string,
@@ -72,37 +98,60 @@ export class DesktopBrowserNetwork {
     this.deploymentId = null;
     this.allowed = false;
     clearInterval(this.timer);
+    clearTimeout(this.retry);
+    this.identityAbort?.abort();
+    this.identityAbort = undefined;
+    this.identityAttempt = 0;
     if (!connection || !this.supported()) return;
+    this.fingerprint = networkFingerprint();
+    this.timer = setInterval(() => {
+      if (this.suspended) return;
+      const next = networkFingerprint();
+      if (next !== this.fingerprint) {
+        this.fingerprint = next;
+        this.refreshConnection();
+      }
+    }, 5000);
+    this.timer.unref();
+    await this.identify(connection, generation);
+  }
+  private async identify(connection: DesktopEnrollmentConnection, generation: number) {
+    if (generation !== this.generation || this.suspended || this.identityAbort || this.deploymentId)
+      return;
+    const controller = new AbortController();
+    this.identityAbort = controller;
     try {
       const response = await fetch(
         `${connection.serverUrl}/api/v0/machines/channel/browser-network-identity`,
         {
           headers: this.headers(connection),
           redirect: "error",
-          signal: AbortSignal.timeout(5000),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
         }
       );
       if (!response.ok) return;
       const value = (await response.json()) as { deploymentId: string };
       if (!/^[\da-f-]{36}$/i.test(value.deploymentId)) return;
       const allowed = await this.grants.allowed(connection.serverUrl, value.deploymentId);
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || controller.signal.aborted) return;
       this.deploymentId = value.deploymentId;
       this.allowed = allowed;
+      this.identityAttempt = 0;
       this.connect();
-      this.fingerprint = this.networkFingerprint();
-      this.timer = setInterval(() => {
-        const next = this.networkFingerprint();
-        if (next !== this.fingerprint) {
-          this.fingerprint = next;
-          this.client?.stop();
-          this.client = undefined;
-          this.connect();
-        }
-      }, 5000);
-      this.timer.unref();
     } catch {
-      /* Old servers and unavailable identity never grant sharing. */
+      /* Unavailable or invalid identity never grants sharing. Retry without re-enrollment. */
+    } finally {
+      if (this.identityAbort === controller) {
+        this.identityAbort = undefined;
+        if (generation === this.generation && !this.suspended && !this.deploymentId) {
+          this.retry = setTimeout(
+            () => void this.identify(connection, generation),
+            Math.min(30_000, 1000 * 2 ** Math.min(this.identityAttempt++, 5)) *
+              (0.8 + Math.random() * 0.4)
+          );
+          this.retry.unref();
+        }
+      }
     }
   }
   private headers(connection: DesktopEnrollmentConnection) {
@@ -112,8 +161,15 @@ export class DesktopBrowserNetwork {
       "x-openteam-connection-id": connection.connectionId,
     };
   }
-  private networkFingerprint() {
-    return JSON.stringify(networkInterfaces());
+  private refreshConnection() {
+    this.client?.stop();
+    this.client = undefined;
+    clearTimeout(this.retry);
+    this.identityAbort?.abort();
+    this.identityAbort = undefined;
+    if (!this.connection || this.suspended || !this.supported()) return;
+    if (this.deploymentId) this.connect();
+    else void this.identify(this.connection, this.generation);
   }
   private connect() {
     const connection = this.connection;
@@ -149,10 +205,10 @@ export class DesktopBrowserNetwork {
     return this.status();
   }
   setSuspended(suspended: boolean) {
+    if (this.suspended === suspended) return;
     this.suspended = suspended;
-    this.client?.stop();
-    this.client = undefined;
-    if (!suspended) this.connect();
+    this.fingerprint = networkFingerprint();
+    this.refreshConnection();
   }
   status(): NetworkSharingStatus {
     return {

@@ -68,15 +68,18 @@ try{
  assert.equal(a.epoch,"first");assert.equal(a.sourceId,"air");checks+=2;
  assert.ok(Number.isFinite(a.latencyMs)&&a.latencyMs>=0);assert.ok(a.downloadMbps>0);assert.ok(a.uploadMbps>0);checks+=3;
  await probe();assert.equal(requests,6);checks++;
- route.epoch="changed";await assert.rejects(probe,/Could not test/);assert.equal(requests,6);checks+=2;
- const off=createQualityProbe({...client,available:()=>false});await assert.rejects(off,/Could not test/);assert.equal(calls,1);checks+=2;
+ route.epoch="changed";route.machineId="other";
+ const changed=await probe();assert.equal(changed.epoch,"changed");assert.equal(changed.sourceId,"other");assert.equal(requests,12);checks+=3;
+ await probe();assert.equal(requests,12);checks++;
+ const off=createQualityProbe({...client,available:()=>false});await assert.rejects(off,/Could not test/);assert.equal(calls,2);checks+=2;
  for(const mode of ["redirect","failure","compressed","oversize","short"]){
   behavior=mode;route.epoch=mode;const bad=createQualityProbe(client),before=requests;
   await assert.rejects(bad,/Could not test/);await assert.rejects(bad,/Could not test/);
   assert.ok(requests<=before+5);checks+=3;
  }
- behavior="hold";route.epoch="stale";const stale=createQualityProbe(client)();
+ behavior="hold";route.epoch="stale";const switchingProbe=createQualityProbe(client),stale=switchingProbe();
  while(!held)await new Promise(r=>setTimeout(r,5));route.epoch="new";held();await assert.rejects(stale,/Could not test/);checks++;
+ behavior="ok";assert.equal((await switchingProbe()).epoch,"new");checks++;
  let late,destroyed=false;
  const hanging=createQualityProbe({...client,open:()=>new Promise(r=>{late=r;})});
  await assert.rejects(hanging,/Could not test/);checks++;

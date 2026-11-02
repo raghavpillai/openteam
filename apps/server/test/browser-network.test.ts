@@ -83,6 +83,12 @@ async function fixture(options: { failbackMs?: number } = {}) {
     return read();
   };
   const refusedDials = new Set<string>();
+  const heldDials = new Map<
+    string,
+    {
+      pending: Array<{ signal: AbortSignal; socket: Duplex; release: () => void }>;
+    }
+  >();
   const machines = {
     onNetworkRevoke: () => {},
     relay: {
@@ -196,7 +202,7 @@ async function fixture(options: { failbackMs?: number } = {}) {
         expect(target.host).toBe("desktop-only.example");
         expect(target.port).toBe(443);
         signal.throwIfAborted();
-        return new Duplex({
+        const socket = new Duplex({
           read() {},
           write(chunk, _encoding, done) {
             this.push(Buffer.from(chunk));
@@ -207,6 +213,10 @@ async function fixture(options: { failbackMs?: number } = {}) {
             done();
           },
         });
+        const held = heldDials.get(id);
+        if (held)
+          await new Promise<void>((release) => held.pending.push({ signal, socket, release }));
+        return socket;
       },
     });
     peer.start();
@@ -243,6 +253,22 @@ async function fixture(options: { failbackMs?: number } = {}) {
     refuseDials: (id: string, refuse: boolean) => {
       if (refuse) refusedDials.add(id);
       else refusedDials.delete(id);
+    },
+    holdDials: (id: string) => {
+      const held = {
+        pending: [] as Array<{ signal: AbortSignal; socket: Duplex; release: () => void }>,
+      };
+      heldDials.set(id, held);
+      cleanup.push(() => {
+        for (const dial of held.pending) dial.release();
+      });
+      return {
+        pending: held.pending,
+        release: () => {
+          heldDials.delete(id);
+          for (const dial of held.pending) dial.release();
+        },
+      };
     },
     register: (id: string) => {
       const token = crypto.randomUUID();
@@ -1013,6 +1039,64 @@ test("fenced bytes in flight do not disconnect broker or former exit during a sw
 });
 
 describe("browser network chaos", () => {
+  test("simultaneous provider and broker reconnections recover without replaying old opens", async () => {
+    const f = await fixture({ failbackMs: 0 }),
+      devices = [f.device("home"), f.device("office")];
+    await until(() => devices.every((device) => !!device.route));
+    await rank(f, ["home", "office", "server"]);
+    await routed(f, "home");
+    const saved = structuredClone(f.getSettings());
+    for (let burst = 0; burst < 6; burst++) {
+      const old = await f.computer.open("desktop-only.example", 443);
+      const before = f.getDials();
+      const pending = Promise.allSettled([
+        f.computer.open("desktop-only.example", 443),
+        f.computer.open("desktop-only.example", 443),
+      ]);
+      // Tear down all transports in one turn, then reconnect in alternating order.
+      f.computer.stop();
+      for (const device of devices) device.stop();
+      expect((await pending).every((result) => result.status === "rejected")).toBe(true);
+      expect(old.destroyed).toBe(true);
+      expect(f.getDials()).toBe(before);
+      for (const device of burst % 2 ? devices.toReversed() : devices) device.start();
+      f.computer.start();
+      await routed(f, "home");
+      expect(await roundTrip(f.computer, Buffer.from(`burst=${burst}`))).toEqual(
+        Buffer.from(`burst=${burst}`)
+      );
+      expect(f.getSettings()).toEqual(saved);
+      await Bun.sleep(500);
+    }
+  }, 20000);
+
+  for (const replace of [false, true])
+    test(`late destination dials cannot escape a fenced provider (same device reconnect=${replace})`, async () => {
+      const f = await fixture({ failbackMs: 0 }),
+        home = f.device("home"),
+        office = f.device("office");
+      await until(() => !!home.route && !!office.route);
+      await rank(f, ["home", "office", "server"]);
+      await routed(f, "home");
+      const saved = structuredClone(f.getSettings());
+      const held = f.holdDials("home");
+      const opening = Promise.allSettled([f.computer.open("desktop-only.example", 443)]);
+      await until(() => held.pending.length === 1);
+      if (replace) f.device("home");
+      else home.stop();
+      const result = await opening;
+      expect(result[0]!.status).toBe("rejected");
+      await until(() => held.pending[0]!.signal.aborted);
+      held.release(); // Emulate a DNS/TCP implementation completing after cancellation.
+      await until(() => held.pending[0]!.socket.destroyed);
+      await routed(f, replace ? "home" : "office");
+      expect(await roundTrip(f.computer, Buffer.from("new connection only"))).toEqual(
+        Buffer.from("new connection only")
+      );
+      expect(f.getDials()).toBe(2); // No replay of the canceled open on another exit.
+      expect(f.getSettings()).toEqual(saved);
+    });
+
   test("a provider that renews leases but never acknowledges cannot hold the ranking hostage", async () => {
     const f = await fixture();
     f.delayApplied("home", Infinity);

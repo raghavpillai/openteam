@@ -1,5 +1,6 @@
 import { FormPreparationError } from "./user-form-host";
 import { startBrowserNetwork } from "./browser-network";
+import { ComputerDisplaySettings } from "./display-settings";
 import { FORM_PREPARATION_FAILURE_MESSAGES } from "@openteam/contracts";
 import { timingSafeEqual } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
@@ -41,27 +42,15 @@ const workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace
 const browserNetwork = await startBrowserNetwork(process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787", controlToken);
 const readiness = new ComputerReadiness(() => checkAgentWorkspace(workspaceRoot));
 const setBoxClock = createBoxClock();
-let displayCache: { width: number; height: number; until: number } | undefined;
-const screens = new ScreenBroker(undefined, async () => {
-  if (displayCache && displayCache.until > Date.now()) return displayCache;
+const displaySettings = new ComputerDisplaySettings(async () => {
   const response = await fetch(
     `${process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787"}/api/v0/internal/computer-display`,
     { headers: { authorization: `Bearer ${controlToken}` }, signal: AbortSignal.timeout(5_000) }
   );
   if (!response.ok) throw new Error("Computer display settings are unavailable");
-  const value = (await response.json()) as { width: number; height: number };
-  if (
-    !Number.isInteger(value.width) ||
-    !Number.isInteger(value.height) ||
-    value.width < 640 ||
-    value.width > 7680 ||
-    value.height < 480 ||
-    value.height > 4320
-  )
-    throw new Error("Invalid computer display dimensions");
-  displayCache = { ...value, until: Date.now() + 30_000 };
-  return displayCache;
+  return response.json();
 });
+const screens = new ScreenBroker(undefined, () => displaySettings.get());
 const agentStores = new BotAgentStore();
 const boxStore = new BoxStoreSync({
   hasLiveAgentHandle: (agentId) => agentStores.hasLiveHandle(agentId),

@@ -124,6 +124,9 @@ const phases = [
     ? [
         "chaos-loss",
         "chaos-clear",
+        "chaos-identity",
+        "chaos-link-down",
+        "chaos-link-recovered",
         "chaos-relay",
         "chaos-relay-recovered",
         "chaos-all-offline",
@@ -445,7 +448,7 @@ try {
     if (phase === "server-restart") await command(docker("restart", "--time", "3", names.server));
     if (phase === "computer-restart")
       await command(docker("restart", "--time", "3", names.computer));
-    const blackholeAt = phase === "blackhole" ? Date.now() : 0;
+    const blackholeAt = ["blackhole", "chaos-link-down"].includes(phase) ? Date.now() : 0;
     if (phase === "blackhole") await command(docker("pause", names["device-b"]));
     if (phase === "recovered") await command(docker("unpause", names["device-b"]));
     if (phase === "chaos-loss") {
@@ -502,7 +505,24 @@ try {
       );
       await command(docker("exec", names.netem, "tc", "qdisc", "del", "dev", "eth0", "root"));
     }
-    if (phase === "chaos-relay") await command(docker("pause", names.server));
+    if (phase === "chaos-relay") {
+      // Expire the display-settings cache too: existing screen controls must
+      // remain usable when the coordinator cannot serve a configuration refresh.
+      await Bun.sleep(31_000);
+      await command(docker("pause", names.server));
+    }
+    if (phase === "chaos-link-down" || phase === "chaos-link-recovered")
+      await command(
+        docker(
+          "exec",
+          names.netem,
+          "ip",
+          "link",
+          "set",
+          "eth0",
+          phase === "chaos-link-down" ? "down" : "up"
+        )
+      );
     if (phase === "chaos-relay-recovered") await command(docker("unpause", names.server));
     if (phase === "chaos-all-offline")
       await command(docker("pause", names["device-a"], names["device-b"]));

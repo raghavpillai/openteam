@@ -17,12 +17,13 @@ export function createQualityProbe(client: {
 }) {
   let cached: NetworkQuality | undefined;
   let nextCheck = 0;
+  let checkedEpoch: string | undefined;
   let pending: Promise<NetworkQuality> | undefined;
   return (): Promise<NetworkQuality> => {
     const route = client.route;
     if (!route || !client.available()) return Promise.reject(new Error(FAILURE));
     if (pending) return pending;
-    if (performance.now() < nextCheck)
+    if (checkedEpoch === route.epoch && performance.now() < nextCheck)
       return cached?.epoch === route.epoch
         ? Promise.resolve(cached)
         : Promise.reject(new Error(FAILURE));
@@ -144,6 +145,7 @@ export function createQualityProbe(client: {
         cached = undefined;
         throw new Error(FAILURE);
       } finally {
+        checkedEpoch = epoch;
         nextCheck = performance.now() + 60_000;
         expired = true;
         clearTimeout(timer);

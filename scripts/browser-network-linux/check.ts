@@ -99,8 +99,14 @@ if (phase !== "chaos-relay")
 const browsers: Awaited<ReturnType<typeof chromium.connectOverCDP>>[] = [];
 const pages: any[] = [];
 for (let i = 0; i < 2; i++) {
+  const screenStarted = performance.now();
   const screen = await computer(`/v1/screens/${config.bots[i]}?cwd=/workspace`);
   assert.equal(screen.state, "ready", screen.error);
+  if (phase === "chaos-relay")
+    assert.ok(
+      performance.now() - screenStarted < 1000,
+      "cached screen controls blocked on the frozen server"
+    );
   await computer(`/v1/screens/${config.bots[i]}/actions`, "POST", {
     cwd: "/workspace",
     input: { action: "open_app", app: "chromium" },
@@ -374,6 +380,15 @@ try {
       () => select("device", config.b),
       "switching device interrupts an in-flight download"
     );
+    const switchedExit = await api("/server-settings/browser-network/egress", "POST", {});
+    const immediateQuality = await api("/server-settings/browser-network/quality", "POST", {});
+    assert.equal(switchedExit.ip, "11.77.0.12");
+    assert.equal(switchedExit.sourceId, config.b);
+    assert.equal(immediateQuality.sourceId, config.b);
+    assert.equal(immediateQuality.epoch, switchedExit.epoch);
+    pass(
+      "IP and speed checks immediately follow the new exit without a stale status snapshot or cached old source"
+    );
     for (const page of pages) assert.equal(await origin(page), "11.77.0.12");
     pass("existing bot browsers both follow explicit device B selection");
     await interruptedBy(
@@ -589,6 +604,30 @@ try {
     pass(
       "80 ms delay, 20 ms jitter and seeded 2% packet loss preserve exact upload bytes and single delivery across both browsers"
     );
+  } else if (phase === "chaos-identity") {
+    const saved = JSON.parse(await readFile(stateFile, "utf8"));
+    const before = await device("device-b");
+    const outage = await device("device-b", "/identity-outage", {});
+    assert.equal(outage.network.connected, false);
+    assert.equal(outage.network.sharingAllowed, false);
+    assert.equal(outage.identityFaults, before.identityFaults + 1);
+    await rankedSource(config.a, 9000);
+    for (const page of pages) assert.equal(await origin(page), "11.77.0.11");
+    await until(async () => {
+      const current = await device("device-b");
+      return (
+        current.network.connected &&
+        current.network.sharingAllowed &&
+        current.identityRequests >= before.identityRequests + 2
+      );
+    }, "identity retry with saved consent");
+    await rankedSource(config.b, 60000);
+    for (const page of pages) assert.equal(await origin(page), "11.77.0.12");
+    assert.equal((await view()).settings.revision, saved.revision);
+    assert.deepEqual((await view()).settings.sourceOrder, saved.sourceOrder);
+    pass(
+      "a transient identity outage falls back, retries with saved consent, and restores both browsers without an owner edit"
+    );
   } else if (phase === "chaos-relay") {
     await until(
       async () => !(await computer("/v1/browser-network")).ready,
@@ -596,7 +635,9 @@ try {
       9000
     );
     await blocked("https://browser-target.test/api");
-    pass("a frozen relay expires browser leases and fails closed instead of dialing directly");
+    pass(
+      "a frozen relay retains responsive screen controls, expires browser leases and fails closed instead of dialing directly"
+    );
   } else if (phase === "chaos-all-offline") {
     const saved = JSON.parse(await readFile(stateFile, "utf8"));
     await rankedSource("server", 9000);
@@ -608,7 +649,7 @@ try {
     pass(
       "simultaneous silent loss of both providers falls through to the ranked server without rewriting priority"
     );
-  } else if (phase === "blackhole") {
+  } else if (phase === "blackhole" || phase === "chaos-link-down") {
     const saved = JSON.parse(await readFile(stateFile, "utf8"));
     await rankedSource(config.a, 9000);
     for (const page of pages) assert.equal(await origin(page), "11.77.0.11");
@@ -619,15 +660,19 @@ try {
       `Frozen-provider detection and browser recovery took ${elapsedMs}ms`
     );
     console.log(
-      "BLACKHOLE_TIMING",
+      phase === "chaos-link-down" ? "LINK_CHANGE_TIMING" : "BLACKHOLE_TIMING",
       JSON.stringify({
         elapsedMs,
         scope:
-          "Docker-pause freezes provider without notifying the server; includes test startup and two browser navigations",
+          phase === "chaos-link-down"
+            ? "Kernel eth0 link-down on selected provider; includes test startup and two browser navigations"
+            : "Docker-pause freezes provider without notifying the server; includes test startup and two browser navigations",
       })
     );
     pass(
-      "a frozen laptop provider falls through to device A on the six-second lease without socket-close notification"
+      phase === "chaos-link-down"
+        ? "kernel link-down falls through to device A and both browsers without rewriting priorities"
+        : "a frozen laptop provider falls through to device A on the six-second lease without socket-close notification"
     );
   } else {
     const saved = JSON.parse(await readFile(stateFile, "utf8"));

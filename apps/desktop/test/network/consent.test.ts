@@ -36,6 +36,19 @@ test("serialized grants survive simultaneous edits and revoke is durable across 
     expect(await restarted.allowed("https://host.test", `deployment-${i}`)).toBe(i !== 4);
   expect((await readFile(path, "utf8")).includes("Bearer")).toBe(false);
 });
+test("chaos: reconnect reads wait for previously queued consent changes", async () => {
+  const { store } = await fixture();
+  await store.set("https://host.test", "deployment-a", true);
+  const writes = Array.from({ length: 20 }, (_, i) =>
+    store.set("https://other.test", `deployment-${i}`, true)
+  );
+  writes.push(store.set("https://host.test", "deployment-a", false));
+  try {
+    expect(await store.allowed("https://host.test", "deployment-a")).toBe(false);
+  } finally {
+    await Promise.all(writes);
+  }
+});
 test("malformed or non-boolean saved permission never enables sharing", async () => {
   const { store, path } = await fixture();
   for (const data of ["{", "null", "[]", '{"https://host.test#deployment-a":"true"}']) {

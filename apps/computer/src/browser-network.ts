@@ -122,7 +122,9 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
   const diagnostic = <T extends Diagnostic>(kind: "egress" | "quality"): Promise<T> => {
     const existing = probes.get(kind);
     if (existing) return existing.promise as Promise<T>;
-    if (!state.ready || !child?.stdin?.writable)
+    // Status is an observation, not admission authority: it may lag a handover.
+    // The worker checks its live lease before opening any diagnostic connection.
+    if (stopping || !child?.stdin?.writable)
       return Promise.reject(new Error("Browser connection unavailable"));
     const id = randomUUID();
     let resolve!: (result: Diagnostic) => void, reject!: (error: Error) => void;

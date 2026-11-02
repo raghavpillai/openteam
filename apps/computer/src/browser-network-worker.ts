@@ -21,10 +21,11 @@ const url = new URL(
   `${config.serverUrl.replace(/\/$/, "")}/api/v0/internal/browser-network/channel`
 );
 url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-const client = new BrowserNetworkClient({
+const client: BrowserNetworkClient = new BrowserNetworkClient({
   role: "computer",
   url: url.href,
   headers: { authorization: `Bearer ${config.token}` },
+  changed: () => console.log(JSON.stringify(client.status())),
 });
 const proxy = createBrowserProxy((host, port) => client.open(host, port));
 const port = await proxy.listen(config.port);

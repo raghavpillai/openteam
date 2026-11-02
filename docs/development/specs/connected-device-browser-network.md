@@ -14,6 +14,14 @@ The Node worker receives its configuration over a private stdin pipe and shuts d
 
 Verification includes real Chromium HTTP/HTTPS, uploads/downloads, WS/WSS and service-worker requests through the real Node gateway and a controlled device exit; protocol, credit, destination policy, consent, lease expiry, revocation, reconnect and ranked-fallback tests; isolated PostgreSQL persistence/concurrency and enrollment tests; browser-driven settings tests; VNC/command/file regressions; type checks, production builds and desktop performance budgets. Production Linux images and a short multi-browser soak have also been validated; see the validation report. Physical cross-machine public-IP identity, OS VPN permutations and a long WAN soak remain release-environment checks.
 
+## Chaos hardening — November 2, 2026
+
+A peer has six seconds from its first route grant to acknowledge the current epoch. Heartbeat renewals cannot extend this deadline. A non-acknowledging provider is disconnected so the next ranked source can take over; a non-acknowledging broker reconnects. Saved order/revision stay unchanged. A fresh epoch resets the deadline, and a matching acknowledgment clears it.
+
+Reconnects retain exponential backoff across short-lived channels, including channels that briefly grant valid leases. Only a valid lease after a full six-second connected interval resets the attempt counter. Existing jitter and the 30-second base cap remain; a healthy new connection becomes usable immediately. Stream-admission and retry throttles use monotonic time, as leases already did, so wall-clock corrections cannot strand or bypass them.
+
+`bun run test:browser-network:chaos` exercises seeded enrollment/disconnect/reorder/broker-restart/concurrent-edit sequences, missing acknowledgments, transient database failures, single-destination failures without replay, clock jumps and transport-write failure. Set `OPENTEAM_NETWORK_CHAOS_SEED` and `OPENTEAM_NETWORK_CHAOS_STEPS` (1–200) to reproduce a fault sequence. `bun run test:browser-network:linux --chaos` adds actual kernel delay/jitter/seeded loss, relay freeze/recovery and simultaneous provider freeze/recovery to the normal production-image harness. It requires an explicit disposable Docker context. Faults affect only fixture namespaces; loss statistics must show actual dropped packets. See the validation report for measured results and remaining physical-device coverage.
+
 ## Faster failover and active-exit quality checks — November 2, 2026
 
 Sleep/quit/closed-channel fallback remains event driven. Silent failure now expires a six-second lease renewed every two seconds, checked on the coordinator's 250 ms timer. Keep the existing 30-second stable-return delay and saved ranking, including the server at its ranked position. This is not seamless transport migration: old TCP/TLS/WebSocket connections close on epoch changes, and sent requests are never retried automatically.

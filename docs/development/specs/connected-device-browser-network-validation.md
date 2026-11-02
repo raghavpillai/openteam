@@ -2,6 +2,40 @@
 
 Validated November 1–2, 2026 on `feat/connected-device-browser-network`. This is a local implementation, not a deployment or signed desktop release.
 
+## Chaos engineering and hardening — November 2, 2026
+
+Fault injection reproduced three failure classes before the fixes:
+
+- **Unbounded route application:** a provider or broker could renew leases without acknowledging its route forever. Each peer now gets six seconds from its first grant to acknowledge the epoch; renewals do not extend that deadline. Provider removal enables ranked fallback; broker removal enables reconnect. Saved priorities/revisions are retained.
+- **Reconnect amplification:** opening a socket reset backoff, including immediately closed connections. A briefly valid grant also reset it too early. Backoff now survives short-lived connections and resets only on a valid lease after a full six-second connected interval. New healthy routes remain immediately usable.
+- **Wall-clock sensitivity:** a backward clock correction could strand stream admission at its rate limit, and a forward jump could bypass the retry throttle. Both limits now use monotonic time. Lease timing already did so.
+
+The before-fix failures and after-fix logs are retained locally under `output/browser-network-chaos/`. The reproducible service tests cover missing provider/broker acknowledgments, database outages, single-destination DNS/dial refusal without source hopping or request replay, concurrent edits, enrollment revocation, disconnect/reconnect, broker replacement and clock jumps. SDK tests also cover a transport throwing during a write, callback completion, stream/window limits and recovery after a backward clock jump.
+
+The eight focused service cases (including all 192 seeded operations) and ten SDK checks also pass inside the Linux computer container on the pinned **Bun 1.4.2** runtime. Logs: `pinned-linux-chaos.log` and `pinned-linux-sdk.log`. The local macOS runner remains Bun 1.3.8. Repeated cold startup exposed a separate fixture race: PostgreSQL's temporary Unix-socket bootstrap server could satisfy `pg_isready` before its application TCP listener existed. The harness now probes `127.0.0.1` explicitly before schema setup.
+
+**192 seeded fault operations passed**: seeds `1`, `42`, `24301`, 64 operations each. Every quiescent step checks route recovery, preference/revision invariants and successful routing; remote round trips check exact bytes. These seeds reproduce fault choices, not identical wall-clock timings or TCP scheduling. Full guarded regression results: **382 server tests pass** (153 skipped), **711 desktop/shared tests pass** (one skipped), **three computer diagnostic/worker tests pass**, and **32 desktop UI assertions pass**. Desktop/server/computer/SDK typechecks, production builds and architecture checks pass. The inherited bundle-budget failures documented below remain outside this hardening change. No native iOS UI code or wire contract changes in this round; the previous native integration results remain separately recorded below.
+
+**All 49 production-image checks passed on the final runtime images**, across 13 phases. The selected provider's outbound `eth0` queue used 80 ms delay, 20 ms jitter, seeded 2% loss; kernel counters recorded **two dropped packets**. All eight fault-phase uploads (four per browser, 64 KiB each) arrived once with exact hashes. Relay freeze expired browser leases and failed closed; both-provider freeze selected the ranked server; clearing each fault restored both browsers with persisted preferences. Normal restart, worker crash, native transfer, address-policy and sign-out checks also passed. Frozen-provider fallback took **4656 ms**, including test startup and both browser navigations. The byte-checked 256 MiB transfer took **4955 ms**; these controlled VM timings are not WAN performance promises.
+
+Final evidence is under `output/browser-network-chaos/linux-verified/` (including `result.json`, `netem-result.log` and image identities), with the combined log in `linux-verified-run.log`. Runtime computer image: `5895bdde7add77ca68243ab42de3a05313250bf67d650453a50cb7d284ddcde3`; server: `65aaa8bd281325d1e8c5c44963bdb48024ed885a40cd5b05d810bb9e5a4ad540`. A preceding exploratory run also passed 49 checks; it is not the final-image evidence. The failed TCP-readiness attempt is retained for transparency. The final runner removed all fixture containers/networks/volumes, and the dedicated Colima VM/data were deleted afterward.
+
+Repeat the focused suite with `bun run test:browser-network:chaos`. Reproduce a longer chosen sequence with:
+
+```sh
+OPENTEAM_NETWORK_CHAOS_SEED=24301 OPENTEAM_NETWORK_CHAOS_STEPS=64 bun run test:browser-network:chaos
+```
+
+The production Linux runner accepts `--chaos` in addition to the normal 43 checks. It adds 80 ms delay / 20 ms jitter / seeded 2% loss to the selected device's network namespace, verifies byte-exact single-delivery uploads from both actual browsers, checks recovery after clearing the fault, freezes the relay to check lease expiry and fail-closed behavior, and freezes both providers to check server fallback and stable return. It requires an explicit disposable Docker context and records the actual kernel drop counters; packet-loss validation must observe at least one dropped packet. The helper tooling has NET_ADMIN only inside the fixture device's namespace, and the runner cleans its named resources in `finally`.
+
+```sh
+colima start openteam-network-chaos --activate=false --ssh-config=false --cpu 4 --memory 7 --disk 22 --mount none
+OPENTEAM_TEST_DOCKER_CONTEXT=colima-openteam-network-chaos OPENTEAM_TEST_OUTPUT_DIR=output/browser-network-chaos/linux bun run test:browser-network:linux --chaos
+colima delete --force --data openteam-network-chaos
+```
+
+Physical Mac lid/Wi-Fi/VPN, IPv6-only Internet, signed installers and a long WAN soak remain release-environment coverage. Controlled kernel faults do not replace those checks.
+
 ## Integration with current main — November 2, 2026
 
 Merged `origin/main` at `6e6be7e2cf4a182af8d1002c768d84318da22fdb` and resolved all eleven conflicting files. Both sides' package exports, computer install CLI, shutdown recording, desktop enrollment/Messages support, server settings and fixture routes are retained. Browser-network deep links now use the shared settings-anchor contract and still open Server; model links retain main's separate Model page.

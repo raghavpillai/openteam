@@ -102,6 +102,7 @@ export interface NetworkConnection {
   sent: number;
   received: number;
   applied: string | null;
+  grantSentAt?: number;
   checkedAt: number;
   queued?: Promise<void>;
   queuedBytes?: number;
@@ -129,7 +130,7 @@ export class BrowserNetworkService {
   private bytesSent = 0;
   private bytesReceived = 0;
   private blocked = 0;
-  private lastRetry = 0;
+  private lastRetry = -Infinity;
   private mutation: Promise<unknown> = Promise.resolve();
   private timer: ReturnType<typeof setInterval>;
   constructor(
@@ -140,8 +141,23 @@ export class BrowserNetworkService {
   ) {
     machines.onNetworkRevoke = (machineId) => this.revoke(machineId);
     this.timer = setInterval(() => {
-      for (const peer of this.devices.values()) {
-        if (!peer.checking && performance.now() - peer.checkedAt >= 10_000) {
+      for (const peer of [this.computer, ...this.devices.values()]) {
+        if (!peer) continue;
+        // Heartbeats alone do not prove that a peer can apply the route. Start
+        // this deadline with its first grant, not with every renewal.
+        if (
+          peer.grantSentAt !== undefined &&
+          peer.applied !== this.epoch &&
+          performance.now() - peer.grantSentAt >= LEASE_MS
+        ) {
+          this.drop(peer);
+          continue;
+        }
+        if (
+          peer.role === "device" &&
+          !peer.checking &&
+          performance.now() - peer.checkedAt >= 10_000
+        ) {
           peer.checking = true;
           void this.validate(peer)
             .catch(() => this.drop(peer))
@@ -315,6 +331,7 @@ export class BrowserNetworkService {
     for (const peer of [this.computer, ...this.devices.values()])
       if (peer) {
         peer.applied = null;
+        peer.grantSentAt = undefined;
         this.control(peer, { op: "invalidate" });
       }
   }
@@ -376,10 +393,13 @@ export class BrowserNetworkService {
         if (peer.role === "device" && peer.machineId) await this.registerProvider(peer);
         this.reconcile();
         this.control(peer, { op: "lease", nonce: control.nonce, route: this.route(peer) });
+        if (peer.applied !== this.epoch && peer.grantSentAt === undefined)
+          peer.grantSentAt = performance.now();
       } else if (control.op === "applied") {
         if (control.epoch === this.epoch && control.revision === this.settings?.revision) {
           const firstApplied = peer.applied !== this.epoch;
           peer.applied = this.epoch;
+          peer.grantSentAt = undefined;
           // Wake the broker as soon as the new exit acknowledges its route. Waiting
           // for the broker's next periodic lease adds an unnecessary renewal delay.
           if (firstApplied && peer.machineId === this.activeSource && this.computer)
@@ -678,9 +698,9 @@ export class BrowserNetworkService {
     return result;
   }
   async retry() {
-    if (Date.now() - this.lastRetry < 5000)
+    if (performance.now() - this.lastRetry < 5000)
       throw new ApiError(429, "network_retry_limited", "Wait before retrying");
-    this.lastRetry = Date.now();
+    this.lastRetry = performance.now();
     this.fence();
     return this.view();
   }

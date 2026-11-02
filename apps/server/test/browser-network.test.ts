@@ -72,6 +72,17 @@ async function fixture(options: { failbackMs?: number } = {}) {
   let silent = false;
   const silentDevices = new Set<string>();
   const appliedDelays = new Map<string, number>();
+  const connections = new Map<string, number>();
+  let failedReads = 0;
+  const read = store.read;
+  store.read = async () => {
+    if (failedReads > 0) {
+      failedReads--;
+      throw Error("injected database failure");
+    }
+    return read();
+  };
+  const refusedDials = new Set<string>();
   const machines = {
     onNetworkRevoke: () => {},
     relay: {
@@ -105,6 +116,11 @@ async function fixture(options: { failbackMs?: number } = {}) {
     port: 0,
     websocket: {
       ...service.websocket,
+      open: (socket) => {
+        const id = socket.data.machineId ?? "computer";
+        connections.set(id, (connections.get(id) ?? 0) + 1);
+        service.websocket.open?.(socket);
+      },
       message: (socket, message) => {
         if (
           (silent || silentDevices.has(socket.data.machineId ?? "")) &&
@@ -176,6 +192,7 @@ async function fixture(options: { failbackMs?: number } = {}) {
       },
       dial: async (target, signal) => {
         deviceDials++;
+        if (refusedDials.has(id)) throw Error("injected destination DNS/dial failure");
         expect(target.host).toBe("desktop-only.example");
         expect(target.port).toBe(443);
         signal.throwIfAborted();
@@ -219,6 +236,14 @@ async function fixture(options: { failbackMs?: number } = {}) {
     },
     silenceDevice: (id: string) => silentDevices.add(id),
     delayApplied: (id: string, ms: number) => appliedDelays.set(id, ms),
+    getConnections: (id: string) => connections.get(id) ?? 0,
+    failReads: (count: number) => {
+      failedReads = count;
+    },
+    refuseDials: (id: string, refuse: boolean) => {
+      if (refuse) refusedDials.add(id);
+      else refusedDials.delete(id);
+    },
     register: (id: string) => {
       const token = crypto.randomUUID();
       credentials.set(id, token);
@@ -985,4 +1010,190 @@ test("fenced bytes in flight do not disconnect broker or former exit during a sw
   expect(homeSocket.readyState).toBe(1);
   expect(f.getDials()).toBe(before);
   expect(await roundTrip(f.computer, Buffer.from("new route"))).toEqual(Buffer.from("new route"));
+});
+
+describe("browser network chaos", () => {
+  test("a provider that renews leases but never acknowledges cannot hold the ranking hostage", async () => {
+    const f = await fixture();
+    f.delayApplied("home", Infinity);
+    const home = f.device("home"),
+      office = f.device("office");
+    await until(() => !!home.route && !!office.route);
+    await rank(f, ["home", "office", "server"]);
+    const revision = f.getSettings().revision;
+    await routed(f, "office", LEASE_MS + 3000);
+    expect(f.getSettings().sourceOrder).toEqual(["home", "office", "server"]);
+    expect(f.getSettings().revision).toBe(revision);
+    expect(await roundTrip(f.computer, Buffer.from("after-missing-ack"))).toEqual(
+      Buffer.from("after-missing-ack")
+    );
+    await Bun.sleep(1500);
+    expect(f.getConnections("home")).toBeGreaterThan(1);
+    expect(f.computer.route?.machineId).toBe("office");
+  }, 15000);
+
+  test("a broker that loses applied acknowledgments reconnects and recovers without an owner edit", async () => {
+    const f = await fixture(),
+      home = f.device("home");
+    await until(() => !!home.route);
+    f.delayApplied("computer", Infinity);
+    await rank(f, ["server", "home"]);
+    const revision = f.getSettings().revision;
+    const before = f.getConnections("computer");
+    await until(() => f.getConnections("computer") > before, LEASE_MS + 3000);
+    f.delayApplied("computer", 0);
+    await routed(f, "server");
+    expect(f.getSettings().revision).toBe(revision);
+    const stream = await f.computer.open("127.0.0.1", f.port);
+    stream.destroy();
+  }, 15000);
+
+  const seeds = process.env.OPENTEAM_NETWORK_CHAOS_SEED
+    ? [Number(process.env.OPENTEAM_NETWORK_CHAOS_SEED)]
+    : [1, 42, 0x5eed];
+  const steps = Number(process.env.OPENTEAM_NETWORK_CHAOS_STEPS ?? 16);
+  if (
+    !Number.isSafeInteger(steps) ||
+    steps < 1 ||
+    steps > 200 ||
+    seeds.some((s) => !Number.isSafeInteger(s))
+  )
+    throw Error("Chaos requires integer seeds and 1–200 steps");
+  for (const seed of seeds)
+    test(`seeded route, enrollment and concurrent-edit chaos seed=${seed}`, async () => {
+      const f = await fixture({ failbackMs: 100 });
+      const devices = [f.device("home"), f.device("office")];
+      await until(() => devices.every((d) => !!d.route));
+      let state = seed >>> 0;
+      const random = () => {
+        state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+        return state;
+      };
+      const orders = [
+        ["home", "office", "server"],
+        ["office", "home", "server"],
+        ["server", "home", "office"],
+      ];
+      const trace: string[] = [];
+      try {
+        for (let step = 0; step < steps; step++) {
+          const op = random() % 5,
+            index = random() % 2,
+            id = index ? "office" : "home";
+          trace.push(`${step}:${op}:${id}`);
+          const revision = f.getSettings().revision;
+          if (op === 0) {
+            devices[index]!.stop();
+            await until(() => !f.computer.route || f.computer.route.machineId !== id);
+            devices[index]!.start();
+          } else if (op === 1) {
+            await rank(f, orders[random() % orders.length]!);
+          } else if (op === 2) {
+            f.computer.stop();
+            await until(async () => (await f.service.view()).runtime.state === "update_required");
+            f.computer.start();
+          } else if (op === 3) {
+            f.enabled.set(id, false);
+            f.machines.onNetworkRevoke(id);
+            await until(() => !f.computer.route || f.computer.route.machineId !== id);
+            devices[index]!.stop();
+            f.enabled.set(id, true);
+            devices[index]!.start();
+          } else {
+            const candidates = orders.filter(
+              (o) => JSON.stringify(o) !== JSON.stringify(f.getSettings().sourceOrder)
+            );
+            const results = await Promise.allSettled(
+              candidates.slice(0, 2).map((sourceOrder) =>
+                f.service.update({
+                  expectedRevision: revision,
+                  mode: "ranked",
+                  machineId: null,
+                  sourceOrder,
+                })
+              )
+            );
+            expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+            expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+          }
+          await until(
+            async () =>
+              f.computer.available() &&
+              ["server", "ready"].includes((await f.service.view()).runtime.state)
+          );
+          if (op === 0 || op === 2 || op === 3) expect(f.getSettings().revision).toBe(revision);
+          const current = await f.service.view();
+          expect(new Set(current.settings.sourceOrder).size).toBe(
+            current.settings.sourceOrder.length
+          );
+          expect(current.settings.sourceOrder.filter((s) => s === "server")).toHaveLength(1);
+          // Stop all mutations before checking bytes. A route may still be finishing stable return.
+          await until(async () => {
+            try {
+              if (f.computer.route?.mode === "server") {
+                const socket = await f.computer.open("127.0.0.1", f.port);
+                socket.destroy();
+              } else {
+                const payload = Buffer.from(`seed=${seed},step=${step}`);
+                expect(await roundTrip(f.computer, payload)).toEqual(payload);
+              }
+              return true;
+            } catch {
+              return false;
+            }
+          });
+          await Bun.sleep(120);
+        }
+        console.log(JSON.stringify({ chaosSeed: seed, steps, trace }));
+      } catch (cause) {
+        throw new Error(`Chaos seed=${seed} trace=${trace.join(",")}`, { cause });
+      }
+    }, 120000);
+});
+
+describe("browser network chaos recovery boundaries", () => {
+  test("temporary database failures recover without losing the saved ranking", async () => {
+    const f = await fixture();
+    const revision = f.getSettings().revision,
+      before = f.getConnections("computer");
+    f.failReads(2);
+    await until(() => f.getConnections("computer") > before && f.computer.available(), 12000);
+    await routed(f, "server");
+    expect(f.getSettings().revision).toBe(revision);
+    const socket = await f.computer.open("127.0.0.1", f.port);
+    socket.destroy();
+  }, 15000);
+
+  test("a destination failure neither changes global priority nor replays the request", async () => {
+    const f = await fixture(),
+      home = f.device("home");
+    await until(() => !!home.route);
+    await rank(f, ["home", "server"]);
+    await routed(f, "home");
+    const revision = f.getSettings().revision,
+      epoch = f.computer.route!.epoch,
+      before = f.getDials();
+    f.refuseDials("home", true);
+    await expect(roundTrip(f.computer, Buffer.from("do-not-replay"))).rejects.toThrow();
+    expect(f.getDials()).toBe(before + 1);
+    expect(f.computer.route!.epoch).toBe(epoch);
+    expect(f.getSettings().revision).toBe(revision);
+    f.refuseDials("home", false);
+    expect(await roundTrip(f.computer, Buffer.from("next-request"))).toEqual(
+      Buffer.from("next-request")
+    );
+  });
+
+  test("a wall-clock jump cannot bypass the retry throttle", async () => {
+    const f = await fixture(),
+      original = Date.now;
+    try {
+      Date.now = () => 100000;
+      await f.service.retry();
+      Date.now = () => 1000000000;
+      await expect(f.service.retry()).rejects.toMatchObject({ status: 429 });
+    } finally {
+      Date.now = original;
+    }
+  });
 });

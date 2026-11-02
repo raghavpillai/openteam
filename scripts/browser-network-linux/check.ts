@@ -74,7 +74,12 @@ async function computer(path: string, method = "GET", body?: unknown) {
   assert.equal(response.status, 200, await response.clone().text());
   return response.json() as Promise<any>;
 }
-await until(async () => (await fetch(`${server}/api/v0/auth/config`)).ok, "server startup", 90000);
+if (phase !== "chaos-relay")
+  await until(
+    async () => (await fetch(`${server}/api/v0/auth/config`)).ok,
+    "server startup",
+    90000
+  );
 const stateFile = "/tmp/network-test-state.json";
 if (phase === "initial") {
   const login = await fetch(`${server}/api/auth/login`, {
@@ -87,7 +92,8 @@ if (phase === "initial") {
   assert.ok(token);
   await writeFile(stateFile, JSON.stringify({ token }), { mode: 0o600 });
 } else token = JSON.parse(await readFile(stateFile, "utf8")).token;
-await until(async () => (await computer("/v1/browser-network")).ready, "computer network worker");
+if (phase !== "chaos-relay")
+  await until(async () => (await computer("/v1/browser-network")).ready, "computer network worker");
 
 // These are headed browsers created by the actual image's ScreenBroker, running as box UID 1000.
 const browsers: Awaited<ReturnType<typeof chromium.connectOverCDP>>[] = [];
@@ -547,6 +553,60 @@ try {
         sourceOrder: [config.b, config.a, "server"],
       }),
       { mode: 0o600 }
+    );
+  } else if (phase === "chaos-loss") {
+    const saved = JSON.parse(await readFile(stateFile, "utf8"));
+    await rankedSource(config.b, 60000);
+    for (const page of pages) {
+      assert.equal(await origin(page), "11.77.0.12");
+      const payload = randomBytes(64 * 1024),
+        expected = createHash("sha256").update(payload).digest("hex");
+      const results = await page.evaluate(
+        async ({ body, prefix }: { body: number[]; prefix: string }) => {
+          return Promise.all(
+            Array.from({ length: 4 }, async (_, i) => {
+              const response = await fetch("/upload", {
+                method: "POST",
+                headers: { "x-chaos-id": `${prefix}-${i}` },
+                body: new Uint8Array(body),
+                signal: AbortSignal.timeout(25000),
+              });
+              if (!response.ok) throw Error(`Upload failed ${response.status}`);
+              return response.json();
+            })
+          );
+        },
+        { body: [...payload], prefix: crypto.randomUUID() }
+      );
+      for (const result of results) {
+        assert.equal(result.bytes, payload.length);
+        assert.equal(result.hash, expected);
+        assert.equal(result.deliveries, 1);
+        assert.equal(result.ip, "11.77.0.12");
+      }
+    }
+    assert.equal((await view()).settings.revision, saved.revision);
+    pass(
+      "80 ms delay, 20 ms jitter and seeded 2% packet loss preserve exact upload bytes and single delivery across both browsers"
+    );
+  } else if (phase === "chaos-relay") {
+    await until(
+      async () => !(await computer("/v1/browser-network")).ready,
+      "relay lease expiry",
+      9000
+    );
+    await blocked("https://browser-target.test/api");
+    pass("a frozen relay expires browser leases and fails closed instead of dialing directly");
+  } else if (phase === "chaos-all-offline") {
+    const saved = JSON.parse(await readFile(stateFile, "utf8"));
+    await rankedSource("server", 9000);
+    for (const page of pages) {
+      await page.goto(`${server}/api/v0/auth/config`);
+      assert.match(await page.textContent("body"), /required/);
+    }
+    assert.equal((await view()).settings.revision, saved.revision);
+    pass(
+      "simultaneous silent loss of both providers falls through to the ranked server without rewriting priority"
     );
   } else if (phase === "blackhole") {
     const saved = JSON.parse(await readFile(stateFile, "utf8"));

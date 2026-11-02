@@ -223,8 +223,8 @@ export class NetworkMux {
         if (!this.options.dial || frame.id <= this.highestIncoming)
           throw new Error("Invalid stream open");
         this.highestIncoming = frame.id;
-        if (Date.now() - this.openedAt >= 1000) {
-          this.openedAt = Date.now();
+        if (performance.now() - this.openedAt >= 1000) {
+          this.openedAt = performance.now();
           this.openCount = 0;
         }
         if (this.streams.size >= MAX_STREAMS || this.dials.size >= 16 || ++this.openCount > 64) {

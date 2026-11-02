@@ -125,7 +125,7 @@ export class BrowserNetworkClient {
         ws.terminate();
         return;
       }
-      this.attempt = 0;
+      const connectedAt = performance.now();
       const mux = new NetworkMux(
         {
           send: (bytes) => {
@@ -165,6 +165,9 @@ export class BrowserNetworkClient {
               throw new Error("Invalid route");
             if (this.route && this.route.epoch !== route.epoch) this.fence();
             this.route = route;
+            // Keep backoff across flapping connections, even if they briefly
+            // grant a lease. Reset only after a full healthy lease interval.
+            if (performance.now() - connectedAt >= LEASE_MS) this.attempt = 0;
             this.expires = started + LEASE_MS;
             mux.control({ op: "applied", epoch: route.epoch, revision: route.revision });
             if (this.available()) {

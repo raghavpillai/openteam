@@ -27,6 +27,7 @@ const components = [
   "device-b",
   "target",
   "cert-tools",
+  "netem",
 ] as const;
 type Component = (typeof components)[number];
 const names = Object.fromEntries(components.map((name) => [name, `${prefix}-${name}`])) as Record<
@@ -111,6 +112,25 @@ const env = [
   "OPENTEAM_COMPUTER_URL=http://computer:8790",
   "-e",
   "OPENTEAM_ASSET_ROOT=/home/box/agent-data/.openteam-assets",
+];
+const phases = [
+  "initial",
+  "ranking",
+  "server-restart",
+  "computer-restart",
+  "blackhole",
+  "recovered",
+  ...(process.argv.includes("--chaos")
+    ? [
+        "chaos-loss",
+        "chaos-clear",
+        "chaos-relay",
+        "chaos-relay-recovered",
+        "chaos-all-offline",
+        "chaos-all-recovered",
+      ]
+    : []),
+  "finish",
 ];
 try {
   console.log(`Testing in explicit Docker context ${context}; resources ${prefix}`);
@@ -258,7 +278,19 @@ try {
   for (let attempt = 0; ; attempt++) {
     try {
       await command(
-        docker("exec", names.postgres, "pg_isready", "-U", "test", "-d", "network_test")
+        // The entrypoint briefly starts a Unix-socket-only bootstrap database.
+        // Wait for the final TCP listener used by the actual application.
+        docker(
+          "exec",
+          names.postgres,
+          "pg_isready",
+          "-h",
+          "127.0.0.1",
+          "-U",
+          "test",
+          "-d",
+          "network_test"
+        )
       );
       break;
     } catch {
@@ -409,21 +441,73 @@ try {
       )
     )
   );
-  for (const phase of [
-    "initial",
-    "ranking",
-    "server-restart",
-    "computer-restart",
-    "blackhole",
-    "recovered",
-    "finish",
-  ]) {
+  for (const phase of phases) {
     if (phase === "server-restart") await command(docker("restart", "--time", "3", names.server));
     if (phase === "computer-restart")
       await command(docker("restart", "--time", "3", names.computer));
     const blackholeAt = phase === "blackhole" ? Date.now() : 0;
     if (phase === "blackhole") await command(docker("pause", names["device-b"]));
     if (phase === "recovered") await command(docker("unpause", names["device-b"]));
+    if (phase === "chaos-loss") {
+      // Only this disposable provider's network namespace is modified.
+      containers.push(names.netem);
+      await command(
+        docker(
+          "create",
+          "--name",
+          names.netem,
+          "--network",
+          `container:${names["device-b"]}`,
+          "--cap-add=NET_ADMIN",
+          "--entrypoint",
+          "sleep",
+          "openteam-network-cert-tools:test",
+          "600"
+        )
+      );
+      await command(docker("start", names.netem));
+      await command(
+        docker(
+          "exec",
+          names.netem,
+          "tc",
+          "qdisc",
+          "add",
+          "dev",
+          "eth0",
+          "root",
+          "netem",
+          "delay",
+          "80ms",
+          "20ms",
+          "loss",
+          "2%",
+          "seed",
+          "42"
+        )
+      );
+      await command(docker("exec", names.netem, "tc", "-s", "qdisc", "show", "dev", "eth0"), {
+        log: "netem-config.log",
+      });
+    }
+    if (phase === "chaos-clear") {
+      const stats = await command(
+        docker("exec", names.netem, "tc", "-s", "qdisc", "show", "dev", "eth0"),
+        { log: "netem-result.log" }
+      );
+      assert.match(
+        stats,
+        /dropped [1-9]\d*/,
+        "The packet-loss scenario must actually drop packets"
+      );
+      await command(docker("exec", names.netem, "tc", "qdisc", "del", "dev", "eth0", "root"));
+    }
+    if (phase === "chaos-relay") await command(docker("pause", names.server));
+    if (phase === "chaos-relay-recovered") await command(docker("unpause", names.server));
+    if (phase === "chaos-all-offline")
+      await command(docker("pause", names["device-a"], names["device-b"]));
+    if (phase === "chaos-all-recovered")
+      await command(docker("unpause", names["device-a"], names["device-b"]));
     console.log(`Running ${phase} checks`);
     await command(
       docker(
@@ -452,15 +536,7 @@ try {
         passed: true,
         context,
         date: new Date().toISOString(),
-        phases: [
-          "initial",
-          "ranking",
-          "server-restart",
-          "computer-restart",
-          "blackhole",
-          "recovered",
-          "finish",
-        ],
+        phases,
       },
       null,
       2

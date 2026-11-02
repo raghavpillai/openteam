@@ -6,7 +6,12 @@ import { createSocket } from "node:dgram";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { WebSocketServer } from "ws";
-const requests: Array<{ path: string; ip: string | undefined; method: string | undefined }> = [];
+const requests: Array<{
+  path: string;
+  ip: string | undefined;
+  method: string | undefined;
+  id?: string;
+}> = [];
 const queries: Array<{ name: string; type: number; ip: string }> = [];
 const chunk = Buffer.alloc(64 * 1024, 0x5a);
 const handler = (req: IncomingMessage, res: ServerResponse) => {
@@ -16,7 +21,9 @@ const handler = (req: IncomingMessage, res: ServerResponse) => {
     res.end(JSON.stringify({ requests, queries }));
     return;
   }
-  requests.push({ path, ip: req.socket.remoteAddress, method: req.method });
+  const requestId =
+    typeof req.headers["x-chaos-id"] === "string" ? req.headers["x-chaos-id"] : undefined;
+  requests.push({ path, ip: req.socket.remoteAddress, method: req.method, id: requestId });
   res.setHeader("cache-control", "no-store");
   if (req.headers.host === "ipwho.is") {
     res.setHeader("content-type", "application/json");
@@ -67,7 +74,14 @@ const handler = (req: IncomingMessage, res: ServerResponse) => {
     });
     req.on("end", () => {
       res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ bytes, hash: hash.digest("hex"), ip: req.socket.remoteAddress }));
+      res.end(
+        JSON.stringify({
+          bytes,
+          hash: hash.digest("hex"),
+          ip: req.socket.remoteAddress,
+          ...(requestId ? { deliveries: requests.filter((r) => r.id === requestId).length } : {}),
+        })
+      );
     });
     return;
   }

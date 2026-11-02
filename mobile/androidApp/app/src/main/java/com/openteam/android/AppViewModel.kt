@@ -1,0 +1,754 @@
+package com.openteam.android
+
+import android.app.Application
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.openteam.android.data.ChatMessage
+import com.openteam.android.data.ChatHistoryPage
+import com.openteam.android.data.Conversation
+import com.openteam.android.data.Delivery
+import com.openteam.android.data.DraftStore
+import com.openteam.android.data.HttpMobileGateway
+import com.openteam.android.data.MobileGateway
+import com.openteam.android.data.MobileFeatureApi
+import com.openteam.android.data.MessageAttachment
+import com.openteam.android.data.MobileSession
+import com.openteam.android.data.OutgoingShare
+import com.openteam.android.data.PreviewMobileGateway
+import com.openteam.android.data.ServerValidationApi
+import com.openteam.android.data.VoiceTranscriptionApi
+import com.openteam.android.data.newClientId
+import com.openteam.android.navigation.ChatTarget
+import com.openteam.android.navigation.DeepLinkRouter
+import com.openteam.features.AccountMemoryState
+import com.openteam.features.Attachment
+import com.openteam.features.AppSettings
+import com.openteam.features.FeatureGateway
+import com.openteam.features.FeatureLoadState
+import com.openteam.features.FeatureOperationState
+import com.openteam.features.LiveFeatureGateway
+import com.openteam.features.Plugin
+import com.openteam.features.ProviderConnection
+import com.openteam.features.Routine
+import com.openteam.features.RoutineSchedule
+import com.openteam.features.WebProvider
+import com.openteam.features.WebProvidersState
+import com.openteam.features.UnsupportedFeatureGateway
+import com.openteam.platform.SharePayload
+import com.openteam.platform.AndroidVoiceCapture
+import com.openteam.platform.ComputerVncGrant
+import com.openteam.platform.VoiceRecordingController
+import com.openteam.platform.VoiceRecordingState
+import com.openteam.platform.VoiceTranscriber
+import com.openteam.mobile.core.HttpMethod
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.net.URI
+import java.net.URLDecoder
+
+data class AppState(
+    val session: MobileSession? = null,
+    val conversations: List<Conversation> = emptyList(),
+    val activeConversationId: String? = null,
+    val activeMessageId: String? = null,
+    val messages: List<ChatMessage> = emptyList(),
+    val threadContext: List<ChatMessage> = emptyList(),
+    val threadContextTruncated: Boolean = false,
+    val historyBeforeSequence: String? = null,
+    val hasMoreHistory: Boolean = false,
+    val historyLoading: Boolean = false,
+    val pendingAttachments: List<Attachment> = emptyList(),
+    val draft: String = "",
+    val error: String? = null,
+    val loading: Boolean = false,
+    val authChecking: Boolean = false,
+    val validatedServer: String? = null,
+    val pendingLink: ChatTarget? = null,
+    val pendingVoiceShortcut: Boolean = false,
+    val pendingShare: SharePayload? = null,
+    val pendingExternalUrl: String? = null,
+    val pendingOutgoingShare: OutgoingShare? = null,
+    val features: FeatureState = FeatureState(),
+)
+
+data class FeatureState(
+    val routines: FeatureLoadState<List<Routine>> = FeatureLoadState.Loading,
+    val account: FeatureLoadState<AccountMemoryState> = FeatureLoadState.Loading,
+    val providers: FeatureLoadState<List<ProviderConnection>> = FeatureLoadState.Loading,
+    val webProviders: FeatureLoadState<WebProvidersState> = FeatureLoadState.Loading,
+    val plugins: FeatureLoadState<List<Plugin>> = FeatureLoadState.Loading,
+    val settings: AppSettings = AppSettings(),
+    val operation: FeatureOperationState = FeatureOperationState.Idle,
+    val routineDraft: Routine? = null,
+)
+
+class AppViewModel @JvmOverloads constructor(
+    application: Application,
+    private val gateway: MobileGateway = HttpMobileGateway(application),
+    private val previewGateway: MobileGateway = PreviewMobileGateway(),
+    private val drafts: DraftStore = DraftStore(application),
+    private val featureGateway: FeatureGateway? = null,
+) : AndroidViewModel(application) {
+    private var activeGateway: MobileGateway = gateway
+    private var activeFeatureGateway: FeatureGateway = featureGateway
+        ?: (gateway as? MobileFeatureApi)?.let(::LiveFeatureGateway)
+        ?: UnsupportedFeatureGateway
+    private val mutableState = MutableStateFlow(AppState())
+    val state: StateFlow<AppState> = mutableState.asStateFlow()
+    private val voiceController = VoiceRecordingController(
+        AndroidVoiceCapture(application),
+        VoiceTranscriber { uri ->
+            (activeGateway as? VoiceTranscriptionApi)?.transcribe(uri.toString())
+                ?: error("Voice transcription is only available on a connected server.")
+        },
+        viewModelScope,
+    )
+    val voiceState: StateFlow<VoiceRecordingState> = voiceController.state
+
+    init {
+        viewModelScope.launch {
+            runCatching { gateway.restoreSession() }.getOrNull()?.let { session ->
+                activeGateway = gateway
+                mutableState.update { it.copy(session = session) }
+                loadDirectory()
+                loadFeatureData()
+            }
+        }
+    }
+
+    fun acceptDeepLink(raw: String?) {
+        val target = DeepLinkRouter.parse(raw) ?: return
+        mutableState.update { it.copy(pendingLink = target) }
+        if (mutableState.value.session != null) openConversation(target.conversationId, target.messageId)
+    }
+
+    fun acceptVoiceShortcut(botId: String) {
+        mutableState.update { it.copy(pendingVoiceShortcut = true) }
+        acceptDeepLink("openteam://chat/${Uri.encode(botId)}")
+    }
+
+    fun consumeDeepLink() {
+        mutableState.update { it.copy(pendingLink = null) }
+    }
+
+    fun consumeVoiceShortcut() {
+        mutableState.update { it.copy(pendingVoiceShortcut = false) }
+    }
+
+    fun consumeExternalUrl() {
+        mutableState.update { it.copy(pendingExternalUrl = null) }
+    }
+
+    fun acceptShare(payload: SharePayload) {
+        mutableState.update { it.copy(pendingShare = payload, error = null) }
+    }
+
+    fun selectShareTarget(conversationId: String) {
+        val share = mutableState.value.pendingShare ?: return
+        val text = share.text?.trim().orEmpty()
+        val streams = share.streams.ifEmpty { listOfNotNull(share.stream) }
+        if (streams.isNotEmpty() && activeFeatureGateway === UnsupportedFeatureGateway) {
+            mutableState.update { it.copy(error = "File sharing requires a connected server that supports attachments.") }
+            return
+        }
+        val session = mutableState.value.session
+        mutableState.update {
+            it.copy(
+                pendingShare = null,
+                activeConversationId = conversationId,
+                activeMessageId = null,
+                draft = text,
+                messages = emptyList(),
+                error = null,
+                loading = streams.isNotEmpty(),
+            )
+        }
+        if (session != null) drafts.put(accountScope(session), conversationId, text)
+        viewModelScope.launch {
+            val history = runCatching { activeGateway.history(conversationId) }
+            history.onSuccess { value -> mutableState.update { it.copy(messages = value) } }
+                .onFailure { error -> mutableState.update { it.copy(error = error.message, loading = false) } }
+            if (streams.isNotEmpty()) {
+                val attachments = mutableListOf<Attachment>()
+                var failure: Throwable? = null
+                for (uri in streams) {
+                    val result = activeFeatureGateway.uploadAttachment(uri.toString())
+                    if (result.isFailure) {
+                        failure = result.exceptionOrNull()
+                        break
+                    }
+                    attachments += result.getOrThrow()
+                }
+                if (failure != null) {
+                    mutableState.update { it.copy(error = failure?.message ?: "Attachment upload failed.", loading = false) }
+                } else {
+                    val displayText = text.ifBlank { attachments.joinToString(", ") { it.name } }
+                    val optimistic = ChatMessage(newClientId(), "You", displayText, isMine = true, delivery = Delivery.SENDING, attachments = attachments)
+                    mutableState.update { it.copy(messages = it.messages + optimistic, draft = "", loading = false) }
+                    if (session != null) drafts.put(accountScope(session), conversationId, "")
+                    deliver(conversationId, optimistic, text, attachments.map(Attachment::messageRef))
+                }
+            }
+        }
+    }
+
+    fun signIn(server: String, username: String, credential: String) {
+        connect(gateway, server, username, credential)
+    }
+
+    fun signInPreview(server: String, username: String, credential: String) {
+        connect(
+            previewGateway,
+            server.ifBlank { "sample.local" },
+            username.ifBlank { "Sample user" },
+            credential.ifBlank { "sample" },
+        )
+    }
+
+    fun checkServer(server: String) {
+        val validator = gateway as? ServerValidationApi
+        if (validator == null) {
+            mutableState.update {
+                it.copy(authChecking = false, validatedServer = server.trim(), error = null)
+            }
+            return
+        }
+        mutableState.update { it.copy(authChecking = true, validatedServer = null, error = null) }
+        viewModelScope.launch {
+            validator.validateServer(server).fold(
+                onSuccess = { validation ->
+                    mutableState.update {
+                        it.copy(
+                            authChecking = false,
+                            validatedServer = validation.server,
+                            error = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    mutableState.update {
+                        it.copy(authChecking = false, validatedServer = null, error = error.message)
+                    }
+                },
+            )
+        }
+    }
+
+    fun clearServerValidation() {
+        mutableState.update { it.copy(validatedServer = null, error = null) }
+    }
+
+    private fun connect(target: MobileGateway, server: String, username: String, credential: String) {
+        mutableState.update { it.copy(loading = true, error = null) }
+        viewModelScope.launch {
+            target.signIn(server, username, credential).fold(
+                onSuccess = { session ->
+                    activeGateway = target
+                    activeFeatureGateway = featureGateway
+                        ?: (target as? MobileFeatureApi)?.let(::LiveFeatureGateway)
+                        ?: UnsupportedFeatureGateway
+                    mutableState.update { it.copy(session = session, loading = false) }
+                    loadDirectory()
+                    loadFeatureData()
+                },
+                onFailure = { error -> mutableState.update { it.copy(loading = false, error = error.message) } },
+            )
+        }
+    }
+
+    fun loadDirectory() {
+        viewModelScope.launch {
+            runCatching { activeGateway.conversations() }
+                .onSuccess { rows -> mutableState.update { it.copy(conversations = rows) } }
+                .onFailure { error -> mutableState.update { it.copy(error = error.message) } }
+        }
+    }
+
+    fun openConversation(id: String, messageId: String? = null) {
+        val session = mutableState.value.session
+        mutableState.update {
+            it.copy(
+                activeConversationId = id,
+                activeMessageId = messageId,
+                draft = session?.let { drafts.get(accountScope(it), id) }.orEmpty(),
+                messages = emptyList(),
+                historyBeforeSequence = null,
+                hasMoreHistory = false,
+                historyLoading = false,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            runCatching { activeGateway.historyPage(id) }
+                .onSuccess { page ->
+                    mutableState.update {
+                        it.copy(
+                            messages = page.messages,
+                            threadContext = page.threadContext,
+                            threadContextTruncated = page.threadContextTruncated,
+                            historyBeforeSequence = page.beforeSequence,
+                            hasMoreHistory = page.hasMoreBefore,
+                            historyLoading = false,
+                        )
+                    }
+                }
+                .onFailure { error -> mutableState.update { it.copy(error = error.message) } }
+        }
+    }
+
+    fun loadOlderHistory() {
+        val current = mutableState.value
+        val conversationId = current.activeConversationId ?: return
+        val before = current.historyBeforeSequence ?: return
+        if (!current.hasMoreHistory || current.historyLoading) return
+        mutableState.update { it.copy(historyLoading = true, error = null) }
+        viewModelScope.launch {
+            runCatching { activeGateway.historyPage(conversationId, before, 60) }
+                .onSuccess { page ->
+                    mutableState.update { state ->
+                        state.copy(
+                            messages = ChatHistoryPage.merge(state.messages, page.messages),
+                            historyBeforeSequence = page.beforeSequence,
+                            hasMoreHistory = page.hasMoreBefore,
+                            historyLoading = false,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    mutableState.update {
+                        it.copy(historyLoading = false, error = error.message ?: "Could not load older messages.")
+                    }
+                }
+        }
+    }
+
+    fun updateDraft(value: String) {
+        val current = mutableState.value
+        val id = current.activeConversationId ?: return
+        val session = current.session ?: return
+        drafts.put(accountScope(session), id, value)
+        mutableState.update { it.copy(draft = value) }
+    }
+
+    fun sendDraft() {
+        val current = mutableState.value
+        val conversationId = current.activeConversationId ?: return
+        val text = current.draft.trim()
+        val attachments = current.pendingAttachments
+        if (text.isEmpty() && attachments.isEmpty()) return
+        val id = newClientId()
+        val optimistic = ChatMessage(id, "You", text, isMine = true, delivery = Delivery.SENDING, attachments = attachments)
+        mutableState.update { it.copy(messages = it.messages + optimistic, draft = "", pendingAttachments = emptyList(), error = null) }
+        current.session?.let { drafts.put(accountScope(it), conversationId, "") }
+        deliver(conversationId, optimistic)
+    }
+
+    fun retryMessage(messageId: String) {
+        val current = mutableState.value
+        val conversationId = current.activeConversationId ?: return
+        val message = current.messages.firstOrNull { it.id == messageId && it.delivery == Delivery.FAILED } ?: return
+        mutableState.update { state ->
+            state.copy(
+                messages = state.messages.map { if (it.id == messageId) it.copy(delivery = Delivery.SENDING) else it },
+                error = null,
+            )
+        }
+        deliver(conversationId, message.copy(delivery = Delivery.SENDING))
+    }
+
+    private fun deliver(
+        conversationId: String,
+        message: ChatMessage,
+        text: String = message.body,
+        attachments: List<MessageAttachment> = message.attachments.map { it.messageRef() },
+    ) {
+        viewModelScope.launch {
+            activeGateway.send(conversationId, text, message.id, attachments).fold(
+                onSuccess = { accepted ->
+                    mutableState.update { state ->
+                        state.copy(messages = state.messages.map { if (it.id == message.id) accepted.copy(delivery = Delivery.SENT) else it })
+                    }
+                },
+                onFailure = { error ->
+                    mutableState.update { state ->
+                        state.copy(
+                            messages = state.messages.map { if (it.id == message.id) it.copy(delivery = Delivery.FAILED) else it },
+                            error = error.message ?: "Message could not be sent. Retry when connected.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun uploadChatAttachment(uri: String) {
+        runFeatureOperation {
+            activeFeatureGateway.uploadAttachment(uri)
+                .onSuccess { attachment ->
+                    mutableState.update { it.copy(pendingAttachments = it.pendingAttachments + attachment.copy(localUri = uri)) }
+                }
+                .onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun downloadChatAttachment(messageId: String, attachment: Attachment) {
+        if (!attachment.localUri.isNullOrBlank()) return
+        runFeatureOperation {
+            activeFeatureGateway.downloadAttachment(attachment.id)
+                .onSuccess { uri -> updateMessageAttachment(messageId, attachment.id) { it.copy(localUri = uri) } }
+                .onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun saveChatAttachment(messageId: String, attachment: Attachment) {
+        runFeatureOperation {
+            activeFeatureGateway.saveAttachment(attachment.id)
+                .onSuccess { uri -> updateMessageAttachment(messageId, attachment.id) { it.copy(localUri = uri) } }
+                .onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun shareChatAttachment(attachment: Attachment) {
+        runFeatureOperation {
+            val result = if (attachment.localUri.isNullOrBlank()) {
+                activeFeatureGateway.downloadAttachment(attachment.id)
+            } else {
+                Result.success(attachment.localUri ?: error("Attachment URI is unavailable."))
+            }
+            result.onSuccess { uri ->
+                mutableState.update {
+                    it.copy(
+                        pendingOutgoingShare = OutgoingShare(uri, attachment.mimeType, attachment.name),
+                        features = it.features.copy(operation = FeatureOperationState.Succeeded("Ready to share")),
+                    )
+                }
+            }.onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun forwardChatAttachment(attachment: Attachment, destinationId: String) {
+        runFeatureOperation {
+            activeFeatureGateway.forwardAttachment(attachment.id, destinationId)
+                .onSuccess {
+                    mutableState.update {
+                        it.copy(features = it.features.copy(operation = FeatureOperationState.Succeeded("Attachment forwarded")))
+                    }
+                }
+                .onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun consumeOutgoingShare() {
+        mutableState.update { it.copy(pendingOutgoingShare = null) }
+    }
+
+    fun submitChatAction(messageId: String, actionId: String, values: Map<String, String> = emptyMap()) {
+        runFeatureOperation { activeFeatureGateway.submitRichAction(messageId, actionId, values).onFailure(::reportFeatureFailure) }
+    }
+
+    fun reactToChatMessage(messageId: String, emoji: String) {
+        runFeatureOperation {
+            activeFeatureGateway.mutateReaction(messageId, emoji)
+                .onSuccess { reactions -> mutableState.update { state -> state.copy(messages = state.messages.map { if (it.id == messageId) it.copy(reactions = reactions) else it }) } }
+                .onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun mutateChatMessage(messageId: String, action: com.openteam.features.MessageAction) {
+        runFeatureOperation { activeFeatureGateway.mutateMessageAction(messageId, action).onFailure(::reportFeatureFailure) }
+    }
+
+    fun loadMessageContext(messageId: String) {
+        viewModelScope.launch {
+            runCatching { activeGateway.messageContext(messageId) }
+                .onSuccess { page ->
+                    mutableState.update { state ->
+                        val merged = (state.messages + page.messages + page.threadContext).distinctBy { it.id }.sortedWith(compareBy({ it.sequence.isBlank() }, { it.sequence }, { it.createdAt }))
+                        state.copy(messages = merged, threadContext = page.threadContext, threadContextTruncated = page.threadContextTruncated, activeMessageId = messageId, error = null)
+                    }
+                }
+                .onFailure { error -> mutableState.update { it.copy(error = error.message ?: "Could not load message context") } }
+        }
+    }
+
+    private fun updateMessageAttachment(messageId: String, attachmentId: String, update: (Attachment) -> Attachment) {
+        mutableState.update { state ->
+            state.copy(messages = state.messages.map { message ->
+                if (message.id != messageId) message else message.copy(attachments = message.attachments.map { attachment -> if (attachment.id == attachmentId) update(attachment) else attachment })
+            })
+        }
+    }
+
+    fun signOut() {
+        mutableState.value.session?.let { drafts.clearAccount(accountScope(it)) }
+        viewModelScope.launch { runCatching { activeGateway.signOut() } }
+        activeGateway = gateway
+        mutableState.value = AppState()
+    }
+
+    fun startVoice() {
+        if (activeGateway !is VoiceTranscriptionApi) {
+            mutableState.update { it.copy(error = "Voice transcription requires a connected server with transcription configured.") }
+            return
+        }
+        voiceController.start()
+    }
+
+    fun stopVoice() {
+        voiceController.stopAndTranscribe(mutableState.value.draft, ::updateDraft)
+    }
+
+    fun retryVoice() {
+        voiceController.retry(mutableState.value.draft, ::updateDraft)
+    }
+
+    fun cancelVoice() {
+        voiceController.cancel()
+    }
+
+    override fun onCleared() {
+        voiceController.close()
+        super.onCleared()
+    }
+
+    fun loadFeatureData() {
+        loadRoutines()
+        loadAccountMemory()
+        loadSettings()
+        loadProviders()
+        loadWebProviders()
+        loadPlugins()
+    }
+
+    suspend fun requestComputerGrant(botId: String): Result<ComputerVncGrant> = runCatching {
+        val api = activeGateway as? MobileFeatureApi
+            ?: error("Cloud computer viewing requires a connected server.")
+        val path = "/api/v0/bots/${Uri.encode(botId)}/screen/vnc"
+        ComputerVncGrant.fromJson(api.request(HttpMethod.POST, path))
+    }
+
+    fun startRoutineEditor(routine: Routine? = null) {
+        mutableState.update { it.copy(features = it.features.copy(routineDraft = routine ?: emptyRoutine())) }
+    }
+
+    fun updateRoutineDraft(routine: Routine) {
+        mutableState.update { it.copy(features = it.features.copy(routineDraft = routine)) }
+    }
+
+    fun saveRoutine() {
+        val routine = mutableState.value.features.routineDraft ?: return
+        runFeatureOperation {
+            activeFeatureGateway.saveRoutine("", routine).onSuccess {
+                mutableState.update { it.copy(features = it.features.copy(routineDraft = null)) }
+                loadRoutines()
+            }.onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun deleteRoutine() {
+        val routine = mutableState.value.features.routineDraft ?: return
+        runFeatureOperation {
+            activeFeatureGateway.deleteRoutine(routine.id, routine.revision).onSuccess {
+                mutableState.update { it.copy(features = it.features.copy(routineDraft = null)) }
+                loadRoutines()
+            }.onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun toggleRoutine(routine: Routine) {
+        runFeatureOperation {
+            activeFeatureGateway.setRoutineEnabled(routine.id, !routine.enabled, routine.revision)
+                .onSuccess { loadRoutines() }.onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun runRoutine(routine: Routine) {
+        runFeatureOperation {
+            activeFeatureGateway.runRoutine(routine.id).onSuccess { loadRoutines() }.onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun clearMemory() {
+        runFeatureOperation {
+            activeFeatureGateway.clearMemory().onSuccess { loadAccountMemory() }.onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun resetLocalData() {
+        mutableState.value.session?.let { drafts.clearAccount(accountScope(it)) }
+        runFeatureOperation { activeFeatureGateway.resetLocalData().onFailure(::reportFeatureFailure) }
+    }
+
+    fun saveSettings(settings: AppSettings) {
+        mutableState.update { it.copy(features = it.features.copy(settings = settings)) }
+        runFeatureOperation {
+            activeFeatureGateway.saveSettings(settings).onSuccess { saved ->
+                mutableState.update { it.copy(features = it.features.copy(settings = saved)) }
+            }.onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun connectProvider(provider: ProviderConnection, apiKey: String? = null) {
+        runFeatureOperation {
+            activeFeatureGateway.saveProvider(provider, apiKey).onSuccess { saved ->
+                saved.authorizationUrl?.takeIf(String::isNotBlank)?.let { url -> mutableState.update { it.copy(pendingExternalUrl = url) } }
+                loadProviders()
+            }.onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun disconnectProvider(provider: ProviderConnection) {
+        runFeatureOperation { activeFeatureGateway.disconnectProvider(provider.id).onSuccess { loadProviders() }.onFailure(::reportFeatureFailure) }
+    }
+
+    fun saveWebProvider(tool: String, provider: WebProvider, apiKey: String? = null) {
+        runFeatureOperation {
+            activeFeatureGateway.saveWebProvider(tool, provider.id, apiKey, provider.selected).onSuccess { value ->
+                mutableState.update { it.copy(features = it.features.copy(webProviders = FeatureLoadState.Ready(value))) }
+            }.onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun selectWebProvider(tool: String, provider: WebProvider) = saveWebProvider(tool, provider.copy(selected = true))
+
+    fun checkWebProvider(tool: String, provider: WebProvider) {
+        runFeatureOperation { activeFeatureGateway.checkWebProvider(tool, provider.id).onSuccess { loadWebProviders() }.onFailure(::reportFeatureFailure) }
+    }
+
+    fun installPlugin(plugin: Plugin) {
+        pluginOperation({ activeFeatureGateway.installPlugin(plugin.id) })
+    }
+
+    fun updatePlugin(plugin: Plugin) {
+        pluginOperation({ activeFeatureGateway.updatePlugin(plugin.id) })
+    }
+
+    fun rollbackPlugin(plugin: Plugin) {
+        pluginOperation({ activeFeatureGateway.rollbackPlugin(plugin.id) })
+    }
+    fun authorizePlugin(plugin: Plugin) = pluginOperation(
+        { activeFeatureGateway.authorizePlugin(plugin.connectionId ?: plugin.id) },
+        onSuccess = { authorized ->
+            authorized.authorizationUrl?.takeIf(String::isNotBlank)?.let { url ->
+                mutableState.update { it.copy(pendingExternalUrl = url) }
+            }
+        },
+    )
+    fun cancelPluginAuthorization(plugin: Plugin) {
+        val state = plugin.authorizationState ?: return
+        runFeatureOperation {
+            activeFeatureGateway.cancelPluginAuthorization(plugin.connectionId ?: plugin.id, state, plugin.authorizationRedirectUrl)
+                .onSuccess { loadPlugins() }
+                .onFailure(::reportFeatureFailure)
+        }
+    }
+
+    fun acceptPluginCallbackUrl(rawUrl: String?) {
+        val callbackUrl = rawUrl?.takeIf(String::isNotBlank) ?: return
+        val state = runCatching {
+            URI(callbackUrl).rawQuery.orEmpty().split('&').map { it.split('=', limit = 2) }
+                .firstOrNull { it.firstOrNull() == "state" }
+                ?.getOrNull(1)?.let { URLDecoder.decode(it, "UTF-8") }
+        }.getOrNull().orEmpty()
+        val plugin = (mutableState.value.features.plugins as? FeatureLoadState.Ready<*>)?.value
+            .let { value -> (value as? List<Plugin>)?.firstOrNull { it.authorizationState == state } }
+        if (plugin == null) {
+            mutableState.update { it.copy(error = "This plugin authorization link is expired or belongs to another session.") }
+            return
+        }
+        runFeatureOperation {
+            activeFeatureGateway.completePluginAuthorization(plugin.connectionId ?: plugin.id, callbackUrl)
+                .onSuccess { loadPlugins() }
+                .onFailure(::reportFeatureFailure)
+        }
+    }
+    fun testPluginTool(plugin: Plugin) {
+        pluginOperation({ activeFeatureGateway.testPluginTool(plugin.connectionId ?: plugin.id, "", "{}") })
+    }
+
+    private fun loadRoutines() {
+        viewModelScope.launch {
+            mutableState.update { it.copy(features = it.features.copy(routines = FeatureLoadState.Loading)) }
+            activeFeatureGateway.listRoutines("").onSuccess { value ->
+                mutableState.update { it.copy(features = it.features.copy(routines = if (value.isEmpty()) FeatureLoadState.Empty("No routines yet") else FeatureLoadState.Ready(value))) }
+            }.onFailure { error -> mutableState.update { it.copy(features = it.features.copy(routines = FeatureLoadState.Failure(error.message ?: "Could not load routines"))) } }
+        }
+    }
+
+    private fun loadAccountMemory() {
+        viewModelScope.launch {
+            mutableState.update { it.copy(features = it.features.copy(account = FeatureLoadState.Loading)) }
+            activeFeatureGateway.loadAccountMemory().onSuccess { value -> mutableState.update { it.copy(features = it.features.copy(account = FeatureLoadState.Ready(value))) } }
+                .onFailure { error -> mutableState.update { it.copy(features = it.features.copy(account = FeatureLoadState.Failure(error.message ?: "Could not load account"))) } }
+        }
+    }
+
+    private fun loadSettings() {
+        viewModelScope.launch {
+            activeFeatureGateway.loadSettings().onSuccess { value ->
+                mutableState.update { it.copy(features = it.features.copy(settings = value)) }
+            }
+        }
+    }
+
+    private fun loadProviders() {
+        viewModelScope.launch {
+            mutableState.update { it.copy(features = it.features.copy(providers = FeatureLoadState.Loading)) }
+            activeFeatureGateway.listProviderConnections().onSuccess { value -> mutableState.update { it.copy(features = it.features.copy(providers = if (value.isEmpty()) FeatureLoadState.Empty("No providers configured") else FeatureLoadState.Ready(value))) } }
+                .onFailure { error -> mutableState.update { it.copy(features = it.features.copy(providers = FeatureLoadState.Failure(error.message ?: "Could not load providers"))) } }
+        }
+    }
+
+    private fun loadWebProviders() {
+        viewModelScope.launch {
+            mutableState.update { it.copy(features = it.features.copy(webProviders = FeatureLoadState.Loading)) }
+            activeFeatureGateway.loadWebProviders().onSuccess { value -> mutableState.update { it.copy(features = it.features.copy(webProviders = FeatureLoadState.Ready(value))) } }
+                .onFailure { error -> mutableState.update { it.copy(features = it.features.copy(webProviders = FeatureLoadState.Failure(error.message ?: "Could not load web providers"))) } }
+        }
+    }
+
+    private fun loadPlugins() {
+        viewModelScope.launch {
+            mutableState.update { it.copy(features = it.features.copy(plugins = FeatureLoadState.Loading)) }
+            activeFeatureGateway.listPlugins().onSuccess { value -> mutableState.update { it.copy(features = it.features.copy(plugins = if (value.isEmpty()) FeatureLoadState.Empty("No plugins available") else FeatureLoadState.Ready(value))) } }
+                .onFailure { error -> mutableState.update { it.copy(features = it.features.copy(plugins = FeatureLoadState.Failure(error.message ?: "Could not load plugins"))) } }
+        }
+    }
+
+    private fun runFeatureOperation(operation: suspend () -> Unit) {
+        mutableState.update { it.copy(features = it.features.copy(operation = FeatureOperationState.Pending)) }
+        viewModelScope.launch {
+            operation()
+            if (mutableState.value.features.operation == FeatureOperationState.Pending) {
+                mutableState.update { it.copy(features = it.features.copy(operation = FeatureOperationState.Succeeded())) }
+            }
+        }
+    }
+
+    private fun reportFeatureFailure(error: Throwable) {
+        mutableState.update { it.copy(features = it.features.copy(operation = FeatureOperationState.Failed(error.message ?: "Operation failed"))) }
+    }
+
+    private fun <T> pluginOperation(operation: suspend () -> Result<T>, onSuccess: (T) -> Unit = {}) {
+        runFeatureOperation {
+            operation().onSuccess { value -> onSuccess(value); loadPlugins() }.onFailure(::reportFeatureFailure)
+        }
+    }
+
+    private fun emptyRoutine() = Routine("", "", "", RoutineSchedule(timeZone = java.util.TimeZone.getDefault().id))
+
+    private fun accountScope(session: MobileSession) =
+        "${session.server.trimEnd('/').lowercase()}|${session.accountName.lowercase()}"
+}
+
+private fun Attachment.messageRef() = MessageAttachment(
+    assetId = id,
+    fileName = name,
+    mimeType = mimeType,
+    byteSize = sizeBytes,
+    kind = kind,
+)

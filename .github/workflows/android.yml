@@ -1,0 +1,60 @@
+name: Android QA
+
+on:
+  push:
+    paths:
+      - "mobile/androidApp/**"
+      - "mobile/shared/**"
+      - "docs/android/**"
+      - "scripts/android/**"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "mobile/androidApp/**"
+      - "mobile/shared/**"
+      - "docs/android/**"
+      - "scripts/android/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 35 build tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Validate parity matrix and run JVM tests
+        run: bash scripts/android/qa.sh unit
+
+      - name: Assemble debug APK
+        run: bash scripts/android/qa.sh assemble
+
+      - name: Upload Android QA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-qa-report
+          path: output/android-qa/parity-report.md
+          if-no-files-found: ignore

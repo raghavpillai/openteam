@@ -20,3 +20,9 @@ apps/desktop/release-local/
 apps/landing/.generated/
 /.agents/skills/openteam-macos-release/
 packages/plugins/_generated/
+
+/.gradle/
+**/.gradle/
+**/build/
+local.properties
+/specs/

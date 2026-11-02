@@ -1,6 +1,7 @@
 import AVFoundation
 import PhotosUI
 import SwiftUI
+import ThinkingOrbsKit
 import UIKit
 import UniformTypeIdentifiers
 
@@ -89,6 +90,8 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   private let panel = UIView()
   private let panelMask = UIView()
   private var picker: PHPickerViewController?
+  /// Covers the picker's own "Loading…" until its grid arrives.
+  private var pickerCover: UIView?
   private var camera: TrayCamera?
   private var selection: [PHPickerResult] = []
   private let back = TrayGlassButton(symbol: "chevron.left", label: "Back")
@@ -360,10 +363,46 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   private func buildPhotos(in bounds: CGRect) {
     if picker == nil { preparePicker() }
     picker?.view.frame = bounds
+    coverPicker(in: bounds)
     place(back, at: CGPoint(x: Self.controlInset, y: bounds.height - Self.controlInset - Self.control))
     panel.addSubview(back)
     panel.addSubview(add)
     updateAdd(animated: false)
+  }
+
+  /// The picker draws a system spinner and "Loading…" until its out-of-process grid
+  /// attaches, which takes a couple of seconds on a cold start. Show the app's
+  /// connecting orb over it instead, and fade it out once the grid's host view lands.
+  private func coverPicker(in bounds: CGRect) {
+    guard let picker, !pickerLoaded(picker) else { return }
+    let cover = UIView(frame: bounds)
+    cover.backgroundColor = .systemBackground
+    cover.isUserInteractionEnabled = false
+    let orb = UIHostingController(rootView: ThinkingOrb(state: .connecting, size: .px64)
+      .accessibilityLabel("Loading photos"))
+    orb.view.backgroundColor = .clear
+    orb.view.frame = CGRect(x: 0, y: 0, width: 64, height: 64)
+    orb.view.center = CGPoint(x: bounds.midX, y: bounds.midY)
+    cover.addSubview(orb.view)
+    panel.insertSubview(cover, aboveSubview: picker.view)
+    pickerCover = cover
+    revealWhenLoaded(cover)
+  }
+
+  private func revealWhenLoaded(_ cover: UIView) {
+    guard let picker, pickerCover === cover else { return }
+    guard pickerLoaded(picker) else {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.revealWhenLoaded(cover) }
+      return
+    }
+    pickerCover = nil
+    UIView.animate(withDuration: 0.2, delay: 0.08, options: [.curveEaseOut],
+      animations: { cover.alpha = 0 }, completion: { _ in cover.removeFromSuperview() })
+  }
+
+  /// The grid lives in another process; it is ready once its host view is in the picker's tree.
+  private func pickerLoaded(_ picker: PHPickerViewController) -> Bool {
+    picker.view.subviews.contains { !$0.subviews.isEmpty }
   }
 
   private func updateAdd(animated: Bool) {

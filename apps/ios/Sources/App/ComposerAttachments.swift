@@ -210,7 +210,7 @@ struct ComposerPhotoViewer: View {
           .transition(.opacity)
           .accessibilityLabel(photo.name)
       } else {
-        ProgressView().tint(.white)
+        LoadingOrb(theme: .dark, label: "Loading photo")
       }
     }
     .overlay(alignment: .topTrailing) {

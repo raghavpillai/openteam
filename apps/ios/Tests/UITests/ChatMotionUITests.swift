@@ -523,6 +523,8 @@ import XCTest
     let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
 
     attach.tap()
+    // A cold launch can still be pushing the chat in, and taps during that are dropped.
+    if !app.buttons["attach-camera"].waitForExistence(timeout: 3) { attach.tap() }
     app.buttons["attach-camera"].tap()
     let shutter = app.buttons["attach-shutter"]
     XCTAssertTrue(shutter.waitForExistence(timeout: 5))

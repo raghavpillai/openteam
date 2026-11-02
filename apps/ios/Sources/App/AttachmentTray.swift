@@ -77,8 +77,11 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
 
   private let backdrop = UIControl()
   private let card = UIView()
-  private let material = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterial))
-  private let tint = UIView()
+  /// Liquid Glass on iOS 26, as in the reference; a thick blur before it.
+  private let material: UIVisualEffectView = {
+    if #available(iOS 26, *) { return UIVisualEffectView(effect: UIGlassEffect(style: .regular)) }
+    return UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterial))
+  }()
   private let menu = UIStackView()
   /// The photo or camera panel. It sits at its final place from the start and a
   /// mask grows it out of the menu with the card: the embedded picker ignores
@@ -118,18 +121,13 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     backdrop.addAction(UIAction { [weak self] _ in self?.collapse() }, for: .touchUpInside)
     view.addSubview(backdrop)
 
-    card.clipsToBounds = true
-    card.layer.cornerCurve = .continuous
     card.accessibilityIdentifier = "attachment-tray"
     material.frame = card.bounds
     material.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    material.layer.cornerCurve = .continuous
+    // Glass draws its own shape and rim; clipping would cut the rim off.
+    if #unavailable(iOS 26) { material.clipsToBounds = true }
     card.addSubview(material)
-    // The reference card reads as #1E1E1E over a black chat; the material alone is lighter.
-    tint.backgroundColor = UIColor { $0.userInterfaceStyle == .dark
-      ? UIColor(white: 0, alpha: 0.28) : UIColor(white: 1, alpha: 0.2) }
-    tint.frame = card.bounds
-    tint.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    card.addSubview(tint)
     view.addSubview(card)
 
     menu.axis = .vertical
@@ -150,7 +148,7 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
         self?.collapse(then: voice)
       }
     }
-    card.addSubview(menu)
+    material.contentView.addSubview(menu)
 
     // Barely visible rather than hidden: the embedded picker only loads its grid
     // while it is on screen, and it loads behind the menu.
@@ -182,6 +180,16 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     }, for: .touchUpInside)
     menu.addArrangedSubview(row)
     row.heightAnchor.constraint(equalToConstant: Self.rowHeight).isActive = true
+  }
+
+  /// The card's corners. Glass takes them from its corner configuration, so its
+  /// rim follows the shape as the menu grows into a panel.
+  private func round(_ radius: CGFloat) {
+    if #available(iOS 26, *) {
+      material.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
+    } else {
+      material.layer.cornerRadius = radius
+    }
   }
 
   // MARK: Geometry
@@ -227,7 +235,7 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     // Under the menu card until a panel opens.
     panelMask.frame = menuFrame.offsetBy(dx: -panel.frame.minX, dy: -panel.frame.minY)
     card.frame = menuFrame
-    card.layer.cornerRadius = Self.menuRadius
+    round(Self.menuRadius)
     menu.frame = CGRect(x: 0, y: Self.menuInset, width: Self.menuWidth,
       height: card.bounds.height - Self.menuInset * 2)
     guard !UIAccessibility.isReduceMotionEnabled else { return }
@@ -264,7 +272,7 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     let reduce = UIAccessibility.isReduceMotionEnabled
     let grow = UIViewPropertyAnimator(duration: reduce ? 0.2 : 0.46, dampingRatio: 0.86) {
       self.card.frame = target
-      self.card.layer.cornerRadius = Self.panelRadius
+      self.round(Self.panelRadius)
       self.panelMask.frame = content
       self.panelMask.layer.cornerRadius = Self.panelRadius
     }
@@ -314,7 +322,7 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     let radius = min(frame.height / 2, 28)
     let shrink = UIViewPropertyAnimator(duration: 0.32, dampingRatio: 1) {
       self.card.frame = frame
-      self.card.layer.cornerRadius = radius
+      self.round(radius)
       self.panelMask.frame = frame.offsetBy(dx: -self.panel.frame.minX, dy: -self.panel.frame.minY)
       self.panelMask.layer.cornerRadius = radius
       self.panel.alpha = 0

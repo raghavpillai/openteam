@@ -129,10 +129,63 @@ private struct ProgressRing: View {
   }
 }
 
+/// The draft's photos and videos full screen, swiped through sideways and
+/// opening on the one that was tapped.
+struct ComposerGallery: Identifiable {
+  let items: [ComposerPhoto]
+  let start: URL
+  var id: URL { start }
+}
+
+struct ComposerGalleryView: View {
+  let gallery: ComposerGallery
+  var closing: () -> Void = {}
+  @State private var selection: URL
+  init(gallery: ComposerGallery, closing: @escaping () -> Void = {}) {
+    self.gallery = gallery
+    self.closing = closing
+    _selection = State(initialValue: gallery.start)
+  }
+  @Environment(\.dismiss) private var dismiss
+  private var current: ComposerPhoto? { gallery.items.first { $0.url == selection } }
+  var body: some View {
+    // Pages keep the safe area, so their controls stay clear of the Dynamic
+    // Island and of side regions such as the folded Duo's status strip.
+    TabView(selection: $selection) {
+      ForEach(gallery.items) { item in
+        Group {
+          if item.isVideo {
+            ComposerVideoViewer(video: item, active: selection == item.url, showsClose: false, closing: closing)
+          } else {
+            ComposerPhotoViewer(photo: item, showsClose: false, closing: closing)
+          }
+        }.tag(item.url)
+      }
+    }
+    .tabViewStyle(.page(indexDisplayMode: .never))
+    .accessibilityIdentifier("composer-gallery")
+    .background(Color.black.ignoresSafeArea())
+    // One Close for every page: leading over a video, whose trailing corner holds
+    // Save and Share, and trailing over a photo.
+    .overlay(alignment: current?.isVideo == true ? .topLeading : .topTrailing) {
+      ViewerCircle(symbol: "xmark", label: "Close") {
+        closing()
+        dismiss()
+      }
+      .padding(.horizontal, 16).padding(.top, 8)
+      .accessibilityIdentifier("composer-photo-close")
+    }
+    // White status bar over the black viewer, in either appearance.
+    .preferredColorScheme(.dark)
+  }
+}
+
 /// A draft photo on black, with nothing to do but look and close.
 struct ComposerPhotoViewer: View {
   @Environment(\.dismiss) private var dismiss
   let photo: ComposerPhoto
+  /// False inside the gallery, which has one Close for every page.
+  var showsClose = true
   /// Runs as the viewer starts to close, so the keyboard rises while it slides away.
   var closing: () -> Void = {}
   @State private var image: UIImage?
@@ -161,12 +214,14 @@ struct ComposerPhotoViewer: View {
       }
     }
     .overlay(alignment: .topTrailing) {
-      ViewerCircle(symbol: "xmark", label: "Close") {
-        closing()
-        dismiss()
+      if showsClose {
+        ViewerCircle(symbol: "xmark", label: "Close") {
+          closing()
+          dismiss()
+        }
+        .padding(.trailing, 16).padding(.top, 8)
+        .accessibilityIdentifier("composer-photo-close")
       }
-      .padding(.trailing, 16).padding(.top, 8)
-      .accessibilityIdentifier("composer-photo-close")
     }
     .environment(\.colorScheme, .dark)
     .task {
@@ -222,6 +277,10 @@ private struct ViewerCircle: View {
       }
     }
   }
+  func pause() {
+    player.pause()
+    playing = false
+  }
   func toggle() {
     playing ? player.pause() : player.play()
     playing.toggle()
@@ -258,13 +317,19 @@ private struct PlayerSurface: UIViewRepresentable {
 struct ComposerVideoViewer: View {
   @Environment(\.dismiss) private var dismiss
   let video: ComposerPhoto
+  /// The gallery's current page; a video paged away from pauses.
+  var active = true
+  /// False inside the gallery, which has one Close for every page.
+  var showsClose = true
   var closing: () -> Void = {}
   @State private var playback: VideoPlayback
   @State private var saved = false
   @State private var sharing: URL?
   @State private var failure: String?
-  init(video: ComposerPhoto, closing: @escaping () -> Void = {}) {
+  init(video: ComposerPhoto, active: Bool = true, showsClose: Bool = true, closing: @escaping () -> Void = {}) {
     self.video = video
+    self.active = active
+    self.showsClose = showsClose
     self.closing = closing
     _playback = State(initialValue: VideoPlayback(asset: video.asset))
   }
@@ -291,11 +356,13 @@ struct ComposerVideoViewer: View {
     .animation(.easeOut(duration: 0.18), value: playback.playing)
     .overlay(alignment: .top) {
       HStack(spacing: 10) {
-        ViewerCircle(symbol: "xmark", label: "Close") {
-          playback.stop()
-          closing()
-          dismiss()
-        }.accessibilityIdentifier("composer-photo-close")
+        if showsClose {
+          ViewerCircle(symbol: "xmark", label: "Close") {
+            playback.stop()
+            closing()
+            dismiss()
+          }.accessibilityIdentifier("composer-photo-close")
+        }
         Spacer()
         ViewerCircle(symbol: saved ? "checkmark" : "arrow.down.to.line", label: saved ? "Saved" : "Save to Photos") {
           Task { await save() }
@@ -328,7 +395,8 @@ struct ComposerVideoViewer: View {
       Button("OK") { failure = nil }
     } message: { Text(failure ?? "") }
     .environment(\.colorScheme, .dark)
-    .onDisappear { playback.stop() }
+    .onChange(of: active) { _, active in if !active { playback.pause() } }
+    .onDisappear { playback.pause() }
   }
   private struct SharedFile: Identifiable {
     let url: URL

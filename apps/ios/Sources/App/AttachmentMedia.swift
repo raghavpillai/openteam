@@ -1,3 +1,4 @@
+import AVFoundation
 import ImageIO
 import Photos
 import SwiftUI
@@ -32,6 +33,17 @@ struct LoadedAttachment: Identifiable {
   @MainActor static func decode(_ url: URL, maximumPixels: Int) async throws -> Self {
     let decoded = try await AttachmentImageFile.decode(url, maximumPixels: maximumPixels)
     return Self(url: url, image: decoded.map { UIImage(cgImage: $0) }, maximumPixels: maximumPixels)
+  }
+}
+
+extension LoadedAttachment {
+  /// The video's first frame as its preview image.
+  func withVideoPoster(side: CGFloat) async -> Self {
+    let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+    generator.appliesPreferredTrackTransform = true
+    generator.maximumSize = CGSize(width: side, height: side)
+    let poster = (try? await generator.image(at: .zero).image).map { UIImage(cgImage: $0) }
+    return Self(url: url, image: poster, maximumPixels: maximumPixels)
   }
 }
 
@@ -79,6 +91,9 @@ struct AttachmentView: View {
     _loaded = State(initialValue: AttachmentPreviewCache.value(asset))
   }
   private var isImage: Bool { asset.mimeType.hasPrefix("image/") }
+  private var isVideo: Bool { asset.mimeType.hasPrefix("video/") }
+  /// Short videos load their first frame with the row; longer ones on tap.
+  private var previewsVideo: Bool { isVideo && asset.byteSize <= 30 * 1024 * 1024 }
   private var previewSize: CGSize { AttachmentImageFile.previewSize(width: asset.width, height: asset.height) }
   private var galleryID: String { messageID + ":" + asset.id + ":" + asset.fileName }
   private var gallery: [GalleryItem] {
@@ -100,16 +115,28 @@ struct AttachmentView: View {
             items: gallery, initialID: galleryID, initialFile: loaded)))
         } else { Task { await load(open: true) } }
       } label: {
-        if isImage {
+        if isImage || isVideo {
           ZStack {
             NativePalette.surface
             if let image = loaded?.image {
-              Image(uiImage: image).resizable().scaledToFit()
-            } else if failure != nil {
+              Image(uiImage: image).resizable().scaledToFill()
+                .frame(width: previewSize.width, height: previewSize.height).clipped()
+            } else if failure != nil && isImage {
               Label("Image unavailable", systemImage: "arrow.clockwise").font(.caption)
                 .foregroundStyle(NativePalette.muted)
             } else if loading { LoadingOrb(label: "Loading image") }
-            else { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
+            else if isImage { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
+            if isVideo {
+              Group {
+                if loading && loaded == nil && !previewsVideo { LoadingOrb(size: 22, label: "Opening") }
+                else {
+                  Image(systemName: "play.fill").font(.system(size: 20)).foregroundStyle(.white).offset(x: 1.5)
+                }
+              }
+              .frame(width: 52, height: 52)
+              .modifier(NativeGlass(radius: 26, darkTint: 0.1))
+              .environment(\.colorScheme, .dark)
+            }
           }.frame(width: previewSize.width, height: previewSize.height)
             .clipShape(RoundedRectangle(cornerRadius: 16))
         } else {
@@ -127,12 +154,12 @@ struct AttachmentView: View {
             .background(NativePalette.assistant, in: RoundedRectangle(cornerRadius: 20))
         }
       }.buttonStyle(.plain).disabled(loading && !isImage)
-        .accessibilityLabel("Open " + asset.fileName)
+        .accessibilityLabel((isVideo ? "Play " : "Open ") + asset.fileName)
         .accessibilityValue(failure != nil ? "Failed" : loaded != nil ? "Loaded" : "Loading")
         .accessibilityIdentifier("attachment-" + asset.id)
       if let failure, !isImage { InlineFailure(message: failure) { Task { await load(open: true) } } }
     }
-    .task(id: asset.id) { if isImage { await load(open: false) } }
+    .task(id: asset.id) { if isImage || previewsVideo { await load(open: false) } }
   }
   private var archive: Bool {
     ["zip", "tar", "gz", "7z", "rar"].contains((asset.fileName as NSString).pathExtension.lowercased())
@@ -152,6 +179,12 @@ struct AttachmentView: View {
   }
   private func presentFile(_ file: LoadedAttachment?) {
     guard let file else { return }
+    if isVideo {
+      modals.fullScreen = .init(content: AnyView(
+        ComposerVideoViewer(video: ComposerPhoto(url: file.url, name: asset.fileName, mimeType: asset.mimeType))
+          .preferredColorScheme(.dark)))
+      return
+    }
     modals.sheet = .init(content: AnyView(NativeFilePreview(url: file.url, mimeType: asset.mimeType)))
   }
   private func load(open: Bool) async {
@@ -160,9 +193,10 @@ struct AttachmentView: View {
     loading = true
     defer { loading = false }
     do {
-      let file = try await LoadedAttachment.fetch(asset, store: store)
+      var file = try await LoadedAttachment.fetch(asset, store: store)
       guard !isImage || file.image != nil else { throw APIError("This image could not be loaded.") }
-      if isImage { AttachmentPreviewCache.save(file, for: asset) }
+      if isVideo { file = await file.withVideoPoster(side: max(previewSize.width, previewSize.height) * 3) }
+      if isImage || isVideo { AttachmentPreviewCache.save(file, for: asset) }
       loaded = file
       failure = nil
       if open { presentFile(loaded) }

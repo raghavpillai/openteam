@@ -25,7 +25,7 @@ struct ComposerView: View {
   @State private var uploading = false
   /// The message capsule in window coordinates, where the tray settles after adding.
   @State private var composerFrame: CGRect = .zero
-  @State private var viewing: ComposerPhoto?
+  @State private var viewing: ComposerGallery?
   /// Picked photos and videos still being copied out of the library.
   @State private var pending: [PendingAttachment] = []
   @StateObject private var memo = VoiceMemoController()
@@ -160,12 +160,8 @@ struct ComposerView: View {
           photos = []
         }
       }
-      .fullScreenCover(item: $viewing, onDismiss: { focused = true }) { photo in
-        if photo.isVideo {
-          ComposerVideoViewer(video: photo) { focused = true }
-        } else {
-          ComposerPhotoViewer(photo: photo) { focused = true }
-        }
+      .fullScreenCover(item: $viewing, onDismiss: { focused = true }) { gallery in
+        ComposerGalleryView(gallery: gallery) { focused = true }
       }
       .onChange(of: scenePhase) { _, phase in
         if phase == .background { memo.suspend() }
@@ -234,7 +230,7 @@ struct ComposerView: View {
                   let media = ComposerPhoto(url: url, name: file.fileName, mimeType: file.mimeType)
                   ComposerThumbnail(media: media) {
                     focused = false
-                    viewing = media
+                    viewing = ComposerGallery(items: draftMedia, start: media.url)
                   } remove: {
                     store.removeStagedFile(file, channel: key)
                   }.transition(.opacity.combined(with: .scale(scale: 0.9)))
@@ -485,6 +481,14 @@ struct ComposerView: View {
       await Task.yield()
     }
     memo.report = { error in store.handle(error) }
+  }
+  /// The draft's photos and videos, in order, for the full-screen gallery.
+  private var draftMedia: [ComposerPhoto] {
+    (draft.stagedFiles ?? []).compactMap { file in
+      guard file.mimeType.hasPrefix("image/") || file.mimeType.hasPrefix("video/"),
+        let url = store.stagedFileURL(file) else { return nil }
+      return ComposerPhoto(url: url, name: file.fileName, mimeType: file.mimeType)
+    }
   }
   private var trayActions: AttachmentTrayActions {
     let remaining = max(0, Draft.maxAttachments - attachmentCount)

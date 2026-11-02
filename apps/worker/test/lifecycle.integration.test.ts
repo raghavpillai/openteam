@@ -274,9 +274,8 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(seenTurns[0]?.cwd).toBe(bot.defaultDirectory);
     expect(seenTurns[0]?.images).toEqual([inlineImage]);
     expect(seenTurns[0]?.content).toMatch(
-      /^<timestamp>.+ \(UTC\+3\)<\/timestamp>\n<user_query>\n\[t\d+u\] first\n<\/user_query>/
+      /^<timestamp>.+ \(UTC\+3\)<\/timestamp>\n<user_query>\n\[t\d+u\] first\n\nThe user attached a file\. They're stored off your box at the paths below[^]*\n<\/user_query>$/
     );
-    expect(seenTurns[0]?.content).toContain("Attached files available on the shared computer:");
     expect(seenTurns[0]?.content).toContain(
       join(workspace, "agent-data", "agents", bot.id, "attachments", `${uploadedImage.assetId}.png`)
     );

@@ -58,6 +58,7 @@ const DEFAULT_BLOCK_MS = 30_000;
 const STOPPED_SHELL_GRACE_MS = 2_000;
 /** Text files above this size are streamed rather than loaded whole. */
 const READ_STREAM_THRESHOLD_BYTES = 8 * 1024 * 1024;
+const PDF_HEADER = [0x25, 0x50, 0x44, 0x46]; // %PDF
 /** Archives and media Read refuses by name, as in the reference. */
 const UNSUPPORTED_BINARY_EXTENSIONS = /\.(zip|tar|gz|exe|dll|so|dylib|bin|mp4|webm|mov|avi|mkv|wmv|flv|m4v)$/i;
 
@@ -562,14 +563,16 @@ export class NativeToolExecutor {
     if (!metadata.isFile())
       throw new Error(`${metadata.isDirectory() ? "Path is a directory, not a file" : "Path is neither a file nor a directory"}: ${path}`);
     const extension = extname(canonical).toLowerCase();
-    const isPdf = extension === ".pdf";
+    const namedPdf = extension === ".pdf";
     const source = terminalLog ? await this.terminalLogSource(canonical, terminalRoot!) : await this.agentFileSource(canonical);
     try {
       // Large text files are streamed, keeping only the requested lines in memory.
-      if (metadata.size > READ_STREAM_THRESHOLD_BYTES && !isPdf && !imageMimeTypeForPath(canonical))
+      if (metadata.size > READ_STREAM_THRESHOLD_BYTES && !namedPdf && !imageMimeTypeForPath(canonical))
         return await this.readLargeText(source, path, canonical, metadata.size, offset, limit);
       const bytes = await source.bytes();
-      const plainText = decodeReadableText(bytes);
+      // As in the reference, a PDF is known by its header as well as its name.
+      const isPdf = namedPdf || PDF_HEADER.every((value, index) => bytes[index] === value);
+      const plainText = isPdf ? undefined : decodeReadableText(bytes);
 
       const mimeType = plainText === undefined ? sniffImageMimeType(bytes) ?? imageMimeTypeForPath(canonical) : undefined;
       if (mimeType) {

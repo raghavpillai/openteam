@@ -124,9 +124,15 @@ describe("main-agent graphical delegation instructions", () => {
       if (media) {
         // A media worker's prompt is the whole review brief, with no tools or plugin skills to describe.
         expect(prompt.instructions).toStartWith("You are running as a subagent under a parent agent.");
-        expect(prompt.instructions).toContain("**Accuracy is paramount** - The parent agent cannot see what you see.");
-        expect(prompt.instructions).toContain("You see sampled still frames, not audio; say so when a question depends on sound or on motion between frames.");
-        expect(prompt.instructions).not.toMatch(/coding agent|Canvas|DraftExternalMessage|Installed plugin skills|Child-only/);
+        if (subagentType === "watchVideo") {
+          // A user's video is reviewed with the reference's own brief, word for word.
+          expect(prompt.instructions).toContain("**Accuracy is paramount** - The coding agent cannot see what you see.");
+          expect(prompt.instructions).not.toMatch(/Canvas|DraftExternalMessage|Installed plugin skills|Child-only/);
+        } else {
+          expect(prompt.instructions).toContain("**Accuracy is paramount** - The parent agent cannot see what you see.");
+          expect(prompt.instructions).toContain("You see sampled still frames, not audio; say so when a question depends on sound or on motion between frames.");
+          expect(prompt.instructions).not.toMatch(/coding agent|Canvas|DraftExternalMessage|Installed plugin skills|Child-only/);
+        }
         continue;
       }
       expect(prompt.instructions).toContain(`running as the ${subagentType} subagent`);

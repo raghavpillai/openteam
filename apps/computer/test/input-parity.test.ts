@@ -66,6 +66,18 @@ describe("GrokBot input parity at the runtime boundary", () => {
   );
 
   test.skipIf(!Bun.which("pdftotext"))(
+    "knows a PDF by its header when its name doesn't say so, as the reference does",
+    async () => {
+      const root = await temporary();
+      const file = join(root, "1089646.data");
+      await copyFile(new URL("./fixtures/input-parity/three-pages.pdf", import.meta.url), file);
+      const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+      const result = await executor.read({ path: file }, root);
+      expect((result.content[0] as { text: string }).text).toContain("-- 1 of 3 --");
+    }
+  );
+
+  test.skipIf(!Bun.which("pdftotext"))(
     "reads a PDF whole with the reference's page markers, and a PDF without a text layer as just its markers",
     async () => {
       const root = await temporary();

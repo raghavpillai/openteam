@@ -1,4 +1,5 @@
 import { fenceToolResults } from "./untrusted-results";
+import { imagesBeforeText } from "./user-content-order";
 import { repairImageHistory } from "./image-input";
 import type {
   ExtensionFactory,
@@ -144,6 +145,7 @@ export function compactionExtension(
               epoch: latest.epoch,
             };
         }
+        event.messages = imagesBeforeText(event.messages);
         await acknowledgeToolOutcomes?.(event.messages as BotMessage[]);
         if (active.diskPressureEpisode != null && !active.diskPressureReminded && active.session) {
           active.diskPressureReminded = true;

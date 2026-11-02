@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BrowserNetworkIndicator } from "./browser-network-indicator";
 import { resolveVncSocketUrl } from "../../client/runtime-url";
 import type RFB from "@novnc/novnc";
 import type { ScreenClipboardInput, ScreenClipboardView, ScreenVncSessionView } from "@openteam/contracts";
@@ -197,6 +198,7 @@ export default function VncComputer({ botId, name, serverUrl, createSession, cli
     }}>
     {lastFrame && <img alt="" className="pointer-events-none absolute inset-0 size-full object-contain" src={lastFrame} />}
     <div ref={container} contentEditable suppressContentEditableWarning className="absolute inset-0 size-full" role="application" aria-label={`${name}'s interactive Linux computer`} />
+    <BrowserNetworkIndicator />
     {(state !== "connected" || error) && <div className={`pointer-events-none absolute ${lastFrame || error ? "bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-xs" : "inset-0 grid place-items-center text-[18px]"}`} role="status">
       {error ?? (state === "reconnecting" ? "Reconnecting…" : "Connecting…")}
     </div>}

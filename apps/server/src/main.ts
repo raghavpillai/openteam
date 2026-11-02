@@ -26,6 +26,7 @@ import { settingsRoutes } from "./routes/settings";
 import { transcriptionRoutes } from "./routes/transcription";
 import { systemVersion } from "./system-version";
 import { ScreenVncProxy, type VncConnection } from "./screen-vnc";
+import { BrowserNetworkService, networkStore, type NetworkConnection } from "./services/browser-network-service";
 
 const port = Number(process.env.OPENTEAM_PORT ?? 8787);
 
@@ -75,12 +76,19 @@ const authorizedInternal = (request: Request): boolean => {
   );
 };
 
-const server = Bun.serve<VncConnection>({
+const browserNetwork = new BrowserNetworkService(networkStore(app.prisma), app.machines, authorizedInternal);
+const isNetwork = (data: VncConnection | NetworkConnection): data is NetworkConnection => "kind" in data && data.kind === "browser-network";
+const server = Bun.serve<VncConnection | NetworkConnection>({
   hostname: process.env.OPENTEAM_SERVER_HOST ?? "0.0.0.0",
   port,
   idleTimeout: 255,
   maxRequestBodySize: Number.MAX_SAFE_INTEGER,
-  websocket: vnc.websocket,
+  websocket: {
+    maxPayloadLength: 1024 * 1024, backpressureLimit: 4 * 1024 * 1024, closeOnBackpressureLimit: true, idleTimeout: 60, sendPings: true,
+    open: socket => isNetwork(socket.data) ? browserNetwork.websocket.open?.(socket as any) : vnc.websocket.open?.(socket as any),
+    message: (socket, message) => isNetwork(socket.data) ? browserNetwork.websocket.message(socket as any, message) : vnc.websocket.message(socket as any, message),
+    close: (socket, code, reason) => isNetwork(socket.data) ? browserNetwork.websocket.close?.(socket as any, code, reason) : vnc.websocket.close?.(socket as any, code, reason),
+  },
   async fetch(request, requestServer) {
     if (request.method === "OPTIONS")
       return new Response(null, { status: 204, headers: corsHeaders });
@@ -89,6 +97,12 @@ const server = Bun.serve<VncConnection>({
     const networkRequest=request;
     const requestIpServer={requestIP:()=>requestServer.requestIP(networkRequest)};
     try {
+      if (request.method === "GET" && path === "/api/machines/channel/browser-network-identity") {
+        await app.machines.authenticate(request);
+        return json({ deploymentId: (await networkStore(app.prisma).read()).deploymentId });
+      }
+      if (request.method === "GET" && path === "/api/machines/channel/browser-network") return await browserNetwork.upgrade(request, requestServer, "device");
+      if (request.method === "GET" && path === "/api/internal/browser-network/channel") return await browserNetwork.upgrade(request, requestServer, "computer");
       if(path==="/api/internal/connector-transfer" && request.method==="POST") {
         if(!authorizedInternal(request))return json({error:{code:"unauthorized",message:"Unauthorized"}},401);
         requestServer.timeout(networkRequest,0);
@@ -294,6 +308,15 @@ const server = Bun.serve<VncConnection>({
         return assetResponse(app.assets, app.agentData, request, url, assetMatch[1]);
       }
       const context: RouteContext = { app, request, url, path, authMode, authenticatedSessionId };
+      if (path === "/api/server-settings/browser-network") {
+        if (request.method === "GET") return json(await browserNetwork.view());
+        if (request.method === "PATCH") return json(await browserNetwork.update(await request.json().catch(() => null)), 202);
+      }
+      if (path === "/api/server-settings/browser-network/quality" && request.method === "POST")
+        return json(await browserNetwork.egress(() => app.browserNetworkQuality()));
+      if (path === "/api/server-settings/browser-network/egress" && request.method === "POST")
+        return json(await browserNetwork.egress(() => app.browserNetworkEgress()));
+      if (path === "/api/server-settings/browser-network/retry" && request.method === "POST") return json(await browserNetwork.retry());
       for (const route of [
         clientRoutes,
         pluginQueryRoutes,
@@ -318,6 +341,7 @@ const server = Bun.serve<VncConnection>({
 
 const shutdown = async () => {
   vnc.stop();
+  browserNetwork.close();
   app.machines.relay.close();
   server.stop();
   await Effect.runPromise(app.close());

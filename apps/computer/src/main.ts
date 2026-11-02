@@ -1,4 +1,6 @@
 import { FormPreparationError } from "./user-form-host";
+import { startBrowserNetwork } from "./browser-network";
+import { ComputerDisplaySettings } from "./display-settings";
 import { FORM_PREPARATION_FAILURE_MESSAGES } from "@openteam/contracts";
 import { timingSafeEqual } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
@@ -37,29 +39,18 @@ import { TranscriptMirror } from "./transcript-mirror";
 const port = Number(process.env.OPENTEAM_COMPUTER_PORT ?? 8790);
 const controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
 const workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
+const browserNetwork = await startBrowserNetwork(process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787", controlToken);
 const readiness = new ComputerReadiness(() => checkAgentWorkspace(workspaceRoot));
 const setBoxClock = createBoxClock();
-let displayCache: { width: number; height: number; until: number } | undefined;
-const screens = new ScreenBroker(undefined, async () => {
-  if (displayCache && displayCache.until > Date.now()) return displayCache;
+const displaySettings = new ComputerDisplaySettings(async () => {
   const response = await fetch(
     `${process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787"}/api/v0/internal/computer-display`,
     { headers: { authorization: `Bearer ${controlToken}` }, signal: AbortSignal.timeout(5_000) }
   );
   if (!response.ok) throw new Error("Computer display settings are unavailable");
-  const value = (await response.json()) as { width: number; height: number };
-  if (
-    !Number.isInteger(value.width) ||
-    !Number.isInteger(value.height) ||
-    value.width < 640 ||
-    value.width > 7680 ||
-    value.height < 480 ||
-    value.height > 4320
-  )
-    throw new Error("Invalid computer display dimensions");
-  displayCache = { ...value, until: Date.now() + 30_000 };
-  return displayCache;
+  return response.json();
 });
+const screens = new ScreenBroker(undefined, () => displaySettings.get());
 const agentStores = new BotAgentStore();
 const boxStore = new BoxStoreSync({
   hasLiveAgentHandle: (agentId) => agentStores.hasLiveHandle(agentId),
@@ -213,8 +204,17 @@ const server = Bun.serve({
       }
     }
     if (!authorized(request)) return json({ error: "unauthorized" }, 401);
+    if (url.pathname === "/v1/browser-network" && request.method === "GET") return json(browserNetwork.status());
 
     try {
+      if (url.pathname === "/v1/browser-network/quality" && request.method === "POST") {
+        try { return json(await browserNetwork.quality(), 200, { "cache-control": "no-store" }); }
+        catch { return json({ error: "Could not test the active browser connection" }, 503); }
+      }
+      if (url.pathname === "/v1/browser-network/egress" && request.method === "POST") {
+        try { return json(await browserNetwork.egress()); }
+        catch { return json({ error: "Could not check browser exit connection" }, 503); }
+      }
       if (request.method === "GET" && url.pathname === "/v1/task-capabilities") {
         return json({
           boxAvailable: await readiness.check(),
@@ -684,6 +684,7 @@ const shutdown = (): Promise<void> => {
   server.stop();
   runtime.closeIdleProviderConnections();
   shutdownPromise = Promise.all([
+    browserNetwork.close(),
     runtime.recordLeftRunningProcesses().catch((error) => console.warn(`Left-running process record failed: ${String(error)}`)),
     stdioMcp.closeAll(),
     // A source a bot removed without running apt since must not come back at the next start.

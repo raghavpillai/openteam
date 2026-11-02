@@ -1,4 +1,5 @@
 import { TailscaleManager } from "./tailscale-manager";
+import type { DesktopBrowserNetwork } from "./browser-network";
 import { randomBytes } from "node:crypto";
 import { loadMachineIdentity } from "./host/machine-identity";
 import { DesktopMachineEnrollment } from "./host/machine-enrollment";
@@ -80,6 +81,7 @@ const activityNotifications = new Map<string, Notification>();
 let isQuitting = false;
 const localMachine = { machineId: "", label: hostname() };
 let machineEnrollment: DesktopMachineEnrollment | null = null;
+let browserNetwork: DesktopBrowserNetwork | null = null;
 // Messages is macOS-only: other platforms report no Messages support at all.
 const messagesAccess = process.platform === "darwin"
   ? new MessagesAccess(undefined, undefined, [...new Set([process.env.__CFBundleIdentifier, "dev.openteam.desktop"].filter((id): id is string => !!id))])
@@ -936,6 +938,12 @@ ipcMain.handle("openteam:computer-clipboard-write", (event, text: unknown) => {
   clipboard.writeText(text);
 });
 ipcMain.handle("openteam:computer:get", async event => computerSettingsView(await requireComputerSettings(event).read()));
+ipcMain.handle("openteam:network:get", event => { requireAuthSender(event); return browserNetwork?.status() ?? null; });
+ipcMain.handle("openteam:network:share", async (event, enabled: unknown) => {
+  requireAuthSender(event);
+  if (typeof enabled !== "boolean" || !browserNetwork) throw new Error("Invalid browser network permission");
+  return browserNetwork.setAllowed(enabled);
+});
 ipcMain.handle("openteam:computer:update", async (event, input: unknown) => {
   const record = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : null;
   if (!record || !Object.keys(record).length || Object.keys(record).some(key => key !== "machineLabel" && key !== "messagesEnabled")) throw new Error("Invalid computer settings");
@@ -1243,6 +1251,7 @@ if (!hasSingleInstanceLock) {
         machineId: localMachine.machineId,
         localUrl: `http://127.0.0.1:${address.port}`,
         localToken: bridgeToken,
+        onConnection: connection => { void browserNetwork?.configure(connection); },
         getToken: async () => (await authTokenStore!.read()).token,
         getIdentity: async () => {
           const settings = await computerSettings!.read();
@@ -1252,6 +1261,10 @@ if (!hasSingleInstanceLock) {
           };
         },
       });
+      const { DesktopBrowserNetwork, NetworkConsentStore } = await import("./browser-network");
+      browserNetwork = new DesktopBrowserNetwork(localMachine.machineId, new NetworkConsentStore(join(app.getPath("userData"), "browser-network-consent.json")));
+      powerMonitor.on("suspend", () => browserNetwork?.setSuspended(true));
+      powerMonitor.on("resume", () => browserNetwork?.setSuspended(false));
       if (enrollmentServerUrl) machineEnrollment.configure(enrollmentServerUrl);
 
       app.on("activate", () => {
@@ -1273,6 +1286,7 @@ app.on("before-quit", () => {
   desktopUpdateTimer = null;
   desktopNotifications?.clear();
   void machineEnrollment?.stop();
+  browserNetwork?.stop();
   hostBridge?.close();
   hostJobs.close();
 });

@@ -266,6 +266,8 @@ const lazyBudgets: Record<string, number> = {
   // Main already measures 33,930 with auto-review rules; 37,276 with Timezone.
   settingsGeneral: 37_600,
   settingsComputer: 31_000,
+  // Dedicated network priority controls, including their on-demand stylesheet.
+  settingsNetwork: 25_000,
   // Provider sign-in, model selection and testing now load only on Settings → Model.
   // Includes onboarding's shared searchable picker and compact popover (53,386 bytes).
   settingsModel: 54_000,

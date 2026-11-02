@@ -1,3 +1,4 @@
+import { PrivateSettingValue } from "./private-value";
 import { SmartNotificationSettings } from "./smart-notifications";
 import { TimeZoneSettings } from "./time-zone";
 import { Copy } from "lucide-react";
@@ -44,7 +45,6 @@ export default function GeneralSettings() {
   const account = accountPresentation(auth.user, auth.mode);
   const [signingOut, setSigningOut] = useState(false);
   const [accountCopied, setAccountCopied] = useState(false);
-  const [endpointRevealed, setEndpointRevealed] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>(readThemePreference);
 
   const changeTheme = (value: string) => {
@@ -92,21 +92,7 @@ export default function GeneralSettings() {
             </div>
             <div className="mt-1 flex items-baseline gap-2 text-[12px] leading-4 text-foreground-secondary">
               <span className="shrink-0">Endpoint</span>
-              <button
-                aria-label={endpointRevealed ? "Hide server endpoint" : "Reveal server endpoint"}
-                aria-pressed={endpointRevealed}
-                className="min-w-0 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                onClick={() => setEndpointRevealed((revealed) => !revealed)}
-                title={endpointRevealed ? "Click to hide endpoint" : "Click to reveal endpoint"}
-                type="button"
-              >
-                <span
-                  aria-hidden={!endpointRevealed}
-                  className={`block select-none break-all transition-[filter,opacity] duration-300 ease-out motion-reduce:transition-none ${endpointRevealed ? "blur-none opacity-100" : "blur-[5px] opacity-70"}`}
-                >
-                  {API_BASE}
-                </span>
-              </button>
+              <PrivateSettingValue value={API_BASE} label="server endpoint" />
             </div>
           </div>
           <button

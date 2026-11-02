@@ -1,5 +1,6 @@
 import type { ServerUpdateView } from "@openteam/contracts";
 import type { NotificationPresenceInput, NotificationRouting } from "@openteam/contracts/notification-presence";
+import type { BrowserNetworkView, NetworkSettingsUpdate, NetworkEgress, NetworkQuality } from "@openteam/contracts/browser-network";
 import type {AutomationWebhookInput,AutomationWebhookView} from "@openteam/contracts/automation-webhooks";
 import type { WebProviderCheckInput, WebProvidersInput, WebProvidersView } from "@openteam/contracts/web-search";
 import type {
@@ -183,6 +184,11 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;connected:boolean;enabled:boolean;lastSeenAt:string|null;messages:"ready"|"needs_permission"|"off"|"unavailable";messagesPermissions:{fullDiskAccess:boolean;automation:string;contacts:string}|null}>>("/api/v0/server-settings/machines"),
     machineMessages: (machineId:string) => transport.request<MachineMessagesSettings>(`/api/v0/server-settings/machines/${encodeURIComponent(machineId)}/messages`),
     updateMachineMessages: (machineId:string, input:{sendWithoutAsking?:boolean;removeRecipient?:string}) => transport.request<MachineMessagesSettings>(`/api/v0/server-settings/machines/${encodeURIComponent(machineId)}/messages`,{method:"PATCH",body:JSON.stringify(input)}),
+    browserNetwork: () => transport.request<BrowserNetworkView>("/api/v0/server-settings/browser-network"),
+    updateBrowserNetwork: (input: NetworkSettingsUpdate) => transport.request<BrowserNetworkView>("/api/v0/server-settings/browser-network", {method: "PATCH", body: JSON.stringify(input)}),
+    browserNetworkQuality: () => transport.request<NetworkQuality>("/api/v0/server-settings/browser-network/quality", {method: "POST", body: "{}"}),
+    browserNetworkEgress: () => transport.request<NetworkEgress>("/api/v0/server-settings/browser-network/egress", {method: "POST", body: "{}"}),
+    retryBrowserNetwork: () => transport.request<BrowserNetworkView>("/api/v0/server-settings/browser-network/retry", {method: "POST", body: "{}"}),
     computerDisplay: () => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display"),
     saveComputerDisplay: (value:{width:number;height:number}) => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display",{method:"PATCH",body:JSON.stringify(value)}),
     registerMachine: (bridgeUrl:string) => transport.request("/api/v0/server-settings/machines",{method:"POST",body:JSON.stringify({bridgeUrl})}),

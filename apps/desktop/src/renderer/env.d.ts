@@ -45,6 +45,8 @@ interface Window {
       cancel(): Promise<void>;
     };
     computer: {
+      network: () => Promise<import("@openteam/contracts/browser-network").NetworkSharingStatus | null>;
+      shareNetwork: (enabled: boolean) => Promise<import("@openteam/contracts/browser-network").NetworkSharingStatus>;
       get: () => Promise<OpenTeamComputerSettings>;
       update: (request: { machineLabel?: string; messagesEnabled?: boolean }) => Promise<OpenTeamComputerSettings>;
       messagesPermissions: (request?: "fullDiskAccess" | "automation" | "contacts") => Promise<OpenTeamMessagesPermissions | null>;

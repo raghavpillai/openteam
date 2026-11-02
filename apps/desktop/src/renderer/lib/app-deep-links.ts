@@ -12,6 +12,7 @@ const viewByAnchor: Record<SettingsAnchor, SettingsView> = {
   theme: "general",
   microphone: "general",
   computers: "computer",
+  "browser-network": "server",
   "inference-provider": "model",
   "inference-model": "model",
   "inference-reasoning": "model",

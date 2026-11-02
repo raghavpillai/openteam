@@ -3,6 +3,7 @@ export const APP_SETTINGS_ANCHORS = [
   "theme",
   "microphone",
   "computers",
+  "browser-network",
   "inference-provider",
   "inference-model",
   "inference-reasoning",

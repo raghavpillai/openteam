@@ -1270,6 +1270,17 @@ model ComputerDisplaySettings {
   updatedAt DateTime @updatedAt
 }
 
+// Desired egress/order survives disconnects. Server fallback requires an explicit ranked entry.
+model BrowserNetworkSettings {
+  id String @id @default("global")
+  deploymentId String @default(uuid())
+  mode String @default("ranked")
+  machineId String?
+  sourceOrder String[] @default(["server"])
+  revision Int @default(1)
+  updatedAt DateTime @updatedAt
+}
+
 // Deployment-wide APNs credentials. The signing key is encrypted using the
 // installation control token, which is shared by the server and worker.
 model ApnsSettings {

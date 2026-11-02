@@ -6,15 +6,7 @@ export const SETTINGS_PALETTE_SECTIONS = [
     label: "General",
     icon: "settings",
     target: null,
-    keywords: [
-      "account",
-      "preferences",
-      "appearance",
-      "theme",
-      "mode",
-      "sign out",
-      "logout",
-    ],
+    keywords: ["account", "preferences", "appearance", "theme", "mode", "sign out", "logout"],
   },
   {
     id: "computer",
@@ -22,6 +14,13 @@ export const SETTINGS_PALETTE_SECTIONS = [
     icon: "computer",
     target: "computers",
     keywords: ["computer", "machines", "local execution", "host", "run tasks"],
+  },
+  {
+    id: "network",
+    label: "Server: Browser network",
+    icon: "computer",
+    target: "browser-network",
+    keywords: ["browser", "network", "priority", "fallback", "sharing", "connection"],
   },
   {
     id: "updates",

@@ -150,6 +150,7 @@ COPY --from=build --chown=box:box /app/node_modules /app/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/node_modules /app/apps/computer/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/dist/main.js /app/apps/computer/dist/main.js
 COPY --from=build --chown=box:box /app/apps/computer/dist/provider-cli.js /app/apps/computer/dist/provider-cli.js
+COPY --from=build --chown=box:box /app/apps/computer/dist/browser-network-worker.mjs /app/apps/computer/dist/browser-network-worker.mjs
 COPY --from=build --chown=box:box /app/apps/computer/dist/installs-cli.js /app/apps/computer/dist/installs-cli.js
 COPY --from=memory-tools /openteam-memory-init /openteam-desktop-exec /usr/lib/openteam/bin/
 COPY docker/openteam-memory-setup.py /usr/lib/openteam/bin/openteam-memory-setup.py

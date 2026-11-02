@@ -13,7 +13,15 @@ import XCTest
     let link = app.buttons["server-view-updates"]
     XCTAssertTrue(link.waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["server-update-start"].exists)
-    XCTAssertTrue(app.buttons["server-manage-devices"].exists)
+    // Browser priorities extend this native list; verify the existing controls
+    // by scrolling them into view rather than requiring offscreen rows to exist.
+    let devices = app.buttons["server-manage-devices"]
+    for _ in 0..<6 where !devices.isHittable { app.swipeUp() }
+    XCTAssertTrue(devices.isHittable)
+    devices.tap()
+    XCTAssertTrue(app.navigationBars["Manage devices"].waitForExistence(timeout: 5))
+    app.navigationBars.buttons["Server"].tap()
+    for _ in 0..<6 where !link.isHittable { app.swipeDown() }
     try tap(link, app)
     XCTAssertTrue(app.navigationBars["Updates"].waitForExistence(timeout: 5))
     let start = app.buttons["server-update-start"]

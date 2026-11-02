@@ -180,6 +180,8 @@ contextBridge.exposeInMainWorld("openteam", {
     cancel: () => ipcRenderer.invoke("openteam:provider-sign-in:cancel"),
   },
   computer: {
+    network: () => ipcRenderer.invoke("openteam:network:get"),
+    shareNetwork: (enabled: boolean) => ipcRenderer.invoke("openteam:network:share", enabled),
     get: () => ipcRenderer.invoke("openteam:computer:get"),
     update: (request: { machineLabel?: string; messagesEnabled?: boolean }) => ipcRenderer.invoke("openteam:computer:update", request),
     messagesPermissions: (request?: "fullDiskAccess" | "automation" | "contacts") => ipcRenderer.invoke("openteam:computer:messages-permissions", request ?? null),

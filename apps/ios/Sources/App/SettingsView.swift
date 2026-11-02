@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Settings pages that other screens open directly.
-enum SettingsRoute: Hashable { case model, voiceNotes, server, updates }
+enum SettingsRoute: Hashable { case model, voiceNotes, server, updates, devices }
 
 struct SettingsView: View {
   @Environment(AppStore.self) private var store
@@ -127,8 +127,9 @@ struct SettingsView: View {
           switch route {
           case .model: ModelSettingsView()
           case .voiceNotes: VoiceNotesSettingsView()
-          case .server: ServerStatusView()
+          case .server: BrowserNetworkSettingsView { path.append($0) }
           case .updates: UpdatesSettingsView()
+          case .devices: ManageDevicesView()
           }
         }
         .toolbar {
@@ -316,13 +317,15 @@ struct ManageDevicesView: View {
   }
 }
 
-struct ServerStatusView: View {
+struct ServerStatusSections: View {
+  // Route through the settings path while the browser priority list is editing.
+  var navigate: (SettingsRoute) -> Void
   @Environment(AppStore.self) private var store
   @State private var release: ServerRelease?
   var body: some View {
-    NativeForm {
+    Group {
       Section("Connected server") {
-        NavigationLink(value: SettingsRoute.updates) {
+        Button { navigate(.updates) } label: {
           HStack {
             VStack(alignment: .leading, spacing: 3) {
               Text(release.map { "Server \($0.releaseVersion)" } ?? "Server version unknown")
@@ -330,8 +333,10 @@ struct ServerStatusView: View {
             }
             Spacer()
             Text("View updates").font(.subheadline).foregroundStyle(NativePalette.link)
+            Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+              .foregroundStyle(NativePalette.muted).accessibilityHidden(true)
           }
-        }.accessibilityIdentifier("server-view-updates")
+        }.buttonStyle(.plain).accessibilityIdentifier("server-view-updates")
       }
       ServerActivitySection()
       Section("Services") {
@@ -340,11 +345,17 @@ struct ServerStatusView: View {
         }
       }
       Section {
-        NavigationLink("Manage devices") { ManageDevicesView() }
-          .accessibilityIdentifier("server-manage-devices")
+        Button { navigate(.devices) } label: {
+          HStack {
+            Text("Manage devices")
+            Spacer()
+            Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+              .foregroundStyle(NativePalette.muted).accessibilityHidden(true)
+          }
+        }.buttonStyle(.plain).accessibilityIdentifier("server-manage-devices")
       }
       Button("Refresh") { Task { await loadRelease(); await store.refresh() } }
-    }.navigationTitle("Server").navigationBarTitleDisplayMode(.inline)
+    }
       .task { await loadRelease() }
   }
   private func loadRelease() async {

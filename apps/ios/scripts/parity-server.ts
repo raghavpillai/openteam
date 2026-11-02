@@ -1,6 +1,8 @@
 /** Loopback-only, in-memory contract fixture shared by Swift UI tests and the RN reference.
  * Never use this harness as a product server. No model, external messages, or real accounts run here.
  */
+import { CLIENT_CAPABILITIES } from "../../../packages/contracts/src/capabilities";
+import { BrowserNetworkFixture } from "./browser-network-fixture";
 import { mobileFixture } from "./fixtures/snapshot";
 import type { ChannelMessageView, ClientBootstrapView, ClientSnapshot } from "../../../packages/contracts/src/index";
 import { visualFixture } from "./visual-fixtures";
@@ -46,6 +48,7 @@ let memories: any[] = [];
 let pagedHistory = false;
 let failures: Record<string, {status?: number; message?: string; count?: number; delayMs?: number}> = {};
 let searchResults: unknown[] | null = null;
+let browserNetwork = new BrowserNetworkFixture();
 let functionality = new FunctionalFixtures();
 let serverSetup = new ServerSetupFixture();
 let screen = {state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
@@ -70,6 +73,7 @@ function reset() {
   pagedHistory = false;
   requestLog.length = 0;
   failures = {}; searchResults = null; authExpired = false; invalidServer = false; missingToken = false;
+  browserNetwork = new BrowserNetworkFixture();
   functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
   serverSetup = new ServerSetupFixture();
   serverRelease = { releaseVersion: "0.0.0", apiProtocolVersion: 1, minimumClientVersion: "0.0.0", maximumClientVersionExclusive: "1.0.0", recommendedClientVersion: "0.0.0", updateChannel: "beta" };
@@ -87,7 +91,7 @@ function emit(topic = "channel.message.created", entityId: string | null = null)
 function bootstrap(): ClientBootstrapView {
   return { cursor: String(sequence), workspace: snapshot.workspace, bots: snapshot.bots, channels: snapshot.channels,
     latestMessages: pagedHistory ? snapshot.channelMessages.slice(-60) : snapshot.channelMessages, activeRuns: snapshot.runs,
-    channelRounds: [], subagents: snapshot.subagents, runtime: snapshot.runtime, capabilities: { } as any };
+    channelRounds: [], subagents: snapshot.subagents, runtime: snapshot.runtime, capabilities: CLIENT_CAPABILITIES };
 }
 const response = (data: unknown, status = 200) => Response.json(data, { status });
 /** Mirrors the server's Settings → Providers rules and messages. Checks are deterministic:
@@ -153,6 +157,7 @@ const server = Bun.serve({
     let input: any = {};
     const upload = path === "/api/v0/assets" && method === "POST" ? new Uint8Array(await request.arrayBuffer()) : null;
     if (!upload && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
+    if (path === "/__qa/browser-network" && method === "POST") { browserNetwork.control(input); return response(browserNetwork.view()); }
     if (path === "/__qa/reset" && method === "POST") { reset(); await resetKeys(); emit("snapshot.reset"); return response({ ok: true }); }
     if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=["history-pages","scroll-mixed-pages"].includes(input.scene); sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/content" && method === "POST") { snapshot=contentScene(snapshot,input.scene); if(input.scene==='routine-event')routines=[{id:'routine-event-fixture',name:'Morning summary',prompt:'Summarize the morning',schedule:'0 9 * * 1-5',scheduleKind:'cron',timezone:'America/New_York',enabled:false,revision:1,nextRunAt:null,latestExecution:null}]; sequence=400; emit("snapshot.reset"); return response({ok:true}); }
@@ -216,7 +221,7 @@ const server = Bun.serve({
       if ("searchResults" in input) searchResults = input.searchResults;
       emit("snapshot.reset"); return response({ ok: true });
     }
-    if (path === "/__qa/state") return response({ transcription: keyQA ? await keyStore.view() : serverSetup.voice, transcriptionPatches: keyPatches, messages: snapshot.channelMessages, requests: requestLog, serverRelease, serverUpdate, serverUpdateRequests, modelSettings: { inference: serverSetup.inference, saves: serverSetup.saves, tests: serverSetup.tests }, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
+    if (path === "/__qa/state") return response({ transcription: keyQA ? await keyStore.view() : serverSetup.voice, transcriptionPatches: keyPatches, messages: snapshot.channelMessages, requests: requestLog, serverRelease, serverUpdate, serverUpdateRequests, modelSettings: { inference: serverSetup.inference, saves: serverSetup.saves, tests: serverSetup.tests }, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, browserNetwork: browserNetwork.view(), networkPatches: browserNetwork.patches, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
     if (path === "/__qa/haptics") {
       if (method === "POST") hapticAudit.push(input);
       if (method === "DELETE") hapticAudit = [];
@@ -293,6 +298,7 @@ const server = Bun.serve({
       else{message.metadata.computerHandoffState=input.action==="start"?"active":"completed";screen.humanTakeover=input.action==="start";}
       emit("channel.message.updated",message.channelId);return response({accepted:true,message});
     }
+    const networkResponse = browserNetwork.handle(path,method,input); if(networkResponse) return networkResponse;
     if (path === "/api/v0/system/version") return response(serverRelease);
     if (path === "/api/v0/system/busy-bots") return response({ bots: busyBots });
     if (path === "/api/v0/system/update") {
@@ -350,7 +356,7 @@ const server = Bun.serve({
       if (dropNextSend) { dropNextSend = false; return response({ error: { message: "Simulated lost acknowledgment after durable acceptance" } }, 503); }
       return response({ message });
     }
-    if (path.endsWith("/read")) {const channel=snapshot.channels.find(c=>c.id===path.split("/")[4]);if(channel){channel.unreadCount=0;channel.notificationState={...channel.notificationState,lastReadSequence:input.throughSequence} as any;}return response({ channelId: path.split("/")[4], lastReadSequence: input.throughSequence ?? "0", unreadCount: 0 });}
+    if (path.endsWith("/read")) {const channel=snapshot.channels.find(c=>c.id===path.split("/")[4]);if(channel){channel.unreadCount=0;channel.notificationState={channelId:channel.id,lastReadNotificationSequence:"0",notificationCursor:"0",notifications:[],activityUnreadCount:0,...channel.notificationState,lastReadSequence:input.throughSequence ?? "0"} as any;}return response({ channelId: path.split("/")[4], lastReadSequence: input.throughSequence ?? "0", unreadCount: 0 });}
     if (path === "/api/v0/search") {
       const q = (url.searchParams.get("q") ?? "").toLowerCase();
       if (searchResults) return response({ query: q, results: searchResults });

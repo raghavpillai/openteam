@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { TodoService, uniqueTodoInputs } from "../src/services/todo-service";
+import { MAX_FINISHED_TODOS, prunedFinishedTodoIds, TodoService, uniqueTodoInputs } from "../src/services/todo-service";
 
 type Row = {
   botId: string;
@@ -190,4 +190,21 @@ describe("bounded set-based TodoWrite persistence", () => {
     expect(fixture.rows()).toHaveLength(65);
     expect(fixture.rows().at(-1)).toMatchObject({ id: "overflow", position: 64 });
   });
+});
+
+test("only the 50 most recently finished todos are kept; open ones always stay", async () => {
+  expect(MAX_FINISHED_TODOS).toBe(50);
+  const at = (minute: number) => new Date(Date.UTC(2026, 9, 20, 0, minute));
+  const finished = Array.from({ length: 52 }, (_, position) => ({ id: `done-${position}`, status: position % 2 ? "completed" : "cancelled", position, updatedAt: at(position) }));
+  const open = { id: "open", status: "pending", position: 99, updatedAt: at(0) };
+  expect(prunedFinishedTodoIds([...finished, open])).toEqual(["done-1", "done-0"]);
+  // A todo updated later counts as newer, whatever its position; equal times prefer the later position.
+  expect(prunedFinishedTodoIds([...finished.slice(1), { ...finished[0]!, updatedAt: at(90) }])).toEqual(["done-2", "done-1"]);
+  expect(prunedFinishedTodoIds(finished.map((todo) => ({ ...todo, updatedAt: at(0) })))).toEqual(["done-1", "done-0"]);
+  const fixture = todoFixture(finished.slice(0, 51).map(({ id, position }) => ({ botId: "bot-1", id, content: id, status: "completed" as const, position })));
+  const result = await fixture.service.write("bot-1", "finish", { merge: true, todos: [{ id: "new", content: "New", status: "completed" }] });
+  expect(result.todos).toHaveLength(50);
+  expect(result.todos.map((todo) => todo.id)).not.toContain("done-0");
+  expect(result.todos.map((todo) => todo.id)).not.toContain("done-1");
+  expect(fixture.rows()).toHaveLength(50);
 });

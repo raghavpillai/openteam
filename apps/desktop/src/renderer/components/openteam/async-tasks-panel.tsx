@@ -137,11 +137,11 @@ export function AsyncTasksPanel({
               title={`${task.subagentId} · started ${new Date(taskStartedAt(task)).toLocaleString()}`}
             >
               <span
-                aria-label="Running"
+                aria-label={task.status === "waiting" ? "Waiting" : "Running"}
                 className={cn(
-                  "size-2 shrink-0 rounded-full bg-emerald-500",
-                  task.status !== "queued" &&
-                    task.status !== "provisioning" &&
+                  "size-2 shrink-0 rounded-full",
+                  task.status === "waiting" ? "bg-foreground-tertiary" : "bg-emerald-500",
+                  task.status === "running" &&
                     "motion-safe:animate-pulse"
                 )}
                 role="status"

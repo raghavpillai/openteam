@@ -208,7 +208,7 @@ export class FetchProviderClient {
       throw new Error(`${name} fetch failed (HTTP ${status})${safe ? `: ${safe}` : ""}. ${reason}`);
     }
     try {
-      // Same bound as the built-in fetcher; oversized pages are spilled to a file by WebTools.
+      // Same bound as the built-in fetcher; WebTools cuts long pages to their first 100,000 characters.
       const body = await boundedJson(response, MAX_WEB_DOWNLOAD);
       signal?.throwIfAborted();
       const parsed = adapter.parse(body);

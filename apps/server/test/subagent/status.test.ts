@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { SubagentService } from "../../src/services/subagent/service";
+import { SubagentService, subagentActivity } from "../../src/services/subagent/service";
 
 function fixture(runStatus = "running", linkedRun = "current") {
   const child = { id: "child", parentBotId: "parent", childBotId: "child-bot", currentRunId: linkedRun,
-    status: "running", description: "Upload receipt", subagentType: "computerUse", createdAt: new Date(),
+    status: "running", description: "Upload receipt", prompt: "Upload the receipt to the expense site", subagentType: "computerUse", createdAt: new Date(),
     startedAt: new Date(), completedAt: null, stoppedAt: null, outputPath: "/tmp/transcript", result: null, error: null };
   const db = {
     subagent: {
@@ -17,28 +17,45 @@ function fixture(runStatus = "running", linkedRun = "current") {
   return { service, child, db };
 }
 
-test("failed worker calls expose bounded result text without arguments or successful output", async () => {
+test("activity lists each call's start and end as the reference logs them, with no error text", async () => {
   const { service, db } = fixture("running");
-  const reason = "A newer instruction is queued. This tool action was not executed. Process the new instruction before choosing the next action.";
+  const at = (seconds: number) => new Date(1_000 * seconds);
   db.runItem.findMany = async () => [
-    { title: "browser_select_option", status: "failed", createdAt: new Date(), content: {
-      arguments: { private: "argument must not appear" }, result: { isError: true, content: [{ type: "text", text: reason }] },
+    { kind: "tool", title: "WebSearch", status: "running", createdAt: at(5), startedAt: at(5) },
+    { kind: "tool", title: "WebSearch", status: "failed", createdAt: at(3), startedAt: at(3), completedAt: at(4), content: {
+      arguments: { private: "argument must not appear" }, result: { isError: true, content: [{ type: "text", text: "rate limited must not appear" }] },
     } },
-    { title: "Shell", status: "failed", createdAt: new Date(), content: {
-      result: { isError: true, content: [{ type: "image", data: "image must not appear" }, { type: "text", text: "x".repeat(1000) }] },
-    } },
-    { title: "Read", status: "completed", createdAt: new Date(), content: {
+    { kind: "command", title: "Shell", status: "completed", createdAt: at(1), startedAt: at(1), completedAt: at(2), content: {
       result: { content: [{ type: "text", text: "successful output must not appear" }] },
     } },
-    { title: "browser_click", status: "failed", createdAt: new Date(), content: null },
+    { kind: "tool", title: "Read", status: "cancelled", createdAt: at(0), completedAt: at(0.5) },
   ];
   const result = await service.check("parent", { subagent_id: "child" }) as any;
-  expect(result.recent_tool_calls[0]).toMatchObject({ status: "failed", error: reason });
-  expect(result.recent_tool_calls[1].error).toHaveLength(500);
-  expect(result.recent_tool_calls[2].error).toBeUndefined();
-  expect(result.recent_tool_calls[3].error).toBeUndefined();
+  expect(result.recent_activity).toEqual([
+    "[pending] Read", "[failed] Read", "[pending] Shell", "[done] Shell", "[pending] WebSearch", "[failed] WebSearch", "[pending] WebSearch",
+  ]);
   expect(JSON.stringify(result)).not.toContain("must not appear");
-});;;
+});
+
+test("activity collapses repeats and keeps the newest 24 entries", () => {
+  const items = Array.from({ length: 20 }, (_, i) => ({ kind: "tool", title: `t${i}`, status: "completed", createdAt: new Date(10 * i), completedAt: new Date(10 * i + 5) }));
+  const activity = subagentActivity(items);
+  expect(activity).toHaveLength(24);
+  expect(activity[0]).toBe("[pending] t8");
+  expect(activity.at(-1)).toBe("[done] t19");
+  expect(subagentActivity([
+    { kind: "tool", title: "Shell", status: "running", createdAt: new Date(1) },
+    { kind: "tool", title: "Shell", status: "running", createdAt: new Date(2) },
+  ])).toEqual(["[pending] Shell"]);
+});
+
+test("the tool call count covers finished calls only", async () => {
+  const { service, db } = fixture("running");
+  let countWhere: any;
+  db.runItem.count = async ({ where }: any) => { countWhere = where; return 2; };
+  expect(await service.check("parent", { subagent_id: "child" })).toMatchObject({ tool_call_count: 2 });
+  expect(countWhere.AND[1]).toEqual({ status: { in: ["completed", "failed", "cancelled"] } });
+});
 
 test("another parent cannot inspect the child ", async () => {
   const { service } = fixture();
@@ -70,8 +87,8 @@ test("prompt diagnostics do not inflate worker activity or crowd out recent tool
     });
   db.runItem.findMany = async ({ where, take }: any) => rows.filter(row => matches(row, where))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, take);
-  db.runItem.count = async ({ where }: any) => rows.filter(row => matches(row, where)).length;
+  db.runItem.count = async ({ where }: any) => rows.filter(row => matches(row, where.AND[0])).length;
   const result = await service.check("parent", { subagent_id: "child" }) as any;
   expect(result.tool_call_count).toBe(3);
-  expect(result.recent_tool_calls.map((call: any) => call.tool)).toEqual(["browser_click", "promptFingerprint", "tool"]);
+  expect(result.recent_activity).toEqual(["[pending] tool", "[done] tool", "[pending] promptFingerprint", "[done] promptFingerprint", "[pending] browser_click", "[failed] browser_click"]);
 });

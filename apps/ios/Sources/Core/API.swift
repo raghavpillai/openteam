@@ -49,14 +49,45 @@ public struct API: Sendable {
     _ = try await request("/api/auth/sign-out", method: "POST", body: .object([:]))
   }
 
+  /// Adds the scheme people leave off when copying a server address. Addresses on a
+  /// home network or VPN (IPs, localhost, .local, and single-word names) usually
+  /// serve plain HTTP, and so does an explicit port other than 443 (for example a
+  /// Tailscale name such as box.tail1234.ts.net:8788); other domain names usually
+  /// serve HTTPS. Same rule as client-core's `withDefaultScheme`.
+  public static func withDefaultScheme(_ value: String) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty
+      || trimmed.range(of: #"^[A-Za-z][A-Za-z0-9+.-]*://"#, options: .regularExpression) != nil
+    {
+      return trimmed
+    }
+    let authority = String(trimmed.prefix { !"/?#".contains($0) })
+    let host: String
+    var port: Substring
+    if authority.hasPrefix("["), let bracket = authority.firstIndex(of: "]") {
+      host = String(authority[...bracket]).lowercased()
+      port = authority[authority.index(after: bracket)...]
+    } else {
+      let name = authority.prefix { $0 != ":" }
+      host = name.lowercased()
+      port = authority[name.endIndex...]
+    }
+    if port.hasPrefix(":") { port = port.dropFirst() }
+    let local =
+      host.hasPrefix("[") || host == "localhost" || host.hasSuffix(".local")
+      || !host.contains(".")
+      || host.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil
+    return (local || (!port.isEmpty && port != "443") ? "http://" : "https://") + trimmed
+  }
+
   public static func normalize(_ server: String) throws -> URL {
-    let s = server.trimmingCharacters(in: .whitespacesAndNewlines)
+    let s = withDefaultScheme(server)
     guard let c = URLComponents(string: s),
       ["http", "https"].contains(c.scheme?.lowercased() ?? ""),
       let host = c.host, !host.isEmpty
     else {
       throw APIError(
-        "Enter a server address starting with http:// or https://, such as https://openteam.example.com."
+        "Enter your server address, such as 192.168.1.20:8787 or https://openteam.example.com."
       )
     }
     guard c.user == nil, c.password == nil else {

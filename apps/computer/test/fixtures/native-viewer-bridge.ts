@@ -9,7 +9,7 @@ const broker = new ScreenBroker("/tmp/swift-native-live-screen");
 await broker.ensure(id, "/workspace");
 const driver = await outOfProcessPlaywright();
 const browser = await driver.playwright.chromium.launch({
-  executablePath: "/usr/local/bin/google-chrome",
+  executablePath: "/usr/lib/openteam/bin/google-chrome",
   headless: false,
   env: (await broker.commandEnvironment(id, "/workspace")) as Record<string, string>,
   args: ["--no-sandbox", "--disable-dev-shm-usage", "--window-size=1280,800"],

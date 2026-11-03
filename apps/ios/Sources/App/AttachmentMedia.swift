@@ -108,7 +108,7 @@ struct AttachmentView: View {
             } else if failure != nil {
               Label("Image unavailable", systemImage: "arrow.clockwise").font(.caption)
                 .foregroundStyle(NativePalette.muted)
-            } else if loading { ProgressView() }
+            } else if loading { LoadingOrb(label: "Loading image") }
             else { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
           }.frame(width: previewSize.width, height: previewSize.height)
             .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -122,7 +122,7 @@ struct AttachmentView: View {
               Text(loading ? "Opening…" : fileSize)
                 .font(.system(size: 12)).foregroundStyle(NativePalette.faint)
             }
-            if loading { ProgressView().controlSize(.small) }
+            if loading { LoadingOrb(size: 16, label: "Opening") }
           }.padding(.horizontal, 13).padding(.vertical, 10)
             .background(NativePalette.assistant, in: RoundedRectangle(cornerRadius: 20))
         }
@@ -229,7 +229,7 @@ struct NativePhotoGallery: View {
                 Text(failure).multilineTextAlignment(.center).foregroundStyle(NativePalette.muted)
                 Button("Retry") { Task { await load(item) } }.accessibilityIdentifier("photo-retry")
               }.padding(24)
-            } else { ProgressView().tint(.white) }
+            } else { LoadingOrb(theme: .dark, label: "Loading photo") }
           }.padding(.bottom, 18).frame(maxWidth: .infinity, maxHeight: .infinity).tag(item.id).task { await load(item) }
         }
       }.tabViewStyle(.page(indexDisplayMode: .never)).frame(maxWidth: .infinity, maxHeight: .infinity)

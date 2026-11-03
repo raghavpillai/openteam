@@ -1,4 +1,4 @@
-/** Owner-facing bot memory. Shared user/project shards have separate ownership. */
+/** Owner-facing bot memory. Shared user shards have separate ownership. */
 export interface BotMemoryEntry {
   id: string;
   content: string;

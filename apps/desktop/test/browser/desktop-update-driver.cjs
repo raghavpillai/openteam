@@ -49,42 +49,85 @@ app
     };
     const button = (text) =>
       `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)})`;
-    const shot = async (name) =>
+    const shot = async (name) => {
+      // Let theme changes and the progress transition reach their rendered state.
+      await delay(350);
       fs.writeFileSync(
         path.join(process.argv[3], name + ".png"),
         (await win.webContents.capturePage()).toPNG()
       );
+    };
     await win.loadURL(process.argv[2]);
     for (let i = 0; i < 150 && !(await js("window.fixture?.ready")); i++) await delay(100);
     await delay(400);
+    await assert(
+      `document.querySelector('[data-desktop-update-badge="available"]')?.textContent.includes('Update')`,
+      "Update badge must appear before opening the account menu"
+    );
+    await assert(
+      `document.getElementById(document.getElementById('account').getAttribute('aria-describedby'))?.textContent.includes('update is available')`,
+      "Account trigger must describe the update for screen readers"
+    );
+    await shot("update-badge-dark");
+    await js(`fixture.emit({status:'up-to-date'})`);
+    await assert(
+      `!document.querySelector('[data-desktop-update-badge]')`,
+      "Current installations must not show an update badge"
+    );
+    await js(`fixture.emit({status:'available'})`);
     await click(`document.getElementById('account')`);
     await assert(
       `(()=>{const text=document.querySelector('[role=menu]').textContent;return !['Support','Help Center','Send Feedback','About'].some(label=>text.includes(label))&&text.includes('Settings');})()`,
       "Account menu must keep Settings and omit Support, Help Center, Send Feedback, and About"
     );
     await assert(
-      `document.body.textContent.includes('New update available')`,
-      "Available banner missing"
+      `document.querySelector('[data-desktop-update-card]')?.textContent.includes('Update available')`,
+      "Available update card missing"
     );
     await assert(
-      `(()=>{const b=document.querySelector('[role=menu] > div').getBoundingClientRect();return b.width===216&&b.height===46;})()`,
-      "Banner must match the 216 × 46 reference"
+      `document.querySelector('[data-desktop-update-card]')?.textContent.includes('OpenTeam 0.47.0')`,
+      "Update card must identify the available release"
     );
     await assert(
-      `(()=>{const b=${button("Install")}.getBoundingClientRect();return b.width===47.5&&b.height===26;})()`,
-      "Install button must match the 47.5 × 26 reference"
-    );
-    await assert(
-      `getComputedStyle(document.querySelector('[role=menu] > div')).backgroundColor==='rgb(27, 59, 98)'`,
-      "Banner must use the color-managed reference blue"
+      `(()=>{const b=${button("Download update")}.getBoundingClientRect();return b.height>=32&&b.width>180;})()`,
+      "Download action must have a comfortable full-width target"
     );
     await shot("account-dark");
-    await click(button("Install"));
+    await js(`fixture.failDownload=true`);
+    await click(button("Download update"));
     await assert(
-      `fixture.downloads===1 && fixture.installs===0`,
-      "Install must download without restarting"
+      `fixture.downloads===1&&document.querySelector('[role=alert]')?.textContent.includes('Could not download')&&!!${button("Download update")}`,
+      "Download failure must show an error and allow retry"
     );
-    await assert(`${button("42%")}.disabled`, "Progress must disable duplicate download");
+    await js(`fixture.failDownload=false`);
+    await click(button("Download update"));
+    await assert(
+      `fixture.downloads===2 && fixture.installs===0`,
+      "Download must not restart the app"
+    );
+    await assert(
+      `document.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow')==='42'&&!${button("Download update")}`,
+      "Progress must be accessible and prevent duplicate downloads"
+    );
+    await js(`fixture.emit({progress:72})`);
+    await assert(
+      `document.querySelector('[data-desktop-update-badge]')?.textContent.includes('72%')`,
+      "Badge must reflect live download progress"
+    );
+    await shot("downloading-dark");
+    await js(`document.documentElement.dataset.theme='light'`);
+    await shot("downloading-light");
+    await js(`fixture.emit({progress:null})`);
+    await assert(
+      `!document.querySelector('[role=progressbar]').hasAttribute('aria-valuenow')&&document.querySelector('[data-desktop-update-card]').textContent.includes('Preparing…')`,
+      "Unknown progress must be indeterminate"
+    );
+    await js(`fixture.emit({progress:140})`);
+    await assert(
+      `document.querySelector('[role=progressbar]').getAttribute('aria-valuenow')==='100'&&document.querySelector('[data-desktop-update-badge]').textContent.includes('100%')`,
+      "Progress must stay within its bounds"
+    );
+    await js(`document.documentElement.dataset.theme='dark'`);
     await js(`fixture.emit({status:'downloaded',progress:100})`);
     await delay(300);
     await assert(
@@ -136,6 +179,10 @@ app
       `fixture.installs===0 && !document.querySelector('[role=alertdialog]')`,
       "Not now must dismiss without restart"
     );
+    await assert(
+      `document.querySelector('[data-desktop-update-badge="downloaded"]')?.textContent.includes('Restart')`,
+      "Restart badge must persist after dismissing the ready dialog"
+    );
     await js(`fixture.emit({status:'downloaded'})`);
     await delay(100);
     await assert(
@@ -143,10 +190,15 @@ app
       "Repeated progress must respect dismissal"
     );
     await click(`document.getElementById('account')`);
-    await click(button("Install"));
+    await assert(
+      `document.querySelector('[data-desktop-update-card]')?.textContent.includes('Ready to restart')`,
+      "Downloaded card must describe the restart action"
+    );
+    await shot("account-ready-dark");
+    await click(button("Restart to update"));
     await assert(
       `!!document.querySelector('[role=alertdialog]')`,
-      "Install must reopen ready dialog"
+      "Restart action must reopen ready dialog"
     );
     await js(`fixture.failInstall=true`);
     await click(button("Restart to update"));
@@ -166,6 +218,24 @@ app
     await assert(
       `${button("Restarting…")}.disabled && ${button("Not now")}.disabled`,
       "Restart must disable actions"
+    );
+    await win.loadURL(process.argv[2] + "?compact");
+    await delay(600);
+    await assert(
+      `(()=>{const badge=document.querySelector('[data-desktop-update-badge]'),account=document.getElementById('account');const b=badge.getBoundingClientRect(),a=account.getBoundingClientRect();return b.width===16&&b.height===16&&b.left>=a.left&&b.right<=a.right&&b.top>=a.top&&b.bottom<=a.bottom;})()`,
+      "Collapsed sidebar must keep a visible badge on the account button"
+    );
+    await shot("update-badge-compact");
+    await click(`document.getElementById('account')`);
+    await assert(
+      `!!${button("Download update")}`,
+      "Collapsed sidebar badge must lead to the update action"
+    );
+    await shot("account-compact");
+    await js(`fixture.emit({status:'error'})`);
+    await assert(
+      `!document.querySelector('[data-desktop-update-badge]')&&!document.querySelector('[data-desktop-update-card]')`,
+      "A failed check must not claim an update is available"
     );
     await win.loadURL(process.argv[2] + "?settings");
     await delay(600);
@@ -198,7 +268,10 @@ app
         {
           passed,
           scenarios: [
-            "reference geometry and colors",
+            "persistent expanded and collapsed sidebar badges",
+            "versioned update card and accessible progress",
+            "download error and retry",
+            "unknown and out-of-range progress",
             "keyboard focus and Tab containment",
             "download progress",
             "versioned ready dialog",

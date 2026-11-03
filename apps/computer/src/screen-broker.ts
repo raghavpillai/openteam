@@ -1,10 +1,12 @@
+import { removeDesktopMemory } from "./desktop-memory";
 import { type ChildProcess } from "node:child_process";
+import { managedBrowserNetworkArguments } from "./browser-network";
 import { randomBytes } from "node:crypto";
 import { chmod, chown, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { ComputerUseActionInput, ScreenActionInput, ScreenClipboardInput, ScreenClipboardView } from "@openteam/contracts";
 import { performClipboardOperation } from "./screen/clipboard";
-import { spawnAgentProcess as spawn, agentProcessIdentity, assignAgentOwnership } from "./agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, AGENT_SEARCH_PATHS, assignAgentOwnership } from "./agent-process";
 import { BrowserBroker } from "./browser/broker";
 import { BrowserProfileAuthority } from "./browser/profile-authority";
 import { prepareDownloadPreferences } from "./browser/download-preferences";
@@ -21,6 +23,7 @@ import {
   stopProcesses,
   tcpPortAccepts,
   viewerHttpResponds,
+  waitForProcessExit,
 } from "./screen/processes";
 import type { ScreenSession, ScreenStatus } from "./screen/types";
 import { streamScreenFrames } from "./screen/frame-stream";
@@ -41,6 +44,7 @@ const VIEWER_PORT_BASE = 6200;
 const BROWSER_DEBUG_PORT_BASE = 9300;
 
 const TAKEOVER_TTL_MS = 45_000;
+const COMPUTER_SETTLE_MS = 500;
 
 const ENDPOINT_STARTUP_TIMEOUT_MS = 10_000;
 
@@ -68,6 +72,9 @@ export class ScreenBroker {
   private readonly inputRevisions = new WeakMap<ScreenSession, number>();
   private readonly activeAgentInput = new WeakMap<ScreenSession, AbortController>();
   private readonly readySessions = new Map<string, Promise<ScreenSession>>();
+  private readonly profilePublishes = new Set<Promise<void>>();
+  /** Bots whose screen was driven since their profile was last requested for a snapshot. */
+  private readonly browserUse = new Set<string>();
 
   constructor(
     private readonly home = process.env.HOME ?? "/home/box",
@@ -181,6 +188,7 @@ export class ScreenBroker {
     actor: "agent" | "human"
   ): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
+    this.noteBrowserUse(botId);
     return this.withInput(session, actor, async (signal) => {
       const env = environment(this.home, session);
       switch (input.action) {
@@ -253,6 +261,7 @@ export class ScreenBroker {
   ): Promise<Buffer> {
     externalSignal?.throwIfAborted();
     const session = await this.readySession(botId, cwd);
+    this.noteBrowserUse(botId);
     return this.withInput(session, "agent", async (controlSignal) => {
       const signal = externalSignal && controlSignal ? AbortSignal.any([externalSignal, controlSignal]) : externalSignal ?? controlSignal;
       signal?.throwIfAborted();
@@ -263,8 +272,9 @@ export class ScreenBroker {
         await performComputerUseAction(action, env, signal);
       }, signal);
       const finalAction = actions.at(-1)?.action;
+      // The batch shares one settle before its screenshot, the 500 ms the Computer tool advertises.
       if (finalAction && finalAction !== "wait" && finalAction !== "screenshot") {
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise((resolve) => setTimeout(resolve, COMPUTER_SETTLE_MS));
       }
       try {
         return await captureDesktop(session.display, env, signal);
@@ -281,7 +291,7 @@ export class ScreenBroker {
 
   async commandEnvironment(botId: string, cwd: string): Promise<NodeJS.ProcessEnv> {
     const session = await this.readySession(botId, cwd);
-    return environment(this.home, session);
+    return { ...environment(this.home, session), ...AGENT_SEARCH_PATHS };
   }
 
   async withAgentBrowserInput<T>(
@@ -289,12 +299,15 @@ export class ScreenBroker {
     cwd: string,
     operation: (signal?: AbortSignal) => Promise<T>
   ): Promise<T> {
-    return this.withInput(await this.readySession(botId, cwd), "agent", operation);
+    const session = await this.readySession(botId, cwd);
+    this.noteBrowserUse(botId);
+    return this.withInput(session, "agent", operation);
   }
 
   async browserEndpointForAgent(botId: string, cwd: string): Promise<string> {
     const session = await this.readySession(botId, cwd);
     this.assertAgentControl(session);
+    this.noteBrowserUse(botId);
     const endpoint = `http://127.0.0.1:${session.browserDebugPort}`;
     if (!(await this.browserIsReady(endpoint))) this.openApp(session, "chromium");
     for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -312,6 +325,21 @@ export class ScreenBroker {
     throw new Error("Chromium did not expose its page-control endpoint");
   }
 
+  /** Records that a bot's browser or desktop was used, for the next turn-end snapshot. */
+  noteBrowserUse(botId: string): void {
+    this.browserUse.add(botId);
+  }
+
+  /**
+   * The profile directory name of a bot whose browser or desktop was used since
+   * the last call, so a turn end snapshots only browsers that turn could have changed.
+   */
+  takeBrowserUse(botId: string): string | null {
+    const session = this.sessions.get(botId);
+    if (!this.browserUse.delete(botId) || !session) return null;
+    return basename(session.profileDirectory);
+  }
+
   async takeover(botId: string, cwd: string, active: boolean): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
     session.humanTakeoverUntil = active ? Date.now() + TAKEOVER_TTL_MS : 0;
@@ -326,6 +354,26 @@ export class ScreenBroker {
     return this.statusFor(session);
   }
 
+  /**
+   * Closes every bot browser before the computer exits. Docker only signals
+   * the gateway, and a Chromium killed with the container never publishes its
+   * profile, so its next launch would restore an older copy.
+   */
+  async shutdown(): Promise<void> {
+    const browsers = [...this.sessions.values()].flatMap(({ botId, browserProcess }) =>
+      browserProcess && !processHasExited(browserProcess) ? [{ botId, browserProcess }] : []
+    );
+    // Share the latest sign-in state while the browsers can still answer.
+    await Promise.all(browsers.map(({ botId }) => this.browserBroker.detach(botId)));
+    const processes = browsers.map(({ browserProcess }) => browserProcess);
+    for (const browser of processes) browser.kill("SIGTERM");
+    await waitForProcessExit(processes, 5_000);
+    const survivors = processes.filter((browser) => !processHasExited(browser));
+    for (const browser of survivors) browser.kill("SIGKILL");
+    await waitForProcessExit(survivors, 1_000);
+    await Promise.allSettled(this.profilePublishes);
+  }
+
   async destroy(botId: string): Promise<void> {
     this.destroyedBotIds.add(botId);
     await this.loadMappings();
@@ -337,6 +385,7 @@ export class ScreenBroker {
       await this.inputQueues.get(session);
       await this.browserBroker.detach(botId);
       await stopProcesses(session);
+      await removeDesktopMemory(botId);
       await this.profileAuthority.publish(session.profileDirectory);
       await session.startPromise?.catch(() => undefined);
       this.sessions.delete(botId);
@@ -439,13 +488,15 @@ export class ScreenBroker {
     );
     await this.browserBroker.detach(session.botId);
     await stopProcesses(session);
+    await removeDesktopMemory(session.botId);
     try {
       await this.prepareAgentDirectory(session.profileDirectory, 0o770);
       if (stoppedOwnedBrowser) await this.profileAuthority.publish(session.profileDirectory);
       else await this.profileAuthority.seedIfEmpty(session.profileDirectory);
       await this.profileAuthority.prepare(session.profileDirectory);
       await prepareDownloadPreferences(session.profileDirectory, this.home);
-      // Copied profile files and legacy profiles may have been written by the host.
+      // The supervisor writes copied profile files, and the home volume's init
+      // container re-owns everything, so hand the profile back to the runner.
       await assignAgentOwnership([session.profileDirectory], true);
       await prepareOfficeProfile(session.profileDirectory);
       // Chromium's profile survives container restarts, but its process-singleton
@@ -491,7 +542,19 @@ export class ScreenBroker {
         true
       );
       await this.waitForEndpoint(
-        () => exists(`/tmp/.X11-unix/X${session.display}`),
+        async () => {
+          // A container restart can retain the previous X socket. Probe the
+          // server itself before starting clients on the restored display.
+          try {
+            await run("xset", ["-display", display, "q"], {
+              env: environment(this.home, session),
+              signal: AbortSignal.timeout(1_000),
+            });
+            return true;
+          } catch {
+            return false;
+          }
+        },
         `Virtual display :${session.display}`,
         session,
         xvfb
@@ -621,6 +684,7 @@ export class ScreenBroker {
           "--password-store=basic",
           "--hide-crash-restore-bubble",
           "--disable-features=Translate",
+          ...managedBrowserNetworkArguments(),
           `--user-data-dir=${session.profileDirectory}`,
           "--remote-debugging-address=127.0.0.1",
           "--remote-allow-origins=*",
@@ -634,9 +698,11 @@ export class ScreenBroker {
       session.browserProcess = child;
       child.once("exit", () => {
         if (session.browserProcess === child) session.browserProcess = null;
-        void this.browserBroker
+        const published = this.browserBroker
           .detach(session.botId)
           .then(() => this.profileAuthority.publish(session.profileDirectory));
+        this.profilePublishes.add(published);
+        void published.finally(() => this.profilePublishes.delete(published));
       });
       void this.browserBroker.attach(
         session.botId,
@@ -649,7 +715,7 @@ export class ScreenBroker {
     if (app === "thunar") {
       return this.spawnLongLived("thunar", [session.cwd], session, env);
     }
-    return this.spawnLongLived("xfce4-terminal", ["--disable-server"], session, env, session.cwd);
+    return this.spawnLongLived("xfce4-terminal", ["--disable-server"], session, { ...env, ...AGENT_SEARCH_PATHS }, session.cwd);
   }
 
   private spawnLongLived(
@@ -723,7 +789,6 @@ export class ScreenBroker {
       browserStateCoverage: [
         "cookies",
         "local-storage",
-        "session-storage",
         "indexed-db",
         "service-workers",
         "cache-storage",
@@ -733,7 +798,6 @@ export class ScreenBroker {
         "settings",
         "bookmarks",
         "history",
-        "open-tabs",
       ],
       browserTargetRouting: "bot-owned-tabs",
       error: session.error,
@@ -777,14 +841,10 @@ export class ScreenBroker {
       }
       const used = new Set(this.liveSlotByBot.values());
       const profileSlot = this.slotByBot.get(botId);
-      // Prefer the legacy display when free, without letting dormant profiles
-      // occupy ports or making a relocated bot switch profile directories.
-      if (profileSlot !== undefined && profileSlot < MAX_SCREENS && !used.has(profileSlot)) {
-        allocated = profileSlot;
-      } else {
-        for (let slot = 0; slot < MAX_SCREENS; slot += 1) {
-          if (!used.has(slot)) { allocated = slot; break; }
-        }
+      // Live displays are independent of profile directories, so dormant
+      // profiles never occupy ports and a bot keeps its profile across slots.
+      for (let slot = 0; slot < MAX_SCREENS; slot += 1) {
+        if (!used.has(slot)) { allocated = slot; break; }
       }
       if (allocated < 0) throw new Error(`OpenTeam supports at most ${MAX_SCREENS} live screens`);
       this.liveSlotByBot.set(botId, allocated);

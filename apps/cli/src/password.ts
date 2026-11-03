@@ -54,7 +54,7 @@ export const accountUpdateCommand = async (
     if (needsPrompt) {
       if (!prompter) throw new CliError("Updating account credentials requires a terminal.");
       if (updateBoth) {
-        username = await collectOwnerUsername(prompter, manifest.ownerUsername || "openteam");
+        username = await collectOwnerUsername(prompter, manifest.ownerUsername || "");
       }
       password = await collectConfirmedPassword(prompter);
     }

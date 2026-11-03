@@ -1,3 +1,4 @@
+import { ServerUpdates, serverUpdateRoute } from "./server-updates";
 import { internalNotificationsRoute } from "./routes/internal-notifications";
 import { machineChannelResponse } from "./machine-http";
 import { connectorTransferResponse, boundedRequest } from "./connector-transfer-http";
@@ -25,6 +26,7 @@ import { settingsRoutes } from "./routes/settings";
 import { transcriptionRoutes } from "./routes/transcription";
 import { systemVersion } from "./system-version";
 import { ScreenVncProxy, type VncConnection } from "./screen-vnc";
+import { BrowserNetworkService, networkStore, type NetworkConnection } from "./services/browser-network-service";
 
 const port = Number(process.env.OPENTEAM_PORT ?? 8787);
 
@@ -48,6 +50,7 @@ if (process.argv[2] === "owner-credentials") {
 }
 
 const app = new AppService(authMode);
+const serverUpdates = new ServerUpdates(app.agentData.assetRoot, release.releaseVersion);
 
 await Effect.runPromise(app.boot());
 
@@ -73,12 +76,19 @@ const authorizedInternal = (request: Request): boolean => {
   );
 };
 
-const server = Bun.serve<VncConnection>({
+const browserNetwork = new BrowserNetworkService(networkStore(app.prisma), app.machines, authorizedInternal);
+const isNetwork = (data: VncConnection | NetworkConnection): data is NetworkConnection => "kind" in data && data.kind === "browser-network";
+const server = Bun.serve<VncConnection | NetworkConnection>({
   hostname: process.env.OPENTEAM_SERVER_HOST ?? "0.0.0.0",
   port,
   idleTimeout: 255,
   maxRequestBodySize: Number.MAX_SAFE_INTEGER,
-  websocket: vnc.websocket,
+  websocket: {
+    maxPayloadLength: 1024 * 1024, backpressureLimit: 4 * 1024 * 1024, closeOnBackpressureLimit: true, idleTimeout: 60, sendPings: true,
+    open: socket => isNetwork(socket.data) ? browserNetwork.websocket.open?.(socket as any) : vnc.websocket.open?.(socket as any),
+    message: (socket, message) => isNetwork(socket.data) ? browserNetwork.websocket.message(socket as any, message) : vnc.websocket.message(socket as any, message),
+    close: (socket, code, reason) => isNetwork(socket.data) ? browserNetwork.websocket.close?.(socket as any, code, reason) : vnc.websocket.close?.(socket as any, code, reason),
+  },
   async fetch(request, requestServer) {
     if (request.method === "OPTIONS")
       return new Response(null, { status: 204, headers: corsHeaders });
@@ -87,6 +97,12 @@ const server = Bun.serve<VncConnection>({
     const networkRequest=request;
     const requestIpServer={requestIP:()=>requestServer.requestIP(networkRequest)};
     try {
+      if (request.method === "GET" && path === "/api/machines/channel/browser-network-identity") {
+        await app.machines.authenticate(request);
+        return json({ deploymentId: (await networkStore(app.prisma).read()).deploymentId });
+      }
+      if (request.method === "GET" && path === "/api/machines/channel/browser-network") return await browserNetwork.upgrade(request, requestServer, "device");
+      if (request.method === "GET" && path === "/api/internal/browser-network/channel") return await browserNetwork.upgrade(request, requestServer, "computer");
       if(path==="/api/internal/connector-transfer" && request.method==="POST") {
         if(!authorizedInternal(request))return json({error:{code:"unauthorized",message:"Unauthorized"}},401);
         requestServer.timeout(networkRequest,0);
@@ -104,6 +120,11 @@ const server = Bun.serve<VncConnection>({
         return await app.machines.relay.forward(machineRelay[1]!, machineRelay[2]!, request);
       }
       request=boundedRequest(request,280*1024*1024);
+      if (path === "/api/internal/system/update-agent") {
+        if (!authorizedInternal(request)) return json({ error: { code: "unauthorized" } }, 401);
+        if (request.method !== "POST") return json({ error: { code: "method_not_allowed" } }, 405);
+        return json(serverUpdates.heartbeat(await request.json()));
+      }
       const automationHook = path.match(/^\/api\/automation-hooks\/([a-zA-Z0-9_-]{1,100})$/);
       if (automationHook && request.method === "POST") {
         const native=await app.automationWebhooks.receive(automationHook[1]!,request);
@@ -202,24 +223,15 @@ const server = Bun.serve<VncConnection>({
         if (!authorizedInternal(request)) return json({error:{code:"unauthorized",message:"Unauthorized"}},401);
         if(path === "/api/internal/machines" && request.method === "GET")return json(await app.machines.list());
         if(path === "/api/internal/machines/preferred" && request.method === "GET")return json(await app.machines.preferred(url.searchParams.get("botId") ?? "", url.searchParams.get("channelId") ?? undefined));
+        if(path === "/api/internal/machines/messages" && request.method === "GET")return json(await app.machines.messagesMachine(url.searchParams.get("botId") ?? "", url.searchParams.get("channelId") ?? undefined, url.searchParams.get("machineId") ?? undefined));
         if(path === "/api/internal/machines/register" && request.method === "POST")return json(await app.machines.save(await request.json()));
         if(path === "/api/internal/machines/observe" && request.method === "POST")return json(await app.machines.observe(await request.json()));
         return json({error:{code:"not_found",message:"Not found"}},404);
       }
-      if (path === "/api/internal/plugins/host-components" || /^\/api\/internal\/plugins\/[^/]+\/host-refresh$/.test(path)) {
-        // The CLI refreshes plugin host parts after an update with the installation's control token.
-        if (!authorizedInternal(request))
-          return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
-        if (request.method === "GET" && path === "/api/internal/plugins/host-components")
-          return json({ components: await app.plugins.hostComponents() });
-        if (request.method === "POST" && path.endsWith("/host-refresh")) {
-          const body = (await request.json().catch(() => null)) as { refreshed?: unknown; detail?: unknown } | null;
-          if (typeof body?.refreshed !== "boolean")
-            return json({ error: { code: "invalid_request", message: "refreshed must be a boolean" } }, 400);
-          return json(await app.plugins.hostRefreshed(decodeURIComponent(path.split("/")[4]!), body.refreshed,
-            typeof body.detail === "string" ? body.detail.slice(0, 300) : undefined));
-        }
-        return json({ error: { code: "method_not_allowed", message: "Method not allowed" } }, 405);
+      if (request.method === "GET" && path === "/api/internal/busy-bots") {
+        // `openteam update --when-idle` asks with the installation's control token before it stops anything.
+        if (!authorizedInternal(request)) return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        return json(await run(app.busyBots()));
       }
       if (path === "/api/internal/server-settings/web-search/credentials" || path === "/api/internal/server-settings/web-fetch/credentials") {
         if (!authorizedInternal(request))
@@ -282,6 +294,8 @@ const server = Bun.serve<VncConnection>({
         }
         authenticatedSessionId = session.session.id;
       }
+      if (path === "/api/system/update")
+        return await serverUpdateRoute(request, serverUpdates, authenticatedSessionId);
       if (request.method === "POST" && vncMatch) {
         const response = json(await vnc.issue(vncMatch[1]!, authenticatedSessionId, request.headers.get("origin")));
         response.headers.set("cache-control", "no-store");
@@ -294,6 +308,15 @@ const server = Bun.serve<VncConnection>({
         return assetResponse(app.assets, app.agentData, request, url, assetMatch[1]);
       }
       const context: RouteContext = { app, request, url, path, authMode, authenticatedSessionId };
+      if (path === "/api/server-settings/browser-network") {
+        if (request.method === "GET") return json(await browserNetwork.view());
+        if (request.method === "PATCH") return json(await browserNetwork.update(await request.json().catch(() => null)), 202);
+      }
+      if (path === "/api/server-settings/browser-network/quality" && request.method === "POST")
+        return json(await browserNetwork.egress(() => app.browserNetworkQuality()));
+      if (path === "/api/server-settings/browser-network/egress" && request.method === "POST")
+        return json(await browserNetwork.egress(() => app.browserNetworkEgress()));
+      if (path === "/api/server-settings/browser-network/retry" && request.method === "POST") return json(await browserNetwork.retry());
       for (const route of [
         clientRoutes,
         pluginQueryRoutes,
@@ -318,6 +341,7 @@ const server = Bun.serve<VncConnection>({
 
 const shutdown = async () => {
   vnc.stop();
+  browserNetwork.close();
   app.machines.relay.close();
   server.stop();
   await Effect.runPromise(app.close());

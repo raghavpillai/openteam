@@ -12,7 +12,7 @@ Every plugin belongs in `packages/plugins/<plugin-name>/`. The same structure ap
 4. Validate and save, then install for testing. In **Installed**, configure each account, connect it, and use **Test tool**. Use a connected account to verify normal Bot calls.
 5. Test another account, a restart, disabled tools, changed requirements, and removal. Check skills and their supporting files separately from connector authentication.
 6. Export the ZIP. Imports and exports retain text and binary assets. Saved account values, headers, environment values, OAuth sessions and activity are stored separately and are not exported.
-7. Use GitHub’s web editor to add the package directory and open a pull request. Include its purpose, provider setup documentation, required scopes, supported account types, and the tests you ran. No OpenBot command-line workflow is needed.
+7. Use GitHub’s web editor to add the package directory and open a pull request. Include its purpose, provider setup documentation, required scopes, supported account types, and the tests you ran. No OpenTeam command-line workflow is needed.
 
 ## Package structure
 

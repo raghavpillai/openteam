@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
+  DEFAULT_PI_REASONING_LEVEL,
   type InferenceProviderAuthSessionView,
   normalizeInferenceProviderId,
   type ServerInferenceSettings,
@@ -53,22 +54,34 @@ export class InferenceProviderService {
     const catalog = await this.registry.catalog(providerId);
     return {
       ...catalog,
-      models: catalog.models.map((model) => ({
-        providerId: model.provider,
-        modelId: model.id,
-        name: model.name,
-        reasoning: model.reasoning,
-        reasoningLevels: getSupportedThinkingLevels(model),
-        defaultReasoningLevel:
-          model.defaultReasoningLevel ?? getSupportedThinkingLevels(model)[0] ?? "off",
-        contextWindow: model.contextWindow,
-        maxTokens: model.maxTokens,
-      })),
+      models: catalog.models.map((model) => {
+        const levels = getSupportedThinkingLevels(model);
+        return {
+          providerId: model.provider,
+          modelId: model.id,
+          name: model.name,
+          reasoning: model.reasoning,
+          reasoningLevels: levels,
+          defaultReasoningLevel:
+            model.defaultReasoningLevel ??
+            (levels.includes(DEFAULT_PI_REASONING_LEVEL)
+              ? DEFAULT_PI_REASONING_LEVEL
+              : levels[0]) ??
+            "off",
+          contextWindow: model.contextWindow,
+          maxTokens: model.maxTokens,
+          ...(model.recommended ? { recommended: true } : {}),
+        };
+      }),
     };
   }
 
   async verify(settings: ServerInferenceSettings): Promise<void> {
     await this.registry.verify(settings);
+  }
+
+  async refreshPromptCaps(): Promise<void> {
+    await this.registry.refreshPromptCaps();
   }
 
   async disconnect(providerId: string): Promise<void> {

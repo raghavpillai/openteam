@@ -4,7 +4,7 @@ import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { attachmentLimitForName } from "@openteam/contracts/media-input";
+import { attachmentLimitForName, missingAttachmentMessage, tooLargeAttachmentMessage } from "@openteam/contracts/media-input";
 import { agentReadStream } from "./agent-file-stream";
 
 const within = (root: string, file: string) => {
@@ -21,7 +21,10 @@ export async function stageAttachment(
 ): Promise<{ url: string; cleanup(): Promise<void> }> {
   const unchanged = { url, cleanup: async () => {} };
   if (!url.startsWith("file:")) return unchanged;
-  const source = await realpath(fileURLToPath(url));
+  const requested = fileURLToPath(url);
+  const source = await realpath(requested).catch((error: NodeJS.ErrnoException) => {
+    throw ["ENOENT", "ENOTDIR"].includes(error.code ?? "") ? new Error(missingAttachmentMessage(requested)) : error;
+  });
   const roots = await Promise.all([options.workspace, options.agentData].map(p => realpath(p).catch(() => resolve(p))));
   // Agent-state files still go through the server's protected-state policy.
   // Workspace files may live in runner-owned 0700 directories (e.g. mktemp).
@@ -35,8 +38,7 @@ export async function stageAttachment(
   const info = await stat(source);
   const maximum = attachmentLimitForName(basename(source));
   if (!info.isFile()) throw new Error("Attachment must be a regular file");
-  if (info.size > maximum)
-    throw new Error(`Attachment is ${info.size} bytes; the limit for this file type is ${maximum} bytes. The original file was not changed.`);
+  if (info.size > maximum) throw new Error(tooLargeAttachmentMessage(source));
   const directory = await mkdtemp(join(options.workspace, ".openteam-delivery-"));
   const cleanup = () => rm(directory, { recursive: true, force: true });
   try {
@@ -48,7 +50,7 @@ export async function stageAttachment(
     try {
       await pipeline(reader.stream, new Transform({ transform(bytes, _encoding, done) {
         count += bytes.length;
-        done(count > maximum ? new Error(`Attachment exceeds the ${maximum}-byte limit while reading (${count} bytes read). The original file was not changed.`) : null, bytes);
+        done(count > maximum ? new Error(tooLargeAttachmentMessage(source)) : null, bytes);
       } }), createWriteStream(target, { flags: "wx", mode: 0o600 }), { signal });
       await reader.done;
     } finally {

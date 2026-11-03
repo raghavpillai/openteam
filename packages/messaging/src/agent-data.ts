@@ -1,10 +1,23 @@
-import { renderMemorySystemPrompt, renderUserMemorySystemPrompt, renderProjectMemorySystemPrompt, selectProjectMemoryBlocks, type PromptMemoryRecord } from "./memory-rendering";
-import { assertMemoryWriteScope, getMemoryConversation, resolveMemoryConversation, type MemoryConversationContext, type MemoryWriteScope } from "./memory-scopes";
+import {
+  MEMORY_HEADING,
+  MEMORY_PROFILE_PROMPT_LIMIT,
+  MEMORY_RECENT_PROMPT_LIMIT,
+  MEMORY_USER_PROFILE_PROMPT_LIMIT,
+  MEMORY_USER_RECENT_PROMPT_LIMIT,
+  SHARED_USER_MEMORY_HEADING,
+  renderMemoryFactSnapshot,
+  renderMemorySystemPolicyPrompt,
+  renderOtherAssistantMemoryUpdate,
+  renderUserMemoryFactSnapshot,
+  renderUserMemorySystemPolicyPrompt,
+  type PromptMemoryRecord,
+} from "./memory-rendering";
 import managedSkills from "./prompts/managed-skills.json";
-import { managedSkillAgents, managedSkillIsForMain } from "./managed-skill-agents";
+import { managedSkillAgents } from "./managed-skill-agents";
 import { safePackagePath } from "@openteam/plugin-sdk";
 import { originalSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { pluginSkillsForAgent, renderPluginSkillCatalog, type PluginSkillCache } from "./plugin-skill-catalog";
+import { agentSkillItem, type CatalogItem, omittedSkillDirectories, omittedSkillsNotice, renderSkillCatalog } from "./skill-catalog";
 import { createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
@@ -21,7 +34,7 @@ import {
   rm,
   stat,
 } from "node:fs/promises";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import {
   ApiError,
   BOT_MEMORY_LIST_LIMIT,
@@ -42,7 +55,6 @@ import type { ComputerInferenceRequest } from "@openteam/contracts/service-proto
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { type FSWatcher, watch } from "chokidar";
 import { snapshotWatchedFiles } from "./file-watch-snapshot";
-import { parseDocument } from "yaml";
 import {
   deleteAutomationFolder,
   parseAutomationFile,
@@ -63,53 +75,48 @@ import {
   uniqueSlug,
 } from "./file-state";
 import {
-  appendMemoryFact,
-  applyMemorySynthesis,
-  boundMemoryEvidenceText,
-  clearSpooledEvidence,
-  consumeEvidence,
-  ensureDreamingLayout,
-  forgetMemoryFact,
-  isTemporalMemoryReviewDue,
-  markMemoryOrigin,
-  markTemporalMemoryReview,
+  memoryImportance,
   memoryLogicalId,
+  memoryTier,
   normalizeMemoryContent,
-  parseMemoryMarkdown,
-  prepareMemorySynthesis,
-  readMemoryTree,
-  removeMemoryFacts,
-  tombstoneMemory,
-} from "./memory-files";
+  type MemoryProvenance,
+} from "./memory-facts";
 import { deleteSkillFolder, parseSkillFile, renderSkillFile, writeSkillFile } from "./skill-files";
 import type { AgentTimelineEvent } from "./timeline-events";
-import { acknowledgePromptSections, parsePromptSections, preparePromptSections, type PromptSectionReceipt } from "./prompt-sections";
+import {
+  acknowledgeAutomationStatus,
+  acknowledgeMemoryContext,
+  acknowledgePromptSections,
+  parsePromptSections,
+  prepareAutomationStatus,
+  prepareMemoryContext,
+  preparePromptSections,
+  type AutomationStatusReceipt,
+  type MemoryContextLive,
+  type MemoryContextReceipt,
+  type PromptSectionReceipt,
+} from "./prompt-sections";
+import { AUTOMATION_STATUS_CLEARED } from "./automation-status";
 import { parseRecallInput, recallMemoryResult } from "./recall-memory";
 import {
-  applyExtractedMemories,
-  buildEpisodeUserPrompt,
   buildExtractionUserPrompt,
   gatherExtractionMemories,
-  getMemoryEpisodeInterval,
+  holdMemoryExchange,
   isMemorableExchange,
-  parseEpisodeNarrative,
   parseExtractedMemories,
-  type MemoryEpisodeTurn,
+  parseHeldMemoryExchanges,
+  renderTurnMemoryDate,
+  type HeldMemoryExchange,
+  type MemoryExchange,
 } from "./memory-learning";
-import {
-  MEMORY_EPISODE_SYSTEM_PROMPT,
-  MEMORY_EXTRACTION_SYSTEM_PROMPT,
-} from "./memory-prompts";
-import { synthesizeMemories } from "./memory-synthesis";
+import { readUserTimeZone } from "./user-time-zone";
+import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "./memory-prompts";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const AVATAR_SIZE_REFUSAL = "the image must be under 5 MB and non-empty.";
 const AVATAR_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"] as const;
-const MAX_PENDING_DREAMING_AGENTS = 64;
-const MAX_PENDING_DREAMING_EVIDENCE = 12;
-const MEMORY_SYNTHESIS_DEBOUNCE_MS = 15_000;
-const MEMORY_SYNTHESIS_POLL_INTERVAL_MS = 60 * 60 * 1_000;
-const MAX_TEMPORAL_TARGETS_PER_SWEEP = 4;
 const MEMORY_INFERENCE_DEADLINE_MS = 90_000;
+const MAX_HELD_MEMORY_EXCHANGES = 5;
 const AGENT_LOCK = "openteam-agent-data";
 const ROOT_SETTINGS_VERSION = 1;
 const MAX_FILE_WARNINGS = 20;
@@ -198,21 +205,7 @@ const ensureEditableBotDirectory = async (directory: string): Promise<void> => {
   if ((mode & 0o070) !== 0o070) await chmod(directory, mode | 0o070);
 };
 
-export type BotFileTarget = "profile" | "settings" | "instructions" | "avatar" | "projects";
-
-interface PendingDreamingEvidence {
-  id: string;
-  occurredAt: number;
-  user: string;
-  assistant: string;
-}
-
-interface PendingDreamingAgent {
-  evidence: PendingDreamingEvidence[];
-  temporal: boolean;
-}
-
-type PendingEpisodeTurn = MemoryEpisodeTurn;
+export type BotFileTarget = "profile" | "settings" | "instructions" | "avatar";
 
 export type MemoryInferenceRequest = Omit<ComputerInferenceRequest, "model" | "reasoning"> & {
   signal?: AbortSignal;
@@ -225,10 +218,6 @@ interface AgentDataStoreOptions {
   workspaceRoot?: string;
   assetRoot?: string;
   memoryInference?: MemoryInference;
-  memorySynthesisDebounceMs?: number;
-  memorySynthesisPollIntervalMs?: number;
-  memoryDreamingEnabled?: boolean;
-  memoryEpisodeInterval?: number;
 }
 
 export interface PendingIdentityAnnouncement {
@@ -303,11 +292,14 @@ export interface AgentPromptContext {
   };
   identityAnnouncement: string;
   identityReceipt?: PendingIdentityAnnouncement;
-  memoryRender: string;
-  liveMemoryRender?: string;
-  memorySnapshot: { render: string; compactionEpoch: number } | null;
+  /** The memory sections for the system prompt, and the facts and peer changes for <memory_context>. */
+  memory: LiveMemory;
   skillRender: string;
   warnings: string[];
+}
+
+export interface LiveMemory extends MemoryContextLive {
+  policy: string;
 }
 
 export interface RootSidebarSection {
@@ -362,24 +354,6 @@ const asInputJson = (value: unknown): Prisma.InputJsonValue =>
 const boundedString = (value: unknown, maximum: number, fallback = ""): string =>
   typeof value === "string" ? value.slice(0, maximum) : fallback;
 
-const parseEpisodeTurns = (value: unknown): PendingEpisodeTurn[] => {
-  if (!Array.isArray(value)) return [];
-  const turns: PendingEpisodeTurn[] = [];
-  for (const entry of value) {
-    if (!entry || Array.isArray(entry) || typeof entry !== "object") continue;
-    const item = entry as Record<string, unknown>;
-    const user = typeof item.user === "string" ? item.user : "";
-    const agent = typeof item.agent === "string" ? item.agent : "";
-    if (!user && !agent) continue;
-    turns.push({
-      ts: typeof item.ts === "number" && Number.isFinite(item.ts) && item.ts >= 0 ? item.ts : 0,
-      user,
-      agent,
-    });
-  }
-  return turns;
-};
-
 const profileDocument = (bot: {
   name: string;
   description: string;
@@ -414,36 +388,6 @@ const profileValues = (input: unknown) => {
     icon: boundedString(value.avatarShape, 16),
     color: boundedString(value.avatarColor, 80),
     namedBy: value.namedBy === "app" ? "app" : "user",
-  };
-};
-
-const renderProjectDocument = (project: { name: string; description: string }): string =>
-  [
-    "---",
-    `name: ${JSON.stringify(project.name)}`,
-    `description: ${JSON.stringify(project.description)}`,
-    "---",
-    "",
-  ].join("\n");
-
-const parseProjectDocument = (text: string): { name: string; description: string } => {
-  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
-  if (!match) throw new Error("project.md must start with YAML frontmatter");
-  const document = parseDocument(match[1] ?? "", { prettyErrors: true });
-  if (document.errors.length > 0) throw new Error(`project.md: ${document.errors[0]?.message}`);
-  const raw = document.toJS() as unknown;
-  if (!raw || Array.isArray(raw) || typeof raw !== "object")
-    throw new Error("project.md frontmatter must be a mapping");
-  const value = raw as Record<string, unknown>;
-  if (typeof value.name !== "string" || !value.name.trim())
-    throw new Error("project.md name must be a non-empty string");
-  if (value.description !== undefined && typeof value.description !== "string")
-    throw new Error("project.md description must be a string");
-  return {
-    name: value.name.trim().slice(0, 80),
-    description: String(value.description ?? "")
-      .trim()
-      .slice(0, 2_000),
   };
 };
 
@@ -549,42 +493,7 @@ const normalizeSidebarSections = (input: unknown): RootSidebarSection[] => {
   return sections;
 };
 
-const rootSettingsFromLegacy = (value: Record<string, unknown>): RootSettings => {
-  const settings = defaultRootSettings();
-  if (typeof value.timezone === "string") settings.userTimeZone = value.timezone;
-  if (typeof value.notificationsEnabled === "boolean") {
-    settings.notifications = { isEnabled: value.notificationsEnabled };
-  }
-  if (typeof value.theme === "string") settings.themePreference = value.theme;
-  if (typeof value.language === "string") settings.languagePreference = value.language;
-  if (value.pinnedAgentIds !== undefined) {
-    settings.pinnedAgentIds = uniqueStrings(value.pinnedAgentIds, "settings.json pinnedAgentIds");
-  }
-  if (value.sidebarPreferences !== undefined) {
-    const legacy = parseSidebarPreferences(value.sidebarPreferences);
-    settings.pinnedAgentIds = [...new Set(legacy.pinnedIds)];
-    settings.sidebarSections = normalizeSidebarSections(
-      legacy.sections.map((section) => ({
-        id: section.id,
-        name: section.name,
-        agentIds: Object.entries(legacy.sectionByChannel)
-          .filter(([, sectionId]) => sectionId === section.id)
-          .map(([channelId]) => channelId),
-        isCollapsed: section.collapsed,
-      }))
-    );
-  }
-  return settings;
-};
-
 const parseRootSettings = (value: Record<string, unknown>): RootSettings => {
-  if (
-    value.sidebarPreferences !== undefined ||
-    value.timezone !== undefined ||
-    value.notificationsEnabled !== undefined
-  ) {
-    return rootSettingsFromLegacy(value);
-  }
   if (value.version !== ROOT_SETTINGS_VERSION) throw new Error("settings.json version must be 1");
   const requiredBooleans = [
     "autoUpdateWhenIdleOptIn",
@@ -714,17 +623,14 @@ const parseRootSettings = (value: Record<string, unknown>): RootSettings => {
   return parsed;
 };
 
-const sourceNamespace = (
-  botId: string,
-  scope: MemoryWriteScope,
-  projectSlug?: string,
-  memoryConversationId?: string
-): string =>
-  scope === "conversation" ? `conversation:${memoryConversationId}:agent:${botId}` : scope === "agent"
-    ? `agent:${botId}`
-    : scope === "user"
-      ? `user:agent:${botId}`
-      : `project:${projectSlug}:agent:${botId}`;
+type MemoryScope = "agent" | "user";
+
+/** A bot's own facts, or its shard of the shared user memory. */
+const memoryNamespace = (botId: string, scope: MemoryScope): string =>
+  scope === "agent" ? `agent:${botId}` : `user:agent:${botId}`;
+
+const lockMemoryNamespace = (tx: Tx, namespace: string) =>
+  tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`memory:${namespace}`}))`;
 
 const scoreFact = (fact: { importance: number; createdAt: Date; sourceOrdinal: number }): number =>
   Math.log2(Math.max(fact.importance, 0.01)) +
@@ -832,22 +738,14 @@ export class AgentDataStore {
   private watcherStarting: Promise<void> | null = null;
   private watcherScanTimer: ReturnType<typeof setInterval> | null = null;
   private watcherScan: Promise<void> | null = null;
-  private readonly pendingDreamingEvidence = new Map<string, PendingDreamingAgent>();
   private readonly pendingIdentityAnnouncements = new Map<string, PendingIdentityAnnouncement>();
   private readonly watcherTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly watcherTasks = new Set<Promise<void>>();
   private readonly agentAttachmentPaths = new Map<string, string>();
   private readonly agentAttachmentPathLookups = new Map<string, Promise<string | null>>();
   private readonly memoryInference: MemoryInference | null;
-  private readonly memoryDreamingEnabled: boolean;
-  private readonly memoryEpisodeInterval: number;
-  private readonly memorySynthesisDebounceMs: number;
-  private readonly memorySynthesisPollIntervalMs: number;
-  private memorySynthesisTimer: ReturnType<typeof setTimeout> | null = null;
-  private memoryPollTimer: ReturnType<typeof setInterval> | null = null;
-  private memorySynthesisActive = false;
-  private memoryLifecycleController = new AbortController();
-  private memorySynthesisNeedsAnotherPass = false;
+  /** Held exchanges whose review is running in this process; the rest were left by one that stopped. */
+  private readonly memoryExchangesInReview = new Set<string>();
   private timelineEventSink:
     | ((
         tx: Tx,
@@ -876,17 +774,6 @@ export class AgentDataStore {
         join(resolve(this.root, ".."), ".openteam-assets")
     );
     this.memoryInference = options.memoryInference ?? null;
-    this.memoryEpisodeInterval = options.memoryEpisodeInterval ?? getMemoryEpisodeInterval();
-    if (!Number.isInteger(this.memoryEpisodeInterval) || this.memoryEpisodeInterval < 1) {
-      throw new Error("Memory episode interval must be a positive integer");
-    }
-    this.memoryDreamingEnabled =
-      options.memoryDreamingEnabled ??
-      ["1", "true"].includes((process.env.OPENTEAM_MEMORY_DREAMING ?? "").trim().toLowerCase());
-    this.memorySynthesisDebounceMs =
-      options.memorySynthesisDebounceMs ?? MEMORY_SYNTHESIS_DEBOUNCE_MS;
-    this.memorySynthesisPollIntervalMs =
-      options.memorySynthesisPollIntervalMs ?? MEMORY_SYNTHESIS_POLL_INTERVAL_MS;
   }
 
   setTimelineEventSink(
@@ -1007,8 +894,6 @@ export class AgentDataStore {
       await atomicWrite(join(this.managedSkillsDirectory(), "cache.json"), jsonFile({ version: "disabled", skills: [] }), 0o444);
       return;
     }
-    // Remove the retired helper from older managed caches.
-    await rm(join(this.managedSkillsDirectory(), "flight-booking", "google-flights-url.cjs"), { force: true });
     const cachePath = join(this.managedSkillsDirectory(), "cache.json");
     const current = await readText(cachePath);
     if (current) {
@@ -1105,7 +990,6 @@ export class AgentDataStore {
     const timer = this.watcherTimers.get(botId);
     if (timer) clearTimeout(timer);
     this.watcherTimers.delete(botId);
-    for (const key of this.pendingDreamingEvidence.keys()) { if (key === botId || key.startsWith(`${botId}:`)) this.pendingDreamingEvidence.delete(key); }
     for (const key of this.pendingIdentityAnnouncements.keys()) {
       if (key.startsWith(`${botId}:`)) this.pendingIdentityAnnouncements.delete(key);
     }
@@ -1115,52 +999,15 @@ export class AgentDataStore {
     });
   }
 
-  memoryDirectory(
-    botId: string,
-    scope: MemoryWriteScope,
-    projectSlug?: string,
-    memoryConversationId?: string
-  ): string {
-    if (scope === "conversation") return join(this.botDirectory(botId), "conversations", safeFolderId(memoryConversationId ?? "", "memory conversation id"), "memory");
-    safeFolderId(botId, "bot id");
-    if (scope === "agent") return join(this.botDirectory(botId), "memory");
-    if (scope === "user") return join(this.root, "user-memory", "by-agent", botId);
-    return join(
-      this.root,
-      "projects",
-      safeFolderId(projectSlug ?? "", "project slug"),
-      "memory",
-      "by-agent",
-      botId
-    );
-  }
-
-  resolveMemoryConversation(botId: string, channelId?: string | null, tx?: Tx) {
-    return resolveMemoryConversation(tx ?? this.prisma, botId, channelId);
-  }
-
-  getMemoryConversation(botId: string, id: string) {
-    return getMemoryConversation(this.prisma, botId, id);
-  }
-
-  private async visibleMemoryConversations(botId: string, context?: MemoryConversationContext) {
-    if (!context) return [];
-    // Recompute live membership before exposing any sibling. Persisted audience
-    // keys describe capture-time membership and are never broadened in place.
-    const current = await this.resolveMemoryConversation(botId, context.address === "home" ? null : context.address);
-    if (current.id !== context.id) throw new Error("Memory audience changed; restart this turn with the current audience");
-    const candidates = await this.prisma.memoryConversation.findMany({
-      where: { botId, audienceKey: context.audienceKey }, orderBy: { id: "asc" },
+  /** A group room is a shared conversation: it neither reads nor writes the owner's shared user memory. */
+  async isSharedConversation(botId: string, channelId?: string | null): Promise<boolean> {
+    if (!channelId) return false;
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, members: { some: { botId } } },
+      select: { kind: true },
     });
-    const visible: string[] = [];
-    for (const candidate of candidates) {
-      if (candidate.id === context.id) { visible.push(candidate.id); continue; }
-      try {
-        const live = await this.resolveMemoryConversation(botId, candidate.address === "home" ? null : candidate.address);
-        if (live.id === candidate.id) visible.push(candidate.id);
-      } catch { /* Deleted channels and revoked membership are not visible. */ }
-    }
-    return visible;
+    if (!channel) throw new ApiError(403, "memory_context_unavailable", "Bot is not a member of this conversation");
+    return channel.kind === "group";
   }
 
   async projectBot(botId: string): Promise<void> {
@@ -1244,7 +1091,9 @@ export class AgentDataStore {
         if (count + recipe.skills.length > MAX_SAVED_SKILLS) throw new Error(`Import would exceed the ${MAX_SAVED_SKILLS} saved-skill limit`);
         for (const memory of recipe.memory) {
           const date = memory.createdAt && Number.isFinite(Date.parse(memory.createdAt)) ? new Date(memory.createdAt) : bot.createdAt;
-          await appendMemoryFact(this.memoryDirectory(botId, "agent"), memory.content, memory.kind ?? "profile", date);
+          await this.insertMemoryFact(tx, botId, {
+            scope: "agent", tier: memory.kind ?? "profile", fact: memory.content, at: date,
+          }, { source: "template" });
         }
         const skillPaths: string[] = [];
         for (const [index, skill] of recipe.skills.entries()) {
@@ -1264,13 +1113,12 @@ export class AgentDataStore {
         await tx.bot.update({ where: { id: botId }, data: { templateRecipe: Prisma.DbNull, instructions: [bot.instructions, additions].filter(Boolean).join("\n\n") } });
         await this.writeBotFilesInTransaction(tx, botId, ["instructions"]);
       }
-      await this.migrateLegacyAvatar(botId, bot.avatarPath);
     });
   }
 
   async writeBotFiles(
     botId: string,
-    targets: BotFileTarget[] = ["profile", "settings", "instructions", "avatar", "projects"]
+    targets: BotFileTarget[] = ["profile", "settings", "instructions", "avatar"]
   ): Promise<void> {
     await this.initializeBot(botId);
     await this.withFileMutation(botId, "bot-files", (tx) =>
@@ -1298,10 +1146,7 @@ export class AgentDataStore {
   ): Promise<void> {
     const bot = await tx.bot.findUnique({
       where: { id: botId },
-      include: {
-        projectMemberships: { orderBy: { joinedAt: "asc" } },
-        subagentIdentity: { select: { id: true } },
-      },
+      include: { subagentIdentity: { select: { id: true } } },
     });
     if (!bot || !["active", "provisioning"].includes(bot.status) || bot.subagentIdentity) return;
     const directory = this.botDirectory(botId);
@@ -1349,17 +1194,8 @@ export class AgentDataStore {
       if (!bot.avatarPath) {
         await this.clearAvatarFiles(botId);
       } else if (existing.length === 0) {
-        await this.installAvatarFromPath(botId, bot.avatarPath, true);
+        await this.installAvatarFromPath(botId, bot.avatarPath);
       }
-      await rm(join(directory, "avatar.json"), { force: true });
-    }
-    if (targets.includes("projects")) {
-      for (const membership of bot.projectMemberships)
-        await this.writeProjectFile(membership.projectSlug);
-      await atomicWrite(
-        join(directory, "projects.json"),
-        jsonFile({ projects: bot.projectMemberships.map((membership) => membership.projectSlug) })
-      );
     }
   }
 
@@ -1390,19 +1226,6 @@ export class AgentDataStore {
     });
   }
 
-  async writeProjectFile(projectSlug: string): Promise<void> {
-    safeFolderId(projectSlug, "project slug");
-    const project = await this.prisma.project.findUnique({
-      where: { slug: projectSlug },
-      select: { name: true, description: true },
-    });
-    if (!project) return;
-    await atomicWrite(
-      join(this.root, "projects", projectSlug, "project.md"),
-      renderProjectDocument(project)
-    );
-  }
-
   async setAvatarFromPath(
     botId: string,
     supplied: string | null
@@ -1422,10 +1245,9 @@ export class AgentDataStore {
           data: { avatarPath: null },
         });
         await this.clearAvatarFiles(botId);
-        await rm(join(this.botDirectory(botId), "avatar.json"), { force: true });
         return { path: null, resolvedPath: null, bytes: 0 };
       }
-      return this.installAvatarFromPath(botId, supplied, false);
+      return this.installAvatarFromPath(botId, supplied);
     });
   }
 
@@ -1433,56 +1255,10 @@ export class AgentDataStore {
     await this.withFileMutation(botId, "migration", async (tx) => {
       const migrationKey = `migration:file-native-v3:${botId}`;
       if (await tx.agentFileState.findUnique({ where: { path: migrationKey } })) return;
-      const bot = await tx.bot.findUnique({
-        where: { id: botId },
-        include: { projectMemberships: true },
-      });
+      const bot = await tx.bot.findUnique({ where: { id: botId } });
       if (!bot || bot.status === "archived") return;
 
-      const migrated = { memoryFacts: 0, skills: 0, automations: 0 };
-      const seedMemory = async (root: string, namespaces: string[]): Promise<void> => {
-        if ((await readMemoryTree(root)).length > 0) return;
-        const facts = await this.prisma.memoryFact.findMany({
-          where: { namespace: { in: namespaces } },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        });
-        for (const fact of facts) {
-          const result = await appendMemoryFact(root, fact.fact, fact.tier, fact.createdAt);
-          if (result.added) migrated.memoryFacts += 1;
-        }
-      };
-
-      await seedMemory(this.memoryDirectory(botId, "agent"), [`agent:${botId}`]);
-      await seedMemory(this.memoryDirectory(botId, "user"), ["user", `user:agent:${botId}`]);
-      for (const membership of bot.projectMemberships) {
-        await this.writeProjectFile(membership.projectSlug);
-        await seedMemory(this.memoryDirectory(botId, "project", membership.projectSlug), [
-          `project:${membership.projectSlug}:agent:${botId}`,
-        ]);
-      }
-      const projectsPath = join(this.botDirectory(botId), "projects.json");
-      if (bot.projectMemberships.length > 0 && (await readText(projectsPath, 100_000)) === null) {
-        await atomicWrite(
-          projectsPath,
-          jsonFile({
-            projects: bot.projectMemberships.map((membership) => membership.projectSlug),
-          })
-        );
-      }
-
-      const legacyNotes = join(this.botDirectory(botId), "memory", "notes.md");
-      const legacyNoteText = await readText(legacyNotes, 2_000_000);
-      if (legacyNoteText !== null) {
-        for (const fact of parseMemoryMarkdown(legacyNoteText)) {
-          const result = await appendMemoryFact(
-            this.memoryDirectory(botId, "agent"),
-            fact.content.startsWith("[note] ") ? fact.content : `[note] ${fact.content}`,
-            "note",
-            fact.createdAt
-          );
-          if (result.added) migrated.memoryFacts += 1;
-        }
-      }
+      const migrated = { skills: 0, automations: 0 };
 
       const globalSkillRoot = this.workflowsDirectory();
       await mkdir(globalSkillRoot, { recursive: true, mode: 0o755 });
@@ -1610,7 +1386,6 @@ export class AgentDataStore {
 
       const legacyManifest = join(this.botDirectory(botId), ".openteam-projection.json");
       await Promise.all([
-        rm(legacyNotes, { force: true }),
         rm(join(this.botDirectory(botId), "instructions.md"), { force: true }),
         rm(legacyManifest, { force: true }),
         rm(join(this.botDirectory(botId), ".openteam-projection.legacy.json"), { force: true }),
@@ -1651,30 +1426,12 @@ export class AgentDataStore {
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${botId}`}))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${AGENT_LOCK}:${botId}`}))`;
-        const bot = await tx.bot.findUnique({
-          where: { id: botId },
-          include: { projectMemberships: true },
-        });
+        const bot = await tx.bot.findUnique({ where: { id: botId } });
         if (!bot || bot.status === "archived") return;
         await this.reconcileProfile(tx, botId, warnings);
         await this.reconcileSettings(tx, botId, warnings);
         await this.reconcileAvatar(tx, botId, warnings);
-        await this.reconcileProjects(tx, botId, warnings);
         await this.reconcileConnectors(tx, botId, warnings);
-        await this.reconcileMemory(tx, botId, "agent", undefined, warnings);
-        const memoryConversations = await tx.memoryConversation.findMany({ where: { botId }, select: { id: true } });
-        for (const conversation of memoryConversations) {
-          await this.reconcileMemory(tx, botId, "conversation", undefined, warnings, conversation.id);
-        }
-        const memberships = await tx.projectMember.findMany({
-          where: { botId },
-          orderBy: { joinedAt: "asc" },
-        });
-        await this.reconcileSharedMemory(
-          tx,
-          memberships.map((membership) => membership.projectSlug),
-          warnings
-        );
         await this.reconcileSkills(tx, warnings);
         await this.reconcileAutomations(tx, botId, warnings);
         await this.reconcileGroups(tx, botId, warnings);
@@ -1700,7 +1457,6 @@ export class AgentDataStore {
       select: { id: true },
       orderBy: { createdAt: "asc" },
     });
-    if (bots[0]) await this.migrateLegacyUserMemory(bots[0].id);
     const warnings: string[] = [];
     for (const bot of bots) warnings.push(...(await this.reconcileBot(bot.id)).warnings);
     const obsolete = await this.prisma.bot.findMany({
@@ -1772,50 +1528,6 @@ export class AgentDataStore {
     };
   }
 
-  private async migrateLegacyUserMemory(writerId: string): Promise<void> {
-    await this.withRootFileMutation("legacy-user-memory-v3", async (tx) => {
-      const migrationKey = "migration:file-native-v3:user-memory";
-      if (await tx.agentFileState.findUnique({ where: { path: migrationKey } })) return;
-      const legacyRoot = join(this.root, "user-memory");
-      const targetRoot = this.memoryDirectory(writerId, "user");
-      for (const fact of await readMemoryTree(legacyRoot)) {
-        await appendMemoryFact(targetRoot, fact.content, fact.tier, fact.createdAt);
-      }
-      const notesPath = join(legacyRoot, "notes.md");
-      const notes = await readText(notesPath, 2_000_000);
-      if (notes !== null) {
-        for (const fact of parseMemoryMarkdown(notes)) {
-          await appendMemoryFact(targetRoot, fact.content, "note", fact.createdAt);
-        }
-      }
-      await Promise.all([
-        rm(join(legacyRoot, "profile.md"), { force: true }),
-        rm(notesPath, { force: true }),
-        rm(join(legacyRoot, "log"), { recursive: true, force: true }),
-        rm(join(legacyRoot, ".openteam-projection.json"), { force: true }),
-      ]);
-      await tx.agentFileState.upsert({
-        where: { path: migrationKey },
-        create: {
-          path: migrationKey,
-          botId: null,
-          kind: "migration",
-          digest: "3",
-          validDigest: "3",
-          exists: true,
-        },
-        update: {
-          botId: null,
-          kind: "migration",
-          digest: "3",
-          validDigest: "3",
-          exists: true,
-          error: null,
-        },
-      });
-    });
-  }
-
   startWatching(): Promise<void> {
     if (this.watcherStarting) return this.watcherStarting;
     if (this.watcher) return Promise.resolve();
@@ -1880,10 +1592,7 @@ export class AgentDataStore {
           );
           return;
         }
-        const botId =
-          normalized.match(/^agents\/([^/]+)\//)?.[1] ??
-          normalized.match(/^user-memory\/by-agent\/([^/]+)\//)?.[1] ??
-          normalized.match(/^projects\/[^/]+\/memory\/by-agent\/([^/]+)\//)?.[1];
+        const botId = normalized.match(/^agents\/([^/]+)\//)?.[1];
         if (!botId || normalized.includes("/.openteam") || normalized.endsWith(".part")) return;
         const previous = this.watcherTimers.get(botId);
         if (previous) clearTimeout(previous);
@@ -1990,7 +1699,6 @@ export class AgentDataStore {
     if (watcher) await watcher.close();
     for (const timer of this.watcherTimers.values()) clearTimeout(timer);
     this.watcherTimers.clear();
-    this.pendingDreamingEvidence.clear();
     this.pendingIdentityAnnouncements.clear();
     await Promise.allSettled([...this.watcherTasks]);
   }
@@ -2160,137 +1868,25 @@ export class AgentDataStore {
 
   private async installAvatarFromPath(
     botId: string,
-    supplied: string,
-    allowLegacyWorkspacePath: boolean
+    supplied: string
   ): Promise<{ path: string; resolvedPath: string; bytes: number }> {
     const directory = this.botDirectory(botId);
     const canonical = await realpath(resolve(directory, supplied)).catch(() => null);
     const agentDirectory = await realpath(directory).catch(() => directory);
-    const workspace = await realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
-    if (
-      !canonical ||
-      (!this.isInside(canonical, agentDirectory) &&
-        !(allowLegacyWorkspacePath && this.isInside(canonical, workspace)))
-    ) {
-      throw new Error(`avatar source must stay inside ${directory}`);
-    }
-    const bytes = await readBytes(canonical, MAX_AVATAR_BYTES);
-    const extension = bytes ? sniffAvatarExtension(bytes) : null;
-    if (!bytes || !extension) {
-      throw new Error("avatar must be a supported non-empty image no larger than 5 MB");
-    }
+    const unreadable = `could not read "${basename(supplied)}" from your agent directory. The avatar source must stay inside ${directory}: write or copy the image there first, then pass that path.`;
+    if (!canonical || !this.isInside(canonical, agentDirectory)) throw new Error(unreadable);
+    const bytes = await readBytes(canonical, MAX_AVATAR_BYTES).catch((error: unknown) => {
+      throw new Error(error instanceof Error && error.message.includes("is larger than") ? AVATAR_SIZE_REFUSAL : unreadable);
+    });
+    if (!bytes?.length) throw new Error(AVATAR_SIZE_REFUSAL);
+    const extension = sniffAvatarExtension(bytes);
+    if (!extension) throw new Error("that file is not a recognized image (png, jpg, webp, gif, or svg).");
     await this.clearAvatarFiles(botId);
     const destination = join(directory, `avatar${extension}`);
     await atomicWrite(destination, bytes);
     const resolvedPath = await realpath(destination);
-    await rm(join(directory, "avatar.json"), { force: true });
     await this.prisma.bot.update({ where: { id: botId }, data: { avatarPath: resolvedPath } });
     return { path: supplied, resolvedPath, bytes: bytes.length };
-  }
-
-  private async migrateLegacyAvatar(botId: string, databasePath: string | null): Promise<void> {
-    const directory = this.botDirectory(botId);
-    if ((await this.avatarFiles(botId)).length > 0) {
-      await rm(join(directory, "avatar.json"), { force: true });
-      return;
-    }
-    let supplied = databasePath;
-    const pointerPath = join(directory, "avatar.json");
-    const pointer = await readText(pointerPath).catch(() => null);
-    if (!supplied && pointer) {
-      try {
-        const value = parseJsonObject(pointer, "avatar.json");
-        supplied = typeof value.path === "string" ? value.path : null;
-      } catch {
-        supplied = null;
-      }
-    }
-    if (!supplied) {
-      const profile = await readText(join(directory, "profile.json")).catch(() => null);
-      if (profile) {
-        try {
-          const value = parseJsonObject(profile, "profile.json");
-          supplied = typeof value.avatar === "string" ? value.avatar : null;
-        } catch {
-          supplied = null;
-        }
-      }
-    }
-    if (supplied) {
-      await this.installAvatarFromPath(botId, supplied, true).catch(async () => {
-        await this.prisma.bot.update({ where: { id: botId }, data: { avatarPath: null } });
-      });
-    }
-    await rm(pointerPath, { force: true });
-  }
-
-  private async reconcileProjects(tx: Tx, botId: string, warnings: string[]): Promise<void> {
-    const path = join(this.botDirectory(botId), "projects.json");
-    let text = await readText(path);
-    if (text === null) {
-      await tx.projectMember.deleteMany({ where: { botId } });
-      await this.trackFile(tx, botId, "projects", path, null);
-      return;
-    }
-    try {
-      const value = parseJsonObject(text, "projects.json");
-      if (
-        !Array.isArray(value.projects) ||
-        value.projects.some((slug) => typeof slug !== "string")
-      ) {
-        throw new Error("projects.json projects must be a string array");
-      }
-      const slugs = [...new Set(value.projects as string[])].map((slug) =>
-        safeFolderId(slug, "project slug")
-      );
-      const projectDirectories = new Set(await listDirectories(join(this.root, "projects")));
-      const projects = await tx.project.findMany({
-        where: {
-          slug: {
-            in: slugs.filter((slug) => projectDirectories.has(slug)),
-          },
-        },
-        select: { slug: true },
-      });
-      const valid = new Set(projects.map((project) => project.slug));
-      const missing = slugs.filter((slug) => !valid.has(slug));
-      const joinedSlugs = slugs.filter((slug) => valid.has(slug));
-      if (missing.length > 0) {
-        warnings.push(`projects.json pruned missing projects: ${missing.join(", ")}`);
-        text = jsonFile({ projects: joinedSlugs });
-        await atomicWrite(path, text);
-      }
-      for (const project of projects) {
-        const metadataPath = join(this.root, "projects", project.slug, "project.md");
-        const metadata = await readText(metadataPath, 100_000);
-        if (metadata === null) continue;
-        try {
-          await tx.project.update({
-            where: { slug: project.slug },
-            data: parseProjectDocument(metadata),
-          });
-        } catch (error) {
-          warnings.push(
-            `projects/${project.slug}/project.md: ${error instanceof Error ? error.message : String(error)}`
-          );
-        }
-      }
-      await tx.projectMember.deleteMany({
-        where: { botId, projectSlug: { notIn: joinedSlugs } },
-      });
-      for (const projectSlug of joinedSlugs) {
-        await tx.projectMember.upsert({
-          where: { projectSlug_botId: { projectSlug, botId } },
-          create: { projectSlug, botId },
-          update: {},
-        });
-      }
-      await this.trackFile(tx, botId, "projects", path, text);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      warnings.push(`projects.json: ${message}`);
-      await this.trackFile(tx, botId, "projects", path, text, message);
-    }
   }
 
   private async reconcileConnectors(tx: Tx, botId: string, warnings: string[]): Promise<void> {
@@ -2370,130 +1966,6 @@ export class AgentDataStore {
     });
   }
 
-  private async reconcileMemory(
-    tx: Tx,
-    botId: string,
-    scope: MemoryWriteScope,
-    projectSlug: string | undefined,
-    warnings: string[],
-    memoryConversationId?: string
-  ): Promise<void> {
-    const root = this.memoryDirectory(botId, scope, projectSlug, memoryConversationId);
-    const namespace = sourceNamespace(botId, scope, projectSlug, memoryConversationId);
-    try {
-      const facts = await readMemoryTree(root);
-      // A compact invalidation event reaches every connected client/worker.
-      // Do not duplicate private memory content into the durable event log.
-      const managed = scope === "agent" || scope === "conversation";
-      const before = managed ? await tx.memoryFact.findMany({
-        where: { namespace }, orderBy: { sourceOrdinal: "asc" },
-        select: { fact: true, tier: true, createdAt: true },
-      }) : [];
-      const changed = managed && JSON.stringify(before.map((fact) => [fact.fact, fact.tier, fact.createdAt.getTime()])) !==
-        JSON.stringify(facts.map((fact) => [fact.content, fact.tier, fact.createdAt.getTime()]));
-      await tx.memoryFact.deleteMany({ where: { namespace } });
-      if (facts.length > 0) {
-        await tx.memoryFact.createMany({
-          data: facts.map((fact, order) => ({
-            namespace,
-            scope,
-            tier: fact.tier,
-            projectSlug,
-            memoryConversationId,
-            fact: fact.content,
-            factHash: createHash("sha256").update(fact.content).digest("hex"),
-            logicalId: fact.logicalId,
-            sourcePath: fact.sourcePath,
-            sourceOrdinal: order,
-            sourceLine: fact.sourceLine,
-            importance: fact.importance,
-            origin: "filesystem",
-            writtenByBotId: botId,
-            createdAt: fact.createdAt,
-          })),
-        });
-      }
-      if (changed) await tx.event.create({ data: {
-        topic: "memory.changed", entityId: botId, payload: { botId },
-      } });
-    } catch (error) {
-      warnings.push(`${scope} memory: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  private async reconcileSharedMemory(
-    tx: Tx,
-    projectSlugs: string[],
-    warnings: string[]
-  ): Promise<void> {
-    const ownedBotIds = (
-      await tx.bot.findMany({
-        where: {
-          OR: [
-            { defaultDirectory: this.workspaceRoot },
-            { defaultDirectory: { startsWith: `${this.workspaceRoot}${sep}` } },
-          ],
-        },
-        select: { id: true },
-      })
-    ).map((bot) => bot.id);
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('shared-memory:user'))`;
-    const userWriters = await listDirectories(join(this.root, "user-memory", "by-agent"));
-    const candidateUserWriters = userWriters.filter((writerId) => UUID_FOLDER.test(writerId));
-    const knownUserWriters = new Set(
-      (
-        await tx.bot.findMany({
-          where: { id: { in: candidateUserWriters } },
-          select: { id: true },
-        })
-      ).map((bot) => bot.id)
-    );
-    for (const writerId of userWriters) {
-      if (!knownUserWriters.has(writerId)) {
-        warnings.push(`user memory: unknown writer shard ${writerId}`);
-        continue;
-      }
-      await this.reconcileMemory(tx, writerId, "user", undefined, warnings);
-    }
-    const missingOwnedUserWriters = ownedBotIds.filter(
-      (writerId) => !knownUserWriters.has(writerId)
-    );
-    await tx.memoryFact.deleteMany({
-      where: { scope: "user", writtenByBotId: { in: missingOwnedUserWriters } },
-    });
-
-    for (const projectSlug of [...new Set(projectSlugs)].sort()) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`shared-memory:project:${projectSlug}`}))`;
-      const writers = await listDirectories(
-        join(this.root, "projects", projectSlug, "memory", "by-agent")
-      );
-      const candidateWriters = writers.filter((writerId) => UUID_FOLDER.test(writerId));
-      const knownWriters = new Set(
-        (
-          await tx.bot.findMany({
-            where: { id: { in: candidateWriters } },
-            select: { id: true },
-          })
-        ).map((bot) => bot.id)
-      );
-      for (const writerId of writers) {
-        if (!knownWriters.has(writerId)) {
-          warnings.push(`project ${projectSlug} memory: unknown writer shard ${writerId}`);
-          continue;
-        }
-        await this.reconcileMemory(tx, writerId, "project", projectSlug, warnings);
-      }
-      const missingOwnedWriters = ownedBotIds.filter((writerId) => !knownWriters.has(writerId));
-      await tx.memoryFact.deleteMany({
-        where: {
-          scope: "project",
-          projectSlug,
-          writtenByBotId: { in: missingOwnedWriters },
-        },
-      });
-    }
-  }
-
   private async reconcileSkills(tx: Tx, warnings: string[]): Promise<void> {
     const root = this.workflowsDirectory();
     const slugs = await listDirectories(root);
@@ -2541,16 +2013,13 @@ export class AgentDataStore {
     const root = join(this.botDirectory(botId), "automations");
     const slugs = await listDirectories(root);
     const seen = new Set<string>();
+    const userZone = await readUserTimeZone(tx);
     for (const slug of slugs) {
       const path = join(root, slug, "automation.json");
       const text = await readText(path, Number.MAX_SAFE_INTEGER);
       if (text === null) continue;
       try {
-        const parsed = await parseAutomationFile(
-          path,
-          text,
-          process.env.OPENTEAM_TIME_ZONE ?? "UTC"
-        );
+        const parsed = await parseAutomationFile(path, text, userZone);
         seen.add(slug);
         const existing = await tx.routine.findUnique({
           where: { botId_slug: { botId, slug } },
@@ -2570,7 +2039,7 @@ export class AgentDataStore {
           cronExpression: null,
           intervalSeconds: null,
           timezoneMode: "installation" as const,
-          timezone: process.env.OPENTEAM_TIME_ZONE ?? "UTC",
+          timezone: userZone,
         };
         const common = {
           name: parsed.name,
@@ -2754,156 +2223,118 @@ export class AgentDataStore {
     if (!bot) throw new ApiError(404, "bot_not_found", "Bot not found");
   }
 
-  private async prepareManagedMemory(botId: string): Promise<void> {
-    await this.requireManagedMemoryBot(this.prisma, botId);
-    // Run the same legacy migration as recall before listing or clearing. Otherwise
-    // database-only facts could be seeded back into the files after an empty clear.
-    await this.reconcileBot(botId);
-  }
-
-  private async managedMemoryRoots(tx: Tx, botId: string): Promise<string[]> {
-    await this.requireManagedMemoryBot(tx, botId);
-    const rooms = await tx.memoryConversation.findMany({ where: { botId }, select: { id: true }, orderBy: { id: "asc" } });
-    return [this.memoryDirectory(botId, "agent"),
-      ...rooms.map((room) => this.memoryDirectory(botId, "conversation", undefined, room.id))];
-  }
-
-  private async managedMemoryList(botId: string, roots: string[]): Promise<BotMemoryList> {
+  /** The Memories panel lists the bot's own facts, the same rows RecallMemory and the prompt read. */
+  private async managedMemoryList(tx: Tx, botId: string): Promise<BotMemoryList> {
+    const facts = await tx.memoryFact.findMany({
+      where: { namespace: memoryNamespace(botId, "agent") },
+      orderBy: [{ createdAt: "desc" }, { sourceOrdinal: "desc" }],
+      select: { logicalId: true, fact: true, tier: true, createdAt: true },
+    });
     const unique = new Map<string, BotMemoryEntry>();
-    for (const root of roots) {
-      const facts = (await readMemoryTree(root)).sort((a, b) =>
-        Number(b.tier === "profile") - Number(a.tier === "profile") ||
-        b.createdAt.getTime() - a.createdAt.getTime() || b.sourceOrdinal - a.sourceOrdinal);
-      for (const fact of facts) {
-        if (!unique.has(fact.logicalId)) unique.set(fact.logicalId, {
-          id: fact.logicalId, content: fact.content, createdAt: fact.createdAt.getTime(),
-          kind: fact.tier === "profile" ? "profile" : "log",
-        });
-      }
+    for (const fact of [...facts].sort((a, b) => Number(b.tier === "profile") - Number(a.tier === "profile"))) {
+      if (!unique.has(fact.logicalId)) unique.set(fact.logicalId, {
+        id: fact.logicalId, content: fact.fact, createdAt: fact.createdAt.getTime(),
+        kind: fact.tier === "profile" ? "profile" : "log",
+      });
     }
     const memories = [...unique.values()].sort((a, b) =>
       Number(b.kind === "profile") - Number(a.kind === "profile") || b.createdAt - a.createdAt);
     return { botId, memories: memories.slice(0, BOT_MEMORY_LIST_LIMIT), total: memories.length, limit: BOT_MEMORY_LIST_LIMIT };
   }
 
-  /** Same canonical files as RecallMemory, including this bot's historical room records. */
   async listBotMemories(botId: string): Promise<BotMemoryList> {
-    await this.prepareManagedMemory(botId);
-    return this.withFileMutation(botId, "memory:management", async (tx) =>
-      this.managedMemoryList(botId, await this.managedMemoryRoots(tx, botId)), 60_000);
+    await this.requireManagedMemoryBot(this.prisma, botId);
+    return this.managedMemoryList(this.prisma, botId);
   }
 
-  /** Omitted id clears recorded bot facts, never conversation or pending learning. */
+  /** Omitted id clears the bot's own facts, never shared user memory or pending learning. */
   async deleteBotMemories(botId: string, memoryId?: string): Promise<BotMemoryList> {
     if (memoryId !== undefined && !/^[a-f0-9]{16}$/.test(memoryId))
       throw new ApiError(400, "invalid_memory_id", "Invalid memory id");
-    await this.prepareManagedMemory(botId);
-    const result = await this.withFileMutation(botId, "memory:management", async (tx) => {
-      const roots = await this.managedMemoryRoots(tx, botId);
-      for (const root of roots) {
-        const removed = await removeMemoryFacts(root, memoryId);
-        if (this.memoryDreamingEnabled) {
-          for (const id of new Set(removed.map((fact) => fact.logicalId))) await tombstoneMemory(root, id);
-        }
-      }
-      // Refresh both primary and forked prompt snapshots, even on an idempotent clear.
-      await tx.agentPromptSnapshot.updateMany({ where: { botId }, data: { memoryEpoch: -1, memoryRender: "", memoryHasFacts: false } });
-      await tx.contextPromptSnapshot.updateMany({ where: { contextSession: { botId } }, data: { memoryEpoch: -1, memoryRender: "", memoryHasFacts: false } });
-      return this.managedMemoryList(botId, roots);
-    }, 60_000);
-    await this.reconcileBot(botId);
-    return result;
+    return this.prisma.$transaction(async (tx) => {
+      await this.requireManagedMemoryBot(tx, botId);
+      const namespace = memoryNamespace(botId, "agent");
+      await lockMemoryNamespace(tx, namespace);
+      const { count } = await tx.memoryFact.deleteMany({ where: { namespace, ...(memoryId ? { logicalId: memoryId } : {}) } });
+      if (count > 0) await tx.event.create({ data: { topic: "memory.changed", entityId: botId, payload: { botId } } });
+      // The owner's deletion reaches the bot at once: unpin memory in every conversation, even on an idempotent clear.
+      await tx.$executeRaw`UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory' WHERE "contextSessionId" IN (SELECT "id" FROM "ContextSession" WHERE "botId" = ${botId}::uuid)`;
+      return this.managedMemoryList(tx, botId);
+    }, { maxWait: 10_000, timeout: 60_000 });
+  }
+
+  /** Append one fact unless the namespace already records the same text. The caller checks the bot is active. */
+  private async insertMemoryFact(
+    tx: Tx,
+    botId: string,
+    input: { scope: MemoryScope; tier: "profile" | "log"; fact: string; at?: Date },
+    provenance: MemoryProvenance
+  ): Promise<{ saved: boolean; logicalId: string; content: string }> {
+    const content = normalizeMemoryContent(input.fact);
+    const logicalId = memoryLogicalId(content);
+    const namespace = memoryNamespace(botId, input.scope);
+    if (!content) return { saved: false, logicalId, content };
+    await lockMemoryNamespace(tx, namespace);
+    if (await tx.memoryFact.findFirst({ where: { namespace, logicalId }, select: { id: true } }))
+      return { saved: false, logicalId, content };
+    const last = await tx.memoryFact.aggregate({ where: { namespace }, _max: { sourceOrdinal: true } });
+    await tx.memoryFact.create({
+      data: {
+        namespace,
+        scope: input.scope,
+        tier: memoryTier(content, input.tier),
+        fact: content,
+        factHash: createHash("sha256").update(content).digest("hex"),
+        logicalId,
+        sourceOrdinal: (last._max.sourceOrdinal ?? -1) + 1,
+        importance: memoryImportance(content),
+        origin: provenance.source,
+        turnId: provenance.turnId ?? null,
+        writtenByBotId: botId,
+        createdAt: input.at ?? new Date(),
+      },
+    });
+    // A content-free invalidation reaches every connected client.
+    if (input.scope === "agent") await tx.event.create({ data: { topic: "memory.changed", entityId: botId, payload: { botId } } });
+    return { saved: true, logicalId, content };
+  }
+
+  private async deleteMemoryFact(tx: Tx, botId: string, scope: MemoryScope, fact: string): Promise<boolean> {
+    const namespace = memoryNamespace(botId, scope);
+    await lockMemoryNamespace(tx, namespace);
+    const { count } = await tx.memoryFact.deleteMany({ where: { namespace, logicalId: memoryLogicalId(fact) } });
+    if (count > 0 && scope === "agent") await tx.event.create({ data: { topic: "memory.changed", entityId: botId, payload: { botId } } });
+    return count > 0;
   }
 
   async writeMemory(
     botId: string,
     input: {
-      scope: MemoryWriteScope;
-      memoryConversationId?: string;
-      projectSlug?: string;
-      tier: "profile" | "log" | "note";
+      scope: MemoryScope;
+      tier: "profile" | "log";
       fact: string;
       at?: Date;
-    }
-  ): Promise<{ saved: boolean; logicalId: string; sourcePath: string; content: string }> {
-    const context = input.memoryConversationId ? await this.getMemoryConversation(botId, input.memoryConversationId) : undefined;
-    assertMemoryWriteScope(input.scope, context);
-    const root = this.memoryDirectory(botId, input.scope, input.projectSlug, input.memoryConversationId);
-    const result = await this.withFileMutation(
-      botId,
-      `memory:${input.scope}:${input.projectSlug ?? ""}:${botId}`,
-      async (tx) => {
-        const bot = await tx.bot.findUnique({ where: { id: botId }, select: { status: true } });
-        if (!bot || bot.status !== "active") {
-          throw new Error("Cannot write memory for an inactive bot");
-        }
-        await mkdir(root, { recursive: true, mode: 0o755 });
-        const written = await appendMemoryFact(root, input.fact, input.tier, input.at);
-        if ((input.scope === "agent" || input.scope === "conversation") && this.memoryDreamingEnabled) {
-          await markMemoryOrigin(root, written.logicalId, "explicit");
-        }
-        return written;
-      }
-    );
-    await this.reconcileBot(botId);
-    return {
-      saved: result.added,
-      logicalId: result.logicalId,
-      sourcePath: result.sourcePath,
-      content: result.content,
-    };
+    },
+    provenance: MemoryProvenance = { source: "tool" }
+  ): Promise<{ saved: boolean; logicalId: string; content: string }> {
+    return this.prisma.$transaction(async (tx) => {
+      const bot = await tx.bot.findUnique({ where: { id: botId }, select: { status: true } });
+      if (!bot || bot.status !== "active") throw new Error("Cannot write memory for an inactive bot");
+      return this.insertMemoryFact(tx, botId, input, provenance);
+    });
   }
 
   async forgetMemory(
     botId: string,
     input: {
-      scope: MemoryWriteScope;
-      memoryConversationId?: string;
-      projectSlug?: string;
+      scope: MemoryScope;
       fact: string;
-      dreaming?: boolean;
     }
   ): Promise<{ forgotten: boolean; logicalId: string; content: string }> {
-    const context = input.memoryConversationId ? await this.getMemoryConversation(botId, input.memoryConversationId) : undefined;
-    assertMemoryWriteScope(input.scope, context);
-    const root = this.memoryDirectory(botId, input.scope, input.projectSlug, input.memoryConversationId);
-    const result = await this.withFileMutation(
-      botId,
-      `memory:${input.scope}:${input.projectSlug ?? ""}:${botId}`,
-      async (tx) => {
-        const content = normalizeMemoryContent(input.fact);
-        const removed = await forgetMemoryFact(root, content);
-        if (removed.forgotten && (input.scope === "agent" || input.scope === "conversation") && this.memoryDreamingEnabled)
-          await tombstoneMemory(root, removed.logicalId);
-        // Before native bot-wide routing, automatic learning could duplicate an
-        // agent fact in a room. Forget exact copies owned by this bot as well;
-        // never promote private room facts into the bot-wide store.
-        if (input.scope === "agent") {
-          const legacyRooms = await tx.memoryConversation.findMany({ where: { botId }, select: { id: true } });
-          for (const room of legacyRooms) {
-            const legacyRoot = this.memoryDirectory(botId, "conversation", undefined, room.id);
-            const copy = await forgetMemoryFact(legacyRoot, content);
-            if (copy.forgotten) {
-              removed.forgotten = true;
-              if (this.memoryDreamingEnabled) await tombstoneMemory(legacyRoot, copy.logicalId);
-            }
-          }
-        }
-        if (removed.forgotten) {
-          await tx.agentPromptSnapshot.updateMany({
-            where: { botId },
-            data: { memoryEpoch: -1, memoryRender: "", memoryHasFacts: false },
-          });
-          await tx.contextPromptSnapshot.updateMany({
-            where: { contextSession: { botId } },
-            data: { memoryEpoch: -1, memoryRender: "", memoryHasFacts: false },
-          });
-        }
-        return { ...removed, content };
-      }
-    );
-    await this.reconcileBot(botId);
-    return result;
+    const content = normalizeMemoryContent(input.fact);
+    // Like a write, a forget shows in the pinned memory after the next summary; the tool result reports it now.
+    const forgotten = await this.prisma.$transaction((tx) => this.deleteMemoryFact(tx, botId, input.scope, content));
+    return { forgotten, logicalId: memoryLogicalId(content), content };
   }
 
   async writeSkill(
@@ -3031,32 +2462,24 @@ export class AgentDataStore {
     await this.withFileMutation(botId, `routine:${id}`, remove);
   }
 
-  async promptContext(botId: string, contextSessionId?: string, memoryConversationId?: string): Promise<AgentPromptContext> {
+  async promptContext(botId: string, contextSessionId: string, channelId?: string | null): Promise<AgentPromptContext> {
     const reconciliation = await this.reconcileBot(botId);
-    const bot = await this.prisma.bot.findUniqueOrThrow({
-      where: { id: botId },
-      include: {
-        conversation: true,
-        projectMemberships: { include: { project: true } },
-      },
+    const bot = await this.prisma.bot.findUniqueOrThrow({ where: { id: botId } });
+    const contextSession = await this.prisma.contextSession.findFirstOrThrow({
+      where: { id: contextSessionId, botId },
     });
-    const contextSession = contextSessionId
-      ? await this.prisma.contextSession.findFirstOrThrow({
-          where: { id: contextSessionId, botId },
-        })
-      : null;
-    const epoch = contextSession?.compactionEpoch ?? bot.conversation?.compactionEpoch ?? 0;
-    const announcementKey = `${botId}:${contextSessionId ?? "legacy"}`;
+    const epoch = contextSession.compactionEpoch;
+    const announcementKey = `${botId}:${contextSessionId}`;
+    // The reference titles the profile with the name; OpenTeam's own title takes that line when set.
     const liveProfile = [
-      `You are ${bot.name}, a durable OpenTeam agent.`,
-      bot.title ? `Your title is: ${bot.title}` : "",
-      bot.description ? `Your description is:\n${bot.description}` : "",
+      "Agent profile:",
+      `Title: ${bot.title || bot.name}`,
+      `Your agent name is "${bot.name}". If the user asks for your name, answer with "${bot.name}".`,
+      bot.description ? `Description: ${bot.description}` : "",
     ]
       .filter(Boolean)
-      .join("\n\n");
-    let snapshot = contextSessionId
-      ? await this.prisma.contextPromptSnapshot.findUnique({ where: { contextSessionId } })
-      : await this.prisma.agentPromptSnapshot.findUnique({ where: { botId } });
+      .join("\n");
+    let snapshot = await this.prisma.contextPromptSnapshot.findUnique({ where: { contextSessionId } });
     let profileSection: string;
     let identityAnnouncement = "";
     if (!snapshot || snapshot.profileEpoch !== epoch) {
@@ -3068,23 +2491,15 @@ export class AgentDataStore {
         announcedName: bot.name,
         announcedDescription: bot.description,
       };
-      snapshot = contextSessionId
-        ? await this.prisma.contextPromptSnapshot.upsert({
-            where: { contextSessionId },
-            create: { contextSessionId, ...snapshotData },
-            update: snapshotData,
-          })
-        : await this.prisma.agentPromptSnapshot.upsert({
-            where: { botId },
-            create: { botId, ...snapshotData },
-            update: snapshotData,
-          });
+      snapshot = await this.prisma.contextPromptSnapshot.upsert({
+        where: { contextSessionId },
+        create: { contextSessionId, ...snapshotData },
+        update: snapshotData,
+      });
       profileSection = liveProfile;
       this.pendingIdentityAnnouncements.delete(announcementKey);
     } else {
-      // Older snapshots embedded instructions here; they now have their own
-      // frozen section and change announcements.
-      profileSection = snapshot.profileSection.split("\n\nBot-specific instructions:\n")[0]!;
+      profileSection = snapshot.profileSection;
       if (
         snapshot.announcedName !== bot.name ||
         snapshot.announcedDescription !== bot.description
@@ -3105,45 +2520,8 @@ export class AgentDataStore {
       }
     }
 
-    const memoryContext = memoryConversationId ? await this.getMemoryConversation(botId, memoryConversationId) : undefined;
-    // Expire frozen prompts that still instruct the model to write room memory.
-    const audienceKey = `native-agent-v1:${memoryContext ? `${memoryContext.id}:${memoryContext.audienceKey}` : ""}`;
-    if (snapshot.memoryAudienceKey !== audienceKey) {
-      const sections = { ...parsePromptSections(snapshot.promptSections) };
-      delete sections.memory;
-      const data = { memoryAudienceKey: audienceKey, memoryEpoch: -1, memoryRender: "", memoryHasFacts: false, promptSections: asInputJson(sections) };
-      snapshot = contextSessionId
-        ? await this.prisma.contextPromptSnapshot.update({ where: { contextSessionId }, data })
-        : await this.prisma.agentPromptSnapshot.update({ where: { botId }, data });
-    }
-    const memoryFreezeEnabled = process.env.SAND_DISABLE_MEMORY_FREEZE !== "1";
-    const liveMemoryRender = await this.renderMemory(
-      botId,
-      bot.projectMemberships.map((entry) => entry.projectSlug),
-      memoryContext
-    );
-    const memoryIsFrozen =
-      memoryFreezeEnabled && snapshot.memoryEpoch === epoch && snapshot.memoryHasFacts;
-    let memoryRender: string;
-    if (memoryIsFrozen) {
-      memoryRender = snapshot.memoryRender;
-    } else {
-      const liveMemory = liveMemoryRender;
-      memoryRender = liveMemory;
-      if (memoryFreezeEnabled && liveMemory) {
-        const data = {
-          memoryEpoch: epoch,
-          memoryRender: liveMemory,
-          memoryHasFacts: true,
-        };
-        snapshot = contextSessionId
-          ? await this.prisma.contextPromptSnapshot.update({
-              where: { contextSessionId },
-              data,
-            })
-          : await this.prisma.agentPromptSnapshot.update({ where: { botId }, data });
-      }
-    }
+    const sharedConversation = await this.isSharedConversation(botId, channelId);
+    const memory = await this.renderMemory(botId, sharedConversation);
 
     let skillRender: string;
     if (snapshot.skillEpoch === epoch) {
@@ -3152,15 +2530,12 @@ export class AgentDataStore {
       const liveSkills = await this.renderSkills(botId);
       skillRender = liveSkills;
       const data = { skillEpoch: epoch, skillRender: liveSkills };
-      if (contextSessionId) {
-        await this.prisma.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-      } else {
-        await this.prisma.agentPromptSnapshot.update({ where: { botId }, data });
-      }
+      await this.prisma.contextPromptSnapshot.update({ where: { contextSessionId }, data });
     }
     // Installed capabilities can change between turns without compaction.
     // Keep user workflows frozen, but never freeze a missing managed or plugin catalog.
-    skillRender = [skillRender, await this.renderManagedSkills(), await this.renderPluginSkills(botId)]
+    // The reference lists managed skills first, then plugin, then the user's own.
+    skillRender = [await this.renderManagedSkills(), await this.renderPluginSkills(botId), skillRender]
       .filter(Boolean)
       .join("\n\n");
     return {
@@ -3181,9 +2556,7 @@ export class AgentDataStore {
       },
       identityAnnouncement,
       identityReceipt: this.pendingIdentityAnnouncements.get(announcementKey),
-      memoryRender,
-      liveMemoryRender,
-      memorySnapshot: memoryRender ? { render: memoryRender, compactionEpoch: epoch } : null,
+      memory,
       skillRender,
       warnings: reconciliation.warnings,
     };
@@ -3191,50 +2564,62 @@ export class AgentDataStore {
 
   async preparePlatformSections(
     botId: string,
-    contextSessionId: string | undefined,
+    contextSessionId: string,
     epoch: number,
-    live: Record<string, string>
+    live: Record<string, string>,
+    memory?: MemoryContextLive,
+    /** The live <automation_status> reminder (null with no routines); undefined skips it. */
+    automationStatus?: string | null
   ) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId ?? botId}`}))`;
-      const snapshot = contextSessionId
-        ? await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } })
-        : await tx.agentPromptSnapshot.findUniqueOrThrow({ where: { botId } });
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId}`}))`;
+      const snapshot = await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } });
       const result = preparePromptSections(snapshot.promptSections, epoch, live);
+      const pinned = memory ? prepareMemoryContext(result.snapshots, epoch, memory) : undefined;
+      const status = automationStatus === undefined
+        ? undefined
+        : prepareAutomationStatus(result.snapshots, epoch, automationStatus, AUTOMATION_STATUS_CLEARED);
       const data = { promptSections: JSON.parse(JSON.stringify(result.snapshots)) as Prisma.InputJsonValue };
-      if (contextSessionId) await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-      else await tx.agentPromptSnapshot.update({ where: { botId }, data });
-      return result;
+      await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
+      return {
+        ...result,
+        memory: pinned && {
+          facts: pinned.facts,
+          update: pinned.changed ? renderOtherAssistantMemoryUpdate(memory?.otherAgents?.render ?? "") : null,
+          receipt: pinned.receipt,
+        },
+        automationStatus: status,
+      };
     });
   }
 
   async acknowledgePlatformSections(
     botId: string,
-    contextSessionId: string | undefined,
-    receipts: readonly PromptSectionReceipt[]
+    contextSessionId: string,
+    receipts: readonly PromptSectionReceipt[],
+    memory?: MemoryContextReceipt,
+    automationStatus?: AutomationStatusReceipt
   ) {
-    if (!receipts.length) return;
+    if (!receipts.length && !memory && !automationStatus) return;
     await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId ?? botId}`}))`;
-      const snapshot = contextSessionId
-        ? await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } })
-        : await tx.agentPromptSnapshot.findUniqueOrThrow({ where: { botId } });
-      const data = { promptSections: JSON.parse(JSON.stringify(acknowledgePromptSections(snapshot.promptSections, receipts))) as Prisma.InputJsonValue };
-      if (contextSessionId) await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-      else await tx.agentPromptSnapshot.update({ where: { botId }, data });
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId}`}))`;
+      const snapshot = await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } });
+      const acknowledged = acknowledgePromptSections(snapshot.promptSections, receipts);
+      const remembered = memory ? acknowledgeMemoryContext(acknowledged, memory) : acknowledged;
+      const sections = automationStatus ? acknowledgeAutomationStatus(remembered, automationStatus) : remembered;
+      const data = { promptSections: JSON.parse(JSON.stringify(sections)) as Prisma.InputJsonValue };
+      await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
     });
   }
 
-  async acknowledgeIdentityAnnouncement(botId: string, contextSessionId?: string, receipt?: PendingIdentityAnnouncement): Promise<void> {
-    const announcementKey = `${botId}:${contextSessionId ?? "legacy"}`;
+  async acknowledgeIdentityAnnouncement(botId: string, contextSessionId: string, receipt?: PendingIdentityAnnouncement): Promise<void> {
+    const announcementKey = `${botId}:${contextSessionId}`;
     const pending = receipt ?? this.pendingIdentityAnnouncements.get(announcementKey);
     if (!pending) return;
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`identity-announcement:${botId}`}))`;
-        const snapshot = contextSessionId
-          ? await tx.contextPromptSnapshot.findUnique({ where: { contextSessionId } })
-          : await tx.agentPromptSnapshot.findUnique({ where: { botId } });
+        const snapshot = await tx.contextPromptSnapshot.findUnique({ where: { contextSessionId } });
         if (
           !snapshot ||
           snapshot.profileEpoch !== pending.epoch ||
@@ -3250,11 +2635,7 @@ export class AgentDataStore {
           announcedName: pending.announcedName,
           announcedDescription: pending.announcedDescription,
         };
-        if (contextSessionId) {
-          await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-        } else {
-          await tx.agentPromptSnapshot.update({ where: { botId }, data });
-        }
+        await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
       });
     } finally {
       if (this.pendingIdentityAnnouncements.get(announcementKey) === pending) {
@@ -3263,16 +2644,13 @@ export class AgentDataStore {
     }
   }
 
-  async recallMemory(botId: string, input: unknown, memoryConversationId?: string): Promise<string> {
+  async recallMemory(botId: string, input: unknown, channelId?: string | null): Promise<string> {
     const args = parseRecallInput(input);
-    const context = memoryConversationId ? await this.getMemoryConversation(botId, memoryConversationId) : undefined;
-    await this.reconcileBot(botId);
-    const visibleIds = await this.visibleMemoryConversations(botId, context);
-    const userVisible = !context || ["owner", "sender"].includes(context.userScope);
+    const userVisible = !(await this.isSharedConversation(botId, channelId));
     const facts = await this.prisma.memoryFact.findMany({
       where: { OR: [
-        ...(args.scope !== "user" ? [{ namespace: `agent:${botId}` }, ...(visibleIds.length ? [{ memoryConversationId: { in: visibleIds } }] : [])] : []),
-        ...(args.scope !== "agent" && userVisible ? [{ namespace: { startsWith: "user:agent:" } }] : []),
+        { namespace: memoryNamespace(botId, "agent") },
+        ...(userVisible ? [{ namespace: { startsWith: "user:agent:" } }] : []),
       ] },
       orderBy: [{ createdAt: "desc" }, { sourceOrdinal: "desc" }],
     });
@@ -3283,7 +2661,7 @@ export class AgentDataStore {
     const names = new Map(writers.map((writer) => [writer.id, writer.name]));
     const own = facts.filter((fact) => fact.scope !== "user").sort((a, b) =>
       Number(b.tier === "profile") - Number(a.tier === "profile") || b.createdAt.getTime() - a.createdAt.getTime() ||
-      (a.sourcePath < b.sourcePath ? 1 : a.sourcePath > b.sourcePath ? -1 : 0) || b.sourceOrdinal - a.sourceOrdinal);
+      b.sourceOrdinal - a.sourceOrdinal);
     const shared = new Map<string, (typeof facts)[number]>();
     for (const fact of facts.filter((fact) => fact.scope === "user").sort((a, b) => (a.writtenByBotId ?? "").localeCompare(b.writtenByBotId ?? ""))) {
       const key = normalizeMemoryContent(fact.fact).toLowerCase();
@@ -3294,7 +2672,6 @@ export class AgentDataStore {
     return recallMemoryResult(args, candidates.map((fact) => ({
       content: fact.fact, createdAt: fact.createdAt, tier: fact.tier,
       scope: fact.scope === "user" ? "user" : "agent",
-      source: fact.memoryConversationId ? fact.memoryConversationId === context?.id ? "this conversation" : `via session ${fact.memoryConversationId}` : undefined,
       via: fact.writtenByBotId ? names.get(fact.writtenByBotId) ?? fact.writtenByBotId : undefined,
     })));
   }
@@ -3318,24 +2695,18 @@ export class AgentDataStore {
     });
   }
 
-  private async renderMemory(botId: string, projectSlugs: string[], context?: MemoryConversationContext): Promise<string> {
-    const visibleIds = await this.visibleMemoryConversations(botId, context);
-    const userVisible = !context || ["owner", "sender"].includes(context.userScope);
+  /** The memory policy for the system prompt, and the facts for <memory_context>. A group room sees no shared user memory. */
+  private async renderMemory(botId: string, sharedConversation: boolean): Promise<LiveMemory> {
+    const userVisible = !sharedConversation;
     const all = await this.prisma.memoryFact.findMany({
       where: {
         OR: [
-          { namespace: `agent:${botId}` },
+          { namespace: memoryNamespace(botId, "agent") },
           ...(userVisible ? [{ namespace: { startsWith: "user:agent:" } }] : []),
-          ...(visibleIds.length ? [{ memoryConversationId: { in: visibleIds } }] : []),
-          ...(projectSlugs.length > 0
-            ? [{ projectSlug: { in: projectSlugs }, scope: "project" as const }]
-            : []),
         ],
       },
       orderBy: [{ createdAt: "desc" }, { sourceOrdinal: "desc" }],
     });
-    if (all.length === 0 && !context) return "";
-    const blocks: string[] = [];
     const writerIds = [
       ...new Set(
         all
@@ -3355,30 +2726,41 @@ export class AgentDataStore {
     const record = (fact: Fact): PromptMemoryRecord => ({
       content: fact.fact, createdAt: fact.createdAt.getTime(),
       via: fact.writtenByBotId ? writerNames.get(fact.writtenByBotId) ?? fact.writtenByBotId : "",
-      source: fact.memoryConversationId ? fact.memoryConversationId === context?.id
-        ? { kind: "conversation" } : { kind: "sibling", sessionId: fact.memoryConversationId }
-        : { kind: "agent" },
     });
-    const sharedRecall = (facts: Fact[], profileLimit: number, recentLimit: number) => ({
-      profile: selectFacts(facts.filter((fact) => fact.tier === "profile"), profileLimit, Number.MAX_SAFE_INTEGER).selected.map(record),
-      recent: selectFacts(facts.filter((fact) => fact.tier !== "profile"), recentLimit, Number.MAX_SAFE_INTEGER, { rankByImportance: true }).selected.map(record),
-    });
-    if (userVisible) {
-      blocks.push(renderUserMemorySystemPrompt(sharedRecall(mergeWriterShards(all.filter((fact) => fact.scope === "user"), 15), 50, 15), {
-        userMemoryDir: join(this.root, "user-memory"), ownShardDir: this.memoryDirectory(botId, "user"),
-      }));
-    }
-    const projects = await this.prisma.project.findMany({ where: { slug: { in: projectSlugs } }, select: { slug: true, name: true } });
-    if (projects.length) blocks.push(renderProjectMemorySystemPrompt(selectProjectMemoryBlocks(projects.map((project) => ({
-      ...project, ownShardDir: this.memoryDirectory(botId, "project", project.slug),
-      recall: sharedRecall(mergeWriterShards(all.filter((fact) => fact.scope === "project" && fact.projectSlug === project.slug), 10), 25, 10),
-    })), 3), { projectsRootDir: join(this.root, "projects") }));
-    const own = all.filter((fact) => fact.namespace === `agent:${botId}` || fact.scope === "conversation");
+    const own = all.filter((fact) => fact.namespace === memoryNamespace(botId, "agent"));
     const recency = (a: Fact, b: Fact) => b.createdAt.getTime() - a.createdAt.getTime() || b.sourceOrdinal - a.sourceOrdinal;
-    const profile = own.filter((fact) => fact.tier === "profile").sort(recency).slice(0, 100).map(record);
-    const recent = own.filter((fact) => fact.tier !== "profile").sort((a, b) => scoreFact(b) - scoreFact(a) || recency(a, b)).slice(0, 30).map(record);
-    blocks.push(renderMemorySystemPrompt({ profile, recent }, context ? null : this.memoryDirectory(botId, "agent"), context ? { nativeMemory: context } : undefined));
-    return blocks.join("\n\n");
+    const ownFacts = renderMemoryFactSnapshot({
+      profile: own.filter((fact) => fact.tier === "profile").sort(recency).slice(0, MEMORY_PROFILE_PROMPT_LIMIT).map(record),
+      recent: own.filter((fact) => fact.tier !== "profile").sort((a, b) => scoreFact(b) - scoreFact(a) || recency(a, b)).slice(0, MEMORY_RECENT_PROMPT_LIMIT).map(record),
+    });
+    const ownPolicy = `${MEMORY_HEADING}\n${renderMemorySystemPolicyPrompt()}`;
+    if (!userVisible) return { policy: ownPolicy, facts: ownFacts };
+
+    // Shards merge with the newest copy winning; other assistants' part is fingerprinted for change notes.
+    const sharedSelection = (facts: Fact[]) => {
+      const merged = mergeWriterShards(facts, MEMORY_USER_RECENT_PROMPT_LIMIT);
+      return {
+        profile: selectFacts(merged.filter((fact) => fact.tier === "profile"), MEMORY_USER_PROFILE_PROMPT_LIMIT, Number.MAX_SAFE_INTEGER).selected,
+        recent: selectFacts(merged.filter((fact) => fact.tier !== "profile"), MEMORY_USER_RECENT_PROMPT_LIMIT, Number.MAX_SAFE_INTEGER, { rankByImportance: true }).selected,
+      };
+    };
+    const records = (selection: { profile: Fact[]; recent: Fact[] }) => ({
+      profile: selection.profile.map(record),
+      recent: selection.recent.map(record),
+    });
+    const shared = all.filter((fact) => fact.scope === "user");
+    const others = sharedSelection(shared.filter((fact) => fact.writtenByBotId !== botId));
+    const otherFacts = [...others.profile, ...others.recent];
+    return {
+      policy: `${SHARED_USER_MEMORY_HEADING}\n${renderUserMemorySystemPolicyPrompt()}\n\n${ownPolicy}`,
+      facts: `${renderUserMemoryFactSnapshot(records(sharedSelection(shared)))}\n\n${ownFacts}`,
+      otherAgents: {
+        render: otherFacts.length ? renderUserMemoryFactSnapshot(records(others)) : "",
+        fingerprint: createHash("sha256")
+          .update(JSON.stringify(otherFacts.map((fact) => [fact.writtenByBotId, fact.logicalId, fact.tier === "profile" ? "profile" : "log", fact.createdAt.getTime(), fact.fact])))
+          .digest("hex"),
+      },
+    };
   }
 
   private async renderManagedSkills(): Promise<string> {
@@ -3388,15 +2770,15 @@ export class AgentDataStore {
     try {
       const cache = JSON.parse(text);
       if (!Array.isArray(cache.skills)) return "";
-      // Skills for a worker type (such as knowledgeWork) stay out of the main agent's catalog.
-      const allowed = new Set(managedSkills.skills.filter(managedSkillIsForMain).map((skill) => skill.id));
+      // The main agent lists every managed skill, including the ones a worker type also carries.
+      const allowed = new Set(managedSkills.skills.map((skill) => skill.id));
       const blocks: string[] = [];
       for (const skill of cache.skills.slice(0, MAX_SAVED_SKILLS)) {
         if (!skill || !allowed.has(skill.id) || typeof skill.name !== "string" ||
             typeof skill.description !== "string") continue;
         const path = join(this.managedSkillsDirectory(), skill.id, "SKILL.md");
         if (!(await stat(path).catch(() => null))?.isFile()) continue;
-        blocks.push(`- ${skill.name} (managed:${skill.id}): ${skill.description}\n  Path: ${path}`);
+        blocks.push(agentSkillItem(path, skill.description));
       }
       return blocks.join("\n\n");
     } catch { return ""; }
@@ -3434,48 +2816,33 @@ export class AgentDataStore {
     } catch {
       return "";
     }
-    const entries: string[] = [];
+    const skills: CatalogItem[] = [];
     for (const record of records) {
       const skill = record as Record<string, unknown>;
       if (!Array.isArray(skill.agents) || !skill.agents.includes(agent)) continue;
       if (typeof skill.filePath !== "string" || typeof skill.description !== "string") continue;
       if (!(await stat(skill.filePath).catch(() => null))?.isFile()) continue;
-      entries.push(`<agent_skill fullPath="${skill.filePath}">${skill.description}</agent_skill>`);
+      skills.push({ fullPath: skill.filePath, description: skill.description });
     }
-    if (!entries.length) return "";
-    return [
-      "<agent_skills>",
-      "When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge. To use a skill, read the skill file at the provided absolute path using the Read tool, then follow the instructions within. When a skill is relevant, read and follow it IMMEDIATELY as your first action. NEVER just announce or mention a skill without actually reading and following it. Only use skills listed below.",
-      "",
-      "",
-      '<available_skills description="Skills the agent can use. Use the Read tool with the provided absolute path to fetch full contents.">',
-      entries.join("\n\n"),
-      "</available_skills>",
-      "</agent_skills>",
-    ].join("\n");
+    // Read mode, as in the reference: the worker opens a skill with Read at its listed path.
+    return renderSkillCatalog(skills);
   }
 
   private async renderSkills(botId: string): Promise<string> {
     void botId;
+    // Five past the cap name the folders of the first omitted skills, as the reference's notice does.
     const [skills, total] = await Promise.all([
       this.prisma.savedSkill.findMany({
         orderBy: { updatedAt: "desc" },
-        take: MAX_SAVED_SKILLS,
+        take: MAX_SAVED_SKILLS + 5,
       }),
       this.prisma.savedSkill.count(),
     ]);
-    const blocks = skills.map(
-      (skill) =>
-        `- ${skill.name} (${skill.slug}): ${skill.description}\n  Path: ${join(
-          this.workflowsDirectory(),
-          skill.slug,
-          "SKILL.md"
-        )}`
-    );
+    const path = (slug: string) => join(this.workflowsDirectory(), slug, "SKILL.md");
+    const blocks = skills.slice(0, MAX_SAVED_SKILLS).map((skill) => agentSkillItem(path(skill.slug), skill.description));
     const omitted = Math.max(0, total - blocks.length);
-    return `${blocks.join("\n\n")}${
-      omitted > 0 ? `\n\n[${omitted} additional skills omitted by the catalog budget]` : ""
-    }`.trim();
+    if (omitted > 0) blocks.push(omittedSkillsNotice(omitted, omittedSkillDirectories(skills.slice(MAX_SAVED_SKILLS).map((skill) => path(skill.slug)))));
+    return blocks.join("\n\n");
   }
 
   async loadRootSettings(): Promise<{
@@ -3762,376 +3129,124 @@ export class AgentDataStore {
 
   private async runMemoryExtraction(
     botId: string,
-    input: { user: string; assistant: string; occurredAt: number; memoryConversationId?: string }
+    input: { exchange: MemoryExchange; earlier: readonly MemoryExchange[]; occurredAt: number; timeZone: string; runId?: string }
   ): Promise<void> {
-    if (!this.memoryInference) return;
-    const memoryRoot = this.memoryDirectory(botId, input.memoryConversationId ? "conversation" : "agent", undefined, input.memoryConversationId);
+    const facts = await this.prisma.memoryFact.findMany({
+      where: { namespace: memoryNamespace(botId, "agent") },
+      orderBy: { sourceOrdinal: "asc" },
+      select: { fact: true, tier: true, createdAt: true, importance: true },
+    });
     const existing = gatherExtractionMemories(
-      await readMemoryTree(memoryRoot),
-      `${input.user}\n${input.assistant}`
+      facts.map((fact) => ({ ...fact, content: fact.fact })),
+      [...input.earlier, input.exchange].map((held) => `${held.user}\n${held.agent}`).join("\n")
     );
     const response = await this.inferMemory({
       kind: "extraction",
       instructions: MEMORY_EXTRACTION_SYSTEM_PROMPT,
-      prompt: buildExtractionUserPrompt(input.user, input.assistant, existing),
+      prompt: buildExtractionUserPrompt(
+        input.exchange.user,
+        input.exchange.agent,
+        existing,
+        input.earlier,
+        renderTurnMemoryDate(new Date(input.occurredAt), input.timeZone)
+      ),
     });
     if (!response) return;
     const extraction = parseExtractedMemories(response, existing);
     if (!extraction.additions.length && !extraction.removals.length) return;
-    await this.withFileMutation(botId, `memory:agent::${botId}`, async (tx) => {
+    const known = new Set(existing.map((fact) => memoryLogicalId(fact)));
+    await this.prisma.$transaction(async (tx) => {
       const bot = await tx.bot.findUnique({ where: { id: botId }, select: { status: true } });
       if (!bot || bot.status !== "active") return;
-      await applyExtractedMemories(memoryRoot, extraction, existing, new Date(input.occurredAt));
+      // Only a fact the learner was shown can be retired; it cannot invent removals.
+      for (const removal of extraction.removals) {
+        if (known.has(memoryLogicalId(removal))) await this.deleteMemoryFact(tx, botId, "agent", removal);
+      }
+      for (const addition of extraction.additions) {
+        await this.insertMemoryFact(tx, botId, {
+          scope: "agent", tier: addition.kind, fact: addition.content, at: new Date(input.occurredAt),
+        }, { source: "extract", turnId: input.runId });
+      }
     });
-    await this.reconcileBot(botId);
   }
 
-  private async appendEpisodeTurn(
+  /** Record the exchange before extraction runs; take over earlier ones an interrupted review left unreviewed. */
+  private async holdMemoryExchange(
     botId: string,
-    turn: PendingEpisodeTurn,
-    memoryConversationId?: string
-  ): Promise<PendingEpisodeTurn[]> {
+    exchange: HeldMemoryExchange,
+    claimed: string[]
+  ): Promise<HeldMemoryExchange[]> {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`episode:${memoryConversationId ?? botId}`}))`;
-      const current = memoryConversationId
-        ? await tx.memoryConversation.findFirstOrThrow({ where: { id: memoryConversationId, botId }, select: { episodeTurns: true } })
-        : await tx.bot.findUniqueOrThrow({ where: { id: botId }, select: { episodeTurns: true } });
-      const turns = [...parseEpisodeTurns(current.episodeTurns), turn];
-      if (memoryConversationId) await tx.memoryConversation.update({ where: { id: memoryConversationId }, data: { episodeTurns: asInputJson(turns) } });
-      else await tx.bot.update({ where: { id: botId }, data: { episodeTurns: asInputJson(turns), episodePending: turns.length } });
-      return turns;
-    });
-  }
-
-  private async clearEpisodeTurns(botId: string, memoryConversationId?: string): Promise<void> {
-    if (memoryConversationId) {
-      await this.prisma.memoryConversation.updateMany({ where: { id: memoryConversationId, botId }, data: { episodeTurns: asInputJson([]) } });
-      return;
-    }
-    await this.prisma.bot.updateMany({
-      where: { id: botId },
-      data: { episodeTurns: asInputJson([]), episodePending: 0 },
-    });
-  }
-
-  private async summarizeEpisode(botId: string, turns: PendingEpisodeTurn[], memoryConversationId?: string): Promise<void> {
-    try {
-      const response = await this.inferMemory({
-        kind: "episode",
-        instructions: MEMORY_EPISODE_SYSTEM_PROMPT,
-        prompt: buildEpisodeUserPrompt(turns),
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`memory-exchanges:${botId}`}))`;
+      const bot = await tx.bot.findUniqueOrThrow({ where: { id: botId }, select: { pendingMemoryExchanges: true } });
+      const held = parseHeldMemoryExchanges(bot.pendingMemoryExchanges).filter((entry) => entry.id !== exchange.id);
+      // An exchange another review here still owns stays with it; any other was left by a stopped process.
+      const inReview = held.filter((entry) => this.memoryExchangesInReview.has(entry.id));
+      const earlier = held.filter((entry) => !this.memoryExchangesInReview.has(entry.id)).slice(-(MAX_HELD_MEMORY_EXCHANGES - 1));
+      // Claimed under the lock, so a concurrent hold here sees them as owned.
+      claimed.push(exchange.id, ...earlier.map((entry) => entry.id));
+      for (const id of claimed) this.memoryExchangesInReview.add(id);
+      await tx.bot.update({
+        where: { id: botId },
+        data: {
+          pendingMemoryExchanges: asInputJson(
+            [...inReview, ...earlier, holdMemoryExchange(exchange)].slice(-MAX_HELD_MEMORY_EXCHANGES)
+          ),
+        },
       });
-      if (!response) return;
-      const narrative = parseEpisodeNarrative(response);
-      if (!narrative) return;
-      const latest = turns.reduce((maximum, turn) => Math.max(maximum, turn.ts), 0);
-      await this.writeMemory(botId, {
-        scope: memoryConversationId ? "conversation" : "agent",
-        tier: "log",
-        memoryConversationId,
-        fact: `[episode] ${narrative}`,
-        at: new Date(latest || Date.now()),
-      });
-    } finally {
-      await this.clearEpisodeTurns(botId, memoryConversationId);
-    }
-  }
-
-  private scheduleMemorySynthesis(): void {
-    if (!this.memoryInference || !this.memoryDreamingEnabled) return;
-    if (this.memorySynthesisActive) {
-      this.memorySynthesisNeedsAnotherPass = true;
-      return;
-    }
-    if (this.memorySynthesisTimer) clearTimeout(this.memorySynthesisTimer);
-    this.memorySynthesisTimer = setTimeout(() => {
-      this.memorySynthesisTimer = null;
-      void this.runMemorySynthesisNow().catch((error) => console.warn("memory synthesis", error));
-    }, this.memorySynthesisDebounceMs);
-    this.memorySynthesisTimer.unref();
-  }
-
-  private async queueTemporalMemoryTargets(now = Date.now()): Promise<void> {
-    if (!this.memoryInference || !this.memoryDreamingEnabled) return;
-    const bots = await this.prisma.bot.findMany({
-      where: { status: "active" },
-      select: { id: true },
-      orderBy: { id: "asc" },
+      return earlier;
     });
-    const targets = [
-      ...bots.map((bot) => ({ key: bot.id, botId: bot.id, contextId: undefined as string | undefined })),
-    ];
-    for (const target of targets) {
-      if (this.pendingDreamingEvidence.has(target.key)) continue;
-      if (this.pendingDreamingEvidence.size >= MAX_PENDING_DREAMING_AGENTS) break;
-      if ((await consumeEvidence(this.memoryDirectory(target.botId, target.contextId ? "conversation" : "agent", undefined, target.contextId))).length > 0) {
-        this.pendingDreamingEvidence.set(target.key, { evidence: [], temporal: false });
-      }
-    }
-    let temporalQueued = 0;
-    for (const target of targets) {
-      if (temporalQueued >= MAX_TEMPORAL_TARGETS_PER_SWEEP) break;
-      const root = this.memoryDirectory(target.botId, target.contextId ? "conversation" : "agent", undefined, target.contextId);
-      if ((await readMemoryTree(root)).length === 0) continue;
-      if (!(await isTemporalMemoryReviewDue(root, now))) continue;
-      let pending = this.pendingDreamingEvidence.get(target.key);
-      if (!pending) {
-        if (this.pendingDreamingEvidence.size >= MAX_PENDING_DREAMING_AGENTS) continue;
-        pending = { evidence: [], temporal: false };
-        this.pendingDreamingEvidence.set(target.key, pending);
-      }
-      if (!pending.temporal) {
-        pending.temporal = true;
-        temporalQueued += 1;
-      }
-    }
-    if (this.memorySynthesisActive && temporalQueued > 0) {
-      this.memorySynthesisNeedsAnotherPass = true;
-    }
   }
 
-  async startMemoryLifecycle(): Promise<void> {
-    if (!this.memoryInference || this.memoryPollTimer) return;
-    if (this.memoryLifecycleController.signal.aborted) {
-      this.memoryLifecycleController = new AbortController();
-    }
-    await this.queueTemporalMemoryTargets();
-    if (this.pendingDreamingEvidence.size > 0) this.scheduleMemorySynthesis();
-    this.memoryPollTimer = setInterval(() => {
-      void (async () => {
-        await this.queueTemporalMemoryTargets();
-        await this.runMemorySynthesisNow();
-      })().catch((error) => console.warn("memory temporal refresh", error));
-    }, this.memorySynthesisPollIntervalMs);
-    this.memoryPollTimer.unref();
-  }
-
-  async stopMemoryLifecycle(): Promise<void> {
-    this.memoryLifecycleController.abort();
-    if (this.memorySynthesisTimer) clearTimeout(this.memorySynthesisTimer);
-    if (this.memoryPollTimer) clearInterval(this.memoryPollTimer);
-    this.memorySynthesisTimer = null;
-    this.memoryPollTimer = null;
-    this.pendingDreamingEvidence.clear();
-    this.memorySynthesisNeedsAnotherPass = false;
-  }
-
-  private finishMemorySynthesis(
-    botId: string,
-    consumedRamIds: Set<string>,
-    temporal: boolean
-  ): void {
-    const pending = this.pendingDreamingEvidence.get(botId);
-    if (!pending) return;
-    pending.evidence = pending.evidence.filter((evidence) => !consumedRamIds.has(evidence.id));
-    if (temporal) pending.temporal = false;
-    if (pending.evidence.length === 0 && !pending.temporal) {
-      this.pendingDreamingEvidence.delete(botId);
-    }
-  }
-
-  private async runMemorySynthesisForBot(targetKey: string): Promise<void> {
-    const [botId, memoryConversationId] = targetKey.split(":") as [string, string?];
-    const signal = this.memoryLifecycleController.signal;
-    if (signal.aborted) return;
-    const pending = this.pendingDreamingEvidence.get(targetKey);
-    if (!pending) return;
-    const bot = await this.prisma.bot.findUnique({
-      where: { id: botId },
-      select: { status: true },
+  private async releaseMemoryExchanges(botId: string, ids: readonly string[]): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`memory-exchanges:${botId}`}))`;
+      const bot = await tx.bot.findUnique({ where: { id: botId }, select: { pendingMemoryExchanges: true } });
+      if (!bot) return;
+      const remaining = parseHeldMemoryExchanges(bot.pendingMemoryExchanges).filter((held) => !ids.includes(held.id));
+      await tx.bot.update({ where: { id: botId }, data: { pendingMemoryExchanges: asInputJson(remaining) } });
     });
-    if (!this.memoryDreamingEnabled || !bot || bot.status !== "active") {
-      this.pendingDreamingEvidence.delete(targetKey);
-      return;
-    }
-    if (memoryConversationId && !await this.prisma.memoryConversation.count({ where: { id: memoryConversationId, botId } })) {
-      this.pendingDreamingEvidence.delete(targetKey);
-      return;
-    }
-    const root = this.memoryDirectory(botId, memoryConversationId ? "conversation" : "agent", undefined, memoryConversationId);
-    const temporal = pending.temporal;
-    const ram = [...pending.evidence];
-    const spool = await consumeEvidence(root);
-    const mergedById = new Map<string, PendingDreamingEvidence>();
-    for (const evidence of [...ram, ...spool]) {
-      if (!mergedById.has(evidence.id)) mergedById.set(evidence.id, evidence);
-    }
-    const merged = [...mergedById.values()].sort((a, b) => a.occurredAt - b.occurredAt);
-    const evidence = merged.slice(-MAX_PENDING_DREAMING_EVIDENCE);
-    if (merged.length > evidence.length) await this.reportMemorySynthesis(targetKey, "evidence_dropped", {
-      evidenceCount: merged.length - evidence.length, reason: "spool_overflow",
-    });
-    const consumedRamIds = new Set(merged.map((item) => item.id));
-    const spoolIds = spool.map((item) => item.id);
-    const finish = async (): Promise<void> => {
-      await clearSpooledEvidence(root, spoolIds);
-      this.finishMemorySynthesis(targetKey, consumedRamIds, temporal);
-      if ((await consumeEvidence(root)).length > 0) {
-        if (!this.pendingDreamingEvidence.has(targetKey)) {
-          this.pendingDreamingEvidence.set(targetKey, { evidence: [], temporal: false });
-        }
-        this.memorySynthesisNeedsAnotherPass = true;
-      }
-    };
-    const startedAt = Date.now();
-    let inputMemoryCount = 0;
-    let changeCount = 0;
-    let reportOutcome = "skipped";
-    try {
-      const snapshot = await prepareMemorySynthesis(root);
-      inputMemoryCount = snapshot.memories.length;
-      if (snapshot.memories.length === 0 && evidence.length === 0) {
-        if (temporal) await markTemporalMemoryReview(root);
-        await finish();
-        return;
-      }
-      if (!this.memoryInference) return;
-      const changes = await synthesizeMemories({
-        infer: this.memoryInference,
-        snapshot,
-        evidence,
-        temporal,
-        now: startedAt,
-        signal,
-      });
-      changeCount = changes.length;
-      if (signal.aborted) { reportOutcome = "cancelled"; return; }
-      if (changes.length === 0) {
-        reportOutcome = "unchanged";
-        if (temporal) await markTemporalMemoryReview(root);
-        await finish();
-        return;
-      }
-      const outcome = await this.withFileMutation(botId, "memory:synthesis", async () =>
-        signal.aborted
-          ? "invalid"
-          : applyMemorySynthesis(root, snapshot, changes, new Date(startedAt))
-      );
-      reportOutcome = outcome;
-      if (outcome === "stale") {
-        this.memorySynthesisNeedsAnotherPass = true;
-        return;
-      }
-      if (outcome === "invalid" && temporal) await markTemporalMemoryReview(root);
-      if (outcome === "committed") await this.reconcileBot(botId);
-      await finish();
-    } catch (error) {
-      reportOutcome = signal.aborted ? "cancelled" : "failed";
-      if (signal.aborted) return;
-      if (temporal) await markTemporalMemoryReview(root).catch(() => undefined);
-      await finish();
-      console.warn(`memory synthesis for ${botId}`, error);
-    } finally {
-      await this.reportMemorySynthesis(targetKey, reportOutcome, {
-        evidenceCount: evidence.length, inputMemoryCount, changeCount,
-        durationMs: Date.now() - startedAt, temporal,
-      });
-    }
   }
 
-  private async reportMemorySynthesis(targetKey: string, outcome: string,
-    metrics: { evidenceCount: number; inputMemoryCount?: number; changeCount?: number; durationMs?: number; temporal?: boolean; reason?: string }): Promise<void> {
-    const [botId, memoryConversationId] = targetKey.split(":");
-    // Never include prompts, facts, evidence bodies, provider errors or secrets.
-    await this.prisma.event.create({ data: {
-      topic: "memory.synthesis_report", entityId: botId,
-      payload: asInputJson({ jobId: randomUUID(), botId, memoryConversationId: memoryConversationId ?? null,
-        outcome, evidenceCount: metrics.evidenceCount, inputMemoryCount: metrics.inputMemoryCount ?? 0,
-        changeCount: metrics.changeCount ?? 0, durationMs: metrics.durationMs ?? 0,
-        temporal: metrics.temporal ?? false, ...(metrics.reason ? { reason: metrics.reason } : {}) }),
-    } }).catch(() => console.warn("Memory synthesis report could not be persisted", { botId, outcome }));
-  }
-
-  async runMemorySynthesisNow(): Promise<void> {
-    if (!this.memoryInference || !this.memoryDreamingEnabled) return;
-    if (this.memorySynthesisActive) {
-      this.memorySynthesisNeedsAnotherPass = true;
-      return;
-    }
-    if (this.memorySynthesisTimer) clearTimeout(this.memorySynthesisTimer);
-    this.memorySynthesisTimer = null;
-    this.memorySynthesisActive = true;
-    this.memorySynthesisNeedsAnotherPass = false;
-    try {
-      for (const botId of [...this.pendingDreamingEvidence.keys()]) {
-        await this.runMemorySynthesisForBot(botId);
-      }
-    } finally {
-      this.memorySynthesisActive = false;
-      if (this.memorySynthesisNeedsAnotherPass) this.scheduleMemorySynthesis();
-    }
-  }
-
+  /** After a completed user or group turn, learn lasting profile facts from it. */
   async recordTurnMemory(
     botId: string,
     input: {
-      memoryConversationId?: string;
       user: string;
       assistant: string;
       hidden?: boolean;
       occurredAt?: number;
+      runId?: string;
+      timeZone?: string;
     }
   ): Promise<void> {
-    if (input.hidden || !input.user.trim()) return;
+    if (!this.memoryInference || input.hidden || !input.user.trim()) return;
     const bot = await this.prisma.bot.findUnique({
       where: { id: botId },
       select: { status: true },
     });
     if (!bot || bot.status !== "active") return;
-    if (input.memoryConversationId) await this.getMemoryConversation(botId, input.memoryConversationId);
-    const memoryConversationId = undefined;
-    const targetKey = botId;
-    if (this.memoryDreamingEnabled) {
-      if (
-        !this.pendingDreamingEvidence.has(targetKey) &&
-        this.pendingDreamingEvidence.size >= MAX_PENDING_DREAMING_AGENTS
-      ) {
-        const oldest = this.pendingDreamingEvidence.keys().next().value;
-        if (typeof oldest === "string") {
-          await this.reportMemorySynthesis(oldest, "evidence_dropped", {
-            evidenceCount: this.pendingDreamingEvidence.get(oldest)?.evidence.length ?? 0, reason: "target_overflow",
-          });
-          this.pendingDreamingEvidence.delete(oldest);
-        }
-      }
-      const evidence: PendingDreamingEvidence = {
-        id: randomUUID(),
-        occurredAt: input.occurredAt ?? Date.now(),
-        user: boundMemoryEvidenceText(input.user),
-        assistant: boundMemoryEvidenceText(input.assistant),
-      };
-      if (!evidence.user && !evidence.assistant) return;
-      const current = this.pendingDreamingEvidence.get(targetKey) ?? {
-        evidence: [],
-        temporal: false,
-      };
-      const combined = [...current.evidence, evidence];
-      if (combined.length > MAX_PENDING_DREAMING_EVIDENCE) await this.reportMemorySynthesis(targetKey, "evidence_dropped", {
-        evidenceCount: combined.length - MAX_PENDING_DREAMING_EVIDENCE, reason: "queue_overflow",
-      });
-      current.evidence = combined.slice(-MAX_PENDING_DREAMING_EVIDENCE);
-      this.pendingDreamingEvidence.set(targetKey, current);
-      await this.clearEpisodeTurns(botId, memoryConversationId);
-      this.scheduleMemorySynthesis();
-      return;
-    }
     if (!isMemorableExchange(input.user)) return;
-    const occurredAt = input.occurredAt ?? Date.now();
-    await this.runMemoryExtraction(botId, {
-      user: input.user,
-      assistant: input.assistant,
-      occurredAt,
-      memoryConversationId,
-    }).catch((error) => console.warn(`memory extraction for ${botId}`, error));
-    const pending = await this.appendEpisodeTurn(botId, {
-      ts: occurredAt,
-      user: input.user,
-      agent: input.assistant,
-    }, memoryConversationId);
-    if (pending.length < this.memoryEpisodeInterval) return;
-    await this.summarizeEpisode(botId, pending, memoryConversationId).catch((error) =>
-      console.warn(`episode summary for ${botId}`, error)
-    );
+    const exchange = { id: input.runId ?? randomUUID(), user: input.user, agent: input.assistant };
+    const claimed: string[] = [];
+    try {
+      const earlier = await this.holdMemoryExchange(botId, exchange, claimed);
+      try {
+        await this.runMemoryExtraction(botId, {
+          exchange,
+          earlier,
+          occurredAt: input.occurredAt ?? Date.now(),
+          timeZone: input.timeZone ?? (await readUserTimeZone(this.prisma)),
+          runId: input.runId,
+        });
+      } catch (error) {
+        console.warn(`memory extraction for ${botId}`, error);
+      }
+      // Reviewed or failed, these are done. Only a process that stops mid-extraction leaves one held.
+      await this.releaseMemoryExchanges(botId, claimed);
+    } finally {
+      for (const id of claimed) this.memoryExchangesInReview.delete(id);
+    }
   }
 
   async materializeAttachments(
@@ -4299,4 +3414,4 @@ export class AgentDataStore {
   }
 }
 
-export { ensureDreamingLayout, memoryLogicalId, renderSkillFile, slugify };
+export { memoryLogicalId, renderSkillFile, slugify };

@@ -13,7 +13,6 @@ import {
   FileJson,
   FileSpreadsheet,
   FileText,
-  LoaderCircle,
   Maximize2,
   Music2,
   Video,
@@ -34,6 +33,7 @@ import {
 import { cn } from "../../lib/cn";
 import { MessageResponse } from "../ai-elements/message";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
+import { LoadingOrb } from "../ui/loading-orb";
 import {
   renderSanitizedDocumentProgressively,
   sanitizePreviewDocument,
@@ -155,7 +155,7 @@ function PreviewStatus({
     <div className="grid h-full min-h-[300px] place-items-center px-8 text-center">
       <div>
         {loading ? (
-          <LoaderCircle className="mx-auto mb-3 size-5 animate-spin text-foreground-tertiary" />
+          <LoadingOrb aria-hidden className="mx-auto mb-3" />
         ) : (
           <FileText className="mx-auto mb-3 size-7 text-foreground-tertiary" strokeWidth={1.45} />
         )}

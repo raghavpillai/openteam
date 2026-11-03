@@ -16,7 +16,5 @@ test("box shell executes directly without classifier calls or approval events", 
     expect(await readFile(file, "utf8")).toBe("done");
     expect(requests.some(path => path.includes("permissions"))).toBe(false);
     expect(events).toEqual([]);
-    active.pendingSteers = [{ content: "Stop" }];
-    await expect(tools.executeOpenTeamTool(active, "stale", "Shell", { command: "echo stale" })).rejects.toThrow("newer instruction");
   } finally { api.stop(true); await rm(root, { recursive: true, force: true }); }
 });

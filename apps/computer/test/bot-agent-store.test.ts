@@ -34,7 +34,6 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
     for (const directory of [
       join(root, "agents"),
       store.agentDirectory(agentId),
-      join(store.agentDirectory(agentId), "memory"),
       join(store.agentDirectory(agentId), "automations"),
     ]) {
       expect((await stat(directory)).mode & 0o070).toBe(0o070);
@@ -417,7 +416,6 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
       "conversation-blobs.db",
       "conversation-blobs.db-shm",
       "conversation-blobs.db-wal",
-      "memory",
       "store.db",
       "store.db-shm",
       "store.db-wal",

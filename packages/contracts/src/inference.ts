@@ -58,6 +58,8 @@ export interface InferenceModelView {
   defaultReasoningLevel: PiReasoningLevel;
   contextWindow: number;
   maxTokens: number;
+  /** The provider's suggested default for when no model is saved. It is listed first. */
+  recommended?: boolean;
 }
 
 export interface ServerSettingsView {
@@ -90,6 +92,11 @@ export interface InferenceProviderAuthSessionView {
   messages: string[];
   error: string | null;
 }
+
+/** Outcome of one minimal request to a model, proving the connection works end to end. */
+export type InferenceTestResult =
+  | { ok: true; providerId: string; modelId: string; latencyMs: number }
+  | { ok: false; providerId: string; modelId: string; error: string };
 
 const PROVIDER_ID = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 
@@ -138,14 +145,10 @@ export const piModelRef = (providerId: string, modelId: string): PiModelRef => (
 export const formatPiModelRef = (model: PiModelRef): string =>
   `${model.providerId}/${model.modelId}`;
 
-/** A bare model id keeps the configured/default provider for backwards compatibility. */
-export const parsePiModelRef = (
-  value: string,
-  defaultProvider = DEFAULT_PI_INFERENCE_PROVIDER
-): PiModelRef => {
+/** Parses a provider-qualified `provider/model` reference. */
+export const parsePiModelRef = (value: string): PiModelRef => {
   const normalized = normalizeInferenceModelId(value);
   const separator = normalized.indexOf("/");
-  return separator > 0
-    ? piModelRef(normalized.slice(0, separator), normalized.slice(separator + 1))
-    : piModelRef(defaultProvider, normalized);
+  if (separator <= 0) throw new Error(`A provider-qualified inference model is required: ${value}`);
+  return piModelRef(normalized.slice(0, separator), normalized.slice(separator + 1));
 };

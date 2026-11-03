@@ -2,13 +2,18 @@ import {expect, test} from "bun:test";
 import {parseReadTranscriptInput} from "@openteam/contracts/read-transcript";
 import {boundTranscriptValue, transcriptToolProjection} from "../src/read-transcript";
 test("strict bounded selectors and cursors", () => {
-  expect(parseReadTranscriptInput({})).toEqual({limit:30, before:undefined});
-  expect(parseReadTranscriptInput({subagent_id:" worker ",before:0,limit:200}).subagent_id).toBe("worker");
-  for(const input of [{limit:0},{limit:201},{limit:1.2},{before:-1},{before:Infinity},{agent_id:"a",session_id:"b"},{subagent_id:[]},{extra:true},{toString:1},[]]) expect(()=>parseReadTranscriptInput(input)).toThrow();
+  expect(parseReadTranscriptInput({})).toEqual({in:"session", limit:30, before:undefined});
+  expect(parseReadTranscriptInput({in:" "})).toEqual({in:"session", limit:30, before:undefined});
+  expect(parseReadTranscriptInput({in:"session"})).toEqual({in:"session", limit:30, before:undefined});
+  expect(parseReadTranscriptInput({in:" this "})).toEqual({in:"session", limit:30, before:undefined});
+  expect(parseReadTranscriptInput({in:" worker ",before:0,limit:200}).in).toBe("worker");
+  expect(()=>parseReadTranscriptInput({in:"all"})).toThrow("ReadTranscript reads one transcript at a time: omit `in` for this session, or pass one id.");
+  // The three retired ids are unknown fields now.
+  for(const input of [{limit:0},{limit:201},{limit:1.2},{before:-1},{before:Infinity},{agent_id:"a"},{session_id:"b"},{subagent_id:"c"},{in:[]},{extra:true},{toString:1},[]]) expect(()=>parseReadTranscriptInput(input)).toThrow();
 });
 test("projection excludes arguments, hidden fields, arbitrary details and held form results", () => {
-  const result = transcriptToolProjection({tool:"CallDynamicTool",arguments:{toolName:"request_user_form",password:"DO_NOT_RETURN"},thinking:"PRIVATE",result:{content:[{type:"text",text:"HELD_FORM"}],details:{token:"SECRET"}}});
-  expect(result).toEqual({tool:"request_user_form",output_omitted:true});
+  const result = transcriptToolProjection({tool:"CallDynamicTool",arguments:{toolName:"RequestUserForm",password:"DO_NOT_RETURN"},thinking:"PRIVATE",result:{content:[{type:"text",text:"HELD_FORM"}],details:{token:"SECRET"}}});
+  expect(result).toEqual({tool:"RequestUserForm",output_omitted:true});
   expect(transcriptToolProjection({type:"commandExecution",command:"echo ok",result:{content:[{type:"text",text:"ok"},{type:"thinking",text:"PRIVATE"}],details:{environment:"SECRET"}}})).toEqual({tool:"Shell",command:"echo ok",output:"ok"});
 });
 test("credential redaction precedes truncation", () => {
@@ -33,7 +38,7 @@ test("long command observations retain their final result while redacting both e
 });
 
 test("browser action observations survive history recovery without exposing input arguments or private details", () => {
-  for (const tool of ['browser_navigate','browser_click','browser_mouse_click_xy','browser_press_key','browser_hover','browser_scroll','browser_wait_for','browser_find']) {
+  for (const tool of ['browser_navigate','browser_click','browser_press_key','browser_hover','browser_wait_for','browser_find']) {
     const value = transcriptToolProjection({tool, arguments:{text:'PRIVATE_INPUT',url:'PRIVATE_ARGUMENT'},
       result:{content:[{type:'text',text:'Pressed Enter\nCurrent page: Help (https://docs.example/search)\nNo results found\nPASSWORD=hidden-secret'},
         {type:'image',data:'PRIVATE_IMAGE'},{type:'thinking',text:'PRIVATE_REASONING'}],details:{token:'PRIVATE_DETAIL'}}});
@@ -44,7 +49,7 @@ test("browser action observations survive history recovery without exposing inpu
 });
 
 test("browser form entry, arbitrary execution and approval results remain excluded", () => {
-  for(const tool of ['browser_type','browser_fill','browser_fill_form','browser_file_upload','browser_cdp','request_user_form','UnknownTool']) {
+  for(const tool of ['browser_type','browser_fill','browser_fill_form','browser_file_upload','browser_cdp','RequestUserForm','UnknownTool']) {
     expect(transcriptToolProjection({tool,arguments:{text:'PRIVATE_INPUT'},result:{content:[{type:'text',text:'PRIVATE_RESULT'}]}}))
       .toEqual({tool,output_omitted:true});
   }

@@ -1,7 +1,7 @@
 import { ApnsSettingsStore } from "@openteam/db/apns-settings";
 import { MachineService } from "./services/machine-service";
 import { AutomationWebhooksService } from "./services/automation-webhooks";
-import { ApiError, type UploadAssetInput } from "@openteam/contracts";
+import { ApiError, type UpdateUserTimeZoneInput, type UploadAssetInput } from "@openteam/contracts";
 import { createPrismaClient, Prisma, type PrismaClient } from "@openteam/db";
 import {
   AgentDataStore,
@@ -10,6 +10,7 @@ import {
   AssetStore,
   type RoutineMutationInput,
   RoutineService,
+  userTimeZoneView,
 } from "@openteam/messaging";
 import { Effect } from "effect";
 import { join, resolve } from "node:path";
@@ -178,7 +179,8 @@ export class AppService {
       this.messaging,
       this.plugins,
       this.screens,
-      this.bots
+      this.bots,
+      this.machines
     );
     this.runs = new RunService(
       this.prisma,
@@ -202,6 +204,7 @@ export class AppService {
       this.agentData
     );
     this.routines = new RoutineService(this.prisma, this.messaging, this.agentData);
+    this.messaging.onGroupRoutineSettled = (settled) => this.routines.afterGroupExecution(settled);
     this.automationWebhooks = new AutomationWebhooksService(this.prisma, (owner, event) =>
       this.routines.dispatchEvent(owner, event)
     );
@@ -212,16 +215,6 @@ export class AppService {
     );
     this.durableState = new DurableStateService(
       this.prisma,
-      this.workspaceRoot,
-      async (project) => {
-        const response = await this.computerFetch("/v1/projects", {
-          method: "PUT",
-          body: JSON.stringify(project),
-        });
-        if (!response.ok) {
-          throw new ApiError(503, "computer_unavailable", await response.text());
-        }
-      },
       this.routines,
       this.agentData,
       this.messaging
@@ -230,7 +223,7 @@ export class AppService {
       this.prisma,
       this.messaging,
       this.durableState,
-      (runId) => this.channels.interruptNonUserRun(runId),
+      (runId) => this.channels.interruptRun(runId),
       this.todos,
       this.subagents,
       this.administration,
@@ -302,7 +295,6 @@ export class AppService {
         (path, init) => this.computerFetch(path, init),
         [
           resolve(this.workspaceRoot, "bots"),
-          resolve(this.workspaceRoot, "projects"),
           resolve(this.workspaceRoot, "shared"),
           ...groups.flatMap((group) => (group.workingDirectory ? [group.workingDirectory] : [])),
         ]
@@ -388,6 +380,17 @@ export class AppService {
   retryBotProvisioning = forwardServiceMethod(() => this.bots.retryProvisioning);
 
   botTranscript = forwardServiceMethod(() => this.bots.transcript);
+
+  userTimeZone = async () =>
+    userTimeZoneView(await this.prisma.userTimeZoneSettings.findUnique({ where: { id: "global" } }));
+
+  updateUserTimeZone = (input: UpdateUserTimeZoneInput) =>
+    this.prisma.$transaction((tx) =>
+      this.messaging.updateUserTimeZone(tx, {
+        ...(input.detectedTimeZone !== undefined ? { detected: input.detectedTimeZone } : {}),
+        ...(input.overrideTimeZone !== undefined ? { override: input.overrideTimeZone } : {}),
+      })
+    );
 
   listRoutines = (botId: string) => serviceEffect(() => this.routines.list(botId));
 
@@ -507,6 +510,7 @@ export class AppService {
   sharedTemplateRecipe = (id: string, publicOnly = false) =>
     this.richMessages.sharedTemplates.recipe(id, publicOnly);
   mutateExternalDraft = forwardServiceMethod(() => this.richMessages.externalDrafts.mutate);
+  mutateIMessageSend = forwardServiceMethod(() => this.richMessages.messagesSends!.mutate);
   submitUserForm = forwardServiceMethod(() => this.richMessages.submitUserForm);
   userFormPrefill = forwardServiceMethod(() => this.richMessages.formPrefill);
 
@@ -529,6 +533,7 @@ export class AppService {
   updateTaskSettings = forwardServiceMethod(() => this.settings.updateTaskSettings);
 
   updateInferenceSettings = forwardServiceMethod(() => this.settings.updateInferenceSettings);
+  testInference = forwardServiceMethod(() => this.settings.testInference);
 
   startInferenceProviderAuth = forwardServiceMethod(() => this.settings.startInferenceProviderAuth);
 
@@ -582,7 +587,11 @@ export class AppService {
 
   setMcpInstructions = forwardServiceMethod(() => this.plugins.setInstructions);
 
-  cancelRun = forwardServiceMethod(() => this.runs.cancel);
+  cancelRun = forwardServiceMethod(() => this.subagents.stopRun);
+
+  stopBot = forwardServiceMethod(() => this.subagents.stopBot);
+
+  busyBots = forwardServiceMethod(() => this.subagents.busyBots);
 
 
   snapshot = forwardServiceMethod(() => this.snapshots.full);
@@ -644,6 +653,18 @@ export class AppService {
     return recover(this.prisma, this.boss, this.messaging, (path, init) =>
       this.computerFetch(path, init)
     );
+  }
+
+  async browserNetworkQuality() {
+    const response = await this.computerFetch("/v1/browser-network/quality", { method: "POST", body: "{}", signal: AbortSignal.timeout(24_000) });
+    if (!response.ok) throw new ApiError(503, "network_quality_unavailable", "Could not test the active browser connection");
+    return await response.json() as import("@openteam/contracts/browser-network").NetworkQuality;
+  }
+
+  async browserNetworkEgress() {
+    const response = await this.computerFetch("/v1/browser-network/egress", { method: "POST", body: "{}" });
+    if (!response.ok) throw new ApiError(503, "network_egress_unavailable", "Could not check browser exit connection");
+    return await response.json() as import("@openteam/contracts/browser-network").NetworkEgress;
   }
 
   private computerFetch(path: string, init: RequestInit): Promise<Response> {

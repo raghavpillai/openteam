@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile, access, open, rm } from "node:fs/promises";
 import { join } from "node:path";
-import {buildUserFormSkippedFieldsNote,buildUserFormUnfillableResult} from "@openteam/contracts/reference-form-results";
+import { buildUserFormDriverUnavailableResult } from "@openteam/contracts/reference-form-results";
 import {
   formFieldIsPayment,
   formFieldIsSecret,
@@ -9,14 +9,20 @@ import {
   parseFormRemap,
   parseUserForm,
   validateUserFormValues,
+  userFormSkippedFieldsNote,
+  userFormUnreachableResult,
+  USER_FORM_FILL_FAILURE_KINDS,
+  USER_FORM_REMAP_CANNOT_CURE,
   type UserForm,
   type UserFormField,
   type UserFormReceipt,
   type UserFormValues,
 } from "@openteam/contracts";
 
+/** A refused preparation. The message is the model-facing result; body is the status-only
+ * form the server rebuilds it from. */
 export class FormPreparationError extends Error {
-  constructor(message: string, readonly failureKinds: string[]) { super(message); }
+  constructor(message: string, readonly body: { error: "form_preflight_failed"; fieldKinds: Record<string, string> } | { error: "form_driver_unavailable" }) { super(message); }
 }
 
 export interface FormPageBinding {
@@ -206,22 +212,32 @@ export class UserFormHost {
       let binding: FormPageBinding | undefined;
       let preflightNote: string | undefined;
       if (form.fields.some((field) => field.target)) {
-        const prepared = await (await this.browser(botId)).prepare(form);
+        const prepared = await this.preflight(botId, form);
         if (normalizeFormDomain(prepared.binding.domain) !== form.domain)
           throw new Error("The browser page does not match the requested domain");
         const reachable = new Set(prepared.reachable);
         const skipped = Object.fromEntries(form.fields.filter(field=>field.target&&!reachable.has(field.id)).map(field=>[field.id,prepared.failureKinds?.[field.id] ?? "target_missing"]));
-        const structural = Object.values(skipped).every(kind=>["in_unreachable_frame","in_closed_shadow"].includes(kind));
-        if (Object.keys(skipped).length) preflightNote = structural ? buildUserFormSkippedFieldsNote(skipped) : `The host did not ask the user for these fields because their controls are unavailable: ${Object.entries(skipped).map(([id,kind])=>`${id} (${kind})`).join(", ")}. Inspect a fresh browser snapshot. If this step cannot proceed, use request_box_help; do not ask the user to type into the same unavailable controls again.`;
-        const unfillable = structural ? buildUserFormUnfillableResult(form,skipped) : `No requested fields are reachable on the page. The form was not shown and nothing was asked of the user. ${preflightNote}`;
+        if (Object.keys(skipped).length) preflightNote = userFormSkippedFieldsNote(skipped);
+        if (!form.fields.some((field) => field.target && reachable.has(field.id)))
+          throw new FormPreparationError(userFormUnreachableResult(form, skipped), { error: "form_preflight_failed", fieldKinds: skipped });
         form.fields = form.fields.filter((field) => !field.target || reachable.has(field.id));
-        if (!form.fields.some((field) => field.target))
-          throw new FormPreparationError(unfillable, Object.values(skipped));
         binding = prepared.binding;
       }
       state.forms[formId] = { botId, form, binding, createdAt: Date.now(),preflightNote };
       return {...form,...(preflightNote ? {preflightNote} : {})};
     });
+  }
+
+  // A failure without a kind means the browser or its driver could not be reached. Like the
+  // reference, retry once before refusing the form.
+  private async preflight(botId: string, form: UserForm) {
+    for (let attempt = 0; ; attempt++) {
+      try { return await (await this.browser(botId)).prepare(form); }
+      catch (error) {
+        if ((error as { kind?: unknown } | undefined)?.kind) throw error;
+        if (attempt) throw new FormPreparationError(buildUserFormDriverUnavailableResult(form), { error: "form_driver_unavailable" });
+      }
+    }
   }
 
   async prefill(botId: string, formId: string) {
@@ -438,7 +454,8 @@ export class UserFormHost {
         continue;
       }
       let filled = false;
-      let failureKind = "driver_unavailable";
+      // Like the reference, a field skipped after the page left the consented host carries no kind.
+      let failureKind: string | undefined = receipt.domainMismatch ? undefined : receipt.pageMoved ? "page_moved" : "driver_unavailable";
       if (!receipt.domainMismatch && !receipt.pageMoved && browser && saved.binding) {
         try { filled = await browser.fill(saved.binding, field, value); failureKind = "fill_op_failed"; }
         catch (error) {
@@ -446,11 +463,12 @@ export class UserFormHost {
           const message = failure.message ?? "";
           if (failure.kind === "domain_mismatch" || /changed domain/.test(message)) receipt.domainMismatch = {liveHost:failure.liveHost};
           else if (failure.kind === "page_moved") receipt.pageMoved = {signal:"navigated"};
-          failureKind = failure.kind ?? (/stale|unknown.*ref/i.test(message) ? "target_gone" : /hidden/i.test(message) ? "hidden_target" : /missing|ambiguous/i.test(message) ? "target_missing" : /Cross-origin/i.test(message) ? "in_unreachable_frame" : "fill_op_failed");
+          failureKind = receipt.domainMismatch ? undefined : receipt.pageMoved ? "page_moved" : failure.kind ?? (/stale|unknown.*ref/i.test(message) ? "target_gone" : /hidden/i.test(message) ? "hidden_target" : /missing|ambiguous/i.test(message) ? "target_missing" : "fill_op_failed");
+          if (failureKind && !USER_FORM_FILL_FAILURE_KINDS.includes(failureKind)) failureKind = "fill_op_failed";
         }
       }
-      if (!filled) (receipt.fillFailureKinds ??= {})[field.id] = receipt.pageMoved ? "page_moved" : failureKind;
-      const retain = !filled && !remap && !receipt.domainMismatch;
+      if (!filled && failureKind) (receipt.fillFailureKinds ??= {})[field.id] = failureKind;
+      const retain = !filled && !remap && !receipt.domainMismatch && !(failureKind && USER_FORM_REMAP_CANNOT_CURE.includes(failureKind));
       receipt.fields.push({ id: field.id, status: filled ? "filled" : retain ? "held" : "dropped" });
       if (retain) held[field.id] = value;
     }

@@ -1,10 +1,14 @@
 import { ApiError } from "@openteam/contracts";
 import { json } from "../http";
+import { systemActivity } from "../system-activity";
 import { type RouteContext, run } from "./context";
 import { dispatchRoutes, effectRoute } from "./dispatch";
 
 export async function settingsRoutes(context: RouteContext): Promise<Response | undefined> {
   const { app, request, path } = context;
+  if (path === "/api/system/activity" && request.method === "GET") {
+    return json(await systemActivity());
+  }
   if (path === "/api/server-settings/tasks") {
     if (request.method === "GET") return json(await run(app.taskSettings()));
     if (request.method === "PATCH") return json(await run(app.updateTaskSettings(await request.json().catch(() => null))));
@@ -27,6 +31,9 @@ export async function settingsRoutes(context: RouteContext): Promise<Response | 
     return json(await app.machines.setEnabled(decodeURIComponent(machine[1]), input.enabled));
   }
   if(machine?.[1] && request.method === "DELETE")return json(await app.machines.remove(decodeURIComponent(machine[1])));
+  const messages=path.match(/^\/api\/server-settings\/machines\/([^/]+)\/messages$/);
+  if(messages?.[1] && request.method === "GET")return json(await app.machines.messagesSettings(decodeURIComponent(messages[1])));
+  if(messages?.[1] && request.method === "PATCH")return json(await app.machines.updateMessagesSettings(decodeURIComponent(messages[1]), await request.json()));
   if(path === "/api/server-settings/automation-webhooks") {
     if(request.method === "GET")return json(await app.automationWebhooks.list());
     if(request.method === "POST")return json(await app.automationWebhooks.save(await request.json()));
@@ -41,14 +48,11 @@ export async function settingsRoutes(context: RouteContext): Promise<Response | 
   }
   if (path === "/api/server-settings/web-providers/check" && request.method === "POST")
     return json(await app.webProviders.check(await request.json().catch(() => null)));
-  // Legacy single-tool endpoints for clients older than Settings → Providers.
-  if (path === "/api/server-settings/web-search" || path === "/api/server-settings/web-fetch") {
-    const tool = path.endsWith("web-fetch") ? "fetch" : "search";
-    if (request.method === "GET") return json(await app.webProviders.legacyView(tool));
-    if (request.method === "PATCH")
-      return json(await app.webProviders.legacySave(tool, await request.json().catch(() => null)));
-  }
 
+  if (request.method === "POST" && path === "/api/server-settings/inference/test") {
+    // An empty body tests the saved model; a body tests a choice before it is applied.
+    return json(await run(app.testInference(await request.json().catch(() => null))));
+  }
   if (request.method === "PATCH" && path === "/api/server-settings/inference") {
     return json(await run(app.updateInferenceSettings(await request.json().catch(() => null))));
   }

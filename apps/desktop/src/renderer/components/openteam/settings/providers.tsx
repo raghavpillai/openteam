@@ -1,4 +1,5 @@
 import {
+  RECOMMENDED_SEARCH_PROVIDER,
   WEB_PROVIDER_LISTS,
   type WebProviderInfo,
   type WebProviderState,
@@ -7,18 +8,17 @@ import {
   type WebToolInput,
 } from "@openteam/contracts/web-search";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { Ban, Check, ChevronRight, CircleCheck, CircleX, ExternalLink, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Ban, Check, ChevronRight, CircleCheck, CircleX, ExternalLink, TriangleAlert } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { AnimatedCollapse } from "../../ui/animated-collapse";
+import { LoadingOrb } from "../../ui/loading-orb";
 import { api } from "../../../client/openteam-api";
 import { cn } from "../../../lib/cn";
+import { webProviderIcon as iconFor } from "../../../lib/web-provider-icons";
 import { SettingsGroup, SettingsHeading } from "./ui";
 
-const icons = import.meta.glob<string>("../../../assets/web-providers/*.webp", { eager: true, import: "default" });
-const iconFor = (brand: string) => icons[`../../../assets/web-providers/${brand}.webp`];
-
 const actionButton =
-  "inline-flex h-8 items-center gap-1.5 rounded-[8px] bg-black px-3 text-[12px] text-white outline-none hover:opacity-80 disabled:opacity-50 dark:bg-white dark:text-black";
+  "inline-flex h-8 items-center gap-1.5 rounded-[8px] bg-black px-3 text-[12px] text-white outline-none enabled:hover:opacity-80 disabled:bg-black/[0.07] disabled:text-foreground disabled:opacity-50 dark:bg-white dark:text-black dark:disabled:bg-white/[0.09] dark:disabled:text-foreground";
 const secondaryButton =
   "inline-flex h-7 items-center gap-1.5 rounded-[7px] bg-black/[0.07] px-2.5 text-[12px] outline-none hover:bg-black/[0.1] disabled:opacity-50 dark:bg-white/[0.09] dark:hover:bg-white/[0.13]";
 const inputClass =
@@ -114,11 +114,7 @@ export default function ProvidersSettings() {
       .then((next) => active && setView(next))
       .catch((cause) => {
         if (!active) return;
-        setError(
-          (cause as { status?: number })?.status === 404
-            ? "This server doesn't support provider settings yet. Update the server, then reopen Settings."
-            : clientErrorMessage(cause, "Could not load provider settings")
-        );
+        setError(clientErrorMessage(cause, "Could not load provider settings"));
       })
       .finally(() => active && setBusy(null));
     return () => {
@@ -129,7 +125,8 @@ export default function ProvidersSettings() {
   const openPage = (tool: WebTool | null) => {
     setPage(tool);
     resetDraft(tool, view);
-    setExpanded(new Set());
+    // With search off, the recommended provider opens ready for its key.
+    setExpanded(new Set(tool === "search" && view && !view.search.selected ? [RECOMMENDED_SEARCH_PROVIDER] : []));
     setError(null);
     setApplied(false);
   };
@@ -264,7 +261,12 @@ export default function ProvidersSettings() {
       <>
         <ProviderIcon info={info} />
         <span className="min-w-0 flex-1">
-          <span className="block text-[12.5px] text-foreground">{info.name}</span>
+          <span className="flex items-center gap-1.5 text-[12.5px] text-foreground">
+            <span>{info.name}</span>
+            {tool === "search" && info.id === RECOMMENDED_SEARCH_PROVIDER ? (
+              <span className="rounded-[5px] bg-black/[0.06] px-1.5 py-px text-[10.5px] text-foreground-secondary dark:bg-white/[0.08]">Recommended</span>
+            ) : null}
+          </span>
           <span className={cn("block truncate text-[11.5px]", failed ? toneClass.error : "text-foreground-secondary")} title={failed ?? undefined}>
             {failed ?? info.description}
           </span>
@@ -297,7 +299,7 @@ export default function ProvidersSettings() {
               onClick={() => void check(tool, info.id)}
               type="button"
             >
-              {busy === `check:${info.id}` ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+              {busy === `check:${info.id}` ? <LoadingOrb aria-hidden size={14} /> : null}
               Check
             </button>
           ) : (
@@ -406,7 +408,7 @@ export default function ProvidersSettings() {
       <div className="mt-4 flex items-center justify-between px-2">
         <div className="text-[12px] text-foreground-secondary">Keys are stored on your server and never shown again.</div>
         <button className={actionButton} disabled={!changed || Boolean(busy)} onClick={() => void save()} type="button">
-          {busy === "save" ? <LoaderCircle className="size-3.5 animate-spin" /> : applied ? <Check className="size-3.5" /> : null}
+          {busy === "save" ? <LoadingOrb aria-hidden size={14} /> : applied ? <Check className="size-3.5" /> : null}
           {applied ? "Saved" : "Save"}
         </button>
       </div>

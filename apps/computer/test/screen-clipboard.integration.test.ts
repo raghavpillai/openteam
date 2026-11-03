@@ -5,7 +5,7 @@ import { chromium, type Browser, type Page } from "playwright-core";
 import { performClipboardOperation } from "../src/screen/clipboard";
 import { run } from "../src/screen/processes";
 
-describe.skipIf(process.platform !== "linux" || !Bun.which("Xvfb") || !Bun.which("xclip") || !existsSync("/usr/local/bin/google-chrome"))("native clipboard", () => {
+describe.skipIf(process.platform !== "linux" || !Bun.which("Xvfb") || !Bun.which("xclip") || !existsSync("/usr/lib/openteam/bin/google-chrome"))("native clipboard", () => {
   let xvfb: ChildProcess;
   let browser: Browser;
   let page: Page;
@@ -20,7 +20,7 @@ describe.skipIf(process.platform !== "linux" || !Bun.which("Xvfb") || !Bun.which
       xvfb.stdout!.once("data", value => resolve(String(value).trim()));
     });
     env = { ...process.env, DISPLAY: `:${display}` };
-    browser = await chromium.launch({ executablePath: "/usr/local/bin/google-chrome", headless: false, env: env as Record<string, string>, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+    browser = await chromium.launch({ executablePath: "/usr/lib/openteam/bin/google-chrome", headless: false, env: env as Record<string, string>, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
     page = await browser.newPage();
     await page.setContent("<title>Clipboard regression</title><textarea></textarea>");
     await page.bringToFront();

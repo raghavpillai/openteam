@@ -1,7 +1,7 @@
 import type { BotView, CreateBotInput } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openteam/product-core/selection";
-import { ChevronDown, LoaderCircle, Search } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import { Button } from "../ui/button";
@@ -9,6 +9,7 @@ import { Checkbox } from "../ui/checkbox";
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { LoadingOrb } from "../ui/loading-orb";
 import { Textarea } from "../ui/textarea";
 import { BotAvatar } from "./avatar";
 
@@ -119,7 +120,7 @@ export function NewBotForm({
           Cancel
         </Button>
         <Button disabled={busy} type="submit">
-          {busy && <LoaderCircle className="size-4 animate-spin" />}
+          {busy && <LoadingOrb aria-hidden inverse size={16} />}
           Create New Bot
         </Button>
       </DialogFooter>
@@ -213,7 +214,7 @@ export function BotForm({
           Cancel
         </Button>
         <Button disabled={!name.trim() || busy} type="submit">
-          {busy && <LoaderCircle className="size-4 animate-spin" />}
+          {busy && <LoadingOrb aria-hidden inverse size={16} />}
           {submitLabel}
         </Button>
       </DialogFooter>
@@ -361,7 +362,7 @@ export function GroupForm({
           }
           type="submit"
         >
-          {busy && <LoaderCircle className="size-4 animate-spin" />}
+          {busy && <LoadingOrb aria-hidden inverse size={16} />}
           Create
         </Button>
       </DialogFooter>

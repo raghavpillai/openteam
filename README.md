@@ -15,8 +15,8 @@ take over when needed, or come back when the work is done.
 
 - **Give bots a computer.** Each bot has its own screen and browser. All bots share a workspace
   and website sign-ins, so they can build on each other's files and you only sign in once.
-- **Keep context.** Conversations resume after restarts. Bots keep editable Markdown memory
-  about themselves, you, and your projects.
+- **Keep context.** Conversations resume after restarts. Bots remember what they learn about
+  themselves and you across conversations.
 - **Work as a team.** Bring multiple bots into a group chat, let them message each other, or delegate
   tasks to subagents.
 - **Automate recurring work.** Save instructions as routines that run on a schedule or respond
@@ -46,23 +46,21 @@ curl -fsSL https://openteam.so/install | sh
 irm https://openteam.so/install.ps1 | iex
 ```
 
-The installer downloads the CLI and starts guided setup. Node.js and Bun are not required.
+The installer downloads the CLI, adds it to your `PATH`, and starts guided setup. Node.js and Bun are not required.
 
 ### 2. Finish setup
 
-Create your OpenTeam username and password, then connect a model provider. Setup supports
-ChatGPT (Codex) or Claude (Claude Code) sign-in, OpenAI, Anthropic, or OpenRouter API keys, and
-compatible custom endpoints.
-You can skip the provider step and connect one later with `openteam setup`; bots need a
-connected provider to run. See [provider setup](https://openteam.so/docs/configuration/models#connect-a-provider).
-
-Setup defaults to a private connection over your LAN or VPN and prints your **server URL**.
+Choose how you'll connect, then create your OpenTeam username and password. Setup defaults to a
+private connection over your LAN or VPN, starts the server, and prints your **server URL**.
 Setup includes private Tailscale HTTPS, public HTTPS, and existing proxy options. Use `openteam setup --advanced` for additional server settings.
 
 ### 3. Open the app
 
 [Download the desktop app](https://openteam.so/download), enter the server URL from setup,
-and sign in with the account you just created. Create a bot and send it a task.
+and sign in with the account you just created. The app then helps you connect a model with a
+ChatGPT or Claude sign-in, or an OpenAI, Anthropic, or OpenRouter API key, and checks that it
+replies. Then create your first bot and send it a task. To use your own model server, add it on
+the host with `openteam provider add`; see [model providers](https://openteam.so/docs/configuration/models#use-your-own-model-server).
 
 The host and Docker must stay running for bots and routines to work. Server-side work continues
 when you close the app. Keep the desktop app open when bots need access to your physical computer.
@@ -81,7 +79,7 @@ Both apps connect to your server for chat and live screens. Most server settings
 ```sh
 openteam status    # Check the server and its version
 openteam doctor    # Diagnose setup or connection problems
-openteam setup     # Connect or change your model provider
+openteam setup     # Change the connection mode
 openteam update    # Update the CLI and server with backup and rollback
 ```
 

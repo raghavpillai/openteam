@@ -24,10 +24,9 @@ test("real box Shell and Read operations emit the captured success and missing-f
     await writeFile(path, "one\ntwo\nthree\n");
     const read = await executor.read({ path, offset: 2, limit: 1 }, root);
     expect(read.content).toEqual([
-      { type: "text", text: "... 1 lines not shown ...\n     2|two\n... 2 lines not shown ..." },
+      { type: "text", text: "... 1 line not shown ...\n     2|two\n... 2 lines not shown ..." },
     ]);
-    const missing = await executor.read({ path: join(root, "missing") }, root);
-    expect(missing.content).toEqual([{ type: "text", text: "Error: File not found" }]);
+    await expect(executor.read({ path: join(root, "missing") }, root)).rejects.toThrow(/^Error: File not found$/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

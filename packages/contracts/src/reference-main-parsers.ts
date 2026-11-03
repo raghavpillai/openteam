@@ -1,79 +1,25 @@
 // @ts-nocheck
 // Pure captured reference input schemas and trigger rendering. No host entrypoints.
 import { z as external_exports } from "zod";
+import { refineDraftBody } from "./external-draft-body";
+import { parseToolArguments } from "./tool-arguments";
+import { normalizeSendMessageTextContent } from "./send-text";
+import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
+import { applyComputerActionAliases } from "./computer-action-aliases";
 const invariant=(value,message)=>{if(!value)throw new Error(message);};
 class SandToolInputError extends Error {}
 const CLOUD_AGENT_INJECTED_SECRET_NAMES_ENV_VAR = "CLOUD_AGENT_INJECTED_SECRET_NAMES";
-var SAND_UPDATE_STATE_TOOL_NAME = "update_state";
+var UPDATE_MEMORY_TOOL_NAME = "UpdateMemory";
+var MEMORY_TYPE_NAMES = ["profile", "journal", "shared_profile", "shared_journal"];
+var OTHER_STATE_TOOLS = "Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.";
 
 function nonEmptyTuple(items) {
   if (items.length === 0) {
-    throw new Error(`${SAND_UPDATE_STATE_TOOL_NAME} has no operations to offer`);
+    throw new Error("An enum needs at least one option.");
   }
   const [first, ...rest] = items;
   return [first, ...rest];
 }
-
-var OPERATIONS = {
-  memory: {
-    write: 'save a durable fact (fact, tier, optional scope). scope "agent" (default) is your own memory; "user" is shared user-memory every assistant should know; "project" needs project=<slug> and writes your shard in that project. tier "profile" is foundational and kept in mind every turn; "log" (default) is dated history; "note" fades fast. Facts are deduped.',
-    forget: "drop a fact by its EXACT recorded text (fact, same scope/project). Pair with a write for the corrected version."
-  },
-  routine: {
-    create: "save a routine (name, prompt, and either schedule or trigger). prompt is what you do each time it fires, written to your future self.",
-    update: "rewrite an existing one in place (id, plus any of name/prompt/schedule/trigger/enabled you mean to change). Omitted fields keep their current values; it keeps its history.",
-    pause: "(id) disarm one the user wants back later.",
-    resume: "(id) rearm a paused one.",
-    delete: "(id) remove a finite watch as soon as it has done its job."
-  },
-  skill: {
-    write: 'save or rewrite a reusable skill (name, description, body; id to rewrite). The description is REQUIRED and is what a reader uses to decide whether the skill applies, so write it as "use this when \u2026". A skill has no trigger \u2014 a saved task that runs on a schedule is a routine.',
-    delete: "(id). Cursor-managed skills can't be edited or deleted."
-  },
-  profile: {
-    set: "your name (the chat title the user sees in the sidebar and header), description, title (the short role label beside your name), avatar_shape, and/or avatar_color (your default mark, hidden while a custom picture is installed). Only the fields you pass change. For your picture use target avatar."
-  },
-  settings: {
-    set: "hidden_from_sidebar, notify_on_updates. Only the fields you pass change."
-  },
-  channel: {
-    disconnect: "(platform). The connector closes the live connection within a few seconds."
-  },
-  project: {
-    create: "(project slug, name, optional description). Creates the folder + project.md and joins it; if the slug already exists this is create-is-join.",
-    join: "(project slug).",
-    leave: "(project slug)."
-  },
-  avatar: {
-    set: "(path to an image on your box or the host \u2014 write/download it first, then install it here; a box path under /workspace is fine).",
-    clear: "back to the default picture."
-  }
-};
-
-function isKeyOf(table, key) {
-  return typeof key === "string" && Object.hasOwn(table, key);
-}
-
-var TARGETS = nonEmptyTuple(
-  Object.keys(OPERATIONS).filter(
-    (target) => isKeyOf(OPERATIONS, target)
-  )
-);
-
-function actionsOf(target) {
-  const actions = OPERATIONS[target];
-  return Object.keys(actions).filter(
-    (action) => isKeyOf(actions, action)
-  );
-}
-
-var ACTIONS = nonEmptyTuple([...new Set(TARGETS.flatMap(actionsOf))]);
-
-var OPERATION_ENTRIES = TARGETS.map((target) => [target, OPERATIONS[target]]);
-
-var ACTION_MATRIX = OPERATION_ENTRIES.map(
-  ([target, actions]) => `${target}: ${Object.keys(actions).join(" | ")}`
-).join(". ");
 
 function normalizeSchedule(raw) {
   return raw.trim().replace(/\s+/g, " ");
@@ -537,7 +483,7 @@ var automationTrigger2 = external_exports.preprocess(
   automationTriggerShape
 );
 
-var GROK_BOT_MARK_SHAPES = [
+var BOT_MARK_SHAPES = [
   "blob",
   "pebble",
   "bean",
@@ -558,7 +504,7 @@ var GROK_BOT_MARK_SHAPES = [
   "leaf"
 ];
 
-var GROK_BOT_COLORS = [
+var BOT_COLORS = [
   { id: "black", label: "Black", value: "#000" },
   { id: "brown", label: "Brown", value: "#936439" },
   { id: "red", label: "Red", value: "#FF263C" },
@@ -572,59 +518,102 @@ var GROK_BOT_COLORS = [
   { id: "gray", label: "Gray", value: "#777777" }
 ];
 
-var GROK_BOT_MARK_COLORS = GROK_BOT_COLORS.map(({ id }) => id);
+var BOT_MARK_COLORS = BOT_COLORS.map(({ id }) => id);
 
-var sandUpdateStateParameters = external_exports.object({
-  target: external_exports.preprocess(
-    (value) => value === "workflow" ? "skill" : value,
-    external_exports.enum(TARGETS).describe("Which part of your own state to change.")
-  ),
-  action: external_exports.enum(ACTIONS).describe(`What to do. ${ACTION_MATRIX}.`),
-  fact: external_exports.string().trim().min(1).optional().describe(
-    "memory only. The fact, one self-contained sentence. For forget, the EXACT text of the recorded fact (find it with RecallMemory first, or read the memory folder when it is on your computer)."
-  ),
-  tier: external_exports.enum(["profile", "log", "note"]).optional().describe("memory write only. Defaults to log. Keep profile small."),
-  scope: external_exports.enum(["agent", "user", "project"]).optional().describe("memory only. Defaults to agent (your own memory)."),
-  project: external_exports.string().trim().min(1).optional().describe(
-    'Project slug. Required for memory when scope is "project", and for every project action.'
-  ),
-  id: external_exports.string().trim().min(1).optional().describe(
-    "The routine's folder or the skill's id. Required for every routine action except create, and for skill delete. Omit on a skill write to create a new one."
-  ),
-  name: external_exports.string().trim().min(1).optional().describe(
-    "routine/skill/project create: its name. Required on create and on a skill write; on routine update, omit to keep the current name. profile: your new name, which is the chat title the user sees."
-  ),
+var memoryParameters = external_exports.object({
+  action: external_exports.enum(["write", "forget"], {
+    errorMap: () => ({
+      message: `${UPDATE_MEMORY_TOOL_NAME} only writes or forgets memory. ${OTHER_STATE_TOOLS}`
+    })
+  }),
+  fact: external_exports.string().trim().min(1).describe("One self-contained sentence. For forget, the exact recorded text."),
+  type: external_exports.enum(MEMORY_TYPE_NAMES, {
+    errorMap: () => ({
+      message: `${UPDATE_MEMORY_TOOL_NAME}: pick the memory type it belongs in: ${MEMORY_TYPE_NAMES.join(", ")}.`
+    })
+  })
+});
+
+// The routines skill's trigger shapes, which an invalid trigger is answered with. OpenTeam's
+// email listener reads a connected Email plugin inbox, the cron example keeps a named time, and a
+// webhook URL is registered per bot in the server's automation webhook settings, not per routine.
+var AUTOMATION_TRIGGER_SHAPE_LINES = [
+  '  { "type": "slack", "channel": "#eng" | "@someone" | "*", "match": { "kind": "mention" } | { "kind": "keyword", "keyword": "deploy" } | { "kind": "message" } | { "kind": "reaction" } }',
+  `A reaction match also takes two optional filters: "emoji" (short names without colons, e.g. { "kind": "reaction", "emoji": ["eyes", "pencil2"] }, and any one of them fires it; omit for any reaction) and "bySelf": true (only the user's OWN reactions, not a colleague's). Reach for both together with "channel": "*" when the user wants their own emoji to be the signal: "when I react :eyes: to anything, do X".`,
+  '  { "type": "github", "repo": "owner/name" (one concrete repo, no wildcard), "events": ["pr-opened" | "pr-pushed" | "pr-merged" | "pr-closed" | "review-requested" | "review-approved" | "review-changes-requested" | "review-commented" | "pr-comment" | "inline-review-comment" | "review-thread-resolved" | "review-thread-unresolved" | "issue-assigned" | "ci-passed" | "ci-failed", ...], "pr"?: 123 (OPTIONAL; only that pull request), "userAllowlist"?: ["octocat", ...] (OPTIONAL git logins, "@" optional; omit or leave empty for anyone), "ciBranch"?: "main" (REQUIRED for CI events when pr is absent) }',
+  `userAllowlist filters the github listener to events involving those git users; omit it (or leave it empty) to fire for anyone. The gated user is per event kind, matching who drives it: the PR author for pr-opened/pr-pushed/pr-merged/pr-comment/inline-review-comment; BOTH the actor AND the PR author for review-approved/review-changes-requested/review-commented/review-thread-resolved/review-thread-unresolved/review-requested; the assigner for issue-assigned; and it does NOT apply to ci-passed/ci-failed (CI is never user-gated). So "PRs I open" is the user's own login on the pr-* events, and "reviews on my PRs" is the user's login on the review-* events. Use the user's actual GitHub login (confirm it, e.g. with \`gh api user\`, rather than guessing from their display name).`,
+  'For a repo subscription, omit pr: { "type": "github", "repo": "owner/name", "events": ["pr-opened", "pr-merged"] }. pr-pushed, pr-comment, inline-review-comment, and review-commented are refused repo-wide; they need pr or userAllowlist.',
+  `For "subscribe to / babysit this PR", use this default pack: { "type": "github", "repo": "owner/name", "pr": 123, "events": ["review-requested", "review-approved", "review-changes-requested", "review-commented", "pr-comment", "inline-review-comment", "review-thread-resolved", "review-thread-unresolved", "pr-pushed", "pr-merged", "pr-closed", "ci-passed", "ci-failed"] }. With pr, CI means that PR's checks and ciBranch is unnecessary. Including pr-merged and pr-closed makes the routine delete itself after either terminal wake finishes. Without pr, CI remains branch-scoped: ciBranch names the ONE branch whose settled checks fire ci-passed / ci-failed. Ask which branch the user means (usually "main") rather than guessing.`,
+  '  { "type": "origin", "repo": "owner/name" (one concrete NATIVE Origin repo, and a mirrored repo is rejected), "events": ["pr-opened" | "pr-pushed" | "pr-merged" | "review-requested" | "review-approved" | "review-changes-requested" | "review-commented" | "pr-comment" | "inline-review-comment" | "review-thread-resolved" | "review-thread-unresolved" | "ci-passed" | "ci-failed", ...], "pr"?: 123, "userAllowlist"?: ["<Origin actor id>", ...] }',
+  "Origin userAllowlist accepts actor IDs in either user-facing or internal numeric form. It gates PR/comment events by the PR owner; review/reviewer/thread events require BOTH the actor and PR owner; CI ignores the allowlist. Missing required identities fail closed.",
+  'For "subscribe to / babysit this Origin PR", use this default pack: { "type": "origin", "repo": "owner/name", "pr": 123, "events": ["review-requested", "review-approved", "review-changes-requested", "review-commented", "pr-comment", "inline-review-comment", "review-thread-resolved", "review-thread-unresolved", "pr-pushed", "pr-merged", "ci-passed", "ci-failed"] }. Origin CI is PR-only: ci-passed / ci-failed are discarded unless pr is set. Including pr-merged makes the routine delete itself after its merged wake finishes. Use github only for GitHub repos and origin only for native Origin repos; never point origin at a GitHub mirror.',
+  '  { "type": "microsoftTeams", "tenantId": "<Microsoft Entra tenant id>", "teamIds": ["<Graph API team id>", ...], "channelIds"?: [...] (omit for every channel), "messageContains"?: "deploy" (omit for any message) }',
+  '  { "type": "linear", "event": { "case": "issueCreated" } | { "case": "statusChanged", "statusIds"?: [...] } | { "case": "endOfCycle", "cycleIds"?: [...] }, "projectIds"?: [...], "teamIds"?: [...] }',
+  '  { "type": "sentry", "event": { "case": "issueCreated" | "issueResolved" | "issueAssigned" | "issueArchived" | "issueUnresolved" | "issueAny" }, "projectIds"?: [...] }',
+  '  { "type": "pagerduty", "event": { "case": "incidentTriggered" | "incidentAcknowledged" | "incidentResolved" | "incidentEscalated" | "incidentAny" }, "serviceIds"?: [...] }',
+  `  { "type": "email", "inbox": "<one of the user's connected Email plugin inbox addresses (ListEmailInboxes)>", "from"?: ["sender@example.com", ...] (omit for any sender), "requireAuthPass"?: true (default; false also wakes on mail that failed SPF/DKIM/DMARC) }, which fires when mail arrives at that inbox. Mail matching no routine wakes nobody. The wake carries headers only; read the body with ReadEmailThread.`,
+  `  { "type": "webhook" }, which fires when an outside system POSTs to your webhook URL; every webhook routine you have fires on it. The URL and its signing secret are registered for you in the server's automation webhook settings; you never see or need the secret, so point the user at those settings rather than giving them a URL.`,
+  "The id arrays on the linear/sentry/pagerduty shapes, and a microsoftTeams channelIds, are optional narrowing filters (platform ids/UUIDs); omit one to fire for any project, status, cycle, channel, or service. A microsoftTeams trigger always names its scope: tenantId plus at least one team id (teamIds) are required.",
+  '  { "type": "group", "listeners": [ ...several listeners... ] }, where any one fires the same prompt. Origin can group with cron, Slack, and GitHub; do not group it with Microsoft Teams, Linear, Sentry, PagerDuty, email, or webhook until those triggers share one scheduling authority.',
+  '  { "type": "cron", "schedule": "0 8 * * 1-5" }, a schedule written as a listener, in the same format as schedule. It belongs in a group, so one prompt fires both on time and on events; on its own, pass schedule instead.',
+  "A bare array of listeners, [ { ... }, { ... } ], is shorthand for the group form.",
+  'A microsoftTeams trigger also takes "teamId": "<one Graph API team id>" in place of teamIds, "messageContainsIsRegex": true to read messageContains as a regular expression, and "blockUnauthenticatedTeamsUsers": true to ignore messages from unauthenticated Teams users.'
+];
+var INVALID_AUTOMATION_TRIGGER_MESSAGE = ["Not a valid trigger. Trigger shapes:", ...AUTOMATION_TRIGGER_SHAPE_LINES].join("\n");
+var automationTriggerWithInvalidMessage = external_exports.unknown().transform((value, ctx) => {
+  const parsed = automationTrigger2.safeParse(value);
+  if (parsed.success) return parsed.data;
+  for (const issue of parsed.error.issues) ctx.addIssue({ ...issue });
+  ctx.addIssue({ code: external_exports.ZodIssueCode.custom, message: INVALID_AUTOMATION_TRIGGER_MESSAGE });
+  return external_exports.NEVER;
+});
+
+var routineParameters = external_exports.object({
+  action: external_exports.enum(["create", "get", "update", "pause", "resume", "delete"]),
+  id: external_exports.string().trim().min(1).optional().describe("The routine's folder id. Required except on create."),
+  name: external_exports.string().trim().min(1).optional().describe("Required on create."),
   prompt: external_exports.string().trim().min(1).optional().describe(
-    "routine only. What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt."
+    "What to do each time it fires, written to your future self as an intent, not a frozen tool recipe. Required on create."
   ),
-  schedule: automationSchedule.optional().describe(
-    `routine only. Shorthand for a cron trigger \u2014 "0 7 * * *", "@daily", "@every 2h" \u2014 interpreted in the user's local time. Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so "8am" is "0 8 * * *" and "daily at 2" is "0 2 * * *"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 "hourly" is "32 * * * *". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition.`
+  schedule: automationSchedule.optional().describe("See the description. Never with trigger."),
+  trigger: automationTriggerWithInvalidMessage.optional(),
+  enabled: external_exports.boolean().optional().describe("Defaults to true on create. On update, omit it and use pause or resume.")
+});
+
+var skillParameters = external_exports.object({
+  action: external_exports.enum(["write", "delete"]),
+  id: external_exports.string().trim().min(1).optional().describe(
+    "An existing skill's id. Required for delete. On write, pass it only to rewrite that skill; omit it to create one (its id is made from the name)."
   ),
-  trigger: automationTrigger2.optional(),
-  enabled: external_exports.boolean().optional().describe(
-    "routine create/update only. On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle)."
-  ),
+  name: external_exports.string().trim().min(1).optional().describe("Required on write."),
   description: external_exports.string().trim().optional().describe(
-    "skill write: REQUIRED. One line on when to use the skill. profile: your new description. project create: optional summary."
+    'Required on write: one line a reader uses to decide it applies ("use this when \u2026").'
   ),
-  body: external_exports.string().trim().min(1).optional().describe("skill write only. The recipe, in markdown."),
-  title: external_exports.string().trim().optional().describe(
-    'profile set only. The short role label shown as a chip beside your name ("Designer"), not the chat title \u2014 that is your name. Pass "" to clear it.'
-  ),
-  avatar_shape: external_exports.enum(nonEmptyTuple(GROK_BOT_MARK_SHAPES)).optional().describe(
-    "profile set only. The shape of your default mark in the sidebar. Not visible while a custom picture is installed."
-  ),
-  avatar_color: external_exports.enum(nonEmptyTuple(GROK_BOT_MARK_COLORS)).optional().describe(
-    "profile set only. The color of your default mark in the sidebar. Not visible while a custom picture is installed."
-  ),
-  hidden_from_sidebar: external_exports.boolean().optional().describe(
-    "settings set only. Removes your row from the user's sidebar; you stay fully functional and reachable through Cmd-K and the Hidden chats manager."
-  ),
-  notify_on_updates: external_exports.boolean().optional().describe('settings set only. The "Notify me about this assistant" toggle.'),
-  platform: external_exports.string().trim().min(1).optional().describe("channel disconnect only. The platform to disconnect."),
-  path: external_exports.string().trim().min(1).optional().describe(
-    "avatar set only. Absolute path to an image you already have (write or download it first, with Shell on your own computer or Shell using the user's computer's machineId, then install it here). A path on your box under /workspace is fine \u2014 no CopyFromBox needed. png/jpg/webp/gif/svg under 5 MB."
+  body: external_exports.string().trim().min(1).optional().describe("Required on write. The recipe, in markdown.")
+});
+
+var profileParameters = external_exports.object({
+  name: external_exports.string().trim().min(1).optional().describe("Your name, the chat title the user sees."),
+  description: external_exports.string().trim().optional().describe("Your intro."),
+  title: external_exports.string().trim().optional().describe('Short role label beside your name ("Designer"); "" clears it.'),
+  avatar_shape: external_exports.enum(nonEmptyTuple(BOT_MARK_SHAPES)).optional().describe("Your default mark, hidden while a custom picture is installed."),
+  avatar_color: external_exports.enum(nonEmptyTuple(BOT_MARK_COLORS)).optional(),
+  hidden_from_sidebar: external_exports.boolean().optional().describe("Hides your sidebar row; you stay reachable through Cmd-K and Hidden chats."),
+  notify_on_updates: external_exports.boolean().optional().describe('The "Notify me about this assistant" toggle.'),
+  drafting_disabled: external_exports.boolean().optional().describe(
+    `Pass false to turn draft cards back on when the user asks. You can't turn them off; tell the user to click "Disable drafts for this Bot" on a draft card. Owner only.`
   )
+});
+
+var avatarParameters = external_exports.object({
+  action: external_exports.enum(["set", "clear"]),
+  path: external_exports.string().trim().min(1).optional().describe(
+    "set only. Absolute path to a png/jpg/webp/gif/svg under 5 MB, on your box (under /workspace is fine) or the user's computer."
+  )
+});
+
+var channelParameters = external_exports.object({
+  platform: external_exports.string().trim().min(1)
 });
 
 var COMPUTER_ACTIONS = [
@@ -781,7 +770,7 @@ function refineHoldClick(args, ctx) {
 
 var SAND_COMPUTER_MAX_FOLLOW_UP_ACTIONS = 9;
 
-var COMPUTER_USE_SCREENSHOT_SETTLE_DELAY_MS = 2e3;
+var COMPUTER_USE_SCREENSHOT_SETTLE_DELAY_MS = 500;
 
 function buildFollowUpParameter() {
   const allowed = FOLLOW_UP_ACTIONS;
@@ -814,7 +803,13 @@ function buildComputerParameters() {
   );
 }
 
-var computerActionParameters = buildComputerParameters();
+// Action names from other computer-use tools are rewritten to the action they mean before the check.
+var computerActionParameters = external_exports.preprocess((value, ctx) => {
+  const result = applyComputerActionAliases(value);
+  if (result.kind === "value") return result.value;
+  ctx.addIssue({ code: "custom", path: result.path, message: result.message });
+  return value;
+}, buildComputerParameters());
 
 var SEND_MESSAGE_TYPES = [
   "text",
@@ -971,6 +966,60 @@ function isValidAttachmentUrl(rawUrl) {
   }
 }
 
+var OTHER_FILES_AS_ATTACHMENTS = 'Send every other file (PDF, document, spreadsheet, video) as its own SendToUser call with type:"attachment" and url (file:// or https://), one call per file.';
+
+var NON_IMAGE_IN_IMAGES_ERROR = `each images url must be a picture that goes with your text, and this one is another kind of file, so nothing was sent. ${OTHER_FILES_AS_ATTACHMENTS}`;
+
+var IMAGE_EXTENSIONS = /* @__PURE__ */ new Set(["avif", "bmp", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp", "heic", "heif"]);
+
+// Extensions the reference's attachment classifier names as a kind other than image;
+// an unknown extension stays a generic file and is not refused.
+var KNOWN_NON_IMAGE_EXTENSIONS = /* @__PURE__ */ new Set([
+  "m4v", "mov", "mp4", "ogv", "webm",
+  "aac", "flac", "m4a", "mp3", "oga", "ogg", "opus", "wav", "weba",
+  "pdf", "csv", "tsv", "xlsx", "xls", "json", "md", "markdown", "mdx", "html", "htm", "docx",
+  "txt", "text", "log", "rst", "adoc", "tex", "jsonc", "json5", "ndjson", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf", "env",
+  "properties", "plist", "gradle", "css", "scss", "sass", "less", "js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "py", "pyi",
+  "rb", "go", "rs", "java", "kt", "kts", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "cs", "php", "swift", "scala", "dart", "lua", "pl",
+  "pm", "r", "sql", "graphql", "gql", "proto", "vue", "svelte", "astro", "sh", "bash", "zsh", "fish", "bat", "ps1", "tf", "tfvars",
+  "dockerfile", "diff", "patch",
+  "zip", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "zst", "7z", "rar"
+]);
+
+function attachmentExtension(source) {
+  let subject = source;
+  try {
+    subject = new URL(source).pathname;
+    subject = decodeURIComponent(subject);
+  } catch {}
+  const base = subject.split(/[/\\]/).pop() ?? "";
+  const dot = base.lastIndexOf(".");
+  return dot <= 0 || dot === base.length - 1 ? null : base.slice(dot + 1).toLowerCase();
+}
+
+function isKnownNonImage(url2) {
+  const ext = attachmentExtension(url2);
+  return ext != null && !IMAGE_EXTENSIONS.has(ext) && KNOWN_NON_IMAGE_EXTENSIONS.has(ext);
+}
+
+var UNSUPPORTED_ATTACHMENT_FIELDS = ["attachments", "files"];
+
+function unsupportedAttachmentFieldError(field) {
+  return `${field} is not a SendToUser field, so it would be silently dropped. Nothing was sent. Put images that go with your text in images on the type:text message. ` + OTHER_FILES_AS_ATTACHMENTS;
+}
+
+// The issue is added beside the schema's own issues, so one reply reports both.
+function rejectingUnsupportedAttachmentFields(schema) {
+  return external_exports.preprocess((input, ctx) => {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
+    for (const field of UNSUPPORTED_ATTACHMENT_FIELDS) {
+      if (!isFieldProvided(input[field])) continue;
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: [field], message: unsupportedAttachmentFieldError(field) });
+    }
+    return input;
+  }, schema);
+}
+
 function refineSendMessage(value, ctx) {
   for (const { field, types: types3 } of TYPE_SCOPED_SEND_MESSAGE_FIELDS) {
     if (types3.includes(value.type)) continue;
@@ -979,7 +1028,7 @@ function refineSendMessage(value, ctx) {
     ctx.addIssue({
       code: external_exports.ZodIssueCode.custom,
       path: [field],
-      message: `${field} is only valid with ${allowed} and cannot ride a type:${value.type} message \u2014 it would be silently dropped. Nothing was sent. Re-send as separate SendToUser calls, one per type: this field on its own properly-typed message (${allowed}), and any text as its own type:text message.`
+      message: `${field} is only valid with ${allowed} and cannot be sent on a type:${value.type} message. It would be silently dropped. Nothing was sent. Re-send as separate SendToUser calls, one per type: this field on its own properly-typed message (${allowed}), and any text as its own type:text message.`
     });
   }
   if (value.channel != null && value.channel.length > 0 && value.type !== "text" && value.type !== "attachment") {
@@ -1024,7 +1073,13 @@ function refineSendMessage(value, ctx) {
           ctx.addIssue({
             code: external_exports.ZodIssueCode.custom,
             path: ["images", index, "url"],
-            message: "each images url must include a file:// or https:// scheme"
+            message: "each images url must include a file:// or https:// scheme. For a file on your computer, put file:// before its absolute path (file:///workspace/chart.png) and send it again. Nothing was sent."
+          });
+        } else if (isKnownNonImage(image2.url)) {
+          ctx.addIssue({
+            code: external_exports.ZodIssueCode.custom,
+            path: ["images", index, "url"],
+            message: NON_IMAGE_IN_IMAGES_ERROR
           });
         }
       }
@@ -1074,7 +1129,7 @@ function refineSendMessage(value, ctx) {
         ctx.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["url"],
-          message: "url must include a file:// or https:// scheme when type is attachment"
+          message: "url must include a file:// or https:// scheme when type is attachment. For a file on your computer, put file:// before its absolute path (file:///workspace/report.pdf) and send it again. Nothing was sent."
         });
       }
       return;
@@ -1092,15 +1147,9 @@ var reactToMessageParameters = external_exports.object({
   message_address: external_exports.string().trim().min(1).describe(
     "The address of the USER message to react to \u2014 the [t3u]-style tag shown on their message. Only the user's own messages, never your own sends."
   ),
-  emoji: external_exports.string().trim().min(1).max(16).describe("A single common emoji to react with, e.g. \u{1F44D}, \u2764\uFE0F, \u{1F602}, \u{1F389}.")
-});
-
-var FEEDBACK_MESSAGE_MAX_CHARS = 4e3;
-
-var sendFeedbackParameters = external_exports.object({
-  message: external_exports.string().trim().min(1).max(FEEDBACK_MESSAGE_MAX_CHARS).describe("The user's feedback, in their own words."),
-  wantsResponse: external_exports.boolean().describe(
-    "Whether the user wants a human reply from the SpaceXAI team. Same choice as the Send Feedback form checkbox 'I would like a response from the support team on this feedback'. Ask first unless they already said. true if they want a reply; false if they do not. Never omit this and never guess."
+  emoji: external_exports.string().trim().min(1).max(16).describe("A single common emoji to react with, e.g. \u{1F44D}, \u2764\uFE0F, \u{1F602}, \u{1F389}."),
+  end_turn: external_exports.boolean().optional().describe(
+    "Set true when this reaction is your whole reply; a successful reaction then ends the turn."
   )
 });
 
@@ -1116,10 +1165,16 @@ var requestBoxHelpParameters = external_exports.object({
   ),
   idp_domain: external_exports.string().trim().optional().catch(void 0).describe(
     'When the browser is on an SSO/IdP page, the IdP host from the URL bar (e.g. "anysphere.okta.com", "accounts.google.com", "login.microsoftonline.com"). Omit on a direct app login with no separate IdP.'
+  ),
+  url: external_exports.string().trim().optional().catch(void 0).describe(
+    "The full address of the web page where the user should do the step. It must be on the site of domain or on the idp_domain host; any other address is ignored."
   )
 });
 
 var DRAFT_PLATFORMS = ["email", "slack"];
+
+// A lone recipient string is read as a one-address list, as the reference's lenient arrays do.
+var lenientAddressList = (schema) => external_exports.preprocess((value) => typeof value === "string" ? [value] : value, schema);
 
 var draftExternalMessageObjectSchema = external_exports.object({
   platform: external_exports.enum(DRAFT_PLATFORMS).describe(
@@ -1132,10 +1187,10 @@ var draftExternalMessageObjectSchema = external_exports.object({
   from: external_exports.string().trim().optional().describe(
     `Required when platform is email. The exact email address the chosen account sends from, shown on the card's From row \u2014 a plain address like ariel@acme.com, never a display name and never guessed. If you don't already know it, read it from the mailbox first: call the Gmail connector's search_threads with query "in:sent" and use a returned message's sender field.`
   ),
-  to: external_exports.array(external_exports.string().trim().min(1)).optional().describe(
+  to: lenientAddressList(external_exports.array(external_exports.string().trim().min(1))).optional().describe(
     'Required when platform is email. The recipient(s), each a plain email address ("user@example.com" \u2014 the "Name <user@example.com>" form is not accepted).'
   ),
-  cc: external_exports.array(external_exports.string().trim().min(1)).optional().describe("Optional, email only. Cc recipient(s), each a plain email address."),
+  cc: lenientAddressList(external_exports.array(external_exports.string().trim().min(1))).optional().describe("Optional, email only. Cc recipient(s), each a plain email address."),
   subject: external_exports.string().trim().optional().describe("Required when platform is email. The subject line."),
   replyToMessageId: external_exports.string().trim().optional().describe(
     "Optional, email only. The provider's id of the message being replied to; this is the ONLY reply key the send uses, so set it whenever the draft replies within an existing thread and omit it for a fresh email."
@@ -1187,7 +1242,7 @@ function requireAddresses(ctx, field, values) {
   ctx.addIssue({
     code: external_exports.ZodIssueCode.custom,
     path: [field],
-    message: `${field} must carry plain email address(es) like user@example.com \u2014 not a display name or "Name <addr>" form. Got: ${invalid.join(", ")}`
+    message: `${field} must carry plain email address(es) like user@example.com, not a display name or "Name <addr>" form. Got: ${invalid.join(", ")}`
   });
 }
 
@@ -1198,7 +1253,7 @@ function refineDraftExternalMessage(value, ctx) {
     ctx.addIssue({
       code: external_exports.ZodIssueCode.custom,
       path: [field],
-      message: `${field} is only valid with platform:${platform2} and cannot ride a platform:${value.platform} draft \u2014 it would be silently dropped. Nothing was drafted. Re-send with only the fields that belong to platform:${value.platform}.`
+      message: `${field} is only valid with platform:${platform2} and cannot be included in a platform:${value.platform} draft. It would be silently dropped. Nothing was drafted. Re-send with only the fields that belong to platform:${value.platform}.`
     });
   }
   if (value.platform === "email") {
@@ -1221,26 +1276,46 @@ var draftExternalMessageParameters = draftExternalMessageObjectSchema.superRefin
   refineDraftExternalMessage
 );
 
-var checkSubagentParameters = external_exports.object({
+var SUBAGENT_ID_ALIASES = ["agentId", "agent_id", "subagentId", "target", "target_id", "id", "to"];
+
+// The subagent's id under another common name is taken as subagent_id; names that disagree are refused.
+function normalizeSubagentIdArgs(value, ctx) {
+  if (!isUnknownRecord2(value) || value.subagent_id !== void 0) return value;
+  const aliases = SUBAGENT_ID_ALIASES.filter((key) => value[key] !== void 0);
+  if (aliases.length === 0) return value;
+  const ids = aliases.map((key) => value[key]);
+  if (new Set(ids).size > 1) {
+    ctx.addIssue({ code: "custom", path: ["subagent_id"], message: "Pass the subagent's id once, as subagent_id (from the Task result that dispatched it)." });
+    return value;
+  }
+  return { ...Object.fromEntries(Object.entries(value).filter(([key]) => !aliases.includes(key))), subagent_id: ids[0] };
+}
+
+var withSubagentIdAlias = (schema) => external_exports.preprocess(normalizeSubagentIdArgs, schema);
+
+var checkSubagentParameters = withSubagentIdAlias(external_exports.object({
   subagent_id: external_exports.string().trim().optional().describe(
     "The Agent ID of the subagent to inspect (from the Task tool result that dispatched it). Omit to list every subagent currently running."
   )
-});
+}));
 
-var messageSubagentParameters = external_exports.object({
+var messageSubagentParameters = withSubagentIdAlias(external_exports.object({
   subagent_id: external_exports.string().trim().min(1).describe(
     "The Agent ID of the running subagent to message (from the Task tool result that dispatched it)."
   ),
   message: external_exports.string().trim().min(1).describe(
     "The instruction to inject. The subagent interrupts what it is doing, reads this, and continues from where it was with its context intact."
   )
-});
+}));
 
-var stopSubagentParameters = external_exports.object({
-  subagent_id: external_exports.string().trim().min(1).describe(
-    "The Agent ID of the running subagent to abort (from the Task tool result that dispatched it)."
-  )
-});
+var stopSubagentParameters = withSubagentIdAlias(external_exports.object({
+  subagent_id: external_exports.string().trim().optional().describe(
+    'One running subagent\'s id, from the "Agent ID:" line of the Task result that dispatched it. Omit it when all is true.'
+  ),
+  all: external_exports.boolean().optional().describe("Set true to abort every background subagent you have running, in one call.")
+}).refine((args) => args.all === true !== (args.subagent_id !== void 0 && args.subagent_id.length > 0), {
+  message: "Pass exactly one of subagent_id or all: true."
+}));
 
 function isUnknownRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -1285,7 +1360,7 @@ function normalizeSendToAgentArgs(value, ctx) {
 
 var sendToAgentParameters = external_exports.object({
   target_id: external_exports.string().trim().min(1).describe(
-    "The id of the target \u2014 either another agent or a GROUP you belong to. Use an id from your teammates list, ListAgents, or ListGroups \u2014 not a name."
+    "The id of the target, either another agent or a GROUP you belong to. Use an id from your teammates list, not a name."
   ),
   message: external_exports.string().trim().min(1).describe(
     "What to say. Write it as if texting a teammate: lead with the point, keep it short."
@@ -1359,6 +1434,27 @@ var copyToBoxParameters = external_exports.object({
   )
 });
 
+var COPY_TO_BOX_COMPUTER_PATH_ALIAS = {
+  field: "computer_path",
+  aliases: ["path", "source_path", "sourcePath", "source", "local_path"],
+  conflictMessage: "Pass the file's absolute path on the user's computer once, as computer_path."
+};
+
+// A lone alias becomes the field; aliases that disagree are refused rather than guessed between.
+function withArgumentAlias(schema, spec) {
+  return external_exports.preprocess((value, ctx) => {
+    if (!isUnknownRecord2(value) || value[spec.field] !== void 0) return value;
+    const aliases = spec.aliases.filter((key) => value[key] !== void 0);
+    if (aliases.length === 0) return value;
+    const sent = aliases.map((key) => value[key]);
+    if (new Set(sent).size > 1) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: [spec.field], message: spec.conflictMessage });
+      return value;
+    }
+    return { ...Object.fromEntries(Object.entries(value).filter(([key]) => !aliases.includes(key))), [spec.field]: sent[0] };
+  }, schema);
+}
+
 var copyFromBoxParameters = external_exports.object({
   box_path: external_exports.string().trim().min(1).describe(
     "Path of the file in your box to push out. Absolute (e.g. /workspace/report.pdf) or relative to /workspace. Any file type and any size; copied verbatim. Expand any glob in Shell first and pass a concrete path."
@@ -1368,8 +1464,6 @@ var copyFromBoxParameters = external_exports.object({
   )
 });
 
-var RECALL_MEMORY_SCOPES = ["agent", "user", "all"];
-
 var RECALL_MEMORY_MAX_LIMIT = 50;
 
 var RECALL_MEMORY_DEFAULT_LIMIT = 20;
@@ -1377,9 +1471,6 @@ var RECALL_MEMORY_DEFAULT_LIMIT = 20;
 var recallMemoryParameters = external_exports.object({
   query: external_exports.string().trim().min(1).describe(
     "What to look for. Facts sharing distinctive words with the query rank first; when nothing overlaps (short identifiers like a ticket id or an acronym) a literal case-insensitive substring match is used instead."
-  ),
-  scope: external_exports.enum(RECALL_MEMORY_SCOPES).optional().catch(void 0).describe(
-    'Which memory to search: "agent" is your own memory, "user" is the shared user memory every assistant of this user contributes to, "all" (default) is both.'
   ),
   limit: external_exports.number().int().min(1).max(RECALL_MEMORY_MAX_LIMIT).optional().catch(void 0).describe(
     `Maximum facts to return (default ${RECALL_MEMORY_DEFAULT_LIMIT}, max ${RECALL_MEMORY_MAX_LIMIT}).`
@@ -1651,6 +1742,28 @@ function describeCronMatcher(matcher) {
   return `${englishEvery(time4.every)}${on}${window2}`;
 }
 
+function describeOneShotSchedule(schedule) {
+  const normalized = normalizeSchedule(schedule);
+  if (parseEveryIntervalMs(normalized) != null) return null;
+  if (splitScheduleTimeZone(normalized).schedule.startsWith("@")) return null;
+  const matcher = compileCronMatcher(normalized);
+  if (matcher == null || matcher.month.size !== 1 || !matcher.isDayOfMonthRestricted || matcher.dayOfMonth.size !== 1 || matcher.isDayOfWeekRestricted || matcher.hour.size !== 1 || matcher.minute.size !== 1) {
+    return null;
+  }
+  const [month] = matcher.month;
+  const [day] = matcher.dayOfMonth;
+  const [hour] = matcher.hour;
+  const [minute] = matcher.minute;
+  if (month == null || day == null || hour == null || minute == null) return null;
+  if (!isCalendarDate({ month, day })) return null;
+  return `${MONTHS[month - 1]} ${day} at ${formatClock(hour, minute)}`;
+}
+
+function isCalendarDate({ month, day }) {
+  const date6 = new Date(2e3, month - 1, day);
+  return date6.getMonth() === month - 1 && date6.getDate() === day;
+}
+
 function describeSchedule(schedule) {
   const normalized = normalizeSchedule(schedule);
   const intervalMs = parseEveryIntervalMs(normalized);
@@ -1664,7 +1777,8 @@ function describeSchedule(schedule) {
   }
   const matcher = compileCronMatcher(normalized);
   if (matcher == null) return normalized;
-  const prose = describeCronMatcher(matcher);
+  const oneShot = describeOneShotSchedule(normalized);
+  const prose = oneShot != null ? `Once ${oneShot}` : describeCronMatcher(matcher);
   if (prose == null) return normalized;
   return matcher.timeZone == null ? prose : `${prose} (${matcher.timeZone})`;
 }
@@ -1832,7 +1946,11 @@ function describeTrigger(trigger2) {
   ].join(" or ");
 }
 
-const schemas={"update_state":sandUpdateStateParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":copyToBoxParameters,"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
+// Bots are drawn as robots: the default mark is one of the robot shapes the apps render.
+const adaptedProfileParameters = profileParameters.extend({
+  avatar_shape: external_exports.enum(ROBOT_AVATAR_SHAPES).optional(),
+});
+const schemas={"UpdateMemory":memoryParameters,"UpdateRoutine":routineParameters,"UpdateSkill":skillParameters,"UpdateProfile":adaptedProfileParameters,"UpdateAvatar":avatarParameters,"DisconnectChannel":channelParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":withArgumentAlias(copyToBoxParameters, COPY_TO_BOX_COMPUTER_PATH_ALIAS),"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
 // Explicit deployment extensions: connector secrets and personal environment scope.
 // Keep the captured refinements for every other SendToUser field.
 const localSecretSchema = sendMessageObjectSchema.shape.secret.unwrap().extend({
@@ -1846,15 +1964,16 @@ const localSecretSchema = sendMessageObjectSchema.shape.secret.unwrap().extend({
 });
 // end_turn belongs to the invocation envelope in the captured host. Preserve it
 // here because OpenTeam receives that envelope together with the message fields.
-const adaptedSendSchema = sendMessageObjectSchema.extend({
+const adaptedSendSchema = rejectingUnsupportedAttachmentFields(sendMessageObjectSchema.extend({
+  type: sendMessageObjectSchema.shape.type.default("text"),
   secret: localSecretSchema.optional(),
   end_turn: external_exports.boolean().optional(),
-}).superRefine(refineSendMessage);
+}).superRefine(refineSendMessage));
 // The user's per-Bot approval rules can send a card at once; waitForReview keeps it waiting
 // when the user asked to see the message first.
 const adaptedDraftSchema = draftExternalMessageObjectSchema.extend({
   waitForReview: external_exports.boolean().optional(),
-}).superRefine(refineDraftExternalMessage);
+}).superRefine(refineDraftExternalMessage).superRefine(refineDraftBody);
 export function normalizeMainToolArguments(name:string, raw:unknown):Record<string,any>{
   if (name === "Shell" && raw && typeof raw === "object" && !Array.isArray(raw)) {
     const value = {...raw};
@@ -1866,7 +1985,16 @@ export function normalizeMainToolArguments(name:string, raw:unknown):Record<stri
       value.block_until_ms = value.block_until_ms < 0 ? 30_000 : Math.floor(value.block_until_ms);
     return value;
   }
-  if (name === "DraftExternalMessage") return adaptedDraftSchema.parse(raw);
-  return name === "SendToUser" ? adaptedSendSchema.parse(raw) : schemas[name] ? schemas[name].parse(raw) : raw as Record<string,any>;
+  const schema = name === "DraftExternalMessage" ? adaptedDraftSchema : name === "SendToUser" ? adaptedSendSchema : schemas[name];
+  if (!schema) return raw as Record<string,any>;
+  const args = parseToolArguments(schema, raw);
+  // Text content is delivered with real line breaks, as the reference repairs it at send time.
+  return name === "SendToUser" && args.type === "text" && args.content ? { ...args, content: normalizeSendMessageTextContent(args.content) } : args;
 }
-export { describeTrigger };
+const ARGUMENT_ALIASES={"CopyToBox":COPY_TO_BOX_COMPUTER_PATH_ALIAS};
+/** The reference's argument aliases alone, for tools whose arguments are otherwise decoded elsewhere. */
+export function applyArgumentAliases(name:string, raw:unknown):unknown{
+  const spec = ARGUMENT_ALIASES[name];
+  return spec ? parseToolArguments(withArgumentAlias(external_exports.any(), spec), raw) : raw;
+}
+export { describeTrigger, AUTOMATION_TRIGGER_SHAPE_LINES };

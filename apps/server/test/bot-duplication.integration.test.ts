@@ -46,8 +46,6 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
         onboardingStatus: "completed",
         runtimeSessionId: crypto.randomUUID(),
         runtimeSessionPath: join(directory, "old-session.jsonl"),
-        episodePending: 3,
-        episodeTurns: [{ user: "OLD_CONTEXT_NONCE" }],
         createdAt: new Date("2026-08-15T10:00:00Z"),
         conversation: { create: { continuity: "attached", compactionEpoch: 4 } },
       },
@@ -158,15 +156,12 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
           scopeId: f.channel.id,
           compactionEpoch: 4,
           runtimeSessionId: crypto.randomUUID(),
-        },
-      });
-      await prisma.agentPromptSnapshot.create({
-        data: {
-          botId: f.source.id,
-          memoryRender: "FROZEN_MEMORY_MARKER",
-          profileSection: "OLD_PROMPT_MARKER",
-          memoryEpoch: 4,
-          memoryHasFacts: true,
+          promptSnapshot: {
+            create: {
+              profileSection: "OLD_PROMPT_MARKER",
+              promptSections: { memory: { render: "FROZEN_MEMORY_MARKER", compactionEpoch: 4 } },
+            },
+          },
         },
       });
       const group = await prisma.channel.create({
@@ -178,7 +173,7 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
       });
       const routines = new RoutineService(
         prisma,
-        { defaultTimeZone: "UTC", enqueueWake: async () => ({ run: { id: crypto.randomUUID() } }) },
+        { enqueueWake: async () => ({ run: { id: crypto.randomUUID() } }) },
         f.store
       );
       for (const enabled of [true, false]) {
@@ -252,7 +247,6 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
           channelMemberships: true,
           routines: { include: { revisions: true, executions: true } },
           contextSessions: true,
-          promptSnapshot: true,
         },
       });
       expect(stored).toMatchObject({
@@ -260,10 +254,7 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
         createdAt: f.source.createdAt,
         runtimeSessionId: null,
         runtimeSessionPath: null,
-        episodePending: 0,
-        episodeTurns: [],
         contextSessions: [],
-        promptSnapshot: null,
         conversation: { continuity: "empty", compactionEpoch: 0 },
       });
       expect(stored.channelMemberships.map((entry) => entry.channelId)).toEqual([
@@ -315,9 +306,12 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
         ).toEqual([]);
       }
       await prisma.bot.update({ where: { id: duplicate.id }, data: { status: "active" } });
-      const context = await f.store.promptContext(duplicate.id);
-      expect(context.memoryRender).not.toContain("BOT_LOCAL_MEMORY_MARKER");
-      expect(context.memoryRender).not.toContain("FROZEN_MEMORY_MARKER");
+      const duplicateContext = await prisma.contextSession.create({
+        data: { botId: duplicate.id, scope: "home", scopeId: duplicate.conversationId },
+      });
+      const context = await f.store.promptContext(duplicate.id, duplicateContext.id);
+      expect(context.memory.facts).not.toContain("BOT_LOCAL_MEMORY_MARKER");
+      expect(context.memory.facts).not.toContain("FROZEN_MEMORY_MARKER");
       expect(context.skillRender).toContain(skill.slug);
       expect(await readFile(join(f.workspace, "shared.txt"), "utf8")).toBe("SHARED_FILE_MARKER");
       expect(await readFile(join(sourceDir, "profile.json"), "utf8")).toBe(before);
@@ -569,7 +563,6 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
           status: "failed",
           onboardingStatus: "failed",
           provisioningError: { message: "SOURCE_FAILURE" },
-          dreamingEnabled: true,
           inferenceProvider: "test-provider",
           inferenceModel: "test-model",
         },
@@ -625,7 +618,6 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
         status: "provisioning",
         onboardingStatus: "completed",
         provisioningError: null,
-        dreamingEnabled: true,
         inferenceProvider: "test-provider",
         inferenceModel: "test-model",
         runtimeSessionId: null,

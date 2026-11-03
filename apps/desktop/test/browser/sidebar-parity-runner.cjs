@@ -178,6 +178,9 @@ app
               widths.some((width) => width > 28.1 && width < 35.9),
               "Profile scales through intermediate sizes"
             );
+            // React may commit the compact state after the shortcut event.
+            // Sample the motion above, then wait for the actual CSS endpoint.
+            await Promise.all(avatar.getAnimations().map((animation) => animation.finished));
             check(
               Math.abs(avatar.getBoundingClientRect().width - 36) < 0.1,
               "Compact profile ends at 36px"
@@ -214,6 +217,7 @@ app
             check(compactNav.dataset.scrollFadeBottom === "false", "Compact fade clears at bottom");
             toggle();
             await new Promise((resolve) => setTimeout(resolve, 220));
+            await Promise.all(avatar.getAnimations().map((animation) => animation.finished));
             check(
               document.querySelector("[data-sidebar-account-avatar]") === avatar,
               "Profile remains mounted when expanding"

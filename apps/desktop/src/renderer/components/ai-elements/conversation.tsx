@@ -19,6 +19,7 @@ import { ScrollArea } from "radix-ui";
 import { cn } from "../../lib/cn";
 import { recordPerformance } from "../../lib/performance";
 import { Button } from "../ui/button";
+import { LoadingOrb } from "../ui/loading-orb";
 import { useInitialConversationLayout } from "../../hooks/use-initial-conversation-layout";
 
 // A critically damped spring with this response settles like an iMessage send:
@@ -193,7 +194,7 @@ export const ConversationContent = ({
   );
   const loading = !layoutReady && (
     <div className="pointer-events-none absolute inset-0 grid place-items-center" role="status" aria-label="Loading messages">
-      <span className="size-5 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-muted-foreground" />
+      <LoadingOrb aria-hidden />
     </div>
   );
   const layoutProps = {

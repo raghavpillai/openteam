@@ -100,21 +100,12 @@ export const normalizeRepository = (value = DEFAULT_REPOSITORY): string => {
   return repository;
 };
 
-export const detectTimeZone = (): string => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-};
-
 export const detectWorkerConcurrency = (parallelism = availableParallelism()): string =>
   String(Math.max(1, Math.min(8, Math.floor(parallelism))));
 
 export const createEnvironment = (options: {
   version: string;
   imagePrefix?: string;
-  timeZone?: string;
   workerConcurrency?: string;
 }): string => {
   const version = normalizeVersion(options.version);
@@ -122,7 +113,6 @@ export const createEnvironment = (options: {
     "image prefix",
     options.imagePrefix?.trim() || DEFAULT_IMAGE_PREFIX
   );
-  const timeZone = assertSingleLine("time zone", options.timeZone?.trim() || detectTimeZone());
   const workerConcurrency = assertSingleLine(
     "worker concurrency",
     options.workerConcurrency?.trim() || detectWorkerConcurrency()
@@ -142,7 +132,6 @@ export const createEnvironment = (options: {
     `OPENTEAM_AUTH_SECRET=${randomBytes(32).toString("hex")}`,
     `OPENTEAM_PROXY_SECRET=${randomBytes(32).toString("hex")}`,
     "OPENTEAM_AUTH_MODE=required",
-    `OPENTEAM_TIME_ZONE=${timeZone}`,
     "OPENTEAM_ACCESS_MODE=local",
     "OPENTEAM_BIND_HOST=127.0.0.1",
     "OPENTEAM_VIEWER_BIND_HOST=127.0.0.1",

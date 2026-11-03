@@ -22,23 +22,19 @@ const model: Model<"openai-completions"> = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
-for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSteer: false, handoff: false }, { withSteer: true, handoff: false }, { withSteer: false, handoff: true }, { withSteer: false, handoff: false, batch: true }, { withSteer: false, handoff: false, lateSteer: true }, { withSteer: false, handoff: false, lateSteer: true, batch: true }])
-  test(`real Pi loop persists before acknowledgement, stops on ${handoff ? "WakeParent" : "end_turn"}, and recovers tape${withSteer ? " with queued steering" : ""}${batch ? " with three ordered replies" : ""}${lateSteer ? " with correction during inference" : ""}`, async () => {
+// Typed messages supersede a main turn instead of steering it.
+for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true }, { handoff: false, batch: true }])
+  test(`real Pi loop persists before acknowledgement, stops on ${handoff ? "WakeParent" : "end_turn"}, and recovers tape${batch ? " with three ordered replies" : ""}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-parity-"));
     const requests: any[] = [];
     const sent: any[] = [];
     const acknowledged: any[] = [];
-    let releaseSend: (() => void) | undefined;
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       async fetch(request) {
         const input = (await request.json()) as any;
         sent.push(input);
-        if (withSteer)
-          await new Promise<void>((resolve) => {
-            releaseSend = resolve;
-          });
         return Response.json(handoff ? { woken: true, run_id: "parent-wake" } : { sent: true, message_id: `delivery-${sent.length}` });
       },
     });
@@ -62,10 +58,6 @@ for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSt
               "<user_query>Read the result</user_query>"
             );
             requests.push(JSON.parse(await new Response(init.body).text()));
-            if (lateSteer && requests.length === 1) {
-              await runtime.steer(active.runId, { inboxId: "late-steer-inbox", clientMessageId: "late-steer-message",
-                content: "Use the corrected result instead of the original result." });
-            }
             const toolId = `send-${requests.length}`;
             const chunks = [
               {
@@ -80,13 +72,12 @@ for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSt
                           id: toolId,
                           type: "function",
                           function: {
-                            name: handoff ? "CallDynamicTool" : "SendToUser",
+                            name: handoff ? "WakeParent" : "SendToUser",
                             arguments: JSON.stringify(handoff ? {
-                              namespace: "cursor", toolName: "WakeParent",
-                              arguments: { message: "Fixture result: notify the user." },
+                              message: "Fixture result: notify the user.",
                             } : {
                               type: "text",
-                              content: lateSteer ? (requests.length === 1 ? "Stale result" : "Corrected result") : "Fixture result",
+                              content: "Fixture result",
                               end_turn: true,
                             }),
                           },
@@ -102,7 +93,7 @@ for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSt
                 usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
               },
             ];
-            if (batch && (!lateSteer || requests.length === 1)) {
+            if (batch) {
               const delta = chunks[0]!.choices[0]!.delta!;
               if (!("tool_calls" in delta)) throw new Error("Missing fixture tool calls");
               const first = delta.tool_calls![0]!;
@@ -156,21 +147,14 @@ for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSt
         requestSource: handoff ? "automation" : "turn",
         subagentType: null,
         pluginNamespaces: [],
-        discoveredDynamicTools: new Set(),
         sentMessageCount: 0,
         reasoning: "off",
         cwd: root,
         endTurnRequested: false,
         initialUserStarted: false,
         initialUserClientId: "fixture-user",
-        pendingSteers: [],
-        acceptedSteerIds: new Set(),
         queue: { push: (event: any) => acknowledged.push(event) },
       } as unknown as ActiveTurn;
-      if (handoff) {
-        const discover = toolHost.customTools(active).find((tool) => tool.name === "GetDynamicTools")!;
-        await discover.execute("discover-wake", { namespace: "cursor", toolName: "WakeParent" }, undefined, undefined, {} as never);
-      }
       const sessions = join(root, "sessions");
       await mkdir(sessions);
       const manager = SessionManager.create(root, sessions, { id: active.contextSessionId });
@@ -200,32 +184,11 @@ for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSt
         { triggerTurn: false }
       );
       const running = session!.prompt("<user_query>Read the result</user_query>");
-      if (withSteer) {
-        for (let i = 0; i < 100 && !releaseSend; i++) await Bun.sleep(10);
-        expect(releaseSend).toBeDefined();
-        await runtime.steer(active.runId, {
-          inboxId: "steer-inbox",
-          clientMessageId: "steer-message",
-          content: "Check one more source",
-        });
-        releaseSend!();
-      }
       await running;
       expect(acknowledged.filter((event) => event.type === "prompt.delivered")).toHaveLength(1);
-      if (withSteer) {
-        expect(active.pendingSteers).toHaveLength(1);
-        expect(acknowledged.some((event) => event.type === "input.delivered")).toBe(false);
-      }
-
-      expect(requests).toHaveLength(lateSteer ? 2 : 1);
-      if (lateSteer) {
-        expect(sent.map(call => call.arguments.content)).toEqual(["Corrected result"]);
-        expect(JSON.stringify(requests[1].messages)).toContain("Use the corrected result");
-        expect(active.pendingSteers).toHaveLength(0);
-        expect(acknowledged.filter(event => event.type === "input.delivered")).toHaveLength(1);
-      }
-      expect(sent).toHaveLength(batch && !lateSteer ? 3 : 1);
-      if (batch && !lateSteer) expect(sent.map(call => call.arguments.content)).toEqual(["Batch 1", "Batch 2", "Batch 3"]);
+      expect(requests).toHaveLength(1);
+      expect(sent).toHaveLength(batch ? 3 : 1);
+      if (batch) expect(sent.map(call => call.arguments.content)).toEqual(["Batch 1", "Batch 2", "Batch 3"]);
       expect(active.endTurnRequested).toBe(true);
       if (handoff) {
         expect(active.sentMessageCount).toBe(0);
@@ -270,8 +233,8 @@ for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSt
           .filter(
             (entry: any) => entry.type === "custom" && entry.customType === "openteam-input-receipt"
           )
-      ).toHaveLength(lateSteer ? 2 : 1);
-      if (process.env.OPENTEAM_PARITY_ARTIFACT_DIR && !withSteer && !handoff) {
+      ).toHaveLength(1);
+      if (process.env.OPENTEAM_PARITY_ARTIFACT_DIR && !handoff) {
         const { writeFile } = await import("node:fs/promises");
         await mkdir(process.env.OPENTEAM_PARITY_ARTIFACT_DIR, { recursive: true });
         await writeFile(
@@ -282,6 +245,126 @@ for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSt
           join(process.env.OPENTEAM_PARITY_ARTIFACT_DIR, "pi-session.jsonl"),
           await readFile(path, "utf8")
         );
+      }
+    } finally {
+      session?.dispose();
+      server.stop(true);
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 15000);
+
+const CLOSINGS = {
+  reply: { name: "SendToUser", arguments: { type: "text", content: "I'll check back at 1:10 PM.", end_turn: true } },
+  reaction: { name: "ReactToMessage", arguments: { message_address: "t1u", emoji: "\u{1F44D}", end_turn: true } },
+  question: { name: "SendToUser", arguments: { type: "widget", widget: { prompt: "Check back at 1:10 PM?", options: [{ label: "Yes", value: "yes", style: "primary" }] } } },
+} as const;
+for (const { closing, failures, thenStop = false } of [
+  { closing: "reply", failures: 0 }, { closing: "reply", failures: 1, thenStop: true }, { closing: "reply", failures: 3 },
+  { closing: "reaction", failures: 0 }, { closing: "reaction", failures: 1, thenStop: true },
+  { closing: "question", failures: 0 }, { closing: "question", failures: 1 },
+] as const)
+  test(`real Pi loop runs calls alongside a closing ${closing}${!failures ? "" : closing === "question" ? ", never holding a turn that asked" : `, holding the turn after ${thenStop ? "one failure" : "repeated failures"}`}`, async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-end-turn-hold-"));
+    const requests: any[] = [];
+    const host: any[] = [];
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const input = (await request.json()) as any;
+        host.push(input);
+        if (input.tool === "UpdateRoutine")
+          return host.filter(call => call.tool === "UpdateRoutine").length <= failures
+            ? Response.json({ error: { message: "Schedule rejected" } }, { status: 400 })
+            : Response.json({ saved: true, id: "check-back" });
+        if (input.tool === "ReactToMessage") return Response.json({ reacted: true });
+        return Response.json({ sent: true, message_id: `delivery-${host.length}` });
+      },
+    });
+    let session: AgentSession | undefined;
+    try {
+      const modelRuntime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false });
+      modelRuntime.checkAuth = async () => ({ type: "api_key" });
+      modelRuntime.streamSimple = (_model, context, options) =>
+        streamSimple(model, context, {
+          ...options,
+          apiKey: "synthetic-fixture",
+          maxRetries: 0,
+          fetch: (async (_url: any, init: any) => {
+            requests.push(JSON.parse(await new Response(init.body).text()));
+            const step = requests.length;
+            const delta = thenStop && step > 1
+              ? { role: "assistant", content: "The reply already went out." }
+              : { role: "assistant", tool_calls: [
+                  { index: 0, id: `reply-${step}`, type: "function", function: { name: CLOSINGS[closing].name,
+                    arguments: JSON.stringify(CLOSINGS[closing].arguments) } },
+                  { index: 1, id: `routine-${step}`, type: "function", function: { name: "UpdateRoutine",
+                    arguments: JSON.stringify({ action: "create", name: "Check back",
+                      prompt: "Check the support case and tell the user in this chat.", schedule: "10 13 18 10 *" }) } },
+                ] };
+            const chunks = [
+              { choices: [{ index: 0, delta, finish_reason: null }] },
+              { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" in delta ? "tool_calls" : "stop" }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } },
+            ];
+            return new Response(
+              chunks.map((chunk) => `data: ${JSON.stringify({ id: "chatcmpl-fixture", object: "chat.completion.chunk", created: 1, model: model.id, ...chunk })}\n\n`).join("") + "data: [DONE]\n\n",
+              { headers: { "content-type": "text/event-stream" } }
+            );
+          }) as typeof fetch,
+        });
+      const runtime = new ComputerRuntime();
+      const internals = runtime as any;
+      internals.agentDir = root;
+      internals.modelRuntime = modelRuntime;
+      internals.resolveModel = () => model;
+      internals.tools = new RuntimeTools({} as never, server.url.origin, "synthetic-control-token", root, root);
+      internals.compactionExtension = () => ({ name: "fixture-compaction", hidden: true, factory() {} });
+      const active = {
+        runId: crypto.randomUUID(), botId: crypto.randomUUID(), turnId: crypto.randomUUID(),
+        conversationId: crypto.randomUUID(), contextSessionId: crypto.randomUUID(), channelId: crypto.randomUUID(),
+        deliveryId: null, runtimeProfile: "agent", requestSource: "turn", subagentType: null,
+        pluginNamespaces: [], discoveredDynamicTools: new Set(), sentMessageCount: 0, reasoning: "off", cwd: root,
+        endTurnRequested: false, initialUserStarted: true, pendingSteers: [], acceptedSteerIds: new Set(),
+        assistantOrdinal: 0, startedItems: new Set(), toolArgs: new Map(), queue: { push() {} },
+      } as unknown as ActiveTurn;
+      const sessions = join(root, "sessions");
+      await mkdir(sessions);
+      const manager = SessionManager.create(root, sessions, { id: active.contextSessionId });
+      session = await internals.createStandaloneSession(root, "System fixture", manager, active, { providerId: model.provider, modelId: model.id });
+      active.session = session!;
+      session!.subscribe((event) => internals.routeEvent(active, event));
+      internals.bindTurnStop(active, session!);
+      await session!.prompt("<user_query>Check back on my support case at 1:10</user_query>");
+
+      const holds = closing === "question" ? 0 : thenStop ? 1 : Math.min(failures, 2);
+      expect(requests).toHaveLength(1 + holds);
+      expect(active.endTurnHolds ?? 0).toBe(holds);
+      // Every call the closing response made reached the host; the calls run in parallel, so in either order.
+      const responses = thenStop ? 1 : 1 + holds;
+      expect(host.map((call) => call.tool).sort()).toEqual(Array.from({ length: responses }, () => [CLOSINGS[closing].name, "UpdateRoutine"]).flat().sort());
+      const reminder = "Your turn did not end. This end_turn call succeeded, but a call alongside it failed";
+      expect(JSON.stringify(requests[0])).not.toContain(reminder);
+      for (const [index, request] of requests.slice(1).entries()) {
+        const text = JSON.stringify(request.messages);
+        expect(text.split(reminder).length - 1).toBe(index + 1);
+        expect(text).toContain("Schedule rejected");
+      }
+      // As in the reference, the reminder rides on the closing call's own result, not a separate message.
+      for (const [index, request] of requests.slice(1).entries()) {
+        const closingResult = request.messages.find((message: any) => message.role === "tool" && message.tool_call_id === `reply-${index + 1}`);
+        expect(JSON.stringify(closingResult)).toContain(reminder);
+        expect(request.messages.filter((message: any) => message.role === "user")).toHaveLength(1);
+      }
+      // The saved session keeps it on that result too.
+      const saved = manager.getEntries().filter((entry: any) => entry.type === "message" && entry.message.role === "toolResult" &&
+        JSON.stringify(entry.message.details?.systemReminders ?? []).includes(reminder));
+      expect(saved.map((entry: any) => entry.message.toolCallId)).toEqual(Array.from({ length: holds }, (_, index) => `reply-${index + 1}`));
+      if (thenStop) {
+        expect(active.endTurnRequested).toBe(false);
+      } else {
+        // A clean close, one past the hold limit, or a question settles like any end_turn.
+        expect(active.endTurnRequested).toBe(true);
+        expect(active.awaitingUser === true).toBe(closing === "question");
       }
     } finally {
       session?.dispose();

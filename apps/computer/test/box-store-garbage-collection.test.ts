@@ -2,7 +2,7 @@ import {test, expect, afterEach} from "bun:test";
 import {mkdtemp, mkdir, writeFile, readFile, readdir, rm, utimes, symlink} from "node:fs/promises";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
-import {BLOB_RETENTION_MS, collectBoxStoreBlobsLocked, withBoxStoreOperation} from "../src/box-store/garbage-collection";
+import {BLOB_RETENTION_MS, PRESSURE_RETENTION_MS, collectBoxStoreBlobsLocked, withBoxStoreOperation, type BlobCollectionLimits} from "../src/box-store/garbage-collection";
 import {digest, manifestEtag} from "../src/box-store/manifest";
 import {BoxStoreSync} from "../src/box-store-sync";
 const roots:string[]=[];
@@ -13,7 +13,7 @@ async function manifest(root:string, hashes:string[], name='manifest.json'){
  const body={version:1 as const,revision:1,generatedAt:new Date().toISOString(),files:hashes.map((sha256,i)=>({path:`workspace/${i}`,sha256,size:1,mode:0o600}))};
  await writeFile(join(root,name),JSON.stringify({...body,etag:manifestEtag(body)}));
 }
-const sweep=(root:string, now:number)=>withBoxStoreOperation(root,()=>collectBoxStoreBlobsLocked(root,now));
+const sweep=(root:string, now:number, limits?:BlobCollectionLimits)=>withBoxStoreOperation(root,()=>collectBoxStoreBlobsLocked(root,now,limits));
 test('old blobs get a full observation grace period; current and conflict roots survive',async()=>{
  const root=await fixture(), current=await blob(root,'current'), conflict=await blob(root,'conflict'), orphan=await blob(root,'orphan');
  const now=Date.now()+1000;
@@ -69,4 +69,25 @@ test('snapshot reintroducing a previously orphaned hash refreshes its retention 
  await utimes(join(storeRoot,'blobs',hash),new Date(0),new Date(0));await writeFile(join(storeRoot,'.blob-gc-candidates.json'),JSON.stringify({version:1,candidates:{[hash]:now-BLOB_RETENTION_MS-1000}}));
  await writeFile(file,'original');await sync.snapshotOut();await writeFile(file,'replacement');await sync.snapshotOut();
  expect((await sweep(storeRoot,Date.now()+10)).deleted).toBe(0);expect(await readFile(join(storeRoot,'blobs',hash),'utf8')).toBe('original');
+});
+test('unreferenced bytes over budget are reclaimed oldest-first once past the pressure floor',async()=>{
+ const root=await fixture(), current=await blob(root,'current-00');await manifest(root,[current]);
+ const start=Date.now()+1000, minute=60_000, limits={unreferencedBudgetBytes:15};
+ const first=await blob(root,'orphan-001');expect(await sweep(root,start,limits)).toMatchObject({deleted:0,pressure:false});
+ const second=await blob(root,'orphan-002');expect(await sweep(root,start+5*minute,limits)).toMatchObject({deleted:0,pressure:true});
+ const third=await blob(root,'orphan-003');await sweep(root,start+10*minute,limits);
+ expect(await sweep(root,start+20*minute)).toMatchObject({deleted:0,candidates:3,pressure:false});
+ const result=await sweep(root,start+PRESSURE_RETENTION_MS+5*minute,limits);
+ expect(result).toMatchObject({deleted:2,deletedBytes:20,candidates:1,candidateBytes:10,pressure:true});
+ expect((await readdir(join(root,'blobs'))).sort()).toEqual([current,third].sort());
+ expect(await readdir(join(root,'blobs'))).not.toContain(first);expect(await readdir(join(root,'blobs'))).not.toContain(second);
+});
+test('low free disk reclaims every candidate past the pressure floor but keeps recent ones',async()=>{
+ const root=await fixture(), current=await blob(root,'current');await manifest(root,[current]);
+ const start=Date.now()+1000, full={freeBytes:async()=>({free:0,total:100*1024**3})};
+ const old=await blob(root,'old');await sweep(root,start,full);
+ const recent=await blob(root,'recent');expect(await sweep(root,start+PRESSURE_RETENTION_MS-1,full)).toMatchObject({deleted:0,pressure:true});
+ expect(await sweep(root,start+PRESSURE_RETENTION_MS,full)).toMatchObject({deleted:1,candidates:1,pressure:true});
+ expect((await readdir(join(root,'blobs'))).sort()).toEqual([current,recent].sort());
+ expect(await readdir(join(root,'blobs'))).not.toContain(old);
 });

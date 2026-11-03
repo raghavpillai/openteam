@@ -3,6 +3,30 @@ export interface PromptSectionSnapshot {
   render: string;
   compactionEpoch: number;
   announcedRender?: string;
+  /** memory only: the other assistants' shared facts last shown, and their fingerprint. */
+  otherAgentRender?: string;
+  otherAgentFingerprint?: string;
+  /** automations only: the <automation_status> reminder last delivered, and the epoch it was delivered in. */
+  automationStatus?: { render: string; compactionEpoch: number };
+}
+
+export interface AutomationStatusReceipt {
+  epoch: number;
+  render: string;
+}
+
+/** Memory facts pin per epoch with no change notes; only other assistants' shared changes are announced. */
+export interface MemoryContextLive {
+  facts: string;
+  otherAgents?: { render: string; fingerprint: string };
+}
+
+export interface MemoryContextReceipt {
+  epoch: number;
+  render: string;
+  previousFingerprint: string;
+  otherAgentRender: string;
+  otherAgentFingerprint: string;
 }
 
 export interface PromptSectionReceipt {
@@ -14,7 +38,6 @@ export interface PromptSectionReceipt {
 }
 
 export const SECTION_LABELS: Record<string, string> = {
-  memory: "Memory",
   automations: "Routines",
   agent_directory: "Teammates and groups",
   mcp_instructions: "Connector instructions",
@@ -25,7 +48,7 @@ export function parsePromptSections(value: unknown): Record<string, PromptSectio
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const result: Record<string, PromptSectionSnapshot> = {};
   for (const [name, candidate] of Object.entries(value)) {
-    if (!Object.hasOwn(SECTION_LABELS, name) || !candidate || typeof candidate !== "object")
+    if ((!Object.hasOwn(SECTION_LABELS, name) && name !== "memory") || !candidate || typeof candidate !== "object")
       continue;
     const entry = candidate as PromptSectionSnapshot;
     if (typeof entry.render !== "string" || !Number.isSafeInteger(entry.compactionEpoch)) continue;
@@ -34,6 +57,13 @@ export function parsePromptSections(value: unknown): Record<string, PromptSectio
       compactionEpoch: entry.compactionEpoch,
       ...(typeof entry.announcedRender === "string"
         ? { announcedRender: entry.announcedRender }
+        : {}),
+      ...(name === "memory" && typeof entry.otherAgentRender === "string" && typeof entry.otherAgentFingerprint === "string"
+        ? { otherAgentRender: entry.otherAgentRender, otherAgentFingerprint: entry.otherAgentFingerprint }
+        : {}),
+      ...(name === "automations" && typeof entry.automationStatus?.render === "string" &&
+        Number.isSafeInteger(entry.automationStatus.compactionEpoch)
+        ? { automationStatus: { render: entry.automationStatus.render, compactionEpoch: entry.automationStatus.compactionEpoch } }
         : {}),
     };
   }
@@ -52,18 +82,94 @@ export function preparePromptSections(
     if (!Object.hasOwn(SECTION_LABELS, name)) throw new Error(`Unknown prompt section ${name}`);
     let snapshot = snapshots[name];
     if (!snapshot || snapshot.compactionEpoch !== epoch) {
-      snapshot = { render, compactionEpoch: epoch };
+      // The last delivered status outlives the section's epoch; prepareAutomationStatus compares epochs.
+      snapshot = { render, compactionEpoch: epoch, ...(snapshot?.automationStatus ? { automationStatus: snapshot.automationStatus } : {}) };
       snapshots[name] = snapshot;
     }
     sections[name] = snapshot.render;
     const previous = snapshot.announcedRender ?? snapshot.render;
     // Connector instructions are refreshed at the next summary, as in Grok's
     // stable-prefix path; they do not produce user-role change notes.
-    if (name !== "mcp_instructions" && previous !== render) {
+    // The routines entry only remembers the delivered <automation_status>, which carries the definitions.
+    if (name !== "mcp_instructions" && name !== "automations" && previous !== render) {
       receipts.push({ name, epoch, render: snapshot.render, previous, next: render });
     }
   }
   return { snapshots, sections, receipts, update: renderPromptSectionUpdates(receipts) };
+}
+
+/** Pin the memory facts for the epoch, and note when another assistant's shared facts changed since. */
+export function prepareMemoryContext(
+  snapshots: Record<string, PromptSectionSnapshot>,
+  epoch: number,
+  live: MemoryContextLive
+): { facts: string; changed: boolean; receipt?: MemoryContextReceipt } {
+  const pinned = snapshots.memory;
+  const other = live.otherAgents;
+  if (!pinned || pinned.compactionEpoch !== epoch) {
+    snapshots.memory = {
+      render: live.facts,
+      compactionEpoch: epoch,
+      ...(other ? { otherAgentRender: other.render, otherAgentFingerprint: other.fingerprint } : {}),
+    };
+    return { facts: live.facts, changed: false };
+  }
+  if (!other) return { facts: pinned.render, changed: false };
+  if (pinned.otherAgentRender === undefined || pinned.otherAgentFingerprint === undefined) {
+    snapshots.memory = { ...pinned, otherAgentRender: other.render, otherAgentFingerprint: other.fingerprint };
+    return { facts: pinned.render, changed: false };
+  }
+  if (pinned.otherAgentRender === other.render && pinned.otherAgentFingerprint === other.fingerprint)
+    return { facts: pinned.render, changed: false };
+  return {
+    facts: pinned.render,
+    changed: pinned.otherAgentFingerprint !== other.fingerprint && pinned.otherAgentRender !== other.render,
+    receipt: {
+      epoch,
+      render: pinned.render,
+      previousFingerprint: pinned.otherAgentFingerprint,
+      otherAgentRender: other.render,
+      otherAgentFingerprint: other.fingerprint,
+    },
+  };
+}
+
+/** The status reminder goes out only when it differs from the one still in context, as in the reference. */
+export function prepareAutomationStatus(
+  snapshots: Record<string, PromptSectionSnapshot>,
+  epoch: number,
+  live: string | null,
+  cleared: string
+): { note: string | null; receipt?: AutomationStatusReceipt } {
+  const seen = snapshots.automations?.automationStatus;
+  const inContext = seen?.compactionEpoch === epoch;
+  const note = live !== null
+    ? inContext && seen?.render === live ? null : live
+    : seen === undefined || (inContext && seen.render === cleared) ? null : cleared;
+  return note === null ? { note } : { note, receipt: { epoch, render: note } };
+}
+
+export function acknowledgeAutomationStatus(snapshots: Record<string, PromptSectionSnapshot>, receipt: AutomationStatusReceipt) {
+  const current = snapshots.automations;
+  if (current) snapshots.automations = { ...current, automationStatus: { render: receipt.render, compactionEpoch: receipt.epoch } };
+  return snapshots;
+}
+
+export function acknowledgeMemoryContext(stored: unknown, receipt: MemoryContextReceipt) {
+  const snapshots = parsePromptSections(stored);
+  const current = snapshots.memory;
+  if (
+    current?.compactionEpoch === receipt.epoch &&
+    current.render === receipt.render &&
+    current.otherAgentFingerprint === receipt.previousFingerprint
+  ) {
+    snapshots.memory = {
+      ...current,
+      otherAgentRender: receipt.otherAgentRender,
+      otherAgentFingerprint: receipt.otherAgentFingerprint,
+    };
+  }
+  return snapshots;
 }
 
 export function acknowledgePromptSections(

@@ -43,7 +43,7 @@ const cases: Array<[string, string, boolean?]> = [
   ["health-503", "HTTP 503", true],
   ["health-invalid", "readiness is unknown", true],
   ["health-version", "API port belongs to this installation", true],
-  ["model-401", "reconnect it", true],
+  ["model-401", "Reconnect the provider in the OpenTeam app", true],
   ["model-quota", "quota or billing", true],
   ["model-timeout", "network access", true],
   ["healthy", "READY WITH NOTES", true],

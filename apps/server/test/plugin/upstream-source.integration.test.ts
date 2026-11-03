@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { AgentDataStore } from "@openteam/messaging";
 import { parsePluginRuntimeComponents } from "@openteam/plugin-sdk";
 import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
-import { pluginCatalog } from "../../src/plugins/catalog";
+import { pluginCatalog } from "@openteam/plugins";
 import { resolveUpstreamPlugin } from "../../src/plugins/upstream-package";
 
 // Opt-in network QA: no provider text is copied into the repository and no account tools are called.

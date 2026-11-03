@@ -17,11 +17,14 @@ let state: OpenTeamUpdateStatus = {
   track: "stable",
   downloadUrl: "https://example.invalid",
 };
+const parameters = new URLSearchParams(location.search);
+const compact = parameters.has("compact");
 declare global {
   interface Window {
     fixture: {
       installs: number;
       downloads: number;
+      failDownload: boolean;
       failInstall: boolean;
       ready?: boolean;
       emit: (next: Partial<OpenTeamUpdateStatus>) => void;
@@ -34,6 +37,7 @@ declare global {
 const fixture = (window.fixture = {
   installs: 0,
   downloads: 0,
+  failDownload: false,
   failInstall: false,
   emit(next: Partial<OpenTeamUpdateStatus>) {
     state = { ...state, ...next };
@@ -54,6 +58,7 @@ window.openteam = {
     },
     async openDownload() {
       fixture.downloads++;
+      if (fixture.failDownload) throw new Error("Test download failed");
       fixture.emit({ status: "downloading", progress: 42 });
     },
     async installClient() {
@@ -80,15 +85,17 @@ const [
   { TooltipProvider },
   { requestDesktopUpdateRestart },
   { default: UpdatesSettings },
+  { Button },
 ] = await Promise.all([
   import("../../src/renderer/components/openteam/sidebar"),
   import("../../src/renderer/components/openteam/desktop-update-dialog"),
   import("../../src/renderer/components/ui/tooltip"),
   import("../../src/renderer/lib/desktop-update"),
   import("../../src/renderer/components/openteam/settings/updates"),
+  import("../../src/renderer/components/ui/button"),
 ]);
 window.fixture.reopen = () => requestDesktopUpdateRestart(state);
-const settings = new URLSearchParams(location.search).has("settings");
+const settings = parameters.has("settings");
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <TooltipProvider>
@@ -98,16 +105,25 @@ createRoot(document.getElementById("root")!).render(
           <UpdatesSettings />
         </main>
       ) : (
-        <div style={{ position: "fixed", left: 24, bottom: 24 }}>
-          <AccountMenu onOpenSettings={() => {}}>
-            <button
-              id="account"
-              className="size-9 rounded-full bg-[#282828] text-sm text-[#a0a0a0]"
-            >
-              RP
-            </button>
-          </AccountMenu>
-        </div>
+        <aside
+          className="fixed inset-y-0 left-0 flex flex-col justify-end border-r bg-sidebar"
+          data-sidebar-compact={compact}
+          style={{ width: compact ? 88 : 280 }}
+        >
+          <div className="sidebar-account-footer">
+            <AccountMenu compact={compact} onOpenSettings={() => {}}>
+              <Button
+                aria-label="Account: Raghav Pillai"
+                id="account"
+                className="sidebar-account-button relative w-full rounded-[11px] hover:bg-subtle data-[state=open]:bg-subtle"
+                variant="ghost"
+              >
+                <span className="sidebar-account-avatar">RP</span>
+                <span className="sidebar-account-name">Raghav Pillai</span>
+              </Button>
+            </AccountMenu>
+          </div>
+        </aside>
       )}
     </TooltipProvider>
   </StrictMode>

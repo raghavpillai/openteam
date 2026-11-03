@@ -1,6 +1,5 @@
 import { ApiError } from "@openteam/contracts";
-import { parseReadTranscriptInput, READ_TRANSCRIPT_SUBAGENT_REFUSAL } from "@openteam/contracts/read-transcript";
-import { subagentHasHistoryTools } from "@openteam/contracts/task-configuration";
+import { parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { redactSensitiveText } from "@openteam/product-core/redaction";
 
@@ -13,8 +12,8 @@ const object = (value: unknown): Record<string, unknown> => value && typeof valu
 const observations = new Set([
   "Shell", "Read", "WebFetch", "WebSearch", "Computer", "Screenshot", "browser_snapshot", "browser_take_screenshot",
   "browser_tabs", "browser_console_messages", "browser_network_requests",
-  "browser_navigate", "browser_click", "browser_mouse_click_xy", "browser_press_key",
-  "browser_hover", "browser_scroll", "browser_wait_for", "browser_find",
+  "browser_navigate", "browser_click", "browser_press_key",
+  "browser_hover", "browser_wait_for", "browser_find",
 ]);
 export function transcriptToolProjection(value: unknown) {
   const record = object(value);
@@ -46,46 +45,25 @@ export function boundTranscriptValue(value: unknown, limit = 2000) {
 export async function readTranscript(db: PrismaClient, context: {botId: string; channelId: string | null}, raw: unknown) {
   const input = parseReadTranscriptInput(raw);
   return db.$transaction(async tx => {
-    // Workers with history tools read their own run and the user's other agents; other workers read nothing.
-    const caller = await tx.subagent.findUnique({where: {childBotId: context.botId}, select: {parentBotId: true, parentRunId: true, subagentType: true}});
-    if (caller && !subagentHasHistoryTools(caller.subagentType)) throw unavailable();
-    if (caller && input.subagent_id) throw new ApiError(400, "subagent_transcript_unavailable", READ_TRANSCRIPT_SUBAGENT_REFUSAL);
+    // Workers get the facts they need in their task; they never read transcripts.
+    if (await tx.subagent.count({where: {childBotId: context.botId}})) throw unavailable();
     let botId = context.botId;
     let channelIds: string[] = [];
     let worker = false;
-    if (caller && !input.agent_id && !input.session_id) {
-      worker = true;
-    } else if (input.subagent_id) {
-      const id = input.subagent_id.replace(/^sand-subagent-/, "");
-      if (!uuid.test(id)) throw unavailable();
-      const child = await tx.subagent.findFirst({where: {id, parentBotId: context.botId}, select: {childBotId: true}});
-      if (!child) throw unavailable();
+    // An id is tried as a dispatched subagent, then one of this agent's conversations, then an owned agent.
+    const id = input.in === "session" ? undefined : input.in.replace(/^sand-subagent-/, "");
+    if (id !== undefined && !uuid.test(id)) throw unavailable();
+    const child = id && await tx.subagent.findFirst({where: {id, parentBotId: context.botId}, select: {childBotId: true}});
+    if (child) {
       botId = child.childBotId;
       worker = true;
     } else {
-      if (input.agent_id) {
-        if (!uuid.test(input.agent_id)) throw unavailable();
-        if (caller && input.agent_id === caller.parentBotId) throw unavailable();
-        const bot = await tx.bot.findFirst({where: {id: input.agent_id, status: "active", subagentIdentity: {is: null}}, select: {id: true}});
-        if (!bot) throw unavailable();
-        botId = bot.id;
-      }
-      let channelId = input.agent_id ? undefined : context.channelId;
-      if (input.session_id) {
-        if (!uuid.test(input.session_id)) throw unavailable();
-        const owner = caller?.parentBotId ?? botId;
-        const session = await tx.contextSession.findFirst({where: {id: input.session_id, botId: owner, scope: "channel"}, select: {scopeId: true}});
-        if (!session) throw unavailable();
-        if (caller) {
-          // Only conversations readable from the one the worker was started in, and never the parent's main chat.
-          const started = await tx.run.findUnique({where: {id: caller.parentRunId}, select: {channelId: true}});
-          const mainChat = (id: string) => tx.channel.count({where: {id, kind: "bot_dm", directKey: `bot:${owner}`}});
-          if (!started?.channelId || await mainChat(started.channelId) || await mainChat(session.scopeId)) throw unavailable();
-          botId = owner;
-        }
-        channelId = session.scopeId;
-      }
-      if (!input.agent_id && !channelId) throw unavailable();
+      const session = id && await tx.contextSession.findFirst({where: {id, botId, scope: "channel"}, select: {scopeId: true}});
+      const agent = id && !session ? await tx.bot.findFirst({where: {id, status: "active", subagentIdentity: {is: null}}, select: {id: true}}) : null;
+      if (id && !session && !agent) throw unavailable();
+      if (agent) botId = agent.id;
+      const channelId = agent ? undefined : session ? session.scopeId : context.channelId;
+      if (!agent && !channelId) throw unavailable();
       const channels = await tx.channel.findMany({where: {
         ...(channelId ? {id: channelId} : {}), archivedAt: null,
         kind: {not: "agent_dm"}, members: {some: {botId}},

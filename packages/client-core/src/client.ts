@@ -1,4 +1,6 @@
+import type { ServerUpdateView } from "@openteam/contracts";
 import type { NotificationPresenceInput, NotificationRouting } from "@openteam/contracts/notification-presence";
+import type { BrowserNetworkView, NetworkSettingsUpdate, NetworkEgress, NetworkQuality } from "@openteam/contracts/browser-network";
 import type {AutomationWebhookInput,AutomationWebhookView} from "@openteam/contracts/automation-webhooks";
 import type { WebProviderCheckInput, WebProvidersInput, WebProvidersView } from "@openteam/contracts/web-search";
 import type {
@@ -14,9 +16,13 @@ import type {
 } from "@openteam/contracts/plugin-management";
 import type {
   AddCustomMcpInput,
+  UpdateUserTimeZoneInput,
+  UserTimeZoneView,
   ScreenClipboardInput,
   ScreenClipboardView,
   AssetRef,
+  BotStopView,
+  BusyBotsView,
   BotTranscriptView,
   BotView,
   BotMemoryList,
@@ -28,7 +34,6 @@ import type {
   ChannelView,
   ClientBootstrapView,
   ClientRuntimeView,
-  ClientSnapshot,
   ComputerHandoffMutationInput,
   ConfigurePluginConnectionInput,
   CreateBotInput,
@@ -36,6 +41,7 @@ import type {
   CreateRoutineInput,
   DuplicateBotInput,
   InferenceProviderAuthSessionView,
+  InferenceTestResult,
   MessageDeliveryStatusView,
   PluginConnectionStatusesView,
   PluginSettingsView,
@@ -58,6 +64,7 @@ import type {
   SetChannelMembersInput,
   SidebarPreferences,
   SystemVersionView,
+  SystemActivityView,
   UpdateBotInput,
   UpdateChannelProfileInput,
   UpdateRoutineInput,
@@ -76,8 +83,9 @@ import {
   readProductEventBatch,
 } from "./events";
 import { createJsonTransport, type OpenTeamTransportOptions } from "./http";
-import { normalizeClientSnapshot } from "./snapshot";
 
+/** A Mac's send settings: skip every approval card, or only for allowed recipients. */
+export interface MachineMessagesSettings { machineId: string; sendWithoutAsking: boolean; allowedRecipients: Array<{ recipient: string; recipientName: string | null }> }
 export interface OpenTeamClientOptions extends OpenTeamTransportOptions {
   createId?: () => string;
   timeZone?: () => string;
@@ -147,11 +155,13 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     botMemories: (botId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories`),
     deleteBotMemory: (botId: string, memoryId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories/${encodeURIComponent(memoryId)}`, { method: "DELETE" }),
     clearBotMemories: (botId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories`, { method: "DELETE" }),
+    serverUpdateStatus: () => transport.request<ServerUpdateView>("/api/v0/system/update"),
+    updateServer: (targetVersion: string) => transport.request<ServerUpdateView>("/api/v0/system/update", {
+      method: "POST", body: JSON.stringify({ targetVersion }),
+    }),
     systemVersion: () => transport.request<SystemVersionView>("/api/v0/system/version"),
-    snapshot: () =>
-      transport
-        .request<ClientSnapshot>("/api/v0/client-snapshot")
-        .then((snapshot) => normalizeClientSnapshot(snapshot)),
+    systemActivity: (signal?: AbortSignal) =>
+      transport.request<SystemActivityView>("/api/v0/system/activity", { signal }),
     rootSettings: () => transport.request<RootSettingsView>("/api/v0/settings"),
     transcriptionSettings: () =>
       transport.request<TranscriptionSettingsView>("/api/v0/server-settings/transcription"),
@@ -171,7 +181,14 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         body: audio,
         signal,
       }),
-    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;connected:boolean;enabled:boolean}>>("/api/v0/server-settings/machines"),
+    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;connected:boolean;enabled:boolean;lastSeenAt:string|null;messages:"ready"|"needs_permission"|"off"|"unavailable";messagesPermissions:{fullDiskAccess:boolean;automation:string;contacts:string}|null}>>("/api/v0/server-settings/machines"),
+    machineMessages: (machineId:string) => transport.request<MachineMessagesSettings>(`/api/v0/server-settings/machines/${encodeURIComponent(machineId)}/messages`),
+    updateMachineMessages: (machineId:string, input:{sendWithoutAsking?:boolean;removeRecipient?:string}) => transport.request<MachineMessagesSettings>(`/api/v0/server-settings/machines/${encodeURIComponent(machineId)}/messages`,{method:"PATCH",body:JSON.stringify(input)}),
+    browserNetwork: () => transport.request<BrowserNetworkView>("/api/v0/server-settings/browser-network"),
+    updateBrowserNetwork: (input: NetworkSettingsUpdate) => transport.request<BrowserNetworkView>("/api/v0/server-settings/browser-network", {method: "PATCH", body: JSON.stringify(input)}),
+    browserNetworkQuality: () => transport.request<NetworkQuality>("/api/v0/server-settings/browser-network/quality", {method: "POST", body: "{}"}),
+    browserNetworkEgress: () => transport.request<NetworkEgress>("/api/v0/server-settings/browser-network/egress", {method: "POST", body: "{}"}),
+    retryBrowserNetwork: () => transport.request<BrowserNetworkView>("/api/v0/server-settings/browser-network/retry", {method: "POST", body: "{}"}),
     computerDisplay: () => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display"),
     saveComputerDisplay: (value:{width:number;height:number}) => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display",{method:"PATCH",body:JSON.stringify(value)}),
     registerMachine: (bridgeUrl:string) => transport.request("/api/v0/server-settings/machines",{method:"POST",body:JSON.stringify({bridgeUrl})}),
@@ -193,16 +210,23 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         method: "POST",
         body: JSON.stringify(input),
       }),
-    serverSettings: (providerId?: string) => {
+    serverSettings: (providerId?: string, signal?: AbortSignal) => {
       const query = providerId
         ? `?${new URLSearchParams({ provider: providerId }).toString()}`
         : "";
-      return transport.request<ServerSettingsView>(`/api/v0/server-settings${query}`);
+      return transport.request<ServerSettingsView>(`/api/v0/server-settings${query}`, { signal });
     },
     updateInferenceSettings: (input: ServerInferenceSettings) =>
       transport.request<ServerInferenceSettings>("/api/v0/server-settings/inference", {
         method: "PATCH",
         body: JSON.stringify(input),
+      }),
+    /** Sends one minimal request to the model; omit input to test the saved choice. */
+    testInferenceSettings: (input?: ServerInferenceSettings, signal?: AbortSignal) =>
+      transport.request<InferenceTestResult>("/api/v0/server-settings/inference/test", {
+        method: "POST",
+        signal,
+        ...(input ? { body: JSON.stringify(input) } : {}),
       }),
     startInferenceProviderAuth: (providerId: string, authType: "api_key" | "oauth") =>
       transport.request<InferenceProviderAuthSessionView>(
@@ -407,7 +431,8 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/instructions`,
         { method: "PATCH", body: JSON.stringify({ instructions }) }
       ),
-    bootstrap: () => transport.request<ClientBootstrapView>("/api/v0/client-bootstrap"),
+    bootstrap: (signal?: AbortSignal) =>
+      transport.request<ClientBootstrapView>("/api/v0/client-bootstrap", { signal }),
     listenForEvents: async (
       after: string,
       handlers: ProductEventHandlers,
@@ -443,7 +468,8 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       });
       return consumeProductEventStream(response, handlers, signal);
     },
-    runtime: () => transport.request<ClientRuntimeView>("/api/v0/client-runtime"),
+    runtime: (signal?: AbortSignal) =>
+      transport.request<ClientRuntimeView>("/api/v0/client-runtime", { signal }),
     channelHistory: (
       channelId: string,
       options: { beforeSequence?: string; limit?: number } = {}
@@ -486,10 +512,11 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     },
     botTranscript: (botId: string) =>
       transport.request<BotTranscriptView>(`/api/v0/bots/${encodeURIComponent(botId)}/transcript`),
-    createBot: (input: CreateBotInput) =>
+    createBot: (input: CreateBotInput, signal?: AbortSignal) =>
       transport.request<BotView>("/api/v0/bots", {
         method: "POST",
         body: JSON.stringify(input),
+        signal,
       }),
     duplicateBot: (botId: string, input: DuplicateBotInput) =>
       transport.request<BotView>(`/api/v0/bots/${encodeURIComponent(botId)}/duplicate`, {
@@ -651,9 +678,11 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
           body: JSON.stringify({ value, clientId: createId() }),
         }
       ),
-    mutateSharedTemplate: (messageId: string, action: "import" | "unpublish", clientId?: string) =>
+    mutateSharedTemplate: (messageId: string, action: "import" | "publish" | "unpublish", clientId?: string) =>
       transport.request<RichMessageMutationView & { botId?: string }>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/bot-template`, { method: "POST", body: JSON.stringify({ action, clientId }) }),
     sharedTemplateRecipe: (messageId: string) => transport.request<import("@openteam/contracts").BotRecipe>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/bot-template/recipe`),
+    mutateIMessageSend: (messageId: string, action: "send" | "allow" | "cancel" | "refresh") =>
+      transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/imessage-send`, { method: "POST", body: JSON.stringify({ action }) }),
     mutateExternalDraft: (messageId: string, action: "send" | "cancel" | "refresh", edits?: Record<string, unknown>) =>
       transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/external-draft`, { method: "POST", body: JSON.stringify({ action, edits }) }),
     /** Sets how the card's Bot gets later drafts approved; `edits` carries unsent recipient changes. */
@@ -679,6 +708,9 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       ),
     cancelRun: (runId: string) =>
       transport.request(`/api/v0/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
+    stopBot: (botId: string) =>
+      transport.request<BotStopView>(`/api/v0/bots/${encodeURIComponent(botId)}/stop`, { method: "POST" }),
+    busyBots: () => transport.request<BusyBotsView>("/api/v0/system/busy-bots"),
     registerPushDevice: (input: RegisterPushDeviceInput) =>
       transport.request("/api/v0/notification-devices", {
         method: "POST",
@@ -688,6 +720,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       transport.request(`/api/v0/notification-devices/${encodeURIComponent(installationId)}`, {
         method: "DELETE",
       }),
+    userTimeZone: () => transport.request<UserTimeZoneView>("/api/v0/time-zone"),
+    /** Reports the zone this device detects, or sets/clears (null) the Settings override. */
+    updateUserTimeZone: (input: UpdateUserTimeZoneInput) =>
+      transport.request<UserTimeZoneView>("/api/v0/time-zone", { method: "PATCH", body: JSON.stringify(input) }),
     notificationPreferences: () => transport.request<NotificationRouting>("/api/v0/notification-preferences"),
     updateNotificationPreferences: (smartEnabled: boolean) => transport.request<NotificationRouting>("/api/v0/notification-preferences", { method: "PATCH", body: JSON.stringify({ smartEnabled }) }),
     updateNotificationPresence: (input: NotificationPresenceInput) => transport.request<NotificationRouting>("/api/v0/notification-presence", { method: "POST", body: JSON.stringify(input) }),

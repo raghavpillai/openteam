@@ -3,6 +3,7 @@ title: Introducing OpenTeam: AI agents that each get their own computer
 seoTitle: Introducing OpenTeam: an open-source Grok Bot alternative
 description: OpenTeam v0.0.0 is the first release of our open-source, self-hosted Grok Bot alternative. What each bot gets, how it works, and what it can't do yet.
 date: 2026-10-06
+updated: 2026-10-26
 category: Announcements
 image: /blog/images/openteam-desktop-mobile.png
 imageAlt: The OpenTeam desktop app and iPhone app showing the same chat with a Research bot that compared three vendors and set up a weekday pricing check
@@ -90,7 +91,7 @@ When you send a message, the server stores it in PostgreSQL and queues a wake jo
 
 ![A bot's desktop with Chromium showing a sample date parser fix with a one-line diff and 24 passing tests](/screenshots/linux-code-review.png "A sample code review page opened from the shared /workspace folder, captured September 12, 2026. Image: OpenTeam.")
 
-One model serves every bot on the server, chosen in **Settings → Server**. Connect OpenAI, Anthropic or OpenRouter with an API key, or any OpenAI-compatible endpoint, including local servers such as Ollama, LM Studio and vLLM.
+One model serves every bot on the server, chosen in **Settings → Model**. Connect OpenAI, Anthropic or OpenRouter with an API key, or any OpenAI-compatible endpoint, including local servers such as Ollama, LM Studio and vLLM.
 
 Three commands cover day-to-day operation. `openteam status` shows the version and the health of each service. `openteam doctor` checks your setup and sends a real request to your model. `openteam update` backs up the database first and rolls back if the new version doesn't start. [How hosting works](/docs/overview/architecture) explains what needs to stay on.
 
@@ -103,7 +104,7 @@ This is a first release from a young project with a small community. Check these
 - **Desktop apps for two platforms.** The desktop app is for macOS on Apple silicon and Linux x64. The server runs on Windows and Intel Macs, but there's no desktop app for them.
 - **iPhone in beta, no Android.** The iPhone app is a public TestFlight beta and needs iOS 18. There's no Android app.
 - **No approval step.** Bots browse, run commands and call plugins without asking first. If you connect your own Mac or Linux computer through the desktop app, they run commands there directly too. The guardrails are isolated execution in a container, Gmail drafts that stay unsent, handoff cards, and password forms the model can't read.
-- **Bots aren't isolated from each other.** All desktops share one container (dropped Linux capabilities, read-only filesystem) and one Unix user. Separate screens are a convention, not a security boundary. Every bot can use every installed plugin and connected account; only private skills can be limited to chosen bots.
+- **Bots aren't isolated from each other.** All desktops share one container and one Unix user, and bots can use passwordless `sudo` in it. Separate screens are a convention, not a security boundary. Every bot can use every installed plugin and connected account; only private skills can be limited to chosen bots.
 - **It needs a machine that stays on.** If the host sleeps, bots and routines stop until it wakes.
 - **Remote access is your job.** The default Private network mode serves the apps on your local network, and bot screen ports 6200–6299 are open there too. To connect from elsewhere, use a VPN such as [Tailscale](https://tailscale.com) instead of exposing the server without HTTPS. See [remote access](/docs/configuration/remote-access).
 - **Full backups are manual.** `openteam update` saves the database, not workspace files, sign-ins or attachments. The [backup guide](/docs/manage/backups) covers the rest.

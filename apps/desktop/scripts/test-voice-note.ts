@@ -7,8 +7,6 @@ const electron = createRequire(import.meta.url)("electron") as string;
 const fixture = process.argv.includes("--microphone") ? "microphone" : "voice-note";
 const outputIndex = process.argv.indexOf("--output");
 const output = outputIndex === -1 ? null : resolve(process.argv[outputIndex + 1]!);
-const referenceIndex = process.argv.indexOf("--reference-dir");
-const reference = referenceIndex === -1 ? null : resolve(process.argv[referenceIndex + 1]!);
 const directory = await mkdtemp(join(tmpdir(), "openteam-voice-note-browser-"));
 try {
   const build = await Bun.build({
@@ -41,14 +39,14 @@ try {
   const assets = resolve(import.meta.dir, "../dist/assets");
   const css = (await readdir(assets).catch(() => [])).find((file) => /^index-.*\.css$/.test(file));
   await writeFile(join(directory, "style.css"), css ? await readFile(join(assets, css)) : "");
-  if (reference) {
-    for (const file of ["grok-recording-chip.js", "grok-recording-chip.css"]) {
-      await writeFile(join(directory, file), await readFile(join(reference, file)));
-    }
-  }
+  // Stylesheets the fixture imports (the voice memo layer's) are emitted beside it.
+  const imported = build.outputs
+    .filter((artifact) => artifact.path.endsWith(".css"))
+    .map((artifact) => `<link rel="stylesheet" href="${artifact.path.split("/").at(-1)}">`)
+    .join("");
   await writeFile(
     join(directory, "index.html"),
-    `<!doctype html><html><head><link rel="stylesheet" href="style.css">${reference ? '<link rel="stylesheet" href="grok-recording-chip.css"><script src="grok-recording-chip.js"></script>' : ""}</head><body style="padding:32px;max-width:800px"><div id="root"></div><script type="module" src="${fixture}.js"></script></body></html>`
+    `<!doctype html><html><head><link rel="stylesheet" href="style.css">${imported}</head><body style="padding:32px;max-width:800px"><div id="root"></div><script type="module" src="${fixture}.js"></script></body></html>`
   );
   await writeFile(
     join(directory, "main.cjs"),

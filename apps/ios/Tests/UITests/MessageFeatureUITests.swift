@@ -19,7 +19,7 @@ import XCTest
     app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance,
       "--open-channel", visual ? "visual-chat" : "channel-research", "--qa-session", UUID().uuidString]
     app.launch()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 20))
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 20))
     let loading = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
     XCTAssertTrue(loading.waitForNonExistence(timeout: 20), "History never finished positioning")
     return app
@@ -79,7 +79,7 @@ import XCTest
     XCTAssertTrue(app.buttons["account-settings"].waitForExistence(timeout: 5))
     app.buttons["sheet-close"].tap()
     unreadRow.tap()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 10))
     if hasSidebar {
       let updated = expectation(for: NSPredicate(format: "label == %@", "1 unread conversation"), evaluatedWith: unread)
       await fulfillment(of: [updated], timeout: 8)
@@ -109,12 +109,12 @@ import XCTest
     XCTAssertTrue(lastUnread.isHittable)
     let nextName = try XCTUnwrap(lastUnread.label.components(separatedBy: ",").first)
     lastUnread.tap()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 10))
     let selected = expectation(for: NSPredicate(format: "label == %@", nextName), evaluatedWith: app.buttons["conversation-details"])
     await fulfillment(of: [selected], timeout: 8)
     let loading = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
     XCTAssertTrue(loading.waitForNonExistence(timeout: 20))
-    app.buttons["chat-back"].tap()
+    if !hasSidebar { app.buttons["chat-back"].tap() }
     XCTAssertTrue(unread.waitForNonExistence(timeout: 8))
   }
   private func verifyInboxControlPlacement(_ app: XCUIApplication) {

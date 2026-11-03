@@ -87,9 +87,32 @@ export function applySecretEdits(
   return result;
 }
 
-/** Account-qualified public identifier changes on rename; the private connection UUID stays stable. */
-export const connectionNamespace = (connectionId: string, accountLabel = "default"): string =>
-  `plugin_${connectionId.replace(/[^a-zA-Z0-9]/g, "_")}${accountLabel === "default" ? "" : "__" + Array.from(new TextEncoder().encode(accountLabel),byte=>byte.toString(16).padStart(2,"0")).join("")}`;
+const namespaceSlug = (value: string): string =>
+  value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+/, "").slice(0, 48).replace(/-+$/, "");
+
+/**
+ * Readable public identifiers, so a lookup by service name finds the namespace:
+ * `gmail`, `gmail--work`, `google-calendar`. They change on rename; the private
+ * connection UUID stays stable. On a collision the older connection keeps the
+ * plain name and a newer one adds a short id suffix.
+ */
+export const connectionNamespaces = (
+  connections: readonly { id: string; name: string; alias: string; createdAt: Date }[]
+): Map<string, string> => {
+  const taken = new Set(["cursor"]);
+  const result = new Map<string, string>();
+  const ordered = [...connections].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
+  for (const connection of ordered) {
+    const base = `${namespaceSlug(connection.name) || "connector"}${connection.alias === "default" ? "" : `--${namespaceSlug(connection.alias) || "account"}`}`;
+    const id = connection.id.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    let name = base;
+    for (let length = 6; taken.has(name); length += 2) name = `${base}-${id.slice(0, length) || length}`;
+    taken.add(name);
+    result.set(connection.id, name);
+  }
+  return result;
+};
 
 /** Only OS runtime essentials are inherited. All application/provider secrets are explicit. */
 export function scopedProcessEnvironment(

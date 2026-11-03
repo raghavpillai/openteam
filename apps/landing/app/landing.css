@@ -3342,9 +3342,6 @@
     flex-wrap: nowrap;
     gap: 10px;
   }
-  .ot-nav-actions .ot-github {
-    display: none;
-  }
   .ot-nav-actions {
     gap: 0;
   }

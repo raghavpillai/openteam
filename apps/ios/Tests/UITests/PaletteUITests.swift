@@ -59,6 +59,7 @@ import XCTest
         app.swipeDown()
       }
       XCTAssertTrue(account.isHittable)
+
       account.tap()
       let server = app.descendants(matching: .any).matching(identifier: "account-server").firstMatch
       XCTAssertTrue(server.waitForExistence(timeout: 5))

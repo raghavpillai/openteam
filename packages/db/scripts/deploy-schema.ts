@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Client } from "pg";
 import { applyRawSchema } from "./apply-raw-schema";
@@ -10,27 +9,6 @@ const prepareSearchProjection = async (): Promise<boolean> => {
   const client = new Client({ connectionString });
   await client.connect();
   try {
-    const retirementSql = await readFile(join(import.meta.dirname, "..", "prisma", "sql", "retire-review.sql"), "utf8");
-    await client.query("BEGIN");
-    try {
-      await client.query(retirementSql);
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    }
-    // Expand the lease key without dropping rows. Legacy leases become the
-    // foreground lane; automation lanes can then coexist under one bot identity.
-    await client.query(`DO $$ BEGIN
-      IF to_regclass('"BotRunLease"') IS NOT NULL AND NOT EXISTS (
-        SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema()
-        AND table_name='BotRunLease' AND column_name='scope'
-      ) THEN
-        ALTER TABLE "BotRunLease" ADD COLUMN "scope" TEXT NOT NULL DEFAULT 'foreground';
-        ALTER TABLE "BotRunLease" DROP CONSTRAINT "BotRunLease_pkey";
-        ALTER TABLE "BotRunLease" ADD PRIMARY KEY ("botId", "scope");
-      END IF;
-    END $$`);
     const result = await client.query<{ is_generated: string }>(`
       SELECT is_generated
       FROM information_schema.columns
@@ -46,6 +24,105 @@ const prepareSearchProjection = async (): Promise<boolean> => {
   }
 };
 
+// db push without --accept-data-loss refuses to drop storage that still holds values, so
+// storage the app no longer has is dropped here first. Every statement is a no-op once done.
+const RETIRE_UNUSED_STORAGE = `
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+      AND table_name = 'ContextPromptSnapshot' AND column_name = 'memoryAudienceKey') THEN
+    -- Frozen memory from the old prompt layout re-renders once.
+    UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory';
+  END IF;
+  IF to_regclass('"Subagent"') IS NOT NULL THEN
+    UPDATE "Subagent" SET "subagentType" = 'computerUse' WHERE "subagentType" = 'browserUse';
+    UPDATE "Subagent" SET "taskConfiguration" = "taskConfiguration" - 'combinedComputerUse'
+      WHERE "taskConfiguration" ? 'combinedComputerUse';
+  END IF;
+  IF to_regclass('"Run"') IS NOT NULL THEN
+    UPDATE "Run" SET "taskConfiguration" = "taskConfiguration" - 'combinedComputerUse'
+      WHERE "taskConfiguration" ? 'combinedComputerUse';
+  END IF;
+  IF to_regclass('"TaskSettings"') IS NOT NULL THEN
+    UPDATE "TaskSettings" SET "configuration" = "configuration" - 'combinedComputerUse'
+      WHERE "configuration" ? 'combinedComputerUse';
+  END IF;
+  IF to_regclass('"PluginInstallation"') IS NOT NULL THEN
+    -- An installed package that named browserUse becomes the rollback target after its update,
+    -- and rollback validates skill agents.
+    UPDATE "PluginInstallation" SET "manifest" = jsonb_set("manifest", '{skills}', (
+      SELECT jsonb_agg(CASE WHEN skill->'agents' ? 'browserUse'
+        THEN jsonb_set(skill, '{agents}', ((skill->'agents') - 'browserUse')
+          || CASE WHEN skill->'agents' ? 'computerUse' THEN '[]'::jsonb ELSE '["computerUse"]'::jsonb END)
+        ELSE skill END ORDER BY position)
+      FROM jsonb_array_elements("manifest"->'skills') WITH ORDINALITY AS skills(skill, position)))
+    WHERE "manifest" @> '{"skills":[{"agents":["browserUse"]}]}';
+  END IF;
+  IF to_regclass('"IdempotencyRecord"') IS NOT NULL THEN
+    -- Receipts of the removed SendFeedback tool.
+    DELETE FROM "IdempotencyRecord" WHERE "scope" = 'feedback-send';
+  END IF;
+  IF to_regclass('"ChannelMessage"') IS NOT NULL THEN
+    -- Approval cards of the removed Auto-review.
+    DELETE FROM "ChannelMessage" WHERE "metadata"->>'type' = 'approval';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+      WHERE t.typnamespace = current_schema()::regnamespace AND t.typname = 'MemoryScope'
+        AND e.enumlabel NOT IN ('agent', 'user')) THEN
+    DELETE FROM "MemoryFact" WHERE "scope"::text NOT IN ('agent', 'user');
+    ALTER TYPE "MemoryScope" RENAME TO "MemoryScope_retired";
+    CREATE TYPE "MemoryScope" AS ENUM ('agent', 'user');
+    ALTER TABLE "MemoryFact" ALTER COLUMN "scope" TYPE "MemoryScope" USING "scope"::text::"MemoryScope";
+    DROP TYPE "MemoryScope_retired";
+  END IF;
+END $$;
+ALTER TABLE IF EXISTS "MemoryFact" DROP COLUMN IF EXISTS "memoryConversationId",
+  DROP COLUMN IF EXISTS "sourcePath", DROP COLUMN IF EXISTS "sourceLine", DROP COLUMN IF EXISTS "projectSlug";
+ALTER TABLE IF EXISTS "Run" DROP COLUMN IF EXISTS "memoryConversationId";
+DROP TABLE IF EXISTS "MemoryConversation";
+DROP TABLE IF EXISTS "ProjectMember";
+DROP TABLE IF EXISTS "Project";
+-- Every turn runs in a context session and freezes its prompt there, so no per-bot snapshot is kept.
+DROP TABLE IF EXISTS "AgentPromptSnapshot";
+ALTER TABLE IF EXISTS "Bot" DROP COLUMN IF EXISTS "dreamingEnabled",
+  DROP COLUMN IF EXISTS "episodePending", DROP COLUMN IF EXISTS "episodeTurns";
+ALTER TABLE IF EXISTS "ContextPromptSnapshot" DROP COLUMN IF EXISTS "memoryEpoch",
+  DROP COLUMN IF EXISTS "memoryRender", DROP COLUMN IF EXISTS "memoryHasFacts",
+  DROP COLUMN IF EXISTS "memoryAudienceKey";
+ALTER TABLE IF EXISTS "Subagent" DROP COLUMN IF EXISTS "combinedComputerUse";
+-- Every Task runs in the background, and typed or parent messages start new turns instead of
+-- steering a running one, so neither the foreground flag nor the steer inbox is stored anymore.
+ALTER TABLE IF EXISTS "Subagent" DROP COLUMN IF EXISTS "runInBackground";
+ALTER TABLE IF EXISTS "SubagentAttempt" DROP COLUMN IF EXISTS "runInBackground";
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+      AND table_name = 'InboxEvent' AND column_name = 'deliveryMode') THEN
+    DELETE FROM "InboxEvent" WHERE "deliveryMode"::text = 'steer';
+    ALTER TABLE "InboxEvent" DROP COLUMN "deliveryMode";
+  END IF;
+END $$;
+DROP TYPE IF EXISTS "InboxDeliveryMode";
+-- Auto-review's settings and Allow / Ask first rules.
+DROP TABLE IF EXISTS "AutoReviewSettings";
+`;
+
+const retireUnusedStorage = async () => {
+  const client = new Client({ connectionString });
+  await client.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(RETIRE_UNUSED_STORAGE);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    await client.end();
+  }
+};
+
+await retireUnusedStorage();
 const schemaWasPrepared = await prepareSearchProjection();
 const prisma = Bun.spawn(
   [

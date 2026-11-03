@@ -3,6 +3,7 @@ title: An OpenClaw alternative where every bot gets its own computer
 seoTitle: OpenClaw alternative where every bot gets its own computer
 description: OpenTeam is a self-hosted OpenClaw alternative: a team of AI agents, each on its own Linux desktop with a browser. Plus what OpenClaw still does better.
 date: 2026-10-13
+updated: 2026-10-26
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam desktop app with three bots in the sidebar, a chat with the Research bot, and a live preview of that bot's Linux screen
@@ -70,7 +71,7 @@ OpenTeam runs a team of bots on one server you control. Each bot keeps its conve
 
 ### Each bot has its own desktop, away from your host
 
-Each bot gets a persistent Linux desktop (XFCE, 1280×800) with Chromium and a terminal. You can watch its screen live and take over with your own mouse and keyboard. Up to 100 of these desktops run in one Docker container, with most Linux capabilities dropped and a read-only filesystem. The container gets its own storage volumes, not your home folder.
+Each bot gets a persistent Linux desktop (XFCE, 1280×800) with Chromium and a terminal. You can watch its screen live and take over with your own mouse and keyboard. Up to 100 of these desktops run in one Docker container, where bots can use passwordless `sudo` to install packages; it shares your host's kernel rather than adding a VM boundary ([computer](/docs/usage/computer)). The container gets its own storage volumes, not your home folder.
 
 Two caveats. The desktops are separated from your host, not from each other: all bots run as one Unix user. And if you connect your own computer through the desktop app, bots run commands and read files there directly, without asking each time ([computer docs](/docs/usage/computer)).
 

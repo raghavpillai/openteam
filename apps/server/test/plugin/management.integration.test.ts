@@ -92,7 +92,7 @@ integration(
       await Effect.runPromise(service.renameAccount(first.id, "renamed"));
       const renamedNamespaces = await service.dynamicNamespaces(botId);
       expect(renamedNamespaces.map(entry=>entry.name)).not.toEqual(initialNamespaces.map(entry=>entry.name));
-      expect(renamedNamespaces.find(entry=>entry.tools.some(tool=>tool.connectionId===first.id))?.name).toContain("__72656e616d6564");
+      expect(renamedNamespaces.find(entry=>entry.tools.some(tool=>tool.connectionId===first.id))?.name).toEndWith("--renamed");
       await Effect.runPromise(service.connect(first.id));
       expect(
         (await service.dynamicNamespaces(botId))[0]?.tools.some(

@@ -1,4 +1,3 @@
-import { PLUGIN_MARKETPLACE_CATEGORIES } from "@openteam/client-core/plugin-marketplace";
 import { ChevronDown } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../../../lib/cn";
@@ -8,10 +7,13 @@ import { AnimatedCollapse } from "../../ui/animated-collapse";
 const chip =
   "inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-full border border-black/[0.06] bg-black/[0.04] px-2.5 text-[13px] leading-4 text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-black/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-white/[0.06] dark:bg-white/[0.04] dark:hover:bg-white/[0.08]";
 
+/** Category chips; the caller passes only categories that have plugins, as iPhone's filter does. */
 export function MarketplaceCategories({
+  categories,
   category,
   onChange,
 }: {
+  categories: readonly string[];
   category: string;
   onChange: (value: string) => void;
 }) {
@@ -42,7 +44,7 @@ export function MarketplaceCategories({
     return () => observer.disconnect();
   }, []);
   useLayoutEffect(() => {
-    const selected = PLUGIN_MARKETPLACE_CATEGORIES.findIndex((item) => item === category);
+    const selected = categories.findIndex((item) => item === category);
     if (selected >= visibleCount) setExpanded(true);
   }, [category, visibleCount]);
   const renderCategory = (item: string) => (
@@ -63,8 +65,8 @@ export function MarketplaceCategories({
   return (
     <div className="relative mt-3 grid shrink-0" role="group" aria-label="Plugin categories">
       <div className="flex min-w-0 gap-2">
-        {PLUGIN_MARKETPLACE_CATEGORIES.slice(0, visibleCount).map(renderCategory)}
-        {visibleCount < PLUGIN_MARKETPLACE_CATEGORIES.length && (
+        {categories.slice(0, visibleCount).map(renderCategory)}
+        {visibleCount < categories.length && (
           <button
             aria-expanded={expanded}
             aria-controls={extraId}
@@ -79,9 +81,9 @@ export function MarketplaceCategories({
           </button>
         )}
       </div>
-      <AnimatedCollapse open={expanded && visibleCount < PLUGIN_MARKETPLACE_CATEGORIES.length} id={extraId}>
+      <AnimatedCollapse open={expanded && visibleCount < categories.length} id={extraId}>
         <div className="flex flex-wrap gap-2 pt-2">
-          {PLUGIN_MARKETPLACE_CATEGORIES.slice(visibleCount).map(renderCategory)}
+          {categories.slice(visibleCount).map(renderCategory)}
         </div>
       </AnimatedCollapse>
       <div
@@ -89,7 +91,7 @@ export function MarketplaceCategories({
         className="pointer-events-none invisible absolute inset-0 overflow-hidden"
       >
         <div className="flex w-max gap-2" ref={measure}>
-          {PLUGIN_MARKETPLACE_CATEGORIES.map((item) => (
+          {categories.map((item) => (
             <span className={chip} data-category-measure key={item}>
               {item}
             </span>

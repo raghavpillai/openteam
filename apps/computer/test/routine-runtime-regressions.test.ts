@@ -3,28 +3,12 @@ import { ComputerRuntime } from "../src/runtime";
 import { RuntimeTools } from "../src/runtime/tools";
 import { NativeToolExecutor } from "../src/native-tool-executor";
 
-test("run cancellation releases shell waits before waiting for the session to abort", async () => {
-  const order: string[] = [];
+test("run cancellation aborts the session, whose signal ends every running wait", async () => {
   const runtime = Object.create(ComputerRuntime.prototype) as any;
-  runtime.activeByRun = new Map([
-    [
-      "owned",
-      {
-        session: {
-          abort: async () => {
-            expect(order).toEqual(["shell"]);
-            order.push("session");
-          },
-        },
-      },
-    ],
-  ]);
-  runtime.tools = {
-    interruptShellWaits: (id: string) => {
-      expect(id).toBe("owned");
-      order.push("shell");
-    },
-  };
-  await runtime.cancel("owned");
-  expect(order).toEqual(["shell", "session"]);
+  const aborted: string[] = [];
+  const controller = new AbortController();
+  runtime.activeByRun = new Map([["owned", { pluginAbortController: controller, session: { abort: async () => { aborted.push("session"); } } }]]);
+  expect(await runtime.cancel("owned")).toBe(true);
+  expect(aborted).toEqual(["session"]);
+  expect(controller.signal.aborted).toBe(true);
 });

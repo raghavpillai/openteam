@@ -280,6 +280,45 @@ import XCTest
     after.lifetime = .keepAlways
     add(after)
   }
+  func testNotificationTapOpensTheThreadReply() async throws {
+    let app = try await launch()
+    _ = try await waitRegistered()
+    let bootstrap = try await request("/api/v0/client-bootstrap")
+    let channels = try XCTUnwrap(bootstrap["channels"] as? [[String: Any]])
+    let channel = try XCTUnwrap(channels.first?["id"] as? String)
+    let posted = try await request(
+      "/api/v0/channels/" + channel + "/messages",
+      ["clientId": UUID().uuidString, "content": "Thread root for push QA"])
+    let rootID = try XCTUnwrap((posted["message"] as? [String: Any])?["id"] as? String)
+    let threaded = try await request(
+      "/api/v0/channels/" + channel + "/messages",
+      [
+        "clientId": UUID().uuidString, "content": "Threaded push reply",
+        "replyToMessageId": rootID, "isFork": true,
+      ])
+    let reply = try XCTUnwrap(threaded["message"] as? [String: Any])
+    XCUIDevice.shared.press(.home)
+    _ = try await request(
+      "/__push/deliver",
+      [
+        "qaID": "Tap to open the thread reply", "kind": "message", "channelId": channel,
+        "messageSequence": try XCTUnwrap(reply["sequence"] as? String),
+        "notificationSequence": "100", "threadMessageId": try XCTUnwrap(reply["id"] as? String),
+      ])
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.01)).press(
+      forDuration: 0.1,
+      thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.8)))
+    let notification = springboard.staticTexts["Tap to open the thread reply"]
+    XCTAssertTrue(notification.waitForExistence(timeout: 8))
+    notification.tap()
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 12))
+    XCTAssertTrue(app.staticTexts["Threaded push reply"].waitForExistence(timeout: 5))
+    let opened = XCTAttachment(screenshot: app.screenshot())
+    opened.name = "native-notification-opened-thread"
+    opened.lifetime = .keepAlways
+    add(opened)
+  }
   func testOpenConversationSuppressesItsForegroundBanner() async throws {
     let app = try await launch()
     _ = try await waitRegistered()

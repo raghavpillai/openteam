@@ -375,10 +375,18 @@ final class FunctionalFlowUITests: XCTestCase {
     let alias = app.textFields["Account name, e.g. Personal"]
     XCTAssertTrue(alias.waitForExistence(timeout: 10))
     replace(alias, "Work notes")
+    alias.typeText("\n")
     try await fail("PATCH /api/v0/plugin-connections/fixture-connection/account")
+    find(app.buttons["Rename account"], app)
     app.buttons["Rename account"].tap()
+    // The form creates status rows lazily above the account controls.
+    let failure = app.staticTexts.containing(
+      NSPredicate(format: "label CONTAINS[c] %@", "try again shortly")).firstMatch
+    for _ in 0..<4 where !failure.exists { app.collectionViews.firstMatch.swipeDown() }
     error(app)
+    find(alias, app)
     XCTAssertEqual(alias.value as? String, "Work notes")
+    find(app.buttons["Rename account"], app)
     app.buttons["Rename account"].tap()
     // Native Form virtualizes rows above the account controls. Bring the
     // receipt back into view rather than treating an offscreen row as absent.

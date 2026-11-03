@@ -1,7 +1,8 @@
 import { ApiError } from "@openteam/contracts";
-import { connectionNamespace, connectorHostTools } from "@openteam/plugin-sdk";
+import { connectorHostTools } from "@openteam/plugin-sdk";
 import type { PrismaClient } from "@openteam/db";
 import { appendEvent, toJson } from "../service-utils";
+import { loadConnectionNamespaces } from "./namespaces";
 import type { PluginTransport } from "./transport";
 import {
   canonicalJson,
@@ -9,7 +10,6 @@ import {
   jsonObject,
   redact,
   toolSnapshot,
-  validateJsonSchema,
 } from "./values";
 
 export class PluginInvocations {
@@ -44,7 +44,7 @@ export class PluginInvocations {
     }
     if (
       request.namespace &&
-      request.namespace !== connectionNamespace(connection.id, connection.alias)
+      request.namespace !== (await loadConnectionNamespaces(this.prisma)).get(connection.id)
     )
       throw new ApiError(
         409,
@@ -59,7 +59,8 @@ export class PluginInvocations {
         (candidate) => candidate.name === request.toolName
       );
       if (!tool) throw new ApiError(404, "plugin_tool_not_found", "Plugin tool not found");
-      validateJsonSchema(tool.inputSchema, request.arguments);
+      // As in the reference, the agent's runtime repairs arguments against the schema and the
+      // connector judges them; a strict local check would refuse calls the server accepts.
     } else if (
       connection.transport !== "stdio" ||
       !connectorHostTools(

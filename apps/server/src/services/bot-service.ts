@@ -14,6 +14,7 @@ import {
   type AgentDataStore,
   type AgentMessaging,
   appendAgentTimelineEvent,
+  stopRequestProgress,
   type BotFileTarget,
   buildSafeTranscript,
 } from "@openteam/messaging";
@@ -360,7 +361,7 @@ export class BotService {
         select: { id: true, childBotId: true, currentRunId: true, status: true },
       });
       const activeChildren = children.filter((child) =>
-        ["provisioning", "queued", "running"].includes(child.status)
+        ["provisioning", "queued", "running", "waiting"].includes(child.status)
       );
       await Promise.all(
         activeChildren.flatMap((child) =>
@@ -382,6 +383,7 @@ export class BotService {
           }).catch(() => undefined)
         )
       );
+      await this.prisma.$transaction(tx => stopRequestProgress(tx, botId));
       const contextSessions = await this.prisma.contextSession.findMany({
         where: { botId: { in: [botId, ...children.map((child) => child.childBotId)] } },
         select: { id: true, runtimeSessionPath: true },
@@ -418,15 +420,15 @@ export class BotService {
           await tx.subagent.updateMany({
             where: {
               id: child.id,
-              status: { in: ["provisioning", "queued", "running"] },
+              status: { in: ["provisioning", "queued", "running", "waiting"] },
             },
-            data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
+            data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt, nextCheckAt: null },
           });
           if (attempt) {
             await tx.subagentAttempt.updateMany({
               where: {
                 id: attempt.id,
-                status: { in: ["provisioning", "queued", "running"] },
+                status: { in: ["provisioning", "queued", "running", "waiting"] },
               },
               data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
             });

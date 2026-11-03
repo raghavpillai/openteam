@@ -36,11 +36,13 @@ enum NativePalette {
   static let assistant = surface
   static let user = color("0E0E0E", "545454")
   static let separator = color("E4E4E4", "343434")
+  /// The conversation list's column beside a chat, and its open conversation's card.
+  static let sidebar = color("F5F5F6", "181819")
+  static let sidebarSelection = color("FFFFFF", "2E2E30")
   static let code = color("E5E5E5", "2C2C2C")
   static let selection = code
   // Reference action fill: RGB 1/108/236. iOS 26's default blue is brighter.
   static let link = color("016CEC", "016CEC")
-  static let disabledPrimary = color("848484", "9A9A9A")
   static let toggle = Color(uiColor: .systemGreen)
   static let receiptCheck = color("347D5B", "559978")
   static let widgetDanger = color("C83A3A", "F48182")
@@ -157,8 +159,10 @@ struct NativeChatGlass: ViewModifier {
 /// opacity as content scrolls.
 private struct ChromeFade: View {
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.canvasColor) private var inheritedCanvas
   var edge: VerticalEdge
-  var canvas: Color = NativePalette.background
+  var canvasOverride: Color? = nil
+  private var canvas: Color { canvasOverride ?? inheritedCanvas }
   var body: some View {
     LinearGradient(
       stops: [
@@ -213,7 +217,7 @@ private struct BackdropBlur: UIViewRepresentable {
 /// system soft scroll edge hides rows much sooner, so it is disabled here.
 private struct FadingTopBar<Bar: View>: ViewModifier {
   var bar: Bar
-  var canvas: Color = NativePalette.background
+  var canvas: Color? = nil
   var showsFade = true
   @State private var barHeight: CGFloat = 0
   func body(content: Content) -> some View {
@@ -222,7 +226,7 @@ private struct FadingTopBar<Bar: View>: ViewModifier {
         content
           .overlay(alignment: .top) {
             // Match the chat's fade, measured from the top of the screen.
-            ChromeFade(edge: .top, canvas: canvas).opacity(showsFade ? 1 : 0)
+            ChromeFade(edge: .top, canvasOverride: canvas).opacity(showsFade ? 1 : 0)
               .frame(height: viewport.safeAreaInsets.top + 104)
               .offset(y: -viewport.safeAreaInsets.top - barHeight)
           }
@@ -243,73 +247,54 @@ private struct FadingTopBar<Bar: View>: ViewModifier {
 private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
   var top: Top
   var bottom: Bottom
-  @State private var keyboardFrame = CGRect.null
+  @State private var topBarHeight: CGFloat = 0
   func body(content: Content) -> some View {
+    // Let iOS move the inset with the keyboard, including prediction-bar and
+    // hardware/floating-keyboard changes. The composer keeps one stable layout.
     GeometryReader { viewport in
-      let bounds = viewport.frame(in: .global)
-      let docked = !keyboardFrame.isNull && keyboardFrame.maxY >= bounds.maxY
-        && keyboardFrame.width >= bounds.width * 0.95
-      let keyboardInset = docked ? max(0, bounds.maxY - keyboardFrame.minY) : 0
-      let bottomSafeArea = keyboardInset > 0 ? 0 : viewport.safeAreaInsets.bottom
+      let bottomSafeArea = viewport.safeAreaInsets.bottom
       if #available(iOS 26, *) {
         content
           .overlay(alignment: .top) {
             ChromeFade(edge: .top)
               .frame(height: viewport.safeAreaInsets.top + 104)
-              // The chat header is 44 points with six points above and below.
-              .offset(y: -viewport.safeAreaInsets.top - 56)
+              // Duo adds clearance above its controls. Include the complete
+              // header so the fade still reaches the top of the viewport.
+              .offset(y: -viewport.safeAreaInsets.top - topBarHeight)
           }
           .safeAreaBar(edge: .top, spacing: 0) {
-            top
+            top.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topBarHeight = $0 }
           }
           // The composer needs a stable native inset while becoming first
           // responder. The iOS 26 scroll-pocket bar can relinquish its editor
           // during the first keyboard transition.
           .safeAreaInset(edge: .bottom, spacing: 0) {
-            bottom.background(alignment: .bottom) {
-              // Fade the transcript before it passes under the composer.
-              // Sizing this to the short bar leaves bright scrolling glyphs
-              // behind the glass; the reference fade begins above the bar.
-              GeometryReader { composer in
-                ChromeFade(edge: .bottom)
-                  .frame(width: composer.size.width, height: max(100, composer.size.height + 56))
-                  .background(alignment: .bottom) {
-                    // Continue the opaque endpoint through the home-indicator
-                    // area so content cannot reappear below the gradient.
-                    NativePalette.background
-                      .frame(height: bottomSafeArea)
-                      .offset(y: bottomSafeArea)
-                  }
-                  .frame(width: composer.size.width, height: composer.size.height, alignment: .bottom)
-                  .offset(y: min(24, bottomSafeArea))
-              }.allowsHitTesting(false)
-            }
+            bottom
+              .background(alignment: .bottom) {
+                // Fade the transcript before it passes under the composer.
+                // Sizing this to the short bar leaves bright scrolling glyphs
+                // behind the glass; the reference fade begins above the bar.
+                GeometryReader { composer in
+                  ChromeFade(edge: .bottom)
+                    .frame(width: composer.size.width, height: max(100, composer.size.height + 56))
+                    .background(alignment: .bottom) {
+                      // Continue the opaque endpoint through the home-indicator
+                      // area so content cannot reappear below the gradient.
+                      NativePalette.background
+                        .frame(height: bottomSafeArea)
+                        .offset(y: bottomSafeArea)
+                    }
+                    .frame(width: composer.size.width, height: composer.size.height, alignment: .bottom)
+                    .offset(y: min(24, bottomSafeArea))
+                }.allowsHitTesting(false)
+              }
           }
           .scrollEdgeEffectHidden()
-          .padding(.bottom, keyboardInset)
       } else {
         content.safeAreaInset(edge: .top, spacing: 0) { top }
-          .safeAreaInset(edge: .bottom, spacing: 0) { bottom }
-          .padding(.bottom, keyboardInset)
-      }
-    }
-    // The reference puts the editor in its typing position immediately, while
-    // UIKit presents the keyboard. Automatic avoidance instead gives the bar a
-    // second ~0.4-second slide on every tap. Keep dismissal/interactive changes
-    // animated, and reserve only the space covered by a docked keyboard.
-    .ignoresSafeArea(.keyboard, edges: .bottom)
-    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
-      guard let screenFrame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-      let window = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        .flatMap(\.windows).first(where: \.isKeyWindow)
-      let frame = window.map { $0.convert(screenFrame, from: $0.screen.coordinateSpace) } ?? screenFrame
-      let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
-      if !keyboardFrame.isNull && frame.minY > keyboardFrame.minY && duration > 0 {
-        withAnimation(.interpolatingSpring(duration: duration, bounce: 0)) { keyboardFrame = frame }
-      } else {
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { keyboardFrame = frame }
+          .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottom
+          }
       }
     }
   }
@@ -326,7 +311,7 @@ extension View {
     modifier(ChatFloatingBars(top: top(), bottom: bottom()))
   }
   #endif
-  func fadingTopBar<Bar: View>(canvas: Color = NativePalette.background, showsFade: Bool = true,
+  func fadingTopBar<Bar: View>(canvas: Color? = nil, showsFade: Bool = true,
     @ViewBuilder _ bar: () -> Bar) -> some View {
     modifier(FadingTopBar(bar: bar(), canvas: canvas, showsFade: showsFade))
   }
@@ -342,7 +327,7 @@ extension View {
   /// Extend only the page color under the keyboard's transparent rounded corners.
   /// Content continues to avoid the keyboard, keeping fields and controls reachable.
   func nativeCanvas() -> some View {
-    background { NativePalette.background.ignoresSafeArea() }
+    modifier(NativeCanvas())
   }
 
   func nativeGlass(radius: CGFloat = 22, darkTint: Double = 0.11) -> some View {
@@ -361,10 +346,39 @@ extension View {
       safeAreaInset(edge: edge, spacing: 0, content: content)
     }
   }
+  /// The system's soft fade under a top bar, for lists whose rows scroll beneath bar buttons.
+  @ViewBuilder func softTopScrollEdge() -> some View {
+    if #available(iOS 26, *) {
+      scrollEdgeEffectStyle(.soft, for: .top)
+    } else {
+      self
+    }
+  }
+  /// Grouped cards' side margins. Section margins stay inside the safe area, so
+  /// cards end before a side bar like iPhone Duo's; scroll content margins don't.
+  @ViewBuilder func listCardMargins(_ length: CGFloat) -> some View {
+    if #available(iOS 26, *) {
+      listSectionMargins(.horizontal, length)
+    } else {
+      contentMargins(.horizontal, length, for: .scrollContent)
+    }
+  }
   func referenceSheet() -> some View {
     presentationDetents([.fraction(0.95), .large]).presentationDragIndicator(.hidden)
       .presentationCornerRadius(34).presentationBackground(NativePalette.background)
   }
+}
+
+/// The page color behind a screen and its edge fades; a card sets its own.
+private struct NativeCanvas: ViewModifier {
+  @Environment(\.canvasColor) private var canvas
+  func body(content: Content) -> some View { content.background { canvas.ignoresSafeArea() } }
+}
+extension EnvironmentValues {
+  @Entry var canvasColor: Color = NativePalette.background
+  /// Extra space above top bars when the status bar sits beside them, as on
+  /// iPhone Duo, so their controls line up with the clock like system bars do.
+  @Entry var topBarClearance: CGFloat = 0
 }
 
 struct ChromeButton: View {
@@ -428,10 +442,11 @@ struct SheetHeading: View {
 struct PrimaryActionStyle: ButtonStyle {
   @Environment(\.isEnabled) private var enabled
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label.font(.body.weight(.medium)).foregroundStyle(NativePalette.onPrimary)
+    configuration.label.font(.body.weight(.medium))
+      .foregroundStyle(enabled ? NativePalette.onPrimary : NativePalette.text)
       .frame(maxWidth: .infinity).padding(.vertical, 12)
-      .background(enabled ? NativePalette.text : NativePalette.disabledPrimary, in: Capsule())
-      .opacity(configuration.isPressed ? 0.75 : 1)
+      .background(enabled ? NativePalette.text : NativePalette.code, in: Capsule())
+      .opacity(configuration.isPressed ? 0.75 : enabled ? 1 : 0.5)
   }
 }
 

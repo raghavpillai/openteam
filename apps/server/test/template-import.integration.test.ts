@@ -22,7 +22,7 @@ test('template import materializes memories, skills and setup workflows once, ac
   const skills = await prisma.savedSkill.findMany({ where: { slug: { startsWith: `template-${botId}-` } } });
   expect(skills).toHaveLength(1);
   expect(await readFile(join(root, 'data/workflows', skills[0]!.slug, 'SKILL.md'), 'utf8')).toContain('Collect sources');
-  expect(await readFile(join(root, 'data/agents', botId, 'memory/profile.md'), 'utf8')).toContain('Cite primary sources');
+  expect(await prisma.memoryFact.findMany({ where: { namespace: `agent:${botId}` }, select: { fact: true, tier: true, origin: true } })).toEqual([{ fact: 'Cite primary sources', tier: 'profile', origin: 'template' }]);
   expect(await readdir(join(root, 'data/agents', botId, 'template-routines'))).toHaveLength(1);
   const bot = await prisma.bot.findUniqueOrThrow({ where: { id: botId } }); expect(bot.templateRecipe).toBeNull(); expect(bot.instructions).toContain('On the first conversation'); expect(bot.instructions).toContain('Research');
   expect(await prisma.routine.count({ where: { botId } })).toBe(0);

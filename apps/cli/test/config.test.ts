@@ -39,13 +39,12 @@ describe("installation configuration", () => {
 
   test("creates random single-line secrets and stable release settings", () => {
     const first = parseEnvironment(
-      createEnvironment({ version: "1.2.3", timeZone: "Etc/UTC", workerConcurrency: "8" })
+      createEnvironment({ version: "1.2.3", workerConcurrency: "8" })
     );
     const second = parseEnvironment(
-      createEnvironment({ version: "1.2.3", timeZone: "Etc/UTC", workerConcurrency: "8" })
+      createEnvironment({ version: "1.2.3", workerConcurrency: "8" })
     );
     expect(first.get("OPENTEAM_VERSION")).toBe("1.2.3");
-    expect(first.get("OPENTEAM_TIME_ZONE")).toBe("Etc/UTC");
     expect(first.get("OPENTEAM_BIND_HOST")).toBe("127.0.0.1");
     expect(first.get("OPENTEAM_VIEWER_BIND_HOST")).toBe("127.0.0.1");
     expect(first.get("OPENTEAM_PUBLIC_HOST")).toBe("127.0.0.1");

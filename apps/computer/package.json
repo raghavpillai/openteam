@@ -1,12 +1,12 @@
 {
   "name": "@openteam/computer",
-  "version": "0.0.4",
+  "version": "0.0.11",
   "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build src/main.ts src/provider-cli.ts --outdir dist --target bun --external @earendil-works/pi-coding-agent --external @earendil-works/pi-ai --external playwright-core",
-    "dev": "bun --watch src/main.ts",
+    "build": "bun build src/main.ts src/provider-cli.ts src/installs-cli.ts --outdir dist --target bun --external @earendil-works/pi-coding-agent --external @earendil-works/pi-ai --external playwright-core && bun build src/browser-network-worker.ts --outfile dist/browser-network-worker.mjs --target node",
+    "dev": "bun run build:browser-network && bun --watch src/main.ts",
     "start": "bun dist/main.js",
     "typecheck": "tsc -p tsconfig.json",
     "test": "bun test --pass-with-no-tests",
@@ -16,7 +16,8 @@
     "test:native-typing": "bun run scripts/test-native-typing.ts",
     "test:native-chooser": "bun run scripts/test-native-chooser.ts",
     "test:agentic-reliability": "bun run scripts/test-agentic-reliability.ts",
-    "test:native-writer": "bun run scripts/test-native-writer.ts"
+    "test:native-writer": "bun run scripts/test-native-writer.ts",
+    "build:browser-network": "bun build src/browser-network-worker.ts --outfile dist/browser-network-worker.mjs --target node"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.3",

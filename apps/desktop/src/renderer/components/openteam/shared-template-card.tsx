@@ -21,7 +21,7 @@ export function SharedTemplateCard({ message }: { message: ChannelMessageView })
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [importId] = useState(() => crypto.randomUUID());
   useEffect(() => setState(String(metadata.cardState ?? "published")), [metadata.cardState]);
-  const act = async (action: "import" | "unpublish") => {
+  const act = async (action: "import" | "publish" | "unpublish") => {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
@@ -57,8 +57,9 @@ export function SharedTemplateCard({ message }: { message: ChannelMessageView })
     const tint = /^#[0-9a-f]{6}$/i.test(recipe.profile.avatarColor ?? "")
       ? recipe.profile.avatarColor!
       : "#5bc67a";
-    const primaryLabel = state === "published" && !imported ? "Use template" : null;
-    const primaryAction = () => void act("import");
+    const draft = state === "draft";
+    const primaryLabel = draft ? "Publish" : state === "published" && !imported ? "Use template" : null;
+    const primaryAction = () => void act(draft ? "publish" : "import");
     return (
       <>
         <div className="rich-message-card flex w-[300px] max-w-full flex-col gap-3 rounded-[14px] bg-message-assistant p-3 text-[13px] leading-[18px]">
@@ -70,7 +71,7 @@ export function SharedTemplateCard({ message }: { message: ChannelMessageView })
               />
               {state === "published"
                 ? "Published"
-                : state === "unpublished"
+                : state === "unpublished" || draft
                   ? "Unpublished"
                   : String(metadata.outcomeText ?? state)}
             </span>
@@ -95,6 +96,7 @@ export function SharedTemplateCard({ message }: { message: ChannelMessageView })
           <p className="line-clamp-2 whitespace-pre-wrap text-foreground-secondary">
             {recipe.profile.description}
           </p>
+          {draft && <p className="text-[12px] text-foreground-tertiary">Draft: only you can see it until you publish</p>}
           <div className="flex gap-2">
             {primaryLabel && (
               <button
@@ -103,7 +105,7 @@ export function SharedTemplateCard({ message }: { message: ChannelMessageView })
                 onClick={primaryAction}
                 className="h-8 flex-1 rounded-[8px] bg-foreground px-3 font-medium text-background disabled:opacity-50"
               >
-                {busy ? "Working…" : primaryLabel}
+                {busy ? (draft ? "Publishing…" : "Working…") : primaryLabel}
               </button>
             )}
             <button

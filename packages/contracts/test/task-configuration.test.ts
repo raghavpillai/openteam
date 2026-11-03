@@ -12,7 +12,6 @@ import reference from "../src/tool-reference.json";
 
 const inherited = { providerId: "openai", modelId: "parent-model", reasoning: "high" as const };
 const config = parseTaskConfiguration({
-  combinedComputerUse: true,
   executorProfiles: [
     {
       name: "quick",
@@ -32,11 +31,11 @@ const config = parseTaskConfiguration({
   defaultExecutorProfile: "quick",
 });
 
-test("graphical selection follows desktop, box and tool availability", () => {
+test("graphical selection follows desktop and box availability", () => {
   for (const desktopAvailable of [true, false])
     for (const boxAvailable of [true, false]) {
       const selected = selectTaskConfiguration(config, { desktopAvailable, boxAvailable });
-      expect(selected.combinedComputerUse).toBe(desktopAvailable && boxAvailable);
+      expect(selected.graphicalAvailable).toBe(desktopAvailable && boxAvailable);
       expect(
         taskToolContract(selected).inputSchema.properties.subagent_type.enum.includes("computerUse")
       ).toBe(desktopAvailable && boxAvailable);
@@ -44,15 +43,20 @@ test("graphical selection follows desktop, box and tool availability", () => {
         "videoReview"
       );
     }
+  // Disabled tools leave the one graphical worker in place; its tool list drops them.
   for (const disabled of ["BROWSER_CLICK", "OPENAI_COMPUTER_USE", "SHELL", "READ"]) {
     const selected = selectTaskConfiguration(
       { ...config, disabledToolIdentifiers: [disabled] },
       { desktopAvailable: true, boxAvailable: true }
     );
-    expect(selected.combinedComputerUse).toBe(false);
-    expect(taskToolContract(selected).inputSchema.properties.subagent_type.enum).toContain(
-      "browserUse"
-    );
+    expect(selected.graphicalAvailable).toBe(true);
+    expect(taskToolContract(selected).inputSchema.properties.subagent_type.enum).toEqual([
+      "executor",
+      "videoReview",
+      "watchVideo",
+      "computerUse",
+      "knowledgeWork",
+    ]);
   }
   expect(
     taskToolEnabled(
@@ -71,8 +75,12 @@ test("default Task contract matches the captured combined-worker catalog exactly
   expected.inputSchema.properties.subagent_type.enum.push("knowledgeWork");
   expected.inputSchema.properties.subagent_type.description =
     "Subagent type to use for this task. Must be one of: executor, videoReview, watchVideo, computerUse, knowledgeWork.";
+  // Past the reference, exact values go in quotes.
+  expected.description = expected.description.replace(
+    "and what to report back.",
+    "and what to report back. Quote each exact value as the user gave it, so sentence punctuation is never read as part of it."
+  );
   expect(taskToolContract()).toEqual(expected);
-  expect(taskUserInfo()).not.toContain("browserUse:");
   expect(taskUserInfo()).not.toContain("available_subagent_models");
   expect(
     taskInference(defaultTaskConfiguration(), { model: "arbitrary/provider-model" }, inherited)
@@ -83,7 +91,7 @@ test("legacy profiles and model arguments cannot override server inference", () 
   expect(taskToolContract(config).inputSchema.properties.model).toBeUndefined();
   expect(taskUserInfo(config)).not.toContain("available_subagent_models");
   for (const reasoning of ["off", "minimal", "low", "medium", "high"] as const)
-    for (const subagent_type of ["executor", "computerUse", "browserUse", "videoReview", "watchVideo"])
+    for (const subagent_type of ["executor", "computerUse", "videoReview", "watchVideo"])
       for (const model of [undefined, "quick", "deep", "unconfigured", "provider/model"])
         for (const resume of [undefined, "previous"]) {
           const authority = { ...inherited, reasoning };
@@ -91,43 +99,42 @@ test("legacy profiles and model arguments cannot override server inference", () 
         }
 });
 
-test("split mode exposes browserUse without losing existing types", () => {
-  const split = { ...config, combinedComputerUse: false };
-  expect(taskToolContract(split).inputSchema.properties.subagent_type.enum).toEqual([
-    "executor",
-    "videoReview",
-    "watchVideo",
-    "computerUse",
-    "browserUse",
-    "knowledgeWork",
-  ]);
-  expect(taskUserInfo(split)).toContain("browserUse:");
-  expect(taskUserInfo(split)).toContain("knowledgeWork: A higher-powered executor for five kinds of work, and only these:");
-  expect(taskUserInfo(split)).toContain("Use it when a skill names it or the deliverable is one of these.");
+test("the roster names one graphical worker for browser and desktop work", () => {
+  const info = taskUserInfo(config);
+  expect(info).toContain("computerUse: Delegate a self-contained browser or desktop task to a background subagent that operates your box's browser and desktop");
+  expect(info).toContain("Only one computerUse subagent can run at a time");
+  expect(info).toContain("executor: Your workhorse:");
+  expect(info).toContain("dispatch browser and desktop work to computerUse yourself.");
+  expect(info).not.toContain("browserUse");
+  expect(info).toContain("knowledgeWork: A higher-powered executor for five kinds of work, and only these:");
+  // Deliberately past the reference: small single-file deliverables stay with the main agent (perf bench t03, t02).
+  expect(info).toContain("Use it when a skill names it or the deliverable is one of these, except a small file you can make yourself in one or two Shell calls: make that yourself.");
+  const headless = taskUserInfo({ ...config, graphicalAvailable: false });
+  expect(headless).toContain("Browser and desktop workers are unavailable on this computer.");
+  expect(headless).not.toContain("dispatch browser and desktop work to computerUse");
 });
 
-test("graphical capability hints respect disabled tools and unavailable workers", () => {
-  for (const combinedComputerUse of [true, false]) {
-    const selected = { ...config, combinedComputerUse };
-    expect(taskUserInfo(selected)).toContain("browser_console_messages");
-    expect(taskUserInfo(selected)).toContain("browser_take_screenshot");
-    expect(taskUserInfo(selected)).toContain("browser_file_upload");
-    const restricted = taskUserInfo({ ...selected, disabledToolIdentifiers: ["BROWSER_CONSOLE_MESSAGES"] });
-    expect(restricted).not.toContain("browser_console_messages");
-    expect(restricted).toContain("browser_take_screenshot");
-    expect(taskUserInfo({ ...selected, graphicalAvailable: false })).not.toContain("Browser capabilities");
-  }
+test("settings outside the Task configuration are refused", () => {
+  expect(() => parseTaskConfiguration({ ...config, combinedComputerUse: true })).toThrow("Unknown Task setting");
 });
 
 test("invalid and ambiguous profile configurations cannot be saved", () => {
   for (const input of [
     null,
     {},
-    { ...config, combinedComputerUse: "true" },
+    { ...config, executorProfiles: undefined },
+    { ...config, browserWorker: true },
     { ...config, defaultExecutorProfile: "missing" },
     { ...config, executorProfiles: [config.executorProfiles[0], config.executorProfiles[0]] },
     { ...config, executorProfiles: [{ ...config.executorProfiles[0], reasoning: "imaginary" }] },
     { ...config, executorProfiles: [{ ...config.executorProfiles[0], name: "provider/model" }] },
   ])
     expect(() => parseTaskConfiguration(input)).toThrow();
+});
+
+test("a Task prompt quotes each exact value, so sentence punctuation never joins it", () => {
+  // Unquoted, a value at the end of a sentence reaches the worker with its period, and the parent resumes it to fix the field.
+  expect(taskToolContract().description).toContain(
+    "Quote each exact value as the user gave it, so sentence punctuation is never read as part of it."
+  );
 });

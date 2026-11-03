@@ -63,6 +63,10 @@ export class MachineRelay {
     return !!connection && Date.now() - connection.seenAt <= this.presenceMs;
   }
 
+  matchesConnection(machineId: string, connectionId: string) {
+    return this.connected(machineId) && this.connections.get(machineId)?.id === connectionId;
+  }
+
   connect(machineId: string) {
     this.disconnect(machineId);
     const connection: Connection = { id: randomUUID(), seenAt: Date.now(), pending: new Map(), controller: new AbortController(), staging: 0 };

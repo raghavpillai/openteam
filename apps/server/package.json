@@ -1,6 +1,6 @@
 {
   "name": "@openteam/server",
-  "version": "0.0.4",
+  "version": "0.0.11",
   "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
@@ -24,6 +24,8 @@
     "pg-boss": "12.28.0"
   },
   "devDependencies": {
-    "@types/pg": "8.15.5"
+    "@types/pg": "8.15.5",
+    "playwright-core": "1.55.0",
+    "@types/node": "22.19.19"
   }
 }

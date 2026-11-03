@@ -30,6 +30,7 @@ import {
 import { CLI_VERSION, DEFAULT_REPOSITORY, PROJECT_NAME } from "./constants";
 import { type ComposeProject, DOCKER_OUTPUT_HINT, requireComposeProject } from "./docker";
 import { printDoctor, runDoctor } from "./doctor";
+import { dockerMissing, renderDockerRequired, startDockerDesktop } from "./docker-preflight";
 import { doctorNextSteps } from "./doctor-ui";
 import { CliError } from "./errors";
 import { checkHealth, type HealthResult, withExpectedVersion } from "./health";
@@ -54,12 +55,13 @@ import {
   acquireUpdateLock,
   assertUpdatePreflight,
   createDatabaseBackup,
+  pruneUpdateBackups,
   readUpdateState,
   restoreDatabaseBackup,
   writeUpdateState,
   type PersistedUpdateState,
 } from "./update-safety";
-import { refreshPluginHostComponents } from "./plugin-host";
+import { assertNoAgentWorking, UpdateBusyError, updateWaitsForIdle } from "./update-gate";
 
 export const UPDATE_PROGRESS_PREFIX = "@@OPENTEAM_UPDATE@@";
 export type UpdateProgressPhase =
@@ -127,8 +129,8 @@ const printStartupReady = (
               {
                 text:
                   health.inference === "missing"
-                    ? `No AI provider is connected. Run ${installationCommand(paths, "setup")} to connect one before starting AI tasks.`
-                    : `AI is not ready (${health.inference}). Run ${installationCommand(paths, "setup")} to check your provider connection.`,
+                    ? `No model is connected yet. Connect one in the OpenTeam app under Settings → Server, or run ${installationCommand(paths, "model")} on this server.`
+                    : `AI is not ready (${health.inference}). Check the model connection in the OpenTeam app under Settings → Server, or run ${installationCommand(paths, "doctor")}.`,
                 tone: "warning" as const,
               },
             ]
@@ -211,7 +213,12 @@ export const installCommand = async (
       await setupCommand(
         paths,
         runner,
-        { advanced: options.advanced, fresh: true, countdown: options.command === "install" },
+        {
+          advanced: options.advanced,
+          fresh: true,
+          countdown: options.command === "install",
+          pullImages: true,
+        },
         suppliedPrompter
       );
     } else {
@@ -222,9 +229,18 @@ export const installCommand = async (
   }
 
   const projectName = normalizeProjectName(options.projectName || PROJECT_NAME);
+  const desktop = await startDockerDesktop(runner);
   const diagnosis = await runDoctor(paths, runner, projectName, {
     checkInstallPorts: options.noSetup,
   });
+  if (dockerMissing(diagnosis)) {
+    console.log(
+      renderDockerRequired(installationCommand(paths, "setup"), {
+        desktopStarting: desktop === "timed-out",
+      })
+    );
+    throw new CliError("Docker is required.", 2, true);
+  }
   if (diagnosis.ok) {
     const report = new TerminalReport();
     report.notice("Server requirements checked", "success");
@@ -272,26 +288,33 @@ export const installCommand = async (
   });
   ensureDirectory(paths.directory);
   const now = new Date().toISOString();
-  writeFileAtomic(paths.compose, release.compose, 0o600);
-  writeFileAtomic(
-    paths.environment,
-    createEnvironment({ version, imagePrefix: options.imagePrefix }),
-    0o600
-  );
-  writeManifest(paths, {
-    schemaVersion: 1,
-    repository,
-    version,
-    composeUrl: release.composeUrl,
-    installedAt: now,
-    updatedAt: now,
-    projectName,
-  });
+  const environment = createEnvironment({ version, imagePrefix: options.imagePrefix });
+  try {
+    writeFileAtomic(paths.compose, release.compose, 0o600);
+    writeFileAtomic(paths.environment, environment, 0o600);
+    writeManifest(paths, {
+      schemaVersion: 1,
+      repository,
+      version,
+      composeUrl: release.composeUrl,
+      installedAt: now,
+      updatedAt: now,
+      projectName,
+    });
+  } catch (error) {
+    // A partial first install would block the next attempt, so leave none of it behind.
+    for (const file of [paths.compose, paths.environment, paths.manifest]) {
+      rmSync(file, { force: true });
+    }
+    throw new CliError(
+      `Could not save the OpenTeam configuration in ${paths.directory}: ${error instanceof Error ? error.message : error}. Free up disk space or fix the folder's permissions, then run ${installationCommand(paths, "setup")} again.`
+    );
+  }
 
-  const project = requireComposeProject(paths, runner, projectName);
-  printMessage("Pulling OpenTeam container images…");
-  project.runOrThrow(["pull"], { inherit: true });
   if (options.noSetup) {
+    const project = requireComposeProject(paths, runner, projectName);
+    printMessage("Pulling OpenTeam container images…");
+    project.runOrThrow(["pull"], { inherit: true });
     await startProject(project, paths, runner, version);
     printMessage(`Installation configuration: ${paths.directory}`, "muted");
     printMessage(
@@ -299,7 +322,13 @@ export const installCommand = async (
     );
     return;
   }
-  await setupCommand(paths, runner, { advanced: options.advanced, fresh: true }, suppliedPrompter);
+  // Setup asks every question first, then downloads the images and starts the server.
+  await setupCommand(
+    paths,
+    runner,
+    { advanced: options.advanced, fresh: true, pullImages: true },
+    suppliedPrompter
+  );
 };
 
 export const doctorCommand = async (
@@ -436,6 +465,8 @@ const updateCommandUnlocked = async (
     console.log(`${message}.`);
     return;
   }
+  const whenIdle = updateWaitsForIdle(options);
+  if (whenIdle) await assertNoAgentWorking(paths);
   console.log(`Updating OpenTeam ${manifest.version} → ${target}…`);
   report("downloading", `Downloading and verifying OpenTeam ${target}`, target);
   const release = await downloadRelease({
@@ -462,8 +493,14 @@ const updateCommandUnlocked = async (
     assertUpdatePreflight(paths, runner, project, nextCompose);
     report("pulling", `Pulling OpenTeam ${target} container images`, target);
     project.runOrThrow(["pull"], { inherit: true, composeFile: nextCompose });
+    // Work may have started during the download; this is the last moment nothing has stopped.
+    if (whenIdle) await assertNoAgentWorking(paths);
     maintenanceStarted = true;
-    project.runOrThrow(["stop", "server", "worker", "computer"], { inherit: true });
+    project.runOrThrow([
+      "stop", "server", "worker",
+      ...(/^  computer-memory-init:/m.test(readFileSync(paths.compose, "utf8")) ? ["computer-memory-init"] : []),
+      "computer",
+    ], { inherit: true });
     report("backing-up", `Backing up the OpenTeam database before ${target}`, target);
     backupPath = createDatabaseBackup(paths, project, manifest.version, target);
     persisted = writeUpdateState(paths, { ...persisted, backupPath });
@@ -489,6 +526,10 @@ const updateCommandUnlocked = async (
       promoteStagedCli(cliPromotion);
     }
   } catch (error) {
+    if (error instanceof UpdateBusyError) {
+      rmSync(nextCompose, { force: true });
+      throw error;
+    }
     report(
       "rolling-back",
       "The update failed; restoring the previous OpenTeam configuration",
@@ -501,7 +542,11 @@ const updateCommandUnlocked = async (
     let databaseRecoveryError: string | null = null;
     if (newStackStarted && backupPath) {
       try {
-        project.runOrThrow(["stop", "server", "worker", "computer"], { inherit: true });
+        project.runOrThrow([
+          "stop", "server", "worker",
+          ...(/^  computer-memory-init:/m.test(readFileSync(paths.compose, "utf8")) ? ["computer-memory-init"] : []),
+          "computer",
+        ], { inherit: true });
         restoreDatabaseBackup(project, backupPath);
       } catch (restoreError) {
         databaseRecoveryError =
@@ -527,23 +572,20 @@ const updateCommandUnlocked = async (
       `Update failed and the previous Compose configuration was restored${recoveryDetail}${databaseRecoveryError ? `; database restore also failed: ${databaseRecoveryError}` : ""}: ${cause}`
     );
   }
-  // Plugin parts installed on this machine, outside the containers, follow the release they shipped with.
-  const refreshed = await refreshPluginHostComponents(paths, project, runner, {
-    onRefresh: (name) => report("verifying", `Refreshing ${name} on this machine`, target),
-  }).catch(() => []);
-  for (const result of refreshed) {
-    if (result.outcome === "refreshed") console.log(`Refreshed ${result.name} on this machine.`);
-    else
-      console.warn(
-        `OpenTeam updated, but ${result.name} could not be refreshed on this machine (${result.detail}). Run openteam update --force to retry.`
+  try {
+    const removed = pruneUpdateBackups(paths, backupPath);
+    if (removed.length)
+      console.log(
+        `Removed ${removed.length} older update backup${removed.length === 1 ? "" : "s"} from ${paths.backups}: ${removed.join(", ")}`
       );
+  } catch (error) {
+    console.warn(
+      `Could not remove older update backups: ${error instanceof Error ? error.message : error}`
+    );
   }
-  const stale = refreshed.filter((result) => result.outcome === "failed").map((result) => result.name);
-  const completion = `${
-    cliPromotion
-      ? `OpenTeam and its command-line tools are now running ${target}`
-      : `OpenTeam is now running ${target}`
-  }${stale.length ? `, but ${stale.join(" and ")} could not be refreshed on this machine; run openteam update --force to retry` : ""}`;
+  const completion = cliPromotion
+    ? `OpenTeam and its command-line tools are now running ${target}`
+    : `OpenTeam is now running ${target}`;
   report("complete", completion, target);
   console.log(`${completion}.`);
 };

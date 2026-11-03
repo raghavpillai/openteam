@@ -4,6 +4,7 @@ import {
   RegisterPushDeviceInput,
   UpdateNotificationPresenceInput,
   UpdateNotificationPreferencesInput,
+  UpdateUserTimeZoneInput,
   type SearchCategory,
   UploadAssetInput,
 } from "@openteam/contracts";
@@ -21,9 +22,6 @@ import { searchCategories } from "./input";
 export async function clientRoutes(context: RouteContext): Promise<Response | undefined> {
   const { app, request, url, path, authMode, authenticatedSessionId } = context;
 
-  if (request.method === "GET" && ["/api/snapshot", "/api/bootstrap"].includes(path)) {
-    return json(await run(app.clientSnapshot()));
-  }
   if (request.method === "POST" && path === "/api/notification-devices") {
     if (authMode === "required" && !authenticatedSessionId) {
       return json(
@@ -57,17 +55,16 @@ export async function clientRoutes(context: RouteContext): Promise<Response | un
     const input = await parseBody(request, UpdateNotificationPreferencesInput);
     return json(await run(app.notifications.updatePreferences(input.smartEnabled)));
   }
+  if (path === "/api/time-zone" && request.method === "GET") {
+    return json(await app.userTimeZone(), 200, { "cache-control": "no-store" });
+  }
+  if (path === "/api/time-zone" && request.method === "PATCH") {
+    return json(await app.updateUserTimeZone(await parseBody(request, UpdateUserTimeZoneInput)));
+  }
   if (request.method === "GET" && path === "/api/notification-state") {
     return json(await run(app.notifications.snapshot()), 200, { "cache-control": "no-store" });
   }
 
-  if (request.method === "GET" && path === "/api/client-snapshot") {
-    const startedAt = performance.now();
-    const snapshot = await run(app.clientSnapshot());
-    return json(snapshot, 200, {
-      "server-timing": `snapshot;dur=${(performance.now() - startedAt).toFixed(2)}`,
-    });
-  }
   if (request.method === "GET" && path === "/api/client-bootstrap") {
     const startedAt = performance.now();
     const bootstrap = await run(app.clientBootstrap());

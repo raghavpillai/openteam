@@ -16,50 +16,21 @@ try {
 `;
 
 export const APNS_CONFIGURATION_PROBE = String.raw`
-// New workers inspect the effective database setting through their diagnostics socket.
-// Fall back only on 404/missing socket for workers released before runtime settings.
-const runtime = await new Promise((resolve, reject) => {
+// The worker reports its effective APNs setting through its diagnostics socket.
+const status = await new Promise((resolve, reject) => {
   const request = require("node:http").get({ socketPath: "/tmp/openteam-worker-doctor.sock", path: "/notifications", timeout: 5000 }, (response) => {
     let body = "";
     response.on("data", (chunk) => { if (body.length < 16384) body += chunk; });
     response.on("end", () => {
-      if (response.statusCode === 404) return resolve(null);
       if (response.statusCode !== 200) return reject(new Error("Runtime APNs check failed"));
       try { resolve(JSON.parse(body)); } catch { reject(new Error("Invalid runtime APNs status")); }
     });
     response.on("error", reject);
   });
   request.on("timeout", () => request.destroy(new Error("Runtime APNs check timed out")));
-  request.on("error", (error) => error.code === "ENOENT" || error.code === "ECONNREFUSED" ? resolve(null) : reject(error));
+  request.on("error", reject);
 });
-if (runtime) { console.log(JSON.stringify(runtime)); return; }
-const { createPrivateKey, sign } = require("node:crypto");
-const { readFileSync } = require("node:fs");
-const keyID = process.env.OPENTEAM_APNS_KEY_ID?.trim();
-const teamID = process.env.OPENTEAM_APNS_TEAM_ID?.trim();
-const topic = process.env.OPENTEAM_APNS_TOPIC?.trim() || "dev.openteam.mobile.swift";
-let privateKey = process.env.OPENTEAM_APNS_PRIVATE_KEY?.replace(/\\n/g, "\n");
-let issue = null;
-if (!privateKey && process.env.OPENTEAM_APNS_PRIVATE_KEY_FILE) {
-  try { privateKey = readFileSync(process.env.OPENTEAM_APNS_PRIVATE_KEY_FILE, "utf8"); }
-  catch { issue = "key-file"; }
-}
-const missing = [];
-if (!keyID) missing.push("OPENTEAM_APNS_KEY_ID");
-if (!teamID) missing.push("OPENTEAM_APNS_TEAM_ID");
-if (!privateKey && !issue) missing.push("OPENTEAM_APNS_PRIVATE_KEY");
-if (!issue && !missing.length) {
-  if (!/^[A-Z0-9]{10}$/.test(keyID) || !/^[A-Z0-9]{10}$/.test(teamID)) issue = "identifiers";
-  else if (!/^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$/.test(topic)) issue = "topic";
-  else {
-    try {
-      const key = createPrivateKey(privateKey);
-      if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "prime256v1") throw new Error();
-      sign("sha256", Buffer.from("OpenTeam Doctor signing check"), { key, dsaEncoding: "ieee-p1363" });
-    } catch { issue = "signing-key"; }
-  }
-}
-console.log(JSON.stringify({ missing, issue, topic }));
+console.log(JSON.stringify(status));
 `;
 
 interface NotificationState {

@@ -30,7 +30,6 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
     const owner = { kind: "group" as const, id: channelId };
     const wakes: any[] = [];
     const service = new RoutineService(db!, {
-      defaultTimeZone: "UTC",
       enqueueWake: async () => {
         throw new Error("Group routines must enter the room");
       },
@@ -117,7 +116,7 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
         1
       );
       expect(await db!.routineRevision.count({ where: { callId } })).toBe(1);
-      const restarted = new RoutineService(db!, { defaultTimeZone: "UTC" } as never);
+      const restarted = new RoutineService(db!, {} as never);
       expect((await restarted.mutateOwner(f.owner, callId, null, input)).id).toBe(replies[0]!.id);
     } finally {
       await f.cleanup();

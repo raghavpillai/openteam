@@ -55,9 +55,9 @@ await check("delayed dual prompt never replays a completed response", async (end
   assert.equal((result.details?.pendingDialog as any)?.message, "First");
   // Reproduce the real 30-second Playwright action timeout from the live audit.
   await Bun.sleep(36_000);
-  const second = await session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept: true, promptText: "FIRST" } });
+  const second = await session.execute("browser_handle_dialog", { accept: true, promptText: "FIRST" });
   assert.equal((second.details?.pendingDialog as any)?.message, "Second");
-  await session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept: true, promptText: "SECOND" } });
+  await session.execute("browser_handle_dialog", { accept: true, promptText: "SECOND" });
   await session.execute("browser_snapshot", {});
   assert.equal(await (await (session as any).ensurePage()).locator("#result").textContent(), '["FIRST","SECOND"]');
 });
@@ -70,7 +70,6 @@ await check("desktop tabs survive adoption, new native tabs and reconnect", asyn
   let session = await BrowserUseSession.connect(endpoint, join(root, "shots"));
   assert.equal((await session.execute("browser_tabs", { action: "list" })).details?.tabs, 1);
   assert.ok(text(await session.execute("browser_snapshot", {})).includes("NATIVE-DRAFT"));
-  const firstView = (await session.execute("browser_snapshot", {})).details?.viewId;
   const second = await context.newPage();
   await second.goto(server.url.href + "second");
   await second.getByRole("textbox", { name: "Draft" }).fill("SECOND-DRAFT");
@@ -78,7 +77,8 @@ await check("desktop tabs survive adoption, new native tabs and reconnect", asyn
   await session.execute("browser_tabs", { action: "select", index: 1 });
   session = await session.reconnect(endpoint);
   assert.ok(text(await session.execute("browser_snapshot", {})).includes("SECOND-DRAFT"));
-  assert.ok(text(await session.execute("browser_snapshot", { viewId: firstView })).includes("NATIVE-DRAFT"));
+  await session.execute("browser_tabs", { action: "select", index: 0 });
+  assert.ok(text(await session.execute("browser_snapshot", {})).includes("NATIVE-DRAFT"));
   const third = await context.newPage();
   await third.goto(server.url.href + "third");
   assert.equal((await session.execute("browser_tabs", { action: "list" })).details?.tabs, 3);
@@ -103,7 +103,7 @@ await check("post-dialog observation timeouts remain failures", async (endpoint,
     }
     return state(...args);
   };
-  await assert.rejects(session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept: true } }), /Timeout/);
+  await assert.rejects(session.execute("browser_handle_dialog", { accept: true }), /Timeout/);
   assert.ok(text(await session.execute("browser_snapshot", {})).includes("Brief alert"));
 });
 
@@ -117,10 +117,9 @@ await check("scripted drag handles expose stable refs without hiding nested cont
   const before = text(await session.execute("browser_snapshot", {}));
   assert.ok(!before.includes("Hidden drag"));
   assert.equal(await reference(session, "Sortable row"), row);
-  await session.execute("browser_get_bounding_box", { ref: row });
   const page = await (session as any).ensurePage();
   await page.evaluate(() => { document.querySelector(".ui-sortable-handle")!.addEventListener("mousedown", () => { document.querySelector("#result")!.textContent = "drag-started"; }); });
-  await session.execute("browser_drag", { sourceRef: row, targetX: 400, targetY: 300 });
+  await session.execute("browser_drag", { startTarget: row, startElement: "Sortable row", endTarget: nested, endElement: "Nested target control" });
   assert.equal(await page.locator("#result").textContent(), "drag-started");
 });
 
@@ -129,8 +128,8 @@ await check("typing preserves the editor caret and undo history", async (endpoin
   await session.execute("browser_navigate", { url: server.url.href });
   const editor = await reference(session, "Editor");
   const original = "First line\nCafé 日本語 🙂\nFinal line";
-  await session.execute("browser_fill", { ref: editor, value: original });
-  await session.execute("browser_type", { ref: editor, text: "\nTEMP" });
+  await session.execute("browser_type", { target: editor, text: original });
+  await session.execute("browser_type", { target: editor, text: "\nTEMP", slowly: true });
   const page = await (session as any).ensurePage();
   assert.equal(await page.getByLabel("Editor").innerText(), original + "\nTEMP");
   assert.ok(text(await session.execute("browser_snapshot", {})).includes("value=" + JSON.stringify(original + "\nTEMP")), "snapshot preserves exact editor line breaks");
@@ -143,9 +142,9 @@ await check("typing preserves the editor caret and undo history", async (endpoin
   for (let i = 0; i < undos; i++) await session.execute("browser_press_key", { key: process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z" });
   assert.equal(await page.getByLabel("Editor").innerText(), original + "\nTEMP");
   const draft = await reference(session, "Draft");
-  await session.execute("browser_fill", { ref: draft, value: "12345" });
+  await session.execute("browser_type", { target: draft, text: "12345" });
   await page.getByLabel("Draft").evaluate((el: HTMLInputElement) => el.setSelectionRange(1, 3));
-  await session.execute("browser_type", { ref: draft, text: "AB" });
+  await session.execute("browser_type", { target: draft, text: "AB", slowly: true });
   assert.equal(await page.getByLabel("Draft").inputValue(), "1AB45");
   await page.getByLabel("Editor").fill("Leading visible content " + "x".repeat(100) + " SYNTHETIC-SECRET-922");
   await page.evaluate(() => { (window as any).__sandSecretFillValues = new Set(["SYNTHETIC-SECRET-922"]); });
@@ -160,7 +159,7 @@ await check("typing preserves the editor caret and undo history", async (endpoin
 
 await check("popup close review identifies the actual child and opener", async (endpoint, root) => {
   const session = await BrowserUseSession.connect(endpoint, join(root, "shots"));
-  await session.execute("browser_navigate", { url: server.url.href, newTab: true });
+  await session.execute("browser_tabs", { action: "new", url: server.url.href });
   const parent = session.tabCloseReviewTarget({});
   await session.execute("browser_click", { ref: await reference(session, "Popup") });
   const child = session.tabCloseReviewTarget({});

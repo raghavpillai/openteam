@@ -43,8 +43,8 @@ const eventsFromWindow = (window: EventWindow): ProductEvent[] =>
 
 /**
  * Read one bounded event batch, waiting for a server-side wakeup when the log
- * is currently caught up. This is the non-streaming transport for runtimes
- * whose fetch implementation buffers response bodies (notably React Native).
+ * is currently caught up. This is the non-streaming transport for clients
+ * that poll instead of holding a stream open.
  */
 export const eventPoll = async (
   source: EventStreamSource,

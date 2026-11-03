@@ -40,3 +40,16 @@ test("validates the captured OAuth object before creating a review or mutating a
     "OAuth settings"
   );
 });
+
+test("plugin_id also arrives as id or pluginId, and conflicting spellings are refused", () => {
+  for (const action of ["GetPlugin", "InstallPlugin", "UninstallPlugin"]) {
+    expect(pluginToolArguments(action, { id: "linear" })).toEqual({ pluginKey: "linear" });
+    expect(pluginToolArguments(action, { pluginId: "linear", values: {} })).toEqual({ pluginKey: "linear", values: {} });
+    expect(pluginToolArguments(action, { plugin_id: "linear", id: "linear" })).toEqual({ pluginKey: "linear" });
+    expect(() => pluginToolArguments(action, { plugin_id: "linear", id: "notion" })).toThrow(
+      "Pass the plugin's id once, as plugin_id (from SearchPlugins)."
+    );
+  }
+  // A new account label is stored the way the reference stores it.
+  expect(pluginToolArguments("RenameMcpAccount", { server_id: "s", account_label: "Work", new_account_label: "  Personal " })).toMatchObject({ accountLabel: "personal" });
+});

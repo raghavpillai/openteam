@@ -102,6 +102,8 @@ export const withExpectedVersion = (
   };
 };
 
+const STARTUP_QUIET_MS = 5_000;
+
 export const waitForHealth = async (
   paths: InstallationPaths,
   timeoutMs = 180_000,
@@ -110,12 +112,17 @@ export const waitForHealth = async (
 ): Promise<HealthResult> => {
   const started = Date.now();
   const deadline = started + timeoutMs;
+  // A server that is still booting drops or refuses the first probes; report only lasting failures.
+  const quietUntil = started + Math.min(STARTUP_QUIET_MS, timeoutMs);
   let latest = await checkHealth(paths, expectedVersion);
   let lastDetail: string | undefined;
   let lastReported = 0;
   try {
     while (!latest.ok) {
-      if (latest.detail !== lastDetail || Date.now() - lastReported >= 10_000) {
+      if (
+        Date.now() >= quietUntil &&
+        (latest.detail !== lastDetail || Date.now() - lastReported >= 10_000)
+      ) {
         process.stdout.write(
           `\n  ${latest.url}: ${latest.detail} (${Math.floor((Date.now() - started) / 1_000)}s elapsed)`
         );

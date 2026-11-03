@@ -1,6 +1,5 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
-export type PluginPolicyDecision = "deny" | "prompt" | "allow";
 export type PluginAuthMode = "none" | "token" | "oauth";
 
 export function PluginAuthSelect({

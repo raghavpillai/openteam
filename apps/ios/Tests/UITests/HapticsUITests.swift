@@ -83,7 +83,7 @@ import XCTest
       let first = app.buttons[pinned ? "pinned-visual-0" : "channel-visual-0"]
       XCTAssertTrue(first.waitForExistence(timeout: 8))
       first.tap()
-      XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 8))
       try await expect("conversation.select", "light")
       if app.staticTexts["sidebar-account-name"].exists {
         first.tap()
@@ -95,7 +95,7 @@ import XCTest
       let second = app.buttons["channel-visual-1"]
       XCTAssertTrue(second.waitForExistence(timeout: 8))
       second.tap()
-      XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 8))
       try await expect("conversation.select", "light", count: 2)
       let audit = try await events()
       XCTAssertEqual(audit.filter(\.emitted).count, 2)
@@ -105,7 +105,7 @@ import XCTest
   func testSwitchingBotsRespectsDisabledHaptics() async throws {
     let app = try await launch(home: true, haptics: "off")
     app.buttons["channel-visual-0"].tap()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 8))
     try await expect("conversation.select", "light", emitted: false)
     let audit = try await events()
     XCTAssertTrue(audit.allSatisfy { !$0.emitted })

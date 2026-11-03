@@ -65,9 +65,5 @@ export const assertGraphicalShellBoundary = (
   const portGuidance = reservedPort
     ? " The Shell boundary reserves loopback ports 9222–9399 for browser debugging. For an ordinary local HTTP server, choose an unused port outside that range and update its URL. Do not stop existing listeners to claim a port."
     : "";
-  const route =
-    subagentType === "browserUse"
-      ? "Use the direct browser_* tools for page interaction."
-      : "Delegate graphical interaction to an available browser or computer Task worker.";
-  throw new Error(`Graphical Shell access is unavailable (${violation}).${portGuidance} ${route}`);
+  throw new Error(`Graphical Shell access is unavailable (${violation}).${portGuidance} Delegate graphical interaction to a computerUse Task worker when one is available.`);
 };

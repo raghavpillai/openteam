@@ -4,6 +4,7 @@ import {
   modelProviderAccess,
   modelProviderOptions,
   PROVIDER_GROUPS,
+  providerDisplayName,
 } from "./model-provider-options";
 import type {
   ModelCatalog,
@@ -332,7 +333,9 @@ export class ModelSession implements InteractiveSession<ModelExit> {
           "API key",
           typeof t.apiKey === "string" ? t.apiKey : "",
           this.hasSavedKey
-            ? "Saved; blank keeps it"
+            ? this.savedTranscription?.apiKeySuffix
+              ? `••••${this.savedTranscription.apiKeySuffix}; blank keeps it`
+              : "Saved; blank keeps it"
             : t.provider !== "openai-compatible"
               ? `Required for ${t.provider === "openai" ? "OpenAI" : "Deepgram"} transcription`
               : "Optional for private services",
@@ -341,10 +344,9 @@ export class ModelSession implements InteractiveSession<ModelExit> {
         ...(this.savedTranscription?.hasApiKey || t.apiKey !== undefined
           ? [
               {
-                kind: "toggle",
+                kind: "action",
                 id: "remove-key",
-                label: "Remove saved key",
-                checked: t.apiKey === null,
+                label: t.apiKey === null ? "Undo key deletion" : "Delete key",
               } as SessionRow,
             ]
           : []),
@@ -367,7 +369,7 @@ export class ModelSession implements InteractiveSession<ModelExit> {
           : []),
         {
           kind: "note",
-          text: "The API key is separate from your chat sign-in. Changing the endpoint does not transfer the saved key.",
+          text: "The API key is separate from your chat sign-in. To change endpoints, enter a replacement key or delete the saved key.",
           tone: "muted",
         },
         { kind: "action", id: "save", label: "Save transcription", primary: true },
@@ -529,7 +531,8 @@ export class ModelSession implements InteractiveSession<ModelExit> {
         const provider = catalog.providers.find((p) => p.id === providerId);
         this.notice = {
           text:
-            provider?.modelMessage ?? `Choose a chat model from ${provider?.name ?? providerId}.`,
+            provider?.modelMessage ??
+            `Choose a chat model from ${provider ? providerDisplayName(provider) : providerId}.`,
           tone: provider?.modelMessage ? "warning" : "info",
         };
       } else if (id === "reconnect-provider") {
@@ -714,6 +717,13 @@ export class ModelSession implements InteractiveSession<ModelExit> {
     else if (row.id === "remove-key") {
       if (this.transcription!.apiKey === null) delete this.transcription!.apiKey;
       else this.transcription!.apiKey = null;
+      this.notice = {
+        text:
+          this.transcription!.apiKey === null
+            ? "Key will be deleted when you save."
+            : "Saved key will be kept.",
+        tone: "info",
+      };
     } else if (row.id === "transcription-provider") {
       const t = this.transcription!;
       t.provider =

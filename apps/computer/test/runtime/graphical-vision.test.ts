@@ -24,8 +24,9 @@ test("computerUse rejects a text-only model before starting a session", async ()
   runtime.resolveModel = () => ({ ...model, input: ["text"] });
   let refreshes = 0;
   runtime.inferenceProviders = { verify: async () => { refreshes++; } };
-  await expect(runtime.createStandaloneSession("/tmp", "Inspect the desktop", {}, {
-    subagentType: "computerUse", reasoning: "off",
+  const manager = SessionManager.inMemory("/tmp");
+  await expect(runtime.createStandaloneSession("/tmp", "Inspect the desktop", manager, {
+    contextSessionId: manager.getSessionId(), subagentType: "computerUse", reasoning: "off",
   }, {})).rejects.toThrow("cannot inspect screenshots");
   expect(refreshes).toBe(1);
 });

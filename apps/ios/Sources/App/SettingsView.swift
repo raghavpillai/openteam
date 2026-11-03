@@ -336,6 +336,8 @@ struct ServerStatusSections: View {
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
               .foregroundStyle(NativePalette.muted).accessibilityHidden(true)
           }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityIdentifier("server-view-updates")
       }
       ServerActivitySection()
@@ -352,6 +354,8 @@ struct ServerStatusSections: View {
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
               .foregroundStyle(NativePalette.muted).accessibilityHidden(true)
           }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityIdentifier("server-manage-devices")
       }
       Button("Refresh") { Task { await loadRelease(); await store.refresh() } }

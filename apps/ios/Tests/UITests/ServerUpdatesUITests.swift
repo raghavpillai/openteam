@@ -4,6 +4,28 @@ import XCTest
   private let base =
     ProcessInfo.processInfo.environment["SERVER_UPDATE_SERVER"] ?? "http://127.0.0.1:20093"
 
+  func testManageDevicesRowRespondsToCenterTap() async throws {
+    continueAfterFailure = false
+    try await reset()
+    let app = launch()
+    try tap(app.buttons["server-settings"], app)
+    XCTAssertTrue(app.navigationBars["Server"].waitForExistence(timeout: 5))
+    try tap(app.buttons["server-manage-devices"], app, atCenter: true)
+    XCTAssertTrue(app.navigationBars["Manage devices"].waitForExistence(timeout: 5))
+    app.terminate()
+  }
+
+  func testViewUpdatesRowRespondsToCenterTap() async throws {
+    continueAfterFailure = false
+    try await reset()
+    let app = launch()
+    try tap(app.buttons["server-settings"], app)
+    XCTAssertTrue(app.navigationBars["Server"].waitForExistence(timeout: 5))
+    try tap(app.buttons["server-view-updates"], app, atCenter: true)
+    XCTAssertTrue(app.navigationBars["Updates"].waitForExistence(timeout: 5))
+    app.terminate()
+  }
+
   func testServerLinksToUpdatesWithIdleConfirmationAndRestartRecovery() async throws {
     continueAfterFailure = false
     try await reset()
@@ -18,11 +40,13 @@ import XCTest
     let devices = app.buttons["server-manage-devices"]
     for _ in 0..<6 where !devices.isHittable { app.swipeUp() }
     XCTAssertTrue(devices.isHittable)
-    devices.tap()
+    // Tap the empty space between the label and chevron. Plain button labels
+    // must give that space a hit area, too.
+    try tap(devices, app, atCenter: true)
     XCTAssertTrue(app.navigationBars["Manage devices"].waitForExistence(timeout: 5))
     app.navigationBars.buttons["Server"].tap()
     for _ in 0..<6 where !link.isHittable { app.swipeDown() }
-    try tap(link, app)
+    try tap(link, app, atCenter: true)
     XCTAssertTrue(app.navigationBars["Updates"].waitForExistence(timeout: 5))
     let start = app.buttons["server-update-start"]
     try wait { start.exists && start.isEnabled }
@@ -260,10 +284,25 @@ import XCTest
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
   }
-  private func tap(_ element: XCUIElement, _ app: XCUIApplication) throws {
-    for _ in 0..<6 where !element.isHittable { app.swipeUp() }
+  private func tap(_ element: XCUIElement, _ app: XCUIApplication, atCenter: Bool = false) throws {
+    for _ in 0..<8 {
+      // A restored list can expose part of a row behind the navigation bar.
+      // XCTest calls that row hittable but taps its covered center.
+      if atCenter && element.exists
+        && element.frame.midY <= app.navigationBars.firstMatch.frame.maxY + 8
+      {
+        app.swipeDown()
+      } else if !element.isHittable {
+        app.swipeUp()
+      } else { break }
+    }
     XCTAssertTrue(element.waitForExistence(timeout: 5))
-    element.tap()
+    if atCenter {
+      capture("center-tap-" + element.identifier, app)
+      element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    } else {
+      element.tap()
+    }
   }
   private func wait(_ condition: @escaping () -> Bool) throws {
     let predicate = NSPredicate { _, _ in condition() }

@@ -69,6 +69,16 @@ class PlatformAdaptersTest {
         assertEquals(ShortcutTarget("bot-1", true), shortcut)
     }
 
+    @Test fun launcherActionsPreserveTheirTargetIdentifiers() {
+        val open = AndroidShortcuts.target(Intent(AndroidShortcuts.ACTION_OPEN_CONVERSATION).putExtra("conversationId", "channel-1"))
+        assertEquals("channel-1", open?.conversationId)
+        assertEquals(AndroidShortcuts.ACTION_OPEN_CONVERSATION, open?.action)
+
+        val routine = AndroidShortcuts.target(Intent(AndroidShortcuts.ACTION_RUN_ROUTINE).putExtra("routineId", "routine-1"))
+        assertEquals("routine-1", routine?.routineId)
+        assertEquals(AndroidShortcuts.ACTION_RUN_ROUTINE, routine?.action)
+    }
+
     @Test fun verifiedAppLinksRejectUnconfiguredHostsAndMalformedHostValues() {
         val uri = android.net.Uri.parse("https://other.example/bots/bot-1")
         assertEquals(null, AndroidAppLinks.parse(uri, "example.test"))

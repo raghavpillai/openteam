@@ -95,6 +95,17 @@ data class SidebarPreferences(
                 },
             )
         }
+
+    fun renameSection(sectionId: String, name: String): SidebarPreferences =
+        copy(sections = sections.map { if (it.id == sectionId) it.copy(name = name.trim()) else it })
+
+    fun deleteSection(sectionId: String): SidebarPreferences =
+        copy(
+            sections = sections.filterNot { it.id == sectionId },
+            sectionByChannel = sectionByChannel.filterValues { it != sectionId },
+            channelOrderByGroup = channelOrderByGroup - sectionId,
+            unassignedCollapsed = false,
+        )
 }
 
 data class ChatMessage(
@@ -209,6 +220,7 @@ interface MobileGateway {
     suspend fun signOut() = Unit
     suspend fun signIn(server: String, username: String, credential: String): Result<MobileSession>
     suspend fun conversations(): List<Conversation>
+    suspend fun hiddenConversations(): List<Conversation> = emptyList()
     suspend fun search(query: String, category: String = "all"): List<SearchResult> = emptyList()
     suspend fun history(conversationId: String): List<ChatMessage>
     suspend fun historyPage(conversationId: String): ChatHistoryPage = ChatHistoryPage(history(conversationId))

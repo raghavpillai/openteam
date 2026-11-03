@@ -3,6 +3,19 @@ package com.openteam.platform
 import android.content.Intent
 import android.content.Context
 import android.net.Uri
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
+import android.graphics.drawable.Icon
+import androidx.appsearch.app.AppSearchSchema
+import androidx.appsearch.app.AppSearchSession
+import androidx.appsearch.app.GenericDocument
+import androidx.appsearch.app.PutDocumentsRequest
+import androidx.appsearch.app.SearchSpec
+import androidx.appsearch.app.SetSchemaRequest
+import androidx.appsearch.localstorage.LocalStorage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import java.util.Locale
@@ -81,19 +94,143 @@ object AndroidSharesheet {
         Intent.createChooser(contextIntent, title)
 }
 
-data class ShortcutTarget(val botId: String, val recordVoice: Boolean = false)
+data class ShortcutTarget(
+    val botId: String? = null,
+    val recordVoice: Boolean = false,
+    val conversationId: String? = null,
+    val routineId: String? = null,
+    val query: String? = null,
+    val action: String? = null,
+)
 
 object AndroidShortcuts {
     const val ACTION_RECORD_VOICE = "com.openteam.android.action.RECORD_VOICE"
+    const val ACTION_OPEN_CONVERSATION = "com.openteam.android.action.OPEN_CONVERSATION"
+    const val ACTION_OPEN_BOT = "com.openteam.android.action.OPEN_BOT"
+    const val ACTION_SEND_BOT_TASK = "com.openteam.android.action.SEND_BOT_TASK"
+    const val ACTION_FIND_MESSAGES = "com.openteam.android.action.FIND_MESSAGES"
+    const val ACTION_RUN_ROUTINE = "com.openteam.android.action.RUN_ROUTINE"
     const val EXTRA_BOT_ID = "botId"
 
     fun target(intent: Intent): ShortcutTarget? {
-        if (intent.action != ACTION_RECORD_VOICE) return null
-        val botId = intent.getStringExtra(EXTRA_BOT_ID)?.takeIf { it.isNotBlank() } ?: return null
-        return ShortcutTarget(botId, recordVoice = true)
+        return when (intent.action) {
+            ACTION_RECORD_VOICE -> ShortcutTarget(
+                botId = intent.getStringExtra(EXTRA_BOT_ID)?.takeIf(String::isNotBlank),
+                recordVoice = true,
+            )
+            ACTION_OPEN_CONVERSATION -> ShortcutTarget(
+                conversationId = intent.getStringExtra(EXTRA_CONVERSATION_ID)?.takeIf(String::isNotBlank),
+                action = ACTION_OPEN_CONVERSATION,
+            )
+            ACTION_OPEN_BOT -> ShortcutTarget(
+                botId = intent.getStringExtra(EXTRA_BOT_ID)?.takeIf(String::isNotBlank),
+                action = ACTION_OPEN_BOT,
+            )
+            ACTION_SEND_BOT_TASK -> ShortcutTarget(
+                botId = intent.getStringExtra(EXTRA_BOT_ID)?.takeIf(String::isNotBlank),
+                action = ACTION_SEND_BOT_TASK,
+            )
+            ACTION_FIND_MESSAGES -> ShortcutTarget(
+                query = intent.getStringExtra(EXTRA_QUERY),
+                action = ACTION_FIND_MESSAGES,
+            )
+            ACTION_RUN_ROUTINE -> ShortcutTarget(
+                routineId = intent.getStringExtra(EXTRA_ROUTINE_ID)?.takeIf(String::isNotBlank),
+                action = ACTION_RUN_ROUTINE,
+            )
+            else -> null
+        }
     }
 
     fun appActionIntent(botId: String): Intent = Intent(ACTION_RECORD_VOICE).putExtra(EXTRA_BOT_ID, botId)
+
+    fun openConversationIntent(context: Context, conversationId: String): Intent =
+        Intent(context, com.openteam.android.MainActivity::class.java)
+            .setAction(ACTION_OPEN_CONVERSATION)
+            .putExtra(EXTRA_CONVERSATION_ID, conversationId)
+
+    fun sendBotTaskIntent(context: Context, botId: String): Intent =
+        Intent(context, com.openteam.android.MainActivity::class.java)
+            .setAction(ACTION_SEND_BOT_TASK)
+            .putExtra(EXTRA_BOT_ID, botId)
+
+    fun openBotIntent(context: Context, botId: String): Intent =
+        Intent(context, com.openteam.android.MainActivity::class.java)
+            .setAction(ACTION_OPEN_BOT)
+            .putExtra(EXTRA_BOT_ID, botId)
+
+    fun findMessagesIntent(context: Context): Intent =
+        Intent(context, com.openteam.android.MainActivity::class.java).setAction(ACTION_FIND_MESSAGES)
+
+    fun runRoutineIntent(context: Context, routineId: String): Intent =
+        Intent(context, com.openteam.android.MainActivity::class.java)
+            .setAction(ACTION_RUN_ROUTINE)
+            .putExtra(EXTRA_ROUTINE_ID, routineId)
+
+    private const val EXTRA_CONVERSATION_ID = "conversationId"
+    private const val EXTRA_ROUTINE_ID = "routineId"
+    private const val EXTRA_QUERY = "query"
+}
+
+class AndroidLauncherShortcuts(private val context: Context) {
+    private val manager: ShortcutManager? = context.getSystemService(ShortcutManager::class.java)
+
+    fun publish(conversations: List<com.openteam.android.data.Conversation>, routines: List<com.openteam.features.Routine>) {
+        val shortcuts = buildList {
+            conversations.filter { it.isBot }.take(3).forEach { conversation ->
+                val botId = conversation.botId ?: return@forEach
+                add(
+                    ShortcutInfo.Builder(context, "bot:$botId")
+                        .setShortLabel(conversation.title.take(25))
+                        .setLongLabel("Send a task to ${conversation.title}".take(80))
+                        .setIcon(Icon.createWithResource(context, com.openteam.android.R.mipmap.ic_launcher))
+                        .setIntent(AndroidShortcuts.sendBotTaskIntent(context, botId))
+                        .build(),
+                )
+            }
+            conversations.filter { it.isBot }.take(2).forEach { conversation ->
+                val botId = conversation.botId ?: return@forEach
+                add(
+                    ShortcutInfo.Builder(context, "open-bot:$botId")
+                        .setShortLabel("Open ${conversation.title}".take(25))
+                        .setIcon(Icon.createWithResource(context, com.openteam.android.R.mipmap.ic_launcher))
+                        .setIntent(AndroidShortcuts.openBotIntent(context, botId))
+                        .build(),
+                )
+            }
+            conversations.take(3).forEach { conversation ->
+                add(
+                    ShortcutInfo.Builder(context, "conversation:${conversation.id}")
+                        .setShortLabel(conversation.title.take(25))
+                        .setLongLabel("Open ${conversation.title}".take(80))
+                        .setIcon(Icon.createWithResource(context, com.openteam.android.R.mipmap.ic_launcher))
+                        .setIntent(AndroidShortcuts.openConversationIntent(context, conversation.id))
+                        .build(),
+                )
+            }
+            add(
+                ShortcutInfo.Builder(context, "find-messages")
+                    .setShortLabel("Find messages")
+                    .setIcon(Icon.createWithResource(context, com.openteam.android.R.mipmap.ic_launcher))
+                    .setIntent(AndroidShortcuts.findMessagesIntent(context))
+                    .build(),
+            )
+            routines.take(2).forEach { routine ->
+                add(
+                    ShortcutInfo.Builder(context, "routine:${routine.id}")
+                        .setShortLabel("Run ${routine.name}".take(25))
+                        .setIcon(Icon.createWithResource(context, com.openteam.android.R.mipmap.ic_launcher))
+                        .setIntent(AndroidShortcuts.runRoutineIntent(context, routine.id))
+                        .build(),
+                )
+            }
+        }
+        manager?.setDynamicShortcuts(shortcuts.take(manager.maxShortcutCountPerActivity))
+    }
+
+    fun clear() {
+        manager?.removeAllDynamicShortcuts()
+    }
 }
 
 data class SearchableItem(val id: String, val title: String, val subtitle: String, val content: String, val deepLink: Uri)
@@ -201,5 +338,90 @@ class AndroidPersistentSearchIndex(context: Context) {
             }
         }
         return result
+    }
+}
+
+/** Publishes the active account's searchable projection to Android AppSearch. */
+class AndroidAppSearchIndex(context: Context) {
+    private val appContext = context.applicationContext
+
+    suspend fun replace(accountKey: String, values: List<SearchableItem>) = withContext(Dispatchers.IO) {
+        withSession { session ->
+            ensureSchema(session)
+            val namespace = namespace(accountKey)
+            session.removeAsync("", SearchSpec.Builder().addFilterNamespaces(namespace).build()).get()
+            put(session, namespace, values)
+        }
+    }
+
+    suspend fun upsert(accountKey: String, values: List<SearchableItem>) = withContext(Dispatchers.IO) {
+        withSession { session ->
+            ensureSchema(session)
+            put(session, namespace(accountKey), values)
+        }
+    }
+
+    suspend fun clear(accountKey: String) = withContext(Dispatchers.IO) {
+        withSession { session ->
+            ensureSchema(session)
+            session.removeAsync("", SearchSpec.Builder().addFilterNamespaces(namespace(accountKey)).build()).get()
+        }
+    }
+
+    private fun ensureSchema(session: AppSearchSession) {
+        session.setSchemaAsync(
+            SetSchemaRequest.Builder()
+                .addSchemas(
+                    listOf(
+                    AppSearchSchema.Builder(SCHEMA)
+                        .addProperty(AppSearchSchema.StringPropertyConfig.Builder("title").setCardinality(AppSearchSchema.PropertyConfig.CARDINALITY_OPTIONAL).setIndexingType(AppSearchSchema.StringPropertyConfig.INDEXING_TYPE_PREFIXES).build())
+                        .addProperty(AppSearchSchema.StringPropertyConfig.Builder("subtitle").setCardinality(AppSearchSchema.PropertyConfig.CARDINALITY_OPTIONAL).setIndexingType(AppSearchSchema.StringPropertyConfig.INDEXING_TYPE_PREFIXES).build())
+                        .addProperty(AppSearchSchema.StringPropertyConfig.Builder("content").setCardinality(AppSearchSchema.PropertyConfig.CARDINALITY_OPTIONAL).setIndexingType(AppSearchSchema.StringPropertyConfig.INDEXING_TYPE_PREFIXES).build())
+                        .addProperty(AppSearchSchema.StringPropertyConfig.Builder("deepLink").setCardinality(AppSearchSchema.PropertyConfig.CARDINALITY_REQUIRED).setIndexingType(AppSearchSchema.StringPropertyConfig.INDEXING_TYPE_NONE).build())
+                        .build(),
+                    ),
+                )
+                .setSchemaTypeDisplayedBySystem(SCHEMA, true)
+                .build(),
+        ).get()
+    }
+
+    private fun put(session: AppSearchSession, namespace: String, values: List<SearchableItem>) {
+        if (values.isEmpty()) return
+        val request = PutDocumentsRequest.Builder().apply {
+            values.forEach { item ->
+                addGenericDocument(
+                    GenericDocument.Builder(namespace, item.id, SCHEMA)
+                        .setPropertyString("title", item.title)
+                        .setPropertyString("subtitle", item.subtitle)
+                        .setPropertyString("content", item.content)
+                        .setPropertyString("deepLink", item.deepLink.toString())
+                        .build(),
+                )
+            }
+        }.build()
+        session.putAsync(request).get()
+    }
+
+    private fun <T> withSession(block: (AppSearchSession) -> T): T {
+        val session = LocalStorage.createSearchSessionAsync(
+            LocalStorage.SearchContext.Builder(appContext)
+                .setDatabaseName("openteam")
+                .build(),
+        ).get()
+        return try {
+            block(session)
+        } finally {
+            session.close()
+        }
+    }
+
+    private fun namespace(accountKey: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(accountKey.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
+    private companion object {
+        const val SCHEMA = "OpenTeamSearchItem"
     }
 }

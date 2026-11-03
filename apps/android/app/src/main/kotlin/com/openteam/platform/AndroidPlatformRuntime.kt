@@ -75,8 +75,28 @@ class AndroidPlatformRuntime(
         if (share != null) onShare(share)
         val shortcut = AndroidShortcuts.target(value)
         shortcut?.let {
-            if (it.recordVoice) onVoiceShortcut(it.botId)
-            onOpenDeepLink("openteam://chat/${Uri.encode(it.botId)}")
+            if (it.recordVoice) {
+                it.botId?.let { botId ->
+                    onVoiceShortcut(botId)
+                    onOpenDeepLink("openteam://chat/${Uri.encode(botId)}")
+                }
+            }
+            when (it.action) {
+                AndroidShortcuts.ACTION_OPEN_CONVERSATION -> it.conversationId?.let { id ->
+                    onOpenDeepLink("openteam://chat/${Uri.encode(id)}")
+                }
+                AndroidShortcuts.ACTION_SEND_BOT_TASK -> it.botId?.let { id ->
+                    val text = value.getStringExtra(Intent.EXTRA_TEXT)?.let { "&text=${Uri.encode(it)}" }.orEmpty()
+                    onOpenDeepLink("openteam://action/send-bot-task?id=${Uri.encode(id)}$text")
+                }
+                AndroidShortcuts.ACTION_OPEN_BOT -> it.botId?.let { id ->
+                    onOpenDeepLink("openteam://action/open-bot?id=${Uri.encode(id)}")
+                }
+                AndroidShortcuts.ACTION_FIND_MESSAGES -> onOpenDeepLink("openteam://action/find-messages")
+                AndroidShortcuts.ACTION_RUN_ROUTINE -> it.routineId?.let { id ->
+                    onOpenDeepLink("openteam://action/run-routine?id=${Uri.encode(id)}")
+                }
+            }
         }
         val appLink = value.data?.let { AndroidAppLinks.parse(it, appLinkHost) }
         if (appLink != null) {

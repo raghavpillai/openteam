@@ -110,6 +110,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -146,6 +148,7 @@ import com.openteam.platform.VoiceRecordingState
 import com.openteam.platform.AndroidVncWebViewRenderer
 import com.openteam.platform.ComputerVncGrant
 import com.openteam.platform.VncRendererState
+import com.openteam.platform.NativeAttachmentPreview
 import java.net.URI
 import java.time.Instant
 import java.time.LocalDate
@@ -174,6 +177,8 @@ private const val WEB_PROVIDERS = "web-providers"
 private const val PLUGINS = "plugins"
 private const val OUTBOX = "outbox"
 private const val ACCOUNT = "account"
+private const val SIDEBAR = "sidebar"
+private const val MESSAGE_SEARCH = "message-search"
 
 private enum class SignInStep { WELCOME, ENDPOINT, CREDENTIALS }
 
@@ -198,7 +203,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
         state.pendingOutgoingShare?.let { share ->
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = share.mimeType.ifBlank { "application/octet-stream" }
-                putExtra(Intent.EXTRA_STREAM, Uri.parse(share.uri))
+                putExtra(Intent.EXTRA_STREAM, NativeAttachmentPreview.contentUri(context, share.uri))
                 putExtra(Intent.EXTRA_TEXT, share.fileName)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
@@ -226,6 +231,26 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
         val action = state.pendingSystemAction ?: return@LaunchedEffect
         if (state.session == null) return@LaunchedEffect
         when {
+            action == "run-routine" -> {
+                state.pendingSystemIdentifier?.let(appViewModel::runRoutineById)
+                navController.navigate(ROUTINES)
+            }
+            action == "send-bot-task" -> {
+                val conversation = state.conversations.firstOrNull { it.botId == state.pendingSystemIdentifier }
+                if (conversation != null) {
+                    appViewModel.openConversation(conversation.id)
+                    state.pendingSystemPayload?.takeIf(String::isNotBlank)?.let(appViewModel::updateDraft)
+                    navController.navigate("chat/${conversation.id}")
+                } else {
+                    navController.navigate(DIRECTORY)
+                }
+            }
+            action == "find-messages" -> navController.navigate(MESSAGE_SEARCH)
+            action == "open-bot" -> {
+                val conversation = state.conversations.firstOrNull { it.botId == state.pendingSystemIdentifier }
+                if (conversation != null) navController.navigate("bot/${conversation.id}/details")
+                else navController.navigate(DIRECTORY)
+            }
             action.contains("routine", ignoreCase = true) -> navController.navigate(ROUTINES)
             action.contains("plugin", ignoreCase = true) -> navController.navigate(PLUGINS)
             action.contains("settings", ignoreCase = true) -> navController.navigate(SETTINGS)
@@ -452,6 +477,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onOutbox = { navController.navigate(OUTBOX) },
                 onAccount = { navController.navigate(ACCOUNT) },
                 onPlugins = { navController.navigate(PLUGINS) },
+                onSidebar = { navController.navigate(SIDEBAR) },
             )
         }
         composable(OUTBOX) {
@@ -470,6 +496,35 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onRetry = appViewModel::loadFeatureData,
                 onClearMemory = appViewModel::clearMemory,
                 onResetLocalData = appViewModel::resetLocalData,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(SIDEBAR) {
+            BackHandler { navController.popBackStack() }
+            SidebarManagementScreen(
+                sidebar = state.sidebar,
+                hidden = state.hiddenConversations,
+                onRename = appViewModel::renameSection,
+                onDeleteSection = appViewModel::deleteSection,
+                onUnhide = { appViewModel.setConversationHidden(it, false) },
+                onDeleteConversation = appViewModel::deleteConversation,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(MESSAGE_SEARCH) {
+            BackHandler { navController.popBackStack() }
+            MessageSearchScreen(
+                results = state.searchResults,
+                loading = state.searchLoading,
+                error = state.searchError,
+                conversations = state.conversations,
+                onSearch = { query -> appViewModel.search(query, "messages") },
+                onOpen = { result ->
+                    result.channelId?.let { channelId ->
+                        appViewModel.openConversation(channelId, result.messageId)
+                        navController.navigate("chat/$channelId")
+                    }
+                },
                 onBack = { navController.popBackStack() },
             )
         }
@@ -580,6 +635,116 @@ private fun OutboxScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SidebarManagementScreen(
+    sidebar: SidebarPreferences,
+    hidden: List<Conversation>,
+    onRename: (String, String) -> Unit,
+    onDeleteSection: (String) -> Unit,
+    onUnhide: (Conversation) -> Unit,
+    onDeleteConversation: (Conversation) -> Unit,
+    onBack: () -> Unit,
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                title = { Text("Organize conversations") },
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp),
+        ) {
+            item { Text("Sections", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            if (sidebar.sections.isEmpty()) {
+                item { Text("No custom sections yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            items(sidebar.sections, key = { "section:${it.id}" }) { section ->
+                var name by remember(section.id, section.name) { mutableStateOf(section.name) }
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(name, { name = it }, label = { Text("Section name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { onRename(section.id, name) }, enabled = name.trim().isNotEmpty()) { Text("Save") }
+                            TextButton(onClick = { onDeleteSection(section.id) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                        }
+                    }
+                }
+            }
+            item {
+                Spacer(Modifier.height(8.dp))
+                Text("Hidden conversations", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+            if (hidden.isEmpty()) {
+                item { Text("No hidden conversations.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            items(hidden, key = { "hidden:${it.id}" }) { conversation ->
+                Card(Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(conversation.title, fontWeight = FontWeight.Medium)
+                            Text(conversation.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = { onUnhide(conversation) }) { Text("Unhide") }
+                        TextButton(onClick = { onDeleteConversation(conversation) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageSearchScreen(
+    results: List<SearchResult>,
+    loading: Boolean,
+    error: String?,
+    conversations: List<Conversation>,
+    onSearch: (String) -> Unit,
+    onOpen: (SearchResult) -> Unit,
+    onBack: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    LaunchedEffect(query) { onSearch(query) }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                title = { Text("Find messages") },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+            OutlinedTextField(
+                query,
+                { query = it },
+                label = { Text("Search messages") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            Spacer(Modifier.height(12.dp))
+            if (loading) {
+                CircularProgressIndicator()
+            } else if (error != null) {
+                Text(error, color = MaterialTheme.colorScheme.error)
+            } else if (query.isBlank()) {
+                Text("Enter a phrase to search messages.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                SearchResultsList(
+                    results = results,
+                    loading = loading,
+                    error = error,
+                    conversations = conversations,
+                    onSelect = onOpen,
+                )
             }
         }
     }
@@ -2473,16 +2638,17 @@ private fun MessageBubble(
     onContext: (String) -> Unit,
 ) {
     var previewAttachment by remember(message.id) { mutableStateOf<Attachment?>(null) }
+    val context = LocalContext.current
     previewAttachment?.let { attachment ->
-        val bitmap = attachment.localUri?.let(BitmapFactory::decodeFile)
-        AlertDialog(
-            onDismissRequest = { previewAttachment = null },
-            title = { Text(attachment.name) },
-            text = {
-                if (bitmap != null) Image(bitmap.asImageBitmap(), attachment.alt ?: attachment.name, Modifier.fillMaxWidth())
-                else Text("This attachment cannot be previewed on this device.")
+        AttachmentGalleryDialog(
+            attachments = message.attachments,
+            initialId = attachment.id,
+            onDismiss = { previewAttachment = null },
+            onOpenDocument = { item ->
+                NativeAttachmentPreview.open(context, item).onFailure {
+                    previewAttachment = null
+                }
             },
-            confirmButton = { TextButton(onClick = { previewAttachment = null }) { Text("Close") } },
         )
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.isMine) Arrangement.End else Arrangement.Start) {
@@ -2525,7 +2691,7 @@ private fun MessageBubble(
                         ChatAttachmentStrip(
                             attachments = message.attachments,
                             onPreview = { attachment, _ ->
-                                if (attachment.localUri != null && attachment.mimeType.startsWith("image/")) previewAttachment = attachment
+                                if (attachment.localUri != null) previewAttachment = attachment
                                 else onDownload(message.id, attachment)
                             },
                             onDownload = { attachment, _ -> onDownload(message.id, attachment) },
@@ -2571,6 +2737,45 @@ private fun MessageBubble(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentGalleryDialog(
+    attachments: List<Attachment>,
+    initialId: String,
+    onDismiss: () -> Unit,
+    onOpenDocument: (Attachment) -> Unit,
+) {
+    var index by remember(initialId) {
+        mutableStateOf(attachments.indexOfFirst { it.id == initialId }.coerceAtLeast(0))
+    }
+    val current = attachments.getOrNull(index) ?: return
+    val bitmap = current.localUri?.let(BitmapFactory::decodeFile)
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(current.name, Modifier.weight(1f), color = Color.White, maxLines = 1)
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
+                }
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    if (bitmap != null) {
+                        Image(bitmap.asImageBitmap(), current.alt ?: current.name, Modifier.fillMaxWidth())
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(current.mimeType.ifBlank { "Document" }, color = Color.White)
+                            TextButton(onClick = { onOpenDocument(current) }) { Text("Open with Android", color = Color.White) }
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = { index = (index - 1).coerceAtLeast(0) }, enabled = index > 0) { Text("Previous", color = Color.White) }
+                    Text("${index + 1} / ${attachments.size}", color = Color.White)
+                    TextButton(onClick = { index = (index + 1).coerceAtMost(attachments.lastIndex) }, enabled = index < attachments.lastIndex) { Text("Next", color = Color.White) }
                 }
             }
         }

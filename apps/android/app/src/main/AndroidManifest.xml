@@ -13,6 +13,9 @@
         <meta-data
             android:name="com.openteam.android.APP_LINK_HOST"
             android:value="${openteamAppLinkHost}" />
+        <meta-data
+            android:name="android.app.shortcuts"
+            android:resource="@xml/shortcuts" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -54,6 +57,11 @@
             </intent-filter>
             <intent-filter>
                 <action android:name="com.openteam.android.action.RECORD_VOICE" />
+                <action android:name="com.openteam.android.action.OPEN_CONVERSATION" />
+                <action android:name="com.openteam.android.action.OPEN_BOT" />
+                <action android:name="com.openteam.android.action.SEND_BOT_TASK" />
+                <action android:name="com.openteam.android.action.FIND_MESSAGES" />
+                <action android:name="com.openteam.android.action.RUN_ROUTINE" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
@@ -64,5 +72,14 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

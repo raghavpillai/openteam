@@ -74,6 +74,8 @@
     <string name="directory_spaces_detail">人员和频道，集中在一起。</string>
     <string name="directory_no_messages">还没有消息</string>
     <string name="directory_section_unassigned">未分组</string>
+    <string name="shortcut_find_messages">查找消息</string>
+    <string name="shortcut_find_messages_long">搜索 OpenTeam 消息</string>
     <string name="directory_pin">Pin 到顶部</string>
     <string name="directory_unpin">取消 Pin</string>
     <string name="directory_move_to_section">移动到「%1$s」</string>

@@ -74,6 +74,8 @@
     <string name="directory_spaces_detail">People and channels, together.</string>
     <string name="directory_no_messages">No messages yet</string>
     <string name="directory_section_unassigned">Unassigned</string>
+    <string name="shortcut_find_messages">Find messages</string>
+    <string name="shortcut_find_messages_long">Search OpenTeam messages</string>
     <string name="directory_pin">Pin to top</string>
     <string name="directory_unpin">Unpin</string>
     <string name="directory_move_to_section">Move to \"%1$s\"</string>

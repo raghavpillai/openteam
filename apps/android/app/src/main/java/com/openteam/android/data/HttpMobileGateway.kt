@@ -196,6 +196,43 @@ class HttpMobileGateway(context: Context) :
         return directory
     }
 
+    override suspend fun hiddenConversations(): List<Conversation> {
+        ensureConnected()
+        val hiddenBots = request(HttpMethod.GET, "/api/v0/bots?includeHidden=1")
+            .arrayAt("bots", "value")
+            .mapNotNull { it.jsonObjectOrNull() }
+            .filter { it.boolean("hiddenFromSidebar") }
+            .mapNotNull { bot ->
+                val channelId = bot.string("dmChannelId", "conversationId").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                Conversation(
+                    id = channelId,
+                    title = bot.botDisplayName().ifBlank { "Conversation" },
+                    subtitle = bot.string("description"),
+                    avatarColor = bot.string("color"),
+                    avatarUrl = bot.string("avatarUrl", "avatar").ifBlank { null },
+                    botId = bot.string("id").ifBlank { null },
+                    isBot = true,
+                    notificationsEnabled = bot.boolean("notificationsEnabled", true),
+                    botIcon = bot.string("icon"),
+                    botInstructions = bot.string("instructions"),
+                )
+            }
+        val hiddenGroups = request(HttpMethod.GET, "/api/v0/groups?includeHidden=1")
+            .arrayAt("groups", "value")
+            .mapNotNull { it.jsonObjectOrNull() }
+            .filter { it.boolean("hiddenFromSidebar") }
+            .map { channel ->
+                Conversation(
+                    id = channel.string("id"),
+                    title = channel.string("name").ifBlank { "Group" },
+                    subtitle = channel.string("description"),
+                    isGroup = true,
+                    memberBotIds = channel.arrayAt("members").mapNotNull { it.jsonObjectOrNull()?.string("botId")?.takeIf(String::isNotBlank) },
+                )
+            }
+        return hiddenBots + hiddenGroups
+    }
+
     override suspend fun search(query: String, category: String): List<SearchResult> {
         val activeServer = ensureConnected()
         val path = "/api/search?q=${pathSegment(query.take(200))}&category=${pathSegment(category)}"
@@ -590,7 +627,8 @@ class HttpMobileGateway(context: Context) :
     private fun JsonObject.int(name: String): Int = this[name]?.jsonPrimitive?.intOrNull ?: 0
     private fun JsonObject.boolean(name: String, default: Boolean = false): Boolean = this[name]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: default
     private fun JsonObject.objectAt(name: String): JsonObject = this[name]?.jsonObjectOrNull() ?: JsonObject(emptyMap())
-    private fun JsonObject.arrayAt(name: String): List<kotlinx.serialization.json.JsonElement> = this[name]?.jsonArray ?: emptyList()
+    private fun JsonObject.arrayAt(vararg names: String): List<kotlinx.serialization.json.JsonElement> =
+        names.firstNotNullOfOrNull { this[it]?.jsonArray } ?: emptyList()
     private fun JsonObject.toChatMessage(): ChatMessage {
         val message = runCatching { mobileJson.decodeFromJsonElement(MobileMessage.serializer(), this) }
             .getOrElse {

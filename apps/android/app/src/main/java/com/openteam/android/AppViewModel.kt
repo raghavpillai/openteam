@@ -42,6 +42,8 @@ import com.openteam.features.WebProvidersState
 import com.openteam.features.UnsupportedFeatureGateway
 import com.openteam.platform.SharePayload
 import com.openteam.platform.AndroidPersistentSearchIndex
+import com.openteam.platform.AndroidAppSearchIndex
+import com.openteam.platform.AndroidLauncherShortcuts
 import com.openteam.platform.SearchableItem
 import com.openteam.platform.AndroidVoiceCapture
 import com.openteam.platform.ComputerVncGrant
@@ -71,6 +73,7 @@ import java.net.URLDecoder
 data class AppState(
     val session: MobileSession? = null,
     val conversations: List<Conversation> = emptyList(),
+    val hiddenConversations: List<Conversation> = emptyList(),
     val searchResults: List<SearchResult> = emptyList(),
     val searchLoading: Boolean = false,
     val searchError: String? = null,
@@ -95,6 +98,7 @@ data class AppState(
     val pendingExternalUrl: String? = null,
     val pendingSystemAction: String? = null,
     val pendingSystemIdentifier: String? = null,
+    val pendingSystemPayload: String? = null,
     val pendingOutgoingShare: OutgoingShare? = null,
     val outbox: List<PendingSend> = emptyList(),
     val features: FeatureState = FeatureState(),
@@ -121,6 +125,8 @@ class AppViewModel @JvmOverloads constructor(
 ) : AndroidViewModel(application) {
     private val settingsPreferences = application.getSharedPreferences("openteam-settings", 0)
     private val systemSearch = AndroidPersistentSearchIndex(application)
+    private val appSearch = AndroidAppSearchIndex(application)
+    private val launcherShortcuts = AndroidLauncherShortcuts(application)
     private var activeGateway: MobileGateway = gateway
     private var activeFeatureGateway: FeatureGateway = featureGateway
         ?: (gateway as? MobileFeatureApi)?.let(::LiveFeatureGateway)
@@ -164,6 +170,7 @@ class AppViewModel @JvmOverloads constructor(
                 it.copy(
                     pendingSystemAction = actionUri.path.orEmpty().trim('/').ifBlank { null },
                     pendingSystemIdentifier = actionUri.getQueryParameterCompat("id"),
+                    pendingSystemPayload = actionUri.getQueryParameterCompat("text"),
                 )
             }
             return
@@ -191,7 +198,7 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     fun consumeSystemAction() {
-        mutableState.update { it.copy(pendingSystemAction = null, pendingSystemIdentifier = null) }
+        mutableState.update { it.copy(pendingSystemAction = null, pendingSystemIdentifier = null, pendingSystemPayload = null) }
     }
 
     fun acceptShare(payload: SharePayload) {
@@ -336,6 +343,13 @@ class AppViewModel @JvmOverloads constructor(
             runCatching { activeGateway.conversations() }
                 .onSuccess { rows ->
                     mutableState.update { it.copy(conversations = rows) }
+                    val searchItems = rows.map { row ->
+                        SearchableItem(row.id, row.title, row.subtitle, row.preview.orEmpty(), android.net.Uri.parse("openteam://chat/${android.net.Uri.encode(row.id)}"))
+                    }
+                    mutableState.value.session?.let { session ->
+                        viewModelScope.launch { appSearch.replace(accountScope(session), searchItems) }
+                    }
+                    launcherShortcuts.publish(rows, currentRoutines())
                     mutableState.value.session?.let { session ->
                         systemSearch.replace(accountScope(session), rows.map { row ->
                             SearchableItem(row.id, row.title, row.subtitle, row.preview.orEmpty(), android.net.Uri.parse("openteam://chat/${android.net.Uri.encode(row.id)}"))
@@ -346,6 +360,8 @@ class AppViewModel @JvmOverloads constructor(
             // Load pins and grouping after the directory so both requests settle in order.
             runCatching { activeGateway.sidebarPreferences() }
                 .onSuccess { preferences -> mutableState.update { it.copy(sidebar = preferences) } }
+            runCatching { activeGateway.hiddenConversations() }
+                .onSuccess { hidden -> mutableState.update { it.copy(hiddenConversations = hidden) } }
         }
     }
 
@@ -409,6 +425,23 @@ class AppViewModel @JvmOverloads constructor(
         saveSidebar(mutableState.value.sidebar.toggleSection(sectionId))
     }
 
+    fun renameSection(sectionId: String, name: String) {
+        if (name.trim().isEmpty() || name.length > 120) return
+        saveSidebar(mutableState.value.sidebar.renameSection(sectionId, name))
+    }
+
+    fun deleteSection(sectionId: String) {
+        saveSidebar(mutableState.value.sidebar.deleteSection(sectionId))
+    }
+
+    fun loadHiddenConversations() {
+        viewModelScope.launch {
+            runCatching { activeGateway.hiddenConversations() }
+                .onSuccess { hidden -> mutableState.update { it.copy(hiddenConversations = hidden) } }
+                .onFailure { error -> mutableState.update { it.copy(error = error.message) } }
+        }
+    }
+
     /** Applies a sidebar change optimistically, then persists it to the server. */
     private fun saveSidebar(next: SidebarPreferences) {
         val previous = mutableState.value.sidebar
@@ -446,6 +479,14 @@ class AppViewModel @JvmOverloads constructor(
                             hasMoreHistory = page.hasMoreBefore,
                             historyLoading = false,
                         )
+                    }
+                    mutableState.value.session?.let { activeSession ->
+                        viewModelScope.launch {
+                            appSearch.upsert(
+                                accountScope(activeSession),
+                                searchableItems(emptyList(), page.messages),
+                            )
+                        }
                     }
                     markConversationRead(id, page.messages)
                 }
@@ -726,6 +767,10 @@ class AppViewModel @JvmOverloads constructor(
                             historyLoading = false,
                         )
                     }
+                    mutableState.value.session?.let { session ->
+                        val items = searchableItems(emptyList(), page.messages)
+                        viewModelScope.launch { appSearch.upsert(accountScope(session), items) }
+                    }
                     markConversationRead(conversationId, page.messages)
                 }
         }
@@ -748,6 +793,25 @@ class AppViewModel @JvmOverloads constructor(
                 }
         }
     }
+
+    private fun searchableItems(conversations: List<Conversation>, messages: List<ChatMessage>): List<SearchableItem> =
+        conversations.map { row ->
+            SearchableItem(
+                row.id,
+                row.title,
+                row.subtitle,
+                row.preview.orEmpty(),
+                android.net.Uri.parse("openteam://chat/${android.net.Uri.encode(row.id)}"),
+            )
+        } + messages.map { message ->
+            SearchableItem(
+                "message:${message.id}",
+                message.author,
+                message.channelId,
+                message.displayBody.orEmpty(),
+                android.net.Uri.parse("openteam://chat/${android.net.Uri.encode(message.channelId)}?message=${android.net.Uri.encode(message.id)}"),
+            )
+        }
 
     fun uploadChatAttachment(uri: String) {
         runFeatureOperation {
@@ -880,7 +944,7 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     fun setConversationHidden(conversation: Conversation, hidden: Boolean) {
-        runConversationMutation {
+        runConversationMutation(after = { loadHiddenConversations() }) {
             if (conversation.isBot && conversation.botId != null) {
                 request(
                     HttpMethod.PATCH,
@@ -935,10 +999,11 @@ class AppViewModel @JvmOverloads constructor(
         return api.request(method, path, body)
     }
 
-    private fun runConversationMutation(operation: suspend () -> Unit) {
+    private fun runConversationMutation(after: suspend () -> Unit = {}, operation: suspend () -> Unit) {
         runFeatureOperation {
             operation()
             loadDirectory()
+            after()
         }
     }
 
@@ -984,8 +1049,10 @@ class AppViewModel @JvmOverloads constructor(
             drafts.clearAccount(accountScope(it))
             outboxStore.clear(accountScope(it))
             systemSearch.clear(accountScope(it))
+            viewModelScope.launch { appSearch.clear(accountScope(it)) }
             indexedAccount = null
         }
+        launcherShortcuts.clear()
         syncJob?.cancel()
         outboxJob?.cancel()
         viewModelScope.launch { runCatching { activeGateway.signOut() } }
@@ -1115,6 +1182,13 @@ class AppViewModel @JvmOverloads constructor(
         }
     }
 
+    fun runRoutineById(routineId: String) {
+        if (routineId.isBlank()) return
+        runFeatureOperation {
+            activeFeatureGateway.runRoutine(routineId).onSuccess { loadRoutines() }.onFailure(::reportFeatureFailure)
+        }
+    }
+
     fun clearMemory() {
         runFeatureOperation {
             activeFeatureGateway.clearMemory().onSuccess { loadAccountMemory() }.onFailure(::reportFeatureFailure)
@@ -1239,9 +1313,13 @@ class AppViewModel @JvmOverloads constructor(
             mutableState.update { it.copy(features = it.features.copy(routines = FeatureLoadState.Loading)) }
             activeFeatureGateway.listRoutines("").onSuccess { value ->
                 mutableState.update { it.copy(features = it.features.copy(routines = if (value.isEmpty()) FeatureLoadState.Empty("No routines yet") else FeatureLoadState.Ready(value))) }
+                launcherShortcuts.publish(mutableState.value.conversations, value)
             }.onFailure { error -> mutableState.update { it.copy(features = it.features.copy(routines = FeatureLoadState.Failure(error.message ?: "Could not load routines"))) } }
         }
     }
+
+    private fun currentRoutines(): List<Routine> =
+        (mutableState.value.features.routines as? FeatureLoadState.Ready<List<Routine>>)?.value.orEmpty()
 
     private fun loadAccountMemory() {
         viewModelScope.launch {

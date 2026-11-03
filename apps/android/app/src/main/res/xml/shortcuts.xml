@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="find-messages"
+        android:shortcutLongLabel="@string/shortcut_find_messages_long"
+        android:shortcutShortLabel="@string/shortcut_find_messages">
+        <intent
+            android:action="com.openteam.android.action.FIND_MESSAGES"
+            android:targetClass="com.openteam.android.MainActivity"
+            android:targetPackage="${applicationId}" />
+    </shortcut>
+</shortcuts>

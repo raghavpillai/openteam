@@ -529,6 +529,7 @@ fun SettingsScreen(
     onOutbox: () -> Unit,
     onAccount: () -> Unit,
     onPlugins: () -> Unit,
+    onSidebar: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
     val language = settings.language
@@ -679,6 +680,7 @@ fun SettingsScreen(
                     )
                     SettingsActionRow(text("Account and memory", "账户与记忆"), text("Review account data and saved memories", "查看账户数据和已保存的记忆"), text("Open", "打开"), onAccount)
                     SettingsActionRow(text("Plugins", "插件"), text("Manage installed connections and tools", "管理已安装的连接和工具"), text("Open", "打开"), onPlugins)
+                    SettingsActionRow(text("Organize conversations", "整理会话"), text("Rename sections and manage hidden conversations", "重命名分区并管理隐藏会话"), text("Open", "打开"), onSidebar)
                     SettingsActionRow(text("AI model", "AI 模型"), text("Choose the provider and model used by bots", "选择 Bot 使用的服务商和模型"), text("Open", "打开"), onProviders)
                     SettingsActionRow(text("Web providers", "网络服务商"), text("Choose search and page-fetch services", "选择搜索和网页抓取服务"), text("Open", "打开"), onWebProviders)
                 }

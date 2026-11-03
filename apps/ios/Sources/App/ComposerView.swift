@@ -518,6 +518,9 @@ struct ComposerView: View {
     Task {
       uploading = true
       defer { uploading = false }
+      // One pick that can't be added (an iCloud failure, an oversized video) drops
+      // only itself; the rest still land, and the first problem is reported once.
+      var failure: Error?
       for (pick, item) in zip(picks, items) {
         do {
           let media = try await pick.load { value in
@@ -534,11 +537,13 @@ struct ComposerView: View {
           }
           withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { pending.removeAll { $0.id == item.id } }
         } catch {
-          withAnimation { pending.removeAll { items.map(\.id).contains($0.id) } }
-          NativeHaptics.failure(error, source: "composer.error")
-          store.handle(error)
-          break
+          withAnimation { pending.removeAll { $0.id == item.id } }
+          if failure == nil { failure = error }
         }
+      }
+      if let failure {
+        NativeHaptics.failure(failure, source: "composer.error")
+        store.handle(failure)
       }
     }
   }

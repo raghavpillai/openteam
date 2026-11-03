@@ -78,6 +78,20 @@ describe("GrokBot input parity at the runtime boundary", () => {
   );
 
   test.skipIf(!Bun.which("pdftotext"))(
+    "knows a large PDF by its header too, instead of streaming it as text",
+    async () => {
+      const root = await temporary();
+      const file = join(root, "1089646.data");
+      const pdf = await readFile(new URL("./fixtures/input-parity/three-pages.pdf", import.meta.url));
+      // Past the 8 MiB streaming threshold; PDF readers ignore bytes after the end marker.
+      await writeFile(file, Buffer.concat([pdf, Buffer.alloc(9 * 1024 * 1024, 0x0a)]));
+      const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+      const result = await executor.read({ path: file }, root);
+      expect((result.content[0] as { text: string }).text).toContain("-- 1 of 3 --");
+    }
+  );
+
+  test.skipIf(!Bun.which("pdftotext"))(
     "reads a PDF whole with the reference's page markers, and a PDF without a text layer as just its markers",
     async () => {
       const root = await temporary();

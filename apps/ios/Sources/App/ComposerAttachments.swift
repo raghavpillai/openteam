@@ -307,6 +307,18 @@ private struct ViewerCircle: View {
     observer = nil
     ended = nil
   }
+  // The gallery's Close only pauses, so the observers go with the player.
+  isolated deinit { stop() }
+}
+
+@MainActor private final class PlaybackHolder {
+  private var made: VideoPlayback?
+  func playback(for asset: AVURLAsset) -> VideoPlayback {
+    if let made { return made }
+    let playback = VideoPlayback(asset: asset)
+    made = playback
+    return playback
+  }
 }
 
 private struct PlayerSurface: UIViewRepresentable {
@@ -333,7 +345,10 @@ struct ComposerVideoViewer: View {
   /// False inside the gallery, which has one Close for every page.
   var showsClose = true
   var closing: () -> Void = {}
-  @State private var playback: VideoPlayback
+  /// Built on first use rather than in init: SwiftUI runs init on every parent
+  /// update, and each throwaway player would load the asset and add observers.
+  @State private var holder = PlaybackHolder()
+  private var playback: VideoPlayback { holder.playback(for: video.asset) }
   @State private var saved = false
   @State private var sharing: URL?
   @State private var failure: String?
@@ -342,7 +357,6 @@ struct ComposerVideoViewer: View {
     self.active = active
     self.showsClose = showsClose
     self.closing = closing
-    _playback = State(initialValue: VideoPlayback(asset: video.asset))
   }
   var body: some View {
     ZStack {

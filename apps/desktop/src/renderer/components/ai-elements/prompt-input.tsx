@@ -9,7 +9,7 @@ import {
 } from "@openteam/product-core/attachments";
 import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { File, Paperclip, X } from "lucide-react";
+import { Paperclip, X } from "lucide-react";
 import type {
   ClipboardEvent,
   FormEvent,

@@ -53,9 +53,12 @@ test.skipIf(!databaseUrl)(
           });
         if (path !== "/v1/turns") return Response.json({ ok: true, quarantined: [] });
         const input = (await request.json()) as ComputerTurnRequest;
+        // The reminder lists every routine's name. Dispatch the fake from this
+        // turn's query so an older routine cannot accidentally launch more Tasks.
+        const query = /<user_query>\n([\s\S]*?)\n<\/user_query>/.exec(input.content)?.[1] ?? input.content;
         turns.push(input);
-        if (input.content.includes("WP_BLOCK_AUTOMATION")) await automationGate;
-        if (input.content.includes("WP_CONCURRENT_PARENT")) await parentGate;
+        if (query.includes("WP_BLOCK_AUTOMATION")) await automationGate;
+        if (query.includes("WP_CONCURRENT_PARENT")) await parentGate;
         const call = (tool: string, args: unknown, callId = crypto.randomUUID()) =>
           Effect.runPromise(
             app!.handleDynamicTool({
@@ -73,32 +76,32 @@ test.skipIf(!databaseUrl)(
         try {
           if (input.runtimeProfile === "subagent") {
             await expect(call("Task", { description: "Forbidden nested task", prompt: "Never launch" })).rejects.toThrow("parent-agent only");
-            if (input.content.includes("WP_MANAGED_CHILD")) await managedChildGate;
-            if (input.content.includes("WP_ROUTINE_CHILD")) await routineChildGate;
+            if (query.includes("WP_MANAGED_CHILD")) await managedChildGate;
+            if (query.includes("WP_ROUTINE_CHILD")) await routineChildGate;
             if (input.subagentType === "computerUse") {
               expect(input.taskConfiguration).toMatchObject({ graphicalAvailable: true });
               expect(input.instructions).toStartWith("You are OpenTeam running as the computerUse subagent.");
               expect(input.model).not.toContain("ignored-model");
             }
-            final = input.content.includes("WP_ROUTINE_CHILD") ? "WP_ROUTINE_CHILD_RESULT" : input.content.includes("WP_FOREGROUND_CHILD") ? "WP_FOREGROUND_RESULT" : "WP_CHILD_RESULT: checked the fixture successfully.";
+            final = query.includes("WP_ROUTINE_CHILD") ? "WP_ROUTINE_CHILD_RESULT" : query.includes("WP_FOREGROUND_CHILD") ? "WP_FOREGROUND_RESULT" : "WP_CHILD_RESULT: checked the fixture successfully.";
           } else if (input.requestSource === "automation") {
             expect(input.instructions).toContain("WakeParent is the only way to reach the user or another agent");
             await expect(
               call("SendToUser", { type: "text", content: "Must never appear" })
             ).rejects.toThrow("Automation runs cannot mutate the visible transcript.");
-            if (input.content.includes("WP_SHELL_FINISHED")) {
+            if (query.includes("WP_SHELL_FINISHED")) {
               final = "WP_SHELL_SILENT: background shell completed.";
-            } else if (input.content.includes("WP_ROUTINE_CHILD_RESULT")) {
+            } else if (query.includes("WP_ROUTINE_CHILD_RESULT")) {
               final = "WP_FINAL_SILENT: child and verification completed.";
-            } else if (input.content.includes("WP_WAIT_CHILD")) {
+            } else if (query.includes("WP_WAIT_CHILD")) {
               await call("Task", { description: "Gated routine child", prompt: "WP_ROUTINE_CHILD", subagent_type: "executor", run_in_background: true });
               final = "WP_WAITING: waiting for the child, not the final result.";
-            } else if (input.content.includes("WP_CHILD_RESULT")) {
+            } else if (query.includes("WP_CHILD_RESULT")) {
               expect(input.sessionPath).not.toBeNull();
               await call("WakeParent", {
                 message: "WP_DELEGATED_SUCCESS: Tell the user the delegated check completed.",
               });
-            } else if (input.content.includes("WP_DELEGATE")) {
+            } else if (query.includes("WP_DELEGATE")) {
               await call("Task", {
                 description: "Delegated automation check",
                 prompt: "Return WP_CHILD_RESULT.",
@@ -111,7 +114,7 @@ test.skipIf(!databaseUrl)(
                 model: "ignored-model",
                 run_in_background: false,
               });
-            } else if (input.content.includes("WP_ALERT")) {
+            } else if (query.includes("WP_ALERT")) {
               const first = await call("WakeParent", {
                 message: "WP_ALERT_RESULT: Notify the user that the check found a change.",
               });
@@ -124,7 +127,7 @@ test.skipIf(!databaseUrl)(
               final = "WP_SILENT_RESULT: no changes; saved for the next normal turn.";
             }
           } else {
-            if (input.content.includes("WP_FOREGROUND_PARENT")) {
+            if (query.includes("WP_FOREGROUND_PARENT")) {
               // A Settings edit during a run must not change the model selected for its subsequent Tasks.
               await Effect.runPromise(app!.updateTaskSettings({ graphicalAvailable: false, executorProfiles: [] }));
               const result=await call("Task",{description:"Foreground fixture",prompt:"WP_FOREGROUND_CHILD",subagent_type:"executor",run_in_background:false,model:"quick"});
@@ -147,13 +150,13 @@ test.skipIf(!databaseUrl)(
               await Effect.runPromise(app!.updateTaskSettings(input.taskConfiguration));
               await call("SendToUser",{type:"text",content:"Foreground child finished.",end_turn:true});
             } else {
-            if (input.content.includes("WP_READ_SILENT"))
+            if (query.includes("WP_READ_SILENT"))
               expect(JSON.stringify(input.prependMessages)).toContain("WP_SILENT_RESULT");
             await call("SendToUser", {
               type: "text",
-              content: input.content.includes("WP_DELEGATED_SUCCESS")
+              content: query.includes("WP_DELEGATED_SUCCESS")
                 ? "Delegated check complete."
-                : input.content.includes("WP_ALERT_RESULT")
+                : query.includes("WP_ALERT_RESULT")
                   ? "The check found a change."
                   : "Fixture parent reply.",
               end_turn: true,
@@ -183,7 +186,7 @@ test.skipIf(!databaseUrl)(
           },
           { type: "turn.started", turnId: input.runId },
           { type: "prompt.delivered", turnId: input.runId },
-          ...(input.content.includes("WP_SHELL_PENDING") ? [{ type: "item.completed", turnId: input.runId,
+          ...(query.includes("WP_SHELL_PENDING") ? [{ type: "item.completed", turnId: input.runId,
             item: { id: "background-shell", type: "commandExecution", command: "sleep 10", shellKind: "background", status: "completed", result: { details: { shellId: "fixture-shell", status: "running", outputPath: "/tmp/WP_SHELL_FINISHED.log" } } } }] : []),
           ...(final
             ? [
@@ -268,8 +271,13 @@ test.skipIf(!databaseUrl)(
       const foregroundTurns = turns.filter(turn => turn.botId === foreground.childBotId);
       expect(foregroundTurns).toHaveLength(1);
       expect(foregroundTurns.every(turn => turn.model === foreground.model && turn.reasoning === "low")).toBe(true);
-      // The parent can still publish its final response after SendToUser returns.
-      await until(async () => (await app!.prisma.botRunLease.count({ where: { botId } })) === 0);
+      // Task dispatch is asynchronous: a completed foreground parent can still
+      // have children and queued revivals that will publish later. Drain that
+      // family before measuring the independent silent automation's effects.
+      await until(async () => (await app!.prisma.inboxEvent.count({ where: {
+        status: { in: ["pending", "processing"] },
+        bot: { OR: [{ id: botId }, { subagentIdentity: { parentBotId: botId } }] },
+      } })) === 0);
       const initialVisible = await app.prisma.channelMessage.count({ where: { channelId } });
       const execute = async (marker: string) => {
         const routine = await Effect.runPromise(

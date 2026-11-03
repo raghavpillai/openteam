@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -603,7 +602,11 @@ fun SettingsScreen(
                             onSelected = { onChange(settings.copy(appearance = it)) },
                         )
                     }
-                    SettingsRow(text("Accent", "强调色"), text("Choose the interface accent", "选择界面强调色")) {
+                    SettingsRow(
+                        text("Accent", "强调色"),
+                        text("Choose the interface accent", "选择界面强调色"),
+                        inline = false,
+                    ) {
                         ChoiceChips(
                             choices = AppSettings.Accent.entries,
                             selected = settings.accent,
@@ -729,48 +732,44 @@ private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 private fun SettingsRow(title: String, description: String, inline: Boolean = true, content: @Composable () -> Unit) {
-    BoxWithConstraints(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp),
-    ) {
-        val stacked = !inline || maxWidth < 520.dp
-        if (stacked) {
-            Column(
-                Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(9.dp),
-            ) {
-                Column(Modifier.widthIn(max = 360.dp)) {
-                    Text(title, fontWeight = FontWeight.Medium)
-                    Text(
-                        description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Box(
-                    Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.CenterEnd,
-                ) {
-                    content()
-                }
+    val rowModifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp)
+    if (!inline) {
+        Column(
+            rowModifier,
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Column(Modifier.widthIn(max = 360.dp)) {
+                Text(title, fontWeight = FontWeight.Medium)
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-        } else {
-            Row(
+            Box(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                contentAlignment = Alignment.CenterEnd,
             ) {
-                Column(
-                    Modifier.weight(1f).widthIn(max = 320.dp),
-                ) {
-                    Text(title, fontWeight = FontWeight.Medium)
-                    Text(
-                        description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
                 content()
             }
+        }
+    } else {
+        Row(
+            rowModifier,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                Modifier.weight(1f).widthIn(max = 320.dp),
+            ) {
+                Text(title, fontWeight = FontWeight.Medium)
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            content()
         }
     }
 }

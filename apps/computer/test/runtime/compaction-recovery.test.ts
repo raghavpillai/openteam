@@ -608,3 +608,294 @@ test("owned compactions with identical summary text use distinct durable entry I
     local.session.dispose();
   }
 });
+
+test("failed adoption cancels repeated compactions and projection until the original checkpoint can recover", async () => {
+  const f = await fixture("owned", 2);
+  const local = await localRuntime(f);
+  const manager: SessionManager = local.session.sessionManager;
+  const commit = spyOn(f.store, "commitStaged").mockRejectedValue(
+    Error("synthetic repeated adoption failure")
+  );
+  try {
+    await local.session.compact();
+    const staged = await f.store.stagedId(f.id);
+    const checkpoint = manager.getLeafId();
+    expect(staged).not.toBeNull();
+    manager.appendMessage({
+      ...answer(""),
+      stopReason: "toolUse",
+      content: [
+        { type: "toolCall", id: "failed-adoption-send", name: "SendToUser", arguments: {} },
+      ],
+    });
+    manager.appendMessage({
+      role: "toolResult",
+      toolCallId: "failed-adoption-send",
+      toolName: "SendToUser",
+      content: [{ type: "text", text: "FAILED_ADOPTION_RECEIPT_794" }],
+      isError: false,
+      timestamp: 5,
+    });
+    manager.appendMessage({
+      role: "user",
+      content: "Continue after the persisted receipt",
+      timestamp: 6,
+    });
+    for (let i = 0; i < 2; i++)
+      await expect(local.session.compact()).rejects.toThrow("Compaction cancelled");
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(await f.store.stagedId(f.id)).toBe(staged);
+    const checkpoints = manager
+      .getBranch()
+      .filter(
+        (entry) =>
+          entry.type === "compaction" &&
+          (entry.details as { id?: string } | undefined)?.id === staged
+      );
+    expect(checkpoints.map((entry) => entry.id)).toEqual([checkpoint!]);
+    const before = await f.coordinator.contextMessages(
+      f.id,
+      local.active.compactionReadPiMessages()
+    );
+    const observation = {
+      ...compactionObservation(local.active),
+      usedTokens: 99_999,
+      freshUsage: true,
+      infer: async () => {
+        throw Error("must not start another summary");
+      },
+    };
+    await f.coordinator.observe(observation);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(await f.coordinator.modelContextMessages(observation)).toEqual(before);
+    expect(await f.store.stagedId(f.id)).toBe(staged);
+    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 1, toolCalls: 0 });
+    commit.mockRestore();
+    const history = await prepareCompactionHistory(f.coordinator, f.store, f.open(), f.id);
+    const projected = await f.coordinator.contextMessages(f.id, history.read());
+    expect((await f.store.latest(f.id))?.piBoundary?.leafId).toBe(checkpoint!);
+    expect(await f.store.stagedId(f.id)).toBeNull();
+    expect(JSON.stringify(projected).match(/FAILED_ADOPTION_RECEIPT_794/g)).toHaveLength(1);
+    expect(JSON.stringify(projected)).toContain("Continue after the persisted receipt");
+    expect(JSON.stringify(projected)).not.toContain("old-1599");
+  } finally {
+    commit.mockRestore();
+    local.session.dispose();
+  }
+});
+
+test("contextState leaves a live reader and failed adoption in the same coordinate until turn cleanup and reopen", async () => {
+  const f = await fixture("owned", 2);
+  const local = await localRuntime(f);
+  local.runtime.sessionsDir = join(f.root, "sessions");
+  local.runtime.contextSessionsDir = join(f.root, "archive");
+  local.runtime.activeByContext.set(f.id, local.active);
+  const manager: SessionManager = local.session.sessionManager;
+  const commit = spyOn(f.store, "commitStaged").mockRejectedValue(
+    Error("synthetic adoption failure")
+  );
+  try {
+    await local.session.compact();
+    const staged = await f.store.stagedId(f.id);
+    manager.appendCustomMessageEntry("after-failed-adoption", "ACTIVE_ADOPTION_SUFFIX_795", false);
+    const before = await f.coordinator.contextMessages(
+      f.id,
+      local.active.compactionReadPiMessages()
+    );
+    commit.mockRestore();
+    const state = await local.runtime.contextState(f.id);
+    const after = await f.coordinator.contextMessages(
+      f.id,
+      local.active.compactionReadPiMessages()
+    );
+    expect(state.epoch).toBe(1);
+    expect(after).toEqual(before);
+    expect(JSON.stringify(after)).not.toContain("old-1599");
+    expect(JSON.stringify(after).match(/SEND_RECEIPT_791/g)).toHaveLength(1);
+    expect(await f.store.stagedId(f.id)).toBe(staged);
+    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 1, toolCalls: 0 });
+    await local.runtime.execute(local.active, "Continue using the already recorded outcome", []);
+    expect(local.events.filter((event: any) => event.type === "runtime.error")).toEqual([]);
+    expect(local.runtime.activeByContext.has(f.id)).toBe(false);
+    expect(JSON.stringify(local.requests[0]).match(/SEND_RECEIPT_791/g)).toHaveLength(1);
+    expect(JSON.stringify(local.requests[0])).not.toContain("old-1599");
+    // Once cleanup disposes the reader, an idle status read may finish adoption.
+    expect((await local.runtime.contextState(f.id)).epoch).toBe(2);
+    const history = await prepareCompactionHistory(f.coordinator, f.store, f.open(), f.id);
+    const reopened = await f.coordinator.contextMessages(f.id, history.read());
+    expect(JSON.stringify(reopened).match(/ACTIVE_ADOPTION_SUFFIX_795/g)).toHaveLength(1);
+    expect(JSON.stringify(reopened)).toContain("Continue using the already recorded outcome");
+    expect(JSON.stringify(reopened)).not.toContain("old-1599");
+    expect(await f.store.stagedId(f.id)).toBeNull();
+    expect(local.counts()).toEqual({ providerCalls: 1, summaryCalls: 1, toolCalls: 0 });
+  } finally {
+    commit.mockRestore();
+    local.runtime.activeByContext.delete(f.id);
+    local.session.dispose();
+  }
+});
+
+test("contextState cannot adopt a checkpoint while its live adoption is still in flight", async () => {
+  const f = await fixture("owned", 2);
+  const local = await localRuntime(f);
+  local.runtime.sessionsDir = join(f.root, "sessions");
+  local.runtime.contextSessionsDir = join(f.root, "archive");
+  local.runtime.activeByContext.set(f.id, local.active);
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const originalCommit = f.store.commitStaged.bind(f.store);
+  const commit = spyOn(f.store, "commitStaged").mockImplementation(async (...args) => {
+    entered();
+    await gate;
+    return originalCommit(...args);
+  });
+  const compacting = local.session.compact();
+  try {
+    await started;
+    const before = await f.coordinator.contextMessages(
+      f.id,
+      local.active.compactionReadPiMessages()
+    );
+    expect((await local.runtime.contextState(f.id)).epoch).toBe(1);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(
+      await f.coordinator.contextMessages(f.id, local.active.compactionReadPiMessages())
+    ).toEqual(before);
+    release();
+    await compacting;
+    expect((await local.runtime.contextState(f.id)).epoch).toBe(2);
+    const after = await f.coordinator.contextMessages(
+      f.id,
+      local.active.compactionReadPiMessages()
+    );
+    expect(JSON.stringify(after)).not.toContain("old-1599");
+    expect(local.active.compactionReadPiBoundary()).toEqual(
+      (await f.store.latest(f.id))?.piBoundary
+    );
+    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 1, toolCalls: 0 });
+  } finally {
+    release();
+    await compacting;
+    commit.mockRestore();
+    local.runtime.activeByContext.delete(f.id);
+    local.session.dispose();
+  }
+});
+
+test("an idle status read defers if a live reader appears while its staged lookup is pending", async () => {
+  const f = await fixture("owned", 2);
+  const local = await localRuntime(f);
+  local.runtime.sessionsDir = join(f.root, "sessions");
+  local.runtime.contextSessionsDir = join(f.root, "archive");
+  const commit = spyOn(f.store, "commitStaged").mockRejectedValue(
+    Error("synthetic adoption failure")
+  );
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let lookup: ReturnType<typeof spyOn> | undefined;
+  try {
+    await local.session.compact();
+    commit.mockRestore();
+    const originalLookup = f.coordinator.stagedId.bind(f.coordinator);
+    lookup = spyOn(f.coordinator, "stagedId").mockImplementation(async (id) => {
+      entered();
+      await gate;
+      return originalLookup(id);
+    });
+    const status = local.runtime.contextState(f.id);
+    await started;
+    local.runtime.activeByContext.set(f.id, local.active);
+    // Reader initialization precedes attachment of the AgentSession in run().
+    local.active.session = null;
+    release();
+    expect((await status).epoch).toBe(1);
+    expect((await f.store.latest(f.id))?.id).toBe(f.archiveId);
+    expect(await f.store.stagedId(f.id)).not.toBeNull();
+    lookup.mockRestore();
+    const open = spyOn(SessionManager, "open");
+    try {
+      expect((await local.runtime.contextState(f.id)).epoch).toBe(1);
+      expect(open).toHaveBeenCalledTimes(0);
+    } finally {
+      open.mockRestore();
+    }
+    // A stopped turn disposes its reader before releasing the context for idle recovery.
+    local.active.session = local.session;
+    local.active.stopped = true;
+    await local.runtime.cleanup(local.active);
+    expect((await local.runtime.contextState(f.id)).epoch).toBe(2);
+    expect(await f.store.stagedId(f.id)).toBeNull();
+    const history = await prepareCompactionHistory(f.coordinator, f.store, f.open(), f.id);
+    expect(history.boundary()).toEqual((await f.store.latest(f.id))?.piBoundary);
+    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 1, toolCalls: 0 });
+  } finally {
+    release();
+    lookup?.mockRestore();
+    commit.mockRestore();
+    local.runtime.activeByContext.delete(f.id);
+    local.session.dispose();
+  }
+});
+
+test("a projection already in flight cannot overwrite a newly persisted checkpoint intent", async () => {
+  const f = await fixture("owned", 2);
+  const local = await localRuntime(f);
+  const observation = {
+    ...compactionObservation(local.active),
+    usedTokens: 99_999,
+    freshUsage: true,
+    infer: async () => ({ text: "Reusable background summary" }),
+  };
+  await f.coordinator.observe(observation);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const before = await f.coordinator.contextMessages(f.id, local.active.compactionReadPiMessages());
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const originalUsedTokens = (f.coordinator as any).usedTokens.bind(f.coordinator);
+  const measurement = spyOn(f.coordinator as any, "usedTokens").mockImplementation(
+    async (...args: any[]) => {
+      entered();
+      await gate;
+      return originalUsedTokens(...args);
+    }
+  );
+  const projectedCommit = spyOn(f.store, "commit");
+  const adoption = spyOn(f.store, "commitStaged").mockRejectedValue(
+    Error("synthetic adoption failure")
+  );
+  const projecting = f.coordinator.modelContextMessages(observation);
+  try {
+    await started;
+    await local.session.compact();
+    const staged = await f.store.stagedId(f.id);
+    expect(staged).not.toBeNull();
+    release();
+    expect(await projecting).toEqual(before);
+    expect(projectedCommit).toHaveBeenCalledTimes(0);
+    expect((await f.store.latest(f.id))?.id).toBe(f.archiveId);
+    expect(await f.store.stagedId(f.id)).toBe(staged);
+    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
+  } finally {
+    release();
+    await projecting;
+    measurement.mockRestore();
+    projectedCommit.mockRestore();
+    adoption.mockRestore();
+    local.session.dispose();
+  }
+});

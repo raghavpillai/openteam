@@ -181,10 +181,10 @@ export class BotCompactionCoordinator {
     this.forcedReasons.delete(contextSessionId);
   }
 
-  private clearVolatile(contextSessionId: string): void {
+  private clearVolatile(contextSessionId: string, preservePersisted = false): void {
     this.pending.get(contextSessionId)?.controller?.abort();
     this.pending.delete(contextSessionId);
-    this.prepared.delete(contextSessionId);
+    if (!preservePersisted) this.prepared.delete(contextSessionId);
     this.forcedReasons.delete(contextSessionId);
     this.projectedEvents.delete(contextSessionId);
     this.projectedCommits.delete(contextSessionId);
@@ -192,12 +192,14 @@ export class BotCompactionCoordinator {
 
   async failCompaction(contextSessionId: string): Promise<void> {
     const prepared = this.prepared.get(contextSessionId);
-    this.clearVolatile(contextSessionId);
+    // A cancelled retry must retain the outstanding checkpoint and its intent.
+    this.clearVolatile(contextSessionId, prepared?.piPersisted === true);
     if (!prepared?.piPersisted) await this.store.discardStaged(contextSessionId);
   }
 
   async remove(contextSessionId: string): Promise<void> {
     await this.failCompaction(contextSessionId);
+    this.clearVolatile(contextSessionId);
     this.inputLimitFailures.delete(contextSessionId);
     await this.store.remove(contextSessionId);
   }
@@ -436,6 +438,7 @@ export class BotCompactionCoordinator {
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
     );
+    if (this.prepared.get(input.contextSessionId)?.piPersisted) return current;
     const pending = this.pending.get(input.contextSessionId);
     // Overflow summaries are adopted only through Pi's compaction, in their own layout.
     if (!pending?.result || pending.external) return current;
@@ -472,6 +475,8 @@ export class BotCompactionCoordinator {
       ],
       input.tools
     );
+    // A Pi checkpoint may have persisted while token/archive reads yielded.
+    if (this.prepared.get(input.contextSessionId)?.piPersisted) return current;
     const blob = await this.store.commit(input.contextSessionId, {
       id: pending.id,
       reason: pending.reason,
@@ -518,6 +523,7 @@ export class BotCompactionCoordinator {
   }
 
   async observe(input: BotObservation): Promise<void> {
+    if (this.prepared.get(input.contextSessionId)?.piPersisted) return;
     const messages = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
@@ -531,6 +537,7 @@ export class BotCompactionCoordinator {
         : shouldStartBotSummary(usedTokens, input.maxTokens, input.earlyThreshold)
           ? "approaching_token_limit"
           : null;
+    if (this.prepared.get(input.contextSessionId)?.piPersisted) return;
     const existing = this.pending.get(input.contextSessionId);
     if (existing) {
       if (this.matches(existing, input, messages)) {
@@ -777,6 +784,10 @@ export class BotCompactionCoordinator {
     signal: AbortSignal;
   }): Promise<BotPreparedCompaction | null> {
     if (input.signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+    // Pi already persisted this candidate. Restaging it would append another
+    // checkpoint with the same archive ID, or overwrite its durable intent.
+    // Keep using the old archive until startup can adopt the existing checkpoint.
+    if (this.prepared.get(input.contextSessionId)?.piPersisted) return null;
     const current = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
@@ -912,6 +923,7 @@ export class BotCompactionCoordinator {
           ],
       input.tools
     );
+    if (this.prepared.get(input.contextSessionId)?.piPersisted) return null;
     await this.store.stage(input.contextSessionId, {
       id: pending.id,
       reason: pending.reason,
@@ -964,6 +976,7 @@ export class BotCompactionCoordinator {
     const prepared = this.prepared.get(input.contextSessionId);
     if (!prepared) return null;
     prepared.piPersisted = true;
+    this.pending.delete(input.contextSessionId);
     const blob = await this.store.commitStaged(
       input.contextSessionId,
       prepared.pending.id,

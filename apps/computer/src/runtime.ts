@@ -458,9 +458,17 @@ export class ComputerRuntime {
   }
 
   private async recoverStagedCompaction(contextSessionId: string): Promise<void> {
+    // Startup may recover before constructing its reader. Once a live reader
+    // exists, a separate manager must not adopt a different coordinate system.
+    const hasLiveHistory = () => {
+      const active = this.activeByContext.get(contextSessionId);
+      return Boolean(active?.session || active?.compactionReadPiMessages);
+    };
+    if (hasLiveHistory()) return;
     const stagedId = await this.compaction.stagedId(contextSessionId);
-    if (!stagedId) return;
+    if (!stagedId || hasLiveHistory()) return;
     const sessionPath = await existingContextSessionPath(this.sessionsDir, contextSessionId);
+    if (hasLiveHistory()) return;
     if (!sessionPath) {
       await this.compaction.recoverStaged(contextSessionId, 0, []);
       return;

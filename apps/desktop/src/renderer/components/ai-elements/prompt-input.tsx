@@ -928,39 +928,42 @@ export function PromptInput({
               style={{ height: expanded ? `${textareaHeight + 38}px` : "34px" }}
             >
               <div className="absolute bottom-[7px] left-2 z-10">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      aria-label="Composer actions"
-                      className={SECONDARY_ACTION_CLASS}
-                      disabled={blocked}
-                      size="icon"
-                      type="button"
-                      variant="ghost"
+                {/* As in the reference, + is a menu only when it has more than files to offer. */}
+                {voice.available ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        aria-label="Composer actions"
+                        className={SECONDARY_ACTION_CLASS}
+                        disabled={blocked}
+                        size="icon"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <BotPlusIcon className="size-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      className="w-[200px] rounded-[12px] border-input bg-popover p-1.5 text-[13px] leading-[18px] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
+                      side="top"
+                      sideOffset={8}
                     >
-                      <BotPlusIcon className="size-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="start"
-                    className="w-[200px] rounded-[12px] border-input bg-popover p-1.5 text-[13px] leading-[18px] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
-                    side="top"
-                    sideOffset={8}
-                  >
-                    <DropdownMenuItem
-                      className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
-                      onSelect={() => fileInputRef.current?.click()}
-                    >
-                      <span className="grid size-[18px] shrink-0 place-items-center">
-                        <Paperclip className="size-3.5" />
-                      </span>
-                      Attach files
-                    </DropdownMenuItem>
-                    {/* The reference's voice memo entry, a second way in beside the mic. */}
-                    {voice.available ? (
                       <DropdownMenuItem
                         className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
-                        disabled={blocked || voiceMode !== null}
+                        disabled={attachments.length >= maxAttachments}
+                        onSelect={() => fileInputRef.current?.click()}
+                      >
+                        <span className="grid size-[18px] shrink-0 place-items-center">
+                          <Paperclip className="size-3.5" />
+                        </span>
+                        Attach files
+                      </DropdownMenuItem>
+                      {/* The reference's voice memo entry. As there, it starts a fresh memo, so it
+                        waits while the draft has text or files, or a memo is under way. */}
+                      <DropdownMenuItem
+                        className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
+                        disabled={blocked || hasPayload || voiceMode !== null}
                         onSelect={startVoice}
                       >
                         <span className="grid size-[18px] shrink-0 place-items-center">
@@ -968,9 +971,21 @@ export function PromptInput({
                         </span>
                         Record a voice memo
                       </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <Button
+                    aria-label="Attach file"
+                    className={SECONDARY_ACTION_CLASS}
+                    disabled={blocked || attachments.length >= maxAttachments}
+                    onClick={() => fileInputRef.current?.click()}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <BotPlusIcon className="size-3.5" />
+                  </Button>
+                )}
               </div>
               <div className="relative">
                 <MentionEditor

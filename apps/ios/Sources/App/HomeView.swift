@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.displayScale) private var displayScale
   /// Rows are zoom sources for the first bot's chat after onboarding.
   @Namespace private var zoom
   /// The chat that opens with the zoom transition; kept until it's closed again.
@@ -33,6 +34,7 @@ struct HomeView: View {
   @State private var sectionName = ""
   @State private var deletingSection: JSON?
   @State private var listHidden = false
+  @State private var portraitLayout = false
   @State private var barRegions = BarRegions.none
   /// The conversation list's width beside a chat, as last dragged; 0 until then.
   @AppStorage("sidebarWidth") private var draggedSidebarWidth: Double = 0
@@ -42,15 +44,17 @@ struct HomeView: View {
   private var sections: [JSON] { store.sidebar["sections"].array }
   var body: some View {
     GeometryReader { geometry in
+      let split = sizeClass == .regular || (barRegions.hasHinge && geometry.size.width >= 650)
+      let portrait = split && geometry.size.height > geometry.size.width
       let systemChrome = SideChrome(
         regions: barRegions, insets: geometry.safeAreaInsets, holdsAllControls: sizeClass == .compact)
       // In rotations without a right-hand system region, reserve a column so
       // these controls stay on the right without covering the conversation.
-      let reservesRightColumn = barRegions.hasHinge && barRegions.sideEdge != nil && systemChrome?.edge != .trailing
-      let chrome = reservesRightColumn
+      let reservesRightColumn = !portrait && barRegions.hasHinge
+        && (split || barRegions.sideEdge != nil) && systemChrome?.edge != .trailing
+      let chrome: SideChrome? = portrait ? nil : reservesRightColumn
         ? SideChrome(rightColumnHoldingAllControls: sizeClass == .compact) : systemChrome
       let rightColumnWidth = reservesRightColumn ? SideChrome.rightColumnWidth : 0
-      let split = sizeClass == .regular || (barRegions.hasHinge && geometry.size.width >= 650)
       Group {
         if split {
           splitLayout(width: geometry.size.width - rightColumnWidth, fold: HomeLayout.fold(in: geometry))
@@ -58,7 +62,7 @@ struct HomeView: View {
       }
       .onChange(of: split, initial: true) { _, value in splitAvailable = value }
       .overlay(alignment: .topTrailing) {
-        if barRegions.hasHinge, barRegions.sideEdge == nil {
+        if !split, barRegions.hasHinge, barRegions.sideEdge == nil {
           HStack(spacing: 12) {
             if splitAvailable { sidebarToggle }
             searchControl
@@ -71,14 +75,25 @@ struct HomeView: View {
         }
       }
       .overlay(alignment: .topLeading) {
-        if splitAvailable, listHidden, !barRegions.hasHinge, store.navigation.isEmpty {
+        if splitAvailable, listHidden, portrait || !barRegions.hasHinge, store.navigation.isEmpty {
           inboxHeader(isSidebar: false)
         }
       }
       .modifier(SideChromeBar(top: EmptyView?.none, side: sideActions))
       .environment(\.sideChrome, chrome)
-      .environment(\.topBarClearance, SideChrome.topBarClearance(barRegions, insets: geometry.safeAreaInsets))
+      // Use the space beside Duo's status cluster instead of its full top band.
+      .environment(\.topBarClearance, split && barRegions.hasHinge
+        ? max(0, barRegions.top - SideChrome.topBarPadding)
+        : SideChrome.topBarClearance(barRegions, insets: geometry.safeAreaInsets))
+      .environment(\.usesTopToolbarGuide, !(split && barRegions.hasHinge))
+      .environment(\.leadingChatTitle, portrait)
+      .environment(\.topBarTrailingInset, portrait && barRegions.hasHinge
+        ? max(systemChrome?.width ?? 0, SideChrome.topStatusWidth) : 0)
+      .onChange(of: portrait, initial: true) { _, value in portraitLayout = value }
     }
+    .ignoresSafeArea(.container, edges: splitAvailable && barRegions.hasHinge
+      ? (portraitLayout ? [.top, .trailing] : [.top]) : [])
+    .background { NativePalette.sidebar.ignoresSafeArea() }
     .readingBarRegions { barRegions = $0 }
     .onChange(of: store.navigation) { _, path in
       // Once the zoomed chat has closed (and zoomed back into its row), later
@@ -190,11 +205,17 @@ struct HomeView: View {
           .environment(\.sideChrome, nil)
           .safeAreaPadding(.trailing, foldInset)
           .frame(width: listWidth)
+          .overlay(alignment: .trailing) {
+            NativePalette.separator.frame(width: 1 / displayScale)
+              .ignoresSafeArea(.container, edges: .vertical)
+              .allowsHitTesting(false).accessibilityHidden(true)
+          }
           .transition(.move(edge: .leading).combined(with: .opacity))
       }
       if let selected {
         NavigationStack {
           ChatView(channel: selected)
+            .ignoresSafeArea(.container, edges: barRegions.hasHinge ? .top : [])
             .environment(\.botVoicePresentation, store.botVoiceLaunch.presentation)
             .id(store.botVoiceLaunch.presentation)
         }
@@ -202,14 +223,12 @@ struct HomeView: View {
           .id(selected.id)
           .environment(
             \.chatLeadingControl,
-            ChatLeadingControl(title: listHidden ? "Show conversations" : "Hide conversations", external: barRegions.hasHinge) {
+            ChatLeadingControl(title: listHidden ? "Show conversations" : "Hide conversations", external: barRegions.hasHinge && !portraitLayout) {
               withAnimation(.smooth(duration: 0.3)) { listHidden.toggle() }
             })
           .safeAreaPadding(.leading, showsList ? foldInset : 0)
           .environment(\.chatColumnLeading, showsList ? listWidth : 0)
-          .safeAreaInset(edge: .top, spacing: 0) {
-            if barRegions.hasHinge, barRegions.sideEdge == nil { Color.clear.frame(height: 56) }
-          }
+          .environment(\.conversationListVisible, showsList)
           .frame(maxWidth: .infinity)
       } else {
         ContentUnavailableView(
@@ -319,8 +338,8 @@ struct HomeView: View {
             .padding(.trailing, !isSidebar && sizeClass == .compact && barRegions.hasHinge && barRegions.sideEdge != nil && barRegions.sideEdge != .trailing
               ? SideChrome.rightColumnWidth : 0)
             .fadingTopBar(canvas: isSidebar ? SidebarFooterFade.canvas : NativePalette.background,
-              showsFade: !barRegions.hasHinge) {
-              if !barRegions.hasHinge { inboxHeader(isSidebar: isSidebar) }
+              showsFade: portraitLayout || !barRegions.hasHinge) {
+              if portraitLayout || !barRegions.hasHinge { inboxHeader(isSidebar: isSidebar) }
             }
             .mask {
               if isSidebar {
@@ -396,7 +415,8 @@ struct HomeView: View {
       Button { settings = SettingsSheet() } label: {
         HStack(spacing: SidebarMetrics.accountGap) {
           SidebarAccountMark(name: store.accountDisplayName)
-          Text(store.accountDisplayName).font(.system(size: SidebarMetrics.accountFont)).lineLimit(1)
+          Text(store.accountDisplayName)
+            .font(portraitLayout ? .body.weight(.medium) : .system(size: SidebarMetrics.accountFont)).lineLimit(1)
             .foregroundStyle(NativePalette.text)
             .accessibilityIdentifier("sidebar-account-name")
         }.frame(height: 44).contentShape(Rectangle())
@@ -782,6 +802,8 @@ private struct SidebarResizeHandle: View {
 /// controls move when the status area grows, as with a Live Activity.
 struct SideChrome: Equatable {
   static let rightColumnWidth: CGFloat = 72
+  /// Space for the portrait clock and connectivity cluster above the content.
+  static let topStatusWidth: CGFloat = 140
   /// Reserve this width inside the page when UIKit provides no right-side region.
   var contentInset: CGFloat = 0
   var edge: HorizontalEdge
@@ -885,6 +907,9 @@ struct ChatLeadingControl {
 extension EnvironmentValues {
   @Entry var botVoicePresentation: UUID?
   @Entry var chatLeadingControl: ChatLeadingControl?
+  @Entry var leadingChatTitle = false
+  @Entry var conversationListVisible = false
+  @Entry var topBarTrailingInset: CGFloat = 0
   /// Conversation links select the chat beside the list instead of pushing it.
   @Entry var opensConversationsInPlace = false
   /// The side region holding the status bar, when controls belong there.

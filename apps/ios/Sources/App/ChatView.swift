@@ -10,6 +10,9 @@ struct ChatView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.chatLeadingControl) private var leadingControl
   @Environment(\.sideChrome) private var sideChrome
+  @Environment(\.leadingChatTitle) private var leadingChatTitle
+  @Environment(\.conversationListVisible) private var conversationListVisible
+  @Environment(\.topBarTrailingInset) private var topBarTrailingInset
   let channel: Channel
   @State private var details = false
   @State private var replyFocusRequest = UUID()
@@ -153,6 +156,8 @@ struct ChatView: View {
       }
     })
     .padding(.trailing, sideChrome?.contentInset ?? 0)
+    // The reserved control column sits outside the chat’s inner canvas.
+    .nativeCanvas()
     .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
     .toolbar(.hidden, for: .navigationBar).background(NativeBackGesture().frame(width: 0, height: 0))
     .navigationDestination(isPresented: $details) {
@@ -389,26 +394,37 @@ struct ChatView: View {
         .frame(minHeight: 44).nativeChatGlass()
     }.buttonStyle(.plain).accessibilityIdentifier("conversation-details")
   }
-  var header: some View {
-    HStack(spacing: 8) {
-      if sideChrome == nil {
-        leadingButton
-      } else {
-        Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
-      }
-      titleButton.frame(maxWidth: .infinity)
-      // Equal side slots keep the pill on the screen's center, including groups
-      // without a Computer action. Long names truncate within the middle slot.
-      // Beside a side region, Computer sits in it, below the status bar.
-      Group {
-        if sideChrome == nil, store.computerBot(for: channel) != nil {
-          computerButton
+  @ViewBuilder var header: some View {
+    if leadingChatTitle {
+      HStack(spacing: 8) {
+        if !conversationListVisible { leadingButton }
+        titleButton
+        Spacer(minLength: 0)
+        computerButton
+      }.padding(.horizontal, 14).padding(.trailing, topBarTrailingInset)
+        .modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+        .foregroundStyle(NativePalette.text)
+    } else {
+      HStack(spacing: 8) {
+        if sideChrome == nil {
+          leadingButton
         } else {
-          Color.clear.accessibilityHidden(true)
+          Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
         }
-      }.frame(width: 44, height: 44)
-    }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
-      .foregroundStyle(NativePalette.text)
+        titleButton.frame(maxWidth: .infinity)
+        // Equal side slots keep the pill on the screen's center, including groups
+        // without a Computer action. Long names truncate within the middle slot.
+        // Beside a side region, Computer sits in it, below the status bar.
+        Group {
+          if sideChrome == nil, store.computerBot(for: channel) != nil {
+            computerButton
+          } else {
+            Color.clear.accessibilityHidden(true)
+          }
+        }.frame(width: 44, height: 44)
+      }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+        .foregroundStyle(NativePalette.text)
+    }
   }
   func timestamp(_ date: Date) -> String {
     let formatter = DateFormatter()

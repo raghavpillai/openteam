@@ -312,6 +312,9 @@ test.skipIf(!databaseUrl)(
         (await app.prisma.contextSession.findUniqueOrThrow({ where: { id: home.id } })).runtimeSessionPath
       ).toBe(home.runtimeSessionPath);
       // Restart both service and worker before the parent consumes the silent result.
+      // Routine completion is durable before execute finishes its queue/file
+      // bookkeeping. This fixture restarts an idle host, so drain that work too.
+      await Promise.allSettled([...(worker as any).concurrentAutomations]);
       await worker.stop();
       await Effect.runPromise(app.close());
       app = new AppService();
@@ -389,6 +392,8 @@ test.skipIf(!databaseUrl)(
       await app.messaging.completeShell({ id: "fixture-shell", scope: botId, channelId, automationRunId: shellExecution.runId!, outputPath: "/tmp/WP_SHELL_FINISHED.log", exitCode: 0 });
       await until(async () => (await app!.prisma.routineExecution.findUnique({ where: { id: shellExecution.id } }))?.status === "completed");
       expect((await app.prisma.automationResult.findUniqueOrThrow({ where: { runId: shellExecution.runId! } })).message).toBe("WP_SHELL_SILENT: background shell completed.");
+      await Promise.allSettled([...(worker as any).concurrentAutomations]);
+      expect(errors).toEqual([]);
     } finally {
       releaseAutomation(); releaseParent(); releaseManagedChild(); releaseRoutineChild();
       await worker?.stop();

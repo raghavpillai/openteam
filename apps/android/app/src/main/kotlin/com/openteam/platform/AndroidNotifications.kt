@@ -74,7 +74,7 @@ class AndroidNotificationPresenter(private val context: Context) {
         if (!notification.isAlert || notification.scope.isEmpty()) return
         val channel = if (notification.kind == "reaction") NotificationChannels.REACTION else NotificationChannels.AGENT
         val builder = NotificationCompat.Builder(context, channel)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(com.openteam.android.R.mipmap.ic_launcher)
             .setContentTitle(notification.title.ifEmpty { "OpenTeam" })
             .setContentText(notification.body)
             .setContentIntent(tapIntent)
@@ -163,7 +163,7 @@ class HttpNotificationReadTransport(
             throughNotificationSequence?.let { append("\"throughNotificationSequence\":\"$it\"") }
             append('}')
         }
-        PlatformHttp.request(baseUrl, bearerToken, "POST", "/api/channels/${java.net.URLEncoder.encode(channelId, Charsets.UTF_8)}/read", body)
+        PlatformHttp.request(baseUrl, bearerToken, "POST", "/api/v0/channels/${java.net.URLEncoder.encode(channelId, Charsets.UTF_8)}/read", body)
         return true
     }
 }
@@ -328,7 +328,7 @@ class FcmMessageHandler(
     private val tapIntent: (FcmNotification) -> PendingIntent,
 ) {
     /** Returns false for stale, foreign-account, or foreground-read notifications. */
-    fun handle(data: Map<String, String>, foreground: Boolean = false): Boolean {
+    fun handle(data: Map<String, String>, foregroundChannelId: String? = null): Boolean {
         val notification = FcmNotification.fromData(data)
         if (notification.scope.isEmpty()) return false
         if (notification.kind == "badge-sync") {
@@ -336,7 +336,7 @@ class FcmMessageHandler(
             return false
         }
         if (ledger.hasRead(notification)) return false
-        if (foreground) return false
+        if (foregroundChannelId == notification.channelId) return false
         if (notification.isAlert) presenter.show(notification, tapIntent(notification))
         return notification.isAlert
     }

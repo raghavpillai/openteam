@@ -502,6 +502,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onProviders: () -> Unit,
     onWebProviders: () -> Unit,
+    onOutbox: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
     val language = settings.language
@@ -644,6 +645,12 @@ fun SettingsScreen(
             item { SettingsSectionTitle(text("Connections", "连接")) }
             item {
                 SettingsGroup {
+                    SettingsActionRow(
+                        text("Message outbox", "消息发件箱"),
+                        text("Retry messages that could not be delivered", "重试无法投递的消息"),
+                        text("Open", "打开"),
+                        onOutbox,
+                    )
                     SettingsActionRow(text("AI model", "AI 模型"), text("Choose the provider and model used by bots", "选择 Bot 使用的服务商和模型"), text("Open", "打开"), onProviders)
                     SettingsActionRow(text("Web providers", "网络服务商"), text("Choose search and page-fetch services", "选择搜索和网页抓取服务"), text("Open", "打开"), onWebProviders)
                 }

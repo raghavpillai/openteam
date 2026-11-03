@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.collect
 class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
     private lateinit var platform: AndroidPlatformRuntime
+    private var lastReadMarker: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,6 +34,16 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 viewModel.state.collect { state ->
+                    platform.setActiveChannel(state.activeConversationId)
+                    state.activeConversationId?.let { channelId ->
+                        state.messages.lastOrNull()?.sequence?.takeIf(String::isNotBlank)?.let { sequence ->
+                            val marker = "${state.session?.server}|$channelId|$sequence"
+                            if (marker != lastReadMarker) {
+                                lastReadMarker = marker
+                                platform.markRead(channelId, sequence, null)
+                            }
+                        }
+                    }
                     val saved = AndroidSecureSessionStore(this@MainActivity).readActive()
                     if (state.session == null || saved == null) {
                         platform.clearSession()

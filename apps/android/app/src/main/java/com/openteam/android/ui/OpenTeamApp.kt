@@ -120,6 +120,7 @@ import com.openteam.android.data.Conversation
 import com.openteam.android.data.SearchResult
 import com.openteam.android.data.SidebarPreferences
 import com.openteam.android.data.SidebarSection
+import com.openteam.android.data.PendingSend
 import com.openteam.features.Attachment
 import com.openteam.features.FeatureOperationState
 import com.openteam.features.FeatureLoadState
@@ -160,6 +161,7 @@ private const val SETTINGS = "settings"
 private const val PROVIDERS = "providers"
 private const val WEB_PROVIDERS = "web-providers"
 private const val PLUGINS = "plugins"
+private const val OUTBOX = "outbox"
 
 private enum class SignInStep { WELCOME, ENDPOINT, CREDENTIALS }
 
@@ -238,6 +240,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 },
                 onShareTarget = appViewModel::selectShareTarget,
                 onRoutines = { navController.navigate(ROUTINES) },
+                    onOutbox = { navController.navigate(OUTBOX) },
                 onSettings = { navController.navigate(SETTINGS) },
                 onSearch = appViewModel::search,
                 onClearSearch = appViewModel::clearSearch,
@@ -376,6 +379,16 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onBack = { navController.popBackStack() },
                 onProviders = { navController.navigate(PROVIDERS) },
                 onWebProviders = { navController.navigate(WEB_PROVIDERS) },
+                onOutbox = { navController.navigate(OUTBOX) },
+            )
+        }
+        composable(OUTBOX) {
+            BackHandler { navController.popBackStack() }
+            OutboxScreen(
+                items = state.outbox,
+                onRetry = appViewModel::retryQueuedMessage,
+                onDiscard = appViewModel::discardQueuedMessage,
+                onBack = { navController.popBackStack() },
             )
         }
         composable(PROVIDERS) {
@@ -425,6 +438,67 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onBack = { navController.popBackStack() },
                 onOpenExtensions = { navController.navigate(PLUGINS) },
             )
+        }
+    }
+}
+
+@Composable
+private fun OutboxScreen(
+    items: List<PendingSend>,
+    onRetry: (String) -> Unit,
+    onDiscard: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                title = { Text("Outbox") },
+            )
+        },
+    ) { padding ->
+        if (items.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text("All messages have been delivered.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(
+                Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp),
+            ) {
+                items(items, key = PendingSend::id) { item ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(item.content.ifBlank { "Attachment-only message" }, fontWeight = FontWeight.Medium)
+                            Text("Conversation: ${item.channelId}", style = MaterialTheme.typography.labelSmall)
+                            if (item.attachments.isNotEmpty()) {
+                                Text(
+                                    item.attachments.joinToString(", ") { attachment ->
+                                        "${attachment.fileName} (${attachment.mimeType})"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Text(
+                                item.failure?.let { "Failed: $it" } ?: "Queued for delivery",
+                                color = if (item.failure == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = { onRetry(item.id) }) { Text("Retry") }
+                                TextButton(onClick = { onDiscard(item.id) }) {
+                                    Text("Discard", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -858,6 +932,7 @@ private fun DirectoryScreen(
     onOpen: (Conversation) -> Unit,
     onShareTarget: (String) -> Unit,
     onRoutines: () -> Unit,
+    onOutbox: () -> Unit,
     onSettings: () -> Unit,
     onSearch: (String, String) -> Unit,
     onClearSearch: () -> Unit,
@@ -907,6 +982,11 @@ private fun DirectoryScreen(
                     }
                 },
                 actions = {
+                    IosChromeIcon(
+                        icon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                        contentDescription = "Outbox",
+                        onClick = onOutbox,
+                    )
                     IosChromeIcon(
                         icon = { Icon(Icons.Default.Add, contentDescription = null) },
                         contentDescription = stringResource(com.openteam.android.R.string.directory_create),

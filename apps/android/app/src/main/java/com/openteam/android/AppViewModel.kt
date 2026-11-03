@@ -47,7 +47,9 @@ import com.openteam.platform.VoiceRecordingController
 import com.openteam.platform.VoiceRecordingState
 import com.openteam.platform.VoiceTranscriber
 import com.openteam.mobile.core.HttpMethod
+import com.openteam.mobile.core.MobileMessage
 import com.openteam.mobile.core.ProductEvent
+import com.openteam.mobile.core.mobileJson
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -499,6 +501,22 @@ class AppViewModel @JvmOverloads constructor(
         deliver(conversationId, message.copy(delivery = Delivery.SENDING))
     }
 
+    /** Retries an outbox item from the outbox screen, even when its conversation is closed. */
+    fun retryQueuedMessage(messageId: String) {
+        if (mutableState.value.outbox.none { it.id == messageId }) return
+        mutableState.update { state ->
+            state.copy(
+                outbox = state.outbox.map { if (it.id == messageId) it.copy(failure = null) else it },
+                messages = state.messages.map {
+                    if (it.id == messageId) it.copy(delivery = Delivery.SENDING) else it
+                },
+                error = null,
+            )
+        }
+        persistOutbox()
+        flushOutbox()
+    }
+
     fun discardQueuedMessage(messageId: String) {
         mutableState.update { state ->
             state.copy(
@@ -629,10 +647,26 @@ class AppViewModel @JvmOverloads constructor(
 
     private fun handleProductEvent(event: ProductEvent) {
         if (!event.topic.startsWith("channel.")) return
+        val eventMessage = event.payload["message"]?.let { element ->
+            runCatching { mobileJson.decodeFromJsonElement(MobileMessage.serializer(), element) }.getOrNull()
+        }
         val channelId = event.payload["channelId"]?.jsonPrimitive?.contentOrNull
+            ?.takeIf(String::isNotBlank)
+            ?: eventMessage?.channelId?.takeIf(String::isNotBlank)
+            ?: event.entityId?.takeIf { event.topic !in setOf("channel.message.created", "channel.message.accepted", "channel.message.updated", "channel.message.user_reaction") }
         loadDirectory()
-        if (channelId == null || channelId == mutableState.value.activeConversationId) {
+        if (channelId != null && channelId == mutableState.value.activeConversationId) {
             mutableState.value.activeConversationId?.let(::refreshConversation)
+        }
+        if (event.topic == "channel.message.accepted") {
+            val clientId = event.payload["clientId"]?.jsonPrimitive?.contentOrNull
+                ?.takeIf(String::isNotBlank)
+                ?: eventMessage?.clientId
+            if (clientId != null && eventMessage != null) {
+                acceptQueuedMessage(clientId, (activeGateway as? LiveMessagingApi)?.toChatMessage(eventMessage) ?: return)
+            } else {
+                flushOutbox()
+            }
         }
     }
 

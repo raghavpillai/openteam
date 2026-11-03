@@ -31,6 +31,7 @@ class AndroidPlatformRuntime(
     private var presence: NotificationPresenceController? = null
     private var reads: NotificationReadController? = null
     private var session: PlatformSession? = null
+    private var activeChannelId: String? = null
     private var token: String? = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(TOKEN, null)
     private var active = false
 
@@ -59,6 +60,7 @@ class AndroidPlatformRuntime(
         presence = null
         reads = null
         session = null
+        activeChannelId = null
     }
 
     fun close() {
@@ -93,6 +95,10 @@ class AndroidPlatformRuntime(
         }
     }
 
+    fun setActiveChannel(channelId: String?) {
+        activeChannelId = channelId
+    }
+
     override fun onStart(owner: LifecycleOwner) {
         active = true
         presence?.setActive(true)
@@ -109,7 +115,7 @@ class AndroidPlatformRuntime(
         val handler = FcmMessageHandler(
             AndroidNotificationPresenter(context), ledger, ::tapIntent,
         )
-        handler.handle(data, foreground = active)
+        handler.handle(data, foregroundChannelId = if (active) activeChannelId else null)
     }
 
     override fun onToken(token: String) {

@@ -361,15 +361,21 @@ const classifyStaged = async (
   return dimensions ? { ...detected, ...dimensions } : detected;
 };
 
-/** A message's images in order, until the turn's count or byte budget runs out. */
-export function inlineTurnImages(refs: readonly AssetRef[]): AssetRef[] {
+/** What is left of one turn request's inline images: a count and raw bytes. */
+export interface InlineImageBudget { images: number; bytes: number }
+export const inlineImageBudget = (): InlineImageBudget =>
+  ({ images: MAX_TURN_INLINE_IMAGES, bytes: MAX_TURN_INLINE_IMAGE_BYTES });
+
+/** A message's images in order, until the turn's count or byte budget runs out. Pass one
+ * budget to several messages sent in the same request so they share it. */
+export function inlineTurnImages(refs: readonly AssetRef[], budget = inlineImageBudget()): AssetRef[] {
   const inline: AssetRef[] = [];
-  let bytes = 0;
   for (const ref of refs) {
     if (ref.kind !== "image") continue;
-    if (inline.length === MAX_TURN_INLINE_IMAGES || bytes + ref.byteSize > MAX_TURN_INLINE_IMAGE_BYTES) break;
+    if (budget.images === 0 || ref.byteSize > budget.bytes) break;
     inline.push(ref);
-    bytes += ref.byteSize;
+    budget.images -= 1;
+    budget.bytes -= ref.byteSize;
   }
   return inline;
 }
@@ -749,8 +755,8 @@ export class AssetStore {
 
   /** The images a turn shows the model inline. Every attachment, these included, is also saved
    * on the box and listed in the message, so the bot can still open any image left out here. */
-  async runtimeImages(refs: readonly AssetRef[]): Promise<Array<{ url: string; alt?: string }>> {
-    const inline = inlineTurnImages(await this.normalizeRefs(refs.filter((ref) => ref.kind === "image")));
+  async runtimeImages(refs: readonly AssetRef[], budget?: InlineImageBudget): Promise<Array<{ url: string; alt?: string }>> {
+    const inline = inlineTurnImages(await this.normalizeRefs(refs.filter((ref) => ref.kind === "image")), budget);
     return Promise.all(
       inline.map(async (ref) => ({
         url: `data:${ref.mimeType};base64,${(await readFile(this.blobPath(ref.assetId))).toString("base64")}`,

@@ -931,7 +931,7 @@ export function PromptInput({
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
-                      aria-label="Add attachment"
+                      aria-label="Composer actions"
                       className={SECONDARY_ACTION_CLASS}
                       disabled={blocked}
                       size="icon"
@@ -956,6 +956,19 @@ export function PromptInput({
                       </span>
                       Attach files
                     </DropdownMenuItem>
+                    {/* The reference's voice memo entry, a second way in beside the mic. */}
+                    {voice.available ? (
+                      <DropdownMenuItem
+                        className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
+                        disabled={blocked || voiceMode !== null}
+                        onSelect={startVoice}
+                      >
+                        <span className="grid size-[18px] shrink-0 place-items-center">
+                          <BotMicIcon className="size-3.5" />
+                        </span>
+                        Record a voice memo
+                      </DropdownMenuItem>
+                    ) : null}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>

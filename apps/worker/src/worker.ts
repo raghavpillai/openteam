@@ -15,7 +15,7 @@ import type {
   RuntimeInlineImage,
   SubagentType,
 } from "@openteam/contracts";
-import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
+import { MAX_TURN_INLINE_IMAGE_BYTES, MAX_TURN_INLINE_IMAGES, SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES, formatPiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
 import { selectTaskConfiguration, parseTaskConfiguration, subagentUsesParentConnectors, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
 import { finalizeInterruptedItems } from "./interrupted-progress";
@@ -255,6 +255,12 @@ interface RevivalWake {
   payload: unknown;
   run: { origin: RunOrigin; channelId: string | null };
 }
+
+/** The raw size of a base64 data URL's payload. */
+const dataUrlBytes = (url: string): number => {
+  const data = url.slice(url.indexOf(",") + 1);
+  return Math.floor(data.length * 3 / 4) - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
+};
 
 const revivalOf = (wake: RevivalWake): RevivalCompletion | null => {
   if (!REVIVAL_WAKES.has(wake.type) || wake.status !== "pending" || !["background_revival", "routine"].includes(wake.run.origin)) return null;
@@ -1383,11 +1389,18 @@ export class WakeWorker {
       // acknowledged, including a turn a typed message superseded before its input
       // reached the model. Runtime message IDs prevent duplication after a lost ack.
       const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", inputDeliveredAt: null, OR: [{ status: { in: ["failed", "interrupted"] } }, { status: "cancelled", error: { path: ["code"], equals: "priority_peer_interrupt" } }] } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
-      const missedMessages = await Promise.all(missed.flatMap((event) => {
+      // Replayed inputs travel in the same request as this turn's images, so they share its
+      // inline budget (the computer refuses bodies over 128 MiB); this turn's images go first.
+      const budget = {
+        images: MAX_TURN_INLINE_IMAGES - claimed.images.length,
+        bytes: MAX_TURN_INLINE_IMAGE_BYTES - claimed.images.reduce((total, image) => total + dataUrlBytes(image.url), 0),
+      };
+      const missedMessages: Array<{ id: string; content: string; images: Array<{ url: string; alt?: string }> }> = [];
+      for (const event of missed) {
         const payload = event.payload as { content?: string; clientId?: string; attachments?: unknown };
-        if (!payload.content || !payload.clientId) return [];
-        return [(async () => ({ id: `input:${payload.clientId}`, content: `[SAND_HIDDEN_PROMPT]Earlier user input whose delivery was interrupted:\n${payload.content}`, images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments)) }))()];
-      }));
+        if (!payload.content || !payload.clientId) continue;
+        missedMessages.push({ id: `input:${payload.clientId}`, content: `[SAND_HIDDEN_PROMPT]Earlier user input whose delivery was interrupted:\n${payload.content}`, images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments), budget) });
+      }
       const instructions = platformPrompt.instructions;
       // Subagents run on the parent run's recorded model and reasoning, so a
       // settings change mid-run never switches models inside one task tree.

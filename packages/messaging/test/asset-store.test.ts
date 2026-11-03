@@ -341,6 +341,25 @@ describe("content-addressed attachment store", () => {
       .map(async ref => `data:image/png;base64,${(await readFile(store.contentPath(ref.assetId))).toString("base64")}`)));
   });
 
+  test("shares one budget across the messages sent in one request", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const size = 24 * 1024 * 1024;
+    const image = (index: number) => {
+      const bytes = Buffer.alloc(size);
+      png().copy(bytes);
+      bytes.writeUInt32BE(index + 2, 16);
+      return store.ingestBytes({ fileName: `big-${index}.png`, bytes });
+    };
+    const [a, b, c, d] = await Promise.all([0, 1, 2, 3].map(image));
+    // Two replayed messages of two 24 MiB photos each: alone each fits, together the
+    // request would carry four, so the second message gets only what's left.
+    const budget = { images: MAX_TURN_INLINE_IMAGES, bytes: MAX_TURN_INLINE_IMAGE_BYTES };
+    expect((await store.runtimeImages([a!, b!], budget)).length).toBe(2);
+    expect((await store.runtimeImages([c!, d!], budget)).length).toBe(Math.floor(MAX_TURN_INLINE_IMAGE_BYTES / size) - 2);
+    expect((await store.runtimeImages([c!, d!])).length).toBe(2);
+  });
+
   test("stops adding inline images before the turn outgrows its request", async () => {
     const root = await temporaryRoot();
     const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });

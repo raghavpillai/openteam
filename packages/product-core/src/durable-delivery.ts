@@ -1,4 +1,4 @@
-import { CLIENT_CAPABILITIES } from "@openteam/contracts";
+import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import type {
   AssetKind,
   AssetRef,

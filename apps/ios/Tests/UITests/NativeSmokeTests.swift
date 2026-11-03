@@ -2,7 +2,7 @@ import XCTest
 
 @MainActor
 final class NativeSmokeTests: XCTestCase {
-  let base = URL(string: "http://127.0.0.1:19997")!
+  let base = URL(string: ProcessInfo.processInfo.environment["NATIVE_SMOKE_SERVER"] ?? "http://127.0.0.1:19997")!
   func control(_ path: String, body: [String: Bool] = [:]) async throws {
     var request = URLRequest(url: base.appendingPathComponent(path))
     request.httpMethod = "POST"

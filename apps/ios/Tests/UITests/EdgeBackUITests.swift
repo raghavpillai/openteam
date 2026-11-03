@@ -1,7 +1,7 @@
 import XCTest
 
 @MainActor final class EdgeBackUITests: XCTestCase {
-  let base = "http://127.0.0.1:20043"
+  let base = ProcessInfo.processInfo.environment["EDGE_BACK_SERVER"] ?? "http://127.0.0.1:20043"
   func request(_ path: String, _ body: [String: Any] = [:], method: String = "POST") async throws {
     var request = URLRequest(url: URL(string: base + path)!)
     request.httpMethod = method
@@ -22,7 +22,10 @@ import XCTest
   }
   func openChat(_ app: XCUIApplication) {
     let channel = app.buttons["channel-channel-research"]
-    XCTAssertTrue(channel.waitForExistence(timeout: 15)); channel.tap()
+    XCTAssertTrue(channel.waitForExistence(timeout: 15))
+    let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: channel)
+    XCTAssertEqual(XCTWaiter.wait(for: [hittable], timeout: 5), .completed)
+    channel.tap()
     XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
   }
   func capture(_ name: String, _ app: XCUIApplication) {
@@ -86,7 +89,7 @@ import XCTest
     let beforeEvents = try XCTUnwrap(JSONSerialization.jsonObject(with: before) as? [[String: Any]])
     XCTAssertFalse(beforeEvents.contains { ($0["source"] as? String ?? "").hasPrefix("message.") })
     drag(app, x: 80, y: row(app).frame.midY, endX: 235)
-    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
     let (after, _) = try await URLSession.shared.data(from: URL(string: base + "/__qa/haptics")!)
     let afterEvents = try XCTUnwrap(JSONSerialization.jsonObject(with: after) as? [[String: Any]])
     XCTAssertTrue(afterEvents.contains { ($0["source"] as? String) == "message.reply-swipe" && ($0["emitted"] as? Bool) == true })
@@ -131,9 +134,9 @@ import XCTest
     for scene in ["edge-text", "edge-photo", "edge-file"] {
       let app = try await launch(scene)
       drag(app, x: 80, y: row(app).frame.midY, endX: 235)
-      XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
+      XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
       capture(scene + "-reply", app)
-      app.buttons["thread-back"].tap()
+      app.buttons["Cancel reply"].tap()
       app.terminate(); app.launch(); openChat(app)
       row(app).press(forDuration: 0.8)
       XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5))

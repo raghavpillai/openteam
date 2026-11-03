@@ -159,8 +159,10 @@ struct NativeChatGlass: ViewModifier {
 /// opacity as content scrolls.
 private struct ChromeFade: View {
   @Environment(\.colorScheme) private var scheme
-  @Environment(\.canvasColor) private var canvas
+  @Environment(\.canvasColor) private var inheritedCanvas
   var edge: VerticalEdge
+  var canvasOverride: Color? = nil
+  private var canvas: Color { canvasOverride ?? inheritedCanvas }
   var body: some View {
     LinearGradient(
       stops: [
@@ -215,6 +217,8 @@ private struct BackdropBlur: UIViewRepresentable {
 /// system soft scroll edge hides rows much sooner, so it is disabled here.
 private struct FadingTopBar<Bar: View>: ViewModifier {
   var bar: Bar
+  var canvas: Color? = nil
+  var showsFade = true
   @State private var barHeight: CGFloat = 0
   func body(content: Content) -> some View {
     if #available(iOS 26, *) {
@@ -222,7 +226,7 @@ private struct FadingTopBar<Bar: View>: ViewModifier {
         content
           .overlay(alignment: .top) {
             // Match the chat's fade, measured from the top of the screen.
-            ChromeFade(edge: .top)
+            ChromeFade(edge: .top, canvasOverride: canvas).opacity(showsFade ? 1 : 0)
               .frame(height: viewport.safeAreaInsets.top + 104)
               .offset(y: -viewport.safeAreaInsets.top - barHeight)
           }
@@ -307,8 +311,9 @@ extension View {
     modifier(ChatFloatingBars(top: top(), bottom: bottom()))
   }
   #endif
-  func fadingTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
-    modifier(FadingTopBar(bar: bar()))
+  func fadingTopBar<Bar: View>(canvas: Color? = nil, showsFade: Bool = true,
+    @ViewBuilder _ bar: () -> Bar) -> some View {
+    modifier(FadingTopBar(bar: bar(), canvas: canvas, showsFade: showsFade))
   }
   #if !SHARE_EXTENSION
   func dismissKeyboardOnTap() -> some View {
@@ -410,11 +415,12 @@ struct ChatChromeButton: View {
 struct AccountMark: View {
   var name: String
   var size: CGFloat = 38
+  var initialsScale: CGFloat = 0.35
   var initials: String {
     String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
   }
   var body: some View {
-    Text(initials.isEmpty ? "OT" : initials).font(.system(size: size * 0.35, weight: .medium))
+    Text(initials.isEmpty ? "OT" : initials).font(.system(size: size * initialsScale, weight: .medium))
       .foregroundStyle(NativePalette.muted).frame(width: size, height: size)
       .background(NativePalette.muted.opacity(0.13), in: Circle())
   }

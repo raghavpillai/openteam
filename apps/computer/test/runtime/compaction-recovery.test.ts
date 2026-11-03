@@ -899,3 +899,313 @@ test("a projection already in flight cannot overwrite a newly persisted checkpoi
     local.session.dispose();
   }
 });
+
+test("a paused projection cannot recommit a candidate after successful native adoption", async () => {
+  const f = await fixture("owned", 2);
+  const local = await localRuntime(f);
+  const observation = {
+    ...compactionObservation(local.active),
+    usedTokens: 99_999,
+    freshUsage: true,
+    infer: async () => ({ text: "Reusable successful summary" }),
+  };
+  await f.coordinator.observe(observation);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const originalUsedTokens = (f.coordinator as any).usedTokens.bind(f.coordinator);
+  const measurement = spyOn(f.coordinator as any, "usedTokens").mockImplementation(
+    async (...args: any[]) => {
+      entered();
+      await gate;
+      return originalUsedTokens(...args);
+    }
+  );
+  const projectedCommit = spyOn(f.store, "commit");
+  const projecting = f.coordinator.modelContextMessages(observation);
+  try {
+    await started;
+    await local.session.compact();
+    const adopted = await f.store.latest(f.id);
+    expect(adopted?.id).not.toBe(f.archiveId);
+    release();
+    await projecting;
+    expect(projectedCommit).toHaveBeenCalledTimes(0);
+    expect(await f.store.latest(f.id)).toEqual(adopted);
+    const manifest = await f.store.manifest(f.id);
+    expect(manifest.epoch).toBe(2);
+    expect(new Set(manifest.archives.map((record) => record.id)).size).toBe(2);
+    expect(local.active.compactionReadPiBoundary()).toEqual(adopted?.piBoundary);
+    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
+  } finally {
+    release();
+    await projecting;
+    measurement.mockRestore();
+    projectedCommit.mockRestore();
+    local.session.dispose();
+  }
+});
+
+test("a queued projection yields to native ownership reserved before staging", async () => {
+  const f = await fixture("owned", 2);
+  const local = await localRuntime(f);
+  const observation = {
+    ...compactionObservation(local.active),
+    usedTokens: 99_999,
+    freshUsage: true,
+    infer: async () => ({ text: "Shared native candidate" }),
+  };
+  await f.coordinator.observe(observation);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  let release!: () => void, queued!: () => void, reserving!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const projectionQueued = new Promise<void>((resolve) => {
+    queued = resolve;
+  });
+  const nativeReserved = new Promise<void>((resolve) => {
+    reserving = resolve;
+  });
+  const holding = (f.store as any).locked(f.id, () => gate);
+  const originalCommit = f.store.commit.bind(f.store);
+  const originalStage = f.store.stage.bind(f.store);
+  const commit = spyOn(f.store, "commit").mockImplementation(((id, input, isCurrent) => {
+    queued();
+    return originalCommit(id, input, isCurrent);
+  }) as typeof f.store.commit);
+  const stage = spyOn(f.store, "stage").mockImplementation(((id, input, isCurrent) => {
+    reserving();
+    return originalStage(id, input, isCurrent);
+  }) as typeof f.store.stage);
+  const projecting = f.coordinator.modelContextMessages(observation);
+  let compacting: Promise<unknown> | undefined;
+  try {
+    await projectionQueued;
+    compacting = local.session.compact();
+    await nativeReserved;
+    release();
+    await holding;
+    await Promise.all([projecting, compacting]);
+    const latest = await f.store.latest(f.id);
+    expect(latest?.piBoundary?.leafId).toBe(local.session.sessionManager.getLeafId());
+    expect(local.active.compactionReadPiBoundary()).toEqual(latest?.piBoundary);
+    const manifest = await f.store.manifest(f.id);
+    expect(manifest.epoch).toBe(2);
+    expect(new Set(manifest.archives.map((record) => record.id)).size).toBe(2);
+    expect(await f.store.stagedId(f.id)).toBeNull();
+    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
+  } finally {
+    release();
+    await holding;
+    await Promise.allSettled([projecting, ...(compacting ? [compacting] : [])]);
+    commit.mockRestore();
+    stage.mockRestore();
+    local.session.dispose();
+  }
+});
+
+test("two concurrent projections of one candidate commit one archive while the first continuation is paused", async () => {
+  const f = await fixture("owned", 2);
+  const local = await localRuntime(f);
+  const observation = {
+    ...compactionObservation(local.active),
+    usedTokens: 99_999,
+    freshUsage: true,
+    infer: async () => ({ text: "Concurrent projection candidate" }),
+  };
+  await f.coordinator.observe(observation);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  let releaseMeasurements!: () => void,
+    measurementsReady!: () => void,
+    releaseCommit!: () => void,
+    skipped!: () => void;
+  const measurementGate = new Promise<void>((resolve) => {
+    releaseMeasurements = resolve;
+  });
+  const bothMeasuring = new Promise<void>((resolve) => {
+    measurementsReady = resolve;
+  });
+  const commitGate = new Promise<void>((resolve) => {
+    releaseCommit = resolve;
+  });
+  const secondSkipped = new Promise<void>((resolve) => {
+    skipped = resolve;
+  });
+  let measurements = 0,
+    writes = 0;
+  const originalTokens = (f.coordinator as any).usedTokens.bind(f.coordinator);
+  const measurement = spyOn(f.coordinator as any, "usedTokens").mockImplementation(
+    async (...args: any[]) => {
+      if (++measurements === 2) measurementsReady();
+      await measurementGate;
+      return originalTokens(...args);
+    }
+  );
+  const originalCommit = f.store.commit.bind(f.store);
+  const commit = spyOn(f.store, "commit").mockImplementation((async (id, input, isCurrent) => {
+    const result = await originalCommit(id, input, isCurrent);
+    if (result) {
+      writes++;
+      await commitGate;
+    } else skipped();
+    return result;
+  }) as typeof f.store.commit);
+  const first = f.coordinator.modelContextMessages(observation);
+  const second = f.coordinator.modelContextMessages(observation);
+  try {
+    await bothMeasuring;
+    releaseMeasurements();
+    await secondSkipped;
+    expect(writes).toBe(1);
+    expect(commit).toHaveBeenCalledTimes(2);
+    releaseCommit();
+    await Promise.all([first, second]);
+    const manifest = await f.store.manifest(f.id);
+    expect(manifest.epoch).toBe(2);
+    expect(new Set(manifest.archives.map((record) => record.id)).size).toBe(2);
+    expect((await f.store.latest(f.id))?.id).toBe(manifest.latestArchiveId!);
+    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
+  } finally {
+    releaseMeasurements();
+    releaseCommit();
+    await Promise.allSettled([first, second]);
+    measurement.mockRestore();
+    commit.mockRestore();
+    local.session.dispose();
+  }
+});
+
+test("archive writer rejects duplicate IDs before mutation and preserves staged replay idempotence", async () => {
+  const f = await fixture();
+  const id = crypto.randomUUID();
+  const input = archiveInput(id, 2);
+  const { piBaseMessageCount, ...intent } = input;
+  await f.store.stage(f.id, intent);
+  const adopted = await f.store.commit(f.id, input);
+  const manifest = await f.store.manifest(f.id);
+  await expect(f.store.commit(f.id, input)).rejects.toThrow("already adopted");
+  expect(await f.store.manifest(f.id)).toEqual(manifest);
+  expect(await f.store.latest(f.id)).toEqual(adopted);
+  expect(await f.store.commitStaged(f.id, id, piBaseMessageCount)).toEqual(adopted);
+  expect(await f.store.manifest(f.id)).toEqual(manifest);
+  expect(await f.store.stagedId(f.id)).toBeNull();
+});
+
+test("a completed projection does not delete a replacement pending candidate", async () => {
+  const f = await fixture("owned", 2);
+  const local = await localRuntime(f);
+  const observation = {
+    ...compactionObservation(local.active),
+    usedTokens: 99_999,
+    freshUsage: true,
+    infer: async () => ({ text: "First projected candidate" }),
+  };
+  await f.coordinator.observe(observation);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  let committed!: () => void, release!: () => void;
+  const stored = new Promise<void>((resolve) => {
+    committed = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const originalCommit = f.store.commit.bind(f.store);
+  const commit = spyOn(f.store, "commit").mockImplementation((async (id, input, isCurrent) => {
+    const result = await originalCommit(id, input, isCurrent);
+    committed();
+    await gate;
+    return result;
+  }) as typeof f.store.commit);
+  const projecting = f.coordinator.modelContextMessages(observation);
+  try {
+    await stored;
+    const replacement = {
+      ...observation,
+      systemPrompt: "Replacement system",
+      infer: async () => ({ text: "Replacement summary" }),
+    };
+    await f.coordinator.observe(replacement);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const pending = (f.coordinator as any).pending.get(f.id);
+    expect(pending?.systemDigest).toBe(sha256(replacement.systemPrompt));
+    release();
+    await projecting;
+    expect((f.coordinator as any).pending.get(f.id)).toBe(pending);
+    commit.mockRestore();
+    await f.coordinator.modelContextMessages(replacement);
+    expect((await f.store.latest(f.id))?.summary).toBe("Replacement summary");
+    expect((await f.store.manifest(f.id)).epoch).toBe(3);
+    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
+  } finally {
+    release();
+    await projecting;
+    commit.mockRestore();
+    local.session.dispose();
+  }
+});
+
+test("native preparation drops a stale candidate without staging or deleting its replacement", async () => {
+  const f = await fixture("owned", 2);
+  const local = await localRuntime(f);
+  const observation = {
+    ...compactionObservation(local.active),
+    usedTokens: 99_999,
+    freshUsage: true,
+    infer: async () => ({ text: "Old native candidate" }),
+  };
+  await f.coordinator.observe(observation);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const originalWait = (f.coordinator as any).waitForPending.bind(f.coordinator);
+  const wait = spyOn(f.coordinator as any, "waitForPending").mockImplementation(
+    async (...args: any[]) => {
+      const result = await originalWait(...args);
+      entered();
+      await gate;
+      return result;
+    }
+  );
+  const stage = spyOn(f.store, "stage");
+  const preparing = f.coordinator.beforePiCompaction({
+    ...observation,
+    reason: "manual",
+    firstKeptEntryId: local.session.sessionManager.getLeafId()!,
+    tokensBefore: 99_999,
+    signal: new AbortController().signal,
+  });
+  try {
+    await started;
+    await f.coordinator.observe({
+      ...observation,
+      systemPrompt: "New native candidate system",
+      infer: async () => ({ text: "Replacement native candidate" }),
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const replacement = (f.coordinator as any).pending.get(f.id);
+    release();
+    expect(await preparing).toBeNull();
+    expect((f.coordinator as any).pending.get(f.id)).toBe(replacement);
+    expect(stage).toHaveBeenCalledTimes(0);
+    expect(await f.store.stagedId(f.id)).toBeNull();
+    expect((await f.store.manifest(f.id)).epoch).toBe(1);
+    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
+  } finally {
+    release();
+    await preparing;
+    wait.mockRestore();
+    stage.mockRestore();
+    local.session.dispose();
+  }
+});

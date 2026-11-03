@@ -1,35 +1,24 @@
-import {
-  attachmentTextPreview,
-  ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT,
-} from "@openteam/product-core/attachments";
-import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import type { AssetRef } from "@openteam/contracts";
-import { clientErrorMessage } from "@openteam/product-core/redaction";
+import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import {
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  FileText,
-  Maximize2,
-  Music2,
-  X,
-} from "lucide-react";
+  ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT,
+  attachmentTextPreview,
+} from "@openteam/product-core/attachments";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
+import { ChevronLeft, ChevronRight, Download, FileText, Maximize2, Music2, X } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { authHeaders } from "../../client/auth";
-import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import { api } from "../../client/openteam-api";
+import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import { useVirtualWindow } from "../../hooks/use-virtual-window";
-import {
-  type AttachmentPreviewKind,
-  attachmentPreviewKind,
-} from "../../lib/attachment-preview";
-import { FileGlyph, fileGlyphVariant, formatAttachmentSize } from "./attachment-visuals";
-import { cn } from "../../lib/cn";
+import { type AttachmentPreviewKind, attachmentPreviewKind } from "../../lib/attachment-preview";
 import { MessageResponse } from "../ai-elements/message";
+import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 import { LoadingOrb } from "../ui/loading-orb";
+import { FileGlyph, fileGlyphVariant, formatAttachmentSize } from "./attachment-visuals";
 import {
   renderSanitizedDocumentProgressively,
   sanitizePreviewDocument,
@@ -54,8 +43,6 @@ export const downloadAttachments = async (attachments: readonly AssetRef[]) => {
   }
   return { canceled: false, saved: files.length, directory: null };
 };
-
-const previewable = (kind: AttachmentPreviewKind) => kind !== "unknown";
 
 const readBoundedResponse = async (
   response: Response,
@@ -123,10 +110,12 @@ const readBoundedResponse = async (
 };
 
 function PreviewStatus({
+  action,
   detail,
   title,
   loading = false,
 }: {
+  action?: ReactNode;
   detail?: string;
   title: string;
   loading?: boolean;
@@ -145,6 +134,7 @@ function PreviewStatus({
             {detail}
           </div>
         ) : null}
+        {action ? <div className="mt-3">{action}</div> : null}
       </div>
     </div>
   );
@@ -393,6 +383,19 @@ function LoadedDocumentPreview({
   if (kind === "unknown") {
     return (
       <PreviewStatus
+        action={
+          <Button
+            onClick={() =>
+              void downloadAttachments([attachment]).catch((error) =>
+                toast.error(clientErrorMessage(error, "Couldn’t download file"))
+              )
+            }
+            size="sm"
+            variant="secondary"
+          >
+            Download
+          </Button>
+        }
         detail="This file type can’t be previewed. Download it to open it on your computer."
         title="Preview not available"
       />
@@ -428,7 +431,6 @@ function LoadedDocumentPreview({
 export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
   const [open, setOpen] = useState(false);
   const kind = attachmentPreviewKind(attachment);
-  const canPreview = previewable(kind);
 
   return (
     <>
@@ -436,14 +438,12 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
         className="w-[354px] max-w-full rounded-[22px] bg-white shadow-[0_0_0_0.5px_rgba(28,28,28,0.08),0_1px_4px_0_rgba(28,28,28,0.07),0_6px_12px_0_rgba(28,28,28,0.035)] dark:bg-[#1f1f1f] dark:shadow-[0_0_0_0.5px_#f5f5f51f]"
         data-file-attachment-card=""
       >
+        {/* As in the reference, every card opens the viewer; a type it can't show
+            offers the download there. */}
         <button
-          aria-label={canPreview ? `Open ${attachment.fileName}` : attachment.fileName}
-          className={cn(
-            "flex w-full min-w-0 items-center gap-2.5 rounded-[22px] p-4 text-left outline-none",
-            canPreview && "cursor-pointer focus-visible:ring-2 focus-visible:ring-ring/35"
-          )}
-          disabled={!canPreview}
-          onClick={() => canPreview && setOpen(true)}
+          aria-label={`Open ${attachment.fileName}`}
+          className="flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-[22px] p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+          onClick={() => setOpen(true)}
           type="button"
         >
           <FileGlyph variant={fileGlyphVariant(attachment.fileName)} />

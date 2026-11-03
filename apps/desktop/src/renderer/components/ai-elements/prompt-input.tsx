@@ -3,18 +3,15 @@
 import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core";
 import type { AssetRef, ClientCapabilities } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
-import {
-  selectAttachments,
-  remainingAttachmentCapacity,
-} from "@openteam/product-core/attachments";
+import { remainingAttachmentCapacity, selectAttachments } from "@openteam/product-core/attachments";
 import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { Paperclip, X } from "lucide-react";
 import type {
   ClipboardEvent,
   FormEvent,
-  MouseEvent as ReactMouseEvent,
   DragEvent as ReactDragEvent,
+  MouseEvent as ReactMouseEvent,
   RefObject,
 } from "react";
 import {
@@ -28,12 +25,12 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { cn } from "../../lib/cn";
 import { useVoiceNote } from "../../hooks/use-voice-note";
 import { useVoiceShortcuts } from "../../hooks/use-voice-shortcuts";
-import { insertVoiceTranscript, voiceInsertionRange } from "../../lib/voice-insertion";
+import { cn } from "../../lib/cn";
 import { fileDragContainsFiles } from "../../lib/file-drop";
 import type { MentionOption } from "../../lib/mentions";
+import { insertVoiceTranscript, voiceInsertionRange } from "../../lib/voice-insertion";
 import { FileGlyph, fileGlyphVariant, formatAttachmentSize } from "../openteam/attachment-visuals";
 import { ImageAttachment } from "../openteam/image-attachment";
 import { MentionEditor } from "../openteam/mention-editor";
@@ -41,18 +38,18 @@ import type { VoiceMemoMode } from "../openteam/voice-memo/voice-memo-layer";
 import { Button } from "../ui/button";
 import "./composer-motion.css";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
+import {
   BotArrowUpIcon,
   BotCloseIcon,
   BotMicIcon,
   BotPlusIcon,
   BotReplyIcon,
 } from "./composer-icons";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
 
 const MAX_TEXTAREA_HEIGHT = 120;
 const MULTILINE_THRESHOLD = 39;
@@ -182,7 +179,8 @@ export function PromptInput({
     sendAfterVoice.current = false;
   });
   useLayoutEffect(() => {
-    if (focusRequest !== undefined && !disabled) textareaRef.current?.focus({ preventScroll: true });
+    if (focusRequest !== undefined && !disabled)
+      textareaRef.current?.focus({ preventScroll: true });
   }, [focusRequest, disabled]);
 
   useLayoutEffect(() => {
@@ -269,21 +267,35 @@ export function PromptInput({
     setAttachments(next);
   }, []);
   const adoptedDraftId = useRef<string | null>(null);
-  useImperativeHandle(draftRef, () => ({
-    takeDraft: () => {
-      if (stagingInFlight.current || submitInFlight.current) return undefined;
-      const draft = { id: crypto.randomUUID(), content: value, richText, attachments: attachmentsRef.current };
-      // The receiving composer now owns staged files and their preview URLs.
-      attachmentsRef.current = [];
-      previewUrls.current.clear();
-      return draft;
-    },
-  }), [value, richText]);
+  useImperativeHandle(
+    draftRef,
+    () => ({
+      takeDraft: () => {
+        if (stagingInFlight.current || submitInFlight.current) return undefined;
+        const draft = {
+          id: crypto.randomUUID(),
+          content: value,
+          richText,
+          attachments: attachmentsRef.current,
+        };
+        // The receiving composer now owns staged files and their preview URLs.
+        attachmentsRef.current = [];
+        previewUrls.current.clear();
+        return draft;
+      },
+    }),
+    [value, richText]
+  );
   useLayoutEffect(() => {
     if (!incomingDraft || adoptedDraftId.current === incomingDraft.id) return;
     adoptedDraftId.current = incomingDraft.id;
     setValue((current) => [current, incomingDraft.content].filter(Boolean).join("\n"));
-    setRichText((current) => [current ?? value, incomingDraft.richText ?? incomingDraft.content].filter(Boolean).join("\n") || undefined);
+    setRichText(
+      (current) =>
+        [current ?? value, incomingDraft.richText ?? incomingDraft.content]
+          .filter(Boolean)
+          .join("\n") || undefined
+    );
     for (const attachment of incomingDraft.attachments) {
       if (attachment.previewUrl) previewUrls.current.add(attachment.previewUrl);
     }
@@ -331,7 +343,11 @@ export function PromptInput({
         recoveryOwned: true,
       })),
     ]);
-    setAttachmentError(recovery.message ? `Message not sent: ${clientErrorMessage(recovery.message, "Try again.")}` : null);
+    setAttachmentError(
+      recovery.message
+        ? `Message not sent: ${clientErrorMessage(recovery.message, "Try again.")}`
+        : null
+    );
     onRecoveryApplied?.();
     window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
   }, [onRecoveryApplied, recovery, replaceAttachments, value]);
@@ -456,7 +472,8 @@ export function PromptInput({
           try {
             return { file, staged: await onStage(file, file.name) };
           } catch {
-            if (mounted.current) setAttachmentError(`"${file.name}" couldn't be attached. Try again.`);
+            if (mounted.current)
+              setAttachmentError(`"${file.name}" couldn't be attached. Try again.`);
             return null;
           }
         });
@@ -614,7 +631,8 @@ export function PromptInput({
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const content = value.trim();
-    if ((!content && attachments.length === 0) || blocked || sendDisabled || submitInFlight.current) return;
+    if ((!content && attachments.length === 0) || blocked || sendDisabled || submitInFlight.current)
+      return;
     submitInFlight.current = true;
     restoreSubmitFocus.current = Boolean(surfaceRef.current?.contains(document.activeElement));
     const pendingAttachments = attachmentsRef.current;

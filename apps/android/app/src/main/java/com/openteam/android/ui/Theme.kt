@@ -11,6 +11,7 @@ import androidx.compose.material3.Shapes
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.openteam.features.AppSettings
 
 private val BackgroundLight = Color(0xFFFCFCFC)
 private val SurfaceLight = Color(0xFFF2F2F2)
@@ -22,9 +23,25 @@ private val UserBubbleLight = Color(0xFF0E0E0E)
 private val LinkBlue = Color(0xFF016CEC)
 
 @Composable
-fun OpenTeamTheme(content: @Composable () -> Unit) {
+fun OpenTeamTheme(
+    appearance: AppSettings.Appearance = AppSettings.Appearance.System,
+    accent: AppSettings.Accent = AppSettings.Accent.Black,
+    content: @Composable () -> Unit,
+) {
+    val systemDark = isSystemInDarkTheme()
+    val darkTheme = when (appearance) {
+        AppSettings.Appearance.System -> systemDark
+        AppSettings.Appearance.Light -> false
+        AppSettings.Appearance.Dark -> true
+    }
+    val accentColor = when (accent) {
+        AppSettings.Accent.Black -> if (darkTheme) Color.White else TextLight
+        AppSettings.Accent.Blue -> Color(0xFF1769E0)
+        AppSettings.Accent.Purple -> Color(0xFF7B4FD1)
+        AppSettings.Accent.Green -> Color(0xFF277A45)
+    }
     val light = lightColorScheme(
-        primary = TextLight,
+        primary = accentColor,
         onPrimary = Color.White,
         primaryContainer = UserBubbleLight,
         onPrimaryContainer = Color.White,
@@ -40,7 +57,7 @@ fun OpenTeamTheme(content: @Composable () -> Unit) {
         error = Color(0xFFC83A3A),
     )
     val dark = darkColorScheme(
-        primary = Color.White,
+        primary = accentColor,
         onPrimary = Color.Black,
         primaryContainer = Color(0xFF545454),
         onPrimaryContainer = Color.White,
@@ -58,7 +75,7 @@ fun OpenTeamTheme(content: @Composable () -> Unit) {
         error = Color(0xFFF48182),
     )
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) dark else light,
+        colorScheme = if (darkTheme) dark else light,
         typography = Typography().copy(
             displayLarge = Typography().displayLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
             headlineLarge = Typography().headlineLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),

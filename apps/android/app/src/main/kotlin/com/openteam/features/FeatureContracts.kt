@@ -1,5 +1,6 @@
 package com.openteam.features
 
+import kotlinx.serialization.json.JsonObject
 
 /** Shared UI state used by feature screens while live operations are in flight. */
 sealed interface FeatureLoadState<out T> {
@@ -31,6 +32,7 @@ sealed interface RichMessageBlock {
     data class Mermaid(val source: String) : RichMessageBlock
     data class Card(val title: String, val body: String, val action: RichMessageAction? = null) : RichMessageBlock
     data class Form(val title: String, val fields: List<RichFormField>, val submit: RichMessageAction) : RichMessageBlock
+    data class Secret(val prompt: String, val submit: RichMessageAction) : RichMessageBlock
     data class Approval(val title: String, val detail: String, val approve: RichMessageAction, val reject: RichMessageAction) : RichMessageBlock
     data class Widget(
         val prompt: String,
@@ -46,6 +48,7 @@ data class RichMessageAction(
     val label: String,
     val kind: Kind = Kind.Primary,
     val enabled: Boolean = true,
+    val route: String? = null,
 ) {
     enum class Kind { Primary, Secondary, Destructive }
 }
@@ -255,4 +258,5 @@ interface FeatureGateway {
     suspend fun cancelPluginAuthorization(pluginId: String, state: String, redirectUrl: String? = null): Result<Unit>
     suspend fun completePluginAuthorization(pluginId: String, callbackUrl: String): Result<Unit>
     suspend fun testPluginTool(pluginId: String, toolName: String, input: String): Result<String>
+    suspend fun configurePlugin(pluginId: String, configuration: JsonObject): Result<Plugin>
 }

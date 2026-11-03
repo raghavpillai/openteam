@@ -26,12 +26,22 @@ import java.net.URLDecoder
 class LiveFeatureGateway(private val client: MobileFeatureApi) : FeatureGateway {
     override suspend fun submitRichAction(messageId: String, actionId: String, values: Map<String, String>): Result<Unit> =
         runCatching {
-            val path = if (actionId.equals("dismiss", ignoreCase = true)) "widget-dismiss" else "widget-response"
-            val body = if (path == "widget-dismiss") {
-                buildJsonObject { put("clientId", clientId()) }
-            } else {
-                buildJsonObject {
-                    put("value", if (values.isEmpty()) actionId else values.toJson().toString())
+            val route = values["_richType"] ?: actionId
+            val cleanValues = values - "_richType"
+            val (path, body) = when (route.lowercase()) {
+                "user-form", "submit" -> "user-form" to buildJsonObject {
+                    put("action", "submit")
+                    put("values", cleanValues.toJson())
+                    put("saveToVault", false)
+                }
+                "secret", "secret-request" -> "secret" to buildJsonObject { put("value", cleanValues["value"] ?: ""); put("clientId", clientId()) }
+                "computer-handoff" -> "computer-handoff" to buildJsonObject { put("action", actionId); put("clientId", clientId()) }
+                "external-draft" -> "external-draft" to buildJsonObject { put("action", actionId); put("edits", cleanValues.toJson()) }
+                "imessage-send" -> "imessage-send" to buildJsonObject { put("action", actionId) }
+                "bot-template" -> "bot-template" to buildJsonObject { put("action", actionId); put("clientId", clientId()) }
+                "widget-dismiss" -> "widget-dismiss" to buildJsonObject { put("clientId", clientId()) }
+                else -> "widget-response" to buildJsonObject {
+                    put("value", cleanValues["value"] ?: if (cleanValues.isEmpty()) actionId else cleanValues.toJson().toString())
                     put("clientId", clientId())
                 }
             }
@@ -245,6 +255,11 @@ class LiveFeatureGateway(private val client: MobileFeatureApi) : FeatureGateway 
 
     override suspend fun testPluginTool(pluginId: String, toolName: String, input: String): Result<String> = runCatching {
         client.request(HttpMethod.POST, "/api/v0/plugin-connections/${segment(pluginId)}/test", buildJsonObject { put("toolName", toolName); put("arguments", runCatching { mobileJson.parseToJsonElement(input) }.getOrDefault(JsonPrimitive(input))) }).string("result")
+    }
+
+    override suspend fun configurePlugin(pluginId: String, configuration: JsonObject): Result<Plugin> = runCatching {
+        client.request(HttpMethod.PUT, "/api/v0/plugin-connections/${segment(pluginId)}/configuration", configuration)
+        listPlugins().getOrThrow().first { (it.connectionId ?: it.id) == pluginId }
     }
 
     private fun clientId() = "android-${System.currentTimeMillis()}"

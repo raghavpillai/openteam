@@ -1,5 +1,7 @@
 package com.openteam.features
 
+import kotlinx.serialization.json.JsonObject
+
 /** Explicit fallback for preview or unauthenticated sessions. */
 object UnsupportedFeatureGateway : FeatureGateway {
     private fun <T> unavailable(): Result<T> = Result.failure(UnsupportedOperationException("Feature API is not available for this session."))
@@ -35,4 +37,5 @@ object UnsupportedFeatureGateway : FeatureGateway {
     override suspend fun cancelPluginAuthorization(pluginId: String, state: String, redirectUrl: String?) = unavailable<Unit>()
     override suspend fun completePluginAuthorization(pluginId: String, callbackUrl: String) = unavailable<Unit>()
     override suspend fun testPluginTool(pluginId: String, toolName: String, input: String) = unavailable<String>()
+    override suspend fun configurePlugin(pluginId: String, configuration: JsonObject) = unavailable<Plugin>()
 }

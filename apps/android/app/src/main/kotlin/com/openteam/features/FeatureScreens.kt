@@ -63,6 +63,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 
 @Composable
 private fun FeaturePage(title: String, onBack: (() -> Unit)? = null, content: @Composable () -> Unit) {
@@ -168,7 +171,20 @@ fun RichMessageCardScreen(
                                 }
                             }
                         }
-                        ActionButton(block.submit) { onAction(block.submit, values.toMap()) }
+                        ActionButton(block.submit) { onAction(block.submit, values.toMap() + ("_richType" to "user-form")) }
+                    }
+                    is RichMessageBlock.Secret -> {
+                        Text(block.prompt, fontWeight = FontWeight.Bold)
+                        var value by remember(message.id, block.prompt) { mutableStateOf("") }
+                        OutlinedTextField(
+                            value = value,
+                            onValueChange = { value = it },
+                            label = { Text("Secret") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        ActionButton(block.submit) { onAction(block.submit, mapOf("value" to value, "_richType" to "secret")) }
                     }
                     is RichMessageBlock.Approval -> {
                         Text(block.title, fontWeight = FontWeight.Bold)
@@ -192,7 +208,7 @@ fun RichMessageCardScreen(
                         }
                         ActionButton(
                             RichMessageAction("widget-response", "Submit"),
-                        ) { onAction(RichMessageAction("widget-response", "Submit"), mapOf("value" to selected.joinToString("\n"))) }
+                        ) { onAction(RichMessageAction("widget-response", "Submit", route = "widget-response"), mapOf("value" to selected.joinToString("\n"), "_richType" to "widget-response")) }
                     }
                 }
             }
@@ -276,6 +292,9 @@ fun ChatAttachmentStrip(
     attachments: List<Attachment>,
     onPreview: (Attachment, AttachmentAction) -> Unit,
     onDownload: (Attachment, AttachmentAction) -> Unit,
+    onSave: (Attachment) -> Unit = {},
+    onShare: (Attachment) -> Unit = {},
+    onForward: (Attachment) -> Unit = {},
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         attachments.forEach { attachment ->
@@ -292,6 +311,11 @@ fun ChatAttachmentStrip(
                     }
                     TextButton(onClick = { onPreview(attachment, AttachmentAction.Preview) }) { Text(if (localPath == null) "Preview" else "Open") }
                     if (localPath == null) TextButton(onClick = { onDownload(attachment, AttachmentAction.Download) }) { Text("Download") }
+                }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    TextButton(onClick = { onSave(attachment) }) { Text("Save") }
+                    TextButton(onClick = { onShare(attachment) }) { Text("Share") }
+                    TextButton(onClick = { onForward(attachment) }) { Text("Forward") }
                 }
             }
         }
@@ -503,6 +527,8 @@ fun SettingsScreen(
     onProviders: () -> Unit,
     onWebProviders: () -> Unit,
     onOutbox: () -> Unit,
+    onAccount: () -> Unit,
+    onPlugins: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
     val language = settings.language
@@ -651,6 +677,8 @@ fun SettingsScreen(
                         text("Open", "打开"),
                         onOutbox,
                     )
+                    SettingsActionRow(text("Account and memory", "账户与记忆"), text("Review account data and saved memories", "查看账户数据和已保存的记忆"), text("Open", "打开"), onAccount)
+                    SettingsActionRow(text("Plugins", "插件"), text("Manage installed connections and tools", "管理已安装的连接和工具"), text("Open", "打开"), onPlugins)
                     SettingsActionRow(text("AI model", "AI 模型"), text("Choose the provider and model used by bots", "选择 Bot 使用的服务商和模型"), text("Open", "打开"), onProviders)
                     SettingsActionRow(text("Web providers", "网络服务商"), text("Choose search and page-fetch services", "选择搜索和网页抓取服务"), text("Open", "打开"), onWebProviders)
                 }
@@ -928,7 +956,7 @@ fun PluginsScreen(
     onRollback: (Plugin) -> Unit,
     onAuthorize: (Plugin) -> Unit,
     onCancelAuthorization: (Plugin) -> Unit,
-    onConfigure: (Plugin) -> Unit,
+    onConfigure: (Plugin, JsonObject) -> Unit,
     onTestTool: (Plugin) -> Unit,
 ) {
     FeaturePage("Plugins") {
@@ -947,6 +975,8 @@ fun PluginsScreen(
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(plugins.filter { filter.isBlank() || it.name.contains(filter, true) || it.description.contains(filter, true) }, key = { "${it.id}:${it.connectionId ?: "plugin"}" }) { plugin ->
                         var confirmRollback by remember(plugin.id, plugin.connectionId) { mutableStateOf(false) }
+                        var configure by remember(plugin.id, plugin.connectionId) { mutableStateOf(false) }
+                        var configuration by remember(plugin.id, plugin.connectionId) { mutableStateOf("{}") }
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) { Text(plugin.name, Modifier.weight(1f), fontWeight = FontWeight.Bold); Text(plugin.installedVersion ?: "Not installed", style = MaterialTheme.typography.labelSmall) }
@@ -957,7 +987,7 @@ fun PluginsScreen(
                                     else {
                                         if (plugin.latestVersion != null && plugin.latestVersion != plugin.installedVersion) TextButton(onClick = { onUpdate(plugin) }, enabled = !plugin.busy) { Text("Update") }
                                         TextButton(onClick = { confirmRollback = true }, enabled = !plugin.busy) { Text("Rollback") }
-                                        TextButton(onClick = { onConfigure(plugin) }, enabled = !plugin.busy) { Text("Configure") }
+                                        TextButton(onClick = { configure = true }, enabled = !plugin.busy) { Text("Configure") }
                                         TextButton(onClick = { onTestTool(plugin) }, enabled = !plugin.busy) { Text("Test tool") }
                                     }
                                     if (plugin.requiresOAuth && !plugin.configured && plugin.authorizationUrl == null) TextButton(onClick = { onAuthorize(plugin) }, enabled = !plugin.busy) { Text("Authorize") }
@@ -968,6 +998,28 @@ fun PluginsScreen(
                                 }
                                 if (plugin.busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                             }
+                        }
+                        if (configure) {
+                            AlertDialog(
+                                onDismissRequest = { configure = false },
+                                title = { Text("Configure ${plugin.name}") },
+                                text = {
+                                    OutlinedTextField(
+                                        value = configuration,
+                                        onValueChange = { configuration = it },
+                                        label = { Text("Configuration JSON") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        minLines = 5,
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        runCatching { Json.parseToJsonElement(configuration).jsonObject }
+                                            .onSuccess { onConfigure(plugin, it); configure = false }
+                                    }) { Text("Save") }
+                                },
+                                dismissButton = { TextButton(onClick = { configure = false }) { Text("Cancel") } },
+                            )
                         }
                         if (confirmRollback) {
                             AlertDialog(

@@ -431,6 +431,7 @@ class HttpMobileGateway(context: Context) :
                     botId = botId.ifBlank { null },
                     isBot = kind == "bot_dm",
                     isGroup = kind == "group",
+                    memberBotIds = channel.arrayAt("members").mapNotNull { it.jsonObjectOrNull()?.string("botId")?.takeIf(String::isNotBlank) },
                     updatedLabel = channel.string("updatedLabel", "lastUpdatedLabel").ifBlank { null },
                     latestPreview = latest?.let(::messagePreviewText),
                     updatedAt = channel.string("updatedAt").ifBlank { latest?.string("createdAt").orEmpty() }.takeIf { it.isNotBlank() },
@@ -677,6 +678,10 @@ class HttpMobileGateway(context: Context) :
             )
             "card" -> RichMessageBlock.Card(value.string("title"), value.string("body", "content"), value["action"]?.toAction())
             "form", "user-form" -> value.toForm()
+            "secret-request", "secret" -> RichMessageBlock.Secret(
+                value.string("prompt", "title", "label", "name"),
+                value["submit"]?.toAction("submit") ?: RichMessageAction("submit", "Submit", route = "secret"),
+            )
             "approval" -> RichMessageBlock.Approval(
                 value.string("title"), value.string("detail", "body"),
                 value["approve"]?.toAction("approve") ?: return null,
@@ -699,7 +704,7 @@ class HttpMobileGateway(context: Context) :
                 options = field.arrayAt("options").mapNotNull { option -> option.asString() ?: option.jsonObjectOrNull()?.string("label", "value") },
             )
         }
-        val submit = this["submit"]?.toAction("submit") ?: RichMessageAction("submit", "Submit")
+        val submit = this["submit"]?.toAction("submit") ?: RichMessageAction("submit", "Submit", route = "user-form")
         return RichMessageBlock.Form(string("title", "prompt", "name"), fields, submit)
     }
 
@@ -724,7 +729,13 @@ class HttpMobileGateway(context: Context) :
             "destructive", "danger" -> RichMessageAction.Kind.Destructive
             else -> RichMessageAction.Kind.Primary
         }
-        return RichMessageAction(id, value.string("label", "title", "id").ifBlank { id }, kind, value.boolean("enabled", true))
+        return RichMessageAction(
+            id,
+            value.string("label", "title", "id").ifBlank { id },
+            kind,
+            value.boolean("enabled", true),
+            value.string("route", "type", "actionType").ifBlank { null },
+        )
     }
 
     private fun JsonObject.toReactions(fallback: Map<String, List<String>>): List<Reaction> {

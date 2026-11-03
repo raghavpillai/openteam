@@ -14,6 +14,8 @@ import com.openteam.platform.AndroidPlatformRuntime
 import java.security.MessageDigest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
 
 class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
@@ -54,7 +56,8 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            OpenTeamTheme { OpenTeamApp(viewModel) }
+            val state by viewModel.state.collectAsStateWithLifecycle()
+            OpenTeamTheme(state.features.settings.appearance, state.features.settings.accent) { OpenTeamApp(viewModel) }
         }
     }
 

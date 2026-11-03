@@ -71,6 +71,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
@@ -148,11 +149,18 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 private const val LOGIN = "login"
 private const val DIRECTORY = "directory"
 private const val CHAT = "chat/{conversationId}"
 private const val BOT_DETAILS = "bot/{conversationId}/details"
+private const val PROFILE = "conversation/{conversationId}/profile"
+private const val CREATE = "conversation/create"
 private const val COMPUTER = "bot/{conversationId}/computer"
 private const val MARKETPLACE = "marketplace"
 private const val ROUTINES = "routines"
@@ -162,6 +170,7 @@ private const val PROVIDERS = "providers"
 private const val WEB_PROVIDERS = "web-providers"
 private const val PLUGINS = "plugins"
 private const val OUTBOX = "outbox"
+private const val ACCOUNT = "account"
 
 private enum class SignInStep { WELCOME, ENDPOINT, CREDENTIALS }
 
@@ -210,6 +219,21 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             navController.navigate(DIRECTORY) { popUpTo(LOGIN) { inclusive = true } }
         }
     }
+    LaunchedEffect(state.pendingSystemAction, state.pendingSystemIdentifier, state.session) {
+        val action = state.pendingSystemAction ?: return@LaunchedEffect
+        if (state.session == null) return@LaunchedEffect
+        when {
+            action.contains("routine", ignoreCase = true) -> navController.navigate(ROUTINES)
+            action.contains("plugin", ignoreCase = true) -> navController.navigate(PLUGINS)
+            action.contains("settings", ignoreCase = true) -> navController.navigate(SETTINGS)
+            state.pendingSystemIdentifier != null -> {
+                appViewModel.openConversation(state.pendingSystemIdentifier)
+                navController.navigate("chat/${state.pendingSystemIdentifier}")
+            }
+            else -> appViewModel.acceptShare(SharePayload(action, null, "text/plain"))
+        }
+        appViewModel.consumeSystemAction()
+    }
 
     NavHost(navController = navController, startDestination = LOGIN) {
         composable(LOGIN) {
@@ -239,8 +263,8 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                     navController.navigate("chat/${conversation.id}")
                 },
                 onShareTarget = appViewModel::selectShareTarget,
-                onRoutines = { navController.navigate(ROUTINES) },
-                    onOutbox = { navController.navigate(OUTBOX) },
+                onRoutines = { navController.navigate(CREATE) },
+                onOutbox = { navController.navigate(OUTBOX) },
                 onSettings = { navController.navigate(SETTINGS) },
                 onSearch = appViewModel::search,
                 onClearSearch = appViewModel::clearSearch,
@@ -274,6 +298,10 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 },
                 onComputer = { navController.navigate("bot/$id/computer") },
                 onRoutines = { navController.navigate(ROUTINES) },
+                onEdit = { navController.navigate("conversation/$id/profile") },
+                onHide = { appViewModel.setConversationHidden(it, true); navController.popBackStack() },
+                onDelete = { appViewModel.deleteConversation(it); navController.navigate(DIRECTORY) { popUpTo(DIRECTORY) { inclusive = true } } },
+                onDuplicate = { appViewModel.duplicateBot(it) },
                 onShare = {
                     conversation?.let {
                         context.startActivity(
@@ -289,6 +317,39 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 },
             )
         }
+        composable(CREATE) {
+            BackHandler { navController.popBackStack() }
+            CreateConversationScreen(
+                bots = state.conversations.filter { it.isBot },
+                onCreateBot = { name, description, instructions, icon, color ->
+                    appViewModel.createBot(name, description, instructions, icon, color)
+                    navController.popBackStack()
+                },
+                onCreateGroup = { name, botIds ->
+                    appViewModel.createGroup(name, botIds)
+                    navController.popBackStack()
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(PROFILE, arguments = listOf(navArgument("conversationId") { type = NavType.StringType })) { entry ->
+            val id = entry.arguments?.getString("conversationId").orEmpty()
+            val conversation = state.conversations.firstOrNull { it.id == id }
+            BackHandler { navController.popBackStack() }
+            ConversationProfileScreen(
+                conversation = conversation,
+                bots = state.conversations.filter { it.isBot },
+                onSaveBot = { current, name, description, instructions, icon, color ->
+                    appViewModel.updateBot(current, name, description, instructions, icon, color)
+                    navController.popBackStack()
+                },
+                onSaveGroup = { current, name, description, botIds ->
+                    appViewModel.updateGroup(current, name, description, botIds)
+                    navController.popBackStack()
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable(COMPUTER, arguments = listOf(navArgument("conversationId") { type = NavType.StringType })) { entry ->
             val id = entry.arguments?.getString("conversationId").orEmpty()
             val conversation = state.conversations.firstOrNull { it.id == id }
@@ -298,6 +359,11 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 botId = conversation?.botId.orEmpty(),
                 server = state.session?.server,
                 requestGrant = appViewModel::requestComputerGrant,
+                requestStatus = appViewModel::computerStatus,
+                setTakeover = appViewModel::setComputerTakeover,
+                setPaused = appViewModel::setComputerPaused,
+                sendAction = appViewModel::sendComputerAction,
+                sendClipboard = appViewModel::sendComputerClipboard,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -380,6 +446,8 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onProviders = { navController.navigate(PROVIDERS) },
                 onWebProviders = { navController.navigate(WEB_PROVIDERS) },
                 onOutbox = { navController.navigate(OUTBOX) },
+                onAccount = { navController.navigate(ACCOUNT) },
+                onPlugins = { navController.navigate(PLUGINS) },
             )
         }
         composable(OUTBOX) {
@@ -388,6 +456,16 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 items = state.outbox,
                 onRetry = appViewModel::retryQueuedMessage,
                 onDiscard = appViewModel::discardQueuedMessage,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(ACCOUNT) {
+            BackHandler { navController.popBackStack() }
+            AccountMemoryScreen(
+                state = state.features.account,
+                onRetry = appViewModel::loadFeatureData,
+                onClearMemory = appViewModel::clearMemory,
+                onResetLocalData = appViewModel::resetLocalData,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -427,7 +505,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onRollback = appViewModel::rollbackPlugin,
                 onAuthorize = appViewModel::authorizePlugin,
                 onCancelAuthorization = appViewModel::cancelPluginAuthorization,
-                onConfigure = { },
+                onConfigure = appViewModel::configurePlugin,
                 onTestTool = appViewModel::testPluginTool,
             )
         }
@@ -1563,6 +1641,10 @@ private fun BotDetailsScreen(
     onOpenChat: () -> Unit,
     onComputer: () -> Unit,
     onRoutines: () -> Unit,
+    onEdit: () -> Unit,
+    onHide: (Conversation) -> Unit,
+    onDelete: (Conversation) -> Unit,
+    onDuplicate: (Conversation) -> Unit,
     onShare: () -> Unit,
 ) {
     var moreMenuVisible by remember { mutableStateOf(false) }
@@ -1605,6 +1687,24 @@ private fun BotDetailsScreen(
                         text = { Text(stringResource(com.openteam.android.R.string.bot_open_chat)) },
                         onClick = { moreMenuVisible = false; onOpenChat() },
                     )
+                    DropdownMenuItem(
+                        text = { Text("Edit profile") },
+                        onClick = { moreMenuVisible = false; onEdit() },
+                    )
+                    conversation?.let { row ->
+                        DropdownMenuItem(
+                            text = { Text("Duplicate bot") },
+                            onClick = { moreMenuVisible = false; onDuplicate(row) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Hide from sidebar") },
+                            onClick = { moreMenuVisible = false; onHide(row) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                            onClick = { moreMenuVisible = false; onDelete(row) },
+                        )
+                    }
                 }
             }
         }
@@ -1619,6 +1719,7 @@ private fun BotDetailsScreen(
                 Box(
                     Modifier.clip(CircleShape)
                         .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .clickable(onClick = onEdit)
                         .padding(horizontal = 22.dp, vertical = 10.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1683,6 +1784,125 @@ private fun BotDetailsScreen(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
         )
         Spacer(Modifier.height(20.dp))
+    }
+}
+
+@Composable
+private fun CreateConversationScreen(
+    bots: List<Conversation>,
+    onCreateBot: (String, String, String, String, String) -> Unit,
+    onCreateGroup: (String, List<String>) -> Unit,
+    onBack: () -> Unit,
+) {
+    var group by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var instructions by remember { mutableStateOf("") }
+    var icon by remember { mutableStateOf("chip") }
+    var color by remember { mutableStateOf("#A47952") }
+    val selected = remember { mutableStateOf(emptySet<String>()) }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                title = { Text(if (group) "Create group" else "Create bot") },
+            )
+        },
+    ) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !group, onClick = { group = false }, label = { Text("Bot") })
+                FilterChip(selected = group, onClick = { group = true }, label = { Text("Group") })
+            }
+            OutlinedTextField(name, { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(description, { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
+            if (group) {
+                Text("Members", fontWeight = FontWeight.SemiBold)
+                bots.forEach { bot ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(
+                            checked = bot.botId?.let(selected.value::contains) == true,
+                            onCheckedChange = { checked ->
+                                selected.value = if (checked) selected.value + bot.botId.orEmpty() else selected.value - bot.botId.orEmpty()
+                            },
+                        )
+                        Text(bot.title)
+                    }
+                }
+            } else {
+                OutlinedTextField(instructions, { instructions = it }, label = { Text("Instructions") }, modifier = Modifier.fillMaxWidth(), minLines = 5)
+                OutlinedTextField(icon, { icon = it }, label = { Text("Icon") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(color, { color = it }, label = { Text("Color (#RRGGBB)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            }
+            Button(
+                onClick = {
+                    if (group) onCreateGroup(name, selected.value.filter(String::isNotBlank))
+                    else onCreateBot(name, description, instructions, icon, color)
+                },
+                enabled = name.isNotBlank() && (!group || selected.value.isNotEmpty()),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Create") }
+        }
+    }
+}
+
+@Composable
+private fun ConversationProfileScreen(
+    conversation: Conversation?,
+    bots: List<Conversation>,
+    onSaveBot: (Conversation, String, String, String, String, String) -> Unit,
+    onSaveGroup: (Conversation, String, String, List<String>) -> Unit,
+    onBack: () -> Unit,
+) {
+    if (conversation == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Conversation is unavailable.") }
+        return
+    }
+    var name by remember(conversation.id) { mutableStateOf(conversation.title) }
+    var description by remember(conversation.id) { mutableStateOf(conversation.subtitle) }
+    var instructions by remember { mutableStateOf("") }
+    var icon by remember { mutableStateOf("chip") }
+    var color by remember { mutableStateOf(conversation.avatarColor.ifBlank { "#A47952" }) }
+    val selected = remember(conversation.id) { mutableStateOf(conversation.memberBotIds.toSet()) }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                title = { Text("Edit profile") },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(name, { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(description, { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
+            if (conversation.isGroup) {
+                Text("Members", fontWeight = FontWeight.SemiBold)
+                bots.forEach { bot ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(
+                            checked = bot.botId?.let(selected.value::contains) == true,
+                            onCheckedChange = { checked -> selected.value = if (checked) selected.value + bot.botId.orEmpty() else selected.value - bot.botId.orEmpty() },
+                        )
+                        Text(bot.title)
+                    }
+                }
+            } else {
+                OutlinedTextField(instructions, { instructions = it }, label = { Text("Instructions") }, modifier = Modifier.fillMaxWidth(), minLines = 5)
+                OutlinedTextField(icon, { icon = it }, label = { Text("Icon") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(color, { color = it }, label = { Text("Color (#RRGGBB)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            }
+            Button(
+                onClick = {
+                    if (conversation.isGroup) onSaveGroup(conversation, name, description, selected.value.toList())
+                    else onSaveBot(conversation, name, description, instructions, icon, color)
+                },
+                enabled = name.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Save") }
+        }
     }
 }
 
@@ -1824,11 +2044,23 @@ private fun ComputerViewerScreen(
     botId: String,
     server: String?,
     requestGrant: suspend (String) -> Result<ComputerVncGrant>,
+    requestStatus: suspend (String) -> Result<JsonObject>,
+    setTakeover: suspend (String, Boolean) -> Result<JsonObject>,
+    setPaused: suspend (String, Boolean) -> Result<JsonObject>,
+    sendAction: suspend (String, JsonObject) -> Result<JsonObject>,
+    sendClipboard: suspend (String, String) -> Result<JsonObject>,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
     val renderer = remember { AndroidVncWebViewRenderer(context) }
     val rendererState by renderer.state.collectAsStateWithLifecycle()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var status by remember { mutableStateOf<JsonObject?>(null) }
+    var failure by remember { mutableStateOf<String?>(null) }
+    var clipboardText by remember { mutableStateOf("") }
+    var clipboardOpen by remember { mutableStateOf(false) }
+    val controlling = status?.get("humanTakeover")?.toString()?.toBoolean() == true
+    val paused = status?.get("agentInputPaused")?.toString()?.toBoolean() == true
     DisposableEffect(renderer) {
         onDispose { renderer.detach() }
     }
@@ -1848,10 +2080,41 @@ private fun ComputerViewerScreen(
         runCatching { renderer.connect(grant, URI(server), botId) }
             .onFailure { renderer.onSocketError(it.message ?: "Unable to connect to the computer.") }
     }
+    LaunchedEffect(botId, server, rendererState) {
+        if (botId.isBlank() || server.isNullOrBlank()) return@LaunchedEffect
+        while (true) {
+            requestStatus(botId).onSuccess { status = it }.onFailure { failure = it.message }
+            if (controlling) setTakeover(botId, true).onSuccess { status = it }.onFailure { failure = it.message }
+            delay(20_000)
+        }
+    }
+    DisposableEffect(botId) {
+        onDispose {
+            if (controlling) scope.launch { setTakeover(botId, false) }
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(title) },
+                actions = {
+                    TextButton(onClick = {
+                        scope.launch {
+                            setTakeover(botId, !controlling).fold(
+                                onSuccess = { status = it; failure = null },
+                                onFailure = { failure = it.message },
+                            )
+                        }
+                    }) { Text(if (controlling) "Release" else "Take control", color = Color.White) }
+                    TextButton(onClick = {
+                        scope.launch {
+                            setPaused(botId, !paused).fold(
+                                onSuccess = { status = it; failure = null },
+                                onFailure = { failure = it.message },
+                            )
+                        }
+                    }) { Text(if (paused) "Resume" else "Pause", color = Color.White) }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(com.openteam.android.R.string.chat_back))
@@ -1883,8 +2146,45 @@ private fun ComputerViewerScreen(
                             color = Color.White.copy(alpha = .75f),
                         )
                     }
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = .82f)).padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                failure?.let { Text(it, color = Color(0xFFFF8A80), style = MaterialTheme.typography.bodySmall) }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = { clipboardOpen = true }, enabled = controlling && !paused) { Text("Clipboard", color = Color.White) }
+                    listOf("Return", "Tab", "Escape", "BackSpace").forEach { key ->
+                        TextButton(onClick = { scope.launch { runCatching { renderer.send(com.openteam.platform.ComputerInput.Key(listOf(key))) } } }, enabled = controlling && !paused) {
+                            Text(key, color = Color.White)
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("chromium" to "Browser", "thunar" to "Files", "terminal" to "Terminal").forEach { (app, label) ->
+                        TextButton(onClick = { scope.launch { sendAction(botId, buildJsonObject { put("action", "open_app"); put("app", app) }) } }, enabled = controlling && !paused) {
+                            Text(label, color = Color.White)
+                        }
+                    }
                 }
             }
+                }
+            }
+    if (clipboardOpen) {
+        AlertDialog(
+            onDismissRequest = { clipboardOpen = false },
+            title = { Text("Send text to computer") },
+            text = { OutlinedTextField(clipboardText, { clipboardText = it }, label = { Text("Text") }, minLines = 3) },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        sendClipboard(botId, clipboardText).onFailure { failure = it.message }
+                        clipboardOpen = false
+                    }
+                }, enabled = clipboardText.isNotBlank() && controlling && !paused) { Text("Send") }
+            },
+            dismissButton = { TextButton(onClick = { clipboardOpen = false }) { Text("Cancel") } },
+        )
+    }
         }
     }
 }
@@ -2205,12 +2505,10 @@ private fun MessageBubble(
                             attachments = message.attachments,
                             onPreview = { attachment, _ -> onDownload(message.id, attachment) },
                             onDownload = { attachment, _ -> onDownload(message.id, attachment) },
+                            onSave = { attachment -> onSaveAttachment(message.id, attachment) },
+                            onShare = onShareAttachment,
+                            onForward = onForwardAttachment,
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            TextButton(onClick = { onSaveAttachment(message.id, message.attachments.first()) }) { Text(stringResource(com.openteam.android.R.string.chat_save)) }
-                            TextButton(onClick = { onShareAttachment(message.attachments.first()) }) { Text(stringResource(com.openteam.android.R.string.chat_share)) }
-                            TextButton(onClick = { onForwardAttachment(message.attachments.first()) }) { Text(stringResource(com.openteam.android.R.string.chat_forward)) }
-                        }
                     }
                     if (message.reactions.isNotEmpty() || message.richMessage != null) {
                         ReactionsAndActionsRow(

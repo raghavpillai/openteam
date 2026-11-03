@@ -41,6 +41,8 @@ import com.openteam.features.WebProvider
 import com.openteam.features.WebProvidersState
 import com.openteam.features.UnsupportedFeatureGateway
 import com.openteam.platform.SharePayload
+import com.openteam.platform.AndroidPersistentSearchIndex
+import com.openteam.platform.SearchableItem
 import com.openteam.platform.AndroidVoiceCapture
 import com.openteam.platform.ComputerVncGrant
 import com.openteam.platform.VoiceRecordingController
@@ -59,8 +61,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.net.URI
 import java.net.URLDecoder
 
@@ -89,6 +93,8 @@ data class AppState(
     val pendingVoiceShortcut: Boolean = false,
     val pendingShare: SharePayload? = null,
     val pendingExternalUrl: String? = null,
+    val pendingSystemAction: String? = null,
+    val pendingSystemIdentifier: String? = null,
     val pendingOutgoingShare: OutgoingShare? = null,
     val outbox: List<PendingSend> = emptyList(),
     val features: FeatureState = FeatureState(),
@@ -114,6 +120,7 @@ class AppViewModel @JvmOverloads constructor(
     private val featureGateway: FeatureGateway? = null,
 ) : AndroidViewModel(application) {
     private val settingsPreferences = application.getSharedPreferences("openteam-settings", 0)
+    private val systemSearch = AndroidPersistentSearchIndex(application)
     private var activeGateway: MobileGateway = gateway
     private var activeFeatureGateway: FeatureGateway = featureGateway
         ?: (gateway as? MobileFeatureApi)?.let(::LiveFeatureGateway)
@@ -121,6 +128,7 @@ class AppViewModel @JvmOverloads constructor(
     private var searchGeneration = 0L
     private var syncJob: Job? = null
     private var outboxJob: Job? = null
+    private var indexedAccount: String? = null
     private val mutableState = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = mutableState.asStateFlow()
     private val voiceController = VoiceRecordingController(
@@ -137,6 +145,7 @@ class AppViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             runCatching { gateway.restoreSession() }.getOrNull()?.let { session ->
                 activeGateway = gateway
+                indexedAccount = accountScope(session)
                 mutableState.update {
                     it.copy(session = session, outbox = outboxStore.read(accountScope(session)))
                 }
@@ -149,6 +158,16 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     fun acceptDeepLink(raw: String?) {
+        val actionUri = raw?.let { runCatching { URI(it) }.getOrNull() }
+        if (actionUri?.scheme == "openteam" && actionUri.host == "action") {
+            mutableState.update {
+                it.copy(
+                    pendingSystemAction = actionUri.path.orEmpty().trim('/').ifBlank { null },
+                    pendingSystemIdentifier = actionUri.getQueryParameterCompat("id"),
+                )
+            }
+            return
+        }
         val target = DeepLinkRouter.parse(raw) ?: return
         mutableState.update { it.copy(pendingLink = target) }
         if (mutableState.value.session != null) openConversation(target.conversationId, target.messageId)
@@ -169,6 +188,10 @@ class AppViewModel @JvmOverloads constructor(
 
     fun consumeExternalUrl() {
         mutableState.update { it.copy(pendingExternalUrl = null) }
+    }
+
+    fun consumeSystemAction() {
+        mutableState.update { it.copy(pendingSystemAction = null, pendingSystemIdentifier = null) }
     }
 
     fun acceptShare(payload: SharePayload) {
@@ -290,6 +313,8 @@ class AppViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             target.signIn(server, username, credential).fold(
                 onSuccess = { session ->
+                    indexedAccount?.takeIf { it != accountScope(session) }?.let(systemSearch::clear)
+                    indexedAccount = accountScope(session)
                     activeGateway = target
                     activeFeatureGateway = featureGateway
                         ?: (target as? MobileFeatureApi)?.let(::LiveFeatureGateway)
@@ -309,7 +334,14 @@ class AppViewModel @JvmOverloads constructor(
     fun loadDirectory() {
         viewModelScope.launch {
             runCatching { activeGateway.conversations() }
-                .onSuccess { rows -> mutableState.update { it.copy(conversations = rows) } }
+                .onSuccess { rows ->
+                    mutableState.update { it.copy(conversations = rows) }
+                    mutableState.value.session?.let { session ->
+                        systemSearch.replace(accountScope(session), rows.map { row ->
+                            SearchableItem(row.id, row.title, row.subtitle, row.preview.orEmpty(), android.net.Uri.parse("openteam://chat/${android.net.Uri.encode(row.id)}"))
+                        })
+                    }
+                }
                 .onFailure { error -> mutableState.update { it.copy(error = error.message) } }
             // Load pins and grouping after the directory so both requests settle in order.
             runCatching { activeGateway.sidebarPreferences() }
@@ -331,6 +363,16 @@ class AppViewModel @JvmOverloads constructor(
                     if (generation != searchGeneration) return@onSuccess
                     mutableState.update {
                         it.copy(searchResults = results, searchLoading = false, searchError = null)
+                    }
+                    mutableState.value.session?.let { session ->
+                        systemSearch.replace(
+                            accountScope(session),
+                            mutableState.value.conversations.map { row ->
+                                SearchableItem(row.id, row.title, row.subtitle, row.preview.orEmpty(), android.net.Uri.parse("openteam://chat/${android.net.Uri.encode(row.id)}"))
+                            } + page.messages.map { message ->
+                                SearchableItem("message:${message.id}", message.author, message.channelId, message.displayBody.orEmpty(), android.net.Uri.parse("openteam://chat/${android.net.Uri.encode(conversationId)}?message=${android.net.Uri.encode(message.id)}"))
+                            },
+                        )
                     }
                 }
                 .onFailure { error ->
@@ -768,6 +810,127 @@ class AppViewModel @JvmOverloads constructor(
         mutableState.update { it.copy(pendingOutgoingShare = null) }
     }
 
+    fun createBot(name: String, description: String, instructions: String, icon: String, color: String) {
+        runConversationMutation {
+            request(
+                HttpMethod.POST,
+                "/api/v0/bots",
+                buildJsonObject {
+                    put("clientRequestId", newClientId())
+                    put("name", name.trim())
+                    put("description", description)
+                    put("instructions", instructions)
+                    put("icon", icon)
+                    put("color", color)
+                },
+            )
+        }
+    }
+
+    fun createGroup(name: String, botIds: List<String>) {
+        runConversationMutation {
+            request(
+                HttpMethod.POST,
+                "/api/v0/channels",
+                buildJsonObject {
+                    put("name", name.trim())
+                    put("botIds", kotlinx.serialization.json.buildJsonArray { botIds.forEach(::add) })
+                },
+            )
+        }
+    }
+
+    fun updateBot(conversation: Conversation, name: String, description: String, instructions: String, icon: String, color: String) {
+        val botId = conversation.botId ?: return
+        runConversationMutation {
+            request(
+                HttpMethod.PATCH,
+                "/api/v0/bots/${Uri.encode(botId)}",
+                buildJsonObject {
+                    put("name", name.trim())
+                    put("description", description)
+                    put("instructions", instructions)
+                    put("icon", icon)
+                    put("color", color)
+                },
+            )
+        }
+    }
+
+    fun updateGroup(conversation: Conversation, name: String, description: String, botIds: List<String>) {
+        runConversationMutation {
+            request(
+                HttpMethod.PATCH,
+                "/api/v0/channels/${Uri.encode(conversation.id)}/profile",
+                buildJsonObject {
+                    put("name", name.trim())
+                    put("description", description)
+                    put("clientId", newClientId())
+                },
+            )
+            request(
+                HttpMethod.PUT,
+                "/api/v0/channels/${Uri.encode(conversation.id)}/members",
+                buildJsonObject {
+                    put("botIds", kotlinx.serialization.json.buildJsonArray { botIds.forEach(::add) })
+                    put("clientId", newClientId())
+                },
+            )
+        }
+    }
+
+    fun setConversationHidden(conversation: Conversation, hidden: Boolean) {
+        runConversationMutation {
+            if (conversation.isBot && conversation.botId != null) {
+                request(
+                    HttpMethod.PATCH,
+                    "/api/v0/bots/${Uri.encode(conversation.botId)}",
+                    buildJsonObject { put("hiddenFromSidebar", hidden) },
+                )
+            } else {
+                request(
+                    HttpMethod.PATCH,
+                    "/api/v0/channels/${Uri.encode(conversation.id)}/hidden",
+                    buildJsonObject { put("hidden", hidden); put("clientId", newClientId()) },
+                )
+            }
+        }
+    }
+
+    fun deleteConversation(conversation: Conversation) {
+        runConversationMutation {
+            request(
+                HttpMethod.DELETE,
+                if (conversation.isBot && conversation.botId != null) "/api/v0/bots/${Uri.encode(conversation.botId)}"
+                else "/api/v0/channels/${Uri.encode(conversation.id)}",
+            )
+        }
+    }
+
+    fun duplicateBot(conversation: Conversation) {
+        val botId = conversation.botId ?: return
+        runConversationMutation {
+            request(
+                HttpMethod.POST,
+                "/api/v0/bots/${Uri.encode(botId)}/duplicate",
+                buildJsonObject { put("clientRequestId", newClientId()) },
+            )
+        }
+    }
+
+    private suspend fun request(method: HttpMethod, path: String, body: JsonObject? = null): JsonObject {
+        val api = activeGateway as? MobileFeatureApi
+            ?: error("This action requires a connected server.")
+        return api.request(method, path, body)
+    }
+
+    private fun runConversationMutation(operation: suspend () -> Unit) {
+        runFeatureOperation {
+            operation()
+            loadDirectory()
+        }
+    }
+
     fun submitChatAction(messageId: String, actionId: String, values: Map<String, String> = emptyMap()) {
         runFeatureOperation { activeFeatureGateway.submitRichAction(messageId, actionId, values).onFailure(::reportFeatureFailure) }
     }
@@ -809,6 +972,8 @@ class AppViewModel @JvmOverloads constructor(
         mutableState.value.session?.let {
             drafts.clearAccount(accountScope(it))
             outboxStore.clear(accountScope(it))
+            systemSearch.clear(accountScope(it))
+            indexedAccount = null
         }
         syncJob?.cancel()
         outboxJob?.cancel()
@@ -860,6 +1025,44 @@ class AppViewModel @JvmOverloads constructor(
         ComputerVncGrant.fromJson(api.request(HttpMethod.POST, path))
     }
 
+    suspend fun computerStatus(botId: String): Result<JsonObject> = runCatching {
+        computerRequest(HttpMethod.GET, "/api/v0/bots/${Uri.encode(botId)}/screen")
+    }
+
+    suspend fun setComputerTakeover(botId: String, active: Boolean): Result<JsonObject> = runCatching {
+        computerRequest(
+            HttpMethod.POST,
+            "/api/v0/bots/${Uri.encode(botId)}/screen/takeover",
+            buildJsonObject { put("active", active) },
+        )
+    }
+
+    suspend fun setComputerPaused(botId: String, paused: Boolean): Result<JsonObject> = runCatching {
+        computerRequest(
+            HttpMethod.POST,
+            "/api/v0/bots/${Uri.encode(botId)}/screen/pause",
+            buildJsonObject { put("paused", paused) },
+        )
+    }
+
+    suspend fun sendComputerAction(botId: String, action: JsonObject): Result<JsonObject> = runCatching {
+        computerRequest(HttpMethod.POST, "/api/v0/bots/${Uri.encode(botId)}/screen/actions", action)
+    }
+
+    suspend fun sendComputerClipboard(botId: String, text: String): Result<JsonObject> = runCatching {
+        computerRequest(
+            HttpMethod.POST,
+            "/api/v0/bots/${Uri.encode(botId)}/screen/clipboard",
+            buildJsonObject { put("action", "paste"); put("text", text) },
+        )
+    }
+
+    private suspend fun computerRequest(method: HttpMethod, path: String, body: JsonObject? = null): JsonObject {
+        val api = activeGateway as? MobileFeatureApi
+            ?: error("Cloud computer control requires a connected server.")
+        return api.request(method, path, body)
+    }
+
     fun startRoutineEditor(routine: Routine? = null) {
         mutableState.update { it.copy(features = it.features.copy(routineDraft = routine ?: emptyRoutine())) }
     }
@@ -908,12 +1111,28 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     fun resetLocalData() {
-        mutableState.value.session?.let { drafts.clearAccount(accountScope(it)) }
+        val session = mutableState.value.session
+        if (session == null) {
+            mutableState.update { it.copy(error = "Sign in before resetting local data.") }
+            return
+        }
+        drafts.clearAccount(accountScope(session))
+        outboxStore.clear(accountScope(session))
+        mutableState.update { it.copy(outbox = emptyList(), draft = "", pendingAttachments = emptyList(), error = null) }
         runFeatureOperation { activeFeatureGateway.resetLocalData().onFailure(::reportFeatureFailure) }
     }
 
     fun saveSettings(settings: AppSettings) {
-        settingsPreferences.edit().putString("language", settings.language.name).apply()
+        settingsPreferences.edit()
+            .putString("appearance", settings.appearance.name)
+            .putString("accent", settings.accent.name)
+            .putString("language", settings.language.name)
+            .putString("timeZone", settings.timeZone)
+            .putBoolean("haptics", settings.haptics)
+            .putBoolean("notifications.messages", settings.notifications.messages)
+            .putBoolean("notifications.mentions", settings.notifications.mentions)
+            .putBoolean("notifications.routineRuns", settings.notifications.routineRuns)
+            .apply()
         mutableState.update { it.copy(features = it.features.copy(settings = settings)) }
         runFeatureOperation {
             activeFeatureGateway.saveSettings(settings).onSuccess { saved ->
@@ -1000,6 +1219,10 @@ class AppViewModel @JvmOverloads constructor(
         pluginOperation({ activeFeatureGateway.testPluginTool(plugin.connectionId ?: plugin.id, "", "{}") })
     }
 
+    fun configurePlugin(plugin: Plugin, configuration: JsonObject) {
+        pluginOperation({ activeFeatureGateway.configurePlugin(plugin.connectionId ?: plugin.id, configuration) })
+    }
+
     private fun loadRoutines() {
         viewModelScope.launch {
             mutableState.update { it.copy(features = it.features.copy(routines = FeatureLoadState.Loading)) }
@@ -1020,11 +1243,31 @@ class AppViewModel @JvmOverloads constructor(
     private fun loadSettings() {
         viewModelScope.launch {
             activeFeatureGateway.loadSettings().onSuccess { value ->
+                val appearance = when (settingsPreferences.getString("appearance", null)) {
+                    AppSettings.Appearance.Light.name -> AppSettings.Appearance.Light
+                    AppSettings.Appearance.Dark.name -> AppSettings.Appearance.Dark
+                    else -> AppSettings.Appearance.System
+                }
+                val accent = runCatching { AppSettings.Accent.valueOf(settingsPreferences.getString("accent", null).orEmpty()) }.getOrDefault(value.accent)
                 val language = when (settingsPreferences.getString("language", null)) {
                     AppSettings.Language.Chinese.name -> AppSettings.Language.Chinese
                     else -> AppSettings.Language.English
                 }
-                mutableState.update { it.copy(features = it.features.copy(settings = value.copy(language = language))) }
+                val notifications = value.notifications.copy(
+                    messages = settingsPreferences.getBoolean("notifications.messages", value.notifications.messages),
+                    mentions = settingsPreferences.getBoolean("notifications.mentions", value.notifications.mentions),
+                    routineRuns = settingsPreferences.getBoolean("notifications.routineRuns", value.notifications.routineRuns),
+                )
+                mutableState.update {
+                    it.copy(features = it.features.copy(settings = value.copy(
+                        appearance = appearance,
+                        accent = accent,
+                        language = language,
+                        timeZone = settingsPreferences.getString("timeZone", value.timeZone) ?: value.timeZone,
+                        haptics = settingsPreferences.getBoolean("haptics", value.haptics),
+                        notifications = notifications,
+                    )))
+                }
             }
         }
     }
@@ -1056,10 +1299,13 @@ class AppViewModel @JvmOverloads constructor(
     private fun runFeatureOperation(operation: suspend () -> Unit) {
         mutableState.update { it.copy(features = it.features.copy(operation = FeatureOperationState.Pending)) }
         viewModelScope.launch {
-            operation()
-            if (mutableState.value.features.operation == FeatureOperationState.Pending) {
-                mutableState.update { it.copy(features = it.features.copy(operation = FeatureOperationState.Succeeded())) }
-            }
+            runCatching { operation() }
+                .onSuccess {
+                    if (mutableState.value.features.operation == FeatureOperationState.Pending) {
+                        mutableState.update { it.copy(features = it.features.copy(operation = FeatureOperationState.Succeeded())) }
+                    }
+                }
+                .onFailure(::reportFeatureFailure)
         }
     }
 
@@ -1078,6 +1324,12 @@ class AppViewModel @JvmOverloads constructor(
     private fun accountScope(session: MobileSession) =
         "${session.server.trimEnd('/').lowercase()}|${session.accountName.lowercase()}"
 }
+
+private fun URI.getQueryParameterCompat(name: String): String? = rawQuery.orEmpty().split('&')
+    .map { it.split('=', limit = 2) }
+    .firstOrNull { it.firstOrNull() == name }
+    ?.getOrNull(1)
+    ?.let { runCatching { URLDecoder.decode(it, "UTF-8") }.getOrNull() }
 
 private fun Attachment.messageRef() = MessageAttachment(
     assetId = id,

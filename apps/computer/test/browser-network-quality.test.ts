@@ -39,7 +39,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:https";
 import { createConnection } from "node:net";
 import { readFileSync } from "node:fs";
-import { createQualityProbe } from ${JSON.stringify(resolve("apps/computer/src/browser-network-quality.ts"))};
+import { createQualityProbe } from ${JSON.stringify(resolve(import.meta.dirname, "../src/browser-network-quality.ts"))};
 let checks=0,calls=0,requests=0,uploaded=0,downloaded=0,behavior="ok",held,sni;
 const server=createServer({cert:readFileSync(${JSON.stringify(cert)}),key:readFileSync(${JSON.stringify(key)})},(req,res)=>{
  requests++; assert.equal(req.headers.host,"speed.cloudflare.com");

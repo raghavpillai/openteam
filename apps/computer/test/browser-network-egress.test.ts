@@ -39,7 +39,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:https";
 import { createConnection } from "node:net";
 import { readFileSync } from "node:fs";
-import { createEgressProbe, parseEgress } from ${JSON.stringify(resolve("apps/computer/src/browser-network-egress.ts"))};
+import { createEgressProbe, parseEgress } from ${JSON.stringify(resolve(import.meta.dirname, "../src/browser-network-egress.ts"))};
 let checks = 0, calls = 0, requests = 0, sni = "", behavior = "ok", held;
 const server = createServer({ cert: readFileSync(${JSON.stringify(cert)}), key: readFileSync(${JSON.stringify(key)}) }, (req, res) => {
   requests++;

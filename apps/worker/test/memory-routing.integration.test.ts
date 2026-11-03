@@ -193,11 +193,22 @@ databaseTest(
         expect(saved).toBe("Remembered in your memory (profile): ORBIT-913 explicit decision uses amber.");
         expect(recall).toContain("[profile] ORBIT-913 explicit decision uses amber.");
       }
-      expect(extractionPrompts).toHaveLength(2);
-      for (const prompt of extractionPrompts) {
+      await worker.stop();
+      worker = undefined;
+      // A later round of peer replies or silence can also be reviewed. Count the two exchanges that
+      // actually received this user message, after the worker has drained.
+      const roomExchanges = extractionPrompts.filter((prompt) =>
+        prompt.includes("\nUser: For this ORBIT-913 room, we decided to use amber in the launch.\n")
+      );
+      expect(roomExchanges).toHaveLength(2);
+      for (const prompt of roomExchanges) {
         expect(prompt).toContain("For this ORBIT-913 room, we decided to use amber in the launch.");
         expect(prompt).toContain("Synthetic memory fixture completed.");
         expect(prompt).toContain("Second visible reply confirms amber.");
+      }
+      for (const prompt of extractionPrompts.filter((prompt) => !roomExchanges.includes(prompt))) {
+        expect(prompt).toContain('User: [Group chat: "Synthetic memory room"');
+        expect(prompt).toContain("Assistant: (no message)");
       }
       expect(
         await app.prisma.memoryFact.count({

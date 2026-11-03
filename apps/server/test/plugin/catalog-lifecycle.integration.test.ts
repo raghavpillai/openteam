@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore } from "@openteam/messaging";
-import { parsePluginRuntimeComponents } from "@openteam/plugin-sdk";
+import { parsePluginRuntimeComponents, skillIsForAgent } from "@openteam/plugin-sdk";
 import { importPackageArchive } from "@openteam/plugin-sdk/archive";
+import { originalSkillMarkdown, parseSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { Effect } from "effect";
 import { pluginCatalog } from "@openteam/plugins";
 import { PluginService } from "../../src/services/plugin-service";
@@ -27,6 +28,8 @@ for (const catalog of pluginCatalog) {
       const store = new AgentDataStore(prisma, { root, workspaceRoot: join(root, "workspace") });
       const service = new PluginService(prisma, undefined, store);
       const botId = crypto.randomUUID();
+      const conversationId = crypto.randomUUID();
+      const contextSessionId = crypto.randomUUID();
       try {
         expect(
           await prisma.pluginInstallation.findUnique({ where: { pluginKey: catalog.key } })
@@ -36,7 +39,10 @@ for (const catalog of pluginCatalog) {
             id: botId,
             name: "Catalog QA",
             defaultDirectory: "/workspace",
-            conversation: { create: {} },
+            status: "active",
+            onboardingStatus: "completed",
+            conversation: { create: { id: conversationId } },
+            contextSessions: { create: { id: contextSessionId, scope: "home", scopeId: conversationId } },
           },
         });
         await Effect.runPromise(service.install(catalog.key));
@@ -56,13 +62,20 @@ for (const catalog of pluginCatalog) {
             (entry: any) => entry.pluginId === catalog.key && entry.name === skill.name
           );
           expect(record).toBeDefined();
-          expect(await readFile(record.filePath, "utf8")).toBe(
-            review.definition.files![`${skill.path}/SKILL.md`]!
-          );
+          const markdown = await readFile(record.filePath, "utf8");
+          expect(parseSkillMarkdown(markdown)).toEqual({
+            name: skill.name, description: skill.description, body: skill.body,
+          });
+          const original = originalSkillMarkdown(skill, review.definition.files?.[`${skill.path}/SKILL.md`]);
+          if (original !== undefined) expect(markdown).toBe(original);
         }
         const context = await pluginRuntimeContext(prisma, botId);
-        for (const skill of review.definition.skills)
-          expect(context.skillInstructions).toContain(skill.name);
+        const prompt = await store.promptContext(botId, contextSessionId);
+        for (const skill of review.definition.skills.filter((skill) => skillIsForAgent(skill, "main"))) {
+          const record = cache.skills.find((entry: any) => entry.pluginId === catalog.key && entry.name === skill.name);
+          expect(prompt.skillRender).toContain(record.filePath);
+          expect(context.skillInstructions).toContain("agent_skills catalog in user_info");
+        }
         const components = parsePluginRuntimeComponents(review.definition.files ?? {});
         if (
           components.commands.length ||
@@ -74,11 +87,17 @@ for (const catalog of pluginCatalog) {
           expect(runtime).toBeDefined();
           expect(runtime.commands).toEqual(components.commands);
         }
-        expect(context.dynamicNamespaces).toEqual([]);
         const accounts = await prisma.pluginConnection.findMany({
           where: { installation: { pluginKey: catalog.key } },
         });
         expect(accounts).toHaveLength(catalog.connections.length);
+        expect(context.dynamicNamespaces).toEqual(await service.dynamicNamespaces(botId));
+        expect(context.dynamicNamespaces).toHaveLength(accounts.filter((account) => ["ready", "needs_auth", "error"].includes(account.status)).length);
+        for (const namespace of context.dynamicNamespaces) {
+          expect(namespace.tools).toEqual([]);
+          expect(["needsAuth", "error"]).toContain(namespace.namespaceStatus);
+          expect(namespace.statusMessage).toBeTruthy();
+        }
         const settings = await Effect.runPromise(service.settings());
         const installedView = settings.installs.find((entry) => entry.pluginKey === catalog.key)!;
         for (const account of accounts) {
@@ -90,6 +109,10 @@ for (const catalog of pluginCatalog) {
               ?.supportsLoopbackRedirect !== false
           );
           expect(account.credentials).toEqual({ values: {} });
+          await expect(service.invoke({
+            connectionId: account.id, botId, runId: crypto.randomUUID(),
+            callId: crypto.randomUUID(), toolName: "add", arguments: { a: 19, b: 23 },
+          })).rejects.toMatchObject({ code: "plugin_connection_not_ready" });
           if (account.transport === "builtin") {
             await Effect.runPromise(service.connect(account.id));
             const result = await Effect.runPromise(
@@ -98,12 +121,12 @@ for (const catalog of pluginCatalog) {
             expect(JSON.stringify(result)).toContain("42");
           }
         }
+        await Effect.runPromise(service.uninstall(catalog.key));
         expect(await pluginRuntimeContext(prisma, botId)).toEqual({
           dynamicNamespaces: [],
           pluginRuntimePackages: [],
           skillInstructions: "",
         });
-        await Effect.runPromise(service.uninstall(catalog.key));
         expect(
           await prisma.pluginInstallation.findUnique({ where: { pluginKey: catalog.key } })
         ).toBeNull();

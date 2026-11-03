@@ -67,7 +67,7 @@ const messages = [
     sender: "agent",
     senderBotId: bot.id,
     sourceRunId: run.id,
-    content: "I’m refreshing the contact list and statuses from the emails.",
+    content: "The latest UPS verification is complete; the reply was delivered.",
     metadata: {},
     createdAt: channel.createdAt,
   },
@@ -93,6 +93,7 @@ const items = new Map<string, RunItemView[]>([
 ]);
 const root = createRoot(document.getElementById("root")!);
 let activeRun: RunView | undefined;
+let parkedRuns: RunView[] = [];
 let tasks = [task];
 const draw = () =>
   root.render(
@@ -106,7 +107,7 @@ const draw = () =>
             agentNameById={names}
             capabilities={CLIENT_CAPABILITIES}
             messages={messages}
-            runs={activeRun ? [activeRun] : []}
+            runs={activeRun ? [...parkedRuns, activeRun] : parkedRuns}
             activeRun={activeRun}
             subagents={[...tasks]}
             itemsByRun={items}
@@ -148,7 +149,11 @@ async function expectCaption(expected: string | null, scenario: string) {
       (label &&
         Number(getComputedStyle(label).opacity) === 1 &&
         shimmerState === (reducedMotion ? "none" : "running"));
-    if (caption() === expected && readable) {
+    const idle = expected !== null || !document.querySelector("[data-bot-thinking]");
+    if (caption() === expected && readable && idle) {
+      if (expected === null && /Waiting for a result|Follow-up scheduled|Follow-up pending/.test(document.body.innerText)) {
+        throw new Error(`${scenario}: parked work must have no status`);
+      }
       reports.push(scenario);
       return;
     }
@@ -163,6 +168,25 @@ async function expectCaption(expected: string | null, scenario: string) {
 if (new URLSearchParams(location.search).has("manual")) draw();
 else
   (async () => {
+    parkedRuns = [
+      { ...run, id: "old-follow-up", status: "completed", requestState: "waiting", requestNextCheckAt: "2099-11-04T08:00:00Z" },
+      { ...run, id: "latest-result", status: "completed", requestState: "complete" },
+    ];
+    tasks = Array.from({ length: 8 }, (_, i) => ({ ...task, id: `parked-${i}`, subagentId: `parked-${i}`, status: "waiting" as const }));
+    if (new URLSearchParams(location.search).has("baseline")) {
+      await expectCaption("Waiting for a result", "main reproduction: delivered latest reply plus old wait and eight parked children falsely shows activity");
+    } else {
+      await expectCaption(null, "patched reproduction: delivered latest reply plus old wait and eight parked children is idle");
+      activeRun = run;
+      await expectCaption("Searching the web", "patched reproduction: actual wake restores activity");
+      activeRun = undefined;
+      await expectCaption(null, "patched reproduction: wake completes and old follow-up stays silent");
+    }
+    if (new URLSearchParams(location.search).has("baseline")) {
+      console.log("BACKGROUND_ACTIVITY_RESULT " + JSON.stringify({ passed: reports.length, reports }));
+      return;
+    }
+    parkedRuns = [];
     for (const theme of ["light", "dark"]) {
       document.documentElement.dataset.theme = theme;
       document.documentElement.classList.toggle("dark", theme === "dark");
@@ -207,6 +231,38 @@ else
       }
       tasks = [];
       await expectCaption(null, `${theme}: idle conversation stays idle`);
+      tasks = Array.from({ length: 8 }, (_, i) => ({ ...task, id: `parked-${i}`, subagentId: `parked-${i}`, status: "waiting" as const }));
+      await expectCaption(null, `${theme}: waiting-only children stay silent without a parent request`);
+      tasks = [];
+      const parked = { ...run, status: "completed", requestState: "waiting" } as RunView;
+      for (const requestNextCheckAt of ["2099-11-04T08:00:00Z", "2020-01-01T00:00:00Z", null, "invalid"]) {
+        parkedRuns = [{ ...parked, requestNextCheckAt }];
+        await expectCaption(null, `${theme}: parked request with check ${requestNextCheckAt} stays silent`);
+      }
+      parkedRuns = [
+        { ...parked, requestNextCheckAt: "2099-11-04T08:00:00Z" },
+        { ...parked, id: "second-wait", requestNextCheckAt: "2099-11-05T08:00:00Z" },
+        { ...run, id: "latest-reply", status: "completed", requestState: "complete" },
+        { ...run, id: "blocked", status: "completed", requestState: "blocked" },
+      ];
+      tasks = Array.from({ length: 8 }, (_, i) => ({ ...task, id: `parked-${i}`, subagentId: `parked-${i}`, status: "waiting" as const }));
+      await expectCaption(null, `${theme}: latest reply complete with older waits and eight parked children stays idle`);
+      const parkedTasks = tasks;
+      for (const status of ["queued", "running"] as const) {
+        // A stale waiting request projection must not hide a genuinely active turn.
+        activeRun = { ...parked, status };
+        await expectCaption("Searching the web", `${theme}: ${status} wake restores foreground activity`);
+        activeRun = undefined;
+        await expectCaption(null, `${theme}: completed wake returns to idle with older waits`);
+      }
+      for (const status of ["provisioning", "queued", "running"] as const) {
+        tasks = [...parkedTasks, { ...task, status }];
+        await expectCaption("Working in the background", `${theme}: ${status} child takes priority over parked work`);
+        tasks = parkedTasks;
+        await expectCaption(null, `${theme}: parked children stay silent after ${status} child finishes`);
+      }
+      parkedRuns = [];
+      tasks = [];
     }
     console.log(
       "BACKGROUND_ACTIVITY_RESULT " + JSON.stringify({ passed: reports.length, reports })

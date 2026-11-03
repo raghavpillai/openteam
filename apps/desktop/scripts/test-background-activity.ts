@@ -23,7 +23,7 @@ try {
         ...process.env,
         ELECTRON_RUN_AS_NODE: undefined,
         BACKGROUND_ACTIVITY_DIR: directory,
-        BACKGROUND_ACTIVITY_URL: `${server.resolvedUrls!.local[0]}test/browser/background-activity.html`,
+        BACKGROUND_ACTIVITY_URL: `${server.resolvedUrls!.local[0]}test/browser/background-activity.html${process.argv.includes("--baseline") ? "?baseline" : ""}`,
       },
       stdout: "pipe",
       stderr: "pipe",

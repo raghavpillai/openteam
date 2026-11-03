@@ -189,6 +189,13 @@ export class BotCompactionArchiveStore {
       sha256(blob.summary) !== record.summaryDigest ||
       !Number.isInteger(blob.piBaseMessageCount) ||
       blob.piBaseMessageCount < 0 ||
+      (blob.piBoundary !== undefined &&
+        (!isRecord(blob.piBoundary) ||
+          typeof blob.piBoundary.leafId !== "string" ||
+          !blob.piBoundary.leafId ||
+          (blob.piBoundary.compactionEntryId !== null &&
+            (typeof blob.piBoundary.compactionEntryId !== "string" ||
+              !blob.piBoundary.compactionEntryId)))) ||
       !blob.lastUserMessage ||
       !isRecord(blob.lastUserMessage) ||
       (blob.userInfoMessage !== null && !isRecord(blob.userInfoMessage)) ||
@@ -249,9 +256,16 @@ export class BotCompactionArchiveStore {
     return parsed;
   }
 
-  async stage(contextSessionId: string, archive: BotArchiveIntentInput): Promise<void> {
-    await this.locked(contextSessionId, async () => {
+  stage(contextSessionId: string, archive: BotArchiveIntentInput): Promise<void>;
+  stage(contextSessionId: string, archive: BotArchiveIntentInput, isCurrent: () => boolean): Promise<boolean>;
+  async stage(
+    contextSessionId: string,
+    archive: BotArchiveIntentInput,
+    isCurrent?: () => boolean
+  ): Promise<void | boolean> {
+    return this.locked(contextSessionId, async () => {
       const manifest = await this.manifest(contextSessionId);
+      if (isCurrent && !isCurrent()) return false;
       if (manifest.archives.some((record) => record.id === archive.id)) {
         throw new Error(`Compaction ${archive.id} is already adopted`);
       }
@@ -259,6 +273,7 @@ export class BotCompactionArchiveStore {
         this.intentPath(contextSessionId),
         canonicalJson({ version: 1, contextSessionId, archive } satisfies BotArchiveIntent)
       );
+      return isCurrent ? true : undefined;
     });
   }
 
@@ -304,11 +319,21 @@ export class BotCompactionArchiveStore {
     ];
   }
 
+  private commitLocked(contextSessionId: string, input: BotArchiveCommitInput): Promise<BotArchiveBlob>;
+  private commitLocked(contextSessionId: string, input: BotArchiveCommitInput, isCurrent: () => boolean): Promise<BotArchiveBlob | null>;
   private async commitLocked(
     contextSessionId: string,
-    input: BotArchiveCommitInput
-  ): Promise<BotArchiveBlob> {
+    input: BotArchiveCommitInput,
+    isCurrent?: () => boolean
+  ): Promise<BotArchiveBlob | null> {
     const manifest = await this.manifest(contextSessionId);
+    // Check ownership after waiting for the existing lock and manifest read,
+    // before any blob or manifest mutation. Staged replay is handled separately.
+    if (isCurrent && !isCurrent()) return null;
+    if (manifest.archives.some((record) => record.id === input.id)) {
+      if (isCurrent) return null;
+      throw new Error(`Compaction ${input.id} is already adopted`);
+    }
     const sequence = manifest.epoch + 1;
     const summaryDigest = sha256(input.summary);
     const blob: BotArchiveBlob = {
@@ -348,14 +373,23 @@ export class BotCompactionArchiveStore {
     return blob;
   }
 
-  async commit(contextSessionId: string, input: BotArchiveCommitInput): Promise<BotArchiveBlob> {
-    return this.locked(contextSessionId, () => this.commitLocked(contextSessionId, input));
+  commit(contextSessionId: string, input: BotArchiveCommitInput): Promise<BotArchiveBlob>;
+  commit(contextSessionId: string, input: BotArchiveCommitInput, isCurrent: () => boolean): Promise<BotArchiveBlob | null>;
+  async commit(
+    contextSessionId: string,
+    input: BotArchiveCommitInput,
+    isCurrent?: () => boolean
+  ): Promise<BotArchiveBlob | null> {
+    return this.locked(contextSessionId, () => isCurrent
+      ? this.commitLocked(contextSessionId, input, isCurrent)
+      : this.commitLocked(contextSessionId, input));
   }
 
   async commitStaged(
     contextSessionId: string,
     compactionId: string,
-    piBaseMessageCount: number
+    piBaseMessageCount: number,
+    piBoundary?: BotArchiveBlob["piBoundary"]
   ): Promise<BotArchiveBlob> {
     return this.locked(contextSessionId, async () => {
       const intent = await this.readIntent(contextSessionId);
@@ -374,6 +408,7 @@ export class BotCompactionArchiveStore {
       const blob = await this.commitLocked(contextSessionId, {
         ...intent.archive,
         piBaseMessageCount,
+        ...(piBoundary ? { piBoundary } : {}),
       });
       // The manifest is authoritative. A crash or unlink failure here only
       // leaves a replayable intent, which commitStaged treats idempotently.

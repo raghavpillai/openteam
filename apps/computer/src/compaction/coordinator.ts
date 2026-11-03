@@ -120,6 +120,7 @@ export interface PendingSummary {
 export interface BotObservation {
   contextSessionId: string;
   piMessages: readonly BotMessage[];
+  piBoundary?: BotArchiveBlob["piBoundary"];
   systemPrompt: string;
   userInfoMessage?: BotMessage | null;
   usedTokens: number | null;
@@ -180,10 +181,10 @@ export class BotCompactionCoordinator {
     this.forcedReasons.delete(contextSessionId);
   }
 
-  private clearVolatile(contextSessionId: string): void {
+  private clearVolatile(contextSessionId: string, preservePersisted = false): void {
     this.pending.get(contextSessionId)?.controller?.abort();
     this.pending.delete(contextSessionId);
-    this.prepared.delete(contextSessionId);
+    if (!preservePersisted) this.prepared.delete(contextSessionId);
     this.forcedReasons.delete(contextSessionId);
     this.projectedEvents.delete(contextSessionId);
     this.projectedCommits.delete(contextSessionId);
@@ -191,12 +192,14 @@ export class BotCompactionCoordinator {
 
   async failCompaction(contextSessionId: string): Promise<void> {
     const prepared = this.prepared.get(contextSessionId);
-    this.clearVolatile(contextSessionId);
+    // A cancelled retry must retain the outstanding checkpoint and its intent.
+    this.clearVolatile(contextSessionId, prepared?.piPersisted === true);
     if (!prepared?.piPersisted) await this.store.discardStaged(contextSessionId);
   }
 
   async remove(contextSessionId: string): Promise<void> {
     await this.failCompaction(contextSessionId);
+    this.clearVolatile(contextSessionId);
     this.inputLimitFailures.delete(contextSessionId);
     await this.store.remove(contextSessionId);
   }
@@ -208,7 +211,8 @@ export class BotCompactionCoordinator {
   async recoverStaged(
     contextSessionId: string,
     piBaseMessageCount: number,
-    persistedCompactionIds: readonly string[]
+    persistedCompactionIds: readonly string[],
+    piBoundary?: BotArchiveBlob["piBoundary"]
   ): Promise<BotArchiveBlob | null> {
     const stagedId = await this.store.stagedId(contextSessionId);
     if (!stagedId) return null;
@@ -217,7 +221,9 @@ export class BotCompactionCoordinator {
       this.clearVolatile(contextSessionId);
       return null;
     }
-    const recovered = await this.store.commitStaged(contextSessionId, stagedId, piBaseMessageCount);
+    const recovered = await this.store.commitStaged(
+      contextSessionId, stagedId, piBaseMessageCount, piBoundary
+    );
     this.clearVolatile(contextSessionId);
     return recovered;
   }
@@ -419,6 +425,7 @@ export class BotCompactionCoordinator {
   async modelContextMessages(input: {
     contextSessionId: string;
     piMessages: readonly BotMessage[];
+    piBoundary?: BotArchiveBlob["piBoundary"];
     systemPrompt: string;
     userInfoMessage?: BotMessage | null;
     usedTokens: number | null;
@@ -431,15 +438,20 @@ export class BotCompactionCoordinator {
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
     );
+    if (this.prepared.has(input.contextSessionId)) return current;
     const pending = this.pending.get(input.contextSessionId);
     // Overflow summaries are adopted only through Pi's compaction, in their own layout.
     if (!pending?.result || pending.external) return current;
+    const ownsProjection = () =>
+      this.pending.get(input.contextSessionId) === pending &&
+      !this.prepared.has(input.contextSessionId);
     if (!this.matches(pending, input, current)) {
       pending.controller?.abort();
       this.pending.delete(input.contextSessionId);
       return current;
     }
     const usedTokens = await this.usedTokens(input, current);
+    if (!ownsProjection()) return current;
     const earlyThreshold = pending.earlyThreshold ?? input.earlyThreshold;
     const warrantsMidLoopPersist =
       countBotImages(current) >= BOT_IMAGE_TRIGGER ||
@@ -467,12 +479,14 @@ export class BotCompactionCoordinator {
       ],
       input.tools
     );
+    if (!ownsProjection()) return current;
     const blob = await this.store.commit(input.contextSessionId, {
       id: pending.id,
       reason: pending.reason,
       summary: pending.result.text,
       prefixDigest: pending.prefixDigest,
       piBaseMessageCount: input.piMessages.length,
+      ...(input.piBoundary ? { piBoundary: input.piBoundary } : {}),
       userInfoMessage: pending.partition.userInfoMessage,
       lastUserMessage: pending.partition.lastUserMessage,
       preservedTailMessages: tail,
@@ -488,9 +502,12 @@ export class BotCompactionCoordinator {
       metrics: this.metrics(pending.result, tail),
       startedAt: pending.startedAt,
       completedAt,
-    });
-    this.pending.delete(input.contextSessionId);
-    this.inputLimitFailures.delete(input.contextSessionId);
+    }, ownsProjection);
+    if (!blob) return current;
+    if (this.pending.get(input.contextSessionId) === pending) {
+      this.pending.delete(input.contextSessionId);
+      this.inputLimitFailures.delete(input.contextSessionId);
+    }
     this.projectedEvents.set(input.contextSessionId, compactionEvent(input.contextSessionId, blob));
     this.projectedCommits.add(input.contextSessionId);
     return [
@@ -512,6 +529,7 @@ export class BotCompactionCoordinator {
   }
 
   async observe(input: BotObservation): Promise<void> {
+    if (this.prepared.has(input.contextSessionId)) return;
     const messages = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
@@ -525,6 +543,7 @@ export class BotCompactionCoordinator {
         : shouldStartBotSummary(usedTokens, input.maxTokens, input.earlyThreshold)
           ? "approaching_token_limit"
           : null;
+    if (this.prepared.has(input.contextSessionId)) return;
     const existing = this.pending.get(input.contextSessionId);
     if (existing) {
       if (this.matches(existing, input, messages)) {
@@ -771,6 +790,9 @@ export class BotCompactionCoordinator {
     signal: AbortSignal;
   }): Promise<BotPreparedCompaction | null> {
     if (input.signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+    // A native preparation owns this candidate, including while staging or
+    // awaiting archive adoption. Reusing it could duplicate its checkpoint.
+    if (this.prepared.has(input.contextSessionId)) return null;
     const current = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
@@ -851,6 +873,9 @@ export class BotCompactionCoordinator {
       };
       this.pending.set(input.contextSessionId, pending);
     }
+    const ownsCandidate = () =>
+      this.pending.get(input.contextSessionId) === pending &&
+      !this.prepared.has(input.contextSessionId);
     const forcedReason = this.forcedReasons.get(input.contextSessionId);
     if (forcedReason) pending.reason = forcedReason;
     else if (input.reason === "overflow") pending.reason = "fallback_on_limit_error";
@@ -862,6 +887,7 @@ export class BotCompactionCoordinator {
       pending,
       pending.controller ? AbortSignal.any([input.signal, pending.controller.signal]) : input.signal
     );
+    if (!ownsCandidate()) return null;
     pending.result = result;
     const refreshed = replaceBotUserInfo(
       await this.contextMessages(
@@ -870,6 +896,7 @@ export class BotCompactionCoordinator {
       ),
       input.userInfoMessage ?? null
     );
+    if (!ownsCandidate()) return null;
     if (!messagesHavePrefixByValue(pending.capturedMessages, refreshed)) {
       this.pending.delete(input.contextSessionId);
       return null;
@@ -906,7 +933,15 @@ export class BotCompactionCoordinator {
           ],
       input.tools
     );
-    await this.store.stage(input.contextSessionId, {
+    if (!ownsCandidate()) return null;
+    // Reserve the candidate before staging yields to the archive lock. A
+    // projection waiting on that same lock must observe this native owner.
+    const prepared = { pending, result, tail, piPersisted: false };
+    this.prepared.set(input.contextSessionId, prepared);
+    const ownsPreparation = () =>
+      this.prepared.get(input.contextSessionId) === prepared &&
+      this.pending.get(input.contextSessionId) === pending;
+    const staged = await this.store.stage(input.contextSessionId, {
       id: pending.id,
       reason: pending.reason,
       summary: result.text,
@@ -927,13 +962,12 @@ export class BotCompactionCoordinator {
       metrics: this.metrics(result, tail),
       startedAt: pending.startedAt,
       completedAt,
-    });
-    this.prepared.set(input.contextSessionId, {
-      pending,
-      result,
-      tail,
-      piPersisted: false,
-    });
+    }, ownsPreparation);
+    if (!staged || !ownsPreparation()) {
+      if (this.prepared.get(input.contextSessionId) === prepared)
+        this.prepared.delete(input.contextSessionId);
+      return null;
+    }
     this.forcedReasons.delete(input.contextSessionId);
     return {
       summary: result.text,
@@ -953,18 +987,25 @@ export class BotCompactionCoordinator {
   async afterPiCompaction(input: {
     contextSessionId: string;
     piBaseMessageCount: number;
+    piBoundary?: BotArchiveBlob["piBoundary"];
   }): Promise<BotCompactionEvent | null> {
     const prepared = this.prepared.get(input.contextSessionId);
     if (!prepared) return null;
     prepared.piPersisted = true;
+    if (this.pending.get(input.contextSessionId) === prepared.pending)
+      this.pending.delete(input.contextSessionId);
     const blob = await this.store.commitStaged(
       input.contextSessionId,
       prepared.pending.id,
-      input.piBaseMessageCount
+      input.piBaseMessageCount,
+      input.piBoundary
     );
-    this.prepared.delete(input.contextSessionId);
-    this.pending.delete(input.contextSessionId);
-    this.inputLimitFailures.delete(input.contextSessionId);
+    if (this.prepared.get(input.contextSessionId) === prepared) {
+      this.prepared.delete(input.contextSessionId);
+      this.inputLimitFailures.delete(input.contextSessionId);
+    }
+    if (this.pending.get(input.contextSessionId) === prepared.pending)
+      this.pending.delete(input.contextSessionId);
     return compactionEvent(input.contextSessionId, blob);
   }
 

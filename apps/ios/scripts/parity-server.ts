@@ -220,6 +220,7 @@ const server = Bun.serve({
       authExpired = input.authExpired ?? authExpired; invalidServer = input.invalidServer ?? invalidServer; missingToken = input.missingToken ?? missingToken;
       if (input.failures) failures = input.failures;
       if (input.subagents) snapshot.subagents = input.subagents;
+      if (input.runs) snapshot.runs = input.runs;
       if ("searchResults" in input) searchResults = input.searchResults;
       emit("snapshot.reset"); return response({ ok: true });
     }

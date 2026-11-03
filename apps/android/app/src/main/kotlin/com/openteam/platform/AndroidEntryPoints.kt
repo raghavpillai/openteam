@@ -389,24 +389,23 @@ class AndroidAppSearchIndex(context: Context) {
     private fun put(session: AppSearchSession, namespace: String, values: List<SearchableItem>) {
         if (values.isEmpty()) return
         val request = PutDocumentsRequest.Builder().apply {
-            values.forEach { item ->
-                addGenericDocument(
-                    GenericDocument.Builder(namespace, item.id, SCHEMA)
+            addGenericDocuments(
+                values.map { item ->
+                    GenericDocument.Builder<GenericDocument.Builder<*>>(namespace, item.id, SCHEMA)
                         .setPropertyString("title", item.title)
                         .setPropertyString("subtitle", item.subtitle)
                         .setPropertyString("content", item.content)
                         .setPropertyString("deepLink", item.deepLink.toString())
-                        .build(),
-                )
-            }
+                        .build()
+                },
+            )
         }.build()
         session.putAsync(request).get()
     }
 
     private fun <T> withSession(block: (AppSearchSession) -> T): T {
         val session = LocalStorage.createSearchSessionAsync(
-            LocalStorage.SearchContext.Builder(appContext)
-                .setDatabaseName("openteam")
+            LocalStorage.SearchContext.Builder(appContext, "openteam")
                 .build(),
         ).get()
         return try {

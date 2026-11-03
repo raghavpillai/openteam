@@ -2,6 +2,7 @@ package com.openteam.android
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openteam.android.data.ChatMessage
@@ -347,13 +348,15 @@ class AppViewModel @JvmOverloads constructor(
                         SearchableItem(row.id, row.title, row.subtitle, row.preview.orEmpty(), android.net.Uri.parse("openteam://chat/${android.net.Uri.encode(row.id)}"))
                     }
                     mutableState.value.session?.let { session ->
-                        viewModelScope.launch { appSearch.replace(accountScope(session), searchItems) }
+                        launchAppSearch { replace(accountScope(session), searchItems) }
                     }
-                    launcherShortcuts.publish(rows, currentRoutines())
+                    runLocalIndexUpdate("launcher shortcuts") {
+                        launcherShortcuts.publish(rows, currentRoutines())
+                    }
                     mutableState.value.session?.let { session ->
-                        systemSearch.replace(accountScope(session), rows.map { row ->
-                            SearchableItem(row.id, row.title, row.subtitle, row.preview.orEmpty(), android.net.Uri.parse("openteam://chat/${android.net.Uri.encode(row.id)}"))
-                        })
+                        runLocalIndexUpdate("SQLite search") {
+                            systemSearch.replace(accountScope(session), searchItems)
+                        }
                     }
                 }
                 .onFailure { error -> mutableState.update { it.copy(error = error.message) } }
@@ -381,14 +384,12 @@ class AppViewModel @JvmOverloads constructor(
                         it.copy(searchResults = results, searchLoading = false, searchError = null)
                     }
                     mutableState.value.session?.let { session ->
-                        systemSearch.replace(
-                            accountScope(session),
-                            mutableState.value.conversations.map { row ->
-                                SearchableItem(row.id, row.title, row.subtitle, row.preview.orEmpty(), android.net.Uri.parse("openteam://chat/${android.net.Uri.encode(row.id)}"))
-                            } + page.messages.map { message ->
-                                SearchableItem("message:${message.id}", message.author, message.channelId, message.displayBody.orEmpty(), android.net.Uri.parse("openteam://chat/${android.net.Uri.encode(conversationId)}?message=${android.net.Uri.encode(message.id)}"))
-                            },
-                        )
+                        runLocalIndexUpdate("SQLite search") {
+                            systemSearch.replace(
+                                accountScope(session),
+                                searchableItems(mutableState.value.conversations, mutableState.value.messages),
+                            )
+                        }
                     }
                 }
                 .onFailure { error ->
@@ -481,8 +482,8 @@ class AppViewModel @JvmOverloads constructor(
                         )
                     }
                     mutableState.value.session?.let { activeSession ->
-                        viewModelScope.launch {
-                            appSearch.upsert(
+                        launchAppSearch {
+                            upsert(
                                 accountScope(activeSession),
                                 searchableItems(emptyList(), page.messages),
                             )
@@ -769,7 +770,7 @@ class AppViewModel @JvmOverloads constructor(
                     }
                     mutableState.value.session?.let { session ->
                         val items = searchableItems(emptyList(), page.messages)
-                        viewModelScope.launch { appSearch.upsert(accountScope(session), items) }
+                        launchAppSearch { upsert(accountScope(session), items) }
                     }
                     markConversationRead(conversationId, page.messages)
                 }
@@ -898,7 +899,9 @@ class AppViewModel @JvmOverloads constructor(
                 "/api/v0/channels",
                 buildJsonObject {
                     put("name", name.trim())
-                    put("botIds", kotlinx.serialization.json.buildJsonArray { botIds.forEach(::add) })
+                    put("botIds", kotlinx.serialization.json.buildJsonArray {
+                        botIds.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) }
+                    })
                 },
             )
         }
@@ -936,7 +939,9 @@ class AppViewModel @JvmOverloads constructor(
                 HttpMethod.PUT,
                 "/api/v0/channels/${Uri.encode(conversation.id)}/members",
                 buildJsonObject {
-                    put("botIds", kotlinx.serialization.json.buildJsonArray { botIds.forEach(::add) })
+                    put("botIds", kotlinx.serialization.json.buildJsonArray {
+                        botIds.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) }
+                    })
                     put("clientId", newClientId())
                 },
             )
@@ -1048,8 +1053,8 @@ class AppViewModel @JvmOverloads constructor(
         mutableState.value.session?.let {
             drafts.clearAccount(accountScope(it))
             outboxStore.clear(accountScope(it))
-            systemSearch.clear(accountScope(it))
-            viewModelScope.launch { appSearch.clear(accountScope(it)) }
+            runLocalIndexUpdate("SQLite search") { systemSearch.clear(accountScope(it)) }
+            launchAppSearch { clear(accountScope(it)) }
             indexedAccount = null
         }
         launcherShortcuts.clear()
@@ -1321,6 +1326,20 @@ class AppViewModel @JvmOverloads constructor(
     private fun currentRoutines(): List<Routine> =
         (mutableState.value.features.routines as? FeatureLoadState.Ready<List<Routine>>)?.value.orEmpty()
 
+    private fun launchAppSearch(operation: suspend AndroidAppSearchIndex.() -> Unit) {
+        viewModelScope.launch {
+            runCatching { appSearch.operation() }
+                .onFailure {
+                    Log.w(TAG, "Android AppSearch is unavailable; keeping SQLite search fallback active.", it)
+                }
+        }
+    }
+
+    private inline fun runLocalIndexUpdate(name: String, operation: () -> Unit) {
+        runCatching(operation)
+            .onFailure { Log.w(TAG, "Unable to update $name.", it) }
+    }
+
     private fun loadAccountMemory() {
         viewModelScope.launch {
             mutableState.update { it.copy(features = it.features.copy(account = FeatureLoadState.Loading)) }
@@ -1359,6 +1378,10 @@ class AppViewModel @JvmOverloads constructor(
                 }
             }
         }
+    }
+
+    private companion object {
+        const val TAG = "OpenTeamApp"
     }
 
     private fun loadProviders() {

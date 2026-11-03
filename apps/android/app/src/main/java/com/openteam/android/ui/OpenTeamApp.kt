@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.openteam.android.ui
 
 import android.Manifest
@@ -128,6 +130,7 @@ import com.openteam.android.data.SidebarPreferences
 import com.openteam.android.data.SidebarSection
 import com.openteam.android.data.PendingSend
 import com.openteam.features.Attachment
+import com.openteam.features.AccountMemoryScreen
 import com.openteam.features.FeatureOperationState
 import com.openteam.features.FeatureLoadState
 import com.openteam.features.MessageAction
@@ -254,11 +257,11 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             action.contains("routine", ignoreCase = true) -> navController.navigate(ROUTINES)
             action.contains("plugin", ignoreCase = true) -> navController.navigate(PLUGINS)
             action.contains("settings", ignoreCase = true) -> navController.navigate(SETTINGS)
-            state.pendingSystemIdentifier != null -> {
-                appViewModel.openConversation(state.pendingSystemIdentifier)
-                navController.navigate("chat/${state.pendingSystemIdentifier}")
+            else -> state.pendingSystemIdentifier?.let { identifier ->
+                appViewModel.openConversation(identifier)
+                navController.navigate("chat/$identifier")
             }
-            else -> appViewModel.acceptShare(SharePayload(action, null, "text/plain"))
+                ?: appViewModel.acceptShare(SharePayload(action, null, "text/plain"))
         }
         appViewModel.consumeSystemAction()
     }
@@ -494,9 +497,13 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             AccountMemoryScreen(
                 state = state.features.account,
                 onRetry = appViewModel::loadFeatureData,
+                onEditMemory = {},
                 onClearMemory = appViewModel::clearMemory,
-                onResetLocalData = appViewModel::resetLocalData,
-                onBack = { navController.popBackStack() },
+                onReset = appViewModel::resetLocalData,
+                onSignOut = {
+                    appViewModel.signOut()
+                    navController.navigate(LOGIN) { popUpTo(navController.graph.id) { inclusive = true } }
+                },
             )
         }
         composable(SIDEBAR) {
@@ -1970,8 +1977,8 @@ private fun CreateConversationScreen(
     var group by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    var instructions by remember(conversation.id) { mutableStateOf(conversation.botInstructions) }
-    var icon by remember(conversation.id) { mutableStateOf(conversation.botIcon.ifBlank { "chip" }) }
+    var instructions by remember { mutableStateOf("") }
+    var icon by remember { mutableStateOf("chip") }
     var color by remember { mutableStateOf("#A47952") }
     val selected = remember { mutableStateOf(emptySet<String>()) }
     Scaffold(
@@ -2319,6 +2326,7 @@ private fun ComputerViewerScreen(
                             color = Color.White.copy(alpha = .75f),
                         )
                     }
+                }
             Column(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = .82f)).padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -2340,8 +2348,7 @@ private fun ComputerViewerScreen(
                     }
                 }
             }
-                }
-            }
+        }
     if (clipboardOpen) {
         AlertDialog(
             onDismissRequest = { clipboardOpen = false },
@@ -2358,8 +2365,9 @@ private fun ComputerViewerScreen(
             dismissButton = { TextButton(onClick = { clipboardOpen = false }) { Text("Cancel") } },
         )
     }
-        }
     }
+}
+
 }
 
 @Composable

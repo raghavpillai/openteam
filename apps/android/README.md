@@ -17,6 +17,14 @@ bash scripts/android/qa.sh unit
 bash scripts/android/qa.sh assemble
 ```
 
+For a one-click debug APK package from the current working tree, run:
+
+```sh
+bash scripts/android/package-debug.sh
+```
+
+On macOS, double-click `scripts/android/package-debug.command`. The command selects a compatible JDK, runs `:mobile:androidApp:assembleDebug`, and prints the absolute APK path and SHA-256. It does not install the APK or start a server.
+
 The script uses `apps/android/gradlew` when a wrapper is supplied by the Android owners; otherwise it uses `gradle` from `PATH`. It does not start a server or modify signing state. To run connected tests, boot an emulator or attach a device and set its serial:
 
 ```sh

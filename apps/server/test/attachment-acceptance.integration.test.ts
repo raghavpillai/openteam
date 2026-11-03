@@ -51,7 +51,7 @@ test.skipIf(!databaseUrl)(`${mode} attachment acceptance permits concurrent prof
     await Promise.all([reconciliation, sending]);
     const messages = await db.message.findMany({ where: { botId, role: "user" } });
     expect(messages).toHaveLength(1);
-    expect(messages[0]!.content).toContain('"original_filenames":["résumé.txt","東京.txt"]');
+    expect(messages[0]!.content).toContain('("résumé.txt", "東京.txt", 10 B)');
     expect(materializations).toBe(1);
     await Effect.runPromise(service.sendDirectMessage(bot.conversation!.id, input));
     expect(materializations).toBe(1);

@@ -48,6 +48,11 @@ export interface AttachedFilesContext {
  * reference words it: files first, then the images it already sees inline, then videos, each
  * with its size. Only paths actually materialized are described; metadata is matched by stored
  * name, never by array index, since missing or invalid assets can be skipped.
+ *
+ * Unlike the reference, each line also carries the name the user gave the file (every name, when
+ * the same bytes came under several). Its stored name is a hash, so without this the bot can't
+ * tell `sales-2025.csv` from `sales-2026.csv`; the reference's bot reads both and has to ask.
+ * Names are JSON-quoted so one can't break out of its line.
  */
 export function attachedFilesContext(paths: readonly string[], attachments: readonly AssetRef[],
   inlineAssetIds: ReadonlySet<string> = new Set()): AttachedFilesContext {
@@ -55,12 +60,14 @@ export function attachedFilesContext(paths: readonly string[], attachments: read
     const matches = attachments.filter((asset) => basename(path) === attachmentStorageName(asset));
     const kind: AttachedKind = matches.some((asset) => inlineAssetIds.has(asset.assetId)) ? "image"
       : videoMimeForName(path) ? "video" : "file";
-    return { path, kind, size: matches[0]?.byteSize };
+    return { path, kind, size: matches[0]?.byteSize, names: [...new Set(matches.map((asset) => asset.fileName))] };
   });
   if (entries.length === 0) return { note: "", videos: "" };
   const ordered = (["file", "image", "video"] as const).flatMap((kind) => entries.filter((entry) => entry.kind === kind));
-  const list = ordered.map(({ path, kind, size }) =>
-    `\n- ${path}${size != null ? ` (${formatAttachedFileSize(size)})` : ""}${ATTACHED_MEDIA_LINE_SUFFIX[kind]}`).join("");
+  const list = ordered.map(({ path, kind, size, names }) => {
+    const details = [...names.map((name) => JSON.stringify(name)), ...size != null ? [formatAttachedFileSize(size)] : []];
+    return `\n- ${path}${details.length ? ` (${details.join(", ")})` : ""}${ATTACHED_MEDIA_LINE_SUFFIX[kind]}`;
+  }).join("");
   const noun = ordered.length === 1 ? "a file" : "these files";
   const videos = ordered.filter((entry) => entry.kind === "video").map((entry) => `- ${entry.path}`);
   return {

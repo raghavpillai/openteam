@@ -3,6 +3,8 @@ package com.openteam.platform
 import android.content.Intent
 import android.content.Context
 import android.net.Uri
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
 import java.util.Locale
 
 data class AppLinkTarget(
@@ -142,4 +144,62 @@ class AccountScopedSearchFallback(private val accountKey: String) : AndroidSearc
     }
 
     fun ownerKey(): String = accountKey
+}
+
+/** Durable account-scoped index used by system search when AppSearch is unavailable. */
+class AndroidPersistentSearchIndex(context: Context) {
+    private val helper = object : SQLiteOpenHelper(context.applicationContext, "openteam-search.db", null, 1) {
+        override fun onCreate(db: SQLiteDatabase) {
+            db.execSQL("CREATE TABLE items (account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, subtitle TEXT NOT NULL, content TEXT NOT NULL, deep_link TEXT NOT NULL, PRIMARY KEY(account, id))")
+            db.execSQL("CREATE INDEX items_search ON items(account, title, subtitle, content)")
+        }
+        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            db.execSQL("DROP TABLE IF EXISTS items")
+            onCreate(db)
+        }
+    }
+
+    fun replace(accountKey: String, values: List<SearchableItem>) {
+        val db = helper.writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("items", "account = ?", arrayOf(accountKey))
+            values.forEach { item ->
+                db.execSQL(
+                    "INSERT OR REPLACE INTO items(account,id,title,subtitle,content,deep_link) VALUES(?,?,?,?,?,?)",
+                    arrayOf(accountKey, item.id, item.title, item.subtitle, item.content, item.deepLink.toString()),
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun clear(accountKey: String) {
+        helper.writableDatabase.delete("items", "account = ?", arrayOf(accountKey))
+    }
+
+    fun query(accountKey: String, query: String): List<SearchableItem> {
+        val term = query.trim()
+        if (term.isEmpty()) return emptyList()
+        val result = mutableListOf<SearchableItem>()
+        helper.readableDatabase.query(
+            "items",
+            arrayOf("id", "title", "subtitle", "content", "deep_link"),
+            "account = ? AND (title LIKE ? OR subtitle LIKE ? OR content LIKE ?)",
+            arrayOf(accountKey, "%$term%", "%$term%", "%$term%"),
+            null,
+            null,
+            "title COLLATE NOCASE",
+            "50",
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                result += SearchableItem(
+                    cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), Uri.parse(cursor.getString(4)),
+                )
+            }
+        }
+        return result
+    }
 }

@@ -80,6 +80,11 @@ class AndroidPlatformRuntime(
         }
         val appLink = value.data?.let { AndroidAppLinks.parse(it, appLinkHost) }
         if (appLink != null) {
+            if (appLink.action != null) {
+                val identifier = appLink.identifier?.let { "?id=${Uri.encode(it)}" }.orEmpty()
+                onOpenDeepLink("openteam://action/${Uri.encode(appLink.action)}$identifier")
+                return AndroidPlatformIntent(appLink, share, shortcut)
+            }
             val channel = appLink.channelId ?: appLink.botId
             if (channel != null) {
                 val message = appLink.messageId?.let { "?message=${Uri.encode(it)}" }.orEmpty()

@@ -109,7 +109,10 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // Settings → Timezone and the device time zone report bring it to 1,218,399.
 // Messages settings and its permissions dialog (#165) bring it to 1,221,328; the Settings
 // cleanup (#187) and the open-chat reply fix (#191), 1,224,485.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_224_900);
+// November 3: update notices/recovery and attachment previews measure 1,244,722
+// after durable-delivery imports capabilities directly. Keep the contracts barrel's
+// tool definitions and Effect runtime out: that regression measures 1,700,685.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_245_500);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -141,7 +144,9 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // 16,461,074; the Update Bot's Computer card with Stop adds 3,458 (16,464,532 total).
 // Settings → Timezone adds 3,901 (16,468,433 total). Messages on the desktop (#165) and the
 // Settings cleanup (#187) bring it to 16,485,550.
-atMost("renderer bytes", result.renderer.bytes, 16_486_000);
+// November 3: update progress/recovery, device networking, saved-key controls and
+// attachment previews measure 16,523,942 after the capabilities import fix.
+atMost("renderer bytes", result.renderer.bytes, 16_525_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -152,7 +157,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_486_000);
 // Current main measures 4,089,620 gzip; Model/Voice notes settings: 4,092,502; main at
 // 7ae74a08 (web search setup, Stop), 4,093,841; the Update Bot's Computer card, 4,095,467;
 // Settings → Timezone, 4,096,699; Messages and the Settings cleanup, 4,101,637.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_102_000);
+// The same November feature baseline measures 4,113,699 gzip bytes.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_115_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -261,7 +267,8 @@ const lazyBudgets: Record<string, number> = {
   settingsInitial: 46_600,
   // The Voice notes entry and microphone icon bring the settings shell to 10,728;
   // 11,132 with the Messages entry and the Settings cleanup.
-  settingsShell: 11_300,
+  // Shared SettingsLink navigation (#199/#201) brings the closure to 11,557.
+  settingsShell: 11_700,
   settingsAbout: 10_000,
   // Main already measures 33,930 with auto-review rules; 37,276 with Timezone.
   settingsGeneral: 37_600,
@@ -272,16 +279,21 @@ const lazyBudgets: Record<string, number> = {
   // Includes onboarding's shared searchable picker and compact popover (53,386 bytes).
   settingsModel: 54_000,
   // Activity and Remote access stay in Server; measured 10,389 after extraction.
-  settingsServer: 11_000,
+  // Connected version/update navigation and the moved machine controls (#201/#211)
+  // measure 17,312. Browser network settings retain their separate lazy boundary.
+  settingsServer: 17_600,
   // Dedicated Voice notes page: load retry, provider marks, busy indicators and
   // responsive fields. Still lazy; its measured closure is 40,488 bytes; 41,304 after the
   // Settings cleanup.
-  settingsTranscription: 41_600,
+  // Saved-key replacement and explicit deletion (#197): 41,955.
+  settingsTranscription: 42_300,
   // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).
   settingsProviders: 30_000,
   // Shares lucide's triangle-alert chunk with Providers. The signed-out
   // compatibility guard brings the measured October release closure to 10,250 bytes.
-  settingsUpdates: 10_300,
+  // Unified server updates with stages, idle confirmation and restart recovery
+  // (#201) measure 17,768; this UI remains lazy.
+  settingsUpdates: 18_100,
 };
 if (!result.renderer.lazyClosures) {
   failures.push("Vite manifest/lazy closures were not found; run a current desktop build");

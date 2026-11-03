@@ -77,12 +77,12 @@ test.skipIf(!databaseUrl)(
             if (input.content.includes("WP_ROUTINE_CHILD")) await routineChildGate;
             if (input.subagentType === "computerUse") {
               expect(input.taskConfiguration).toMatchObject({ graphicalAvailable: true });
-              expect(input.instructions).toContain("Computer and the browser_* tools");
+              expect(input.instructions).toStartWith("You are OpenTeam running as the computerUse subagent.");
               expect(input.model).not.toContain("ignored-model");
             }
             final = input.content.includes("WP_ROUTINE_CHILD") ? "WP_ROUTINE_CHILD_RESULT" : input.content.includes("WP_FOREGROUND_CHILD") ? "WP_FOREGROUND_RESULT" : "WP_CHILD_RESULT: checked the fixture successfully.";
           } else if (input.requestSource === "automation") {
-            expect(input.instructions).toContain("WakeParent is the only route");
+            expect(input.instructions).toContain("WakeParent is the only way to reach the user or another agent");
             await expect(
               call("SendToUser", { type: "text", content: "Must never appear" })
             ).rejects.toThrow("Automation runs cannot mutate the visible transcript.");
@@ -227,6 +227,9 @@ test.skipIf(!databaseUrl)(
       });
       app = new AppService();
       await Effect.runPromise(app.boot());
+      await app.agentData.writeInferenceSettings({
+        providerId: "openai-codex", modelId: "foreground-fixture-model", reasoning: "low",
+      });
       await Effect.runPromise(app.updateTaskSettings({ executorProfiles: [
         { name: "quick", description: "Short fixture tasks", providerId: "openai-codex", modelId: "foreground-fixture-model", reasoning: "low" },
       ] }));
@@ -265,6 +268,8 @@ test.skipIf(!databaseUrl)(
       const foregroundTurns = turns.filter(turn => turn.botId === foreground.childBotId);
       expect(foregroundTurns).toHaveLength(1);
       expect(foregroundTurns.every(turn => turn.model === foreground.model && turn.reasoning === "low")).toBe(true);
+      // The parent can still publish its final response after SendToUser returns.
+      await until(async () => (await app!.prisma.botRunLease.count({ where: { botId } })) === 0);
       const initialVisible = await app.prisma.channelMessage.count({ where: { channelId } });
       const execute = async (marker: string) => {
         const routine = await Effect.runPromise(

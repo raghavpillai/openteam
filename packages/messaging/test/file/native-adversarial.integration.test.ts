@@ -126,6 +126,9 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
   };
   store.setTimelineEventSink((tx, input) => appendAgentTimelineEvent(tx, timelineHost, input));
 
+  // This fixture owns its workflow corpus; the bundled catalog is tested separately.
+  const previousManagedSkills = process.env.OPENTEAM_MANAGED_SKILLS;
+  process.env.OPENTEAM_MANAGED_SKILLS = "false";
   try {
     await prisma.bot.create({
       data: {
@@ -590,7 +593,8 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     const compactedPrompt = await store.promptContext(firstBotId, firstContextId);
     expect(compactedPrompt.profileSection).toContain("Renamed on disk");
     expect(await pinnedFacts(firstBotId, firstContextId)).toContain("The second fact waits for compaction.");
-    expect(compactedPrompt.skillRender).toContain("Disk-owned skill");
+    expect(compactedPrompt.skillRender).toContain(`fullPath="${join(skillDirectory, "SKILL.md")}"`);
+    expect(compactedPrompt.skillRender).toContain("Updated without losing disk-owned frontmatter.");
 
     await store.writeMemory(firstBotId, {
       scope: "user",
@@ -808,7 +812,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       version: 1,
       inference: {
         providerId: "openai-codex",
-        modelId: "gpt-5.6-sol",
+        modelId: "",
         reasoning: "medium",
       },
       mcpBoxServers: [],
@@ -918,6 +922,8 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       "User fact written by watcher two."
     );
   } finally {
+    if (previousManagedSkills === undefined) delete process.env.OPENTEAM_MANAGED_SKILLS;
+    else process.env.OPENTEAM_MANAGED_SKILLS = previousManagedSkills;
     await store.stopWatching();
     await prisma.channel.deleteMany({
       where: { id: { in: [firstChannelId, secondChannelId, groupId] } },

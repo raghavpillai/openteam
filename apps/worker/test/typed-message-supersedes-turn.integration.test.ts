@@ -197,6 +197,8 @@ test.skipIf(!databaseUrl)("a message that arrives before the turn dispatched que
   const plain = await other.send("Book a table.", "early-plain-0003");
   const claimedPlain = await other.claimedFor(plain.run.id, "worker-plain");
   const plainTurn = other.startTurn(claimedPlain, claimedPlain.content, null);
+  // Cancellation may reject before the durable status check below finishes.
+  void plainTurn.catch(() => undefined);
   await Bun.sleep(100);
   const next = await other.send("For four people.", "early-next-0004");
   await waitUntil(async () => (await other.run(plain.run.id)).status === "cancelled", "undispatched run superseded for recovery");

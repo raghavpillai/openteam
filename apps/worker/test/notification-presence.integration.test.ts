@@ -164,7 +164,8 @@ test.skipIf(!url)(
       await drain();
       expect(firstPhone).toHaveLength(5); // no backlog replay on handoff
     } finally {
-      process.env.OPENTEAM_AUTH_MODE = previousAuth;
+      if (previousAuth === undefined) delete process.env.OPENTEAM_AUTH_MODE;
+      else process.env.OPENTEAM_AUTH_MODE = previousAuth;
       await db.notificationPresence.deleteMany({ where: { clientId: { in: [mac, phone] } } });
       await db.notificationPreferences.deleteMany({ where: { id: "global" } });
       await db.outboxDelivery.deleteMany({ where: { target: { in: deviceIds } } });

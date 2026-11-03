@@ -1,6 +1,7 @@
 // A real ComputerRuntime with a scripted model, in its own process: Pi's native clipboard
 // addon keeps a process from exiting, so the worker suite never loads it.
 import { join } from "node:path";
+import { once } from "node:events";
 
 const computerDir = join(import.meta.dir, "../../../computer/src");
 const pi = (name: string) => import(Bun.resolveSync(name, computerDir));
@@ -43,7 +44,14 @@ runtime.modelRuntime = provider;
 runtime.resolveModel = () => model;
 runtime.tools.processSecrets = async () => ({});
 const beginTurn = runtime.tools.userForms.beginTurn.bind(runtime.tools.userForms);
-runtime.tools.userForms.beginTurn = async (...args: unknown[]) => { await holdSetup; return beginTurn(...args); };
+runtime.tools.userForms.beginTurn = async (...args: unknown[]) => {
+  // The artificial setup gate must not prevent cancellation from releasing the context.
+  const signal: AbortSignal | undefined = runtime.activeByRun.get(args[1])?.pluginAbortController?.signal;
+  signal?.throwIfAborted();
+  if (holdSetup) await (signal ? Promise.race([holdSetup, once(signal, "abort")]) : holdSetup);
+  signal?.throwIfAborted();
+  return beginTurn(...args);
+};
 
 const server = Bun.serve({
   hostname: "127.0.0.1",

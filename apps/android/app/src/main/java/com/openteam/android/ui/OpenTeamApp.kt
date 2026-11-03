@@ -7,7 +7,6 @@ import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.webkit.WebView
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -43,6 +42,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -182,6 +184,7 @@ private const val OUTBOX = "outbox"
 private const val ACCOUNT = "account"
 private const val SIDEBAR = "sidebar"
 private const val MESSAGE_SEARCH = "message-search"
+private const val NAVIGATION_TRANSITION_DURATION_MILLIS = 280
 
 private enum class SignInStep { WELCOME, ENDPOINT, CREDENTIALS }
 
@@ -266,7 +269,36 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
         appViewModel.consumeSystemAction()
     }
 
-    NavHost(navController = navController, startDestination = LOGIN) {
+    // Navigation Compose owns the back callback here so Android predictive-back gestures
+    // can seek through the same slide transition used by normal navigation.
+    NavHost(
+        navController = navController,
+        startDestination = LOGIN,
+        enterTransition = {
+            slideIntoContainer(
+                AnimatedContentTransitionScope.SlideDirection.Left,
+                animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
+            )
+        },
+        exitTransition = {
+            slideOutOfContainer(
+                AnimatedContentTransitionScope.SlideDirection.Left,
+                animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
+            )
+        },
+        popEnterTransition = {
+            slideIntoContainer(
+                AnimatedContentTransitionScope.SlideDirection.Right,
+                animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
+            )
+        },
+        popExitTransition = {
+            slideOutOfContainer(
+                AnimatedContentTransitionScope.SlideDirection.Right,
+                animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
+            )
+        },
+    ) {
         composable(LOGIN) {
             SignInScreen(
                 loading = state.loading,
@@ -319,7 +351,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             val id = entry.arguments?.getString("conversationId").orEmpty()
             val conversation = state.conversations.firstOrNull { it.id == id }
             val shareLabel = stringResource(com.openteam.android.R.string.bot_share)
-            BackHandler { navController.popBackStack() }
             BotDetailsScreen(
                 conversation = conversation,
                 onBack = { navController.popBackStack() },
@@ -350,7 +381,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(CREATE) {
-            BackHandler { navController.popBackStack() }
             CreateConversationScreen(
                 bots = state.conversations.filter { it.isBot },
                 onCreateBot = { name, description, instructions, icon, color ->
@@ -367,7 +397,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
         composable(PROFILE, arguments = listOf(navArgument("conversationId") { type = NavType.StringType })) { entry ->
             val id = entry.arguments?.getString("conversationId").orEmpty()
             val conversation = state.conversations.firstOrNull { it.id == id }
-            BackHandler { navController.popBackStack() }
             ConversationProfileScreen(
                 conversation = conversation,
                 bots = state.conversations.filter { it.isBot },
@@ -385,7 +414,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
         composable(COMPUTER, arguments = listOf(navArgument("conversationId") { type = NavType.StringType })) { entry ->
             val id = entry.arguments?.getString("conversationId").orEmpty()
             val conversation = state.conversations.firstOrNull { it.id == id }
-            BackHandler { navController.popBackStack() }
             ComputerViewerScreen(
                 title = conversation?.title ?: "Cloud computer",
                 botId = conversation?.botId.orEmpty(),
@@ -403,7 +431,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             val id = entry.arguments?.getString("conversationId").orEmpty()
             val conversation = state.conversations.firstOrNull { it.id == id }
             LaunchedEffect(id) { if (state.activeConversationId != id) appViewModel.openConversation(id) }
-            BackHandler { navController.popBackStack() }
             ChatScreen(
                 conversationId = id,
                 title = conversation?.title ?: "Conversation",
@@ -441,7 +468,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(ROUTINES) {
-            BackHandler { navController.popBackStack() }
             RoutinesScreen(
                 state = state.features.routines,
                 onRetry = appViewModel::loadFeatureData,
@@ -452,7 +478,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(ROUTINE_EDITOR) {
-            BackHandler { navController.popBackStack() }
             state.features.routineDraft?.let { routine ->
                 RoutineEditorScreen(
                     routine = routine,
@@ -464,7 +489,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             }
         }
         composable(SETTINGS) {
-            BackHandler { navController.popBackStack() }
             SettingsScreen(
                 settings = state.features.settings,
                 accountName = state.session?.accountName.orEmpty(),
@@ -484,7 +508,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(OUTBOX) {
-            BackHandler { navController.popBackStack() }
             OutboxScreen(
                 items = state.outbox,
                 onRetry = appViewModel::retryQueuedMessage,
@@ -493,7 +516,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(ACCOUNT) {
-            BackHandler { navController.popBackStack() }
             AccountMemoryScreen(
                 state = state.features.account,
                 onRetry = appViewModel::loadFeatureData,
@@ -507,7 +529,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(SIDEBAR) {
-            BackHandler { navController.popBackStack() }
             SidebarManagementScreen(
                 sidebar = state.sidebar,
                 hidden = state.hiddenConversations,
@@ -519,7 +540,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(MESSAGE_SEARCH) {
-            BackHandler { navController.popBackStack() }
             MessageSearchScreen(
                 results = state.searchResults,
                 loading = state.searchLoading,
@@ -536,7 +556,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(PROVIDERS) {
-            BackHandler { navController.popBackStack() }
             ProviderSettingsScreen(
                 state = state.features.providers,
                 onRetry = appViewModel::loadFeatureData,
@@ -549,7 +568,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(WEB_PROVIDERS) {
-            BackHandler { navController.popBackStack() }
             WebProviderSettingsScreen(
                 state = state.features.webProviders,
                 onRetry = appViewModel::loadFeatureData,
@@ -562,7 +580,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(PLUGINS) {
-            BackHandler { navController.popBackStack() }
             PluginsScreen(
                 state = state.features.plugins,
                 onRetry = appViewModel::loadFeatureData,
@@ -576,7 +593,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(MARKETPLACE) {
-            BackHandler { navController.popBackStack() }
             MarketplaceScreen(
                 state = state.features.plugins,
                 onBack = { navController.popBackStack() },
@@ -1104,17 +1120,16 @@ private fun IosPrimaryButton(
     busy: Boolean = false,
     success: Boolean = false,
 ) {
-    val successGreen = Color(0xFF16845B)
     Button(
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier.fillMaxWidth().testTag(testTag),
         shape = RoundedCornerShape(16.dp),
         colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-            containerColor = if (success) successGreen else MaterialTheme.colorScheme.primary,
-            contentColor = if (success) Color.White else MaterialTheme.colorScheme.onPrimary,
-            disabledContainerColor = if (success) successGreen else MaterialTheme.colorScheme.primary,
-            disabledContentColor = if (success) Color.White else MaterialTheme.colorScheme.onPrimary,
+            containerColor = if (success) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+            contentColor = if (success) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary,
+            disabledContainerColor = if (success) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+            disabledContentColor = if (success) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary,
         ),
     ) {
         if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -1138,7 +1153,7 @@ private fun WizardStatusLine(text: String, loading: Boolean = false, done: Boole
     Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         when {
             loading -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-            done -> Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF16845B), modifier = Modifier.size(18.dp))
+            done -> Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.width(8.dp))
         Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2543,7 +2558,7 @@ private fun ChatScreen(
                 when (operation) {
                     FeatureOperationState.Idle -> Unit
                     FeatureOperationState.Pending -> Text("Working…", Modifier.testTag("chat-operation-status"), style = MaterialTheme.typography.bodySmall)
-                    is FeatureOperationState.Succeeded -> Text(operation.message ?: "Done", Modifier.testTag("chat-operation-status"), color = Color(0xFF277A45), style = MaterialTheme.typography.bodySmall)
+                    is FeatureOperationState.Succeeded -> Text(operation.message ?: "Done", Modifier.testTag("chat-operation-status"), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
                     is FeatureOperationState.Failed -> Text(operation.message, Modifier.testTag("chat-operation-status"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }

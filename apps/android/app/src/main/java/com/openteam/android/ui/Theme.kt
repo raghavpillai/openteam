@@ -1,14 +1,17 @@
 package com.openteam.android.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openteam.features.AppSettings
@@ -21,6 +24,8 @@ private val MutedLight = Color(0xFF5F6368)
 private val SeparatorLight = Color(0xFFE4E4E4)
 private val UserBubbleLight = Color(0xFF0E0E0E)
 private val LinkBlue = Color(0xFF016CEC)
+private val SuccessLight = Color(0xFF16845B)
+private val SuccessDark = Color(0xFF83D6A5)
 
 @Composable
 fun OpenTeamTheme(
@@ -38,7 +43,7 @@ fun OpenTeamTheme(
         AppSettings.Accent.Black -> if (darkTheme) Color.White else TextLight
         AppSettings.Accent.Blue -> Color(0xFF1769E0)
         AppSettings.Accent.Purple -> Color(0xFF7B4FD1)
-        AppSettings.Accent.Green -> Color(0xFF277A45)
+        AppSettings.Accent.Green -> if (darkTheme) SuccessDark else Color(0xFF277A45)
     }
     val light = lightColorScheme(
         primary = accentColor,
@@ -54,6 +59,8 @@ fun OpenTeamTheme(
         onSurface = TextLight,
         onSurfaceVariant = MutedLight,
         outline = SeparatorLight,
+        tertiary = SuccessLight,
+        onTertiary = Color.White,
         error = Color(0xFFC83A3A),
     )
     val dark = darkColorScheme(
@@ -72,6 +79,8 @@ fun OpenTeamTheme(
         // reference uses white text for readable hierarchy rather than gray.
         onSurfaceVariant = Color.White,
         outline = Color(0xFF343434),
+        tertiary = SuccessDark,
+        onTertiary = Color(0xFF00391F),
         error = Color(0xFFF48182),
     )
     MaterialTheme(
@@ -89,6 +98,13 @@ fun OpenTeamTheme(
             large = RoundedCornerShape(28.dp),
             extraLarge = RoundedCornerShape(34.dp),
         ),
-        content = content,
+        content = {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+                contentColor = MaterialTheme.colorScheme.onBackground,
+                content = content,
+            )
+        },
     )
 }

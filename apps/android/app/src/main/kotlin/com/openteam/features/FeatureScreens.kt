@@ -56,7 +56,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -122,7 +121,7 @@ private fun OperationStatus(state: FeatureOperationState) {
             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
             Text("Working…", style = MaterialTheme.typography.bodySmall)
         }
-        is FeatureOperationState.Succeeded -> state.message?.let { Text(it, color = Color(0xFF277A45)) }
+        is FeatureOperationState.Succeeded -> state.message?.let { Text(it, color = MaterialTheme.colorScheme.tertiary) }
         is FeatureOperationState.Failed -> Text(state.message, color = MaterialTheme.colorScheme.error)
     }
 }
@@ -581,7 +580,7 @@ fun SettingsScreen(
                         Column(Modifier.weight(1f)) {
                             Text(accountName.ifBlank { "OpenTeam" }, fontWeight = FontWeight.SemiBold)
                             Text(server, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(text("Connected", "已连接"), style = MaterialTheme.typography.labelSmall, color = Color(0xFF277A45))
+                            Text(text("Connected", "已连接"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
                         }
                     }
                 }
@@ -838,7 +837,7 @@ fun ProviderSettingsScreen(
                                 Text(
                                     if (provider.connected) text("Connected", "已连接") else text("Disconnected", "未连接"),
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = if (provider.connected) Color(0xFF277A45) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (provider.connected) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             provider.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -933,7 +932,7 @@ private fun WebProviderTool(
                             TextButton(onClick = { onCheck(tool, provider) }, enabled = provider.ready || key.isNotBlank()) { Text(text("Check", "检查")) }
                         }
                     }
-                    provider.check?.let { check -> Text(check.message, color = if (check.passed) Color(0xFF277A45) else MaterialTheme.colorScheme.error) }
+                    provider.check?.let { check -> Text(check.message, color = if (check.passed) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error) }
                     if (confirmRemove) {
                         AlertDialog(
                             onDismissRequest = { confirmRemove = false },

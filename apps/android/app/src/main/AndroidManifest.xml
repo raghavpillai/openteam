@@ -9,6 +9,7 @@
         android:label="OpenTeam"
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:enableOnBackInvokedCallback="true"
         android:usesCleartextTraffic="true">
         <meta-data
             android:name="com.openteam.android.APP_LINK_HOST"

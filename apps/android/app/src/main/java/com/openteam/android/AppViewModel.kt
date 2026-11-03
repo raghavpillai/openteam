@@ -321,7 +321,9 @@ class AppViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             target.signIn(server, username, credential).fold(
                 onSuccess = { session ->
-                    indexedAccount?.takeIf { it != accountScope(session) }?.let(systemSearch::clear)
+                    indexedAccount?.takeIf { it != accountScope(session) }?.let { previousAccount ->
+                        runLocalIndexUpdate("SQLite search") { systemSearch.clear(previousAccount) }
+                    }
                     indexedAccount = accountScope(session)
                     activeGateway = target
                     activeFeatureGateway = featureGateway
@@ -1318,7 +1320,9 @@ class AppViewModel @JvmOverloads constructor(
             mutableState.update { it.copy(features = it.features.copy(routines = FeatureLoadState.Loading)) }
             activeFeatureGateway.listRoutines("").onSuccess { value ->
                 mutableState.update { it.copy(features = it.features.copy(routines = if (value.isEmpty()) FeatureLoadState.Empty("No routines yet") else FeatureLoadState.Ready(value))) }
-                launcherShortcuts.publish(mutableState.value.conversations, value)
+                runLocalIndexUpdate("launcher shortcuts") {
+                    launcherShortcuts.publish(mutableState.value.conversations, value)
+                }
             }.onFailure { error -> mutableState.update { it.copy(features = it.features.copy(routines = FeatureLoadState.Failure(error.message ?: "Could not load routines"))) } }
         }
     }

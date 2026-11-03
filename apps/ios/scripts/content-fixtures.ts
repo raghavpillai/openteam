@@ -7,6 +7,24 @@ export function contentScene(snapshot: ClientSnapshot, scene:string) {
   if(scene==='edge-text')message.content='Swipe from the screen edge to return to your conversations. Swipe inside this message to reply. A canceled back gesture must keep your draft and leave this message alone.';
   if(scene==='edge-photo')message.metadata={attachments:[{assetId:'6'.repeat(64),fileName:'Desktop 6.png',mimeType:'image/png',byteSize:66033,kind:'image',width:545,height:341}]};
   if(scene==='edge-file')message.metadata={attachments:[{assetId:'9'.repeat(64),fileName:'memory-deep-supplement-914.zip',mimeType:'application/zip',byteSize:5000,kind:'file'}]};
+  if(scene==='file-cards')Object.assign(message,{sender:'user',senderBotId:null,metadata:{attachments:[
+    {assetId:'a'.repeat(64),fileName:'LoadingDocsForBusiness2025.pdf',mimeType:'application/pdf',byteSize:818000,kind:'file'},
+    {assetId:'b'.repeat(64),fileName:'1089646',mimeType:'application/octet-stream',byteSize:1200000,kind:'file'},
+    {assetId:'9'.repeat(64),fileName:'memory-deep-supplement-914.zip',mimeType:'application/zip',byteSize:5000,kind:'file'}]}});
+  if(scene==='media-chat') {
+    const user={...message,sender:'user',senderBotId:null};
+    snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');
+    snapshot.channelMessages.push(
+      {...user,id:'media-photo',sequence:'401',metadata:{attachments:[{assetId:'media-photo',fileName:'IMG_0004.jpg',mimeType:'image/jpeg',byteSize:70175,kind:'image',width:600,height:899}]}},
+      {...user,id:'media-video',sequence:'402',metadata:{attachments:[{assetId:'media-video',fileName:'IMG_0008.mp4',mimeType:'video/mp4',byteSize:75481,kind:'video'}]}},
+      {...user,id:'media-question',sequence:'403',content:'How do you see this represented'},
+      {...message,id:'media-answer',sequence:'404',content:"I can see the photo directly. The video I can't watch myself, so I'm getting a description of it now."},
+      {...user,id:'media-files',sequence:'405',metadata:{attachments:[
+        {assetId:'a'.repeat(64),fileName:'LoadingDocsForBusiness2025.pdf',mimeType:'application/pdf',byteSize:818000,kind:'file'},
+        {assetId:'b'.repeat(64),fileName:'1089646',mimeType:'application/octet-stream',byteSize:1200000,kind:'file'}]}},
+      {...message,id:'media-files-answer',sequence:'406',content:'Got the PDF, opening it now.'});
+    return snapshot;
+  }
   if(scene==='media-long') {
     const photos=Array.from({length:24},(_,index)=>({...message,id:'gallery-message-'+(index+1),sequence:String(401+index),metadata:{attachments:[{assetId:'gallery-'+(index+1),fileName:'Gallery '+(index+1)+'.png',mimeType:'image/png',byteSize:46000,kind:'image',alt:'Gallery photo '+(index+1)}]}}));
     snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');snapshot.channelMessages.push(...photos);return snapshot;

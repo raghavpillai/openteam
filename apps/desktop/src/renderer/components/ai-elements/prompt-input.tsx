@@ -3,18 +3,15 @@
 import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core";
 import type { AssetRef, ClientCapabilities } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
-import {
-  selectAttachments,
-  remainingAttachmentCapacity,
-} from "@openteam/product-core/attachments";
+import { remainingAttachmentCapacity, selectAttachments } from "@openteam/product-core/attachments";
 import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { File, Paperclip, X } from "lucide-react";
+import { Paperclip, X } from "lucide-react";
 import type {
   ClipboardEvent,
   FormEvent,
-  MouseEvent as ReactMouseEvent,
   DragEvent as ReactDragEvent,
+  MouseEvent as ReactMouseEvent,
   RefObject,
 } from "react";
 import {
@@ -28,17 +25,24 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { cn } from "../../lib/cn";
 import { useVoiceNote } from "../../hooks/use-voice-note";
 import { useVoiceShortcuts } from "../../hooks/use-voice-shortcuts";
-import { insertVoiceTranscript, voiceInsertionRange } from "../../lib/voice-insertion";
+import { cn } from "../../lib/cn";
 import { fileDragContainsFiles } from "../../lib/file-drop";
 import type { MentionOption } from "../../lib/mentions";
+import { insertVoiceTranscript, voiceInsertionRange } from "../../lib/voice-insertion";
+import { FileGlyph, fileGlyphVariant, formatAttachmentSize } from "../openteam/attachment-visuals";
 import { ImageAttachment } from "../openteam/image-attachment";
 import { MentionEditor } from "../openteam/mention-editor";
 import type { VoiceMemoMode } from "../openteam/voice-memo/voice-memo-layer";
 import { Button } from "../ui/button";
 import "./composer-motion.css";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import {
   BotArrowUpIcon,
   BotCloseIcon,
@@ -46,12 +50,6 @@ import {
   BotPlusIcon,
   BotReplyIcon,
 } from "./composer-icons";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
 
 const MAX_TEXTAREA_HEIGHT = 120;
 const MULTILINE_THRESHOLD = 39;
@@ -181,7 +179,8 @@ export function PromptInput({
     sendAfterVoice.current = false;
   });
   useLayoutEffect(() => {
-    if (focusRequest !== undefined && !disabled) textareaRef.current?.focus({ preventScroll: true });
+    if (focusRequest !== undefined && !disabled)
+      textareaRef.current?.focus({ preventScroll: true });
   }, [focusRequest, disabled]);
 
   useLayoutEffect(() => {
@@ -268,21 +267,35 @@ export function PromptInput({
     setAttachments(next);
   }, []);
   const adoptedDraftId = useRef<string | null>(null);
-  useImperativeHandle(draftRef, () => ({
-    takeDraft: () => {
-      if (stagingInFlight.current || submitInFlight.current) return undefined;
-      const draft = { id: crypto.randomUUID(), content: value, richText, attachments: attachmentsRef.current };
-      // The receiving composer now owns staged files and their preview URLs.
-      attachmentsRef.current = [];
-      previewUrls.current.clear();
-      return draft;
-    },
-  }), [value, richText]);
+  useImperativeHandle(
+    draftRef,
+    () => ({
+      takeDraft: () => {
+        if (stagingInFlight.current || submitInFlight.current) return undefined;
+        const draft = {
+          id: crypto.randomUUID(),
+          content: value,
+          richText,
+          attachments: attachmentsRef.current,
+        };
+        // The receiving composer now owns staged files and their preview URLs.
+        attachmentsRef.current = [];
+        previewUrls.current.clear();
+        return draft;
+      },
+    }),
+    [value, richText]
+  );
   useLayoutEffect(() => {
     if (!incomingDraft || adoptedDraftId.current === incomingDraft.id) return;
     adoptedDraftId.current = incomingDraft.id;
     setValue((current) => [current, incomingDraft.content].filter(Boolean).join("\n"));
-    setRichText((current) => [current ?? value, incomingDraft.richText ?? incomingDraft.content].filter(Boolean).join("\n") || undefined);
+    setRichText(
+      (current) =>
+        [current ?? value, incomingDraft.richText ?? incomingDraft.content]
+          .filter(Boolean)
+          .join("\n") || undefined
+    );
     for (const attachment of incomingDraft.attachments) {
       if (attachment.previewUrl) previewUrls.current.add(attachment.previewUrl);
     }
@@ -330,7 +343,11 @@ export function PromptInput({
         recoveryOwned: true,
       })),
     ]);
-    setAttachmentError(recovery.message ? `Message not sent: ${clientErrorMessage(recovery.message, "Try again.")}` : null);
+    setAttachmentError(
+      recovery.message
+        ? `Message not sent: ${clientErrorMessage(recovery.message, "Try again.")}`
+        : null
+    );
     onRecoveryApplied?.();
     window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
   }, [onRecoveryApplied, recovery, replaceAttachments, value]);
@@ -455,7 +472,8 @@ export function PromptInput({
           try {
             return { file, staged: await onStage(file, file.name) };
           } catch {
-            if (mounted.current) setAttachmentError(`"${file.name}" couldn't be attached. Try again.`);
+            if (mounted.current)
+              setAttachmentError(`"${file.name}" couldn't be attached. Try again.`);
             return null;
           }
         });
@@ -613,7 +631,8 @@ export function PromptInput({
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const content = value.trim();
-    if ((!content && attachments.length === 0) || blocked || sendDisabled || submitInFlight.current) return;
+    if ((!content && attachments.length === 0) || blocked || sendDisabled || submitInFlight.current)
+      return;
     submitInFlight.current = true;
     restoreSubmitFocus.current = Boolean(surfaceRef.current?.contains(document.activeElement));
     const pendingAttachments = attachmentsRef.current;
@@ -815,7 +834,7 @@ export function PromptInput({
             )}
 
             {attachments.length > 0 && (
-              <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1 pt-0.5">
+              <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1.5 pt-1.5 [scrollbar-width:none]">
                 {attachments.map((attachment) => {
                   const remove = () => {
                     if (attachment.staged && !attachment.recoveryOwned) {
@@ -841,27 +860,26 @@ export function PromptInput({
                     />
                   ) : (
                     <div
-                      className="group/file relative flex h-[72px] w-[220px] shrink-0 items-center gap-2 rounded-[14px] border border-black/10 bg-background px-3 dark:border-white/15"
+                      className="group/file relative flex h-14 w-[351px] max-w-[calc(100%-8px)] shrink-0 items-center gap-2 rounded-[10px] bg-white p-2 shadow-[0_0_0_0.5px_rgba(28,28,28,0.08),0_1px_4px_0_rgba(28,28,28,0.07),0_6px_12px_0_rgba(28,28,28,0.035)] dark:bg-[#1f1f1f] dark:shadow-[0_0_0_0.5px_#f5f5f51f]"
+                      data-composer-file=""
                       key={attachment.id}
                     >
-                      <File className="size-5 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-medium">{attachment.file.name}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {Math.max(
-                            1,
-                            Math.ceil((attachment.asset?.byteSize ?? attachment.file.size) / 1024)
-                          )}{" "}
-                          KB
+                      <FileGlyph variant={fileGlyphVariant(attachment.file.name)} />
+                      <div className="flex min-w-0 flex-1 flex-col gap-px">
+                        <div className="truncate text-[14px] font-medium leading-5 text-[#1c1c1c] dark:text-[#f5f5f5]">
+                          {attachment.file.name}
+                        </div>
+                        <div className="truncate text-[13px] leading-[18px] text-[#1c1c1cad] dark:text-[#f5f5f5a8]">
+                          {formatAttachmentSize(attachment.asset?.byteSize ?? attachment.file.size)}
                         </div>
                       </div>
                       <button
                         aria-label={`Remove ${attachment.file.name}`}
-                        className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/85 text-white opacity-0 transition group-hover/file:opacity-100"
+                        className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-[#1c1c1c] text-[#fcfcfc] opacity-0 transition focus-visible:opacity-100 group-hover/file:opacity-100 dark:bg-[#f5f5f5] dark:text-[#121212]"
                         onClick={remove}
                         type="button"
                       >
-                        <X className="size-4" />
+                        <X className="size-3" strokeWidth={2.4} />
                       </button>
                     </div>
                   );
@@ -910,36 +928,64 @@ export function PromptInput({
               style={{ height: expanded ? `${textareaHeight + 38}px` : "34px" }}
             >
               <div className="absolute bottom-[7px] left-2 z-10">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      aria-label="Add attachment"
-                      className={SECONDARY_ACTION_CLASS}
-                      disabled={blocked}
-                      size="icon"
-                      type="button"
-                      variant="ghost"
+                {/* As in the reference, + is a menu only when it has more than files to offer. */}
+                {voice.available ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        aria-label="Composer actions"
+                        className={SECONDARY_ACTION_CLASS}
+                        disabled={blocked}
+                        size="icon"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <BotPlusIcon className="size-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      className="w-[200px] rounded-[12px] border-input bg-popover p-1.5 text-[13px] leading-[18px] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
+                      side="top"
+                      sideOffset={8}
                     >
-                      <BotPlusIcon className="size-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="start"
-                    className="w-[200px] rounded-[12px] border-input bg-popover p-1.5 text-[13px] leading-[18px] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
-                    side="top"
-                    sideOffset={8}
+                      <DropdownMenuItem
+                        className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
+                        disabled={attachments.length >= maxAttachments}
+                        onSelect={() => fileInputRef.current?.click()}
+                      >
+                        <span className="grid size-[18px] shrink-0 place-items-center">
+                          <Paperclip className="size-3.5" />
+                        </span>
+                        Attach files
+                      </DropdownMenuItem>
+                      {/* The reference's voice memo entry. As there, it starts a fresh memo, so it
+                        waits while the draft has text or files, or a memo is under way. */}
+                      <DropdownMenuItem
+                        className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
+                        disabled={blocked || hasPayload || voiceMode !== null}
+                        onSelect={startVoice}
+                      >
+                        <span className="grid size-[18px] shrink-0 place-items-center">
+                          <BotMicIcon className="size-3.5" />
+                        </span>
+                        Record a voice memo
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <Button
+                    aria-label="Attach file"
+                    className={SECONDARY_ACTION_CLASS}
+                    disabled={blocked || attachments.length >= maxAttachments}
+                    onClick={() => fileInputRef.current?.click()}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
                   >
-                    <DropdownMenuItem
-                      className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
-                      onSelect={() => fileInputRef.current?.click()}
-                    >
-                      <span className="grid size-[18px] shrink-0 place-items-center">
-                        <Paperclip className="size-3.5" />
-                      </span>
-                      Attach files
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                    <BotPlusIcon className="size-3.5" />
+                  </Button>
+                )}
               </div>
               <div className="relative">
                 <MentionEditor

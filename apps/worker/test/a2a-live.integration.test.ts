@@ -356,7 +356,7 @@ Current routines and their runtime status. This snapshot is authoritative for th
     expect(probeTurn?.content).toContain(
       "Local image files are shown to you alongside this message."
     );
-    expect(probeTurn?.content).not.toContain("Attached files available on the shared computer:");
+    expect(probeTurn?.content).not.toContain("The user attached");
     expect(probeTurn?.images).toHaveLength(1);
     expect(sourceTurn?.content).toContain(
       `[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: Parity Probe (id: ${probeId}).`

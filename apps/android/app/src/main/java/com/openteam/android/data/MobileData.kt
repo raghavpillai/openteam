@@ -18,6 +18,7 @@ data class Conversation(
     val isBot: Boolean = false,
     val isGroup: Boolean = false,
     val memberBotIds: List<String> = emptyList(),
+    val notificationsEnabled: Boolean = true,
     val updatedLabel: String? = null,
     /** One-line preview of the newest message, shown in the conversation list. */
     val latestPreview: String? = null,

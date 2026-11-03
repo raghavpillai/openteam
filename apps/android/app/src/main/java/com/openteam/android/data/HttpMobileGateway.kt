@@ -432,6 +432,7 @@ class HttpMobileGateway(context: Context) :
                     isBot = kind == "bot_dm",
                     isGroup = kind == "group",
                     memberBotIds = channel.arrayAt("members").mapNotNull { it.jsonObjectOrNull()?.string("botId")?.takeIf(String::isNotBlank) },
+                    notificationsEnabled = bot?.boolean("notificationsEnabled", true) ?: true,
                     updatedLabel = channel.string("updatedLabel", "lastUpdatedLabel").ifBlank { null },
                     latestPreview = latest?.let(::messagePreviewText),
                     updatedAt = channel.string("updatedAt").ifBlank { latest?.string("createdAt").orEmpty() }.takeIf { it.isNotBlank() },

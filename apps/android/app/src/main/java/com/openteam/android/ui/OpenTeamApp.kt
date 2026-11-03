@@ -2,6 +2,7 @@ package com.openteam.android.ui
 
 import android.Manifest
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
@@ -14,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,6 +99,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -302,6 +305,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onHide = { appViewModel.setConversationHidden(it, true); navController.popBackStack() },
                 onDelete = { appViewModel.deleteConversation(it); navController.navigate(DIRECTORY) { popUpTo(DIRECTORY) { inclusive = true } } },
                 onDuplicate = { appViewModel.duplicateBot(it) },
+                onNotifications = { row, enabled -> appViewModel.setBotNotifications(row, enabled) },
                 onShare = {
                     conversation?.let {
                         context.startActivity(
@@ -1645,10 +1649,11 @@ private fun BotDetailsScreen(
     onHide: (Conversation) -> Unit,
     onDelete: (Conversation) -> Unit,
     onDuplicate: (Conversation) -> Unit,
+    onNotifications: (Conversation, Boolean) -> Unit,
     onShare: () -> Unit,
 ) {
     var moreMenuVisible by remember { mutableStateOf(false) }
-    var notificationsEnabled by remember { mutableStateOf(true) }
+    var notificationsEnabled by remember(conversation?.id) { mutableStateOf(conversation?.notificationsEnabled ?: true) }
     val surface = MaterialTheme.colorScheme.surface
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -1774,7 +1779,10 @@ private fun BotDetailsScreen(
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f),
                 )
-                Switch(checked = notificationsEnabled, onCheckedChange = { notificationsEnabled = it })
+                Switch(checked = notificationsEnabled, onCheckedChange = {
+                    notificationsEnabled = it
+                    conversation?.let { row -> onNotifications(row, it) }
+                })
             }
         }
         Text(
@@ -2464,6 +2472,19 @@ private fun MessageBubble(
     onMessageAction: (String, MessageAction) -> Unit,
     onContext: (String) -> Unit,
 ) {
+    var previewAttachment by remember(message.id) { mutableStateOf<Attachment?>(null) }
+    previewAttachment?.let { attachment ->
+        val bitmap = attachment.localUri?.let(BitmapFactory::decodeFile)
+        AlertDialog(
+            onDismissRequest = { previewAttachment = null },
+            title = { Text(attachment.name) },
+            text = {
+                if (bitmap != null) Image(bitmap.asImageBitmap(), attachment.alt ?: attachment.name, Modifier.fillMaxWidth())
+                else Text("This attachment cannot be previewed on this device.")
+            },
+            confirmButton = { TextButton(onClick = { previewAttachment = null }) { Text("Close") } },
+        )
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.isMine) Arrangement.End else Arrangement.Start) {
         Column(Modifier.fillMaxWidth(.86f)) {
             Text(
@@ -2503,7 +2524,10 @@ private fun MessageBubble(
                     if (message.attachments.isNotEmpty()) {
                         ChatAttachmentStrip(
                             attachments = message.attachments,
-                            onPreview = { attachment, _ -> onDownload(message.id, attachment) },
+                            onPreview = { attachment, _ ->
+                                if (attachment.localUri != null && attachment.mimeType.startsWith("image/")) previewAttachment = attachment
+                                else onDownload(message.id, attachment)
+                            },
                             onDownload = { attachment, _ -> onDownload(message.id, attachment) },
                             onSave = { attachment -> onSaveAttachment(message.id, attachment) },
                             onShare = onShareAttachment,

@@ -897,6 +897,17 @@ class AppViewModel @JvmOverloads constructor(
         }
     }
 
+    fun setBotNotifications(conversation: Conversation, enabled: Boolean) {
+        val botId = conversation.botId ?: return
+        runConversationMutation {
+            request(
+                HttpMethod.PATCH,
+                "/api/v0/bots/${Uri.encode(botId)}",
+                buildJsonObject { put("notificationsEnabled", enabled) },
+            )
+        }
+    }
+
     fun deleteConversation(conversation: Conversation) {
         runConversationMutation {
             request(

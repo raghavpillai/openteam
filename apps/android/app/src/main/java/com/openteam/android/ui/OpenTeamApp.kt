@@ -1805,8 +1805,8 @@ private fun CreateConversationScreen(
     var group by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    var instructions by remember { mutableStateOf("") }
-    var icon by remember { mutableStateOf("chip") }
+    var instructions by remember(conversation.id) { mutableStateOf(conversation.botInstructions) }
+    var icon by remember(conversation.id) { mutableStateOf(conversation.botIcon.ifBlank { "chip" }) }
     var color by remember { mutableStateOf("#A47952") }
     val selected = remember { mutableStateOf(emptySet<String>()) }
     Scaffold(

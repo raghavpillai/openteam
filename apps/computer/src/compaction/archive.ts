@@ -189,6 +189,13 @@ export class BotCompactionArchiveStore {
       sha256(blob.summary) !== record.summaryDigest ||
       !Number.isInteger(blob.piBaseMessageCount) ||
       blob.piBaseMessageCount < 0 ||
+      (blob.piBoundary !== undefined &&
+        (!isRecord(blob.piBoundary) ||
+          typeof blob.piBoundary.leafId !== "string" ||
+          !blob.piBoundary.leafId ||
+          (blob.piBoundary.compactionEntryId !== null &&
+            (typeof blob.piBoundary.compactionEntryId !== "string" ||
+              !blob.piBoundary.compactionEntryId)))) ||
       !blob.lastUserMessage ||
       !isRecord(blob.lastUserMessage) ||
       (blob.userInfoMessage !== null && !isRecord(blob.userInfoMessage)) ||
@@ -355,7 +362,8 @@ export class BotCompactionArchiveStore {
   async commitStaged(
     contextSessionId: string,
     compactionId: string,
-    piBaseMessageCount: number
+    piBaseMessageCount: number,
+    piBoundary?: BotArchiveBlob["piBoundary"]
   ): Promise<BotArchiveBlob> {
     return this.locked(contextSessionId, async () => {
       const intent = await this.readIntent(contextSessionId);
@@ -374,6 +382,7 @@ export class BotCompactionArchiveStore {
       const blob = await this.commitLocked(contextSessionId, {
         ...intent.archive,
         piBaseMessageCount,
+        ...(piBoundary ? { piBoundary } : {}),
       });
       // The manifest is authoritative. A crash or unlink failure here only
       // leaves a replayable intent, which commitStaged treats idempotently.

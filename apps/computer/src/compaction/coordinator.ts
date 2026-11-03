@@ -120,6 +120,7 @@ export interface PendingSummary {
 export interface BotObservation {
   contextSessionId: string;
   piMessages: readonly BotMessage[];
+  piBoundary?: BotArchiveBlob["piBoundary"];
   systemPrompt: string;
   userInfoMessage?: BotMessage | null;
   usedTokens: number | null;
@@ -208,7 +209,8 @@ export class BotCompactionCoordinator {
   async recoverStaged(
     contextSessionId: string,
     piBaseMessageCount: number,
-    persistedCompactionIds: readonly string[]
+    persistedCompactionIds: readonly string[],
+    piBoundary?: BotArchiveBlob["piBoundary"]
   ): Promise<BotArchiveBlob | null> {
     const stagedId = await this.store.stagedId(contextSessionId);
     if (!stagedId) return null;
@@ -217,7 +219,9 @@ export class BotCompactionCoordinator {
       this.clearVolatile(contextSessionId);
       return null;
     }
-    const recovered = await this.store.commitStaged(contextSessionId, stagedId, piBaseMessageCount);
+    const recovered = await this.store.commitStaged(
+      contextSessionId, stagedId, piBaseMessageCount, piBoundary
+    );
     this.clearVolatile(contextSessionId);
     return recovered;
   }
@@ -419,6 +423,7 @@ export class BotCompactionCoordinator {
   async modelContextMessages(input: {
     contextSessionId: string;
     piMessages: readonly BotMessage[];
+    piBoundary?: BotArchiveBlob["piBoundary"];
     systemPrompt: string;
     userInfoMessage?: BotMessage | null;
     usedTokens: number | null;
@@ -473,6 +478,7 @@ export class BotCompactionCoordinator {
       summary: pending.result.text,
       prefixDigest: pending.prefixDigest,
       piBaseMessageCount: input.piMessages.length,
+      ...(input.piBoundary ? { piBoundary: input.piBoundary } : {}),
       userInfoMessage: pending.partition.userInfoMessage,
       lastUserMessage: pending.partition.lastUserMessage,
       preservedTailMessages: tail,
@@ -953,6 +959,7 @@ export class BotCompactionCoordinator {
   async afterPiCompaction(input: {
     contextSessionId: string;
     piBaseMessageCount: number;
+    piBoundary?: BotArchiveBlob["piBoundary"];
   }): Promise<BotCompactionEvent | null> {
     const prepared = this.prepared.get(input.contextSessionId);
     if (!prepared) return null;
@@ -960,7 +967,8 @@ export class BotCompactionCoordinator {
     const blob = await this.store.commitStaged(
       input.contextSessionId,
       prepared.pending.id,
-      input.piBaseMessageCount
+      input.piBaseMessageCount,
+      input.piBoundary
     );
     this.prepared.delete(input.contextSessionId);
     this.pending.delete(input.contextSessionId);

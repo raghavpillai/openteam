@@ -53,7 +53,7 @@ import XCTest
     XCTAssertEqual(start.label, "Update to 0.0.11")
     capture("ios-updates-ready", app)
 
-    try tap(start, app)
+    try openUpdateConfirmation(app)
     XCTAssertTrue(
       app.alerts.buttons["server-update-confirm"].firstMatch.waitForExistence(timeout: 3))
     var savedUpdates = try await updates()
@@ -66,7 +66,7 @@ import XCTest
         .exists)
     try await control(["busyBots": []])
     try wait { start.isEnabled }
-    try tap(start, app)
+    try openUpdateConfirmation(app)
     // A new turn starts while confirmation is open: re-check before posting.
     try await control(["busyBots": [["botId": "scout", "name": "Scout", "runIds": ["new-run"]]]])
     app.alerts.buttons["server-update-confirm"].firstMatch.tap()
@@ -75,7 +75,7 @@ import XCTest
     XCTAssertEqual(savedUpdates.count, 0)
     try await control(["busyBots": []])
     try wait { start.isEnabled }
-    try tap(start, app)
+    try openUpdateConfirmation(app)
     app.alerts.buttons["server-update-confirm"].firstMatch.tap()
     try wait { app.staticTexts["Pulling OpenTeam 0.0.11 container images"].exists }
     XCTAssertTrue(app.staticTexts["Step 2 of 5"].exists)
@@ -194,7 +194,7 @@ import XCTest
     ])
     let start = app.buttons["server-update-start"]
     try wait { start.exists && start.isEnabled }
-    try tap(start, app)
+    try openUpdateConfirmation(app)
     app.alerts.buttons["server-update-confirm"].firstMatch.tap()
     try wait { app.staticTexts["Signed update unavailable."].exists }
     let savedUpdates = try await updates()
@@ -283,6 +283,18 @@ import XCTest
     let (data, response) = try await URLSession.shared.data(for: request)
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+  }
+  private func openUpdateConfirmation(_ app: XCUIApplication) throws {
+    let start = app.buttons["server-update-start"]
+    let confirm = app.alerts.buttons["server-update-confirm"].firstMatch
+    // A periodic status poll can disable the action between the enabled query
+    // and XCTest's synthesized tap. Retry opening the dialog, never submission.
+    for _ in 0..<3 {
+      try wait { start.exists && start.isEnabled }
+      try tap(start, app)
+      if confirm.waitForExistence(timeout: 3) { return }
+    }
+    XCTFail("The enabled update action did not open its confirmation")
   }
   private func tap(_ element: XCUIElement, _ app: XCUIApplication, atCenter: Bool = false) throws {
     for _ in 0..<8 {

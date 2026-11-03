@@ -126,14 +126,15 @@ class LiveFeatureGateway(private val client: MobileFeatureApi) : FeatureGateway 
 
     override suspend fun loadAccountMemory(): Result<AccountMemoryState> = runCatching {
         val bootstrap = client.request(HttpMethod.GET, "/api/v0/client-bootstrap")
+        val sessionUser = runCatching { client.request(HttpMethod.GET, "/api/auth/get-session").objectAt("user") }.getOrDefault(JsonObject(emptyMap()))
         val botId = bootstrap.array("bots").firstOrNull()?.jsonObjectOrNull()?.string("id")
         val memories = botId?.let { client.request(HttpMethod.GET, "/api/v0/bots/${segment(it)}/memories").array("memories") }.orEmpty()
         AccountMemoryState(
             profile = AccountProfile(
-                displayName = "OpenTeam account",
-                server = "Connected server",
+                displayName = sessionUser.string("name", "username", "email").ifBlank { "Account" },
+                server = client.serverAddress ?: "Unavailable",
                 connected = true,
-                version = "unknown",
+                version = bootstrap.string("version", "serverVersion").ifBlank { "Unavailable" },
             ),
             memories = memories.mapNotNull { it.jsonObjectOrNull()?.toMemory() },
         )

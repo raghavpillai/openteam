@@ -45,6 +45,8 @@ import java.util.TimeZone
 
 /** Live auth and messaging adapter over the shared request/error contracts. */
 interface MobileFeatureApi {
+    val serverAddress: String? get() = null
+
     suspend fun request(
         method: HttpMethod,
         path: String,
@@ -97,6 +99,8 @@ class HttpMobileGateway(context: Context) :
     private var directory: List<Conversation> = emptyList()
     private var channels: Map<String, JsonObject> = emptyMap()
     private var bots: Map<String, JsonObject> = emptyMap()
+
+    override val serverAddress: String? get() = server
 
     override suspend fun restoreSession(): MobileSession? {
         val saved = sessions.readActive() ?: return null

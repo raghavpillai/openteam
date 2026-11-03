@@ -213,6 +213,20 @@ private struct BackdropBlur: UIViewRepresentable {
   }
 }
 
+/// Duo's side status area leaves the top safe area available for the header.
+/// A native top bar instead follows UIKit's lower toolbar guide there.
+private struct FloatingTopBar<Bar: View>: ViewModifier {
+  @Environment(\.usesTopToolbarGuide) private var usesToolbarGuide
+  var bar: Bar
+  func body(content: Content) -> some View {
+    if #available(iOS 26, *), usesToolbarGuide {
+      content.safeAreaBar(edge: .top, spacing: 0) { bar }
+    } else {
+      content.safeAreaInset(edge: .top, spacing: 0) { bar }
+    }
+  }
+}
+
 /// GrokBot's conversation list uses the chat's fade beneath its header. The
 /// system soft scroll edge hides rows much sooner, so it is disabled here.
 private struct FadingTopBar<Bar: View>: ViewModifier {
@@ -230,9 +244,8 @@ private struct FadingTopBar<Bar: View>: ViewModifier {
               .frame(height: viewport.safeAreaInsets.top + 104)
               .offset(y: -viewport.safeAreaInsets.top - barHeight)
           }
-          .safeAreaBar(edge: .top, spacing: 0) {
-            bar.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
-          }
+          .modifier(FloatingTopBar(bar:
+            bar.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }))
           .scrollEdgeEffectHidden(true, for: .top)
       }
     } else {
@@ -262,9 +275,8 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
               // header so the fade still reaches the top of the viewport.
               .offset(y: -viewport.safeAreaInsets.top - topBarHeight)
           }
-          .safeAreaBar(edge: .top, spacing: 0) {
-            top.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topBarHeight = $0 }
-          }
+          .modifier(FloatingTopBar(bar:
+            top.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topBarHeight = $0 }))
           // The composer needs a stable native inset while becoming first
           // responder. The iOS 26 scroll-pocket bar can relinquish its editor
           // during the first keyboard transition.
@@ -379,6 +391,7 @@ extension EnvironmentValues {
   /// Extra space above top bars when the status bar sits beside them, as on
   /// iPhone Duo, so their controls line up with the clock like system bars do.
   @Entry var topBarClearance: CGFloat = 0
+  @Entry var usesTopToolbarGuide = true
 }
 
 struct ChromeButton: View {

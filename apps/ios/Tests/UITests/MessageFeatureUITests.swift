@@ -292,9 +292,15 @@ import XCTest
     if layout == "duo-unfolded" {
       XCTAssertTrue(name.waitForExistence(timeout: 5))
       XCTAssertEqual(app.scrollViews.firstMatch.frame.width, 320, accuracy: 1)
-      XCTAssertGreaterThan(toggle.frame.minX, 320, "Duo toggle belongs in the right content panel")
-      XCTAssertGreaterThan(search.frame.minX, 320)
-      XCTAssertGreaterThan(add.frame.minX, 320)
+      if app.frame.height > app.frame.width {
+        XCTAssertLessThan(toggle.frame.maxX, 320, "Portrait Duo controls belong above the sidebar")
+        XCTAssertLessThan(search.frame.maxX, 320)
+        XCTAssertLessThan(add.frame.maxX, 320)
+      } else {
+        XCTAssertGreaterThan(toggle.frame.minX, 320, "Landscape Duo keeps its right-side controls")
+        XCTAssertGreaterThan(search.frame.minX, 320)
+        XCTAssertGreaterThan(add.frame.minX, 320)
+      }
       XCTAssertEqual(toggle.frame.width, 44, accuracy: 1)
       capture("duo-expanded-controls", app)
       toggle.tap()

@@ -2,6 +2,7 @@ import AVFoundation
 import ImageIO
 import Photos
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct LoadedAttachment: Identifiable {
   let url: URL
@@ -47,6 +48,84 @@ extension LoadedAttachment {
   }
 }
 
+/// A sent video's first frame, read in byte ranges: AVFoundation asks only for the
+/// parts it needs (the index, wherever the file keeps it, and the first frames), so a
+/// row no longer downloads the whole video before anyone taps it.
+enum VideoPoster {
+  @MainActor private static let posters: NSCache<NSString, UIImage> = {
+    let cache = NSCache<NSString, UIImage>()
+    cache.totalCostLimit = 24 * 1024 * 1024
+    return cache
+  }()
+  @MainActor static func cached(_ asset: Asset) -> UIImage? { posters.object(forKey: asset.assetId as NSString) }
+  @MainActor static func clear() { posters.removeAllObjects() }
+
+  @MainActor static func load(_ asset: Asset, store: AppStore, side: CGFloat) async -> UIImage? {
+    if let poster = cached(asset) { return poster }
+    guard let api = store.api, asset.byteSize > 0 else { return nil }
+    let loader = RangedAssetLoader(api: api, path: "/api/v0/assets/\(API.segment(asset.assetId))",
+      byteSize: Int64(asset.byteSize), mimeType: asset.mimeType)
+    let video = AVURLAsset(url: URL(string: "openteam-asset://video/\(asset.assetId)")!)
+    video.resourceLoader.setDelegate(loader, queue: RangedAssetLoader.queue)
+    let generator = AVAssetImageGenerator(asset: video)
+    generator.appliesPreferredTrackTransform = true
+    generator.maximumSize = CGSize(width: side, height: side)
+    let frame = try? await generator.image(at: .zero).image
+    withExtendedLifetime(loader) {}
+    guard let frame, store.api?.token == api.token else { return nil }
+    let poster = UIImage(cgImage: frame)
+    posters.setObject(poster, forKey: asset.assetId as NSString, cost: frame.width * frame.height * 4)
+    return poster
+  }
+}
+
+/// Serves AVFoundation's reads of a server asset with authenticated Range requests.
+final class RangedAssetLoader: NSObject, AVAssetResourceLoaderDelegate, Sendable {
+  static let queue = DispatchQueue(label: "openteam.ranged-asset")
+  /// AVFoundation asks again for whatever a shorter answer leaves out.
+  private static let chunk: Int64 = 512 * 1024
+  let api: API
+  let path: String
+  let byteSize: Int64
+  let contentType: String
+  init(api: API, path: String, byteSize: Int64, mimeType: String) {
+    self.api = api
+    self.path = path
+    self.byteSize = byteSize
+    contentType = UTType(mimeType: mimeType)?.identifier ?? UTType.mpeg4Movie.identifier
+  }
+  func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
+    shouldWaitForLoadingOfRequestedResource request: AVAssetResourceLoadingRequest) -> Bool {
+    if let information = request.contentInformationRequest {
+      information.contentType = contentType
+      information.contentLength = byteSize
+      information.isByteRangeAccessSupported = true
+    }
+    guard let data = request.dataRequest else { request.finishLoading(); return true }
+    let start = data.currentOffset
+    let wanted = data.requestsAllDataToEndOfResource ? byteSize - start
+      : Int64(data.requestedLength) - (start - data.requestedOffset)
+    let end = min(byteSize, start + min(max(wanted, 1), Self.chunk)) - 1
+    guard start <= end else { request.finishLoading(); return true }
+    let api = api, path = path
+    nonisolated(unsafe) let loading = request
+    Task {
+      do {
+        let (bytes, response) = try await api.raw(path, headers: ["Range": "bytes=\(start)-\(end)"])
+        guard !loading.isCancelled else { return }
+        // A server that ignores Range sends the whole file; answer with the asked-for part.
+        let part = response.statusCode == 206 ? bytes
+          : bytes.subdata(in: Int(min(start, Int64(bytes.count)))..<Int(min(end + 1, Int64(bytes.count))))
+        loading.dataRequest?.respond(with: part)
+        loading.finishLoading()
+      } catch {
+        if !loading.isCancelled { loading.finishLoading(with: error) }
+      }
+    }
+    return true
+  }
+}
+
 /// Decoded chat previews survive cell recycling. A photo scrolled back into view
 /// is drawn in its row's first layout, instead of flashing a placeholder while
 /// the original downloads and decodes again. Cleared with the account's data.
@@ -82,6 +161,7 @@ struct AttachmentView: View {
   let channelID: String
   let messageID: String
   @State private var loaded: LoadedAttachment?
+  @State private var poster: UIImage?
   @State private var loading = false
   @State private var failure: String?
   init(asset: Asset, channelID: String, messageID: String) {
@@ -89,11 +169,10 @@ struct AttachmentView: View {
     self.channelID = channelID
     self.messageID = messageID
     _loaded = State(initialValue: AttachmentPreviewCache.value(asset))
+    _poster = State(initialValue: asset.mimeType.hasPrefix("video/") ? VideoPoster.cached(asset) : nil)
   }
   private var isImage: Bool { asset.mimeType.hasPrefix("image/") }
   private var isVideo: Bool { asset.mimeType.hasPrefix("video/") }
-  /// Short videos load their first frame with the row; longer ones on tap.
-  private var previewsVideo: Bool { isVideo && asset.byteSize <= 30 * 1024 * 1024 }
   /// Videos sit whole in a fixed black frame, letterboxed like the reference; photos take their own shape.
   private var previewSize: CGSize {
     isVideo ? CGSize(width: 292, height: 208) : AttachmentImageFile.previewSize(width: asset.width, height: asset.height)
@@ -121,7 +200,7 @@ struct AttachmentView: View {
         if isImage || isVideo {
           ZStack {
             if isVideo { Color.black } else { NativePalette.surface }
-            if let image = loaded?.image {
+            if let image = isVideo ? poster ?? loaded?.image : loaded?.image {
               if isVideo {
                 Image(uiImage: image).resizable().scaledToFit()
                   .frame(width: previewSize.width, height: previewSize.height)
@@ -136,7 +215,7 @@ struct AttachmentView: View {
             else if isImage { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
             if isVideo {
               Group {
-                if loading && loaded == nil && !previewsVideo { LoadingOrb(size: 22, label: "Opening") }
+                if loading && loaded == nil { LoadingOrb(size: 22, label: "Opening") }
                 else {
                   Image(systemName: "play.fill").font(.system(size: 20)).foregroundStyle(.white).offset(x: 1.5)
                 }
@@ -167,11 +246,16 @@ struct AttachmentView: View {
         }
       }.buttonStyle(.plain).disabled(loading && !isImage)
         .accessibilityLabel((isVideo ? "Play " : "Open ") + asset.fileName)
-        .accessibilityValue(failure != nil ? "Failed" : loaded != nil ? "Loaded" : "Loading")
+        .accessibilityValue(failure != nil ? "Failed" : loaded != nil || poster != nil ? "Loaded" : "Loading")
         .accessibilityIdentifier("attachment-" + asset.id)
       if let failure, !isImage { InlineFailure(message: failure) { Task { await load(open: true) } } }
     }
-    .task(id: asset.id) { if isImage || previewsVideo { await load(open: false) } }
+    .task(id: asset.id) {
+      if isImage { await load(open: false) }
+      else if isVideo, poster == nil {
+        poster = await VideoPoster.load(asset, store: store, side: max(previewSize.width, previewSize.height) * 3)
+      }
+    }
   }
   private var fileExtension: String { (asset.fileName as NSString).pathExtension.lowercased() }
   private var fileKind: FileGlyph.Kind {

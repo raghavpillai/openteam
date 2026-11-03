@@ -108,7 +108,8 @@ That said:
 
 Respond directly to the parent agent's question with your analysis. Except for pointing out obvious bugs, do not include any other commentary or analysis.`;
 
-// The reference's watchVideo prompt, verbatim.
+// The reference's watchVideo prompt, verbatim except the last guideline: the reference's
+// worker gets the whole video with its sound, this one only sampled still frames.
 const WATCH_VIDEO_PROMPT = `You are running as a subagent under a parent agent. Do not spawn additional subagents unless requested by the user or by your instructions.
 
 You are an expert video description generator and analyst. Your role is to correctly answer questions about the video(s) provided by the user.
@@ -161,6 +162,7 @@ When the request is asking for a general description of the video, you should:
 - If you notice very relevant bugs or issues in the video that the coding agent does not seem aware of, mention them to the coding agent. (Example: something which the agent thinks is visible is not visible, app completely crashes or freezes, glaringly bad bugs, etc.)
 - If you notice things in the video which invalidate implicit or explicit assumptions made by the coding agent, specifically mention the assumptions you think the coding agent made, the conflicting details that you think may invalidate those assumptions, and why you think the details are relevant.
 - Remember that you do not have full context on the video's origin or why it is important to the coding agent. You should not critique what could be better visually or point out minor issues or nit-picks unrelated to the request.
+- You see sampled still frames, not audio; say so when a question depends on sound or on motion between frames.
 
 
 

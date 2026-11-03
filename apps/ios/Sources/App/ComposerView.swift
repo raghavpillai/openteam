@@ -580,6 +580,10 @@ private struct AttachmentTrayButton: UIViewRepresentable {
       NativeHaptics.play(.light, source: "composer.attach")
       AttachmentTray.shared.present(from: button, actions: coordinator.actions())
     }, for: .touchUpInside)
+    // Once the chat has settled, start the photo picker's process so Photos opens on a grid.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak button] in
+      if let scene = button?.window?.windowScene { AttachmentTray.shared.prewarm(in: scene) }
+    }
     return button
   }
   func updateUIView(_ button: UIButton, context: Context) {

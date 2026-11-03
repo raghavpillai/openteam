@@ -30,6 +30,8 @@ struct AttachmentTrayActions {
 
   func present(from button: UIView, actions: AttachmentTrayActions) {
     guard controller == nil, let scene = button.window?.windowScene else { return }
+    warming?.isHidden = true
+    warming = nil
     let window = UIWindow(windowScene: scene)
     window.windowLevel = .alert + 1
     window.backgroundColor = .clear
@@ -46,6 +48,38 @@ struct AttachmentTrayActions {
     controller.open()
   }
   func close() { controller?.collapse() }
+
+  /// The system photo picker runs in another process that takes seconds to start
+  /// the first time (3 s on a simulator), then stays up for a while. Start it once
+  /// with an invisible picker when a chat opens, so the tray's grid is ready on +.
+  private var warming: UIWindow?
+  private var warmed = false
+  func prewarm(in scene: UIWindowScene) {
+    guard !warmed, warming == nil, controller == nil else { return }
+    warmed = true
+    let window = UIWindow(windowScene: scene)
+    // The picker only loads its grid while it is on screen; a nearly clear speck is.
+    window.frame = CGRect(x: 0, y: scene.screen.bounds.height - 2, width: 2, height: 2)
+    window.alpha = 0.011
+    window.isUserInteractionEnabled = false
+    window.windowLevel = .normal - 1
+    let picker = PHPickerViewController(configuration: Self.pickerConfiguration(limit: 1))
+    window.rootViewController = picker
+    window.isHidden = false
+    warming = window
+    finishWarming(picker, deadline: .now() + 8)
+  }
+  private func finishWarming(_ picker: PHPickerViewController, deadline: DispatchTime) {
+    guard let window = warming else { return }
+    if picker.view.subviews.contains(where: { !$0.subviews.isEmpty }) || .now() > deadline || controller != nil {
+      window.isHidden = true
+      warming = nil
+      return
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+      self?.finishWarming(picker, deadline: deadline)
+    }
+  }
 
   static func pickerConfiguration(limit: Int) -> PHPickerConfiguration {
     var configuration = PHPickerConfiguration()
@@ -411,7 +445,7 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     let noun = videos == 0 ? "photo" : videos == count ? "video" : "item"
     let title = count == 0 ? "All Photos" : "Add \(count) \(noun)" + (count == 1 ? "" : "s")
     let change = {
-      self.add.set(title: title, prominent: count > 0)
+      self.add.set(title: title)
       let width = self.add.fittingWidth
       self.add.frame = CGRect(x: self.panel.bounds.width - Self.controlInset - width,
         y: self.panel.bounds.height - Self.controlInset - Self.control, width: width, height: Self.control)
@@ -512,17 +546,31 @@ private final class TrayMenuRow: UIControl {
 
 /// A 48-point circular glass control, as on the reference's panels. Over the
 /// camera it is always dark; over the photo grid it follows the appearance.
+extension UIButton.Configuration {
+  /// Clear Liquid Glass with a light wash of the background colour, so the
+  /// photos or camera show through. The system picks the label colour from
+  /// what is behind the glass, so it stays readable over light and dark photos.
+  static func trayGlass() -> UIButton.Configuration {
+    let wash = UIColor { $0.userInterfaceStyle == .dark
+      ? UIColor.black.withAlphaComponent(0.42) : UIColor.white.withAlphaComponent(0.55) }
+    if #available(iOS 26, *) {
+      var configuration = UIButton.Configuration.clearGlass()
+      configuration.background.backgroundColor = wash
+      return configuration
+    }
+    var configuration = UIButton.Configuration.filled()
+    configuration.baseBackgroundColor = .secondarySystemBackground
+    configuration.baseForegroundColor = .label
+    return configuration
+  }
+}
+
 private final class TrayGlassButton: UIButton {
   init(symbol: String, label: String, dark: Bool = false) {
     super.init(frame: .zero)
-    var configuration: UIButton.Configuration
-    if #available(iOS 26, *) { configuration = .glass() } else {
-      configuration = .filled()
-      configuration.baseBackgroundColor = .secondarySystemBackground
-    }
+    var configuration = UIButton.Configuration.trayGlass()
     configuration.image = UIImage(systemName: symbol,
       withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold))
-    configuration.baseForegroundColor = .label
     configuration.cornerStyle = .capsule
     self.configuration = configuration
     if dark { overrideUserInterfaceStyle = .dark }
@@ -531,7 +579,7 @@ private final class TrayGlassButton: UIButton {
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
-/// "All Photos" on glass, or a white "Add N photos" once something is selected.
+/// "All Photos", or "Add N photos" once something is selected, on the same clear glass.
 private final class TrayCapsuleButton: UIButton {
   private var title = ""
   init() {
@@ -539,21 +587,9 @@ private final class TrayCapsuleButton: UIButton {
     accessibilityIdentifier = "attach-add-photos"
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-  func set(title: String, prominent: Bool) {
+  func set(title: String) {
     self.title = title
-    var configuration: UIButton.Configuration
-    if prominent {
-      configuration = .filled()
-      configuration.baseBackgroundColor = .label
-      configuration.baseForegroundColor = .systemBackground
-    } else if #available(iOS 26, *) {
-      configuration = .glass()
-      configuration.baseForegroundColor = .label
-    } else {
-      configuration = .filled()
-      configuration.baseBackgroundColor = .secondarySystemBackground
-      configuration.baseForegroundColor = .label
-    }
+    var configuration = UIButton.Configuration.trayGlass()
     configuration.cornerStyle = .capsule
     configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 18, bottom: 0, trailing: 18)
     var text = AttributedString(title)

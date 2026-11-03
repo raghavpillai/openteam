@@ -56,7 +56,7 @@ Run the core, client-contract and default native UI checks against a booted simu
 bash apps/ios/scripts/verify.sh <simulator-udid>
 ```
 
-The script starts fixtures on ports 19997, 19992, 20070, 20071, 20072, 20081 and 20085.
+The script starts fixtures on ports 19997, 19992, 19994, 20070, 20071, 20072, 20081, 20085 and 20093.
 It uses ad hoc simulator signing so the discovery tests can exercise Keychain
 persistence across cold launches.
 `ModelSettingsUITests` uses port 20072 to check provider connection, model and reasoning

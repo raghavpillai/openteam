@@ -39,14 +39,15 @@ test.skipIf(!databaseUrl)("background results that finish together reach the par
       { block: 'Background task "npm test" (shell) finished:\nFull output: /t/42.log', subagentType: "shell" },
       { block: 'Background task "Find hotels" (executor) failed:\nSite blocked.', subagentType: "executor" },
     ]).replace(/about \d+ minutes ago/, "about 10 minutes ago");
-    expect(claimed?.content).toBe(expected);
-    expect(claimed?.content).toStartWith("[SAND_HIDDEN_PROMPT][A background task just completed] 3 background tasks you started have finished.");
+    const body = claimed?.content.match(/^<timestamp>[^<]+<\/timestamp>\n<user_query>\n([\s\S]*)\n<\/user_query>$/)?.[1];
+    expect(body).toBe(expected);
+    expect(body).toStartWith("[SAND_HIDDEN_PROMPT][A background task just completed] 3 background tasks you started have finished.");
 
     const after = await db.inboxEvent.findMany({ where: { botId }, include: { run: true } });
     const own = after.find((wake) => wake.runId === claimed!.runId)!;
     expect(own.status).toBe("processing");
-    expect((own.payload as { content: string }).content).toBe(expected);
-    expect((await db.message.findFirst({ where: { runId: claimed!.runId } }))?.content).toBe(expected);
+    expect((own.payload as { content: string }).content).toBe(claimed!.content);
+    expect((await db.message.findFirst({ where: { runId: claimed!.runId } }))?.content).toBe(claimed!.content);
     const folded = after.filter((wake) => wake.runId !== claimed!.runId);
     expect(folded).toHaveLength(2);
     for (const wake of folded) {

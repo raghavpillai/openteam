@@ -41,6 +41,8 @@ test.skipIf(!databaseUrl)("a routine hears from its background work once none is
     const finish = async (index: number, status: "completed" | "failed", result: string) => {
       const task = tasks[index]!;
       await db.$transaction(async (tx) => {
+        // Parent notification follows settlement of both the child and its attempt.
+        await tx.subagent.update({ where: { id: task.id }, data: { status } });
         await tx.subagentAttempt.update({ where: { id: task.attempts[0]!.id }, data: { status, completedAt: new Date() } });
         await notify(tx, { ...task, currentRunId: crypto.randomUUID() }, status, result);
       });
@@ -65,14 +67,15 @@ test.skipIf(!databaseUrl)("a routine hears from its background work once none is
       `Background task "fetch prices" (shell) finished:\nFull output: /t/9.log\n${note}`,
       `Background task "Check store B" (executor) failed:\nStore B blocked the page.\n${note}`,
     ]);
-    expect(claimed?.content).toBe(expected);
+    const body = claimed?.content.match(/^<timestamp>[^<]+<\/timestamp>\n<user_query>\n([\s\S]*)\n<\/user_query>$/)?.[1];
+    expect(body).toBe(expected);
     expect(expected).toStartWith("[SAND_HIDDEN_PROMPT][A background task just completed] 3 background tasks you started have finished.");
     expect(expected).toEndWith("Never message the user just to say that nothing has changed.");
     expect(expected).not.toContain("reached you only now");
     expect(expected).not.toContain("held back");
     const after = await db.inboxEvent.findMany({ where: { botId } });
     expect(after.filter((wake) => wake.runId !== claimed!.runId).every((wake) => wake.status === "completed")).toBe(true);
-    expect((await db.message.findFirst({ where: { runId: claimed!.runId } }))?.content).toBe(expected);
+    expect((await db.message.findFirst({ where: { runId: claimed!.runId } }))?.content).toBe(claimed!.content);
   } finally {
     await db.bot.deleteMany({ where: { id: { in: [botId, ...childIds] } } });
     await db.channel.deleteMany({ where: { id: channelId } });

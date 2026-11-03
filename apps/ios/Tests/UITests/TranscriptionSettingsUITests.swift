@@ -24,6 +24,14 @@ final class TranscriptionSettingsUITests: XCTestCase {
     )
     await fulfillment(of: [finished], timeout: 10)
   }
+  private func tapSave(_ app: XCUIApplication) {
+    let button = app.buttons["voice-save"]
+    // XCTest's automatic scroll-to-visible can consume the tap while the
+    // keyboard is open. Reveal the button before sending the actual tap.
+    for _ in 0..<6 where !button.isHittable { app.swipeUp() }
+    XCTAssertTrue(button.isHittable)
+    button.tap()
+  }
   func testSavedKeysProviderSwitchesReplacementAndExplicitDeletion() async throws {
     continueAfterFailure = false
     var reset = URLRequest(url: base.appendingPathComponent("__qa/reset"))
@@ -49,7 +57,7 @@ final class TranscriptionSettingsUITests: XCTestCase {
     XCTAssertEqual(key.placeholderValue, "API key")
     let beforeSave = try await state()
     XCTAssertEqual((beforeSave["transcriptionPatches"] as? [[String: Any]])?.count, 0)
-    app.buttons["voice-save"].tap()
+    tapSave(app)
     let failure = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'replacement key'"))
       .firstMatch
     XCTAssertTrue(failure.waitForExistence(timeout: 5))
@@ -65,7 +73,7 @@ final class TranscriptionSettingsUITests: XCTestCase {
     language.tap()
     language.typeText("fr")
     app.swipeUp()
-    app.buttons["voice-save"].tap()
+    tapSave(app)
     await saved(app)
     let savedState = try await state()
     let patches = try XCTUnwrap(savedState["transcriptionPatches"] as? [[String: Any]])
@@ -83,7 +91,7 @@ final class TranscriptionSettingsUITests: XCTestCase {
     key.tap()
     key.typeText("synthetic-key-B8x2")
     app.swipeUp()
-    app.buttons["voice-save"].tap()
+    tapSave(app)
     await saved(app)
     XCTAssertEqual(key.placeholderValue, "••••B8x2")
     snapshot("ios-replacement-saved", app)
@@ -92,7 +100,7 @@ final class TranscriptionSettingsUITests: XCTestCase {
     enabled.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
     XCTAssertEqual(enabled.value as? String, "0")
     app.buttons["voice-remove-key"].tap()
-    app.buttons["voice-save"].tap()
+    tapSave(app)
     await saved(app)
     XCTAssertFalse(app.buttons["voice-remove-key"].exists)
     let finalState = try await state()

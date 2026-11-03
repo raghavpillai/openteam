@@ -158,22 +158,23 @@ struct NativeChatGlass: ViewModifier {
 private struct ChromeFade: View {
   @Environment(\.colorScheme) private var scheme
   var edge: VerticalEdge
+  var canvas: Color = NativePalette.background
   var body: some View {
     LinearGradient(
       stops: [
-        .init(color: NativePalette.background, location: 0),
+        .init(color: canvas, location: 0),
         .init(
-          color: NativePalette.background.opacity(edge == .top ? 0.85 : 0.9),
+          color: canvas.opacity(edge == .top ? 0.85 : 0.9),
           location: edge == .top ? 0.20 : 0.18),
         .init(
-          color: NativePalette.background.opacity(
+          color: canvas.opacity(
             edge == .top ? 0.48 : 0.35),
           location: edge == .top ? 0.55 : 0.65),
         // Both themes fade before the floating header, independently of its glass.
         .init(
-          color: NativePalette.background.opacity(edge == .top ? 0.04 : 0),
+          color: canvas.opacity(edge == .top ? 0.04 : 0),
           location: edge == .top ? 0.85 : 1),
-        .init(color: NativePalette.background.opacity(0), location: 1),
+        .init(color: canvas.opacity(0), location: 1),
       ],
       startPoint: edge == .top ? .top : .bottom,
       endPoint: edge == .top ? .bottom : .top
@@ -212,6 +213,8 @@ private struct BackdropBlur: UIViewRepresentable {
 /// system soft scroll edge hides rows much sooner, so it is disabled here.
 private struct FadingTopBar<Bar: View>: ViewModifier {
   var bar: Bar
+  var canvas: Color = NativePalette.background
+  var showsFade = true
   @State private var barHeight: CGFloat = 0
   func body(content: Content) -> some View {
     if #available(iOS 26, *) {
@@ -219,7 +222,7 @@ private struct FadingTopBar<Bar: View>: ViewModifier {
         content
           .overlay(alignment: .top) {
             // Match the chat's fade, measured from the top of the screen.
-            ChromeFade(edge: .top)
+            ChromeFade(edge: .top, canvas: canvas).opacity(showsFade ? 1 : 0)
               .frame(height: viewport.safeAreaInsets.top + 104)
               .offset(y: -viewport.safeAreaInsets.top - barHeight)
           }
@@ -323,8 +326,9 @@ extension View {
     modifier(ChatFloatingBars(top: top(), bottom: bottom()))
   }
   #endif
-  func fadingTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
-    modifier(FadingTopBar(bar: bar()))
+  func fadingTopBar<Bar: View>(canvas: Color = NativePalette.background, showsFade: Bool = true,
+    @ViewBuilder _ bar: () -> Bar) -> some View {
+    modifier(FadingTopBar(bar: bar(), canvas: canvas, showsFade: showsFade))
   }
   #if !SHARE_EXTENSION
   func dismissKeyboardOnTap() -> some View {
@@ -397,11 +401,12 @@ struct ChatChromeButton: View {
 struct AccountMark: View {
   var name: String
   var size: CGFloat = 38
+  var initialsScale: CGFloat = 0.35
   var initials: String {
     String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
   }
   var body: some View {
-    Text(initials.isEmpty ? "OT" : initials).font(.system(size: size * 0.35, weight: .medium))
+    Text(initials.isEmpty ? "OT" : initials).font(.system(size: size * initialsScale, weight: .medium))
       .foregroundStyle(NativePalette.muted).frame(width: size, height: size)
       .background(NativePalette.muted.opacity(0.13), in: Circle())
   }

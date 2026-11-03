@@ -62,12 +62,12 @@ import XCTest
     XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5))
     capture("production-message-actions", app)
     app.buttons["Reply"].tap()
-    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
-    let input = app.descendants(matching: .any).matching(identifier: "thread-message-input").firstMatch
+    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
     input.tap()
     let replyText = "Held inline reply " + suffix
     input.typeText(replyText)
-    app.buttons["thread-send-button"].tap()
+    app.buttons["send-button"].tap()
     var replies: [[String: Any]] = []
     for _ in 0..<45 {
       replies = (try await state()["messages"] as? [[String: Any]] ?? []).filter {
@@ -80,9 +80,8 @@ import XCTest
     let reply = try XCTUnwrap(replies.first)
     let metadata = try XCTUnwrap(reply["metadata"] as? [String: Any])
     XCTAssertEqual(metadata["replyTo"] as? String, original["id"] as? String)
-    XCTAssertEqual(metadata["branched"] as? Bool, true)
+    XCTAssertNotEqual(metadata["branched"] as? Bool, true)
     XCTAssertEqual(reply["channelId"] as? String, original["channelId"] as? String)
-    app.buttons["thread-back"].tap()
     let quote = app.buttons["reply-quote-" + (try XCTUnwrap(reply["id"] as? String))]
     XCTAssertTrue(quote.waitForExistence(timeout: 15))
     capture("production-inline-reply", app)
@@ -90,7 +89,7 @@ import XCTest
     from.press(
       forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 125, dy: 0)), withVelocity: .slow,
       thenHoldForDuration: 0.3)
-    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
     capture("production-swipe-reply", app)
   }
   func testProductionDeliveryAndScheduledExecutionWithAppClosed() async throws {

@@ -1,7 +1,7 @@
 import XCTest
 
 @MainActor final class HapticsUITests: XCTestCase {
-  let base = "http://127.0.0.1:20030"
+  let base = ProcessInfo.processInfo.environment["HAPTICS_SERVER"] ?? "http://127.0.0.1:20030"
   enum HapticAuditFailure: Error { case missing(String) }
   struct Event: Decodable {
     let effect: String, source: String
@@ -41,7 +41,7 @@ import XCTest
   }
   func launch(
     home: Bool = false, haptics: String? = "on", login: Bool = false, visual: Bool = true,
-    content: String? = nil
+    content: String? = nil, pinned: String? = nil
   )
     async throws -> XCUIApplication
   {
@@ -51,6 +51,12 @@ import XCTest
     if !visual { _ = try await request("/__qa/reset") }
     if let content { _ = try await request("/__qa/content", body: ["scene": content]) }
     if login { _ = try await request("/__qa/control", body: ["authRequired": true]) }
+    if let pinned {
+      _ = try await request("/api/v0/settings/sidebar", body: [
+        "version": 2, "pinnedIds": [pinned], "unreadIds": [], "sections": [],
+        "sectionByChannel": [:], "channelOrderByGroup": [:], "unassignedCollapsed": false,
+      ])
+    }
     let app = XCUIApplication()
     app.launchArguments = [
       "--ui-testing", "--server", base, "--appearance", "dark", "--haptic-audit",
@@ -70,6 +76,39 @@ import XCTest
     }
     try await clear()
     return app
+  }
+  func testSwitchingBotsHasOneLightTapIncludingPinnedRows() async throws {
+    for pinned in [false, true] {
+      let app = try await launch(home: true, pinned: pinned ? "visual-0" : nil)
+      let first = app.buttons[pinned ? "pinned-visual-0" : "channel-visual-0"]
+      XCTAssertTrue(first.waitForExistence(timeout: 8))
+      first.tap()
+      XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+      try await expect("conversation.select", "light")
+      if app.staticTexts["sidebar-account-name"].exists {
+        first.tap()
+        try await Task.sleep(for: .milliseconds(400))
+        try await expect("conversation.select", "light")
+      } else {
+        app.buttons["chat-back"].tap()
+      }
+      let second = app.buttons["channel-visual-1"]
+      XCTAssertTrue(second.waitForExistence(timeout: 8))
+      second.tap()
+      XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+      try await expect("conversation.select", "light", count: 2)
+      let audit = try await events()
+      XCTAssertEqual(audit.filter(\.emitted).count, 2)
+      app.terminate()
+    }
+  }
+  func testSwitchingBotsRespectsDisabledHaptics() async throws {
+    let app = try await launch(home: true, haptics: "off")
+    app.buttons["channel-visual-0"].tap()
+    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+    try await expect("conversation.select", "light", emitted: false)
+    let audit = try await events()
+    XCTAssertTrue(audit.allSatisfy { !$0.emitted })
   }
   func field(_ app: XCUIApplication) -> XCUIElement {
     app.descendants(matching: .any).matching(identifier: app.buttons["thread-back"].isHittable ? "thread-message-input" : "message-input").firstMatch
@@ -91,11 +130,11 @@ import XCTest
     try await clear()
     hold(app)
     app.buttons["Reply"].tap()
-    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
     try await expect("message.reply-action", "light")
     field(app).typeText("Haptic send check")
     try await clear()
-    app.buttons["thread-send-button"].tap()
+    app.buttons["send-button"].tap()
     try await expect("message.send", "light")
     XCTAssertTrue(app.staticTexts["Haptic send check"].waitForExistence(timeout: 8))
     let log = try await events()
@@ -109,13 +148,18 @@ import XCTest
     start.press(
       forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 30, dy: 0)), withVelocity: .slow,
       thenHoldForDuration: 0.3)
-    XCTAssertFalse(app.buttons["thread-back"].exists)
+    XCTAssertFalse(app.buttons["Cancel reply"].exists)
     let belowThreshold = try await events()
     XCTAssertTrue(belowThreshold.isEmpty)
+    start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -100, dy: 0)),
+      withVelocity: .slow, thenHoldForDuration: 0.3)
+    XCTAssertFalse(app.buttons["Cancel reply"].exists)
+    let timestampEvents = try await events()
+    XCTAssertTrue(timestampEvents.isEmpty, "Revealing timestamps must not produce reply feedback")
     start.press(
       forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 80, dy: 0)), withVelocity: .slow,
       thenHoldForDuration: 0.3)
-    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
     try await expect("message.reply-swipe", "light")
     let swipeEvents = try await events()
     XCTAssertEqual(swipeEvents.filter(\.emitted).count, 1)
@@ -157,7 +201,7 @@ import XCTest
     app.buttons["Reply"].tap()
     try await expect("message.reply-action", "light", emitted: false)
     field(app).typeText("Silent send")
-    app.buttons["thread-send-button"].tap()
+    app.buttons["send-button"].tap()
     try await expect("message.send", "light", emitted: false)
     let log = try await events()
     XCTAssertTrue(log.allSatisfy { !$0.enabled && !$0.emitted })

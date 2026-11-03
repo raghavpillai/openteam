@@ -39,7 +39,7 @@ import XCTest
       app.buttons["Reply"].waitForExistence(timeout: 2),
       "QA-02: Attachment hold has no message-action entry point.")
   }
-  func testSwipingAnAttachmentOpensFocusedReply() async throws {
+  func testSwipingAnAttachmentQuotesItInTheComposer() async throws {
     let app = try await launch("attachment")
     let attachment = app.buttons["Open Fixture image.png"]
     XCTAssertTrue(attachment.waitForExistence(timeout: 10))
@@ -47,8 +47,8 @@ import XCTest
     start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 150, dy: 0)))
     capture("attachment-swipe", app)
     XCTAssertTrue(
-      app.buttons["thread-back"].waitForExistence(timeout: 2),
-      "QA-02: Attachment swipe must open the focused reply page.")
+      app.buttons["Cancel reply"].waitForExistence(timeout: 2),
+      "QA-02: Attachment swipe must quote the attachment in the composer.")
   }
   func testExistingThreadHasVisibleEntryPoint() async throws {
     let app = try await launch("thread")

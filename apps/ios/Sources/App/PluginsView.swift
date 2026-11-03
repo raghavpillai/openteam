@@ -79,7 +79,7 @@ struct PluginListView: View {
     HStack(spacing: 14) {
       ChromeButton(title: "Back", symbol: "chevron.left") {
         if installedOnly { installedOnly = false } else { dismiss() }
-      }
+      }.accessibilityIdentifier("marketplace-back")
       Text(installedOnly ? "Installed" : "Plugins")
         .font(.system(size: 17, weight: .medium)).fixedSize()
     }.fixedSize()
@@ -173,7 +173,7 @@ struct PluginListView: View {
   }
   private func pluginRow(_ plugin: JSON) -> some View {
     HStack(spacing: 16) {
-      PluginCatalogMark(plugin: plugin, fallback: nil, size: 38)
+      PluginCatalogMark(plugin: plugin, fallback: nil, size: 40)
       VStack(alignment: .leading, spacing: 3) {
         Text(plugin["name"].string).font(.system(size: 17)).foregroundStyle(NativePalette.text)
         Text(plugin["description"].string).font(.system(size: 14))
@@ -195,31 +195,80 @@ struct PluginListView: View {
   }
 }
 
-/// Package-owned PNG/JPEG icons arrive as data URLs and work without a network
-/// request. External logos remain optional; unsupported/missing icons use a mark.
-private struct PluginCatalogMark: View {
+/// Shared app-icon treatment for catalog rows, installed counts, and the sidebar.
+/// Preserve each provider's artwork, with optical padding inside a continuous tile.
+struct PluginCatalogMark: View {
   let plugin: JSON
   let fallback: JSON?
   let size: CGFloat
+  private var key: String {
+    [plugin["pluginKey"].string, plugin["key"].string, fallback?["key"].string ?? "", plugin["name"].string]
+      .first { !$0.isEmpty }?.lowercased().replacingOccurrences(of: " (managed)", with: "")
+      .replacingOccurrences(of: " ", with: "-") ?? ""
+  }
+  private var logoScale: CGFloat {
+    switch key {
+    case "1password": 0.56
+    case "granola": 1
+    case "slack", "slack-stealth": 0.66
+    case "notion", "google-calendar": 0.9
+    case "google-docs", "google-sheets", "google-slides": 0.86
+    default: 0.8
+    }
+  }
+  private var tileColor: Color {
+    switch key {
+    case "1password": Color(hex: "303136")
+    case "granola": Color(hex: "B2C248")
+    case "slack", "slack-stealth": Color(white: 0.965)
+    default: .white
+    }
+  }
+  private func artwork(_ image: Image) -> some View {
+    image.renderingMode(key == "1password" ? .template : .original)
+      .resizable().interpolation(.high).scaledToFit().foregroundStyle(.white)
+  }
   private var source: String {
     [plugin["logoUrl"].string, plugin["catalog"]["logoUrl"].string, fallback?["logoUrl"].string ?? ""]
       .first { !$0.isEmpty } ?? ""
   }
+  private var bundled: UIImage? {
+    let keys = [plugin["pluginKey"].string, plugin["key"].string,
+      fallback?["key"].string ?? "", plugin["name"].string]
+    for key in keys {
+      let normalized = key.lowercased().replacingOccurrences(of: " (managed)", with: "")
+        .replacingOccurrences(of: " ", with: "-")
+      if let image = UIImage(named: "Plugin-" + normalized) { return image }
+    }
+    return nil
+  }
   var body: some View {
+    let shape = RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+    ZStack {
+      shape.fill(tileColor)
+      providerArtwork.frame(width: size * logoScale, height: size * logoScale)
+    }.frame(width: size, height: size).clipShape(shape)
+      .overlay(shape.strokeBorder(.black.opacity(0.08), lineWidth: size < 24 ? 0.3 : 0.5))
+      .accessibilityHidden(true)
+  }
+  private var providerArtwork: some View {
     Group {
       if source.hasPrefix("data:image/"), source.contains(";base64,"),
         let encoded = source.components(separatedBy: ";base64,").last, encoded.count <= 350_000,
         let data = Data(base64Encoded: encoded), let image = UIImage(data: data) {
-        Image(uiImage: image).resizable().scaledToFit().background(.white)
+        artwork(Image(uiImage: image))
       } else if let url = URL(string: source), ["https", "http"].contains(url.scheme ?? "") {
-        AsyncImage(url: url) { image in image.resizable().scaledToFit() } placeholder: { placeholder }
+        AsyncImage(url: url) { image in artwork(image) } placeholder: { placeholder }
       } else { placeholder }
-    }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.2))
-      .accessibilityHidden(true)
+    }
   }
-  private var placeholder: some View {
-    RoundedRectangle(cornerRadius: size * 0.2).fill(NativePalette.selection)
-      .overlay { Image(systemName: "puzzlepiece.extension").font(.system(size: size * 0.58)).foregroundStyle(NativePalette.muted) }
+  @ViewBuilder private var placeholder: some View {
+    if let bundled {
+      artwork(Image(uiImage: bundled))
+    } else {
+      Image(systemName: "puzzlepiece.extension.fill")
+        .font(.system(size: size * 0.5)).foregroundStyle(Color(white: 0.43))
+    }
   }
 }
 

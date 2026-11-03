@@ -2,7 +2,16 @@ import SwiftUI
 
 struct HomeView: View {
   @Environment(AppStore.self) private var store
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var settings = false
+  @State private var marketplace = false
+  @State private var marketplaceRevision = 0
+  @State private var barRegion = InboxBarRegion()
+  private var verticalBar: Bool { barRegion.isVertical }
+  @State private var lastUnread: String?
+  @State private var sidebarCollapsed = false
+  @State private var sidebarAvailable = false
   private enum CreationKind: String, Identifiable {
     case bot, group
     var id: Self { self }
@@ -19,112 +28,262 @@ struct HomeView: View {
   private var sections: [JSON] { store.sidebar["sections"].array }
   var body: some View {
     @Bindable var store = store
-    NavigationStack(path: $store.navigation) {
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 0) {
-          if !store.online && !store.syncingState {
-            Label("Offline · messages will send when you reconnect", systemImage: "wifi.slash")
-              .font(.footnote).foregroundStyle(NativePalette.muted).padding(.vertical, 8)
+    GeometryReader { geometry in
+      let supportsSidebar = UIDevice.current.userInterfaceIdiom == .pad || barRegion.hasHinge
+      let supportsWideInbox = supportsSidebar && (horizontalSizeClass == .regular || geometry.size.width >= 650)
+      let wide = supportsWideInbox && !sidebarCollapsed
+      HStack(spacing: 0) {
+        if wide {
+          inbox(isSidebar: true, bottomClearance: max(0, 20 - geometry.safeAreaInsets.bottom))
+            .frame(width: SidebarMetrics.width)
+          NativePalette.separator.frame(width: 0.5)
+        }
+        NavigationStack(path: $store.navigation) {
+          Group {
+            if wide {
+              ContentUnavailableView("Choose a conversation", systemImage: "bubble.left.and.bubble.right")
+                .nativeCanvas()
+            } else {
+              inbox(isSidebar: false)
+            }
           }
-          if !store.pins.isEmpty {
-            ScrollView(.horizontal) {
-              HStack(alignment: .top, spacing: 20) {
-                ForEach(store.pins.compactMap { id in visible.first { $0.id == id } }) { channel in
-                  NavigationLink(value: channel.id) {
-                    VStack(spacing: 7) {
-                      ChannelAvatar(channel: channel, size: 80)
-                      Text(channel.name).font(.subheadline).foregroundStyle(NativePalette.muted)
-                        .lineLimit(1)
-                    }.frame(width: 100)
-                  }.buttonStyle(.plain).accessibilityIdentifier("pinned-" + channel.id)
-                    .contextMenu {
-                      conversationActions(channel)
-                    } preview: {
-                      conversationPreview(channel)
-                    }
-                }
-              }.padding(.vertical, 15)
-            }.scrollIndicators(.hidden)
+          .navigationDestination(for: String.self) { id in
+            if let channel = store.channel(id) {
+              ChatView(channel: channel).id(id)
+            } else {
+              ContentUnavailableView("Conversation unavailable", systemImage: "bubble.left")
+            }
           }
-          ForEach(sections, id: \.self) { section in
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+          if barRegion.hasHinge, !verticalBar {
+            Color.clear.frame(height: 56)
+          }
+        }
+      }
+      .onChange(of: supportsWideInbox, initial: true) { _, value in sidebarAvailable = value }
+      .overlay(alignment: .topLeading) {
+        if verticalBar, sidebarAvailable || store.navigation.isEmpty {
+          let bounds = geometry.frame(in: .global)
+          duoControls(showsAccount: !wide).frame(width: 48, height: barRegion.frame.height)
+            .position(x: barRegion.frame.midX - bounds.minX, y: barRegion.frame.midY - bounds.minY)
+        }
+      }
+      .overlay(alignment: .topTrailing) {
+        if barRegion.hasHinge, !verticalBar, sidebarAvailable || store.navigation.isEmpty {
+          HStack(spacing: 12) {
+            if sidebarAvailable { sidebarToggle }
+            InboxChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
+              .accessibilityIdentifier("search-button")
+            creationMenu().frame(width: 44, height: 44).nativeInboxGlass()
+          }.padding(.trailing, 18).padding(.top, 6)
+        }
+      }
+    }
+    .readingInboxBarRegion { barRegion = $0 }
+    .sheet(isPresented: $settings) { SettingsView().referenceSheet() }
+    .sheet(isPresented: $marketplace, onDismiss: { marketplaceRevision += 1 }) {
+      NavigationStack { PluginListView() }.referenceSheet()
+    }
+    .alert(
+      "Rename section",
+      isPresented: Binding(
+        get: { renamingSection != nil }, set: { if !$0 { renamingSection = nil } }
+      )
+    ) {
+      TextField("Section name", text: $sectionName)
+      Button("Cancel", role: .cancel) { renamingSection = nil }
+      Button("Save") {
+        guard let id = renamingSection else { return }
+        let name = sectionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task { await renameSection(id, name: name) }
+      }.disabled(
+        sectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          || sectionName.count > 120)
+    }
+    .confirmationDialog(
+      "Delete section?",
+      isPresented: Binding(
+        get: { deletingSection != nil }, set: { if !$0 { deletingSection = nil } }
+      ), titleVisibility: .visible
+    ) {
+      Button("Delete section", role: .destructive) {
+        guard let section = deletingSection else { return }
+        Task { await deleteSection(section["id"].string) }
+      }
+    } message: {
+      Text("Its conversations will stay in your list.")
+    }
+    .sheet(item: $creation, onDismiss: openSelectedConversation) { kind in
+      CreateConversationView(group: kind == .group) { id in
+        pendingOpen = (id, nil)
+        creation = nil
+      }.referenceSheet()
+        // Group search focuses immediately. Start at the keyboard's final
+        // sheet detent so its first member tap cannot land on a moving row.
+        .presentationDetents(kind == .group ? [.large] : [.fraction(0.95), .large])
+    }
+    .sheet(isPresented: $search, onDismiss: openSelectedConversation) {
+      SearchView { id, message, routine in
+        pendingRoutine = routine
+        pendingOpen = (id, message)
+        search = false
+      }.referenceSheet()
+    }
+  }
+  private var unreadChannels: [Channel] {
+    visible.filter { store.isUnread($0) }
+  }
+  private func inbox(isSidebar: Bool, bottomClearance: CGFloat = 0) -> some View {
+    ScrollViewReader { proxy in
+      ZStack(alignment: .bottom) {
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 0) {
+            if !store.online && !store.syncingState {
+              Label("Offline · messages will send when you reconnect", systemImage: "wifi.slash")
+                .font(.footnote).foregroundStyle(NativePalette.muted).padding(.vertical, 8)
+            }
+            if !store.pins.isEmpty {
+              ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 20) {
+                  ForEach(store.pins.compactMap { id in visible.first { $0.id == id } }) { channel in
+                    Button { selectConversation(channel.id) } label: {
+                      VStack(spacing: 7) {
+                        ChannelAvatar(channel: channel, size: 80)
+                        Text(channel.name).font(.subheadline).foregroundStyle(NativePalette.muted)
+                          .lineLimit(1)
+                      }.frame(width: 100)
+                    }.buttonStyle(.plain).id(channel.id).accessibilityIdentifier("pinned-" + channel.id)
+                      .contextMenu {
+                        conversationActions(channel)
+                      } preview: {
+                        conversationPreview(channel)
+                      }
+                  }
+                }.padding(.vertical, 15)
+              }.scrollIndicators(.hidden)
+            }
+            ForEach(sections, id: \.self) { section in
+              sectionView(
+                id: section["id"].string, name: section["name"].string,
+                collapsed: section["collapsed"].bool, isSidebar: isSidebar,
+                canvas: isSidebar ? SidebarFooterFade.canvas : NativePalette.background)
+            }
             sectionView(
-              id: section["id"].string, name: section["name"].string,
-              collapsed: section["collapsed"].bool)
+              id: "", name: "Unassigned",
+              collapsed: !sections.isEmpty && store.sidebar["unassignedCollapsed"].bool,
+              isSidebar: isSidebar,
+              showsHeading: !sections.isEmpty,
+              canvas: isSidebar ? SidebarFooterFade.canvas : NativePalette.background)
+            if visible.isEmpty {
+              Text("No conversations yet")
+                .font(.subheadline).foregroundStyle(NativePalette.muted)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+                .accessibilityIdentifier("empty-conversations")
+            }
+          }.padding(.horizontal, 20).padding(.bottom, isSidebar ? 94 : 30)
+        }.background(isSidebar ? SidebarFooterFade.canvas : NativePalette.background)
+          .scrollIndicators(.hidden)
+          .onGeometryChange(for: CGFloat.self) {
+            $0.size.width
+          } action: {
+            contentWidth = $0
           }
-          sectionView(
-            id: "", name: "Unassigned",
-            collapsed: !sections.isEmpty && store.sidebar["unassignedCollapsed"].bool,
-            showsHeading: !sections.isEmpty)
-          if visible.isEmpty {
-            Text("No conversations yet")
-              .font(.subheadline).foregroundStyle(NativePalette.muted)
-              .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
-              .accessibilityIdentifier("empty-conversations")
+          .fadingTopBar(canvas: isSidebar ? SidebarFooterFade.canvas : NativePalette.background,
+            showsFade: !verticalBar && !barRegion.hasHinge) {
+            if !verticalBar && !barRegion.hasHinge { header(isSidebar: isSidebar) }
           }
-        }.padding(.horizontal, 20).padding(.bottom, 30)
-      }.nativeCanvas().scrollIndicators(.hidden)
-        .onGeometryChange(for: CGFloat.self) {
-          $0.size.width
-        } action: {
-          contentWidth = $0
-        }
-        .scrollClipDisabled()
-        .fadingTopBar { header }
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationDestination(for: String.self) { id in
-          if let channel = store.channel(id) {
-            ChatView(channel: channel)
-          } else {
-            ContentUnavailableView("Conversation unavailable", systemImage: "bubble.left")
+          .mask {
+            if isSidebar {
+              VStack(spacing: 0) {
+                Color.black
+                LinearGradient(stops: [
+                  .init(color: .black, location: 0),
+                  .init(color: .black, location: 0.38),
+                  .init(color: .black.opacity(0.6), location: 0.52),
+                  .init(color: .clear, location: 0.7),
+                  .init(color: .clear, location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+                  .frame(height: 132 + bottomClearance)
+              }
+            } else { Color.black }
           }
+          .refreshable { await store.refresh() }
+        if isSidebar {
+          SidebarFooterFade().frame(height: 132 + bottomClearance)
+            .ignoresSafeArea(edges: .bottom)
+          accountFooter.padding(.bottom, bottomClearance)
         }
-        .refreshable { await store.refresh() }
-        .sheet(isPresented: $settings) { SettingsView().referenceSheet() }
-        .alert(
-          "Rename section",
-          isPresented: Binding(
-            get: { renamingSection != nil }, set: { if !$0 { renamingSection = nil } }
-          )
-        ) {
-          TextField("Section name", text: $sectionName)
-          Button("Cancel", role: .cancel) { renamingSection = nil }
-          Button("Save") {
-            guard let id = renamingSection else { return }
-            let name = sectionName.trimmingCharacters(in: .whitespacesAndNewlines)
-            Task { await renameSection(id, name: name) }
-          }.disabled(
-            sectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-              || sectionName.count > 120)
+      }
+      .overlay(alignment: .bottom) {
+        if !unreadChannels.isEmpty {
+          UnreadPill(count: unreadChannels.count, isSidebar: isSidebar) {
+            let ids = unreadChannels.map(\.id)
+            let next = lastUnread.flatMap { ids.firstIndex(of: $0) }.map { ($0 + 1) % ids.count } ?? 0
+            let id = ids[next]
+            lastUnread = id
+            Task {
+              await revealUnread(id)
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo(id, anchor: .center) }
+            }
+          }.padding(.bottom, isSidebar ? 74 + bottomClearance : 12).accessibilityIdentifier("inbox-unread")
         }
-        .confirmationDialog(
-          "Delete section?",
-          isPresented: Binding(
-            get: { deletingSection != nil }, set: { if !$0 { deletingSection = nil } }
-          ), titleVisibility: .visible
-        ) {
-          Button("Delete section", role: .destructive) {
-            guard let section = deletingSection else { return }
-            Task { await deleteSection(section["id"].string) }
-          }
-        } message: {
-          Text("Its conversations will stay in your list.")
+      }
+      .background {
+        if isSidebar {
+          SidebarFooterFade.canvas.ignoresSafeArea(edges: .vertical)
+        } else {
+          NativePalette.background.ignoresSafeArea()
         }
-        .sheet(item: $creation, onDismiss: openSelectedConversation) { kind in
-          CreateConversationView(group: kind == .group) { id in
-            pendingOpen = (id, nil)
-            creation = nil
-          }.referenceSheet()
-            // Group search focuses immediately. Start at the keyboard's final
-            // sheet detent so its first member tap cannot land on a moving row.
-            .presentationDetents(kind == .group ? [.large] : [.fraction(0.95), .large])
-        }
-        .sheet(isPresented: $search, onDismiss: openSelectedConversation) {
-          SearchView { id, message, routine in
-            pendingRoutine = routine
-            pendingOpen = (id, message)
-            search = false
-          }.referenceSheet()
-        }
+      }
+      .toolbar(.hidden, for: .navigationBar, .bottomBar)
+    }
+  }
+  private func duoControls(showsAccount: Bool) -> some View {
+    VStack(spacing: 12) {
+      if sidebarAvailable { sidebarToggle }
+      creationMenu().frame(width: 44, height: 44).nativeInboxGlass()
+      InboxChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
+        .accessibilityIdentifier("search-button")
+      Spacer(minLength: 12)
+      if showsAccount {
+        MarketplaceShortcut { marketplace = true }
+        Button { settings = true } label: {
+          AccountMark(name: store.accountDisplayName, size: 32, initialsScale: 0.42)
+            .frame(width: 44, height: 44).nativeInboxGlass()
+        }.buttonStyle(.plain).accessibilityLabel("Settings, " + store.accountDisplayName)
+          .accessibilityIdentifier("settings-button")
+      }
+    }.padding(.bottom, 8).foregroundStyle(NativePalette.text)
+  }
+  private var accountFooter: some View {
+    HStack(spacing: 12) {
+      Button { settings = true } label: {
+        HStack(spacing: SidebarMetrics.accountGap) {
+          SidebarAccountMark(name: store.accountDisplayName)
+          Text(store.accountDisplayName).font(.system(size: SidebarMetrics.accountFont)).lineLimit(1)
+            .foregroundStyle(NativePalette.text)
+            .accessibilityIdentifier("sidebar-account-name")
+        }.frame(height: 44).contentShape(Rectangle())
+      }.buttonStyle(.plain).accessibilityLabel("Settings, " + store.accountDisplayName)
+        .accessibilityIdentifier("settings-button")
+      Spacer(minLength: 0)
+      MarketplaceShortcut(compact: true, revision: marketplaceRevision) { marketplace = true }
+        .fixedSize()
+    }.frame(height: 40).padding(.leading, SidebarMetrics.leading).padding(.trailing, SidebarMetrics.trailing)
+  }
+  private func selectConversation(_ id: String) {
+    if store.navigation.first != id {
+      NativeHaptics.play(.light, source: "conversation.select")
+    }
+    store.navigation = [id]
+  }
+  private func revealUnread(_ id: String) async {
+    let sectionID = store.sidebar["sectionByChannel"][id].string
+    if let section = sections.first(where: { $0["id"].string == sectionID }) {
+      if section["collapsed"].bool { await toggleSection(sectionID) }
+    } else if store.sidebar["unassignedCollapsed"].bool {
+      await toggleSection("")
     }
   }
   func openSelectedConversation() {
@@ -137,14 +296,18 @@ struct HomeView: View {
       await store.open(target.channel, messageID: target.message)
     }
   }
-  var header: some View {
-    HStack(spacing: 4) {
-      Button {
-        settings = true
-      } label: {
-        AccountMark(name: store.userName).padding(3).nativeGlass()
+  private func header(isSidebar: Bool) -> some View {
+    HStack(spacing: isSidebar ? 8 : 4) {
+      if isSidebar || sidebarAvailable {
+        sidebarToggle
       }
-      .buttonStyle(.plain).accessibilityLabel("Settings").accessibilityIdentifier("settings-button")
+      if !isSidebar {
+        Button { settings = true } label: {
+          AccountMark(name: store.accountDisplayName, size: 32, initialsScale: 0.42)
+            .frame(width: 44, height: 44).nativeInboxGlass()
+        }.buttonStyle(.plain).accessibilityLabel("Settings, " + store.accountDisplayName)
+          .accessibilityIdentifier("settings-button")
+      }
       if store.syncingState {
         HStack(spacing: 8) {
           ProgressView().controlSize(.regular).tint(NativePalette.muted)
@@ -157,20 +320,31 @@ struct HomeView: View {
         .accessibilityIdentifier("syncing-state")
       }
       Spacer()
-      ChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
+      InboxChromeButton(title: "Search", symbol: "magnifyingglass",
+        pointSize: isSidebar ? SidebarMetrics.searchGlyph : 21) { search = true }
         .accessibilityIdentifier("search-button")
-      NativeActionMenu(symbol: "plus", pointSize: 20, title: "New conversation",
-        identifier: "new-button", panelIdentifier: "creation-menu-panel",
-        hapticSource: "home.create", systemMenu: true, actions: [
-          .init(title: "New Bot", action: { if !store.syncingState { creation = .bot } }),
-          .init(title: "New Group Chat", action: { if !store.syncingState { creation = .group } }),
-        ]).frame(width: 44, height: 44).nativeGlass()
-        .disabled(store.syncingState)
-    }.foregroundStyle(NativePalette.text).padding(.horizontal, 18).padding(.top, 6).padding(
+      creationMenu(pointSize: isSidebar ? SidebarMetrics.addGlyph : 20)
+        .frame(width: 44, height: 44).nativeInboxGlass()
+    }.foregroundStyle(NativePalette.text).padding(.leading, 18)
+      .padding(.trailing, isSidebar ? SidebarMetrics.toolbarTrailing : 18).padding(.top, 6).padding(
       .bottom, 10
     )
   }
-  func sectionView(id: String, name: String, collapsed: Bool, showsHeading: Bool = true)
+  private var sidebarToggle: some View {
+    InboxChromeButton(title: sidebarCollapsed ? "Show sidebar" : "Hide sidebar", symbol: "sidebar.left") {
+      withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+    }.accessibilityIdentifier("sidebar-toggle")
+  }
+  private func creationMenu(pointSize: CGFloat = 20) -> some View {
+    NativeActionMenu(symbol: "plus", pointSize: pointSize, title: "New conversation",
+      identifier: "new-button", panelIdentifier: "creation-menu-panel",
+      hapticSource: "home.create", systemMenu: true, actions: [
+        .init(title: "New Bot", action: { if !store.syncingState { creation = .bot } }),
+        .init(title: "New Group Chat", action: { if !store.syncingState { creation = .group } }),
+      ]).disabled(store.syncingState)
+  }
+  func sectionView(id: String, name: String, collapsed: Bool, isSidebar: Bool = false, showsHeading: Bool = true,
+    canvas: Color = NativePalette.background)
     -> some View
   {
     let validIDs = Set(sections.map { $0["id"].string })
@@ -227,16 +401,21 @@ struct HomeView: View {
           ConversationSwipeRow(
             pinned: store.pins.contains(channel.id),
             pin: { Task { await store.togglePin(channel.id) } },
-            hide: { Task { await store.hide(channel, hidden: true) } }
+            hide: { Task { await store.hide(channel, hidden: true) } }, canvas: canvas
           ) {
-            NavigationLink(value: channel.id) { ChannelRow(channel: channel) }.buttonStyle(.plain)
+            Button { selectConversation(channel.id) } label: {
+              ChannelRow(channel: channel, isSidebar: isSidebar)
+                .padding(.horizontal, isSidebar ? 0 : 8)
+                .background(store.navigation.first == channel.id ? NativePalette.separator.opacity(0.65) : .clear,
+                  in: RoundedRectangle(cornerRadius: 14))
+            }.buttonStyle(.plain)
               .accessibilityIdentifier("channel-" + channel.id)
               .contextMenu {
                 conversationActions(channel)
               } preview: {
                 conversationPreview(channel)
               }
-          }
+          }.id(channel.id)
         }
       }
     }
@@ -321,17 +500,18 @@ struct HomeView: View {
 struct ChannelRow: View {
   @Environment(AppStore.self) private var store
   let channel: Channel
+  var isSidebar = false
   private var last: Message? { store.latestMessage(channel.id) }
   private var unread: Bool {
-    (channel.unreadCount ?? 0) > 0
-      || store.sidebar["unreadIds"].array.map(\.string).contains(channel.id)
+    store.isUnread(channel)
   }
   var body: some View {
     HStack(spacing: 16) {
       ChannelAvatar(channel: channel, size: 46)
       VStack(alignment: .leading, spacing: 3) {
         HStack(alignment: .firstTextBaseline) {
-          Text(channel.name).font(.body.weight(.medium)).foregroundStyle(NativePalette.text)
+          Text(channel.name).font(isSidebar ? .system(size: 18, weight: .medium) : .body.weight(.medium))
+            .foregroundStyle(NativePalette.text)
             .lineLimit(1)
           Spacer(minLength: 8)
           if let date = last?.date {
@@ -347,7 +527,7 @@ struct ChannelRow: View {
           if unread { Circle().fill(NativePalette.link).frame(width: 10, height: 10) }
         }.foregroundStyle(NativePalette.muted)
       }
-    }.frame(minHeight: 80).contentShape(Rectangle()).accessibilityElement(children: .combine)
+    }.frame(minHeight: isSidebar ? SidebarMetrics.rowHeight : 80).contentShape(Rectangle()).accessibilityElement(children: .combine)
   }
   var preview: String {
     if !store.activeRuns(channel.id).isEmpty { return "Working…" }
@@ -364,7 +544,7 @@ struct ChannelRow: View {
       ).day ?? 8)
     f.dateFormat =
       Calendar.current.isDateInToday(date)
-      ? "h:mm a" : (recent > 0 && recent < 7 ? "EEEE" : "M/d/yy")
+      ? "h:mm a" : (recent > 0 && recent < 7 ? "EEEE" : (isSidebar ? "MMM d" : "M/d/yy"))
     return f.string(from: date)
   }
 }
@@ -709,6 +889,7 @@ private struct ConversationSwipeRow<Content: View>: View {
   let pinned: Bool
   let pin: () -> Void
   let hide: () -> Void
+  var canvas: Color = NativePalette.background
   @ViewBuilder let content: () -> Content
   @State private var offset: CGFloat = 0
   @State private var origin: CGFloat = 0
@@ -722,7 +903,7 @@ private struct ConversationSwipeRow<Content: View>: View {
         swipeButton("Hide", "eye.slash", NativePalette.destructive, action: hide)
           .opacity(offset < 0 ? 1 : 0).allowsHitTesting(offset < 0).accessibilityHidden(offset >= 0)
       }.padding(.horizontal, 8)
-      content().background(NativePalette.background).offset(x: offset)
+      content().background(canvas).offset(x: offset)
         .gesture(
           MessageReplyGesture(
             allowsLeftward: true,

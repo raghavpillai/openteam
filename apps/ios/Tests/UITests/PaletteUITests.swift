@@ -2,7 +2,7 @@ import XCTest
 
 /// Real native screens, including a theme change without restarting the app.
 @MainActor final class PaletteUITests: XCTestCase {
-  let base = "http://127.0.0.1:20029"
+  let base = ProcessInfo.processInfo.environment["PALETTE_SERVER"] ?? "http://127.0.0.1:20029"
 
   func configure(_ path: String, _ body: [String: Any]) async throws {
     var request = URLRequest(url: URL(string: base + path)!)
@@ -39,18 +39,36 @@ import XCTest
   func testHomeSettingsAndNativeFormsSwitchAppearanceInPlace() async throws {
     try await configure("/__qa/scene", ["scene": "home"])
     let app = launch("light")
+    XCTAssertTrue(app.buttons["settings-button"].isHittable)
+    capture("home-before-settings", app)
     for appearance in ["light", "dark", "light"] {
       app.buttons["settings-button"].tap()
-      XCTAssertTrue(app.buttons["appearance-picker"].waitForExistence(timeout: 5))
-      app.buttons["appearance-picker"].tap()
+      XCTAssertTrue(app.buttons["sheet-close"].waitForExistence(timeout: 5))
+      let picker = app.descendants(matching: .any).matching(identifier: "appearance-picker").firstMatch
+      for _ in 0..<3 {
+        if picker.isHittable { break }
+        app.swipeUp()
+      }
+      XCTAssertTrue(picker.isHittable)
+      picker.tap()
       app.buttons[appearance.capitalized].tap()
       capture("settings-" + appearance, app)
-      app.buttons["account-settings"].tap()
+      let account = app.buttons["account-settings"]
+      for _ in 0..<3 {
+        if account.isHittable { break }
+        app.swipeDown()
+      }
+      XCTAssertTrue(account.isHittable)
+      account.tap()
       let server = app.descendants(matching: .any).matching(identifier: "account-server").firstMatch
       XCTAssertTrue(server.waitForExistence(timeout: 5))
       XCTAssertTrue([server.label, server.value as? String ?? ""].joined(separator: " ").contains(base))
       capture("account-" + appearance, app)
-      app.navigationBars.buttons.firstMatch.tap()
+      // iOS 27 can move the system Back control outside the navigation bar.
+      let floatingBack = app.buttons["BackButton"]
+      let back = floatingBack.exists ? floatingBack : app.navigationBars.buttons.firstMatch
+      XCTAssertTrue(back.waitForExistence(timeout: 5))
+      back.tap()
       app.buttons["sheet-close"].tap()
       capture("home-" + appearance, app)
       app.buttons["new-button"].tap()
@@ -74,10 +92,10 @@ import XCTest
       XCTAssertTrue(app.buttons["Start a thread"].waitForExistence(timeout: 5))
       capture("message-actions-" + appearance, app)
       app.buttons["Reply"].tap()
-      XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
-      let field = app.descendants(matching: .any).matching(identifier: "thread-message-input").firstMatch
+      XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+      let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
       field.typeText("Theme check")
-      XCTAssertTrue(app.buttons["thread-send-button"].isEnabled)
+      XCTAssertTrue(app.buttons["send-button"].isEnabled)
       capture("reply-" + appearance, app)
       XCTAssertEqual(field.value as? String, "Theme check")
       app.terminate()

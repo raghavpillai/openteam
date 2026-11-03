@@ -162,6 +162,8 @@ const server = Bun.serve({
         }
       }
       if (input.configuration) Object.assign(functionality.configuration, input.configuration);
+      if (input.pluginCatalog) functionality.catalog = input.pluginCatalog;
+      if (input.pluginInstalls) functionality.installs = input.pluginInstalls;
       if (input.customAvatarRevision) {
         snapshot.bots[0]!.hasAvatar = true;
         snapshot.bots[0]!.icon = "classic";

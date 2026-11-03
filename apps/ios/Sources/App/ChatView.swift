@@ -10,10 +10,12 @@ struct ChatView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let channel: Channel
   @State private var details = false
+  @State private var replyFocusRequest = UUID()
   @State private var duplicatedChannel: String?
   @State private var computerBot: Bot?
   @State private var timelineCache = ChatTimelineCache()
   @State private var modals = MessageModalPresenter()
+  @State private var timestamps = MessageTimestampReveal()
   @State private var bottomVisible = true
   @State private var followsLatest = true
   /// The newest message sequence on screen when the list stopped following.
@@ -141,7 +143,7 @@ struct ChatView: View {
     }
     .nativeCanvas()
     .chatFloatingBars(top: { header }, bottom: {
-      if !showsLoadError { ComposerView(channel: channel).disabled(!didPositionHistory) }
+      if !showsLoadError { ComposerView(channel: channel, focusRequest: replyFocusRequest).disabled(!didPositionHistory) }
     })
     .toolbar(.hidden, for: .navigationBar).background(NativeBackGesture().frame(width: 0, height: 0))
     .navigationDestination(isPresented: $details) {
@@ -205,7 +207,7 @@ struct ChatView: View {
           timelineRow(row)
         }.padding(.horizontal, 16)
           .padding(.top, row.id == rows.first?.id ? 14 : row.groupsWithPrevious ? 8 : 12)
-          .environment(store).environment(modals))
+          .environment(store).environment(modals).environment(\.messageTimestamps, timestamps))
       })
     }
     if hasLater {
@@ -216,7 +218,7 @@ struct ChatView: View {
       })
     }
     result.append(NativeHistoryItem(id: "bottom", scrollID: "bottom", version: hasLater.hashValue) {
-      AnyView(ChatActivityFooter(channel: channel, showsActivity: !hasLater).environment(store).environment(modals))
+      AnyView(ChatActivityFooter(channel: channel, showsActivity: !hasLater).environment(store).environment(modals).environment(\.messageTimestamps, timestamps))
     })
     return result
   }
@@ -366,8 +368,11 @@ struct ChatView: View {
     return day + " " + formatter.string(from: date)
   }
   func reply(_ message: Message) {
-    branchesReplies = true
-    thread = message
+    var draft = store.draft(channel.id)
+    draft.replyTo = message.id
+    draft.isFork = false
+    store.saveDraft(draft, channel: channel.id)
+    replyFocusRequest = UUID()
   }
 }
 
@@ -470,6 +475,10 @@ struct MessageRow: View {
   var onReplyContext: ((String) -> Void)?
   @State private var drag: CGFloat = 0
   @State private var swipeFeedback = ReplySwipeFeedback()
+  @State private var swipingTimestamps: Bool?
+  @State private var localTimestamps = MessageTimestampReveal()
+  @Environment(\.messageTimestamps) private var sharedTimestamps
+  private var timestamps: MessageTimestampReveal { sharedTimestamps ?? localTimestamps }
   private var speaker: Bot? {
     guard viewOnly || channel.isGroup, !message.isUser else { return nil }
     return speakerOverride ?? store.bots.first { $0.id == message.senderBotId }
@@ -500,7 +509,7 @@ struct MessageRow: View {
       }
     }
   }
-  private var bubble: some View {
+  private var bubbleContent: some View {
     HStack(alignment: .bottom, spacing: 0) {
       if message.isUser { Spacer(minLength: 44) }
       if let speaker {
@@ -592,18 +601,37 @@ struct MessageRow: View {
             }
           }
         }
-      }.contentShape(Rectangle()).offset(x: drag)
+      }.contentShape(Rectangle())
         .accessibilityAction(named: "Message actions") { openActions() }
         .accessibilityAction(named: "Reply") {
           NativeHaptics.play(.light, source: "message.reply-action")
           onReply()
         }
       if !message.isUser { Spacer(minLength: 44) }
-    }.accessibilityElement(children: .contain).accessibilityIdentifier("message-" + message.id)
+    }
+  }
+  private var bubble: some View {
+    bubbleContent.offset(x: timestamps.offset < 0 ? timestamps.offset : drag)
       .background(alignment: .leading) {
-        Image(systemName: "arrow.uturn.backward").font(.system(size: 16))
-          .foregroundStyle(NativePalette.faint).padding(.leading, 18).opacity(drag > 5 ? 1 : 0)
+        Image(systemName: "arrow.uturn.backward").font(.system(size: 15, weight: .medium))
+          .foregroundStyle(NativePalette.chatMuted).frame(width: 30, height: 30)
+          .background(NativePalette.surface, in: Circle()).padding(.leading, 4)
+          .scaleEffect(0.65 + min(1, drag / 52) * 0.35)
+          .opacity(min(1, drag / 30)).accessibilityHidden(true)
       }
+      .overlay(alignment: .trailing) {
+        if let date = message.date {
+          Text(date.formatted(date: .omitted, time: .shortened))
+            .font(.system(size: 11)).monospacedDigit().foregroundStyle(NativePalette.chatMuted)
+            .lineLimit(1).minimumScaleFactor(0.8)
+            .frame(width: 76).offset(x: 80 + timestamps.offset)
+            .opacity(min(1, -timestamps.offset / 60)).accessibilityHidden(timestamps.offset == 0)
+            .accessibilityIdentifier("message-time-" + message.id)
+            .allowsHitTesting(false)
+        }
+      }
+      .clipped()
+      .accessibilityElement(children: .contain).accessibilityIdentifier("message-" + message.id)
   }
   private func openActions() {
     guard modals.sheet == nil, !viewOnly else { return }
@@ -631,8 +659,13 @@ struct MessageRow: View {
       .presentationCornerRadius(34).presentationBackground(NativePalette.background)))
   }
   private var replyGesture: MessageReplyGesture {
-    MessageReplyGesture { translation in
+    MessageReplyGesture(allowsLeftward: true) { translation in
       guard !viewOnly else { return }
+      if swipingTimestamps == nil { swipingTimestamps = translation.width < 0 }
+      if swipingTimestamps == true {
+        timestamps.offset = -min(88, max(0, -translation.width) * 0.8)
+        return
+      }
       let distance = max(0, translation.width)
       drag = min(78, min(distance, 52) + max(0, distance - 52) * 0.28)
       if swipeFeedback.move(Double(distance)) {
@@ -640,7 +673,7 @@ struct MessageRow: View {
       }
     } onEnded: { translation, velocity, cancelled in
       guard !viewOnly else { return }
-      if !cancelled {
+      if !cancelled, swipingTimestamps != true {
         let result = swipeFeedback.release(Double(translation.width), velocity: Double(velocity))
         if result.open {
           if result.signal { NativeHaptics.play(.light, source: "message.reply-swipe") }
@@ -651,7 +684,9 @@ struct MessageRow: View {
       }
       withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.82)) {
         drag = 0
+        timestamps.offset = 0
       }
+      swipingTimestamps = nil
     }
   }
   func react(_ emoji: String) {
@@ -856,7 +891,11 @@ struct MessageReplyQuote: View {
           Image(systemName: "arrow.turn.up.right").font(.system(size: 10))
           Text(original.map { $0.content.isEmpty ? "Attachment" : $0.content }
             ?? "View original message").font(.system(size: 12)).lineLimit(1)
-        }.frame(maxWidth: 328, alignment: .trailing).foregroundStyle(NativePalette.chatMuted)
+        }.padding(.horizontal, 10).padding(.vertical, 5)
+          .foregroundStyle(NativePalette.chatMuted)
+          .background(NativePalette.surface.opacity(0.5), in: Capsule())
+          .overlay(Capsule().strokeBorder(NativePalette.separator, lineWidth: 0.5))
+          .frame(maxWidth: 328, alignment: .trailing)
       }.buttonStyle(.plain).accessibilityIdentifier("reply-quote-" + ownerID)
         .accessibilityLabel("Reply to: " + (original?.displayContent ?? "View original message"))
   }
@@ -937,6 +976,7 @@ struct ThreadPage: View {
   let onThread: (Message, Bool) -> Void
   @State private var timelineCache = ChatTimelineCache()
   @State private var modals = MessageModalPresenter()
+  @State private var timestamps = MessageTimestampReveal()
   @State private var scrollRequest: HistoryScrollRequest?
   @State private var exchange: BotExchangePeer?
   @State private var details = false
@@ -1056,11 +1096,11 @@ struct ThreadPage: View {
             }
           }
         }.padding(.horizontal, 16).padding(.top, row.groupsWithPrevious ? 8 : 12)
-          .environment(store).environment(modals))
+          .environment(store).environment(modals).environment(\.messageTimestamps, timestamps))
       })
     }
     result.append(NativeHistoryItem(id: "bottom", scrollID: "bottom", version: 0) {
-      AnyView(ChatActivityFooter(channel: channel).environment(store).environment(modals))
+      AnyView(ChatActivityFooter(channel: channel).environment(store).environment(modals).environment(\.messageTimestamps, timestamps))
     })
     return result
   }

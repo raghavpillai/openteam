@@ -1116,6 +1116,9 @@ final class AppStore {
   {
     try await request(path, query: query).decode(type)
   }
+  func isUnread(_ channel: Channel) -> Bool {
+    (channel.unreadCount ?? 0) > 0 || sidebar["unreadIds"].array.contains(.string(channel.id))
+  }
   func togglePin(_ id: String) async {
     var next = sidebar
     var values = pins

@@ -30,6 +30,13 @@ app
       }
       passed++;
     };
+    const settleAnimations = async () => {
+      // This window is hidden; request a frame before waiting for exit animations.
+      await win.webContents.capturePage();
+      await js(
+        "Promise.all(document.getAnimations().filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => undefined)))"
+      );
+    };
     const click = async (selector) => {
       const point = await js(
         `(()=>{const el=${selector}; if(!el) throw new Error('Click target missing'); const b=el.getBoundingClientRect(); return {x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)};})()`
@@ -42,10 +49,7 @@ app
       });
       win.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
       await delay(250);
-      await win.webContents.capturePage();
-      await js(
-        "Promise.all(document.getAnimations().filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => undefined)))"
-      );
+      await settleAnimations();
     };
     const button = (text) =>
       `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)})`;
@@ -130,6 +134,7 @@ app
     await js(`document.documentElement.dataset.theme='dark'`);
     await js(`fixture.emit({status:'downloaded',progress:100})`);
     await delay(300);
+    await settleAnimations();
     await assert(
       `document.querySelector('[role=alertdialog]')?.textContent.includes('OpenTeam 0.47.0')`,
       "Versioned ready dialog missing"

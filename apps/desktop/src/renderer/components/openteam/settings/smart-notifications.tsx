@@ -37,11 +37,11 @@ export function SmartNotificationSettings() {
       <SectionLabel>Notifications</SectionLabel>
       <SettingsGroup>
         <SettingsRow
-          title="Pause iPhone alerts while I’m using this Mac"
-          description="Phone alerts stay quiet while you’re using your Mac, unless OpenTeam is open on your iPhone. They resume after five minutes of Mac inactivity."
+          title="Pause iPhone alerts while using this Mac"
+          description="Alerts resume after 5 minutes of inactivity or when you open OpenTeam on Mobile."
           control={
             <InteractiveSwitch
-              label="Pause iPhone alerts while I’m using this Mac"
+              label="Pause iPhone alerts while using this Mac"
               checked={enabled}
               disabled={saving}
               onChange={(value) => {

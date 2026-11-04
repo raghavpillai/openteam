@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { supportedTimeZones, timeInZone, timeZoneLabel } from "../../../lib/time-zone";
 import { Popover, PopoverContent, PopoverTrigger } from "../../ui/popover";
-import { SettingsGroup, SettingsRow } from "./ui";
+import { SettingsGroup, SettingsRow, settingsSelect } from "./ui";
 
 const AUTO = "auto";
 
@@ -71,6 +71,7 @@ export function TimeZoneSettings() {
   return (
     <SettingsGroup>
       <SettingsRow
+        stackControl
         title="Timezone"
         description={failed ? <span role="alert" className="text-destructive">Couldn't save. Try again.</span> : undefined}
         control={
@@ -87,7 +88,7 @@ export function TimeZoneSettings() {
             <PopoverTrigger asChild>
               <button
                 aria-label="Timezone"
-                className="inline-flex h-7 max-w-[260px] items-center gap-1 rounded-[8px] border border-black/[0.055] bg-black/[0.035] px-2 text-[12px] disabled:opacity-50 dark:border-white/[0.07] dark:bg-white/[0.07]"
+                className={`${settingsSelect} inline-flex max-w-[260px] items-center gap-1 border`}
                 disabled={saving}
                 type="button"
               >

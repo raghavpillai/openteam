@@ -63,7 +63,7 @@ app
     await js(`fixture.desktop({latestVersion:null,status:'error',message:'Release feed unavailable'})`);
     await assert(v=>v.state==='ready', "a failed desktop update feed must not hide the server update");
     await js(`fixture.desktop({latestVersion:null,status:'up-to-date',message:null})`);
-    await assert((v) => v.text.includes("openteam.example") && v.text.includes("What stays after updating?") && !v.text.includes("may remove packages"), "reference title and description");
+    await assert((v) => v.text.includes("openteam.example") && !v.text.includes("What stays after updating?") && !v.text.includes("may remove packages"), "server details without the removed update disclosure");
     await assert((v) => v.buttons.length === 1 && button(v, "Update")?.disabled === false, "only Update, enabled");
     await js(`document.documentElement.dataset.theme='light'`);
     await delay(350);

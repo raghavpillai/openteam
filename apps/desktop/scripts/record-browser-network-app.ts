@@ -166,12 +166,12 @@ try {
   await page.getByRole("list", { name: "Connection priority" }).waitFor();
   await page.waitForTimeout(1800);
   await page.screenshot({ path: resolve(output, "desktop-full-app.png") });
-  await page.getByRole("checkbox", { name: "Use this computer as network" }).click();
+  await page.getByRole("checkbox", { name: "Route browser traffic through this computer" }).click();
   await page.waitForFunction(
     () =>
       (
         document.querySelector(
-          'input[aria-label="Use this computer as network"]'
+          'input[aria-label="Route browser traffic through this computer"]'
         ) as HTMLInputElement
       )?.checked
   );
@@ -197,7 +197,7 @@ try {
     () =>
       !(
         document.querySelector(
-          'input[aria-label="Use this computer as network"]'
+          'input[aria-label="Route browser traffic through this computer"]'
         ) as HTMLInputElement
       )?.checked
   );

@@ -39,7 +39,7 @@ try {
   });
   await page.goto("http://127.0.0.1:25213/test/browser/notification-settings.html");
   const toggle = page.getByRole("switch", {
-    name: "Pause iPhone alerts while I’m using this Mac",
+    name: "Pause iPhone alerts while using this Mac",
   });
   await toggle.waitFor();
   assert.equal(await toggle.getAttribute("aria-checked"), "true");

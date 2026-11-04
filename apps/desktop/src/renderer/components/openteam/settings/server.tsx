@@ -15,7 +15,7 @@ export default function ServerSettings() {
       <Suspense fallback={null}>
         <BrowserNetworkSettings />
       </Suspense>
-      <section aria-label="Connected server" className="mb-6">
+      <section aria-label="Connected server" className="my-7">
         <SectionLabel>Connected server</SectionLabel>
         <SettingsGroup>
           <SettingsRow

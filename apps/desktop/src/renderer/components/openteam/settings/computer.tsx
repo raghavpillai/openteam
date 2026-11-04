@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { SectionLabel, SettingsGroup } from "./ui";
+import {
+  SectionLabel,
+  SettingsGroup,
+  SettingsRow,
+  settingsInput,
+  settingsSecondaryButton,
+} from "./ui";
 import { MessagesSettings } from "./messages";
 
 export default function ComputerSettings() {
@@ -46,41 +52,38 @@ export default function ComputerSettings() {
     <>
       <SectionLabel>Your computer</SectionLabel>
       <SettingsGroup>
-        <div
-          className="flex min-h-[52px] items-center gap-5 py-1.5"
-          data-settings-anchor="computers"
-        >
-          <div className="min-w-0 flex-1">
-            <div className="text-[12.5px] leading-[17px] text-foreground">Current computer</div>
-            <div className="mt-px text-[12px] leading-4 text-foreground-secondary">
-              This is the computer you are using now
+        <SettingsRow
+          title="Current computer"
+          description="This is the computer you are using now"
+          anchors={["computers"]}
+          stackControl
+          control={
+            <div className="flex min-w-0 items-center gap-2">
+              <input
+                aria-label="Computer label"
+                className={`${settingsInput} w-[184px] flex-1`}
+                maxLength={80}
+                onChange={(event) => setMachineLabel(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") saveMachineLabel();
+                }}
+                value={machineLabel}
+              />
+              <button
+                className={settingsSecondaryButton}
+                disabled={
+                  !computer ||
+                  !machineLabel.trim() ||
+                  machineLabel.trim() === computer.machine.label
+                }
+                onClick={saveMachineLabel}
+                type="button"
+              >
+                Save
+              </button>
             </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <input
-              aria-label="Computer label"
-              className="h-8 w-[184px] rounded-[8px] border border-black/[0.09] bg-background px-2.5 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30 dark:border-white/[0.1]"
-              maxLength={80}
-              onChange={(event) => setMachineLabel(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") saveMachineLabel();
-              }}
-              value={machineLabel}
-            />
-            <button
-              className="inline-flex h-8 items-center rounded-[8px] bg-black/[0.08] px-3 text-[12px] text-foreground disabled:text-foreground-tertiary dark:bg-white/[0.09]"
-              disabled={
-                !computer ||
-                !machineLabel.trim() ||
-                machineLabel.trim() === computer.machine.label
-              }
-              onClick={saveMachineLabel}
-              type="button"
-            >
-              Save
-            </button>
-          </div>
-        </div>
+          }
+        />
       </SettingsGroup>
       {computer ? <MessagesSettings computer={computer} onComputerChange={setComputer} /> : null}
       {permissionError ? (

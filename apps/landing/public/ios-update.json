@@ -1,3 +1,7 @@
 {
-  "release": null
+  "release": {
+    "version": "0.0.12",
+    "buildNumber": "62",
+    "bundleIdentifier": "dev.openbot.mobile"
+  }
 }

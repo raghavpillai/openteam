@@ -53,6 +53,13 @@ interface MobileFeatureApi {
         body: JsonObject? = null,
     ): JsonObject
 
+    suspend fun requestWithHeaders(
+        method: HttpMethod,
+        path: String,
+        body: JsonObject? = null,
+        headers: Map<String, String> = emptyMap(),
+    ): JsonObject = request(method, path, body)
+
     suspend fun upload(path: String, uri: String): JsonObject
 
     suspend fun download(path: String): String = request(HttpMethod.GET, path).stringValue("uri")
@@ -257,6 +264,13 @@ class HttpMobileGateway(context: Context) :
         method: HttpMethod,
         path: String,
         body: JsonObject?,
+    ): JsonObject = requestWithHeaders(method, path, body)
+
+    override suspend fun requestWithHeaders(
+        method: HttpMethod,
+        path: String,
+        body: JsonObject?,
+        headers: Map<String, String>,
     ): JsonObject {
         val activeServer = ensureConnected()
         val response = transport.execute(
@@ -265,6 +279,7 @@ class HttpMobileGateway(context: Context) :
             MobileRequest(
                 method = method,
                 path = path,
+                headers = headers,
                 body = body?.let { mobileJson.encodeToString(it) },
             ),
         ).requireSuccess()

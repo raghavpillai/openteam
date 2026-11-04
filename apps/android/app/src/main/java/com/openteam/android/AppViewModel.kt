@@ -1107,7 +1107,13 @@ class AppViewModel @JvmOverloads constructor(
         val api = activeGateway as? MobileFeatureApi
             ?: error("Cloud computer viewing requires a connected server.")
         val path = "/api/v0/bots/${Uri.encode(botId)}/screen/vnc"
-        ComputerVncGrant.fromJson(api.request(HttpMethod.POST, path))
+        ComputerVncGrant.fromJson(
+            api.requestWithHeaders(
+                HttpMethod.POST,
+                path,
+                headers = mapOf("Origin" to "http://openteam-vnc.invalid"),
+            ),
+        )
     }
 
     suspend fun computerStatus(botId: String): Result<JsonObject> = runCatching {

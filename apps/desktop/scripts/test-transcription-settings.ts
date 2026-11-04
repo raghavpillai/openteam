@@ -140,6 +140,8 @@ try {
     "Only explicit deletion sends null and removes the stored key"
   );
   assert((await deleteKey.count()) === 0, "Delete action disappears when no key is stored");
+  assert(await key.isVisible(), "API-key input remains visible after saved-key deletion");
+  assert(await language.isVisible(), "Language input remains visible after saved-key deletion");
   await key.fill("synthetic-key-B8x2");
   await save.click();
   await page.getByPlaceholder("••••B8x2").waitFor();
@@ -177,6 +179,28 @@ try {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
   await credentials.screenshot({ path: join(output, "after-dark.png") });
+  for (const [theme, width] of [["light", 760], ["dark", 760], ["light", 375]] as const) {
+    await store.save({ ...initial, apiKey: "synthetic-key-A7z9" });
+    await page.setViewportSize({ width, height: 800 });
+    await page.emulateMedia({ colorScheme: theme });
+    await open();
+    await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+    await deleteKey.click();
+    await save.click();
+    await page.getByRole("status").filter({ hasText: "Saved." }).waitFor();
+    assert(await key.isVisible(), `${theme}/${width}: key remains visible after deletion`);
+    assert(await language.isVisible(), `${theme}/${width}: language remains visible after deletion`);
+    await key.fill("synthetic-key-B8x2");
+    await language.fill("de");
+    await save.click();
+    await page.getByPlaceholder("••••B8x2").waitFor();
+    await page.reload();
+    await page.getByPlaceholder("••••B8x2").waitFor();
+    assert(
+      (await store.credentials()).apiKey === "synthetic-key-B8x2" && await language.inputValue() === "de",
+      `${theme}/${width}: replacement and language persist after reload`
+    );
+  }
   assert(errors.length === 0, `No browser errors: ${errors.join("; ")}`);
   if (process.argv.includes("--record")) {
     await store.save({

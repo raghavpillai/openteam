@@ -1,3 +1,4 @@
+import { SettingsSelectContent } from "./select-content";
 import { useModelSetup } from "../../../hooks/use-model-setup";
 import { providerName } from "../../../lib/provider-names";
 import { LoadingOrb } from "../../ui/loading-orb";
@@ -8,7 +9,6 @@ import { ProviderMark } from "../setup/provider-marks";
 import {
   SettingsGroup,
   SettingsRow,
-  SettingsSelectContent,
   SettingsIntro,
   settingsPrimaryButton,
   settingsSecondaryButton,

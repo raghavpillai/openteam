@@ -1,7 +1,6 @@
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { OPENTEAM_DEEP_LINK_EVENT, type SettingsAnchor } from "../../../lib/app-deep-links";
 import { cn } from "../../../lib/cn";
-import { SelectContent } from "../../ui/select";
 import "./ui.css";
 
 const settingsButton =
@@ -15,22 +14,6 @@ export const settingsSelect =
   "h-7 min-w-0 rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 py-0 text-[12px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 dark:border-white/[0.07] dark:bg-white/[0.07]";
 export const settingsRow =
   "flex min-h-[52px] items-center gap-5 border-t border-black/[0.065] py-2 first:border-t-0 dark:border-white/[0.07]";
-
-export function SettingsSelectContent({
-  className,
-  ...props
-}: ComponentProps<typeof SelectContent>) {
-  return (
-    <SelectContent
-      align="end"
-      className={cn(
-        "min-w-[200px] max-w-[calc(100vw-16px)] rounded-[12px] border-border/50 shadow-[0_8px_24px_rgba(0,0,0,0.12)] [&_[role=option]]:rounded-[6px] [&_[role=option]]:text-[13px] [&_[role=option]]:leading-5",
-        className
-      )}
-      {...props}
-    />
-  );
-}
 
 export function SettingsIntro({
   children,

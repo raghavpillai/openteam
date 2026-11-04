@@ -1,3 +1,4 @@
+import { SettingsSelectContent } from "./select-content";
 import { PrivateSettingValue } from "./private-value";
 import { SmartNotificationSettings } from "./smart-notifications";
 import { TimeZoneSettings } from "./time-zone";
@@ -15,7 +16,7 @@ import {
 } from "../../../lib/theme";
 import { Select, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import type { MicrophoneControlProps } from "./microphone";
-import { SectionLabel, SettingsGroup, SettingsRow, SettingsSelectContent, settingsSelect, settingsSecondaryButton } from "./ui";
+import { SectionLabel, SettingsGroup, SettingsRow, settingsSelect, settingsSecondaryButton } from "./ui";
 const MicrophoneSettings = lazy(() => import("./microphone").then(module => ({ default: module.MicrophoneSettings })));
 
 

@@ -1451,11 +1451,11 @@ textarea,
   margin-left: -9px;
   padding: 1px;
   border-radius: 6px;
-  background: #e5e5e5;
+  background: #b5b5b5;
   transform: translateY(9px) rotate(0deg) scale(0.65);
   transition: transform 520ms var(--footer-spring), background-color 200ms ease-out;
 }
-:root[data-theme="dark"] .sidebar-connect-logo { background: #292929; }
+:root[data-theme="dark"] .sidebar-connect-logo { background: #666666; }
 .sidebar-connect-logo:first-child { margin-left: 0; }
 .sidebar-connect-logo-face {
   width: 16px;

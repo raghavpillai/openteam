@@ -73,7 +73,7 @@ struct MarketplaceShortcut: View {
               )
               .overlay {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                  .stroke(.black.opacity(0.42), lineWidth: 0.5)
+                  .stroke(NativePalette.color("A6A6A6", "666666"), lineWidth: 0.75)
               }
               .shadow(color: .black.opacity(0.22), radius: 0.5, x: -0.3, y: 0)
               .accessibilityHidden(true)
@@ -87,7 +87,7 @@ struct MarketplaceShortcut: View {
               .background(.white.opacity(0.97), in: RoundedRectangle(cornerRadius: 4))
               .overlay(
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                  .stroke(.black.opacity(0.42), lineWidth: 0.5)
+                  .stroke(NativePalette.color("A6A6A6", "666666"), lineWidth: 0.75)
               )
               .accessibilityHidden(true)
           } else if !compact {

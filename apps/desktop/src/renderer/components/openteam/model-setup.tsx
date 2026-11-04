@@ -160,7 +160,7 @@ export function ModelTestStatus({ test }: { test: ModelTestState }) {
         className="inline-flex items-center gap-1.5 text-[12px] text-foreground-secondary"
         role="status"
       >
-        <LoadingOrb aria-hidden size={14} /> Testing the model…
+        <LoadingOrb aria-hidden size={14} state="solving" /> Testing the model…
       </span>
     );
   }

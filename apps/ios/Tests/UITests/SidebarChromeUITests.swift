@@ -19,7 +19,8 @@ import XCTest
     try await configure("/__qa/scene", ["scene": "dark-home"])
     let plugins: [[String: Any]] = ["google-calendar", "notion", "slack"].map { key in
       ["key": key, "pluginKey": key, "name": key, "installed": true,
-       "status": "installed", "connections": []]
+       "status": "installed", "connections": [],
+       "logoUrl": base + "/unbundled-plugin-artwork/" + key + ".png"]
     }
     try await configure("/__qa/control", ["pluginCatalog": plugins, "pluginInstalls": plugins])
     let app = XCUIApplication()
@@ -62,6 +63,12 @@ import XCTest
     capture("apps-open", app)
     app.buttons["marketplace-back"].tap()
     XCTAssertTrue(account.waitForExistence(timeout: 5))
+    // Both the footer and marketplace must use packaged standard artwork even
+    // when the server supplies an image URL that is unavailable.
+    let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/__qa/state")!)
+    let state = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let requests = try XCTUnwrap(state["requests"] as? [[String: Any]])
+    XCTAssertFalse(requests.contains { ($0["path"] as? String)?.hasPrefix("/unbundled-plugin-artwork/") == true })
   }
 
   private func capture(_ name: String, _ app: XCUIApplication) {

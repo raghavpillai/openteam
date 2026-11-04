@@ -143,6 +143,7 @@ private struct FailureGlass: ViewModifier {
 struct MessageRefreshStatus: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   let channelID: String
   var body: some View {
     if store.connectionUnavailable, store.hasCachedHistory(channelID) {
@@ -161,10 +162,7 @@ struct MessageRefreshStatus: View {
       }
         .foregroundStyle(NativePalette.text)
         .padding(.leading, 16).padding(.trailing, 12).padding(.vertical, 12)
-        .background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 18))
-        .overlay {
-          RoundedRectangle(cornerRadius: 18).strokeBorder(NativePalette.separator, lineWidth: 1)
-        }
+        .modifier(ConnectionStatusGlass(reduceTransparency: reduceTransparency))
         .padding(.bottom, 8)
     }
   }
@@ -200,5 +198,18 @@ struct MessageRefreshStatus: View {
       .buttonStyle(.plain)
       .accessibilityLabel(store.checkingConnection ? "Retrying connection" : "Retry connection")
       .accessibilityIdentifier("retry-message-refresh")
+  }
+}
+
+private struct ConnectionStatusGlass: ViewModifier {
+  let reduceTransparency: Bool
+  func body(content: Content) -> some View {
+    if reduceTransparency {
+      content.background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 18))
+    } else {
+      // Regular liquid glass diffuses message glyphs while keeping the native
+      // rim and reflections. Clear glass lets scrolling text compete with the label.
+      content.modifier(NativeGlass(radius: 18, darkTint: 0.08))
+    }
   }
 }

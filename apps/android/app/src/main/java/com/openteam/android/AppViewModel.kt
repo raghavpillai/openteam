@@ -59,6 +59,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -128,6 +129,7 @@ class AppViewModel @JvmOverloads constructor(
     private val systemSearch = AndroidPersistentSearchIndex(application)
     private val appSearch = AndroidAppSearchIndex(application)
     private val launcherShortcuts = AndroidLauncherShortcuts(application)
+    private val localIndexDispatcher = Dispatchers.IO.limitedParallelism(1)
     private var activeGateway: MobileGateway = gateway
     private var activeFeatureGateway: FeatureGateway = featureGateway
         ?: (gateway as? MobileFeatureApi)?.let(::LiveFeatureGateway)
@@ -1059,7 +1061,7 @@ class AppViewModel @JvmOverloads constructor(
             launchAppSearch { clear(accountScope(it)) }
             indexedAccount = null
         }
-        launcherShortcuts.clear()
+        runLocalIndexUpdate("launcher shortcuts") { launcherShortcuts.clear() }
         syncJob?.cancel()
         outboxJob?.cancel()
         viewModelScope.launch { runCatching { activeGateway.signOut() } }
@@ -1345,9 +1347,13 @@ class AppViewModel @JvmOverloads constructor(
         }
     }
 
-    private inline fun runLocalIndexUpdate(name: String, operation: () -> Unit) {
-        runCatching(operation)
-            .onFailure { Log.w(TAG, "Unable to update $name.", it) }
+    // SQLite and ShortcutManager calls block, and loadDirectory runs on every live sync event.
+    // A single-thread IO lane keeps them off the main thread while preserving their order.
+    private fun runLocalIndexUpdate(name: String, operation: () -> Unit) {
+        viewModelScope.launch(localIndexDispatcher) {
+            runCatching(operation)
+                .onFailure { Log.w(TAG, "Unable to update $name.", it) }
+        }
     }
 
     private fun loadAccountMemory() {

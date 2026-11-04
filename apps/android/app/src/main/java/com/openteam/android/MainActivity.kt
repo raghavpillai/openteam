@@ -13,7 +13,11 @@ import com.openteam.android.data.AndroidSecureSessionStore
 import com.openteam.platform.AndroidPlatformRuntime
 import java.security.MessageDigest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 
@@ -21,6 +25,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
     private lateinit var platform: AndroidPlatformRuntime
     private var lastReadMarker: String? = null
+    private val sessionStore by lazy { AndroidSecureSessionStore(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,19 +40,26 @@ class MainActivity : ComponentActivity() {
         platform.handle(intent)
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
-                viewModel.state.collect { state ->
-                    platform.setActiveChannel(state.activeConversationId)
-                    state.activeConversationId?.let { channelId ->
-                        state.messages.lastOrNull()?.sequence?.takeIf(String::isNotBlank)?.let { sequence ->
-                            val marker = "${state.session?.server}|$channelId|$sequence"
-                            if (marker != lastReadMarker) {
-                                lastReadMarker = marker
-                                platform.markRead(channelId, sequence, null)
+                launch {
+                    viewModel.state.collect { state ->
+                        platform.setActiveChannel(state.activeConversationId)
+                        state.activeConversationId?.let { channelId ->
+                            state.messages.lastOrNull()?.sequence?.takeIf(String::isNotBlank)?.let { sequence ->
+                                val marker = "${state.session?.server}|$channelId|$sequence"
+                                if (marker != lastReadMarker) {
+                                    lastReadMarker = marker
+                                    platform.markRead(channelId, sequence, null)
+                                }
                             }
                         }
                     }
-                    val saved = AndroidSecureSessionStore(this@MainActivity).readActive()
-                    if (state.session == null || saved == null) {
+                }
+                // Reading the Keystore-backed store is slow, so only rebind when the session
+                // itself changes and keep the read off the main thread. Running it on every
+                // state emission blocked frames during scrolling and navigation.
+                viewModel.state.map { it.session }.distinctUntilChanged().collect { session ->
+                    val saved = session?.let { withContext(Dispatchers.IO) { sessionStore.readActive() } }
+                    if (session == null || saved == null) {
                         platform.clearSession()
                     } else {
                         platform.bindSession(saved.server, saved.token, notificationScope(saved.server, saved.userId))

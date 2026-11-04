@@ -312,7 +312,6 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             )
         }
         composable(DIRECTORY) {
-            LaunchedEffect(Unit) { appViewModel.loadFeatureData() }
             DirectoryScreen(
                 accountName = state.session?.accountName.orEmpty(),
                 rows = state.conversations,

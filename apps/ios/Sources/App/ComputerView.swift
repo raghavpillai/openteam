@@ -397,10 +397,7 @@ private struct ComputerVideo: View {
           .accessibilityHidden(!displayReady)
           .offset(y: keyboard ? -min(18, max(0, (geometry.size.height - min(geometry.size.height, geometry.size.width / ratio)) / 2)) : 0)
         if !displayReady && showStarting {
-          VStack(spacing: 14) {
-            LoadingOrb(label: desktopReady ? "Connecting" : "Starting desktop")
-            Text(desktopReady ? "Connecting…" : "Starting desktop…").font(.subheadline)
-          }
+          ComputerLoadingStatus(desktopReady: desktopReady)
         }
       }.frame(width: geometry.size.width, height: geometry.size.height)
     }

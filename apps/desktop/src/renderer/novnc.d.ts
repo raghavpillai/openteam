@@ -8,6 +8,7 @@ declare module "@novnc/novnc" {
     resizeSession: boolean;
     focusOnClick: boolean;
     showDotCursor: boolean;
+    background: string;
     qualityLevel: number;
     compressionLevel: number;
     disconnect(): void;

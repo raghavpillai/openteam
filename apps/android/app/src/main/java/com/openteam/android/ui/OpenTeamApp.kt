@@ -161,6 +161,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -2268,19 +2269,45 @@ private fun ComputerViewerScreen(
             renderer.onSocketError("This conversation is not linked to a bot.")
             return@LaunchedEffect
         }
-        val grant = requestGrant(botId).getOrElse {
-            renderer.onSocketError(it.message ?: "Unable to request the computer viewer.")
-            return@LaunchedEffect
+        var retryDelay = 500L
+        while (isActive) {
+            val grant = requestGrant(botId).getOrElse {
+                failure = it.message ?: "Unable to request the computer viewer."
+                renderer.prepareForReconnect()
+                null
+            }
+            if (grant != null) {
+                runCatching { renderer.connect(grant, URI(server), botId) }
+                    .onSuccess {
+                        failure = null
+                        retryDelay = 500L
+                    }
+                    .onFailure {
+                        failure = it.message ?: "Unable to connect to the computer."
+                        renderer.prepareForReconnect()
+                    }
+                while (isActive && renderer.state.value == VncRendererState.Connected) {
+                    delay(250)
+                }
+            }
+            if (!isActive) break
+            delay(retryDelay)
+            retryDelay = (retryDelay * 2).coerceAtMost(5_000L)
         }
-        runCatching { renderer.connect(grant, URI(server), botId) }
-            .onFailure { renderer.onSocketError(it.message ?: "Unable to connect to the computer.") }
     }
-    LaunchedEffect(botId, server, rendererState) {
+    LaunchedEffect(botId, server, controlling) {
         if (botId.isBlank() || server.isNullOrBlank()) return@LaunchedEffect
-        while (true) {
+        while (isActive) {
             requestStatus(botId).onSuccess { status = it }.onFailure { failure = it.message }
-            if (controlling) setTakeover(botId, true).onSuccess { status = it }.onFailure { failure = it.message }
+            if (controlling) {
+                setTakeover(botId, true).onSuccess { status = it }.onFailure { failure = it.message }
+            }
             delay(20_000)
+        }
+    }
+    LaunchedEffect(rendererState, controlling, paused) {
+        if (rendererState == VncRendererState.Connected) {
+            renderer.setControl(controlling && !paused)
         }
     }
     DisposableEffect(botId) {
@@ -2324,7 +2351,7 @@ private fun ComputerViewerScreen(
                 modifier = Modifier.fillMaxSize(),
                 factory = { viewContext -> WebView(viewContext).also(renderer::attach) },
             )
-            if (rendererState is VncRendererState.Failed || rendererState is VncRendererState.Ready) {
+            if (rendererState != VncRendererState.Connected) {
                 Card(
                     Modifier.align(Alignment.Center).padding(24.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF202020)),
@@ -2333,10 +2360,14 @@ private fun ComputerViewerScreen(
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(stringResource(com.openteam.android.R.string.computer_title), color = Color.White, style = MaterialTheme.typography.titleLarge)
                         Text(
-                            if (rendererState is VncRendererState.Failed) {
-                                (rendererState as VncRendererState.Failed).message
-                            } else {
-                                stringResource(com.openteam.android.R.string.computer_connecting)
+                            when (val state = rendererState) {
+                                is VncRendererState.Failed -> state.message
+                                is VncRendererState.Reconnecting -> {
+                                    val reason = state.reason.trim()
+                                    if (reason.isBlank()) "Computer connection interrupted. Reconnecting…"
+                                    else "Computer connection interrupted. Reconnecting…\n$reason"
+                                }
+                                else -> stringResource(com.openteam.android.R.string.computer_connecting)
                             },
                             color = Color.White.copy(alpha = .75f),
                         )

@@ -241,7 +241,9 @@ const server = Bun.serve({
     }
     if (path === "/health") return response({ status: "ready", purpose: "swift-parity-fixture" });
     if (offline) return response({ error: { message: "Fixture offline", code: "offline" } }, 503);
-    const failure = failures[`${method} ${path}`];
+    const failure = failures[`${method} ${path}`] ?? Object.entries(failures).find(
+      ([key]) => key.endsWith("/*") && `${method} ${path}`.startsWith(key.slice(0, -1))
+    )?.[1];
     if (failure && (failure.count ?? 1) > 0) {
       failure.count = (failure.count ?? 1) - 1;
       if (failure.delayMs) await Bun.sleep(failure.delayMs);

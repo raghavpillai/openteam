@@ -15,7 +15,7 @@ try {
   const child = Bun.spawn([createRequire(import.meta.url)("electron") as string,
     resolve(import.meta.dir, "../test/browser/message-send-lifecycle-runner.cjs")], {
     env: {...process.env, ELECTRON_RUN_AS_NODE: undefined, SEND_LIFECYCLE_DIR: directory,
-      SEND_LIFECYCLE_URL: `${server.resolvedUrls!.local[0]}test/browser/message-send-lifecycle.html`},
+      SEND_LIFECYCLE_URL: `${server.resolvedUrls!.local[0]}test/browser/message-send-lifecycle.html${process.env.SEND_LIFECYCLE_BAR_RECORD === "1" ? "?retry-bar-recording=1" : ""}`},
     stdout: "inherit", stderr: "pipe",
   });
   const timeout = setTimeout(() => child.kill(), 90_000);

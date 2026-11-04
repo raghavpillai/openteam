@@ -85,7 +85,7 @@ struct PendingSendStatus: View {
     pending.deliveryUnconfirmed == true && store.activeSendID != pending.id
   }
   var body: some View {
-    HStack(spacing: 10) {
+    HStack(alignment: .top, spacing: 10) {
       if pending.failure != nil || unconfirmed || showsSending {
         Text(unconfirmed ? "Delivery unconfirmed" : pending.failure != nil ? "Not delivered" : "Sending…")
           .foregroundStyle(NativePalette.muted)
@@ -94,12 +94,33 @@ struct PendingSendStatus: View {
         Button {
           Task { await store.retry(pending.id) }
         } label: {
-          Text("Retry").padding(.horizontal, 8).frame(minHeight: 44)
-        }.buttonStyle(.plain).padding(.trailing, -8)
+          Text("Retry").padding(.horizontal, 8).frame(minHeight: 44, alignment: .top)
+        }.buttonStyle(.plain).background(KeyboardPreservingControl())
+          .padding(.trailing, -8)
           .accessibilityIdentifier("retry-send-" + pending.id)
       }
     }.font(.caption)
       .animation(reduceMotion ? nil : .easeOut(duration: 0.20), value: pending.failure != nil || unconfirmed)
       .transition(.opacity)
+  }
+}
+
+/// A delayed retry indicator; it does not replay the bubble's arrival.
+struct SendingRetryBar: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var sweeping = false
+  var body: some View {
+    Capsule().fill(NativePalette.muted.opacity(0.15))
+      .overlay(alignment: .leading) {
+        Capsule().fill(NativePalette.muted).frame(width: 8, height: 2)
+          .offset(x: reduceMotion ? 8 : sweeping ? 24 : -8)
+          .animation(reduceMotion ? nil : .timingCurve(0.42, 0, 0.58, 1, duration: 1.2)
+            .repeatForever(autoreverses: false), value: sweeping)
+      }
+      .frame(width: 24, height: 2).clipped()
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Retrying message")
+      .accessibilityIdentifier("send-progress")
+      .onAppear { sweeping = true }
   }
 }

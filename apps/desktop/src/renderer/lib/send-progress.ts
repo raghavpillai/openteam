@@ -22,3 +22,10 @@ export function sendProgressOwner(deliveries: readonly SendProgressRecord[]) {
 export function sendProgressRevealDelay(sinceMs: number, mountedAtMs: number) {
   return Math.max(0, sinceMs + SEND_PROGRESS_DELAY_MS - mountedAtMs);
 }
+
+/** Reveal retry progress only after two completed failed submissions. */
+export function sendRetryProgressVisible(delivery: Pick<DurableSendRecord, "phase" | "attemptCount"> | null) {
+  if (!delivery || delivery.phase === "failed" || delivery.phase === "accepted-awaiting-echo") return false;
+  const failures = delivery.attemptCount - (delivery.phase === "dispatching" ? 1 : 0);
+  return failures >= 2;
+}

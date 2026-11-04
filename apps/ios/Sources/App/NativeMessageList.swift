@@ -1265,6 +1265,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
   }
   func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
     guard view.safeAreaLayoutGuide.layoutFrame.contains(touch.location(in: view)) else { return false }
+    if KeyboardPreservingControlView.contains(touch) { return false }
     var candidate = touch.view
     while let view = candidate, view !== table {
       if view is UIControl || view is UITextView || view is UITextField { return false }
@@ -1414,5 +1415,28 @@ extension HistoryListController {
       }
     }
     #endif
+  }
+}
+
+/// SwiftUI buttons are hosted views rather than UIControls. Mark their real hit
+/// area so the history's outside-tap recognizer leaves the composer focused.
+struct KeyboardPreservingControl: UIViewRepresentable {
+  func makeUIView(context: Context) -> KeyboardPreservingControlView { KeyboardPreservingControlView() }
+  func updateUIView(_ view: KeyboardPreservingControlView, context: Context) {}
+}
+@MainActor final class KeyboardPreservingControlView: UIView {
+  private static let regions = NSHashTable<KeyboardPreservingControlView>.weakObjects()
+  init() {
+    super.init(frame: .zero)
+    isUserInteractionEnabled = false
+    Self.regions.add(self)
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+  static func contains(_ touch: UITouch) -> Bool {
+    regions.allObjects.contains { region in
+      guard let window = region.window, window === touch.window,
+        !region.isHidden, region.alpha > 0.01 else { return false }
+      return region.bounds.contains(touch.location(in: region))
+    }
   }
 }

@@ -91,7 +91,7 @@ const ThreadMessage = ({
       data-thread-message-id={message.id}
     >
       {from !== "user" && <BotAvatar bot={bot} size="sm" />}
-      <div className={`relative max-w-[82%] ${from === "user" ? "items-end" : "items-start"}`}>
+      <div className={`relative ${from === "user" ? "flex w-[82%] min-w-0 flex-col items-end" : "max-w-[82%] items-start"}`}>
         {from !== "user" && (
           <div className="mb-1 px-1 text-[11px] text-muted-foreground">{bot?.name ?? "Bot"}</div>
         )}

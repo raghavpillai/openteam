@@ -112,14 +112,17 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // November 3: update notices/recovery and attachment previews measure 1,244,722
 // after durable-delivery imports capabilities directly. Keep the contracts barrel's
 // tool definitions and Effect runtime out: that regression measures 1,700,685.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_245_500);
+// v0.0.13: contextual send failures, account controls and settings styling measure
+// 1,248,419 bytes. The settings Select stays outside pages that do not use it.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_249_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
 // The shadcn shell and modular responsive sidebar bring the complete startup
-// stylesheet to 177,306 bytes. Keep less than 0.4% headroom and stay below
-// 178 KB rather than moving established navigation behind first-open boundaries.
-atMost("startup CSS bytes", startupCssBytes, 178_600);
+// stylesheet to 177,306 bytes. Retain narrow headroom while keeping established
+// navigation available at startup.
+// v0.0.13 adds sidebar, pending-message and settings styles: 181,253 bytes.
+atMost("startup CSS bytes", startupCssBytes, 181_800);
 // September 16: worker isolation and the complete memory/plugin/settings UI
 // measure 15.90 MB / 3.887 MB gzip. Account for the worker's separate runtime;
 // retain the existing entry, CSS and grammar-total ceilings.
@@ -146,7 +149,8 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // Settings cleanup (#187) bring it to 16,485,550.
 // November 3: update progress/recovery, device networking, saved-key controls and
 // attachment previews measure 16,523,942 after the capabilities import fix.
-atMost("renderer bytes", result.renderer.bytes, 16_525_000);
+// v0.0.13 measures 16,529,321 bytes after isolating SettingsSelectContent.
+atMost("renderer bytes", result.renderer.bytes, 16_531_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -158,7 +162,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_525_000);
 // 7ae74a08 (web search setup, Stop), 4,093,841; the Update Bot's Computer card, 4,095,467;
 // Settings → Timezone, 4,096,699; Messages and the Settings cleanup, 4,101,637.
 // The same November feature baseline measures 4,113,699 gzip bytes.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_115_000);
+// The same v0.0.13 build measures 4,116,499 gzip bytes.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_117_500);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -223,7 +228,8 @@ const lazyBudgets: Record<string, number> = {
   // Thinking-orb loading indicators, fetched on first use so startup stays lean.
   loadingOrb: 28_000,
   // Main's compact voice glow and recording bar measure 59,665 bytes; still lazy.
-  voiceMemo: 60_000,
+  // v0.0.13 glow smoothing and transition state add 4,479 bytes: 64,144 total.
+  voiceMemo: 64_500,
   routineEditor: 100_000,
   newBot: 20_000,
   // The first-run wizard with its shared layout, step pictures, provider marks, and
@@ -268,7 +274,8 @@ const lazyBudgets: Record<string, number> = {
   // The Voice notes entry and microphone icon bring the settings shell to 10,728;
   // 11,132 with the Messages entry and the Settings cleanup.
   // Shared SettingsLink navigation (#199/#201) brings the closure to 11,557.
-  settingsShell: 11_700,
+  // v0.0.13 shared control styles: 13,550, without the ~21 KB Select dependency.
+  settingsShell: 13_700,
   settingsAbout: 10_000,
   // Main already measures 33,930 with auto-review rules; 37,276 with Timezone.
   settingsGeneral: 37_600,
@@ -277,11 +284,13 @@ const lazyBudgets: Record<string, number> = {
   settingsNetwork: 25_000,
   // Provider sign-in, model selection and testing now load only on Settings → Model.
   // Includes onboarding's shared searchable picker and compact popover (53,386 bytes).
-  settingsModel: 54_000,
+  // v0.0.13 styled controls and dropdown wrapper: 56,267 bytes.
+  settingsModel: 56_600,
   // Activity and Remote access stay in Server; measured 10,389 after extraction.
   // Connected version/update navigation and the moved machine controls (#201/#211)
   // measure 17,312. Browser network settings retain their separate lazy boundary.
-  settingsServer: 17_600,
+  // v0.0.13 shared control styles: 18,849 bytes; network and Select remain lazy.
+  settingsServer: 19_000,
   // Dedicated Voice notes page: load retry, provider marks, busy indicators and
   // responsive fields. Still lazy; its measured closure is 40,488 bytes; 41,304 after the
   // Settings cleanup.
@@ -293,7 +302,8 @@ const lazyBudgets: Record<string, number> = {
   // compatibility guard brings the measured October release closure to 10,250 bytes.
   // Unified server updates with stages, idle confirmation and restart recovery
   // (#201) measure 17,768; this UI remains lazy.
-  settingsUpdates: 18_100,
+  // v0.0.13 compact shared buttons/styles: 18,677 bytes.
+  settingsUpdates: 18_900,
 };
 if (!result.renderer.lazyClosures) {
   failures.push("Vite manifest/lazy closures were not found; run a current desktop build");

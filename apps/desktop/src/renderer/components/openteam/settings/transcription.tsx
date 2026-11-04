@@ -1,3 +1,4 @@
+import { SettingsSelectContent } from "./select-content";
 import {
   defaultTranscriptionSettings,
   type TranscriptionSettings,
@@ -24,7 +25,6 @@ import {
   SectionLabel,
   SettingsGroup,
   SettingsRow,
-  SettingsSelectContent,
   SettingsIntro,
   settingsPrimaryButton,
   settingsSecondaryButton,

@@ -1,3 +1,13 @@
+/* Keep the query container stable while saved-key controls are removed. Chromium
+   can collapse a nested group's layout after deletion inside the disabled fieldset. */
+.transcription-settings {
+  container: settings-group / inline-size;
+}
+
+.transcription-settings [data-slot="settings-group"] {
+  container-type: normal;
+}
+
 .transcription-input {
   width: 270px;
   max-width: 100%;

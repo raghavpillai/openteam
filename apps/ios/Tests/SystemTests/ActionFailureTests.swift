@@ -192,7 +192,7 @@ final class ActionFailureTests: SystemIntentFixture {
   func testIncreasingUploadBytesCanSendForLongerThanTenSeconds() async throws {
     // Start `node apps/ios/scripts/send-upload-proxy.cjs` beside the Bun fixture.
     // Node's small paused request stream supplies actual TCP backpressure.
-    let proxy = "http://127.0.0.1:20085"
+    let proxy = "http://127.0.0.1:20086"
     let health = try await API(server: proxy).request("/__qa/proxy-health")
     XCTAssertEqual(health["bytesPerSecond"].int, 1024 * 1024)
     let store = await connectedStore(server: proxy)

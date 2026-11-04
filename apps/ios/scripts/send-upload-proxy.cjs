@@ -8,7 +8,7 @@ const http = require("node:http");
 const { once } = require("node:events");
 const { setTimeout: sleep } = require("node:timers/promises");
 
-const port = Number(process.env.SWIFT_UPLOAD_PROXY_PORT || 20085);
+const port = Number(process.env.SWIFT_UPLOAD_PROXY_PORT || 20086);
 const upstreamPort = Number(process.env.SWIFT_PARITY_PORT || 20084);
 const bytesPerSecond = Number(process.env.SWIFT_UPLOAD_BYTES_PER_SECOND || 1024 * 1024);
 const chunkBytes = 16 * 1024;

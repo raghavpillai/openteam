@@ -22,6 +22,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+internal object AndroidNotificationStorage {
+    const val PREFERENCES = "openteam-platform"
+    const val TOKEN = "fcm-token"
+    const val SCOPE = "notification-scope"
+}
+
 data class FcmNotification(
     val kind: String,
     val scope: String,
@@ -36,6 +42,8 @@ data class FcmNotification(
     val readStateJson: String?,
 ) {
     val isAlert: Boolean get() = kind == "message" || kind == "reaction"
+    fun isForScope(expectedScope: String): Boolean =
+        expectedScope.isNotBlank() && scope == expectedScope
 
     companion object {
         fun fromData(data: Map<String, String>): FcmNotification = FcmNotification(
@@ -53,6 +61,30 @@ fun FcmNotification.deepLinkUri(): Uri {
     val message = threadMessageId ?: messageSequence
     val query = message?.let { "?message=${Uri.encode(it)}" }.orEmpty()
     return Uri.parse("openteam://chat/${Uri.encode(channelId)}$query")
+}
+
+object AndroidNotificationTapIntent {
+    fun create(context: Context, activityClass: Class<*>, notification: FcmNotification): PendingIntent {
+        return createForChannel(context, activityClass, notification.channelId, notification.threadMessageId ?: notification.messageSequence)
+    }
+
+    fun createForChannel(
+        context: Context,
+        activityClass: Class<*>,
+        channelId: String,
+        messageId: String? = null,
+    ): PendingIntent {
+        val intent = Intent(context, activityClass).setAction(Intent.ACTION_VIEW)
+            .setData(Uri.parse("openteam://chat/${Uri.encode(channelId)}" +
+                messageId?.let { "?message=${Uri.encode(it)}" }.orEmpty()))
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        return PendingIntent.getActivity(
+            context,
+            channelId.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
 }
 
 class NotificationChannels(context: Context) {
@@ -73,15 +105,45 @@ class AndroidNotificationPresenter(private val context: Context) {
     fun show(notification: FcmNotification, tapIntent: PendingIntent) {
         if (!notification.isAlert || notification.scope.isEmpty()) return
         val channel = if (notification.kind == "reaction") NotificationChannels.REACTION else NotificationChannels.AGENT
+        showInternal(
+            channel = channel,
+            channelId = notification.channelId,
+            title = notification.title.ifEmpty { "OpenTeam" },
+            body = notification.body,
+            badgeCount = notification.badgeCount,
+            tapIntent = tapIntent,
+        )
+    }
+
+    fun showLocal(channelId: String, title: String, body: String, tapIntent: PendingIntent) {
+        if (channelId.isBlank()) return
+        showInternal(
+            channel = NotificationChannels.AGENT,
+            channelId = channelId,
+            title = title.ifEmpty { "OpenTeam" },
+            body = body,
+            badgeCount = 0,
+            tapIntent = tapIntent,
+        )
+    }
+
+    private fun showInternal(
+        channel: String,
+        channelId: String,
+        title: String,
+        body: String,
+        badgeCount: Int,
+        tapIntent: PendingIntent,
+    ) {
         val builder = NotificationCompat.Builder(context, channel)
-            .setSmallIcon(com.openteam.android.R.mipmap.ic_launcher)
-            .setContentTitle(notification.title.ifEmpty { "OpenTeam" })
-            .setContentText(notification.body)
+            .setSmallIcon(com.openteam.android.R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(body)
             .setContentIntent(tapIntent)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
-            .setNumber(notification.badgeCount)
-        NotificationManagerCompat.from(context).notify(notification.channelId.hashCode().coerceAtLeast(ids.incrementAndGet()), builder.build())
+            .setNumber(badgeCount)
+        NotificationManagerCompat.from(context).notify(channelId.hashCode().coerceAtLeast(ids.incrementAndGet()), builder.build())
     }
 }
 
@@ -204,7 +266,7 @@ class FcmRegistration(
 }
 
 class AndroidInstallationIdStore(context: Context) {
-    private val preferences = context.getSharedPreferences("openteam-platform", Context.MODE_PRIVATE)
+    private val preferences = context.getSharedPreferences(AndroidNotificationStorage.PREFERENCES, Context.MODE_PRIVATE)
     val installationId: String
         get() = preferences.getString("notification-installation-id", null) ?: UUID.randomUUID().toString().also {
             preferences.edit().putString("notification-installation-id", it).apply()
@@ -325,12 +387,13 @@ class NotificationReadController(
 class FcmMessageHandler(
     private val presenter: AndroidNotificationPresenter,
     private val ledger: NotificationReadLedger,
+    private val expectedScope: String,
     private val tapIntent: (FcmNotification) -> PendingIntent,
 ) {
     /** Returns false for stale, foreign-account, or foreground-read notifications. */
     fun handle(data: Map<String, String>, foregroundChannelId: String? = null): Boolean {
         val notification = FcmNotification.fromData(data)
-        if (notification.scope.isEmpty()) return false
+        if (!notification.isForScope(expectedScope)) return false
         if (notification.kind == "badge-sync") {
             ledger.mergeSync(notification.readStateJson)
             return false

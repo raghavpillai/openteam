@@ -33,7 +33,8 @@ describe("FCM delivery", () => {
     const value = fcmPayload(device, payload, 3, "delivery-1");
     expect(value.message.token).toBe(token);
     expect(value.message.data).toMatchObject({ kind: "message", badgeCount: "3", messageSequence: "12" });
-    expect(value.message.notification).toEqual({ title: "Research", body: "A new answer" });
+    expect(value.message.notification).toBeUndefined();
+    expect(value.message.android).toMatchObject({ priority: "HIGH" });
   });
 
   test("encodes a badge sync as data so Android can merge the durable read marker", () => {

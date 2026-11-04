@@ -110,6 +110,18 @@ class PlatformAdaptersTest {
         assertEquals("openteam://chat/channel-1?message=42", notification.deepLinkUri().toString())
     }
 
+    @Test fun notificationsRejectPayloadsFromAnotherAccountScope() {
+        val notification = FcmNotification.fromData(mapOf(
+            "kind" to "message",
+            "notificationScope" to "current-scope",
+            "channelId" to "channel-1",
+            "messageSequence" to "42",
+        ))
+        assertTrue(notification.isForScope("current-scope"))
+        assertFalse(notification.isForScope("other-scope"))
+        assertFalse(notification.isForScope(""))
+    }
+
     @Test fun multipleSharesKeepEveryStreamForAuthenticatedUploadHandoff() {
         val first = android.net.Uri.parse("content://share/one")
         val second = android.net.Uri.parse("content://share/two")

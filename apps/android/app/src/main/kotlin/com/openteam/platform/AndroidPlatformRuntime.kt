@@ -6,10 +6,14 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class AndroidPlatformIntent(
@@ -30,20 +34,30 @@ class AndroidPlatformRuntime(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var presence: NotificationPresenceController? = null
     private var reads: NotificationReadController? = null
+    private var registrationJob: Job? = null
     private var session: PlatformSession? = null
     private var activeChannelId: String? = null
-    private var token: String? = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(TOKEN, null)
+    private var token: String? = context.getSharedPreferences(
+        AndroidNotificationStorage.PREFERENCES,
+        Context.MODE_PRIVATE,
+    ).getString(AndroidNotificationStorage.TOKEN, null)
     private var active = false
 
     init {
         NotificationChannels(context).create()
         FcmPlatformRuntime.callbacks = this
+        refreshToken()
     }
 
     fun bindSession(server: String, bearerToken: String?, notificationScope: String) {
         if (session?.server == server && session?.bearerToken == bearerToken && session?.notificationScope == notificationScope) return
+        registrationJob?.cancel()
         presence?.close()
         session = PlatformSession(server, bearerToken, notificationScope)
+        context.getSharedPreferences(AndroidNotificationStorage.PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(AndroidNotificationStorage.SCOPE, notificationScope)
+            .apply()
         val current = session ?: return
         val presenceTransport = HttpNotificationPresenceTransport(current.server, current.bearerToken)
         presence = NotificationPresenceController(presenceTransport)
@@ -56,11 +70,17 @@ class AndroidPlatformRuntime(
     }
 
     fun clearSession() {
+        registrationJob?.cancel()
+        registrationJob = null
         presence?.close()
         presence = null
         reads = null
         session = null
         activeChannelId = null
+        context.getSharedPreferences(AndroidNotificationStorage.PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .remove(AndroidNotificationStorage.SCOPE)
+            .apply()
     }
 
     fun close() {
@@ -124,6 +144,17 @@ class AndroidPlatformRuntime(
         activeChannelId = channelId
     }
 
+    fun showLocalNotification(channelId: String, title: String, body: String) {
+        if (session == null || token != null) return
+        NotificationChannels(context).create()
+        AndroidNotificationPresenter(context).showLocal(
+            channelId = channelId,
+            title = title,
+            body = body,
+            tapIntent = AndroidNotificationTapIntent.createForChannel(context, activityClass, channelId),
+        )
+    }
+
     override fun onStart(owner: LifecycleOwner) {
         active = true
         presence?.setActive(true)
@@ -138,44 +169,52 @@ class AndroidPlatformRuntime(
         val current = session ?: return
         val ledger = reads?.ledger ?: NotificationReadLedger(current.notificationScope)
         val handler = FcmMessageHandler(
-            AndroidNotificationPresenter(context), ledger, ::tapIntent,
+            AndroidNotificationPresenter(context), ledger, current.notificationScope, ::tapIntent,
         )
         handler.handle(data, foregroundChannelId = if (active) activeChannelId else null)
     }
 
     override fun onToken(token: String) {
         this.token = token
-        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(TOKEN, token).apply()
+        context.getSharedPreferences(AndroidNotificationStorage.PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(AndroidNotificationStorage.TOKEN, token)
+            .apply()
         registerTokenIfAvailable()
     }
 
     private fun registerTokenIfAvailable() {
+        registrationJob?.cancel()
         val current = session ?: return
         val token = token ?: return
-        scope.launch {
-            FcmRegistration(
+        registrationJob = scope.launch {
+            val registration = FcmRegistration(
                 HttpPushDeviceRegistrar(current.server, current.bearerToken),
                 AndroidInstallationIdStore(context).installationId,
-            ).register(token, current.notificationScope)
+            )
+            var retryDelayMs = 5_000L
+            while (isActive) {
+                val registered = runCatching {
+                    registration.register(token, current.notificationScope)
+                }.getOrDefault(false)
+                if (registered) return@launch
+                delay(retryDelayMs)
+                retryDelayMs = (retryDelayMs * 2).coerceAtMost(5 * 60_000L)
+            }
+        }
+    }
+
+    private fun refreshToken() {
+        runCatching {
+            FirebaseMessaging.getInstance().token
+                .addOnSuccessListener(::onToken)
         }
     }
 
     private fun tapIntent(notification: FcmNotification): PendingIntent {
-        val intent = Intent(context, activityClass).setAction(Intent.ACTION_VIEW)
-            .setData(notification.deepLinkUri())
-            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        return PendingIntent.getActivity(
-            context,
-            notification.channelId.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        return AndroidNotificationTapIntent.create(context, activityClass, notification)
     }
 
     private data class PlatformSession(val server: String, val bearerToken: String?, val notificationScope: String)
 
-    private companion object {
-        const val PREFERENCES = "openteam-platform"
-        const val TOKEN = "fcm-token"
-    }
 }

@@ -1,6 +1,5 @@
 import { createHash, createPrivateKey, sign } from "node:crypto";
 import {
-  agentNotificationDeliveryPolicy,
   truncateNotificationText,
   type PushNotificationPayload,
 } from "@openteam/contracts";
@@ -64,20 +63,8 @@ export function fcmPayload(
     android: {
       priority: payload.kind === "badge-sync" ? "NORMAL" : "HIGH",
       collapseKey: createHash("sha256").update(deliveryKey).digest("hex"),
-      ...(payload.kind === "badge-sync" ? {} : {
-        notification: {
-          channelId: "agent",
-          sound: agentNotificationDeliveryPolicy(payload.kind).sound ?? "default",
-        },
-      }),
     },
   };
-  if (payload.kind !== "badge-sync") {
-    message.notification = {
-      title: truncateNotificationText(payload.title, 80),
-      body: truncateNotificationText(payload.body, 140),
-    };
-  }
   return { message };
 }
 

@@ -1,7 +1,5 @@
 package com.openteam.platform
 
-import android.app.PendingIntent
-import android.content.Intent
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
@@ -26,20 +24,21 @@ class OpenTeamFirebaseMessagingService : FirebaseMessagingService() {
             return
         }
         val notification = FcmNotification.fromData(message.data)
-        if (notification.scope.isEmpty()) return
+        val expectedScope = getSharedPreferences(
+            AndroidNotificationStorage.PREFERENCES,
+            MODE_PRIVATE,
+        ).getString(AndroidNotificationStorage.SCOPE, null).orEmpty()
+        if (!notification.isForScope(expectedScope)) return
         NotificationChannels(this).create()
-        val intent = Intent(this, com.openteam.android.MainActivity::class.java).apply {
-            action = Intent.ACTION_VIEW
-            data = notification.deepLinkUri()
-            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
-        val tap = PendingIntent.getActivity(this, notification.channelId.hashCode(), intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val tap = AndroidNotificationTapIntent.create(this, com.openteam.android.MainActivity::class.java, notification)
         AndroidNotificationPresenter(this).show(notification, tap)
     }
 
     override fun onNewToken(token: String) {
-        getSharedPreferences("openteam-platform", MODE_PRIVATE).edit().putString("fcm-token", token).apply()
+        getSharedPreferences(AndroidNotificationStorage.PREFERENCES, MODE_PRIVATE)
+            .edit()
+            .putString(AndroidNotificationStorage.TOKEN, token)
+            .apply()
         FcmPlatformRuntime.callbacks?.onToken(token)
     }
 }

@@ -66,7 +66,7 @@ const loadVoiceMemoLayer = () =>
 const VoiceMemoLayer = lazy(loadVoiceMemoLayer);
 // Recording collapses an expanded composer back to its single-line pill.
 const VOICE_SURFACE = { height: 44, radius: 22 };
-const VOICE_EXIT_MS = 460;
+const VOICE_EXIT_MS = 680;
 
 interface PendingAttachment {
   id: string;

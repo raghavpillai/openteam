@@ -192,7 +192,7 @@ function TimeChip({
         {formatDuration(elapsedMs)}
       </span>
       <span aria-hidden="true" className="vm-chip-orb">
-        {processing ? <LoadingOrb label="Transcribing" size={20} /> : null}
+        {processing ? <LoadingOrb label="Transcribing" size={20} state="listening" /> : null}
       </span>
     </span>
   );

@@ -36,7 +36,7 @@
 /* Keep transforms/filters off this node: they would re-anchor the absolute
    composer buttons. Wait for the liquid to retreat before restoring the draft. */
 [data-prompt-surface] [data-prompt-content] {
-  transition: opacity 220ms var(--ease-composer, cubic-bezier(0.22, 1, 0.36, 1)) 160ms;
+  transition: opacity 280ms var(--ease-composer, cubic-bezier(0.22, 1, 0.36, 1)) 340ms;
 }
 [data-prompt-surface][data-voice-mode] [data-prompt-content] {
   opacity: 0;
@@ -71,21 +71,21 @@
   animation: vm-surface-drop-in 620ms var(--vm-ease) both;
 }
 .vm-root[data-exiting] .vm-surface-pill {
-  animation: vm-surface-out 460ms var(--vm-ease) both;
+  animation: vm-surface-out 680ms var(--vm-ease) both;
 }
 .vm-root[data-exiting] .vm-surface-drop {
-  animation: vm-surface-drop-out 460ms var(--vm-ease) both;
+  animation: vm-surface-drop-out 680ms var(--vm-ease) both;
 }
 .vm-backdrop-glow {
   position: absolute;
-  inset: -64px;
-  width: calc(100% + 128px);
-  height: calc(100% + 128px);
+  inset: -336px -12px -24px;
+  width: calc(100% + 24px);
+  height: calc(100% + 360px);
   pointer-events: none;
   animation: vm-halo-in 420ms var(--vm-ease) both;
 }
 .vm-root[data-exiting] .vm-backdrop-glow {
-  animation: vm-halo-out 300ms ease-out both;
+  animation: vm-halo-out 620ms var(--vm-ease) both;
 }
 @keyframes vm-halo-in {
   from {
@@ -139,10 +139,10 @@
   animation: vm-goo-drop 680ms var(--vm-ease) both;
 }
 .vm-root[data-voice-memo="processing"] .vm-goo-pill {
-  animation: vm-goo-gather 520ms var(--vm-spring) both;
+  animation: vm-goo-gather 620ms var(--vm-spring) both;
 }
 .vm-root[data-voice-memo="processing"] .vm-goo-drop {
-  animation: vm-goo-rejoin 520ms var(--vm-ease) both;
+  animation: vm-goo-rejoin 620ms var(--vm-ease) both;
 }
 .vm-chip-plus,
 .vm-chip-time,
@@ -255,6 +255,8 @@
 }
 .vm-discard-drop {
   fill: var(--vm-soft);
+  transform-box: fill-box;
+  transform-origin: center;
   animation: vm-drop-split 660ms var(--vm-ease) both;
 }
 .vm-send-drop {
@@ -265,10 +267,11 @@
   transition: fill 360ms ease;
 }
 .vm-root[data-voice-memo="processing"] .vm-discard-drop {
-  animation: vm-drop-merge 520ms var(--vm-ease) both;
+  animation: vm-drop-merge 620ms var(--vm-ease) both;
 }
 .vm-root[data-voice-memo="processing"] .vm-send-drop {
   fill: var(--vm-soft);
+  animation: vm-send-absorb 620ms var(--vm-ease) both;
 }
 .vm-icon-button,
 .vm-send {
@@ -359,7 +362,7 @@
 }
 .vm-root[data-exiting] .vm-chip-liquid {
   transform-origin: 14px 14px;
-  animation: vm-chip-return 400ms var(--vm-ease) both;
+  animation: vm-chip-return 620ms var(--vm-ease) both;
 }
 .vm-root[data-exiting] .vm-chip-time,
 .vm-root[data-exiting] .vm-chip-orb,
@@ -369,13 +372,13 @@
   animation: vm-content-out 220ms var(--vm-ease) both;
 }
 .vm-root[data-exiting] .vm-discard-drop {
-  animation: vm-drop-merge 360ms var(--vm-ease) both;
+  animation: vm-drop-merge 560ms var(--vm-ease) both;
 }
 .vm-root[data-exiting] .vm-discard > svg {
   animation: vm-discard-out 200ms var(--vm-ease) both;
 }
 .vm-root[data-exiting] .vm-send-drop {
-  animation: vm-action-return 440ms var(--vm-ease) both;
+  animation: vm-action-return 680ms var(--vm-ease) both;
 }
 
 @keyframes vm-surface-in {
@@ -414,7 +417,25 @@
   }
 }
 @keyframes vm-surface-out {
-  to {
+  0% {
+    inset: 0.5px;
+    opacity: 1;
+  }
+  36% {
+    left: 18%;
+    right: 2px;
+    top: 8px;
+    bottom: 8px;
+    opacity: 1;
+  }
+  72% {
+    left: calc(100% - var(--vm-anchor-right) - 44px);
+    right: calc(var(--vm-anchor-right) - 20px);
+    top: calc(100% - var(--vm-anchor-bottom) - 10px);
+    bottom: calc(var(--vm-anchor-bottom) - 10px);
+    opacity: 1;
+  }
+  100% {
     left: calc(100% - var(--vm-anchor-right) - 14px);
     right: calc(var(--vm-anchor-right) - 14px);
     top: calc(100% - var(--vm-anchor-bottom) - 14px);
@@ -423,7 +444,22 @@
   }
 }
 @keyframes vm-surface-drop-out {
-  to {
+  0% {
+    left: 8px;
+    opacity: 1;
+    transform: scale(1);
+  }
+  42% {
+    left: 30%;
+    opacity: 1;
+    transform: scaleX(1.8) scaleY(0.6);
+  }
+  76% {
+    left: calc(100% - var(--vm-anchor-right) - 14px);
+    opacity: 1;
+    transform: scaleX(0.85) scaleY(1.1);
+  }
+  100% {
     left: calc(100% - var(--vm-anchor-right) - 14px);
     opacity: 0;
     transform: scale(0.6);
@@ -512,14 +548,36 @@
     transform: none;
     opacity: 1;
   }
-  45% {
-    transform: translateX(16px) scaleX(1.25) scaleY(0.8);
+  32% {
+    transform: translateX(10px) scaleX(1.4) scaleY(0.72);
     opacity: 1;
   }
-  85%,
+  62% {
+    transform: translateX(29px) scaleX(1.12) scaleY(0.9);
+    opacity: 1;
+  }
+  82% {
+    transform: translateX(36px) scale(0.72);
+    opacity: 1;
+  }
   100% {
-    transform: translateX(36px) scale(0.5);
+    transform: translateX(36px) scale(0.05);
     opacity: 0;
+  }
+}
+@keyframes vm-send-absorb {
+  0%,
+  20% {
+    transform: scale(1);
+  }
+  52% {
+    transform: scaleX(1.22) scaleY(0.82);
+  }
+  76% {
+    transform: scaleX(0.91) scaleY(1.08);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 @keyframes vm-send-in {
@@ -585,12 +643,36 @@
   }
 }
 @keyframes vm-chip-return {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  42% {
+    transform: scaleX(0.6) scaleY(1.12);
+    opacity: 1;
+  }
+  72% {
+    transform: scaleX(0.47) scaleY(0.92);
+    opacity: 0.65;
+  }
   to {
     transform: scaleX(0.47);
     opacity: 0;
   }
 }
 @keyframes vm-action-return {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  36% {
+    opacity: 1;
+    transform: scaleX(1.18) scaleY(0.82);
+  }
+  68% {
+    opacity: 0.8;
+    transform: scaleX(0.86) scaleY(1.12);
+  }
   to {
     fill: var(--vm-soft);
     opacity: 0;

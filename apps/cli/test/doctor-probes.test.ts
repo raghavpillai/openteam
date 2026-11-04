@@ -121,6 +121,35 @@ describe("doctor service probes", () => {
     expect(calls.every((c) => c.options?.timeoutMs === 15_000)).toBe(true);
   });
   test.each([
+    { name: "default bot identity", initialUid: 0, env: {}, expectedUid: 1000, expectedGid: 1000 },
+    { name: "configured bot identity", initialUid: 0, env: { OPENTEAM_AGENT_UID: "2001", OPENTEAM_AGENT_GID: "2002" }, expectedUid: 2001, expectedGid: 2002 },
+    { name: "invalid identity fallback", initialUid: 0, env: { OPENTEAM_AGENT_UID: "invalid", OPENTEAM_AGENT_GID: "0" }, expectedUid: 1000, expectedGid: 1000 },
+    { name: "non-root computer", initialUid: 2003, env: {}, expectedUid: 2003, expectedGid: undefined },
+  ])("workspace probe uses $name", async ({ initialUid, env, expectedUid, expectedGid }) => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-storage-"));
+    let uid: number = initialUid;
+    const identities: unknown[] = [];
+    let output = "";
+    // Exercise the embedded probe without requiring root on the test host.
+    const probeProcess = {
+      env: { ...env, OPENTEAM_DOCTOR_STORAGE: "computer", OPENTEAM_WORKSPACE_ROOT: directory },
+      getuid: () => uid,
+      setgroups: (groups: number[]) => identities.push(groups),
+      setgid: (gid: number) => identities.push(gid),
+      setuid: (value: number) => { identities.push(value); uid = value; },
+      stdout: { write: (text: string, done: () => void) => { output += text; done(); } },
+    };
+    try {
+      await new Function("process", `return (async () => {${STORAGE_PROBE}})()`)(probeProcess);
+      expect(identities).toEqual(initialUid === 0 ? [[], expectedGid, expectedUid] : []);
+      expect(JSON.parse(output)).toEqual([
+        { level: "pass", label: directory, detail: `Read, write, and delete verified as UID ${expectedUid}` },
+      ]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+  test.each([
     "missing",
     "stale",
     "future",

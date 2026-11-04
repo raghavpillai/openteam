@@ -686,14 +686,15 @@ fun SettingsScreen(
             item { SettingsSectionTitle(text("Notifications", "通知")) }
             item {
                 SettingsGroup {
-                    SettingsToggleRow(text("Messages", "消息"), text("Notify about new messages", "新消息提醒"), settings.notifications.messages) {
-                        onChange(settings.copy(notifications = settings.notifications.copy(messages = it)))
-                    }
-                    SettingsToggleRow(text("Mentions", "提及"), text("Notify when you are mentioned", "有人提及时提醒"), settings.notifications.mentions) {
-                        onChange(settings.copy(notifications = settings.notifications.copy(mentions = it)))
-                    }
-                    SettingsToggleRow(text("Routine runs", "例行任务运行"), text("Notify when scheduled work runs", "计划任务运行时提醒"), settings.notifications.routineRuns) {
-                        onChange(settings.copy(notifications = settings.notifications.copy(routineRuns = it)))
+                    val enabled = settings.notifications.messages ||
+                        settings.notifications.mentions ||
+                        settings.notifications.routineRuns
+                    SettingsToggleRow(
+                        text("Notifications", "通知"),
+                        text("Notify about activity from this server", "接收此服务器的活动通知"),
+                        enabled,
+                    ) {
+                        onChange(settings.copy(notifications = NotificationPreferences(it, it, it)))
                     }
                 }
             }

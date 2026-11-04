@@ -16,6 +16,8 @@ struct HomeView: View {
   @State private var settings: SettingsSheet?
   @State private var marketplace = false
   @State private var marketplaceRevision = 0
+  @State private var marketplaceHovered = false
+  @State private var accountHovered = false
   @State private var lastUnread: String?
   @State private var splitAvailable = false
   private var referenceSidebar: Bool { UIDevice.current.userInterfaceIdiom == .pad || barRegions.hasHinge }
@@ -411,21 +413,41 @@ struct HomeView: View {
     store.finishLanding()
   }
   private var accountFooter: some View {
-    HStack(spacing: 12) {
-      Button { settings = SettingsSheet() } label: {
-        HStack(spacing: SidebarMetrics.accountGap) {
-          SidebarAccountMark(name: store.accountDisplayName)
-          Text(store.accountDisplayName)
-            .font(portraitLayout ? .body.weight(.medium) : .system(size: SidebarMetrics.accountFont)).lineLimit(1)
-            .foregroundStyle(NativePalette.text)
-            .accessibilityIdentifier("sidebar-account-name")
-        }.frame(height: 44).contentShape(Rectangle())
-      }.buttonStyle(.plain).accessibilityLabel("Settings, " + store.accountDisplayName)
-        .accessibilityIdentifier("settings-button")
-      Spacer(minLength: 0)
-      MarketplaceShortcut(compact: true, revision: marketplaceRevision) { marketplace = true }
+    GeometryReader { geometry in
+      ZStack(alignment: .trailing) {
+        HStack(spacing: 0) {
+          Button {
+            settings = SettingsSheet()
+          } label: {
+            HStack(spacing: SidebarMetrics.accountGap) {
+              SidebarAccountMark(name: store.accountDisplayName)
+              Text(store.accountDisplayName)
+                .font(
+                  portraitLayout ? .body.weight(.medium) : .system(size: SidebarMetrics.accountFont)
+                )
+                .lineLimit(1)
+                .foregroundStyle(accountHovered ? NativePalette.chatMuted : NativePalette.text)
+                .opacity(marketplaceHovered ? 0 : 1)
+                .blur(radius: marketplaceHovered && !reduceMotion ? 2 : 0)
+                .accessibilityIdentifier("sidebar-account-name")
+            }.frame(height: 44).contentShape(Rectangle())
+          }.buttonStyle(.plain).accessibilityLabel("Settings, " + store.accountDisplayName)
+            .accessibilityIdentifier("settings-button")
+            .onHover { inside in
+              withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { accountHovered = inside }
+            }
+          Spacer(minLength: 0)
+        }.padding(.trailing, 90)
+        MarketplaceShortcut(
+          compact: true, revision: marketplaceRevision,
+          expandedWidth: geometry.size.width - SidebarMetrics.accountSize
+            - SidebarMetrics.accountGap,
+          onExpansionChange: { marketplaceHovered = $0 }
+        ) { marketplace = true }
         .fixedSize()
-    }.frame(height: 40).padding(.leading, SidebarMetrics.leading).padding(.trailing, SidebarMetrics.trailing)
+      }
+    }.frame(height: 44).padding(.leading, SidebarMetrics.leading).padding(
+      .trailing, SidebarMetrics.trailing)
   }
   private func revealUnread(_ id: String) async {
     let sectionID = store.sidebar["sectionByChannel"][id].string
@@ -854,7 +876,9 @@ struct SideChromeBar<Top: View, Side: View>: ViewModifier {
         .overlay(alignment: chrome.edge == .trailing ? .topTrailing : .topLeading) {
           // Centered where iOS centers bar controls, under the status bar's items.
           let shift = chrome.contentInset > 0 ? 0 : chrome.width + chrome.width / 2 - chrome.center
-          side.frame(width: chrome.width).padding(.top, chrome.controlsTop)
+          side.environment(\.nativeRailControl, true)
+            .padding(.horizontal, 4).frame(width: max(52, chrome.width))
+            .padding(.top, chrome.controlsTop)
             .padding(.bottom, chrome.controlsBottom + 8)
             .frame(maxHeight: .infinity, alignment: .top)
             .offset(x: chrome.edge == .trailing ? shift : -shift)

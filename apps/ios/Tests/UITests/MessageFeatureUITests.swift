@@ -291,7 +291,7 @@ import XCTest
     let toggle = app.buttons["sidebar-toggle"]
     if layout == "duo-unfolded" {
       XCTAssertTrue(name.waitForExistence(timeout: 5))
-      XCTAssertEqual(app.scrollViews.firstMatch.frame.width, 320, accuracy: 1)
+      XCTAssertEqual(app.scrollViews.firstMatch.frame.width, 280, accuracy: 1)
       if app.frame.height > app.frame.width {
         XCTAssertLessThan(toggle.frame.maxX, 320, "Portrait Duo controls belong above the sidebar")
         XCTAssertLessThan(search.frame.maxX, 320)
@@ -356,7 +356,7 @@ import XCTest
     let loaded = expectation(for: NSPredicate(format: "value == %@", "3 installed plugins"), evaluatedWith: marketplace)
     await fulfillment(of: [loaded], timeout: 10)
     let sidebar = app.scrollViews.firstMatch
-    XCTAssertEqual(sidebar.frame.width, 320, accuracy: 1)
+    XCTAssertEqual(sidebar.frame.width, 280, accuracy: 1)
     XCTAssertEqual(app.buttons["sidebar-toggle"].frame.width, 44, accuracy: 0.5)
     XCTAssertEqual(app.buttons["search-button"].frame.width, 44, accuracy: 0.5)
     XCTAssertEqual(app.buttons["new-button"].frame.midX - app.buttons["search-button"].frame.midX, 52, accuracy: 0.5)
@@ -365,7 +365,7 @@ import XCTest
     XCTAssertEqual(firstRow.frame.minX, 20, accuracy: 0.5)
     XCTAssertEqual(firstRow.frame.height, 86, accuracy: 0.5)
     XCTAssertEqual(account.frame.minX, 20, accuracy: 1)
-    XCTAssertEqual(marketplace.frame.maxX, 307, accuracy: 0.5)
+    XCTAssertEqual(marketplace.frame.maxX, 267, accuracy: 0.5)
     XCTAssertEqual(marketplace.frame.width, 78, accuracy: 0.5)
     XCTAssertEqual(account.frame.midY, marketplace.frame.midY, accuracy: 1)
     XCTAssertEqual(app.frame.maxY - account.frame.midY, 40, accuracy: 2)
@@ -388,7 +388,7 @@ import XCTest
     XCTAssertEqual(app.buttons["sidebar-toggle"].label, "Show sidebar")
     app.buttons["sidebar-toggle"].tap()
     XCTAssertTrue(app.staticTexts["sidebar-account-name"].waitForExistence(timeout: 5))
-    XCTAssertEqual(app.scrollViews.firstMatch.frame.width, 320, accuracy: 1)
+    XCTAssertEqual(app.scrollViews.firstMatch.frame.width, 280, accuracy: 1)
   }
   func testReferenceCancelReplyPreservesDraftAndSendsWithoutQuote() async throws {
     let app = try await launch("dark-chat", visual: true)

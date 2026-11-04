@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Sidebar dimensions measured from the supplied 3× reference captures.
 enum SidebarMetrics {
-  static let width: CGFloat = 320
+  static let width: CGFloat = 280
   static let leading: CGFloat = 20
   static let trailing: CGFloat = 13
   static let accountSize: CGFloat = 32
@@ -42,9 +42,13 @@ struct UnreadPill: View {
 
 struct MarketplaceShortcut: View {
   @Environment(AppStore.self) private var store
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var compact = false
   var revision = 0
+  var expandedWidth: CGFloat?
+  var onExpansionChange: (Bool) -> Void = { _ in }
   var action: () -> Void
+  @State private var hovered = false
   @State private var installed: [JSON] = []
   @State private var catalog: [JSON] = []
   private func key(_ plugin: JSON) -> String {
@@ -52,31 +56,62 @@ struct MarketplaceShortcut: View {
   }
   var body: some View {
     Button(action: action) {
-      HStack(spacing: compact ? -SidebarMetrics.pluginOverlap : 0) {
-        if compact {
-          ForEach(Array(installed.prefix(3).enumerated()), id: \.offset) { _, plugin in
-            PluginCatalogMark(plugin: plugin, fallback: catalog.first { key($0) == key(plugin) }, size: SidebarMetrics.pluginSize)
-              .shadow(color: .black.opacity(0.14), radius: 0.8, y: 0.5)
-              .accessibilityHidden(true)
-          }
+      HStack(spacing: 6) {
+        if compact && hovered {
+          Text("Connect apps").font(.system(size: 15)).lineLimit(1)
+            .transition(.opacity.combined(with: .scale(scale: 0.94)))
         }
-        if compact {
-          Image(systemName: "plus").font(.system(size: 13, weight: .regular))
-            .foregroundStyle(Color(white: 0.45)).frame(width: SidebarMetrics.pluginSize, height: SidebarMetrics.pluginSize)
-            .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(.black.opacity(0.06), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
-            .accessibilityHidden(true)
-        } else {
-          MarketplaceMark().frame(width: 23, height: 23)
+        HStack(spacing: compact ? -SidebarMetrics.pluginOverlap : 0) {
+          if compact {
+            ForEach(Array(installed.prefix(3).enumerated()), id: \.offset) { index, plugin in
+              PluginCatalogMark(
+                plugin: plugin, fallback: catalog.first { key($0) == key(plugin) },
+                size: SidebarMetrics.pluginSize - 2
+              )
+              .padding(1)
+              .background(
+                NativePalette.color("F2F2F2", "303030"), in: RoundedRectangle(cornerRadius: 5)
+              )
+              .rotationEffect(.degrees(Double(index - 1) * 8))
+              .offset(y: index == 1 ? -1 : 0)
+              .accessibilityHidden(true)
+            }
+          }
+          if compact && !hovered {
+            Image(systemName: "plus").font(.system(size: 13, weight: .regular))
+              .foregroundStyle(Color(white: 0.45)).frame(
+                width: SidebarMetrics.pluginSize, height: SidebarMetrics.pluginSize
+              )
+              .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 5))
+              .overlay(
+                RoundedRectangle(cornerRadius: 5).stroke(.black.opacity(0.06), lineWidth: 0.5)
+              )
+              .accessibilityHidden(true)
+          } else if !compact {
+            MarketplaceMark().frame(width: 23, height: 23)
+          }
         }
       }.padding(.horizontal, compact ? SidebarMetrics.pluginPadding : 0)
         .frame(minWidth: 44, minHeight: compact ? SidebarMetrics.capsuleHeight : 44)
+        .frame(width: compact && hovered ? expandedWidth : nil)
         .modifier(MarketplaceGlass(compact: compact))
         .frame(height: 44).contentShape(Rectangle())
-    }.buttonStyle(.plain).accessibilityElement(children: .ignore).accessibilityAddTraits(.isButton).accessibilityLabel("Marketplace")
+    }.buttonStyle(.plain)
+      .onHover { inside in
+        guard compact, expandedWidth != nil else { return }
+        withAnimation(reduceMotion ? nil : .spring(response: 0.48, dampingFraction: 0.82)) {
+          hovered = inside
+          onExpansionChange(inside)
+        }
+      }
+      .accessibilityElement(children: .ignore).accessibilityAddTraits(.isButton).accessibilityLabel(
+        "Marketplace"
+      )
       .accessibilityIdentifier("marketplace-button")
-      .accessibilityValue(compact ? "\(installed.count) installed " + (installed.count == 1 ? "plugin" : "plugins") : "")
+      .accessibilityValue(
+        compact
+          ? "\(installed.count) installed " + (installed.count == 1 ? "plugin" : "plugins") : ""
+      )
       .task(id: revision) {
         guard compact, let value = try? await store.request("/api/v0/plugins") else { return }
         catalog = value["catalog"].array
@@ -185,8 +220,11 @@ private struct SidebarBackdropBlur: UIViewRepresentable {
 /// Regular glass on Duo brightens these controls beyond the supplied captures.
 private struct InboxControlGlass: ViewModifier {
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.sideChrome) private var sideChrome
   func body(content: Content) -> some View {
-    if #available(iOS 26, *), scheme == .dark {
+    if sideChrome != nil {
+      content.modifier(RailControlGlass())
+    } else if #available(iOS 26, *), scheme == .dark {
       content.glassEffect(.clear.tint(Color(white: 0.22).opacity(0.65)).interactive(), in: Capsule())
     } else {
       content.nativeGlass()

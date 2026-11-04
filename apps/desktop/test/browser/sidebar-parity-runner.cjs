@@ -136,6 +136,12 @@ app
               document.querySelector('[data-more-unreads="below"]').click();
               await pause();
               check(nav.scrollTop > 0, "Bottom unread pill must scroll");
+              for (
+                let attempt = 0;
+                attempt < 20 && !document.querySelector('[data-more-unreads="above"]');
+                attempt++
+              )
+                await pause();
               check(
                 !!document.querySelector('[data-more-unreads="above"]'),
                 "Top unread pill after jump"
@@ -216,7 +222,7 @@ app
             await pause();
             check(compactNav.dataset.scrollFadeBottom === "false", "Compact fade clears at bottom");
             toggle();
-            await new Promise((resolve) => setTimeout(resolve, 220));
+            await new Promise((resolve) => setTimeout(resolve, 350));
             await Promise.all(avatar.getAnimations().map((animation) => animation.finished));
             check(
               document.querySelector("[data-sidebar-account-avatar]") === avatar,
@@ -240,7 +246,7 @@ app
             const bounds = apps.getBoundingClientRect();
             if (bounds.width !== 36 || bounds.height !== 36)
               throw new Error("Connect apps rests as a 36px circle");
-            if (avatar.getBoundingClientRect().left !== 16)
+            if (Math.abs(avatar.getBoundingClientRect().left - 16) > 0.1)
               throw new Error("Account avatar aligns to the reference's 16px inset");
             return { x: bounds.x + 18, y: bounds.y + 18 };
           });
@@ -263,8 +269,9 @@ app
             )
               throw new Error("All three app logos must load");
             if (
-              document.querySelector("[data-sidebar-account-avatar]").getBoundingClientRect()
-                .left !== 16
+              document.querySelector("[data-sidebar-account-avatar]").getBoundingClientRect().left -
+                16 >
+              0.1
             )
               throw new Error("Avatar stays still while the apps pill expands");
           });

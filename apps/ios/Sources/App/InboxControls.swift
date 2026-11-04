@@ -16,6 +16,9 @@ enum SidebarMetrics {
   static let searchGlyph: CGFloat = 18
   static let addGlyph: CGFloat = 16
   static let toolbarTrailing: CGFloat = 19
+  static let toolbarTop: CGFloat = 2
+  static let footerBottom: CGFloat = 18
+  static let unreadBottom: CGFloat = 76
 }
 
 /// The same unread affordance is used on the full inbox and the persistent sidebar.
@@ -63,28 +66,28 @@ struct MarketplaceShortcut: View {
         }
         HStack(spacing: compact ? -SidebarMetrics.pluginOverlap : 0) {
           if compact {
-            ForEach(Array(installed.prefix(3).enumerated()), id: \.offset) { index, plugin in
+            ForEach(Array(installed.prefix(3).enumerated()), id: \.offset) { _, plugin in
               PluginCatalogMark(
                 plugin: plugin, fallback: catalog.first { key($0) == key(plugin) },
-                size: SidebarMetrics.pluginSize - 2
+                size: SidebarMetrics.pluginSize
               )
-              .padding(1)
-              .background(
-                NativePalette.color("F2F2F2", "303030"), in: RoundedRectangle(cornerRadius: 5)
-              )
-              .rotationEffect(.degrees(Double(index - 1) * 8))
-              .offset(y: index == 1 ? -1 : 0)
+              .overlay {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                  .stroke(.black.opacity(0.42), lineWidth: 0.5)
+              }
+              .shadow(color: .black.opacity(0.22), radius: 0.5, x: -0.3, y: 0)
               .accessibilityHidden(true)
             }
           }
           if compact && !hovered {
-            Image(systemName: "plus").font(.system(size: 13, weight: .regular))
-              .foregroundStyle(Color(white: 0.45)).frame(
+            Image(systemName: "plus").font(.system(size: 10, weight: .regular))
+              .foregroundStyle(Color(white: 0.55)).frame(
                 width: SidebarMetrics.pluginSize, height: SidebarMetrics.pluginSize
               )
-              .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 5))
+              .background(.white.opacity(0.97), in: RoundedRectangle(cornerRadius: 4))
               .overlay(
-                RoundedRectangle(cornerRadius: 5).stroke(.black.opacity(0.06), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                  .stroke(.black.opacity(0.42), lineWidth: 0.5)
               )
               .accessibilityHidden(true)
           } else if !compact {
@@ -140,12 +143,18 @@ private struct MarketplaceGlass: ViewModifier {
   @Environment(\.colorScheme) private var scheme
   var compact: Bool
   @ViewBuilder func body(content: Content) -> some View {
-    if compact, #available(iOS 26, *) {
-      content.glassEffect(
-        (scheme == .light ? Glass.clear.tint(.black.opacity(0.03)) : .clear).interactive(), in: Capsule())
+    if compact {
+      // A fixed neutral fill and rim keep this small capsule consistent across
+      // iOS versions; system glass adds a much brighter outline on iOS 27.
+      content
+        .background(NativePalette.color("FFFFFF", "3B3B3B"), in: Capsule())
         .overlay {
           if scheme == .light {
             Capsule().strokeBorder(.black.opacity(0.14), lineWidth: 0.5).allowsHitTesting(false)
+          } else {
+            Capsule().strokeBorder(
+              LinearGradient(colors: [.white.opacity(0.20), .white.opacity(0.08), .white.opacity(0.10)],
+                startPoint: .top, endPoint: .bottom), lineWidth: 0.6).allowsHitTesting(false)
           }
         }
         .shadow(color: .black.opacity(scheme == .light ? 0.035 : 0.12), radius: 8, y: 3)
@@ -177,9 +186,15 @@ private struct UnreadGlass: ViewModifier {
   private let tint = Color(red: 0, green: 122 / 255, blue: 1)
   func body(content: Content) -> some View {
     if #available(iOS 26, *) {
-      content.glassEffect(.regular.tint(tint).interactive(), in: Capsule())
+      // Keep the blue overlay independent of the system's tint strength, which
+      // differs between iOS 26 and 27. The live backdrop still refracts through it.
+      content.background(tint.opacity(0.86), in: Capsule())
+        .glassEffect(.clear.interactive(), in: Capsule())
+        .overlay {
+          Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.5).allowsHitTesting(false)
+        }
     } else {
-      content.background(tint.opacity(0.9), in: Capsule())
+      content.background(tint.opacity(0.78), in: Capsule())
         .background(.regularMaterial, in: Capsule())
     }
   }

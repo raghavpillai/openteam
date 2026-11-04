@@ -270,7 +270,7 @@ struct HomeView: View {
   }
   private func conversationList(isSidebar: Bool = false) -> some View {
     GeometryReader { geometry in
-      let clearance = isSidebar ? max(0, 20 - geometry.safeAreaInsets.bottom) : 0
+      let clearance = isSidebar ? SidebarMetrics.footerBottom : 0
       ScrollViewReader { proxy in
         ZStack(alignment: .bottom) {
           ScrollView {
@@ -372,7 +372,8 @@ struct HomeView: View {
                 await revealUnread(id)
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo(id, anchor: .center) }
               }
-            }.padding(.bottom, isSidebar ? 74 + clearance : 12).accessibilityIdentifier("inbox-unread")
+            }.padding(.bottom, isSidebar ? SidebarMetrics.unreadBottom + clearance : 12)
+              .accessibilityIdentifier("inbox-unread")
           }
         }
         .background {
@@ -380,7 +381,7 @@ struct HomeView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
       }
-    }
+    }.ignoresSafeArea(.container, edges: isSidebar ? .bottom : [])
   }
   @ViewBuilder private func conversation(_ id: String) -> some View {
     if let channel = store.channel(id) {
@@ -503,7 +504,8 @@ struct HomeView: View {
         .frame(width: 44, height: 44).nativeInboxGlass()
     }.foregroundStyle(NativePalette.text).padding(.leading, 18)
       .padding(.trailing, isSidebar ? SidebarMetrics.toolbarTrailing : 18)
-      .modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 10)
+      .modifier(TopBarClearance(isSidebar ? SidebarMetrics.toolbarTop : SideChrome.topBarPadding))
+      .padding(.bottom, 10)
   }
   /// Shared by the list and chat so Duo's sidebar toggle stays on the right.
   private var sideActions: some View {

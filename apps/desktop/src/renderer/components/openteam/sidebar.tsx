@@ -172,7 +172,7 @@ function UnreadJumpPill({
     <button
       aria-label={`More unreads ${direction}`}
       className={cn(
-        "absolute left-1/2 z-[12] inline-flex -translate-x-1/2 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-full border-0 bg-[#469ffe] py-1 pl-1 pr-2 font-[inherit] text-[13px] font-normal leading-[18px] text-[#fcfcfc] shadow-[inset_0_0_0_1px_rgba(20,20,20,0.05),0_2px_8px_rgba(0,0,0,0.12)] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "sidebar-unread-pill absolute left-1/2 z-[12] inline-flex -translate-x-1/2 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-full border-0 py-1 pl-1 pr-2 font-[inherit] text-[13px] font-normal leading-[18px] text-[#fcfcfc] outline-none focus-visible:ring-2 focus-visible:ring-ring",
         direction === "above" ? "top-2" : "bottom-2",
         compact && "size-8 justify-center gap-0 p-0"
       )}

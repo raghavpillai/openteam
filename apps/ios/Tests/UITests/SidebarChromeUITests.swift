@@ -17,7 +17,7 @@ import XCTest
     continueAfterFailure = false
     try await configure("/__qa/reset", [:])
     try await configure("/__qa/scene", ["scene": "dark-home"])
-    let plugins: [[String: Any]] = ["google-calendar", "notion", "slack"].map { key in
+    let plugins: [[String: Any]] = ["gmail", "google-drive", "slack"].map { key in
       ["key": key, "pluginKey": key, "name": key, "installed": true,
        "status": "installed", "connections": [],
        "logoUrl": base + "/unbundled-plugin-artwork/" + key + ".png"]
@@ -43,6 +43,8 @@ import XCTest
     let rotatedRoot = app.buttons["sidebar-toggle"].frame.maxX > app.frame.maxX
     let bounds = rotatedRoot
       ? CGRect(x: 0, y: 0, width: app.frame.height, height: app.frame.width) : app.frame
+    XCTAssertEqual(bounds.maxY - account.frame.midY, 40, accuracy: 1)
+    XCTAssertEqual(account.frame.midY - app.buttons["inbox-unread"].frame.midY, 76, accuracy: 1)
     for identifier in ["sidebar-toggle", "new-button", "search-button", "Computer"] {
       let button = app.buttons[identifier]
       XCTAssertTrue(button.waitForExistence(timeout: 10), identifier)

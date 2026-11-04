@@ -15,11 +15,39 @@ final class ConnectionStatusTests: SystemIntentFixture {
     _ = try await API(server: server).request("/__qa/control", method: "POST", body: body)
   }
   private func waitForOutage(_ store: AppStore) async throws {
-    for _ in 0..<40 where !store.connectionUnavailable {
+    for _ in 0..<60 where !store.connectionUnavailable {
       try await Task.sleep(for: .milliseconds(100))
     }
     XCTAssertTrue(store.connectionUnavailable)
     XCTAssertFalse(store.online)
+  }
+
+  func testTwoFailedChecksAtStartupStayHiddenAndThirdSuccessRecovers() async throws {
+    let store = await connectedStore()
+    defer { store.beginReauthentication() }
+    try await control(.object(["failures": .object([
+      "GET /api/auth/config": .object(["status": .number(503), "count": .number(2)]),
+    ])]))
+    store.handle(URLError(.networkConnectionLost), quiet: true)
+    XCTAssertFalse(store.connectionUnavailable)
+    for _ in 0..<60 where store.checkingConnection {
+      XCTAssertFalse(store.connectionUnavailable, "Transient startup failures must stay hidden")
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    XCTAssertFalse(store.checkingConnection)
+    XCTAssertTrue(store.online)
+    XCTAssertFalse(store.connectionUnavailable)
+  }
+
+  func testWarningWaitsForThreeConsecutiveFailedChecks() async throws {
+    let store = await connectedStore()
+    defer { store.beginReauthentication() }
+    try await control(.object(["offline": .bool(true)]))
+    store.handle(URLError(.networkConnectionLost), quiet: true)
+    try await Task.sleep(for: .milliseconds(2400))
+    XCTAssertFalse(store.connectionUnavailable, "Two failed checks are not enough to show a warning")
+    XCTAssertTrue(store.checkingConnection)
+    try await waitForOutage(store)
   }
 
   func testHistoryEndpointFailureKeepsConnectionAndCachedMessages() async throws {
@@ -207,7 +235,10 @@ final class ConnectionStatusTests: SystemIntentFixture {
   func testRetryHasABoundedDeadlineWhenTheProbeHangs() async throws {
     let store = await connectedStore()
     defer { store.beginReauthentication() }
-    try await control(.object(["failures": .object([
+    try await control(.object(["offline": .bool(true)]))
+    store.handle(URLError(.networkConnectionLost), quiet: true)
+    try await waitForOutage(store)
+    try await control(.object(["offline": .bool(false), "failures": .object([
       "GET /api/auth/config": .object(["delayMs": .number(8000), "count": .number(1)]),
     ])]))
     store.retryConnection()

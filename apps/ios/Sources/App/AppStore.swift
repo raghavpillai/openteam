@@ -1900,6 +1900,9 @@ final class AppStore {
     guard connectionCheck == nil, phase == .ready, foreground, let api else { return }
     let epoch = generation
     let checkID = UUID()
+    // A new warning requires sustained failure. Once an outage is already
+    // visible, a user retry only needs one bounded check to recover promptly.
+    let attempts = connectionUnavailable ? 1 : 3
     connectionCheckID = checkID
     connectionCheck = Task { [weak self] in
       defer {
@@ -1913,20 +1916,28 @@ final class AppStore {
       if !immediately {
         do { try await Task.sleep(for: .seconds(1)) } catch { return }
       }
-      let reachable: Bool
-      do {
-        // Publish the probe result only after validating its generation and ID.
-        // An ordinary API observer would cancel this task on its own success.
-        let probe = try API(server: api.baseURL.absoluteString, token: api.token)
-        _ = try await probe.raw("/api/auth/config", timeout: 5)
-        reachable = true
-      } catch {
-        guard !UserFacingError.isCancelled(error) else { return }
-        if let response = error as? APIError, (100..<500).contains(response.status) {
+      var reachable = false
+      for attempt in 0..<attempts {
+        if attempt > 0 {
+          do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        }
+        guard !Task.isCancelled, self?.generation == epoch,
+          self?.connectionCheckID == checkID, self?.foreground == true
+        else { return }
+        do {
+          // An ordinary API observer would cancel this task on its own success.
+          let probe = try API(server: api.baseURL.absoluteString, token: api.token)
+          _ = try await probe.raw("/api/auth/config", timeout: 5)
           reachable = true
-        } else if error is URLError || ((error as? APIError)?.status ?? 0) >= 500 {
-          reachable = false
-        } else { return }
+        } catch {
+          guard !UserFacingError.isCancelled(error) else { return }
+          if let response = error as? APIError, (100..<500).contains(response.status) {
+            reachable = true
+          } else if !(error is URLError) && ((error as? APIError)?.status ?? 0) < 500 {
+            return
+          }
+        }
+        if reachable { break }
       }
       guard let self, !Task.isCancelled, self.generation == epoch,
         self.connectionCheckID == checkID, self.phase == .ready, self.foreground

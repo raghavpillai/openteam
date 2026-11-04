@@ -411,6 +411,7 @@ struct ChromeButton: View {
 }
 
 struct ChatChromeButton: View {
+  @Environment(\.nativeRailControl) private var nativeRailControl
   var title: String
   var symbol: String
   var symbolSize: CGFloat = 16
@@ -421,8 +422,42 @@ struct ChatChromeButton: View {
     Button(action: action) {
       Image(systemName: symbol).font(.system(size: symbolSize, weight: symbolWeight))
         .frame(width: 44, height: 44).foregroundStyle(NativePalette.text)
-        .nativeChatGlass(regularInLightMode: regularInLightMode).contentShape(Rectangle())
+        .modifier(ChatButtonGlass(isRail: nativeRailControl, regularInLightMode: regularInLightMode))
+        .contentShape(Circle())
     }.buttonStyle(.plain).accessibilityLabel(title)
+  }
+}
+extension EnvironmentValues {
+  @Entry var nativeRailControl = false
+}
+
+/// The rail's complete rim is drawn inside the circular hit target. Native
+/// glass can cast its shadow outside it without cutting a notch in the edge.
+struct RailControlGlass: ViewModifier {
+  @Environment(\.colorScheme) private var scheme
+  func body(content: Content) -> some View {
+    if #available(iOS 26, *) {
+      content.glassEffect(
+        (scheme == .dark
+          ? Glass.clear.tint(Color(white: 0.22).opacity(0.65))
+          : Glass.regular.tint(.black.opacity(0.025))).interactive(), in: Circle()
+      ).overlay {
+        Circle().strokeBorder(scheme == .dark ? .white.opacity(0.1) : .black.opacity(0.12), lineWidth: 0.5)
+          .allowsHitTesting(false)
+      }
+    } else {
+      content.background(.regularMaterial, in: Circle())
+        .overlay(Circle().strokeBorder(NativePalette.separator, lineWidth: 0.5))
+    }
+  }
+}
+
+private struct ChatButtonGlass: ViewModifier {
+  var isRail: Bool
+  var regularInLightMode: Bool
+  func body(content: Content) -> some View {
+    if isRail { content.modifier(RailControlGlass()) }
+    else { content.nativeChatGlass(regularInLightMode: regularInLightMode) }
   }
 }
 struct AccountMark: View {

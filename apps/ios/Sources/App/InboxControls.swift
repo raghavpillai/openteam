@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Sidebar dimensions measured from the supplied 3× reference captures.
 enum SidebarMetrics {
-  static let width: CGFloat = 320
+  static let width: CGFloat = 280
   static let leading: CGFloat = 20
   static let trailing: CGFloat = 13
   static let accountSize: CGFloat = 32
@@ -16,6 +16,9 @@ enum SidebarMetrics {
   static let searchGlyph: CGFloat = 18
   static let addGlyph: CGFloat = 16
   static let toolbarTrailing: CGFloat = 19
+  static let toolbarTop: CGFloat = 2
+  static let footerBottom: CGFloat = 18
+  static let unreadBottom: CGFloat = 76
 }
 
 /// The same unread affordance is used on the full inbox and the persistent sidebar.
@@ -42,9 +45,13 @@ struct UnreadPill: View {
 
 struct MarketplaceShortcut: View {
   @Environment(AppStore.self) private var store
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var compact = false
   var revision = 0
+  var expandedWidth: CGFloat?
+  var onExpansionChange: (Bool) -> Void = { _ in }
   var action: () -> Void
+  @State private var hovered = false
   @State private var installed: [JSON] = []
   @State private var catalog: [JSON] = []
   private func key(_ plugin: JSON) -> String {
@@ -52,31 +59,62 @@ struct MarketplaceShortcut: View {
   }
   var body: some View {
     Button(action: action) {
-      HStack(spacing: compact ? -SidebarMetrics.pluginOverlap : 0) {
-        if compact {
-          ForEach(Array(installed.prefix(3).enumerated()), id: \.offset) { _, plugin in
-            PluginCatalogMark(plugin: plugin, fallback: catalog.first { key($0) == key(plugin) }, size: SidebarMetrics.pluginSize)
-              .shadow(color: .black.opacity(0.14), radius: 0.8, y: 0.5)
-              .accessibilityHidden(true)
-          }
+      HStack(spacing: 6) {
+        if compact && hovered {
+          Text("Connect apps").font(.system(size: 15)).lineLimit(1)
+            .transition(.opacity.combined(with: .scale(scale: 0.94)))
         }
-        if compact {
-          Image(systemName: "plus").font(.system(size: 13, weight: .regular))
-            .foregroundStyle(Color(white: 0.45)).frame(width: SidebarMetrics.pluginSize, height: SidebarMetrics.pluginSize)
-            .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(.black.opacity(0.06), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
-            .accessibilityHidden(true)
-        } else {
-          MarketplaceMark().frame(width: 23, height: 23)
+        HStack(spacing: compact ? -SidebarMetrics.pluginOverlap : 0) {
+          if compact {
+            ForEach(Array(installed.prefix(3).enumerated()), id: \.offset) { _, plugin in
+              PluginCatalogMark(
+                plugin: plugin, fallback: catalog.first { key($0) == key(plugin) },
+                size: SidebarMetrics.pluginSize
+              )
+              .overlay {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                  .stroke(NativePalette.color("A6A6A6", "666666"), lineWidth: 0.75)
+              }
+              .shadow(color: .black.opacity(0.22), radius: 0.5, x: -0.3, y: 0)
+              .accessibilityHidden(true)
+            }
+          }
+          if compact && !hovered {
+            Image(systemName: "plus").font(.system(size: 10, weight: .regular))
+              .foregroundStyle(Color(white: 0.55)).frame(
+                width: SidebarMetrics.pluginSize, height: SidebarMetrics.pluginSize
+              )
+              .background(.white.opacity(0.97), in: RoundedRectangle(cornerRadius: 4))
+              .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                  .stroke(NativePalette.color("A6A6A6", "666666"), lineWidth: 0.75)
+              )
+              .accessibilityHidden(true)
+          } else if !compact {
+            MarketplaceMark().frame(width: 23, height: 23)
+          }
         }
       }.padding(.horizontal, compact ? SidebarMetrics.pluginPadding : 0)
         .frame(minWidth: 44, minHeight: compact ? SidebarMetrics.capsuleHeight : 44)
+        .frame(width: compact && hovered ? expandedWidth : nil)
         .modifier(MarketplaceGlass(compact: compact))
         .frame(height: 44).contentShape(Rectangle())
-    }.buttonStyle(.plain).accessibilityElement(children: .ignore).accessibilityAddTraits(.isButton).accessibilityLabel("Marketplace")
+    }.buttonStyle(.plain)
+      .onHover { inside in
+        guard compact, expandedWidth != nil else { return }
+        withAnimation(reduceMotion ? nil : .spring(response: 0.48, dampingFraction: 0.82)) {
+          hovered = inside
+          onExpansionChange(inside)
+        }
+      }
+      .accessibilityElement(children: .ignore).accessibilityAddTraits(.isButton).accessibilityLabel(
+        "Marketplace"
+      )
       .accessibilityIdentifier("marketplace-button")
-      .accessibilityValue(compact ? "\(installed.count) installed " + (installed.count == 1 ? "plugin" : "plugins") : "")
+      .accessibilityValue(
+        compact
+          ? "\(installed.count) installed " + (installed.count == 1 ? "plugin" : "plugins") : ""
+      )
       .task(id: revision) {
         guard compact, let value = try? await store.request("/api/v0/plugins") else { return }
         catalog = value["catalog"].array
@@ -105,12 +143,18 @@ private struct MarketplaceGlass: ViewModifier {
   @Environment(\.colorScheme) private var scheme
   var compact: Bool
   @ViewBuilder func body(content: Content) -> some View {
-    if compact, #available(iOS 26, *) {
-      content.glassEffect(
-        (scheme == .light ? Glass.clear.tint(.black.opacity(0.03)) : .clear).interactive(), in: Capsule())
+    if compact {
+      // A fixed neutral fill and rim keep this small capsule consistent across
+      // iOS versions; system glass adds a much brighter outline on iOS 27.
+      content
+        .background(NativePalette.color("FFFFFF", "3B3B3B"), in: Capsule())
         .overlay {
           if scheme == .light {
             Capsule().strokeBorder(.black.opacity(0.14), lineWidth: 0.5).allowsHitTesting(false)
+          } else {
+            Capsule().strokeBorder(
+              LinearGradient(colors: [.white.opacity(0.20), .white.opacity(0.08), .white.opacity(0.10)],
+                startPoint: .top, endPoint: .bottom), lineWidth: 0.6).allowsHitTesting(false)
           }
         }
         .shadow(color: .black.opacity(scheme == .light ? 0.035 : 0.12), radius: 8, y: 3)
@@ -142,9 +186,15 @@ private struct UnreadGlass: ViewModifier {
   private let tint = Color(red: 0, green: 122 / 255, blue: 1)
   func body(content: Content) -> some View {
     if #available(iOS 26, *) {
-      content.glassEffect(.regular.tint(tint).interactive(), in: Capsule())
+      // Keep the blue overlay independent of the system's tint strength, which
+      // differs between iOS 26 and 27. The live backdrop still refracts through it.
+      content.background(tint.opacity(0.86), in: Capsule())
+        .glassEffect(.clear.interactive(), in: Capsule())
+        .overlay {
+          Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.5).allowsHitTesting(false)
+        }
     } else {
-      content.background(tint.opacity(0.9), in: Capsule())
+      content.background(tint.opacity(0.78), in: Capsule())
         .background(.regularMaterial, in: Capsule())
     }
   }
@@ -153,12 +203,18 @@ private struct UnreadGlass: ViewModifier {
 /// The footer blurs the live list through a transparent material. Its mask affects
 /// the backdrop, leaving the rows available for the glass controls to refract.
 struct SidebarFooterFade: View {
-  static let canvas = NativePalette.color("F7F7F7", "1C1C1C")
+  static let canvas = NativePalette.color("F7F7F7", "1E1E1E")
   var body: some View {
     SidebarBackdropBlur()
       .overlay {
-        LinearGradient(colors: [.clear, Self.canvas.opacity(0.12), Self.canvas.opacity(0.28)],
-          startPoint: .top, endPoint: .bottom)
+        // Settle into the sidebar's exact canvas color. The material alone
+        // lifts dark footers to gray, unlike the supplied reference.
+        LinearGradient(stops: [
+          .init(color: .clear, location: 0),
+          .init(color: Self.canvas.opacity(0.75), location: 0.42),
+          .init(color: Self.canvas, location: 0.82),
+          .init(color: Self.canvas, location: 1),
+        ], startPoint: .top, endPoint: .bottom)
       }
       .mask {
         LinearGradient(stops: [
@@ -185,8 +241,11 @@ private struct SidebarBackdropBlur: UIViewRepresentable {
 /// Regular glass on Duo brightens these controls beyond the supplied captures.
 private struct InboxControlGlass: ViewModifier {
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.sideChrome) private var sideChrome
   func body(content: Content) -> some View {
-    if #available(iOS 26, *), scheme == .dark {
+    if sideChrome != nil {
+      content.modifier(RailControlGlass())
+    } else if #available(iOS 26, *), scheme == .dark {
       content.glassEffect(.clear.tint(Color(white: 0.22).opacity(0.65)).interactive(), in: Capsule())
     } else {
       content.nativeGlass()

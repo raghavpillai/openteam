@@ -35,6 +35,9 @@ import {
 import { Collapsible } from "radix-ui";
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import calendarLogo from "../../assets/apps/google-calendar.svg?url";
+import notionLogo from "../../assets/apps/notion.svg?url";
+import slackLogo from "../../assets/apps/slack.svg?url";
 import { signOut } from "../../client/auth";
 import { useAuthSession } from "../../hooks/use-auth-session";
 import type {
@@ -169,7 +172,7 @@ function UnreadJumpPill({
     <button
       aria-label={`More unreads ${direction}`}
       className={cn(
-        "absolute left-1/2 z-[12] inline-flex -translate-x-1/2 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-full border-0 bg-[#469ffe] py-1 pl-1 pr-2 font-[inherit] text-[13px] font-normal leading-[18px] text-[#fcfcfc] shadow-[inset_0_0_0_1px_rgba(20,20,20,0.05),0_2px_8px_rgba(0,0,0,0.12)] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "sidebar-unread-pill absolute left-1/2 z-[12] inline-flex -translate-x-1/2 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-full border-0 py-1 pl-1 pr-2 font-[inherit] text-[13px] font-normal leading-[18px] text-[#fcfcfc] outline-none focus-visible:ring-2 focus-visible:ring-ring",
         direction === "above" ? "top-2" : "bottom-2",
         compact && "size-8 justify-center gap-0 p-0"
       )}
@@ -2962,7 +2965,7 @@ export const Sidebar = memo(function Sidebar({
                 data-scroll-fade-top={sidebarTopFade}
                 data-scroll-fade-bottom={sidebarBottomFade}
                 style={{
-                  maskImage: `linear-gradient(to bottom, ${sidebarTopFade ? "transparent 0px, black 28px" : "black 0px"}, ${sidebarBottomFade ? "black calc(100% - 28px), transparent 100%" : "black 100%"})`,
+                  maskImage: `linear-gradient(to bottom, ${sidebarTopFade ? "transparent 0px, black 28px" : "black 0px"}, ${sidebarBottomFade ? "black calc(100% - 48px), transparent 100%" : "black 100%"})`,
                 }}
               >
                 <SidebarMotion pinnedIds={preferences.pinnedIds} disabled={Boolean(dragSourceChannelId || dragSourceSectionId || sidebarResizing)}>
@@ -3173,37 +3176,71 @@ export const Sidebar = memo(function Sidebar({
               }}
             </DragOverlay>
           </DragDropProvider>
-          <div className="flex flex-col gap-0.5 pb-0.5 pl-[7px] pr-[12px] pt-2">
-            <Button
-              className="h-10 w-full justify-start px-[13px] text-[13.5px] font-normal hover:bg-hover"
-              data-marketplace-trigger=""
-              onClick={onOpenPlugins}
-              variant="ghost"
-            >
-              <span className="grid size-7 shrink-0 place-items-center rounded-full border-[0.5px] border-[#e4e4e4] bg-background dark:border-[#393939] dark:bg-[#181818]">
-                <MarketplaceIcon />
-              </span>
-              Marketplace
-            </Button>
-          </div>
         </>
       )}
 
       </SidebarCollapseMotion>
       <div className="sidebar-account-footer">
         <AccountMenu compact={compact} onOpenSettings={onOpenSettings}>
-          <Button
+          <button
             aria-label={`Account: ${account.name}`}
             data-sidebar-account-trigger=""
-            className="sidebar-account-button group/footer-account relative w-full rounded-[11px] p-0 hover:bg-subtle data-[state=open]:bg-subtle"
-            variant="ghost"
+            className="sidebar-account-button"
+            title={account.name}
+            type="button"
           >
-            <span className="sidebar-account-avatar" data-sidebar-account-avatar="">
+            <span
+              className="sidebar-account-avatar"
+              data-sidebar-account-avatar=""
+              aria-hidden="true"
+            >
               {account.initials}
             </span>
             <span className="sidebar-account-name">{account.name}</span>
-          </Button>
+          </button>
         </AccountMenu>
+        <button
+          aria-label="Connect apps"
+          className="sidebar-connect-apps"
+          data-marketplace-trigger=""
+          data-sidebar-connect-apps=""
+          onClick={onOpenPlugins}
+          type="button"
+        >
+          <span className="sidebar-connect-glyph" aria-hidden="true">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <path d="M17.5 14v7M14 17.5h7" />
+            </svg>
+          </span>
+          <span className="sidebar-connect-content" aria-hidden="true">
+            <span>Connect apps</span>
+            <span className="sidebar-connect-logos">
+              {[calendarLogo, notionLogo, slackLogo].map((logo, index) => (
+                <span
+                  className="sidebar-connect-logo"
+                  key={logo}
+                  style={{ "--logo-index": index } as React.CSSProperties}
+                >
+                  <span className="sidebar-connect-logo-face">
+                    <img alt="" draggable={false} height="16" src={logo} width="16" />
+                  </span>
+                </span>
+              ))}
+            </span>
+          </span>
+        </button>
       </div>
 
       <div

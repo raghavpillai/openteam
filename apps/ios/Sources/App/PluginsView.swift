@@ -291,7 +291,11 @@ struct PluginCatalogMark: View {
   }
   private var providerArtwork: some View {
     Group {
-      if source.hasPrefix("data:image/"), source.contains(";base64,"),
+      // Standard provider artwork ships in Assets.car. Never wait for an image
+      // URL (or decode a duplicate server payload) when the app already has it.
+      if let bundled {
+        artwork(Image(uiImage: bundled))
+      } else if source.hasPrefix("data:image/"), source.contains(";base64,"),
         let encoded = source.components(separatedBy: ";base64,").last, encoded.count <= 350_000,
         let data = Data(base64Encoded: encoded), let image = UIImage(data: data) {
         artwork(Image(uiImage: image))

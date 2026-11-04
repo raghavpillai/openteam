@@ -18,8 +18,6 @@ import {
   ChevronRight,
   Clock3,
   Copy,
-  CopyPlus,
-  EyeOff,
   Folder,
   FolderPlus,
   LogOut,
@@ -410,138 +408,12 @@ export function AccountMenu({
   );
 }
 
-export function HiddenAgentsDialog({
-  botById,
-  hiddenBots,
-  hiddenGroups,
-  onOpenChange,
-  onOpenChannel,
-  onUnhideBot,
-  onUnhideGroup,
-  open,
-}: {
-  botById: ReadonlyMap<string, BotView>;
-  hiddenBots: BotView[];
-  hiddenGroups: ChannelView[];
-  onOpenChange: (open: boolean) => void;
-  onOpenChannel: (channelId: string) => void;
-  onUnhideBot: (bot: BotView) => Promise<void>;
-  onUnhideGroup: (group: ChannelView) => Promise<void>;
-  open: boolean;
-}) {
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [error, setError] = useState(false);
-  const hiddenAgentCount = hiddenBots.length + hiddenGroups.length;
-  const unhide = async (id: string, request: () => Promise<void>) => {
-    setPendingId(id);
-    setError(false);
-    try {
-      await request();
-    } catch {
-      setError(true);
-    } finally {
-      setPendingId(null);
-    }
-  };
-
-  return (
-    <Dialog
-      onOpenChange={(nextOpen) => {
-        onOpenChange(nextOpen);
-        if (!nextOpen) setError(false);
-      }}
-      open={open}
-    >
-      <DialogContent
-        className="w-[420px] max-w-[calc(100vw-32px)] gap-0 overflow-hidden rounded-[16px] border-black/10 bg-background p-0 shadow-[0_24px_72px_rgba(0,0,0,0.24)]"
-        showCloseButton={false}
-      >
-        <div className="border-b border-black/[0.07] px-4 py-4 dark:border-white/[0.08]">
-          <DialogTitle className="text-[14px] font-medium">Hidden Bots</DialogTitle>
-          <DialogDescription className="mt-1 text-[12.5px] leading-[18px] text-foreground-secondary">
-            Hidden Bots stay active and keep their history, they're just not visible in the sidebar.
-          </DialogDescription>
-        </div>
-        <div className="bot-scrollbar max-h-[420px] min-h-[96px] overflow-y-auto p-2">
-          {error ? (
-            <div className="px-3 py-3 text-center text-[13px] text-destructive">
-              Check your connection and try again.
-            </div>
-          ) : null}
-          {hiddenAgentCount === 0 ? (
-            <div className="px-3 py-8 text-center text-[13px] text-foreground-secondary">
-              No hidden bots
-            </div>
-          ) : (
-            <div className="space-y-0.5">
-              {hiddenBots.map((bot) => (
-                <div
-                  className="flex h-11 items-center gap-2 rounded-[10px] px-2 hover:bg-accent"
-                  key={bot.id}
-                >
-                  <button
-                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none"
-                    onClick={() => {
-                      onOpenChange(false);
-                      onOpenChannel(bot.dmChannelId);
-                    }}
-                    type="button"
-                  >
-                    <BotAvatar bot={bot} channelId={bot.dmChannelId} size="sm" />
-                    <span className="min-w-0 flex-1 truncate text-[13px]">{bot.name}</span>
-                  </button>
-                  <button
-                    className="rounded-[8px] bg-black/[0.055] px-2.5 py-1.5 text-[12px] hover:bg-black/[0.09] disabled:opacity-50 dark:bg-white/[0.08] dark:hover:bg-white/[0.12]"
-                    disabled={pendingId !== null}
-                    onClick={() => void unhide(bot.id, () => onUnhideBot(bot))}
-                    type="button"
-                  >
-                    Unhide
-                  </button>
-                </div>
-              ))}
-              {hiddenGroups.map((group) => (
-                <div
-                  className="flex h-11 items-center gap-2 rounded-[10px] px-2 hover:bg-accent"
-                  key={group.id}
-                >
-                  <button
-                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none"
-                    onClick={() => {
-                      onOpenChange(false);
-                      onOpenChannel(group.id);
-                    }}
-                    type="button"
-                  >
-                    <ChannelAvatar botById={botById} channel={group} size="sm" />
-                    <span className="min-w-0 flex-1 truncate text-[13px]">{group.name}</span>
-                  </button>
-                  <button
-                    className="rounded-[8px] bg-black/[0.055] px-2.5 py-1.5 text-[12px] hover:bg-black/[0.09] disabled:opacity-50 dark:bg-white/[0.08] dark:hover:bg-white/[0.12]"
-                    disabled={pendingId !== null}
-                    onClick={() => void unhide(group.id, () => onUnhideGroup(group))}
-                    type="button"
-                  >
-                    Unhide
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export type BotRowAction =
   | "togglePin"
   | "toggleUnread"
   | "editProfile"
-  | "duplicate"
   | "copyConversationId"
   | "showAsyncTasks"
-  | "hide"
   | "retry"
   | "delete";
 
@@ -550,7 +422,6 @@ export type GroupRowAction =
   | "toggleUnread"
   | "editProfile"
   | "copyConversationId"
-  | "hide"
   | "delete";
 
 const SHOW_INTERNAL_ASYNC_TASKS = import.meta.env.VITE_OPENTEAM_INTERNAL_ASYNC_TASKS === "true";
@@ -789,9 +660,6 @@ function BotContextMenu({
       <ContextMenuItem onSelect={() => onBotAction(bot, "editProfile")}>
         <Pencil className="size-4" /> Edit Profile
       </ContextMenuItem>
-      <ContextMenuItem onSelect={() => onBotAction(bot, "duplicate")}>
-        <CopyPlus className="size-4" /> Duplicate
-      </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => onBotAction(bot, "copyConversationId")}>
         <Copy className="size-4" /> Copy conversation ID
@@ -802,9 +670,6 @@ function BotContextMenu({
         </ContextMenuItem>
       )}
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => onBotAction(bot, "hide")}>
-        <EyeOff className="size-4" /> Hide from sidebar
-      </ContextMenuItem>
       <ContextMenuItem
         className="text-destructive data-[highlighted]:text-destructive [&_svg]:text-destructive"
         onSelect={() => onBotAction(bot, "delete")}
@@ -879,9 +744,6 @@ function GroupContextMenu({
         <Copy className="size-4" /> Copy conversation ID
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => onGroupAction(channel, "hide")}>
-        <EyeOff className="size-4" /> Hide from sidebar
-      </ContextMenuItem>
       <ContextMenuItem
         className="text-destructive data-[highlighted]:text-destructive [&_svg]:text-destructive"
         onSelect={() => onGroupAction(channel, "delete")}
@@ -2189,22 +2051,18 @@ function MarketplaceIcon() {
 function CompactSidebarContent({
   groups,
   botById,
-  hiddenAgentCount,
   unreadIds,
   selectedId,
   onSelect,
   onNewBot,
-  onOpenHiddenAgents,
   onOpenPlugins,
 }: {
   groups: Array<{ id: string; rows: ChannelRowData[] }>;
   botById: ReadonlyMap<string, BotView>;
-  hiddenAgentCount: number;
   unreadIds: ReadonlySet<string>;
   selectedId: string | null;
   onSelect: (id: string, focusComposer?: boolean) => void;
   onNewBot: () => void;
-  onOpenHiddenAgents: () => void;
   onOpenPlugins: () => void;
 }) {
   const scrollRef = useRef<HTMLElement>(null);
@@ -2309,24 +2167,6 @@ function CompactSidebarContent({
               </div>
             ))
           )}
-          {hiddenAgentCount > 0 ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  aria-label={`Hidden Bots (${hiddenAgentCount})`}
-                  className="relative mt-2 grid size-[54px] shrink-0 self-center place-items-center rounded-[11px] text-foreground-tertiary hover:bg-subtle"
-                  onClick={onOpenHiddenAgents}
-                  type="button"
-                >
-                  <EyeOff className="size-4" strokeWidth={1.8} />
-                  <span className="absolute right-1 top-1 grid min-w-4 place-items-center rounded-full bg-foreground px-1 text-[9px] leading-4 text-background">
-                    {hiddenAgentCount}
-                  </span>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Hidden Bots</TooltipContent>
-            </Tooltip>
-          ) : null}
           </SidebarMotion>
         </nav>
         {scrollState.jumps.above && (
@@ -2396,7 +2236,6 @@ const readSidebarWidth = () => {
 export const Sidebar = memo(function Sidebar({
   channels,
   botById,
-  hiddenAgentCount,
   latestMessageByChannel,
   activeRunByChannel,
   activeTaskChannelIds,
@@ -2408,13 +2247,11 @@ export const Sidebar = memo(function Sidebar({
   onSelect,
   onNewBot,
   onNewGroup,
-  onOpenHiddenAgents,
   onOpenPlugins,
   onOpenSettings,
   onBotAction,
   onDeleteChannel,
   onEditChannel,
-  onHideChannel,
   forcedCompact = false,
   maxExpandedWidth = MAX_SIDEBAR_WIDTH,
   onLayoutChange,
@@ -2423,7 +2260,6 @@ export const Sidebar = memo(function Sidebar({
 }: {
   channels: ChannelView[];
   botById: ReadonlyMap<string, BotView>;
-  hiddenAgentCount: number;
   latestMessageByChannel: ReadonlyMap<string, ChannelMessageView>;
   activeRunByChannel: ReadonlyMap<string, RunView>;
   activeTaskChannelIds: ReadonlySet<string>;
@@ -2435,13 +2271,11 @@ export const Sidebar = memo(function Sidebar({
   onSelect: (id: string, focusComposer?: boolean) => void;
   onNewBot: () => void;
   onNewGroup: () => void;
-  onOpenHiddenAgents: () => void;
   onOpenPlugins: () => void;
   onOpenSettings: () => void;
   onBotAction: (bot: BotView, action: BotRowAction) => void;
   onDeleteChannel: (channel: ChannelView) => void;
   onEditChannel: (channelId: string) => void;
-  onHideChannel: (channel: ChannelView) => void;
   forcedCompact?: boolean;
   maxExpandedWidth?: number;
   onLayoutChange?: (layout: { compact: boolean; width: number }) => void;
@@ -2567,8 +2401,6 @@ export const Sidebar = memo(function Sidebar({
     syncVisibleWidth();
     return () => observer.disconnect();
   }, []);
-  const allSidebarAgentsHidden =
-    rows.length === 0 && hiddenAgentCount > 0 && !creating && !pendingBot;
   const virtualizeExpanded = shouldVirtualizeExpandedSidebar(
     rows.length,
     preferences.sections.length
@@ -2861,10 +2693,6 @@ export const Sidebar = memo(function Sidebar({
         onEditChannel(channel.id);
         return;
       }
-      if (action === "hide") {
-        onHideChannel(channel);
-        return;
-      }
       if (action === "delete") {
         onDeleteChannel(channel);
         return;
@@ -2874,7 +2702,6 @@ export const Sidebar = memo(function Sidebar({
     [
       onDeleteChannel,
       onEditChannel,
-      onHideChannel,
       preferences.togglePinned,
       preferences.toggleUnread,
     ]
@@ -2991,10 +2818,8 @@ export const Sidebar = memo(function Sidebar({
         <CompactSidebarContent
           botById={botById}
           groups={compactGroups}
-          hiddenAgentCount={hiddenAgentCount}
           onNewBot={onNewBot}
           onOpenPlugins={onOpenPlugins}
-          onOpenHiddenAgents={onOpenHiddenAgents}
           onSelect={onSelect}
           selectedId={selectedId}
           unreadIds={preferences.unreadIds}
@@ -3129,233 +2954,196 @@ export const Sidebar = memo(function Sidebar({
               });
             }}
           >
-            <ContextMenu>
-              <ContextMenuTrigger asChild>
-                <div className="relative flex min-h-0 flex-1">
-                  <nav
-                    className="relative sidebar-roster bot-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto pl-[12px] pr-1"
-                    onScroll={scheduleUnreadJumpMeasure}
-                    ref={sidebarScrollRef}
-                    data-scroll-fade-top={sidebarTopFade}
-                    data-scroll-fade-bottom={sidebarBottomFade}
-                    style={{
-                      maskImage: `linear-gradient(to bottom, ${sidebarTopFade ? "transparent 0px, black 28px" : "black 0px"}, ${sidebarBottomFade ? "black calc(100% - 28px), transparent 100%" : "black 100%"})`,
-                    }}
-                  >
-                    <SidebarMotion pinnedIds={preferences.pinnedIds} disabled={Boolean(dragSourceChannelId || dragSourceSectionId || sidebarResizing)}>
-                    {!creating && (
-                      <div className="grid">
-                        <TransitionDropZone
-                          group={PINNED_GROUP_ID}
-                          label="Drag here to pin"
-                          settling={false}
-                          visible={pinTargetVisible && groups.pinned.length === 0}
-                        />
-                        <div className="col-start-1 row-start-1 relative overflow-x-visible overflow-y-clip [overflow-clip-margin:16px]" data-pinned-shell="">
-                        {groups.pinned.length > 0 && (
-                          <ChannelGroupSurface
-                            active={activeDropGroup === PINNED_GROUP_ID}
-                            className="col-start-1 row-start-1 pb-3 pt-2"
-                            disabled={dndDisabled || dragSourceGroup === PINNED_GROUP_ID}
-                            group={PINNED_GROUP_ID}
+            <div className="relative flex min-h-0 flex-1">
+              <nav
+                className="relative sidebar-roster bot-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto pl-[12px] pr-1"
+                onScroll={scheduleUnreadJumpMeasure}
+                ref={sidebarScrollRef}
+                data-scroll-fade-top={sidebarTopFade}
+                data-scroll-fade-bottom={sidebarBottomFade}
+                style={{
+                  maskImage: `linear-gradient(to bottom, ${sidebarTopFade ? "transparent 0px, black 28px" : "black 0px"}, ${sidebarBottomFade ? "black calc(100% - 28px), transparent 100%" : "black 100%"})`,
+                }}
+              >
+                <SidebarMotion pinnedIds={preferences.pinnedIds} disabled={Boolean(dragSourceChannelId || dragSourceSectionId || sidebarResizing)}>
+                {!creating && (
+                  <div className="grid">
+                    <TransitionDropZone
+                      group={PINNED_GROUP_ID}
+                      label="Drag here to pin"
+                      settling={false}
+                      visible={pinTargetVisible && groups.pinned.length === 0}
+                    />
+                    <div className="col-start-1 row-start-1 relative overflow-x-visible overflow-y-clip [overflow-clip-margin:16px]" data-pinned-shell="">
+                    {groups.pinned.length > 0 && (
+                      <ChannelGroupSurface
+                        active={activeDropGroup === PINNED_GROUP_ID}
+                        className="col-start-1 row-start-1 pb-3 pt-2"
+                        disabled={dndDisabled || dragSourceGroup === PINNED_GROUP_ID}
+                        group={PINNED_GROUP_ID}
+                      >
+                        {groups.pinned.length > EXPANDED_SIDEBAR_MAX_MOUNTED_ITEMS ? (
+                          <VirtualizedPinnedTiles
+                            activeChannelId={dragSourceChannelId}
+                            botById={botById}
+                            onBotAction={onBotAction}
+                            onGroupAction={handleSidebarGroupAction}
+                            onCreateSection={createSection}
+                            onMoveToSection={preferences.moveToSection}
+                            onRegisterJumpHandler={registerVirtualJumpHandler}
+                            onSelect={onSelect}
+                            rows={groups.pinned}
+                            scrollRef={sidebarScrollRef}
+                            sections={preferences.sections}
+                            selectedId={selectedId}
+                            sidebarWidth={sidebarWidth}
+                            unreadIds={preferences.unreadIds}
+                          />
+                        ) : (
+                          <div
+                            className="grid w-full justify-center gap-x-2 gap-y-3 rounded-[12px] p-[6px]"
+                            data-pinned-grid=""
+                            style={{
+                              gridTemplateColumns:
+                                "repeat(auto-fit, minmax(80px, max-content))",
+                            }}
                           >
-                            {groups.pinned.length > EXPANDED_SIDEBAR_MAX_MOUNTED_ITEMS ? (
-                              <VirtualizedPinnedTiles
-                                activeChannelId={dragSourceChannelId}
+                            {groups.pinned.map((row) => (
+                              <DraggablePinnedTile
                                 botById={botById}
+                                key={row.channel.id}
                                 onBotAction={onBotAction}
                                 onGroupAction={handleSidebarGroupAction}
                                 onCreateSection={createSection}
                                 onMoveToSection={preferences.moveToSection}
-                                onRegisterJumpHandler={registerVirtualJumpHandler}
                                 onSelect={onSelect}
-                                rows={groups.pinned}
-                                scrollRef={sidebarScrollRef}
+                                row={row}
                                 sections={preferences.sections}
-                                selectedId={selectedId}
-                                sidebarWidth={sidebarWidth}
-                                unreadIds={preferences.unreadIds}
+                                selected={row.channel.id === selectedId}
+                                unread={preferences.unreadIds.has(row.channel.id)}
                               />
-                            ) : (
-                              <div
-                                className="grid w-full justify-center gap-x-2 gap-y-3 rounded-[12px] p-[6px]"
-                                data-pinned-grid=""
-                                style={{
-                                  gridTemplateColumns:
-                                    "repeat(auto-fit, minmax(80px, max-content))",
-                                }}
-                              >
-                                {groups.pinned.map((row) => (
-                                  <DraggablePinnedTile
-                                    botById={botById}
-                                    key={row.channel.id}
-                                    onBotAction={onBotAction}
-                                    onGroupAction={handleSidebarGroupAction}
-                                    onCreateSection={createSection}
-                                    onMoveToSection={preferences.moveToSection}
-                                    onSelect={onSelect}
-                                    row={row}
-                                    sections={preferences.sections}
-                                    selected={row.channel.id === selectedId}
-                                    unread={preferences.unreadIds.has(row.channel.id)}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </ChannelGroupSurface>
-                        )}
-                        </div>
-                      </div>
-                    )}
-                    {pendingBot && (
-                      <div
-                        aria-current="page"
-                        className="flex h-[54px] w-full items-center gap-2 rounded-[10px] bg-selected px-2 text-left"
-                        data-pending-bot-row=""
-                      >
-                        <span className="grid size-9 shrink-0 place-items-center rounded-full border border-border bg-subtle text-foreground-tertiary">
-                          <UserRound className="size-4 opacity-60" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[14px] font-medium">
-                            {pendingBot.name}
-                          </span>
-                          <span className="mt-px block text-[13px] leading-4 text-foreground-secondary">
-                            Creating…
-                          </span>
-                        </span>
-                      </div>
-                    )}
-                    {allSidebarAgentsHidden ? (
-                      <div className="flex min-h-[180px] flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
-                        <span className="text-[13px] text-foreground-secondary">
-                          All bots are hidden
-                        </span>
-                        <Button onClick={onOpenHiddenAgents} size="sm" variant="secondary">
-                          Show Hidden Bots
-                        </Button>
-                      </div>
-                    ) : (
-                      <>
-                        {virtualizeExpanded && preferences.sections.length > 0 ? (
-                          <VirtualizedSections
-                            activeSectionId={activeVirtualSectionId}
-                            renderSection={renderSection}
-                            onRegisterJumpHandler={registerVirtualJumpHandler}
-                            rowsBySection={groups.bySection}
-                            scrollRef={sidebarScrollRef}
-                            sections={preferences.sections}
-                          />
-                        ) : (
-                          <div
-                            className={cn(
-                              "flex min-h-0 flex-col",
-                              preferences.sections.length > 0 && "gap-[10px]"
-                            )}
-                          >
-                            {preferences.sections.map(renderSection)}
+                            ))}
                           </div>
                         )}
-                        <ChannelGroupSurface
-                          active={activeDropGroup === UNASSIGNED_GROUP_ID}
-                          className={cn(
-                            "flex min-h-[36px] flex-1 flex-col",
-                            preferences.sections.length > 0 && "pt-[10px]"
-                          )}
-                          disabled={dndDisabled || dragSourceGroup === UNASSIGNED_GROUP_ID}
-                          group={UNASSIGNED_GROUP_ID}
-                        >
-                          <Collapsible.Root
-                            onOpenChange={(open) => {
-                              if (preferences.sections.length === 0) return;
-                              if (open === preferences.unassignedCollapsed) {
-                                preferences.toggleUnassigned();
-                              }
-                            }}
-                            open={
-                              preferences.sections.length === 0 || !preferences.unassignedCollapsed
-                            }
-                          >
-                            {preferences.sections.length > 0 && (
-                              <Collapsible.Trigger asChild>
-                                <button
-                                  className="group flex h-[30px] w-full items-center rounded-md px-2 text-[12px] font-normal text-foreground-tertiary outline-none transition-colors duration-[170ms] ease-out hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none dark:text-foreground-secondary dark:hover:bg-hover"
-                                  type="button"
-                                >
-                                  <span className="min-w-0 flex-1 -translate-y-[1.5px] truncate text-left">
-                                    Unassigned
-                                  </span>
-                                  <SectionDisclosure
-                                    collapsed={preferences.unassignedCollapsed}
-                                    count={groups.unassigned.length}
-                                  />
-                                </button>
-                              </Collapsible.Trigger>
-                            )}
-                            <SidebarCollapsibleContent
-                              className={preferences.sections.length > 0 ? "pt-1" : undefined}
-                            >
-                              {groups.unassigned.length > EXPANDED_SIDEBAR_MAX_MOUNTED_ITEMS ? (
-                                <VirtualizedChannelRows
-                                  activeChannelId={dragSourceChannelId}
-                                  group={UNASSIGNED_GROUP_ID}
-                                  onRegisterJumpHandler={registerVirtualJumpHandler}
-                                  renderRow={renderRow}
-                                  rows={groups.unassigned}
-                                  scrollRef={sidebarScrollRef}
-                                />
-                              ) : (
-                                <div className="flex flex-col gap-1">
-                                  {groups.unassigned.map((row, index) =>
-                                    renderRow(row, index, UNASSIGNED_GROUP_ID)
-                                  )}
-                                </div>
-                              )}
-                            </SidebarCollapsibleContent>
-                          </Collapsible.Root>
-                        </ChannelGroupSurface>
-                        {hiddenAgentCount > 0 ? (
-                          <button
-                            aria-haspopup="dialog"
-                            className="mb-1 mt-2 flex h-10 w-full shrink-0 items-center gap-2 rounded-[9px] px-2 text-[13px] text-foreground-secondary hover:bg-subtle"
-                            onClick={onOpenHiddenAgents}
-                            type="button"
-                          >
-                            <EyeOff className="size-4" strokeWidth={1.8} />
-                            <span className="min-w-0 flex-1 truncate text-left">Hidden Bots</span>
-                            <span className="text-[12px] text-foreground-tertiary">
-                              {hiddenAgentCount}
-                            </span>
-                          </button>
-                        ) : null}
-                      </>
+                      </ChannelGroupSurface>
                     )}
-                    </SidebarMotion>
-                  </nav>
-                  {unreadJumps.above ? (
-                    <UnreadJumpPill
-                      direction="above"
-                      onJump={jumpToUnread}
-                      target={unreadJumps.above}
-                    />
-                  ) : null}
-                  {unreadJumps.below ? (
-                    <UnreadJumpPill
-                      direction="below"
-                      onJump={jumpToUnread}
-                      target={unreadJumps.below}
-                    />
-                  ) : null}
-                </div>
-              </ContextMenuTrigger>
-              {hiddenAgentCount > 0 ? (
-                <ContextMenuContent aria-label="Sidebar actions" className="w-[160px]">
-                  <ContextMenuItem onSelect={onOpenHiddenAgents}>
-                    <EyeOff className="size-4" /> Hidden Bots ({hiddenAgentCount})
-                  </ContextMenuItem>
-                </ContextMenuContent>
+                    </div>
+                  </div>
+                )}
+                {pendingBot && (
+                  <div
+                    aria-current="page"
+                    className="flex h-[54px] w-full items-center gap-2 rounded-[10px] bg-selected px-2 text-left"
+                    data-pending-bot-row=""
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center rounded-full border border-border bg-subtle text-foreground-tertiary">
+                      <UserRound className="size-4 opacity-60" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] font-medium">
+                        {pendingBot.name}
+                      </span>
+                      <span className="mt-px block text-[13px] leading-4 text-foreground-secondary">
+                        Creating…
+                      </span>
+                    </span>
+                  </div>
+                )}
+                {virtualizeExpanded && preferences.sections.length > 0 ? (
+                  <VirtualizedSections
+                    activeSectionId={activeVirtualSectionId}
+                    renderSection={renderSection}
+                    onRegisterJumpHandler={registerVirtualJumpHandler}
+                    rowsBySection={groups.bySection}
+                    scrollRef={sidebarScrollRef}
+                    sections={preferences.sections}
+                  />
+                ) : (
+                  <div
+                    className={cn(
+                      "flex min-h-0 flex-col",
+                      preferences.sections.length > 0 && "gap-[10px]"
+                    )}
+                  >
+                    {preferences.sections.map(renderSection)}
+                  </div>
+                )}
+                <ChannelGroupSurface
+                  active={activeDropGroup === UNASSIGNED_GROUP_ID}
+                  className={cn(
+                    "flex min-h-[36px] flex-1 flex-col",
+                    preferences.sections.length > 0 && "pt-[10px]"
+                  )}
+                  disabled={dndDisabled || dragSourceGroup === UNASSIGNED_GROUP_ID}
+                  group={UNASSIGNED_GROUP_ID}
+                >
+                  <Collapsible.Root
+                    onOpenChange={(open) => {
+                      if (preferences.sections.length === 0) return;
+                      if (open === preferences.unassignedCollapsed) {
+                        preferences.toggleUnassigned();
+                      }
+                    }}
+                    open={
+                      preferences.sections.length === 0 || !preferences.unassignedCollapsed
+                    }
+                  >
+                    {preferences.sections.length > 0 && (
+                      <Collapsible.Trigger asChild>
+                        <button
+                          className="group flex h-[30px] w-full items-center rounded-md px-2 text-[12px] font-normal text-foreground-tertiary outline-none transition-colors duration-[170ms] ease-out hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none dark:text-foreground-secondary dark:hover:bg-hover"
+                          type="button"
+                        >
+                          <span className="min-w-0 flex-1 -translate-y-[1.5px] truncate text-left">
+                            Unassigned
+                          </span>
+                          <SectionDisclosure
+                            collapsed={preferences.unassignedCollapsed}
+                            count={groups.unassigned.length}
+                          />
+                        </button>
+                      </Collapsible.Trigger>
+                    )}
+                    <SidebarCollapsibleContent
+                      className={preferences.sections.length > 0 ? "pt-1" : undefined}
+                    >
+                      {groups.unassigned.length > EXPANDED_SIDEBAR_MAX_MOUNTED_ITEMS ? (
+                        <VirtualizedChannelRows
+                          activeChannelId={dragSourceChannelId}
+                          group={UNASSIGNED_GROUP_ID}
+                          onRegisterJumpHandler={registerVirtualJumpHandler}
+                          renderRow={renderRow}
+                          rows={groups.unassigned}
+                          scrollRef={sidebarScrollRef}
+                        />
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          {groups.unassigned.map((row, index) =>
+                            renderRow(row, index, UNASSIGNED_GROUP_ID)
+                          )}
+                        </div>
+                      )}
+                    </SidebarCollapsibleContent>
+                  </Collapsible.Root>
+                </ChannelGroupSurface>
+                </SidebarMotion>
+              </nav>
+              {unreadJumps.above ? (
+                <UnreadJumpPill
+                  direction="above"
+                  onJump={jumpToUnread}
+                  target={unreadJumps.above}
+                />
               ) : null}
-            </ContextMenu>
+              {unreadJumps.below ? (
+                <UnreadJumpPill
+                  direction="below"
+                  onJump={jumpToUnread}
+                  target={unreadJumps.below}
+                />
+              ) : null}
+            </div>
+
             <DragOverlay
               className="pointer-events-none z-[100] flex justify-center overflow-visible"
               dropAnimation={{

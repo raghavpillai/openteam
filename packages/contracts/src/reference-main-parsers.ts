@@ -598,7 +598,6 @@ var profileParameters = external_exports.object({
   title: external_exports.string().trim().optional().describe('Short role label beside your name ("Designer"); "" clears it.'),
   avatar_shape: external_exports.enum(nonEmptyTuple(BOT_MARK_SHAPES)).optional().describe("Your default mark, hidden while a custom picture is installed."),
   avatar_color: external_exports.enum(nonEmptyTuple(BOT_MARK_COLORS)).optional(),
-  hidden_from_sidebar: external_exports.boolean().optional().describe("Hides your sidebar row; you stay reachable through Cmd-K and Hidden chats."),
   notify_on_updates: external_exports.boolean().optional().describe('The "Notify me about this assistant" toggle.'),
   drafting_disabled: external_exports.boolean().optional().describe(
     `Pass false to turn draft cards back on when the user asks. You can't turn them off; tell the user to click "Disable drafts for this Bot" on a draft card. Owner only.`

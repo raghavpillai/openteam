@@ -167,9 +167,6 @@ final class AppStore {
     return messages(id).filter { window.contains($0) }
   }
   func draft(_ id: String) -> Draft { drafts[id] ?? Draft() }
-  func isHidden(_ channel: Channel) -> Bool {
-    bot(for: channel)?.hiddenFromSidebar ?? channel.hiddenFromSidebar ?? false
-  }
   func activeRuns(_ id: String) -> [Run] {
     (state.bootstrap?.activeRuns ?? []).filter { $0.channelId == id && $0.isActive }
   }
@@ -866,7 +863,7 @@ final class AppStore {
   /// that was never loaded. The open chat already reads its own history.
   private func backgroundHistoryNeeded(_ id: String) -> Bool {
     guard id != activeChannel, !busy.contains("history-" + id),
-      let channel = channel(id), channel.hiddenFromSidebar != true
+      let channel = channel(id), channel.kind != "agent_dm"
     else { return false }
     guard hasCachedHistory(id) else {
       return (channel.unreadCount ?? 0) > 0
@@ -1300,17 +1297,6 @@ final class AppStore {
     next["pinnedIds"] = .array(values.map(JSON.string))
     if let result = await mutate("/api/v0/settings/sidebar", method: "PATCH", body: next) {
       sidebar = result
-    }
-  }
-  func hide(_ channel: Channel, hidden: Bool) async {
-    if let bot = bot(for: channel) {
-      await mutate(
-        "/api/v0/bots/\(API.segment(bot.id))", method: "PATCH",
-        body: .object(["hiddenFromSidebar": .bool(hidden)]))
-    } else {
-      await mutate(
-        "/api/v0/channels/\(API.segment(channel.id))/hidden", method: "PATCH",
-        body: .object(["hidden": .bool(hidden), "clientId": .string(UUID().uuidString)]))
     }
   }
   func open(_ channelID: String, messageID: String? = nil) async {

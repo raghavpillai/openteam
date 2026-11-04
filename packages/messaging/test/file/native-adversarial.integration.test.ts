@@ -733,16 +733,14 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     await store.writeBotFiles(firstBotId, ["settings"]);
     expect(JSON.parse(await readFile(join(firstDirectory, "settings.json"), "utf8"))).toEqual({
       notifyOnAgentUpdates: true,
-      hiddenFromSidebar: false,
     });
     await atomicWrite(
       join(firstDirectory, "settings.json"),
       jsonFile({ notifyOnAgentUpdates: false, hiddenFromSidebar: false, extra: "keep" })
     );
-    await store.writeBotSettings(firstBotId, { hiddenFromSidebar: true });
+    await store.writeBotSettings(firstBotId, { notifyOnAgentUpdates: true });
     expect(JSON.parse(await readFile(join(firstDirectory, "settings.json"), "utf8"))).toEqual({
-      notifyOnAgentUpdates: false,
-      hiddenFromSidebar: true,
+      notifyOnAgentUpdates: true,
       extra: "keep",
     });
 

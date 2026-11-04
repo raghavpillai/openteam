@@ -45,7 +45,7 @@ const stateError = (tool: StateToolName, action: string): never => {
 const PROFILE_FIELDS = ["name", "description", "title", "avatar_shape", "avatar_color"] as const;
 const SHARED_MEMORY_SHARED_CONVERSATION_REFUSAL =
   "shared_profile and shared_journal are the owner's memory across their assistants and are not written from a shared conversation.";
-const SETTINGS_FIELDS = ["hidden_from_sidebar", "notify_on_updates", "drafting_disabled"] as const;
+const SETTINGS_FIELDS = ["notify_on_updates", "drafting_disabled"] as const;
 const DRAFTING_OFF_NEEDS_THE_USER =
   'only the user can turn drafts off. Nothing was changed. Tell them to click "Disable drafts for this Bot" on a draft card.';
 // A routine run may pause or delete routines, but anything else waits for a conversation.
@@ -402,12 +402,10 @@ export class DurableStateService {
       tx.bot.update({
         where: { id: botId },
         data: {
-          hiddenFromSidebar: input.hidden_from_sidebar,
           notificationsEnabled: input.notify_on_updates,
           draftingDisabled: input.drafting_disabled,
         },
         select: {
-          hiddenFromSidebar: true,
           notificationsEnabled: true,
           draftingDisabled: true,
         },
@@ -416,7 +414,6 @@ export class DurableStateService {
     return {
       target: "settings",
       action: "set",
-      hidden_from_sidebar: settings.hiddenFromSidebar,
       notify_on_updates: settings.notificationsEnabled,
       drafting_disabled: settings.draftingDisabled,
       updated: true,

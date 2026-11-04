@@ -376,7 +376,7 @@ test("agent-data files are authoritative and preserve malformed settings", async
       description: "Edited on disk",
       icon: "◆",
       color: "#123456",
-      hiddenFromSidebar: true,
+      hiddenFromSidebar: false,
       notificationsEnabled: false,
       avatarPath: await realpath(join(botDirectory, "avatar.png")),
     });

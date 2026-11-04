@@ -560,7 +560,7 @@ private struct ForwardAttachmentView: View {
       NativeList {
         Section { Text(asset.fileName).foregroundStyle(NativePalette.muted) }
         if let failure { InlineFailure(message: failure) }
-        ForEach(store.channels.filter { !store.isHidden($0) }) { channel in
+        ForEach(store.channels.filter { $0.kind != "agent_dm" }) { channel in
           Button { selected = channel.id } label: {
             HStack {
               ChannelAvatar(channel: channel, size: 32)

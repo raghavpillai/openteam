@@ -42,8 +42,7 @@ On iPhone, turn on **Notifications** in Settings, and choose which bots notify y
 1. Check that the bot isn't muted under **Settings → Bot notifications** in the iPhone app.
 2. Check that OpenTeam is allowed to send notifications in your system settings.
 3. Check that Focus or Do Not Disturb isn't silencing it.
-4. Check that the bot or conversation isn't hidden from the sidebar. Hidden bots don't send notifications.
-5. On iPhone, check that your server is set up for push notifications.
+4. On iPhone, check that your server is set up for push notifications.
 
 ## Sign out or switch servers
 

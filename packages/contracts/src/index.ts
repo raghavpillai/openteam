@@ -162,11 +162,6 @@ export const CreateBotInput = Schema.Struct({
 });
 export type CreateBotInput = typeof CreateBotInput.Type;
 
-export const DuplicateBotInput = Schema.Struct({
-  clientRequestId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
-});
-export type DuplicateBotInput = typeof DuplicateBotInput.Type;
-
 export const UpdateBotInput = Schema.Struct({
   name: Schema.optional(Schema.String.pipe(Schema.filter((value) => value.trim().length > 0, {
     message: () => "Bot name must not be blank",
@@ -177,7 +172,6 @@ export const UpdateBotInput = Schema.Struct({
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
-  hiddenFromSidebar: Schema.optional(Schema.Boolean),
   draftingDisabled: Schema.optional(Schema.Boolean),
   draftAllowedRecipients: Schema.optional(
     Schema.Array(Schema.String.pipe(Schema.pattern(/^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/), Schema.maxLength(320))).pipe(Schema.maxItems(500))
@@ -1132,7 +1126,6 @@ export const UpdateStateInput = Schema.Struct({
   trigger: Schema.optional(Schema.Unknown),
   enabled: Schema.optional(Schema.Boolean),
   body: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
-  hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
   drafting_disabled: Schema.optional(Schema.Boolean),
   platform: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
@@ -1175,7 +1168,6 @@ export const UpdateProfileToolInput = Schema.Struct({
   title: Schema.optional(Schema.String),
   avatar_shape: optionalText,
   avatar_color: UpdateStateInput.fields.avatar_color,
-  hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
   drafting_disabled: Schema.optional(Schema.Boolean),
 });

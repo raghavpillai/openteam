@@ -8,8 +8,6 @@ public struct ShareDestination: Identifiable, Sendable {
   public var bot: Bot?
   /// Group members in display order, or the Bot alone for a direct chat.
   public var members: [Bot]
-  /// Hidden from the sidebar; listed only when searched for or already chosen.
-  public var hidden: Bool
   public var lastActivity: Date?
   public var name: String { bot?.name ?? channel.name }
 }
@@ -30,13 +28,13 @@ public enum ShareDirectory {
       if let bot = byDM[channel.id] {
         return ShareDestination(
           channel: channel, bot: bot, members: [bot],
-          hidden: bot.hiddenFromSidebar || channel.hiddenFromSidebar == true, lastActivity: activity)
+          lastActivity: activity)
       }
       guard channel.isGroup else { return nil }
       let members = channel.members.sorted { $0.ordinal < $1.ordinal }.compactMap { byID[$0.botId] }
       return ShareDestination(
         channel: channel, bot: nil, members: members,
-        hidden: channel.hiddenFromSidebar == true, lastActivity: activity)
+        lastActivity: activity)
     }
     // Ties keep the server's order so equal timestamps never reshuffle between opens.
     return destinations.enumerated().sorted { a, b in
@@ -45,12 +43,12 @@ public enum ShareDirectory {
     }.map(\.element)
   }
 
-  /// Searching matches chat names and group members, and reveals hidden chats.
+  /// Searching matches chat names and group members.
   public static func visible(
     _ destinations: [ShareDestination], query: String, selected: Set<String>
   ) -> [ShareDestination] {
     let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !query.isEmpty else { return destinations.filter { !$0.hidden || selected.contains($0.id) } }
+    guard !query.isEmpty else { return destinations }
     return destinations.filter { destination in
       destination.name.localizedStandardContains(query)
         || destination.members.contains { $0.name.localizedStandardContains(query) }

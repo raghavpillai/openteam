@@ -12,7 +12,6 @@ import {
   Check,
   Clock3,
   CloudDownload,
-  EyeOff,
   FileText,
   Hash,
   Link,
@@ -61,7 +60,6 @@ export interface SearchAction {
     | "settings"
     | "computer"
     | "details"
-    | "hidden"
     | "plugins"
     | "theme"
     | "theme-system"
@@ -163,11 +161,9 @@ function ActionIcon({ action }: { action: SearchAction }) {
                       ? CloudDownload
                       : action.icon === "refresh"
                         ? RefreshCw
-                        : action.icon === "hidden"
-                          ? EyeOff
-                          : action.icon === "details"
-                            ? ListRestart
-                            : Settings2;
+                        : action.icon === "details"
+                          ? ListRestart
+                          : Settings2;
   return (
     <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-subtle text-foreground-secondary">
       <Icon className="size-3.5" />

@@ -4,7 +4,6 @@ import {
   type BotRecipe,
   type BotView,
   type CreateBotInput,
-  type DuplicateBotInput,
   resolveBotAvatarMark,
   type UpdateBotInput,
 } from "@openteam/contracts";
@@ -27,7 +26,6 @@ import {
   toJson,
 } from "./service-utils";
 import { type BotWithConversation, toBotView } from "./view-mappers";
-import { duplicateBot } from "./bot-duplication";
 
 export class BotService {
   constructor(
@@ -39,12 +37,11 @@ export class BotService {
     private readonly messaging?: AgentMessaging
   ) {}
 
-  list = (includeHidden = false) =>
+  list = (_includeHidden = false) =>
     serviceEffect(async () => {
       const bots = await this.prisma.bot.findMany({
         where: {
           status: { not: "archived" },
-          ...(includeHidden ? {} : { hiddenFromSidebar: false }),
           subagentIdentity: { is: null },
         },
         include: {
@@ -55,20 +52,6 @@ export class BotService {
       });
       return bots.map(toBotView);
     });
-
-  duplicate = (sourceId: string, input: DuplicateBotInput) =>
-    serviceEffect(() =>
-      duplicateBot(
-        {
-          prisma: this.prisma,
-          boss: this.boss,
-          agentData: this.agentData,
-          computerFetch: this.computerFetch,
-        },
-        sourceId,
-        input
-      )
-    );
 
   create = (input: CreateBotInput, recipe?: BotRecipe) =>
     serviceEffect(async () => {
@@ -193,7 +176,7 @@ export class BotService {
       }
       if (input.instructions !== undefined) fileTargets.push("instructions");
       if (input.icon !== undefined || input.color !== undefined) fileTargets.push("avatar");
-      if (input.notificationsEnabled !== undefined || input.hiddenFromSidebar !== undefined) {
+      if (input.notificationsEnabled !== undefined) {
         fileTargets.push("settings");
       }
       const bot = await this.agentData.mutateBotFiles(botId, fileTargets, async (tx) => {
@@ -215,7 +198,6 @@ export class BotService {
             color: input.color,
             avatarPath: input.icon !== undefined || input.color !== undefined ? null : undefined,
             notificationsEnabled: input.notificationsEnabled,
-            hiddenFromSidebar: input.hiddenFromSidebar,
             draftingDisabled: input.draftingDisabled,
             draftAllowedRecipients: input.draftAllowedRecipients
               ? [...new Set(input.draftAllowedRecipients.map((address) => address.trim().toLowerCase()))]
@@ -248,7 +230,6 @@ export class BotService {
             input.instructions !== undefined,
           settingsChanged:
             input.notificationsEnabled !== undefined ||
-            input.hiddenFromSidebar !== undefined ||
             input.draftingDisabled !== undefined ||
             input.draftAllowedRecipients !== undefined,
         });

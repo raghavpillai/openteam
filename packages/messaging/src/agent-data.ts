@@ -371,9 +371,8 @@ const profileDocument = (bot: {
   namedBy: bot.namedBy === "app" ? "app" : "user",
 });
 
-const settingsDocument = (bot: { notificationsEnabled: boolean; hiddenFromSidebar: boolean }) => ({
+const settingsDocument = (bot: { notificationsEnabled: boolean }) => ({
   notifyOnAgentUpdates: bot.notificationsEnabled,
-  hiddenFromSidebar: bot.hiddenFromSidebar,
 });
 
 const profileValues = (input: unknown) => {
@@ -1015,42 +1014,6 @@ export class AgentDataStore {
     await this.initializeBot(botId);
   }
 
-  /** Copy only durable configuration into a newly created bot, never its working data. */
-  async copyBotConfigurationFiles(tx: Tx, sourceId: string, targetId: string): Promise<void> {
-    safeFolderId(sourceId, "source bot id");
-    safeFolderId(targetId, "target bot id");
-    if (sourceId === targetId) throw new Error("A duplicate must have a new bot id");
-    const source = await tx.bot.findUniqueOrThrow({ where: { id: sourceId } });
-    const target = await tx.bot.findUniqueOrThrow({ where: { id: targetId } });
-    const directory = this.botDirectory(targetId);
-    await ensureEditableBotDirectory(directory);
-    await writeEditableBotFile(join(directory, "profile.json"), jsonFile(profileDocument(target)));
-    const settingsText = await readText(join(this.botDirectory(sourceId), "settings.json"));
-    let settings: Record<string, unknown> = {};
-    try {
-      if (settingsText) settings = parseJsonObject(settingsText, "settings.json");
-    } catch {
-      // Reconciliation already applied the host's defaults for invalid settings.
-      // Keep the original file intact and give the copy a valid settings document.
-    }
-    await writeEditableBotFile(
-      join(directory, "settings.json"),
-      jsonFile({ ...settings, ...settingsDocument(target), hiddenFromSidebar: false })
-    );
-    if (source.avatarPath) {
-      const avatar = await this.readStoredAvatar(sourceId, source.avatarPath);
-      const path = join(directory, `avatar${avatar.extension}`);
-      await atomicWrite(path, avatar.bytes);
-      await tx.bot.update({ where: { id: targetId }, data: { avatarPath: path } });
-    }
-    // Saved skills and workspace files are already shared. Do not recursively copy
-    // the source directory: it also contains memory, attachments, and transcripts.
-    const routines = await tx.routine.findMany({ where: { botId: targetId, deletedAt: null } });
-    for (const routine of routines) {
-      await writeAutomationFiles(directory, { ...routine, runLedger: [] });
-    }
-  }
-
   async initializeBot(botId: string): Promise<void> {
     await this.withFileMutation(botId, "initialize", async (tx) => {
       const bot = await tx.bot.findUnique({
@@ -1185,6 +1148,7 @@ export class AgentDataStore {
           value = {};
         }
       }
+      delete value.hiddenFromSidebar;
       await writeEditableBotFile(path, jsonFile({ ...value, ...settingsDocument(bot) }));
     }
     if (targets.includes("instructions")) {
@@ -1204,7 +1168,6 @@ export class AgentDataStore {
     botId: string,
     update: {
       notifyOnAgentUpdates?: boolean;
-      hiddenFromSidebar?: boolean;
     }
   ): Promise<void> {
     await this.initializeBot(botId);
@@ -1223,6 +1186,7 @@ export class AgentDataStore {
       const definedUpdate = Object.fromEntries(
         Object.entries(update).filter(([, candidate]) => candidate !== undefined)
       );
+      delete value.hiddenFromSidebar;
       await writeEditableBotFile(path, jsonFile({ ...value, ...definedUpdate }));
     });
   }
@@ -1444,6 +1408,15 @@ export class AgentDataStore {
   }
 
   async reconcileAllActiveBots(): Promise<ReconcileResult> {
+    // Restore chats hidden before sidebar hiding was removed.
+    await this.prisma.bot.updateMany({
+      where: { subagentIdentity: { is: null }, hiddenFromSidebar: true },
+      data: { hiddenFromSidebar: false },
+    });
+    await this.prisma.channel.updateMany({
+      where: { kind: { in: ["bot_dm", "group"] }, hiddenFromSidebar: true },
+      data: { hiddenFromSidebar: false },
+    });
     // Subagents are durable runtime actors, not user-manageable agents. Repair
     // legacy rows defensively and keep their visibility independent of files.
     await this.prisma.bot.updateMany({
@@ -1778,8 +1751,7 @@ export class AgentDataStore {
         data: {
           notificationsEnabled:
             typeof value.notifyOnAgentUpdates === "boolean" ? value.notifyOnAgentUpdates : true,
-          hiddenFromSidebar:
-            typeof value.hiddenFromSidebar === "boolean" ? value.hiddenFromSidebar : false,
+          hiddenFromSidebar: false,
         },
       });
       await this.trackFile(tx, botId, "settings", path, text);

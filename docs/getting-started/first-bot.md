@@ -32,7 +32,7 @@ Open the bot and select its name at the top of the conversation to open its **Se
 
 ## Organize your sidebar
 
-Right-click a bot in the sidebar to **Pin**, **Rename Bot**, **Edit Profile**, **Duplicate**, **Hide from sidebar**, or **Delete** it. Hidden bots keep working, including their routines, but don't send notifications. Find them under **Hidden Bots** at the bottom of the sidebar.
+Right-click a bot in the sidebar to **Pin**, **Rename Bot**, **Edit Profile**, or **Delete** it.
 
 Give bots names that describe their role, such as Research, Operations, or Docs. This makes them easier to tell apart in the sidebar and in group chats.
 

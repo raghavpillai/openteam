@@ -35,6 +35,9 @@ import {
 import { Collapsible } from "radix-ui";
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import calendarLogo from "../../assets/apps/google-calendar.svg?url";
+import notionLogo from "../../assets/apps/notion.svg?url";
+import slackLogo from "../../assets/apps/slack.svg?url";
 import { signOut } from "../../client/auth";
 import { useAuthSession } from "../../hooks/use-auth-session";
 import type {
@@ -3173,37 +3176,71 @@ export const Sidebar = memo(function Sidebar({
               }}
             </DragOverlay>
           </DragDropProvider>
-          <div className="flex flex-col gap-0.5 pb-0.5 pl-[7px] pr-[12px] pt-2">
-            <Button
-              className="h-10 w-full justify-start px-[13px] text-[13.5px] font-normal hover:bg-hover"
-              data-marketplace-trigger=""
-              onClick={onOpenPlugins}
-              variant="ghost"
-            >
-              <span className="grid size-7 shrink-0 place-items-center rounded-full border-[0.5px] border-[#e4e4e4] bg-background dark:border-[#393939] dark:bg-[#181818]">
-                <MarketplaceIcon />
-              </span>
-              Marketplace
-            </Button>
-          </div>
         </>
       )}
 
       </SidebarCollapseMotion>
       <div className="sidebar-account-footer">
         <AccountMenu compact={compact} onOpenSettings={onOpenSettings}>
-          <Button
+          <button
             aria-label={`Account: ${account.name}`}
             data-sidebar-account-trigger=""
-            className="sidebar-account-button group/footer-account relative w-full rounded-[11px] p-0 hover:bg-subtle data-[state=open]:bg-subtle"
-            variant="ghost"
+            className="sidebar-account-button"
+            title={account.name}
+            type="button"
           >
-            <span className="sidebar-account-avatar" data-sidebar-account-avatar="">
+            <span
+              className="sidebar-account-avatar"
+              data-sidebar-account-avatar=""
+              aria-hidden="true"
+            >
               {account.initials}
             </span>
             <span className="sidebar-account-name">{account.name}</span>
-          </Button>
+          </button>
         </AccountMenu>
+        <button
+          aria-label="Connect apps"
+          className="sidebar-connect-apps"
+          data-marketplace-trigger=""
+          data-sidebar-connect-apps=""
+          onClick={onOpenPlugins}
+          type="button"
+        >
+          <span className="sidebar-connect-glyph" aria-hidden="true">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <path d="M17.5 14v7M14 17.5h7" />
+            </svg>
+          </span>
+          <span className="sidebar-connect-content" aria-hidden="true">
+            <span>Connect apps</span>
+            <span className="sidebar-connect-logos">
+              {[calendarLogo, notionLogo, slackLogo].map((logo, index) => (
+                <span
+                  className="sidebar-connect-logo"
+                  key={logo}
+                  style={{ "--logo-index": index } as React.CSSProperties}
+                >
+                  <span className="sidebar-connect-logo-face">
+                    <img alt="" draggable={false} height="16" src={logo} width="16" />
+                  </span>
+                </span>
+              ))}
+            </span>
+          </span>
+        </button>
       </div>
 
       <div

@@ -22,6 +22,13 @@ describe("authenticated account presentation", () => {
     });
   });
 
+  test("uses first and last initials for a full account name", () => {
+    const account = accountPresentation({ id: "owner-2", name: "Raghav Pillai", email: "", username: "raghav", image: null }, "required");
+    expect(account.name).toBe("Raghav Pillai");
+    expect(account.initials).toBe("RP");
+    expect(account.copyValue).toBe("raghav");
+  });
+
   test("describes deployments where authentication is disabled", () => {
     expect(accountPresentation(null, "disabled")).toEqual({
       name: "Account",

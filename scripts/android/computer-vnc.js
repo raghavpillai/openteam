@@ -9,9 +9,12 @@ let pointer = { x: 0, y: 0 };
 let buttons = 0;
 
 const host = document.getElementById("screen");
-const native = (method, value) => {
+// Android's JavaScript bridge matches Java methods by name and argument count,
+// so `connected(undefined)` would fail against `connected()`. Forward only the
+// arguments the caller actually supplied.
+const native = (method, ...args) => {
   try {
-    window.openTeamNative?.[method]?.(value);
+    window.openTeamNative?.[method]?.(...args);
   } catch {
     // The viewer can still render when the native bridge is unavailable.
   }
@@ -72,6 +75,18 @@ function type(text) {
   }
 }
 
+function normalizeProtocols(value) {
+  const protocols = Array.isArray(value)
+    ? [...value]
+    : typeof value === "string"
+      ? JSON.parse(value)
+      : null;
+  if (!Array.isArray(protocols) || protocols.some((protocol) => typeof protocol !== "string")) {
+    throw Error("Invalid computer protocols");
+  }
+  return protocols;
+}
+
 window.openTeamVnc = {
   stop,
   control,
@@ -81,9 +96,10 @@ window.openTeamVnc = {
     if (!["ws:", "wss:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
       throw Error("Invalid computer endpoint");
     }
+    const protocols = normalizeProtocols(session.protocols);
     const current = new RFB(host, url.href, {
       credentials: { password: session.password },
-      wsProtocols: session.protocols,
+      wsProtocols: protocols,
     });
     rfb = current;
     current.scaleViewport = true;
@@ -93,37 +109,47 @@ window.openTeamVnc = {
     current.qualityLevel = 6;
     current.compressionLevel = 2;
     current.viewOnly = !controlling;
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        current.disconnect();
-        reject(Error("Computer connection timed out"));
-      }, 15000);
-      current.addEventListener("connect", () => {
-        clearTimeout(timeout);
-        if (rfb !== current) {
+    let disconnected = false;
+    try {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
           current.disconnect();
-          reject(Error("Computer connection cancelled"));
-          return;
-        }
-        connected = true;
-        native("connected");
-        resolve(true);
+          reject(Error("Computer connection timed out"));
+        }, 15000);
+        current.addEventListener("connect", () => {
+          clearTimeout(timeout);
+          if (rfb !== current) {
+            current.disconnect();
+            reject(Error("Computer connection cancelled"));
+            return;
+          }
+          connected = true;
+          native("connected");
+          resolve(true);
+        });
+        current.addEventListener("disconnect", (event) => {
+          clearTimeout(timeout);
+          disconnected = true;
+          if (rfb === current) {
+            connected = false;
+            native("disconnected", event?.detail?.reason ?? "");
+          }
+          reject(Error("Computer disconnected"));
+        });
+        current.addEventListener("securityfailure", () => {
+          clearTimeout(timeout);
+          native("failed", "Computer authentication failed");
+          current.disconnect();
+          reject(Error("Computer authentication failed"));
+        });
       });
-      current.addEventListener("disconnect", (event) => {
-        clearTimeout(timeout);
-        if (rfb === current) {
-          connected = false;
-          native("disconnected", event?.detail?.reason ?? "");
-        }
-        reject(Error("Computer disconnected"));
-      });
-      current.addEventListener("securityfailure", () => {
-        clearTimeout(timeout);
-        native("failed", "Computer authentication failed");
-        current.disconnect();
-        reject(Error("Computer authentication failed"));
-      });
-    });
+    } catch (error) {
+      if (rfb === current) {
+        if (!disconnected) native("failed", error?.message ?? "Computer connection failed");
+        stop();
+      }
+      throw error;
+    }
     return true;
   },
   input(input) {

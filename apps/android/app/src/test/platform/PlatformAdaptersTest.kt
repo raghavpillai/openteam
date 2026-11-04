@@ -27,6 +27,16 @@ class PlatformAdaptersTest {
         assertFalse(uri.toString().contains("one-use"))
     }
 
+    @Test fun vncGrantUsesPlainWebSocketForHttpServers() {
+        val grant = ComputerVncGrant(
+            "/api/v0/bots/test-bot/screen/vnc", "one-use", listOf("openteam-vnc", "ticket." + "a".repeat(43)),
+        )
+        assertEquals(
+            "ws://192.168.1.20:8787/api/v0/bots/test-bot/screen/vnc",
+            grant.socketUri(URI("http://192.168.1.20:8787"), "test-bot").toString(),
+        )
+    }
+
     @Test fun vncGrantParsesServerSessionPayload() {
         val grant = ComputerVncGrant.fromJson(Json.parseToJsonElement(
             """{"path":"/api/v0/bots/test-bot/screen/vnc","protocols":["openteam-vnc","ticket.${"a".repeat(43)}"],"password":"one-use"}"""

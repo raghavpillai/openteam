@@ -24,6 +24,9 @@ const result = await Bun.build({
 if (!result.success) throw new Error(String(result.logs));
 
 const source = (await result.outputs[0].text()).replace(/<\/script/gi, "<\\/script");
+// #screen is position:fixed because Android WebView can resolve html/body
+// height:100% to 0px inside a Compose AndroidView, which collapses the noVNC
+// canvas to 0x0 (a black screen). A fixed box always spans the visible viewport.
 const html = `<!doctype html>
 <html>
 <head>
@@ -31,8 +34,8 @@ const html = `<!doctype html>
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src ws: wss:; base-uri 'none'">
 <style>
 html,body,#screen{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
-#screen{display:flex;align-items:center;justify-content:center;touch-action:none}
-canvas{outline:none;max-width:100%;max-height:100%}
+#screen{position:fixed;inset:0;touch-action:none}
+canvas{outline:none}
 </style>
 </head>
 <body>

@@ -86,6 +86,50 @@ final class FunctionalFlowUITests: XCTestCase {
     app.buttons["settings-button"].tap()
     app.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", "Plugins")).firstMatch.tap()
   }
+  func testBotActionsOmitHideAndDuplicateInBothAppearances() async throws {
+    continueAfterFailure = false
+    for appearance in ["light", "dark"] {
+      try await fixture("/__qa/reset")
+      let app = XCUIApplication()
+      app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
+      app.launch()
+      let row = app.buttons["channel-channel-research"]
+      XCTAssertTrue(row.waitForExistence(timeout: 15))
+      row.swipeLeft()
+      XCTAssertFalse(app.buttons["conversation-swipe-hide"].exists)
+      XCTAssertTrue(row.exists)
+      row.press(forDuration: 0.8)
+      XCTAssertTrue(app.buttons["Pin"].waitForExistence(timeout: 5))
+      XCTAssertFalse(app.buttons["Hide"].exists)
+      XCTAssertFalse(app.buttons["Duplicate bot"].exists)
+      capture("bot-context-without-hide-" + appearance, app)
+      app.buttons["Pin"].firstMatch.tap()
+      let saved = try await state()
+      XCTAssertTrue((saved["settings"] as? [String: Any])?["pinnedIds"] as? [String] == ["channel-research"])
+      let pinnedRow = app.buttons["pinned-channel-research"]
+      XCTAssertTrue(pinnedRow.waitForExistence(timeout: 8))
+      pinnedRow.tap()
+      app.buttons["conversation-details"].tap()
+      XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 8))
+      app.buttons["profile-options"].tap()
+      XCTAssertTrue(app.buttons["Delete bot"].waitForExistence(timeout: 5))
+      XCTAssertFalse(app.buttons["Duplicate bot"].exists)
+      XCTAssertFalse(app.buttons["Hide"].exists)
+      capture("bot-options-without-duplicate-" + appearance, app)
+      app.terminate()
+    }
+  }
+
+  func testSettingsOmitHiddenConversations() async throws {
+    let app = try await launch()
+    app.buttons["settings-button"].tap()
+    XCTAssertTrue(app.buttons["account-settings"].waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["Hidden conversations"].exists)
+    XCTAssertFalse(app.staticTexts["Hidden conversations"].exists)
+    capture("settings-without-hidden-conversations", app)
+    app.terminate()
+  }
+
   func testSearchWhitespaceAndUnavailableResultRecovery() async throws {
     let app = try await launch()
     app.buttons["search-button"].tap()
@@ -241,9 +285,9 @@ final class FunctionalFlowUITests: XCTestCase {
     name.typeText("Native persistence bot")
     try await fail("POST /api/v0/bots")
     app.buttons["create-confirm"].tap()
-    error(app)
+    XCTAssertTrue(app.staticTexts["Could not create the Bot. Please try again."].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.alerts.firstMatch.exists)
     capture("create-failure", app)
-    closeError(app)
     XCTAssertEqual(name.value as? String, "Native persistence bot")
     app.buttons["create-confirm"].tap()
     XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 12))

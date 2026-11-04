@@ -20,7 +20,7 @@ import { preloadMessageRenderers } from "./components/ai-elements/message";
 import { ChatPane } from "./components/openteam/chat-pane";
 import { DesktopHeader } from "./components/openteam/desktop-header";
 import type { SearchAction } from "./components/openteam/search-dialog";
-import { HiddenAgentsDialog, Sidebar } from "./components/openteam/sidebar";
+import { Sidebar } from "./components/openteam/sidebar";
 import { FirstRunShell } from "./components/openteam/first-run-shell";
 import {
   clearLandingRow,
@@ -54,7 +54,6 @@ import { cn } from "./lib/cn";
 import { requestDesktopUpdateRestart } from "./lib/desktop-update";
 import {
   CHAT_SETTINGS_KEYWORDS,
-  HIDDEN_BOTS_PALETTE_KEYWORDS,
   PLUGINS_PALETTE_KEYWORDS,
   SETTINGS_PALETTE_SECTIONS,
   THEME_PALETTE_COMMANDS,
@@ -254,7 +253,6 @@ export default function App() {
   const [newChatDraft, setNewChatDraft] = useState(0);
   const [newGroupDialog, setNewGroupDialog] = useState(false);
   const [deleteGroupTarget, setDeleteGroupTarget] = useState<ChannelView | null>(null);
-  const [hiddenAgentsOpen, setHiddenAgentsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [sidebarLayout, setSidebarLayout] = useState({
@@ -705,14 +703,6 @@ export default function App() {
       mutate(() => api.setChannelMembers(channelId, botIds)).then(() => undefined),
     [mutate]
   );
-  const hideGroup = useCallback(
-    (channel: ChannelView) => {
-      void mutate(() => api.setChannelHidden(channel.id, true)).then(() => {
-        if (selectedId === channel.id) setSelectedId(null);
-      });
-    },
-    [mutate, selectedId, setSelectedId]
-  );
   const confirmDeleteGroup = useCallback(() => {
     if (!deleteGroupTarget) return;
     const channelId = deleteGroupTarget.id;
@@ -721,18 +711,6 @@ export default function App() {
       if (selectedId === channelId) setSelectedId(null);
     });
   }, [deleteGroupTarget, mutate, selectedId, setSelectedId]);
-  const unhideBot = useCallback(
-    async (bot: BotView) => {
-      await mutate(() => api.updateBot(bot.id, { hiddenFromSidebar: false }));
-    },
-    [mutate]
-  );
-  const unhideGroup = useCallback(
-    async (channel: ChannelView) => {
-      await mutate(() => api.setChannelHidden(channel.id, false));
-    },
-    [mutate]
-  );
   const setChannelAvatar = useCallback(
     (channelId: string, pngBase64: string | null) =>
       mutate(() => api.setChannelAvatar(channelId, pngBase64)).then(() => undefined),
@@ -748,30 +726,10 @@ export default function App() {
   }, []);
 
   const snapshotChannels = snapshot?.channels;
-  const hiddenBots = useMemo(
-    () => snapshot?.bots.filter((bot) => bot.hiddenFromSidebar) ?? [],
-    [snapshot?.bots]
-  );
-  const hiddenGroups = useMemo(
-    () =>
-      snapshotChannels?.filter(
-        (channel) => channel.kind === "group" && channel.hiddenFromSidebar
-      ) ?? [],
+  const visibleChannels = useMemo(
+    () => snapshotChannels?.filter((channel) => channel.kind !== "agent_dm") ?? [],
     [snapshotChannels]
   );
-  const hiddenAgentCount = hiddenBots.length + hiddenGroups.length;
-  const visibleChannels = useMemo(() => {
-    if (!snapshotChannels || !snapshot) return [];
-    const hiddenBotIds = new Set(
-      snapshot.bots.filter((bot) => bot.hiddenFromSidebar).map((bot) => bot.id)
-    );
-    return snapshotChannels.filter((channel) => {
-      if (channel.kind === "agent_dm" || channel.hiddenFromSidebar) return false;
-      if (channel.kind !== "bot_dm") return true;
-      const botId = channel.members[0]?.botId;
-      return Boolean(botId && !hiddenBotIds.has(botId));
-    });
-  }, [snapshot, snapshotChannels]);
   const sidebarBotOrder = useMemo(
     () => [
       ...new Set(
@@ -793,8 +751,8 @@ export default function App() {
     ]
   );
   const activeTaskChannelIds = useMemo(
-    () => new Set([...activeAsyncTaskChannelIds(snapshot?.subagents ?? []), ...(snapshot?.runs ?? []).flatMap(run => run.requestState === "waiting" && run.channelId ? [run.channelId] : [])]),
-    [snapshot?.subagents, snapshot?.runs]
+    () => activeAsyncTaskChannelIds(snapshot?.subagents ?? []),
+    [snapshot?.subagents]
   );
 
   const openNewBot = useCallback(() => {
@@ -807,7 +765,6 @@ export default function App() {
     setNewGroupDialog(true);
   }, []);
   const openAbout = useCallback(() => setAboutOpen(true), []);
-  const openHiddenAgents = useCallback(() => setHiddenAgentsOpen(true), []);
   const openSettingsTarget = useCallback((anchor: SettingsAnchor | null) => {
     setSettingsTarget(anchor ? { anchor, nonce: Date.now() } : null);
     setSettingsOpen(true);
@@ -1162,18 +1119,6 @@ export default function App() {
         icon: "plugins",
         run: openPlugins,
       },
-      ...(hiddenAgentCount > 0
-        ? [
-            {
-              id: "hidden-bots",
-              title: "Open Hidden Bots",
-              subtitle: "Sidebar",
-              keywords: HIDDEN_BOTS_PALETTE_KEYWORDS,
-              icon: "hidden" as const,
-              run: openHiddenAgents,
-            },
-          ]
-        : []),
       ...THEME_PALETTE_COMMANDS.map((theme) => ({
         id: `theme:${theme.preference}`,
         title: `Theme: ${theme.label}`,
@@ -1212,8 +1157,6 @@ export default function App() {
         : []),
     ],
     [
-      hiddenAgentCount,
-      openHiddenAgents,
       openPlugins,
       openSettingsTarget,
       paletteUpdateStatus,
@@ -1317,16 +1260,13 @@ export default function App() {
             creating={newBotPicker}
             forcedCompact={forcedSidebarCompact}
             maxExpandedWidth={sidebarMaxWidth}
-            hiddenAgentCount={hiddenAgentCount}
             latestMessageByChannel={index.latestMessageByChannel}
             onBotAction={handleBotRowAction}
             onDeleteChannel={setDeleteGroupTarget}
             onEditChannel={editSidebarChannel}
-            onHideChannel={hideGroup}
             onLayoutChange={handleSidebarLayoutChange}
             onNewBot={openNewBot}
             onNewGroup={openNewGroup}
-            onOpenHiddenAgents={openHiddenAgents}
             onOpenPlugins={openPlugins}
             onOpenSettings={openSettings}
             onPreloadSearch={preloadSearchDialog}
@@ -1341,17 +1281,6 @@ export default function App() {
                   ? lastWritableChannelId.current
                   : selectedId
             }
-          />
-
-          <HiddenAgentsDialog
-            botById={index.botById}
-            hiddenBots={hiddenBots}
-            hiddenGroups={hiddenGroups}
-            onOpenChange={setHiddenAgentsOpen}
-            onOpenChannel={selectSidebarChannel}
-            onUnhideBot={unhideBot}
-            onUnhideGroup={unhideGroup}
-            open={hiddenAgentsOpen}
           />
 
           <section className="relative flex min-w-0 flex-1 flex-col" data-workspace-main="">

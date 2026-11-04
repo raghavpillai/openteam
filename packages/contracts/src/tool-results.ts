@@ -93,7 +93,6 @@ export function renderControlResult(
       avatar_color: "avatar color",
     };
     const settingNames: Record<string, string> = {
-      hidden_from_sidebar: "hiddenFromSidebar",
       notify_on_updates: "notifyOnAgentUpdates",
       drafting_disabled: "draftingDisabled",
     };

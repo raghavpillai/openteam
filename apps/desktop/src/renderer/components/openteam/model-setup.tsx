@@ -14,7 +14,10 @@ const inputClass =
 const openLink = (url: string) => window.open(url, "_blank", "noopener,noreferrer");
 
 /** Shows whatever the provider sign-in needs next: a browser, a code, or a key. */
-export function SignInProgress({ setup }: { setup: ModelSetup }) {
+export function SignInProgress({ setup, controlStyles }: {
+  setup: ModelSetup;
+  controlStyles?: { primaryButton: string; secondaryButton: string; input: string };
+}) {
   const session = setup.authSession;
   const prompt = session?.prompt;
   const [value, setValue] = useState("");
@@ -52,7 +55,7 @@ export function SignInProgress({ setup }: { setup: ModelSetup }) {
               {session.deviceCode.userCode}
             </span>
             <button
-              className={secondaryButton}
+              className={controlStyles?.secondaryButton ?? secondaryButton}
               onClick={() => openLink(session.deviceCode!.verificationUri)}
               type="button"
             >
@@ -84,7 +87,7 @@ export function SignInProgress({ setup }: { setup: ModelSetup }) {
 
       {showPrompt && !finished ? (
         <form
-          className="flex items-center gap-2"
+          className="flex flex-wrap items-center gap-2"
           onSubmit={(event) => {
             event.preventDefault();
             submit();
@@ -92,7 +95,7 @@ export function SignInProgress({ setup }: { setup: ModelSetup }) {
         >
           {prompt.type === "select" ? (
             <Select onValueChange={setValue} value={value}>
-              <SelectTrigger className={`${inputClass} w-auto`}>
+              <SelectTrigger className={`${controlStyles?.input ?? inputClass} w-auto flex-1`}>
                 <SelectValue placeholder={prompt.message} />
               </SelectTrigger>
               <SelectContent>
@@ -108,7 +111,7 @@ export function SignInProgress({ setup }: { setup: ModelSetup }) {
               aria-label={prompt.message}
               autoComplete="off"
               autoFocus
-              className={inputClass}
+              className={controlStyles?.input ?? inputClass}
               maxLength={20_000}
               onChange={(event) => setValue(event.target.value)}
               placeholder={
@@ -123,7 +126,7 @@ export function SignInProgress({ setup }: { setup: ModelSetup }) {
             />
           )}
           <button
-            className={primaryButton}
+            className={controlStyles?.primaryButton ?? primaryButton}
             disabled={!value.trim() || setup.busy === "respond"}
             type="submit"
           >
@@ -141,7 +144,7 @@ export function SignInProgress({ setup }: { setup: ModelSetup }) {
           Cancel
         </button>
       ) : session.status !== "connected" ? (
-        <button className={secondaryButton} onClick={setup.clearSignIn} type="button">
+        <button className={controlStyles?.secondaryButton ?? secondaryButton} onClick={setup.clearSignIn} type="button">
           Try again
         </button>
       ) : null}
@@ -157,7 +160,7 @@ export function ModelTestStatus({ test }: { test: ModelTestState }) {
         className="inline-flex items-center gap-1.5 text-[12px] text-foreground-secondary"
         role="status"
       >
-        <LoadingOrb aria-hidden size={14} /> Testing the model…
+        <LoadingOrb aria-hidden size={14} state="solving" /> Testing the model…
       </span>
     );
   }

@@ -2,7 +2,7 @@ import XCTest
 
 @MainActor
 final class NativeSmokeTests: XCTestCase {
-  let base = URL(string: "http://127.0.0.1:19997")!
+  let base = URL(string: ProcessInfo.processInfo.environment["NATIVE_SMOKE_SERVER"] ?? "http://127.0.0.1:19997")!
   func control(_ path: String, body: [String: Bool] = [:]) async throws {
     var request = URLRequest(url: base.appendingPathComponent(path))
     request.httpMethod = "POST"
@@ -45,7 +45,7 @@ final class NativeSmokeTests: XCTestCase {
     app.textFields["thread-message-input"].typeText("First isolated reply")
     XCTAssertEqual(app.textFields["thread-message-input"].value as? String, "First isolated reply")
     app.buttons["thread-send-button"].tap()
-    XCTAssertTrue(app.staticTexts["Waiting for connection"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["Not delivered"].waitForExistence(timeout: 15))
     capture("native-thread-offline", app)
     app.buttons["thread-back"].tap()
     XCTAssertTrue(app.staticTexts["First isolated reply"].waitForExistence(timeout: 5))
@@ -55,9 +55,10 @@ final class NativeSmokeTests: XCTestCase {
     XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.staticTexts["First isolated reply"].waitForExistence(timeout: 5))
     try await control("__qa/control", body: ["offline": false])
+    app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'retry-send-'")).firstMatch.tap()
     let reconciled = expectation(
       for: NSPredicate(format: "exists == false"),
-      evaluatedWith: app.staticTexts["Waiting for connection"])
+      evaluatedWith: app.staticTexts["Not delivered"])
     await fulfillment(of: [reconciled], timeout: 20)
     app.textFields["thread-message-input"].tap()
     app.textFields["thread-message-input"].typeText("Second isolated reply")
@@ -167,7 +168,7 @@ final class NativeSmokeTests: XCTestCase {
     let appearance = app.buttons["appearance-picker"]
     for _ in 0..<4 where !(appearance.exists && appearance.isHittable) { app.swipeUp() }
   }
-  func testOfflineMessageReconcilesAfterReconnect() async throws {
+  func testFailedMessageRetriesAfterReconnect() async throws {
     let app = try await launch()
     app.buttons["channel-channel-research"].tap()
     XCTAssertTrue(input(app).waitForExistence(timeout: 10))
@@ -175,9 +176,10 @@ final class NativeSmokeTests: XCTestCase {
     input(app).tap()
     input(app).typeText("Offline native recovery")
     app.buttons["send-button"].tap()
-    XCTAssertTrue(app.staticTexts["Waiting for connection"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["Not delivered"].waitForExistence(timeout: 15))
     capture("native-offline-queued", app)
     try await control("__qa/control", body: ["offline": false])
+    app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'retry-send-'")).firstMatch.tap()
     var accepted = false
     for _ in 0..<30 {
       let (data, _) = try await URLSession.shared.data(
@@ -195,7 +197,7 @@ final class NativeSmokeTests: XCTestCase {
     XCTAssertTrue(accepted)
     let reconciled = expectation(
       for: NSPredicate(format: "exists == false"),
-      evaluatedWith: app.staticTexts["Waiting for connection"])
+      evaluatedWith: app.staticTexts["Not delivered"])
     await fulfillment(of: [reconciled], timeout: 10)
     capture("native-offline-recovered", app)
   }

@@ -229,7 +229,7 @@ if (process.env.OPENTEAM_DOCTOR_STORAGE === "computer" && process.getuid() === 0
   const identity = (value, fallback) => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : fallback;
   process.setgroups([]);
   process.setgid(identity(process.env.OPENTEAM_AGENT_GID, 1000));
-  process.setuid(identity(process.env.OPENTEAM_AGENT_UID, 1001));
+  process.setuid(identity(process.env.OPENTEAM_AGENT_UID, 1000));
 }
 for (const root of roots) {
   let directory;

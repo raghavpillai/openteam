@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -43,7 +43,8 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       content.match(
         /^<timestamp>[^\n]+<\/timestamp>\n<user_query>\n([\s\S]*?)\n<\/user_query>(?:\n\n[\s\S]*)?$/
       )?.[1] ?? content;
-    return body.replace(/^\[t\d+u\]\s?/, "");
+    // Route this fake computer by the user's text, without the appended file annotation.
+    return body.replace(/^\[t\d+u\]\s?/, "").split("\n\nThe user attached a file.")[0]!;
   };
   const fakeComputer = Bun.serve({
     hostname: "127.0.0.1",
@@ -173,6 +174,8 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     },
   });
 
+  const envKeys = ["DATABASE_URL", "OPENTEAM_COMPUTER_URL", "OPENTEAM_CONTROL_TOKEN", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_AGENT_DATA_ROOT"] as const;
+  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   process.env.DATABASE_URL = databaseUrl;
   process.env.OPENTEAM_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
   process.env.OPENTEAM_CONTROL_TOKEN = "integration-control-token";
@@ -180,6 +183,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
   process.env.OPENTEAM_AGENT_DATA_ROOT = join(workspace, "agent-data");
 
   let app: AppService | null = null;
+  let restoreTimeZone = async () => {};
   let worker: WakeWorker | null = null;
   const close = async () => {
     if (worker) await worker.stop();
@@ -190,10 +194,18 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
 
   try {
     app = new AppService();
+    const previousZone = await app.prisma.userTimeZoneSettings.findUnique({ where: { id: "global" } });
+    restoreTimeZone = async () => {
+      await app!.prisma.userTimeZoneSettings.deleteMany({ where: { id: "global" } });
+      if (previousZone) await app!.prisma.userTimeZoneSettings.create({ data: previousZone });
+    };
     await app.prisma.$executeRawUnsafe(
       'TRUNCATE TABLE "Computer", "Bot", "OutboxDelivery", "Event", "IdempotencyRecord" CASCADE'
     );
     await Effect.runPromise(app.boot());
+    await app.agentData.writeInferenceSettings({
+      providerId: "openai-codex", modelId: "fake", reasoning: "medium",
+    });
     worker = new WakeWorker();
     await worker.start();
 
@@ -274,9 +286,12 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(seenTurns[0]?.cwd).toBe(bot.defaultDirectory);
     expect(seenTurns[0]?.images).toEqual([inlineImage]);
     expect(seenTurns[0]?.content).toMatch(
-      /^<timestamp>.+ \(UTC\+3\)<\/timestamp>\n<user_query>\n\[t\d+u\] first\n<\/user_query>/
+      /<timestamp>[^\n]+<\/timestamp>\n<user_query>\n\[t\d+u\]\nfirst\n\nThe user attached a file\. They're stored off your box at the paths below[^]*\n<\/user_query>$/
     );
-    expect(seenTurns[0]?.content).toContain("Attached files available on the shared computer:");
+    const offset = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", timeZoneName: "shortOffset" })
+      .formatToParts(new Date()).find((part) => part.type === "timeZoneName")!.value.replace("GMT", "UTC");
+    expect(firstSeenTurn.content).toContain(`(${offset})</timestamp>`);
+    expect(firstSeenTurn.content).toContain('("image.png", 68 B)');
     expect(seenTurns[0]?.content).toContain(
       join(workspace, "agent-data", "agents", bot.id, "attachments", `${uploadedImage.assetId}.png`)
     );
@@ -723,10 +738,9 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(
       groupSnapshot.channelRounds.find((round) => round.id === accepted.round.id)?.status
     ).toBe("completed");
-    // Same-epoch directory edits arrive as instruction updates after the frozen
-    // system prefix. Check the context delivered to the model, not only that prefix.
+    // Teammate and group IDs are in the per-turn user_info catalog.
     expect(
-      groupTurns.every((turn) => `${turn.instructions}\n${turn.content}`.includes(group.id))
+      groupTurns.every((turn) => turn.userInfo?.includes(group.id))
     ).toBe(true);
     expect(
       groupTurns.every(
@@ -752,7 +766,20 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       )
     ).toBe(true);
   } finally {
-    await close();
+    if (worker) await worker.stop();
+    worker = null;
+    if (app) {
+      const owned = await app.prisma.bot.findMany({ where: { defaultDirectory: { startsWith: workspace } }, select: { id: true } });
+      await app.prisma.bot.deleteMany({ where: { id: { in: owned.map((bot) => bot.id) } } });
+      await app.prisma.channel.deleteMany({ where: { kind: "group", workingDirectory: workspace } });
+      await restoreTimeZone();
+      await Effect.runPromise(app.close());
+    }
     fakeComputer.stop(true);
+    for (const key of envKeys) {
+      if (previousEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = previousEnv[key];
+    }
+    await rm(workspace, { recursive: true, force: true });
   }
 }, 90_000);

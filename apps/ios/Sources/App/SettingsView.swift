@@ -79,7 +79,6 @@ struct SettingsView: View {
         }
         Section {
           NavigationLink("Bot notifications") { notificationSettings }
-          NavigationLink("Hidden conversations") { HiddenConversationsView() }
         } header: {
           Text("Bot").font(.system(size: 13)).foregroundStyle(NativePalette.faint)
         }
@@ -212,26 +211,6 @@ struct SettingsView: View {
     }.navigationTitle("Bot notifications")
   }
 }
-struct HiddenConversationsView: View {
-  @Environment(AppStore.self) private var store
-  var body: some View {
-    NativeList {
-      if store.channels.filter(store.isHidden).isEmpty {
-        ContentUnavailableView(
-          "No hidden conversations", systemImage: "eye.slash",
-          description: Text("Conversations you hide appear here."))
-      }
-      ForEach(store.channels.filter(store.isHidden)) { channel in
-        HStack {
-          ChannelAvatar(channel: channel, size: 36)
-          Text(channel.name)
-          Spacer()
-          Button("Show") { Task { await store.hide(channel, hidden: false) } }
-        }
-      }
-    }.navigationTitle("Hidden conversations")
-  }
-}
 /// One computer: its name, a status dot, and "Computer · Online now · Messages on".
 struct ManagedDeviceRow: View {
   let machine: JSON
@@ -336,6 +315,8 @@ struct ServerStatusSections: View {
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
               .foregroundStyle(NativePalette.muted).accessibilityHidden(true)
           }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityIdentifier("server-view-updates")
       }
       ServerActivitySection()
@@ -352,6 +333,8 @@ struct ServerStatusSections: View {
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
               .foregroundStyle(NativePalette.muted).accessibilityHidden(true)
           }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityIdentifier("server-manage-devices")
       }
       Button("Refresh") { Task { await loadRelease(); await store.refresh() } }
@@ -369,7 +352,6 @@ struct ConversationDetails: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   let channelID: String
-  var onDuplicate: (String) -> Void = { _ in }
   @State private var name = ""
   @State private var description = ""
   @State private var instructions = ""
@@ -377,12 +359,10 @@ struct ConversationDetails: View {
   @State private var resetAvatar = false
   @State private var deleting = false
   @State private var saving = false
-  @State private var duplicateID = UUID().uuidString
   @State private var color = "#A47952"
   @State private var icon = "chip"
   @State private var title = ""
   @State private var initialized = false
-  @State private var duplicating = false
   @State private var failure: String?
   @State private var addingRoutine = false
   @State private var editingRoutine: Routine?
@@ -541,20 +521,6 @@ struct ConversationDetails: View {
           ToolbarItem(placement: .topBarTrailing) {
             Menu {
               if let bot {
-                Button("Duplicate bot", systemImage: "plus.square.on.square") {
-                  Task {
-                    guard !duplicating else { return }
-                    duplicating = true
-                    defer { duplicating = false }
-                    if let result = await store.mutate(
-                      "/api/v0/bots/\(API.segment(bot.id))/duplicate",
-                      body: .object(["clientRequestId": .string(duplicateID)]))
-                    {
-                      onDuplicate(result["dmChannelId"].string)
-                      dismiss()
-                    }
-                  }
-                }.disabled(duplicating)
                 if bot.status == "failed" {
                   Button("Retry setup") {
                     Task { await store.mutate("/api/v0/bots/\(API.segment(bot.id))/retry") }

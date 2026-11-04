@@ -161,7 +161,7 @@ try {
     await page.getByLabel("Estimated upload 9.2 megabits per second").isVisible(),
     "manual exit test shows upload estimate"
   );
-  await page.getByRole("checkbox", { name: "Use this computer as network" }).check();
+  await page.getByRole("checkbox", { name: "Route browser traffic through this computer" }).check();
   await page.locator('[data-network-source="home"]').waitFor();
   assert(
     await page

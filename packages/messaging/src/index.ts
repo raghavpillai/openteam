@@ -14,7 +14,7 @@ export {
 } from "./quiet-revival";
 import { automationContextRoutine, quietRoutineOriginNote, renderQuietRevivalBatchPrompt } from "./quiet-revival";
 import { mediaReviewPrompt, renderMainBoxSection, renderWorkerBoxSection, renderWorkerTimeSection, WORKER_READONLY_LINE, USER_IDENTITY_LINE } from "./worker-prompts";
-import { attachmentContext } from "./attachment-context";
+import { attachedFilesContext } from "./attachment-context";
 import { listSiblingThreads, renderOtherActiveConversations } from "./sibling-threads";
 import { nextMessageAddress, resolveMessageAddress } from "./message-address";
 export { nextMessageAddress, resolveMessageAddress } from "./message-address";
@@ -46,7 +46,7 @@ import {
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { fromPrisma, type PgBoss } from "pg-boss";
 import { AgentDataStore, type AgentPromptContext } from "./agent-data";
-import { AssetStore, MAX_MESSAGE_ASSETS } from "./asset-store";
+import { AssetStore, MAX_MESSAGE_ASSETS, inlineTurnImages } from "./asset-store";
 import {
   GROUP_MAX_MEMBER_TURNS,
   GROUP_MAX_MEMBERS,
@@ -973,21 +973,24 @@ export class AgentMessaging {
     }
     const messageId = crypto.randomUUID();
     const runId = crypto.randomUUID();
-    const baseRuntimeContent =
-      input.origin === "bootstrap" || input.wrapUserContent === false
-        ? input.content
-        : timestampUserTurn(input.content, {
-            occurredAt: input.occurredAt,
-            timeZone,
-          });
     const attachments = await this.attachmentsForWake(input);
     const attachmentPaths =
       input.includeAttachmentPaths === false
         ? []
         : preparedAttachmentPaths ?? await this.agentData.materializeAttachments(bot.id, input.clientId, attachments);
-    const runtimeContent = attachmentPaths.length
-      ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentContext(attachmentPaths, attachments)}`
-      : baseRuntimeContent;
+    // As in the reference: the attachment note follows the user's words inside the query, and
+    // any videos are announced in their own block ahead of the turn's text.
+    const attached = attachedFilesContext(attachmentPaths, attachments,
+      new Set(inlineTurnImages(attachments).map((asset) => asset.assetId)));
+    const content = attached.note ? `${input.content}\n\n${attached.note}` : input.content;
+    const turnContent =
+      input.origin === "bootstrap" || input.wrapUserContent === false
+        ? content
+        : timestampUserTurn(content, {
+            occurredAt: input.occurredAt,
+            timeZone,
+          });
+    const runtimeContent = attached.videos ? `${attached.videos}\n\n${turnContent}` : turnContent;
     const message = await tx.message.create({
       data: {
         id: messageId,

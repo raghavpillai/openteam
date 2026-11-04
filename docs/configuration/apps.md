@@ -10,19 +10,19 @@ Some settings apply to one device, some to one bot, and some to your whole serve
 | **Computer** | The current computer's name and Messages access and permissions |
 | **Model** | AI provider and account, model, reasoning effort, and connection test |
 | **Voice notes** | Transcription provider, model, API key, language, and connection test |
-| **Server** | Connected server version and a link to Updates, server activity, remote access, connected computers, and the bot screen size |
+| **Server** | Browser network priority and connection test, connected server version and a link to Updates, server activity, remote access, connected computers, and the bot screen size |
 | **Providers** | Which service bots use for [web search and page fetching](web-search.md), and those services' API keys |
 | **Updates** | Desktop app and server updates |
 
-**Model**, **Voice notes**, **Server**, and **Providers** settings apply to every bot and every app connected to your server; changing the model there changes it for all bots. Theme, microphone, the current computer's name, and Messages access apply only to the device you're using. The bot screen size and the list of connected computers live in **Server** and apply to your whole server.
+**Model**, **Voice notes**, **Server**, and **Providers** settings apply to every bot and every app connected to your server; changing the model there changes it for all bots. Theme, microphone, the current computer's name, and Messages access apply only to the device you're using. The bot screen size, browser network priority, and list of connected computers live in **Server** and apply to your whole server. Permission to [share a computer's internet connection](../usage/computer.md#route-browser-traffic-through-a-connected-computer) is granted locally on that computer.
 
 Each bot also has its own settings. Open the bot and select its name at the top of the conversation to change its name, label, avatar, and description.
 
 ## iPhone settings
 
-The iPhone app's **Settings → Model** lets you connect an AI provider and choose and test the model and reasoning effort for every bot on your server. These are the same settings as **Settings → Model** on desktop. Settings also covers voice notes, web providers, plugins, appearance, notifications, your account, and hidden conversations.
+The iPhone app's **Settings → Model** lets you connect an AI provider and choose and test the model and reasoning effort for every bot on your server. These are the same settings as **Settings → Model** on desktop. Settings also covers voice notes, web providers, plugins, appearance, notifications, and your account.
 
-**Settings → Server** shows the connected server's version, activity and services, with **Manage devices** for its connected computers and a **View updates** link. **Settings → Updates** contains server updates and a link to TestFlight for iOS app updates.
+**Settings → Server** shows browser network priority and a connection test, the connected server's version, activity and services, with **Manage devices** for its connected computers and a **View updates** link. The phone can manage browser network priority but cannot share its own connection. **Settings → Updates** contains server updates and a link to TestFlight for iOS app updates.
 
 ## Notifications
 
@@ -42,8 +42,7 @@ On iPhone, turn on **Notifications** in Settings, and choose which bots notify y
 1. Check that the bot isn't muted under **Settings → Bot notifications** in the iPhone app.
 2. Check that OpenTeam is allowed to send notifications in your system settings.
 3. Check that Focus or Do Not Disturb isn't silencing it.
-4. Check that the bot or conversation isn't hidden from the sidebar. Hidden bots don't send notifications.
-5. On iPhone, check that your server is set up for push notifications.
+4. On iPhone, check that your server is set up for push notifications.
 
 ## Sign out or switch servers
 

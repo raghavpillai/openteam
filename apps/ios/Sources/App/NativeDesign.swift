@@ -159,8 +159,10 @@ struct NativeChatGlass: ViewModifier {
 /// opacity as content scrolls.
 private struct ChromeFade: View {
   @Environment(\.colorScheme) private var scheme
-  @Environment(\.canvasColor) private var canvas
+  @Environment(\.canvasColor) private var inheritedCanvas
   var edge: VerticalEdge
+  var canvasOverride: Color? = nil
+  private var canvas: Color { canvasOverride ?? inheritedCanvas }
   var body: some View {
     LinearGradient(
       stops: [
@@ -211,10 +213,26 @@ private struct BackdropBlur: UIViewRepresentable {
   }
 }
 
+/// Duo's side status area leaves the top safe area available for the header.
+/// A native top bar instead follows UIKit's lower toolbar guide there.
+private struct FloatingTopBar<Bar: View>: ViewModifier {
+  @Environment(\.usesTopToolbarGuide) private var usesToolbarGuide
+  var bar: Bar
+  func body(content: Content) -> some View {
+    if #available(iOS 26, *), usesToolbarGuide {
+      content.safeAreaBar(edge: .top, spacing: 0) { bar }
+    } else {
+      content.safeAreaInset(edge: .top, spacing: 0) { bar }
+    }
+  }
+}
+
 /// GrokBot's conversation list uses the chat's fade beneath its header. The
 /// system soft scroll edge hides rows much sooner, so it is disabled here.
 private struct FadingTopBar<Bar: View>: ViewModifier {
   var bar: Bar
+  var canvas: Color? = nil
+  var showsFade = true
   @State private var barHeight: CGFloat = 0
   func body(content: Content) -> some View {
     if #available(iOS 26, *) {
@@ -222,13 +240,12 @@ private struct FadingTopBar<Bar: View>: ViewModifier {
         content
           .overlay(alignment: .top) {
             // Match the chat's fade, measured from the top of the screen.
-            ChromeFade(edge: .top)
+            ChromeFade(edge: .top, canvasOverride: canvas).opacity(showsFade ? 1 : 0)
               .frame(height: viewport.safeAreaInsets.top + 104)
               .offset(y: -viewport.safeAreaInsets.top - barHeight)
           }
-          .safeAreaBar(edge: .top, spacing: 0) {
-            bar.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
-          }
+          .modifier(FloatingTopBar(bar:
+            bar.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }))
           .scrollEdgeEffectHidden(true, for: .top)
       }
     } else {
@@ -258,9 +275,8 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
               // header so the fade still reaches the top of the viewport.
               .offset(y: -viewport.safeAreaInsets.top - topBarHeight)
           }
-          .safeAreaBar(edge: .top, spacing: 0) {
-            top.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topBarHeight = $0 }
-          }
+          .modifier(FloatingTopBar(bar:
+            top.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topBarHeight = $0 }))
           // The composer needs a stable native inset while becoming first
           // responder. The iOS 26 scroll-pocket bar can relinquish its editor
           // during the first keyboard transition.
@@ -307,8 +323,9 @@ extension View {
     modifier(ChatFloatingBars(top: top(), bottom: bottom()))
   }
   #endif
-  func fadingTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
-    modifier(FadingTopBar(bar: bar()))
+  func fadingTopBar<Bar: View>(canvas: Color? = nil, showsFade: Bool = true,
+    @ViewBuilder _ bar: () -> Bar) -> some View {
+    modifier(FadingTopBar(bar: bar(), canvas: canvas, showsFade: showsFade))
   }
   #if !SHARE_EXTENSION
   func dismissKeyboardOnTap() -> some View {
@@ -374,6 +391,7 @@ extension EnvironmentValues {
   /// Extra space above top bars when the status bar sits beside them, as on
   /// iPhone Duo, so their controls line up with the clock like system bars do.
   @Entry var topBarClearance: CGFloat = 0
+  @Entry var usesTopToolbarGuide = true
 }
 
 struct ChromeButton: View {
@@ -393,6 +411,7 @@ struct ChromeButton: View {
 }
 
 struct ChatChromeButton: View {
+  @Environment(\.nativeRailControl) private var nativeRailControl
   var title: String
   var symbol: String
   var symbolSize: CGFloat = 16
@@ -403,18 +422,53 @@ struct ChatChromeButton: View {
     Button(action: action) {
       Image(systemName: symbol).font(.system(size: symbolSize, weight: symbolWeight))
         .frame(width: 44, height: 44).foregroundStyle(NativePalette.text)
-        .nativeChatGlass(regularInLightMode: regularInLightMode).contentShape(Rectangle())
+        .modifier(ChatButtonGlass(isRail: nativeRailControl, regularInLightMode: regularInLightMode))
+        .contentShape(Circle())
     }.buttonStyle(.plain).accessibilityLabel(title)
+  }
+}
+extension EnvironmentValues {
+  @Entry var nativeRailControl = false
+}
+
+/// The rail's complete rim is drawn inside the circular hit target. Native
+/// glass can cast its shadow outside it without cutting a notch in the edge.
+struct RailControlGlass: ViewModifier {
+  @Environment(\.colorScheme) private var scheme
+  func body(content: Content) -> some View {
+    if #available(iOS 26, *) {
+      content.glassEffect(
+        (scheme == .dark
+          ? Glass.clear.tint(Color(white: 0.22).opacity(0.65))
+          : Glass.regular.tint(.black.opacity(0.025))).interactive(), in: Circle()
+      ).overlay {
+        Circle().strokeBorder(scheme == .dark ? .white.opacity(0.1) : .black.opacity(0.12), lineWidth: 0.5)
+          .allowsHitTesting(false)
+      }
+    } else {
+      content.background(.regularMaterial, in: Circle())
+        .overlay(Circle().strokeBorder(NativePalette.separator, lineWidth: 0.5))
+    }
+  }
+}
+
+private struct ChatButtonGlass: ViewModifier {
+  var isRail: Bool
+  var regularInLightMode: Bool
+  func body(content: Content) -> some View {
+    if isRail { content.modifier(RailControlGlass()) }
+    else { content.nativeChatGlass(regularInLightMode: regularInLightMode) }
   }
 }
 struct AccountMark: View {
   var name: String
   var size: CGFloat = 38
+  var initialsScale: CGFloat = 0.35
   var initials: String {
     String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
   }
   var body: some View {
-    Text(initials.isEmpty ? "OT" : initials).font(.system(size: size * 0.35, weight: .medium))
+    Text(initials.isEmpty ? "OT" : initials).font(.system(size: size * initialsScale, weight: .medium))
       .foregroundStyle(NativePalette.muted).frame(width: size, height: size)
       .background(NativePalette.muted.opacity(0.13), in: Circle())
   }

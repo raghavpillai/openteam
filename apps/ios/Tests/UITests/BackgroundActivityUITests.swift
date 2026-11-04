@@ -32,6 +32,47 @@ import XCTest
   func testBackgroundTaskLifecycleInDarkMode() async throws {
     try await checkBackgroundTaskLifecycle(appearance: "dark")
   }
+  func testParkedRequestsAndChildrenHaveNoIndicatorUntilActualWake() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "background-activity"])
+    let old: [String: Any] = ["id": "old-follow-up", "botId": "bot-visual-chat",
+      "channelId": "visual-chat", "status": "completed", "requestState": "waiting",
+      "requestNextCheckAt": "2099-11-04T08:00:00Z"]
+    let latest: [String: Any] = ["id": "latest-result", "botId": "bot-visual-chat",
+      "channelId": "visual-chat", "status": "completed", "requestState": "complete"]
+    let parked = (0..<8).map { index -> [String: Any] in
+      var child = task("waiting")
+      child["id"] = "parked-\(index)"
+      child["subagentId"] = "parked-\(index)"
+      return child
+    }
+    try await control("__qa/control", ["runs": [old, latest], "subagents": parked])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate() }
+    XCTAssertTrue(app.staticTexts["I’m checking the receipt. I’ll send you the tracking number when it’s ready."].waitForExistence(timeout: 15))
+    let activity = app.descendants(matching: .any).matching(identifier: "bot-activity").firstMatch
+    await waitForActivity(activity, visible: false)
+    for status in ["queued", "running"] {
+      var wake = old
+      wake["id"] = "wake"
+      wake["status"] = status
+      try await control("__qa/control", ["runs": [old, latest, wake]])
+      await waitForActivity(activity, visible: true)
+      XCTAssertEqual(activity.label, "New Bot is working")
+      try await control("__qa/control", ["runs": [old, latest]])
+      await waitForActivity(activity, visible: false)
+    }
+    try await control("__qa/control", ["subagents": parked + [task("running")]])
+    await waitForActivity(activity, visible: true)
+    XCTAssertEqual(activity.label, "Working in the background")
+    try await control("__qa/control", ["subagents": parked])
+    await waitForActivity(activity, visible: false)
+    XCTAssertFalse(app.staticTexts["Waiting for a result"].exists)
+    XCTAssertFalse(app.staticTexts["Follow-up scheduled"].exists)
+  }
   private func checkBackgroundTaskLifecycle(appearance: String) async throws {
     continueAfterFailure = false
     try await control("__qa/scene", ["scene": "background-activity"])

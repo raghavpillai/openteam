@@ -90,6 +90,12 @@ final class AppStore {
   private var needsIdentityRefresh = false
   private var generation = UUID()
   private var sending = false
+  private var flushRequested = false
+  private(set) var activeSendID: String?
+  private(set) var checkingSendID: String?
+  private var requestedSendIDs: Set<String> = []
+  var sendStallTimeout: Duration = .seconds(10)
+  var sendOverallTimeout: Duration = .seconds(120)
   private var foreground = true
   private var testing = false
   private let testDirectory: URL = {
@@ -135,6 +141,7 @@ final class AppStore {
   /// A saved transcript that lacks the newest message bootstrap or a push announced.
   func transcriptBehind(_ id: String) -> Bool {
     guard hasCachedHistory(id), historyWindows[id]?.hasLater != true else { return false }
+    if state.incompleteHistoryChannels?.contains(id) == true { return true }
     let bootstrap = state.bootstrap?.latestMessages.last(where: { $0.channelId == id })?.sequence
     let known = [bootstrap, notifiedLatest[id]].compactMap { $0 }
       .max { MessageMerge.less($0, $1) }
@@ -167,9 +174,6 @@ final class AppStore {
     return messages(id).filter { window.contains($0) }
   }
   func draft(_ id: String) -> Draft { drafts[id] ?? Draft() }
-  func isHidden(_ channel: Channel) -> Bool {
-    bot(for: channel)?.hiddenFromSidebar ?? channel.hiddenFromSidebar ?? false
-  }
   func activeRuns(_ id: String) -> [Run] {
     (state.bootstrap?.activeRuns ?? []).filter { $0.channelId == id && $0.isActive }
   }
@@ -456,6 +460,11 @@ final class AppStore {
     awaitingInitialSync = !launchComplete
     syncUnavailable = false
     generation = UUID()
+    activeSendID = nil
+    checkingSendID = nil
+    sending = false
+    flushRequested = false
+    requestedSendIDs.removeAll()
     navigation = []
     landing = nil
     activeChannel = nil
@@ -463,7 +472,8 @@ final class AppStore {
     historyLoadFailures.removeAll()
     historyWindows = [:]
     if let systemScope, systemScope != scope {
-      systemDraft = nil; pendingSystemItem = nil
+      systemDraft = nil
+      pendingSystemItem = nil
       botVoiceLaunch.reset()
       SystemDiscovery.shared.clear(removeTransfers: true)
     }
@@ -496,8 +506,9 @@ final class AppStore {
           }
           try await openSystemItem(pending.id, draft: pending.draft,
             attachments: pending.attachments, recordVoiceNote: pending.record)
+        } catch {
+          if !UserFacingError.isCancelled(error) { self.error = UserFacingError.message(error) }
         }
-        catch { if !UserFacingError.isCancelled(error) { self.error = UserFacingError.message(error) } }
       }
     }
     #if canImport(UIKit)
@@ -513,6 +524,7 @@ final class AppStore {
       || previous?.channels.map { "\($0.id):\($0.name):\($0.hiddenFromSidebar == true)" }
         != bootstrap.channels.map { "\($0.id):\($0.name):\($0.hiddenFromSidebar == true)" }
     state.bootstrap = bootstrap
+    let pendingNonces = Set(state.outbox.map(\.id))
     decideOnboarding()
     if !testing, directoryChanged { TeamAppShortcuts.updateAppShortcutParameters() }
     for (channel, messages) in Dictionary(grouping: bootstrap.latestMessages, by: \.channelId) {
@@ -522,12 +534,22 @@ final class AppStore {
       // Previews read it through latestMessage(_:).
       if hasCachedHistory(channel) {
         let known = Set(self.messages(channel).map(\.id))
-        let updates = messages.filter { known.contains($0.id) }
-        if !updates.isEmpty { merge(updates, channel: channel) }
+        let updates = messages.filter {
+          known.contains($0.id) || $0.clientId.map { pendingNonces.contains($0) } == true
+        }
+        // A locally queued message must have its confirmed replacement installed
+        // before bootstrap acceptance cancels the outstanding acknowledgement.
+        if !updates.isEmpty {
+          if updates.contains(where: { !known.contains($0.id) }) {
+            state.incompleteHistoryChannels = (state.incompleteHistoryChannels ?? []).union([channel])
+          }
+          state.messages[channel] = MessageMerge.merge(self.messages(channel), updates)
+        }
       } else {
         merge(messages, channel: channel)
       }
     }
+    confirmDelivery(bootstrap.latestMessages)
     #if canImport(UIKit)
       NativeNotifications.shared.apply(channels: bootstrap.channels)
     #endif
@@ -586,12 +608,18 @@ final class AppStore {
     persist()
   }
   func stage(_ data: Data, name: String, mime: String, channel: String) throws {
+    try stage(channel: channel) { try $0.stage(data, fileName: name, mimeType: mime) }
+  }
+  func stage(fileAt url: URL, name: String, mime: String, channel: String) throws {
+    try stage(channel: channel) { try $0.stage(fileAt: url, fileName: name, mimeType: mime) }
+  }
+  private func stage(channel: String, write: (DiskStore) throws -> StagedFile) throws {
     guard let disk else { throw APIError("Connect to a server before attaching a file.") }
     var draft = draft(channel)
     guard draft.attachments.count + (draft.stagedFiles?.count ?? 0) < Draft.maxAttachments else {
       throw APIError("A message can contain up to \(Draft.maxAttachments) attachments.")
     }
-    let file = try disk.stage(data, fileName: name, mimeType: mime)
+    let file = try write(disk)
     draft.stagedFiles = (draft.stagedFiles ?? []) + [file]
     var next = savedSnapshot
     next.drafts[channel] = draft
@@ -602,6 +630,7 @@ final class AppStore {
       throw error
     }
   }
+  func stagedFileURL(_ file: StagedFile) -> URL? { try? disk?.fileURL(file) }
   func removeStagedFile(_ file: StagedFile, channel: String) {
     var next = savedSnapshot
     next.drafts[channel]?.stagedFiles?.removeAll { $0.id == file.id }
@@ -745,7 +774,9 @@ final class AppStore {
       guard let self else { return }
       await refreshSession(epoch: epoch, sync: sync)
       guard epoch == generation, !Task.isCancelled, phase == .ready else { return }
-      await flush()
+      // Sending may include a progressing upload. Keep consuming acceptance
+      // events while it runs so acknowledgement reconciliation stays responsive.
+      Task { if epoch == generation { await flush() } }
       guard epoch == generation, !Task.isCancelled, phase == .ready else { return }
       if let activeChannel { await loadHistory(activeChannel) }
       syncBackgroundHistories(epoch: epoch)
@@ -759,8 +790,10 @@ final class AppStore {
           guard epoch == generation else { return }
           let reconnectSync = online ? nil : beginStateSync()
           defer { if let reconnectSync { stateSyncs.remove(reconnectSync) } }
-          delay = 1
-          if reconnectSync != nil || !batch.events.isEmpty {
+          online = true
+          if reconnectSync != nil || !batch.events.isEmpty
+            || activeChannel.map({ historyLoadFailures.contains($0) }) == true
+          {
             // Reconcile authoritative bounded projections. Advance the cursor only after reconciliation succeeds.
             let bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
             try Task.checkCancellation()
@@ -781,12 +814,13 @@ final class AppStore {
             cursor = bootstrap.cursor
             persist()
           }
-          online = true
           syncUnavailable = false
+          delay = 1
           if let reconnectSync { stateSyncs.remove(reconnectSync) }
-          await flush()
+          Task { if epoch == generation { await flush() } }
         } catch {
           if Task.isCancelled || epoch != generation { return }
+          if let activeChannel { historyLoadFailures.insert(activeChannel) }
           handle(error, quiet: true)
           try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
           delay = min(delay * 2, 30)
@@ -859,7 +893,7 @@ final class AppStore {
   /// that was never loaded. The open chat already reads its own history.
   private func backgroundHistoryNeeded(_ id: String) -> Bool {
     guard id != activeChannel, !busy.contains("history-" + id),
-      let channel = channel(id), channel.hiddenFromSidebar != true
+      let channel = channel(id), channel.kind != "agent_dm"
     else { return false }
     guard hasCachedHistory(id) else {
       return (channel.unreadCount ?? 0) > 0
@@ -879,23 +913,33 @@ final class AppStore {
       if epoch == generation, !Task.isCancelled,
         !(error is CancellationError), (error as? URLError)?.code != .cancelled
       {
-        if !older { historyLoadFailures.insert(id) }
-        // Initial-load errors are rendered in the chat when no saved content is
-        // available. Cached transcripts stay readable; pagination still reports
-        // its error without replacing the transcript.
-        handle(error, quiet: !older)
+        historyLoadFailures.insert(id)
+        // Loading errors belong to the transcript; cached messages stay readable.
+        handle(error, quiet: true)
       }
     }
   }
   private func fetchHistory(_ id: String, before: String?, api: API, epoch: UUID) async throws {
     var query = ["limit": "60"]
     if let before { query["before"] = before }
-    let page = try await api.get(
-      "/api/v0/channels/\(API.segment(id))/history", as: History.self, query: query)
+    let page: History
+    do {
+      page = try await api.get(
+        "/api/v0/channels/\(API.segment(id))/history", as: History.self, query: query)
+    } catch {
+      if epoch == generation, !UserFacingError.isCancelled(error) {
+        historyLoadFailures.insert(id)
+      }
+      throw error
+    }
     guard epoch == generation, !Task.isCancelled else { return }
     historyLoadFailures.remove(id)
+    confirmDelivery(page.threadContext + page.messages)
     // The latest page is authoritative for what a notification announced.
-    if before == nil { notifiedLatest[id] = nil }
+    if before == nil {
+      notifiedLatest[id] = nil
+      state.incompleteHistoryChannels?.remove(id)
+    }
     if before != nil {
       state.messages[id] = MessageMerge.merge(messages(id), page.threadContext + page.messages)
       historyWindows[id]?.extend(page.messages, earlier: true, hasMore: page.hasMore)
@@ -916,10 +960,17 @@ final class AppStore {
       ids.contains($0.id) || historyWindows[channel]?.contains($0) != false
     }
     state.messages[channel] = MessageMerge.merge(existing, visible)
+    confirmDelivery(incoming)
+  }
+  private func confirmDelivery(_ incoming: [Message]) {
     let accepted = Set(incoming.compactMap(\.clientId))
+    let files = state.outbox.filter { accepted.contains($0.id) }.flatMap { $0.stagedFiles ?? [] }
     state.outbox.removeAll { accepted.contains($0.id) }
+    for file in files { try? disk?.removeFile(file) }
   }
   private func install(_ page: History) {
+    state.incompleteHistoryChannels?.remove(page.channelId)
+    confirmDelivery(page.threadContext + page.messages)
     state.loadedHistoryChannels = (state.loadedHistoryChannels ?? []).union([page.channelId])
     histories[page.channelId] = page
     historyWindows[page.channelId] = HistoryWindow(
@@ -937,6 +988,7 @@ final class AppStore {
       guard page.channelId == channelID else {
         throw APIError("This message belongs to another conversation.")
       }
+      confirmDelivery(page.threadContext + page.messages)
       if preservingTimeline {
         state.messages[channelID] = MessageMerge.merge(messages(channelID), page.threadContext + page.messages)
         persist()
@@ -968,6 +1020,7 @@ final class AppStore {
         query: ["direction": "after", "limit": "60"])
       guard epoch == generation else { return }
       guard page.channelId == channelID else { throw APIError("The conversation changed.") }
+      confirmDelivery(page.threadContext + page.messages)
       state.messages[channelID] = MessageMerge.merge(messages(channelID), page.threadContext + page.messages)
       historyWindows[channelID]?.extend(page.messages, earlier: false, hasMore: page.hasMoreAfter)
       persist()
@@ -1098,6 +1151,7 @@ final class AppStore {
         NativeHaptics.play(.light, source: "message.retry")
       #endif
       state.outbox[i].failure = nil
+      requestedSendIDs.insert(id)
       persist()
     }
     await flush()
@@ -1149,12 +1203,31 @@ final class AppStore {
     }
   }
   func flush() async {
-    guard !sending, let api, online else { return }
+    guard let api else { return }
+    guard !sending else {
+      flushRequested = true
+      return
+    }
     sending = true
     let epoch = generation
-    defer { if epoch == generation { sending = false } }
+    defer {
+      if epoch == generation {
+        sending = false
+        activeSendID = nil
+        checkingSendID = nil
+        if flushRequested {
+          flushRequested = false
+          Task { await flush() }
+        }
+      }
+    }
     // One request per nonce at a time; after a timeout, reconcile before resubmitting that same nonce.
-    for pending in state.outbox where pending.failure == nil {
+    for pending in state.outbox where pending.failure == nil
+      && (pending.deliveryUnconfirmed != true || requestedSendIDs.contains(pending.id))
+    {
+      requestedSendIDs.remove(pending.id)
+      activeSendID = pending.id
+      checkingSendID = pending.deliveryUnconfirmed == true ? pending.id : nil
       guard epoch == generation, !Task.isCancelled else { return }
       guard let channel = channel(pending.channelId) else {
         if let index = state.outbox.firstIndex(where: { $0.id == pending.id }) {
@@ -1164,72 +1237,226 @@ final class AppStore {
         }
         continue
       }
-      do {
-        let delivery = try await api.get(
-          "/api/v0/channels/\(API.segment(channel.id))/message-deliveries/\(API.segment(pending.id))",
-          as: DeliveryStatus.self)
-        guard epoch == generation else { return }
-        if let message = delivery.message {
+      // Progress extends the stall window, but never the overall cap. Repeated polls,
+      // response bytes and re-uploading the same prefix do not count as progress.
+      let budget = SendProgressBudget(stall: sendStallTimeout, overall: sendOverallTimeout)
+      var backoff: Duration = .milliseconds(500)
+      var lastDeliveryStatus: String?
+      var submitting = false
+      var uncertainBeforeSubmission = false
+      sendAttempt: while true {
+        guard epoch == generation, !Task.isCancelled else { return }
+        guard let current = state.outbox.first(where: { $0.id == pending.id }) else { break }
+        do {
+          let delivery = try await sendOperation(id: pending.id, epoch: epoch, budget: budget) {
+            try await api.get(
+              "/api/v0/channels/\(API.segment(channel.id))/message-deliveries/\(API.segment(pending.id))",
+              as: DeliveryStatus.self, timeout: budget.overallRemaining())
+          }
+          guard epoch == generation else { return }
+          if let message = delivery.message {
+            merge([message], channel: channel.id)
+            persist()
+            break sendAttempt
+          }
+          if delivery.status != lastDeliveryStatus {
+            if lastDeliveryStatus != nil || delivery.status != "not_found" { budget.progress() }
+            lastDeliveryStatus = delivery.status
+          }
+          if ["pending", "unknown_durability", "accepted"].contains(delivery.status) {
+            checkingSendID = pending.id
+            if let index = state.outbox.firstIndex(where: { $0.id == pending.id }) {
+              state.outbox[index].deliveryUnconfirmed = true
+              persist()
+            }
+            // The server contract returns the durable message for accepted delivery.
+            // An accepted-only malformed reply cannot erase the saved local content;
+            // keep checking without resubmitting until history or a valid lookup arrives.
+            throw SendPollingError.awaitingDelivery
+          }
+          if delivery.status == "rejected" {
+            if let index = state.outbox.firstIndex(where: { $0.id == pending.id }) {
+              state.outbox[index].deliveryUnconfirmed = false
+            }
+            throw APIError(delivery.messageText ?? "The server rejected this message.", status: 422)
+          }
+          guard delivery.status == "not_found" else {
+            throw APIError("The server returned an invalid delivery status.")
+          }
+          for file in current.stagedFiles ?? [] {
+            guard let disk else { throw APIError("The saved attachment is unavailable.") }
+            let bytes = try Data(contentsOf: disk.fileURL(file))
+            let (data, _) = try await sendOperation(id: pending.id, epoch: epoch, budget: budget) {
+              try await api.raw(
+                "/api/v0/assets", method: "POST", data: bytes, contentType: file.mimeType,
+                headers: [
+                  "x-file-name": file.fileName.addingPercentEncoding(
+                    withAllowedCharacters: .alphanumerics) ?? "File"
+                ], timeout: budget.overallRemaining(),
+                uploadProgress: { budget.uploadProgress(file: file.id, bytes: $0) })
+            }
+            guard epoch == generation,
+              let index = state.outbox.firstIndex(where: { $0.id == pending.id })
+            else { return }
+            let asset = try JSONDecoder().decode(Asset.self, from: data)
+            var next = savedSnapshot
+            next.outbox[index].input.attachments.append(asset)
+            next.outbox[index].uploadedFileIDs = next.outbox[index].uploadedFileIDs ?? [:]
+            next.outbox[index].uploadedFileIDs?[asset.assetId + ":" + asset.fileName] = file.id
+            next.outbox[index].stagedFiles?.removeAll { $0.id == file.id }
+            try commit(next)
+            try? disk.removeFile(file)
+            budget.progress()
+          }
+          guard let committed = state.outbox.first(where: { $0.id == pending.id }) else {
+            break sendAttempt
+          }
+          try budget.check()
+          guard let index = state.outbox.firstIndex(where: { $0.id == pending.id }) else {
+            break sendAttempt
+          }
+          // Commit uncertainty BEFORE the side effect, including across process termination.
+          uncertainBeforeSubmission = committed.deliveryUnconfirmed == true
+          var next = savedSnapshot
+          next.outbox[index].deliveryUnconfirmed = true
+          try commit(next)
+          submitting = true
+          let targetBot = bot(for: channel)
+          let message = try await sendOperation(id: pending.id, epoch: epoch, budget: budget) {
+            try await api.send(
+              channel: channel, bot: targetBot, input: committed.input,
+              timeout: budget.overallRemaining())
+          }
+          submitting = false
+          #if canImport(UIKit)
+            let donatedBot = bot(for: channel)
+            Task {
+              let image = await ConversationDonation.avatar(
+                channel: channel, bot: donatedBot, api: api)
+              ConversationDonation.donateSent(channel: channel, bot: donatedBot, image: image)
+            }
+          #endif
+          guard epoch == generation else { return }
           merge([message], channel: channel.id)
           persist()
-          continue
-        }
-        if delivery.status == "pending" || delivery.status == "unknown_durability" { continue }
-        if delivery.status == "rejected" {
-          throw APIError(delivery.messageText ?? "The server rejected this message.", status: 422)
-        }
-        guard delivery.status == "not_found" else { continue }
-        for file in pending.stagedFiles ?? [] {
-          guard let disk else { throw APIError("The saved attachment is unavailable.") }
-          let bytes = try Data(contentsOf: disk.fileURL(file))
-          let (data, _) = try await api.raw(
-            "/api/v0/assets", method: "POST", data: bytes, contentType: file.mimeType,
-            headers: [
-              "x-file-name": file.fileName.addingPercentEncoding(
-                withAllowedCharacters: .alphanumerics) ?? "File"
-            ])
-          guard epoch == generation,
-            let index = state.outbox.firstIndex(where: { $0.id == pending.id })
-          else { return }
-          let asset = try JSONDecoder().decode(Asset.self, from: data)
-          var next = savedSnapshot
-          next.outbox[index].input.attachments.append(asset)
-          next.outbox[index].stagedFiles?.removeAll { $0.id == file.id }
-          try commit(next)
-          try? disk.removeFile(file)
-        }
-        guard let committed = state.outbox.first(where: { $0.id == pending.id }) else { continue }
-        let message = try await api.send(
-          channel: channel, bot: bot(for: channel), input: committed.input)
-        #if canImport(UIKit)
-          let donatedBot = bot(for: channel)
-          Task {
-            let image = await ConversationDonation.avatar(channel: channel, bot: donatedBot, api: api)
-            ConversationDonation.donateSent(channel: channel, bot: donatedBot, image: image)
+          break sendAttempt
+        } catch {
+          guard epoch == generation, !Task.isCancelled else { return }
+          guard state.outbox.contains(where: { $0.id == pending.id }) else { break sendAttempt }
+          if submitting {
+            // Explicit validation/auth responses and failures to establish a connection
+            // prove this submission failed. Timeouts, connection loss and 5xx do not.
+            if Self.definitelyDidNotSubmit(error), !uncertainBeforeSubmission,
+              let index = state.outbox.firstIndex(where: { $0.id == pending.id })
+            {
+              state.outbox[index].deliveryUnconfirmed = false
+              persist()
+            }
+            submitting = false
+            if state.outbox.first(where: { $0.id == pending.id })?.deliveryUnconfirmed == true {
+              checkingSendID = pending.id
+            }
           }
-        #endif
-        guard epoch == generation else { return }
-        merge([message], channel: channel.id)
-        persist()
-      } catch {
-        guard epoch == generation else { return }
-        if let e = error as? APIError, (400..<500).contains(e.status), e.status != 401,
-          e.status != 408, e.status != 429
-        {
+          if Self.canRetrySend(error), budget.remaining > .zero {
+            let pause = min(backoff, budget.remaining)
+            do { try await Task.sleep(for: pause) } catch { return }
+            backoff = min(backoff * 2, .seconds(2))
+            continue sendAttempt
+          }
+          guard !UserFacingError.isCancelled(error) else { return }
+          if (error as? APIError)?.unauthorized == true {
+            handle(error, quiet: true)
+            return
+          }
           if let i = state.outbox.firstIndex(where: { $0.id == pending.id }) {
-            #if canImport(UIKit)
-              if state.outbox[i].failure == nil {
-                NativeHaptics.play(.error, source: "message.rejected")
-              }
-            #endif
-            state.outbox[i].failure = e.message
+            // A potentially accepted message is not a delivery failure. Leave it parked
+            // for explicit Retry (same nonce) or removal by incoming acceptance/history.
+            if state.outbox[i].deliveryUnconfirmed != true {
+              #if canImport(UIKit)
+                NativeHaptics.failure(error, source: "message.send")
+              #endif
+              state.outbox[i].failure = UserFacingError.message(
+                error is SendPollingError ? URLError(.timedOut) : error)
+            }
             persist()
           }
-        } else {
-          handle(error, quiet: true)
+          if !(error is SendPollingError) { handle(error, quiet: true) }
+        }
+        break sendAttempt
+      }
+    }
+  }
+  /// Cancellation also stops a hung request when history/events accepted the nonce,
+  /// the user discarded it, or the authenticated account changed.
+  private func sendOperation<T: Sendable>(
+    id: String, epoch: UUID, budget: SendProgressBudget,
+    operation: @escaping @Sendable () async throws -> T
+  ) async throws -> T {
+    try budget.check()
+    guard epoch == generation, state.outbox.contains(where: { $0.id == id }) else {
+      throw CancellationError()
+    }
+    let request = Task { try await operation() }
+    let watchdog = Task { @MainActor in
+      while !Task.isCancelled {
+        if epoch != generation || !state.outbox.contains(where: { $0.id == id })
+          || budget.remaining <= .zero
+        {
+          request.cancel()
           return
         }
+        do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
       }
+    }
+    defer { watchdog.cancel(); request.cancel() }
+    return try await withTaskCancellationHandler {
+      do {
+        let result = try await request.value
+        try Task.checkCancellation()
+        guard epoch == generation, state.outbox.contains(where: { $0.id == id }) else {
+          throw CancellationError()
+        }
+        // A completed acknowledgement is authoritative, including when the
+        // deadline passes during its completion. The watchdog bounds requests
+        // still in flight; it must not discard a successful response we have.
+        return result
+      } catch {
+        if epoch == generation, state.outbox.contains(where: { $0.id == id }),
+          !Task.isCancelled, budget.remaining <= .zero
+        {
+          throw SendPollingError.deadlineReached
+        }
+        throw error
+      }
+    } onCancel: {
+      request.cancel()
+      watchdog.cancel()
+    }
+  }
+  private static func definitelyDidNotSubmit(_ error: Error) -> Bool {
+    if let error = error as? APIError {
+      return (400..<500).contains(error.status) && error.status != 408
+    }
+    guard let error = error as? URLError else { return false }
+    switch error.code {
+    case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .notConnectedToInternet,
+      .internationalRoamingOff, .callIsActive, .dataNotAllowed:
+      return true
+    default: return false
+    }
+  }
+  private static func canRetrySend(_ error: Error) -> Bool {
+    if error is SendPollingError { return true }
+    if let error = error as? APIError {
+      return error.status == 408 || error.status == 429 || error.status >= 500
+    }
+    guard let error = error as? URLError else { return false }
+    switch error.code {
+    case .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost,
+      .dnsLookupFailed, .notConnectedToInternet, .internationalRoamingOff,
+      .callIsActive, .dataNotAllowed, .resourceUnavailable:
+      return true
+    default: return false
     }
   }
   @discardableResult
@@ -1293,17 +1520,6 @@ final class AppStore {
     next["pinnedIds"] = .array(values.map(JSON.string))
     if let result = await mutate("/api/v0/settings/sidebar", method: "PATCH", body: next) {
       sidebar = result
-    }
-  }
-  func hide(_ channel: Channel, hidden: Bool) async {
-    if let bot = bot(for: channel) {
-      await mutate(
-        "/api/v0/bots/\(API.segment(bot.id))", method: "PATCH",
-        body: .object(["hiddenFromSidebar": .bool(hidden)]))
-    } else {
-      await mutate(
-        "/api/v0/channels/\(API.segment(channel.id))/hidden", method: "PATCH",
-        body: .object(["hidden": .bool(hidden), "clientId": .string(UUID().uuidString)]))
     }
   }
   func open(_ channelID: String, messageID: String? = nil) async {
@@ -1483,6 +1699,8 @@ final class AppStore {
       #endif
       lifecycle?.cancel()
       generation = UUID()
+      activeSendID = nil
+      checkingSendID = nil
       stopPersistence()
       var cleanupFailure: String?
       do { try disk?.clear() } catch {
@@ -1520,6 +1738,8 @@ final class AppStore {
     lifecycle?.cancel()
     lifecycle = nil
     generation = UUID()
+    activeSendID = nil
+    checkingSendID = nil
     cancelAuthentication()
     #if canImport(UIKit)
       NativeNotifications.shared.forgetLocally()
@@ -1596,6 +1816,8 @@ final class AppStore {
       #endif
       lifecycle?.cancel()
       generation = UUID()
+      activeSendID = nil
+      checkingSendID = nil
       flushPersistence()
       stopPersistence()
       api = nil
@@ -1616,11 +1838,58 @@ final class AppStore {
         : "Your session expired. Sign in again. Your drafts are saved on this iPhone."
       self.error = nil
     } else {
-      if !(error is APIError) || ((error as? APIError)?.status ?? 0) >= 500 {
+      if error is URLError || ((error as? APIError)?.status ?? 0) >= 500 {
         online = false
+        syncUnavailable = true
+      } else if error is DecodingError {
+        // A reachable server can return data this client cannot decode.
         syncUnavailable = true
       }
       if !quiet { self.error = UserFacingError.message(error) }
+    }
+  }
+}
+
+private enum SendPollingError: Error { case awaitingDelivery, deadlineReached }
+
+/// Shared with URLSession's delegate queue. Only increasing bytes per staged file
+/// refresh the stall deadline, so retrying the same upload prefix cannot keep it alive.
+private final class SendProgressBudget: @unchecked Sendable {
+  private let lock = NSLock()
+  private let clock = ContinuousClock()
+  private let stall: Duration
+  private let overallDeadline: ContinuousClock.Instant
+  private var lastProgress: ContinuousClock.Instant
+  private var uploaded: [String: Int64] = [:]
+  init(stall: Duration, overall: Duration) {
+    self.stall = stall
+    self.lastProgress = clock.now
+    self.overallDeadline = clock.now.advanced(by: overall)
+  }
+  var remaining: Duration {
+    lock.withLock {
+      clock.now.duration(to: min(overallDeadline, lastProgress.advanced(by: stall)))
+    }
+  }
+  func check() throws {
+    guard remaining > .zero else { throw SendPollingError.deadlineReached }
+  }
+  func overallRemaining() throws -> TimeInterval {
+    try check()
+    let parts = clock.now.duration(to: overallDeadline).components
+    return max(0.001, Double(parts.seconds) + Double(parts.attoseconds) / 1e18)
+  }
+  func progress() {
+    lock.withLock {
+      // A late callback cannot resurrect an already stalled attempt.
+      if clock.now < lastProgress.advanced(by: stall) { lastProgress = clock.now }
+    }
+  }
+  func uploadProgress(file: String, bytes: Int64) {
+    lock.withLock {
+      guard bytes > (uploaded[file] ?? 0) else { return }
+      uploaded[file] = bytes
+      if clock.now < lastProgress.advanced(by: stall) { lastProgress = clock.now }
     }
   }
 }

@@ -32,9 +32,13 @@ Open the bot and select its name at the top of the conversation to open its **Se
 
 ## Organize your sidebar
 
-Right-click a bot in the sidebar to **Pin**, **Rename Bot**, **Edit Profile**, **Duplicate**, **Hide from sidebar**, or **Delete** it. Hidden bots keep working, including their routines, but don't send notifications. Find them under **Hidden Bots** at the bottom of the sidebar.
+Right-click a bot in the sidebar to **Pin**, **Rename Bot**, **Edit Profile**, or **Delete** it.
 
 Give bots names that describe their role, such as Research, Operations, or Docs. This makes them easier to tell apart in the sidebar and in group chats.
+
+Bot hiding and duplication are no longer available on desktop or iOS. To add another bot, use **Create new Bot**. Bots and group chats hidden in earlier versions become visible again when the server is updated to v0.0.13; use **Pin** to keep the conversations you use most near the top.
+
+On desktop, the sidebar footer places your account avatar and display name beside **Connect apps**. Select your account to open account controls, or **Connect apps** to manage app connections. The iPad and iPhone Duo sidebar has matching account and app controls; selecting your account opens Settings.
 
 ## Next steps
 

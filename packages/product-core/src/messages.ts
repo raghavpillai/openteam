@@ -1,3 +1,4 @@
+import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import type {
   AssetKind,
   AssetRef,
@@ -88,7 +89,7 @@ export const messageStagedAttachments = (
 ): DurableStagedAttachment[] => {
   const candidates = messageMetadata(message).clientStagedAttachments;
   if (!Array.isArray(candidates)) return [];
-  return candidates.slice(0, 6).flatMap((candidate) => {
+  return candidates.slice(0, CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage).flatMap((candidate) => {
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
     const value = candidate as Partial<DurableStagedAttachment>;
     if (

@@ -1,7 +1,7 @@
 import XCTest
 
 @MainActor final class SettingsNavigationUITests: XCTestCase {
-  private let base = "http://127.0.0.1:19992"
+  private let base = ProcessInfo.processInfo.environment["SETTINGS_NAVIGATION_SERVER"] ?? "http://127.0.0.1:19992"
 
   func testAccountRowOpensFromEmptySpaceInBothAppearances() async throws {
     try await checkRow(account: true)

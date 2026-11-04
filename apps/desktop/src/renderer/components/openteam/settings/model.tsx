@@ -1,14 +1,23 @@
+import { SettingsSelectContent } from "./select-content";
 import { useModelSetup } from "../../../hooks/use-model-setup";
 import { providerName } from "../../../lib/provider-names";
 import { LoadingOrb } from "../../ui/loading-orb";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
-import { ModelTestStatus, primaryButton, secondaryButton, SignInProgress } from "../model-setup";
+import { Select, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import { ModelTestStatus, SignInProgress } from "../model-setup";
 import { ModelPicker } from "../setup/model-picker";
 import { ProviderMark } from "../setup/provider-marks";
-import { SettingsGroup, SettingsRow } from "./ui";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsIntro,
+  settingsPrimaryButton,
+  settingsSecondaryButton,
+  settingsSelect,
+  settingsRow,
+  settingsInput,
+} from "./ui";
 
-const selectTrigger =
-  "h-7 rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 text-[12px] shadow-none dark:border-white/[0.07] dark:bg-white/[0.07]";
+const selectTrigger = settingsSelect;
 
 const reasoningLabel = (value: string): string =>
   value === "off"
@@ -25,11 +34,10 @@ export default function ModelSettings() {
 
   return (
     <>
-      <p className="mb-5 text-[13px] text-foreground-secondary">
-        Choose the AI provider and model for all bots on this server.
-      </p>
+      <SettingsIntro>Choose the AI provider and model for all bots on this server.</SettingsIntro>
       <SettingsGroup>
         <SettingsRow
+          stackControl
           anchors={["inference-provider"]}
           control={
             <Select
@@ -40,7 +48,7 @@ export default function ModelSettings() {
               <SelectTrigger aria-label="Provider" className={`${selectTrigger} w-[210px]`}>
                 <SelectValue placeholder="Choose a provider" />
               </SelectTrigger>
-              <SelectContent>
+              <SettingsSelectContent>
                 {(data?.providers ?? []).map((candidate) => (
                   <SelectItem key={candidate.id} value={candidate.id}>
                     <span className="flex min-w-0 items-center gap-2">
@@ -52,7 +60,7 @@ export default function ModelSettings() {
                     </span>
                   </SelectItem>
                 ))}
-              </SelectContent>
+              </SettingsSelectContent>
             </Select>
           }
           description="The account your bots use to think. Sign-ins and keys stay on your server."
@@ -62,7 +70,7 @@ export default function ModelSettings() {
           control={
             provider?.connected ? (
               <button
-                className={secondaryButton}
+                className={settingsSecondaryButton}
                 disabled={working || signingIn}
                 onClick={() => void setup.disconnect()}
                 type="button"
@@ -74,7 +82,7 @@ export default function ModelSettings() {
               <div className="flex items-center gap-2">
                 {(provider?.authMethods ?? []).map((method) => (
                   <button
-                    className={primaryButton}
+                    className={settingsPrimaryButton}
                     disabled={working || signingIn}
                     key={method.type}
                     onClick={() => void setup.connect(method.type)}
@@ -98,8 +106,18 @@ export default function ModelSettings() {
           }
           title="Connection"
         />
-        {signingIn ? <SignInProgress setup={setup} /> : null}
+        {signingIn ? (
+          <SignInProgress
+            setup={setup}
+            controlStyles={{
+              primaryButton: settingsPrimaryButton,
+              secondaryButton: settingsSecondaryButton,
+              input: settingsInput,
+            }}
+          />
+        ) : null}
         <SettingsRow
+          stackControl
           anchors={["inference-model"]}
           control={
             <ModelPicker
@@ -115,6 +133,7 @@ export default function ModelSettings() {
           title="Model"
         />
         <SettingsRow
+          stackControl
           anchors={["inference-reasoning"]}
           control={
             <Select
@@ -127,13 +146,13 @@ export default function ModelSettings() {
               <SelectTrigger aria-label="Reasoning effort" className={`${selectTrigger} w-[130px]`}>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SettingsSelectContent>
                 {(setup.reasoningLevels.length ? setup.reasoningLevels : ["off"]).map((level) => (
                   <SelectItem key={level} value={level}>
                     {reasoningLabel(level)}
                   </SelectItem>
                 ))}
-              </SelectContent>
+              </SettingsSelectContent>
             </Select>
           }
           description={
@@ -143,7 +162,7 @@ export default function ModelSettings() {
           }
           title="Reasoning effort"
         />
-        <div className="flex min-h-[52px] items-center justify-between gap-3 border-t border-black/[0.065] py-2 dark:border-white/[0.07]">
+        <div className={`${settingsRow} flex-wrap justify-between`}>
           <div className="min-w-0 text-[12px] text-foreground-secondary">
             {setup.test.status !== "idle" ? (
               <ModelTestStatus test={setup.test} />
@@ -162,7 +181,7 @@ export default function ModelSettings() {
             !signingIn ? (
               // A plan sign-in that expired is fixed by signing in again, not by disconnecting.
               <button
-                className={secondaryButton}
+                className={settingsSecondaryButton}
                 disabled={working}
                 onClick={() => void setup.connect("oauth")}
                 type="button"
@@ -171,7 +190,7 @@ export default function ModelSettings() {
               </button>
             ) : null}
             <button
-              className={secondaryButton}
+              className={settingsSecondaryButton}
               disabled={
                 setup.changed ||
                 !data?.inference.modelId ||
@@ -184,7 +203,7 @@ export default function ModelSettings() {
               Test
             </button>
             <button
-              className={primaryButton}
+              className={settingsPrimaryButton}
               disabled={!setup.changed || !provider?.connected || !setup.selectedModel || working}
               onClick={() => void setup.apply()}
               type="button"
@@ -200,7 +219,7 @@ export default function ModelSettings() {
           {setup.error}
           {!data ? (
             <button
-              className={secondaryButton}
+              className={settingsSecondaryButton}
               disabled={working}
               onClick={() => void setup.reload()}
               type="button"

@@ -480,7 +480,7 @@ describe("durable state tools", () => {
     const cursor = runtime.dynamicCatalog(active).find((namespace: any) => namespace.name === "cursor");
     const namespaced: Array<[string, Record<string, unknown>]> = [
       ["UpdateSkill", { action: "delete", id: "standup" }],
-      ["UpdateProfile", { title: "Designer", hidden_from_sidebar: true }],
+      ["UpdateProfile", { title: "Designer", notify_on_updates: false }],
       ["UpdateAvatar", { action: "clear" }],
       ["DisconnectChannel", { platform: "slack" }],
     ];

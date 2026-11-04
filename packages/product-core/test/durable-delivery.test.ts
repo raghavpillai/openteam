@@ -998,7 +998,7 @@ describe("durable send controller", () => {
           ? {
               stagedAttachments: [
                 {
-                  stagingId: "stage-1",
+                  stagingId: "stage-file-1",
                   fileName: "fixture.txt",
                   mimeType: "text/plain",
                   byteSize: 4,

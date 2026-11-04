@@ -10,12 +10,16 @@ struct ChatView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.chatLeadingControl) private var leadingControl
   @Environment(\.sideChrome) private var sideChrome
+  @Environment(\.leadingChatTitle) private var leadingChatTitle
+  @Environment(\.conversationListVisible) private var conversationListVisible
+  @Environment(\.topBarTrailingInset) private var topBarTrailingInset
   let channel: Channel
   @State private var details = false
-  @State private var duplicatedChannel: String?
+  @State private var replyFocusRequest = UUID()
   @State private var computerBot: Bot?
   @State private var timelineCache = ChatTimelineCache()
   @State private var modals = MessageModalPresenter()
+  @State private var timestamps = MessageTimestampReveal()
   @State private var bottomVisible = true
   @State private var followsLatest = true
   @State private var dismissFocusRequest: UUID?
@@ -144,24 +148,26 @@ struct ChatView: View {
       }
     }
     .nativeCanvas()
-    .chatFloatingBars(top: { if sideChrome?.holdsAllControls == true { titleBar } else { header } }, bottom: {
+    .chatFloatingBars(top: {
+      VStack(spacing: 0) {
+        if sideChrome?.holdsAllControls == true { titleBar } else { header }
+        MessageRefreshStatus(channelID: channel.id).padding(.horizontal, 20)
+      }
+    }, bottom: {
       if !showsLoadError {
-        ComposerView(channel: channel, dismissFocusRequest: dismissFocusRequest).disabled(!didPositionHistory)
+        ComposerView(channel: channel, focusRequest: replyFocusRequest,
+          dismissFocusRequest: dismissFocusRequest).disabled(!didPositionHistory)
       }
     })
     .padding(.trailing, sideChrome?.contentInset ?? 0)
+    // The reserved control column sits outside the chat’s inner canvas.
+    .nativeCanvas()
     .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
     .toolbar(.hidden, for: .navigationBar).background(NativeBackGesture().frame(width: 0, height: 0))
     .navigationDestination(isPresented: $details) {
-      ConversationDetails(channelID: channel.id, onDuplicate: { duplicatedChannel = $0 })
+      ConversationDetails(channelID: channel.id)
     }
     .navigationDestination(item: $exchange) { peer in BotExchangeView(channel: channel, peer: peer) }
-    .onChange(of: details) { _, presented in
-      if !presented, let id = duplicatedChannel {
-        duplicatedChannel = nil
-        Task { await store.open(id) }
-      }
-    }
     .messageModalHost(modals)
     .fullScreenCover(item: $computerBot) { bot in ComputerView(bot: bot) }
     .navigationDestination(item: $thread) { message in
@@ -201,6 +207,9 @@ struct ChatView: View {
         hash.combine(entry.showsReplyContext)
       case .pending(let pending):
         hash.combine(pending.failure)
+        hash.combine(pending.deliveryUnconfirmed)
+        hash.combine(store.activeSendID == pending.id)
+        hash.combine(store.checkingSendID == pending.id)
         hash.combine(pending.input.content)
         hash.combine(pending.input.attachments)
         hash.combine(pending.stagedFiles?.count)
@@ -208,12 +217,13 @@ struct ChatView: View {
       }
       result.append(NativeHistoryItem(id: row.id, scrollID: row.scrollID, version: hash.finalize(),
         anchorToBottom: row.timestamp != nil, animatesResize: animatesResize,
+        outgoingArrival: row.isUser && row.animatesArrival,
         prefetch: RichMarkdownView.prefetcher(row)) {
         AnyView(MessageArrival(animate: timelineCache.consumeArrival(row), isUser: row.isUser) {
-          timelineRow(row)
+          MessageDeliveryRow(row: row) { timelineRow(row) }
         }.padding(.horizontal, 16)
           .padding(.top, row.id == rows.first?.id ? 14 : row.groupsWithPrevious ? 8 : 12)
-          .environment(store).environment(modals))
+          .environment(store).environment(modals).environment(\.messageTimestamps, timestamps))
       })
     }
     if hasLater {
@@ -224,7 +234,7 @@ struct ChatView: View {
       })
     }
     result.append(NativeHistoryItem(id: "bottom", scrollID: "bottom", version: hasLater.hashValue) {
-      AnyView(ChatActivityFooter(channel: channel, showsActivity: !hasLater).environment(store).environment(modals))
+      AnyView(ChatActivityFooter(channel: channel, showsActivity: !hasLater).environment(store).environment(modals).environment(\.messageTimestamps, timestamps))
     })
     return result
   }
@@ -337,7 +347,9 @@ struct ChatView: View {
     store.focusedMessage = nil
   }
   @ViewBuilder private var leadingButton: some View {
-    if let leadingControl {
+    if leadingControl?.external == true {
+      Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+    } else if let leadingControl {
       ChatChromeButton(title: leadingControl.title, symbol: "sidebar.left", symbolSize: 17,
         symbolWeight: .regular, regularInLightMode: true) { leadingControl.action() }
         .accessibilityIdentifier("chat-sidebar")
@@ -361,7 +373,7 @@ struct ChatView: View {
     VStack(spacing: 12) {
       Spacer(minLength: 12)
       computerButton
-      if sideChrome?.holdsAllControls == true || leadingControl != nil { leadingButton }
+      if leadingControl?.external != true, sideChrome?.holdsAllControls == true || leadingControl != nil { leadingButton }
     }.foregroundStyle(NativePalette.text)
   }
   @ViewBuilder private var computerButton: some View {
@@ -384,26 +396,37 @@ struct ChatView: View {
         .frame(minHeight: 44).nativeChatGlass()
     }.buttonStyle(.plain).accessibilityIdentifier("conversation-details")
   }
-  var header: some View {
-    HStack(spacing: 8) {
-      if sideChrome == nil {
-        leadingButton
-      } else {
-        Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
-      }
-      titleButton.frame(maxWidth: .infinity)
-      // Equal side slots keep the pill on the screen's center, including groups
-      // without a Computer action. Long names truncate within the middle slot.
-      // Beside a side region, Computer sits in it, below the status bar.
-      Group {
-        if sideChrome == nil, store.computerBot(for: channel) != nil {
-          computerButton
+  @ViewBuilder var header: some View {
+    if leadingChatTitle {
+      HStack(spacing: 8) {
+        if !conversationListVisible { leadingButton }
+        titleButton
+        Spacer(minLength: 0)
+        computerButton
+      }.padding(.horizontal, 14).padding(.trailing, topBarTrailingInset)
+        .modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+        .foregroundStyle(NativePalette.text)
+    } else {
+      HStack(spacing: 8) {
+        if sideChrome == nil {
+          leadingButton
         } else {
-          Color.clear.accessibilityHidden(true)
+          Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
         }
-      }.frame(width: 44, height: 44)
-    }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
-      .foregroundStyle(NativePalette.text)
+        titleButton.frame(maxWidth: .infinity)
+        // Equal side slots keep the pill on the screen's center, including groups
+        // without a Computer action. Long names truncate within the middle slot.
+        // Beside a side region, Computer sits in it, below the status bar.
+        Group {
+          if sideChrome == nil, store.computerBot(for: channel) != nil {
+            computerButton
+          } else {
+            Color.clear.accessibilityHidden(true)
+          }
+        }.frame(width: 44, height: 44)
+      }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+        .foregroundStyle(NativePalette.text)
+    }
   }
   func timestamp(_ date: Date) -> String {
     let formatter = DateFormatter()
@@ -416,8 +439,11 @@ struct ChatView: View {
     return day + " " + formatter.string(from: date)
   }
   func reply(_ message: Message) {
-    branchesReplies = true
-    thread = message
+    var draft = store.draft(channel.id)
+    draft.replyTo = message.id
+    draft.isFork = false
+    store.saveDraft(draft, channel: channel.id)
+    replyFocusRequest = UUID()
   }
 }
 
@@ -450,7 +476,8 @@ private struct ChatLoadErrorView: View {
   let retry: () -> Void
 
   var body: some View {
-    Button(action: retry) {
+    VStack {
+      Spacer()
       VStack(spacing: 16) {
         Image(systemName: "exclamationmark.triangle")
           .font(.system(size: 21, weight: .regular))
@@ -458,15 +485,14 @@ private struct ChatLoadErrorView: View {
           .font(.system(size: 18, weight: .semibold))
           .multilineTextAlignment(.center)
       }
-      .foregroundStyle(NativePalette.text)
-      .padding(.horizontal, 24)
-      .padding(.vertical, 12)
-      .contentShape(Rectangle())
+      .foregroundStyle(NativePalette.text).padding(.horizontal, 24)
+      Spacer()
+      Button("Try Again", action: retry)
+        .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+        .tint(NativePalette.text).foregroundStyle(NativePalette.background)
+        .controlSize(.large).accessibilityIdentifier("chat-load-error")
+        .padding(.bottom, 40)
     }
-    .buttonStyle(.plain)
-    .accessibilityLabel("Something went wrong")
-    .accessibilityHint("Try loading this conversation again")
-    .accessibilityIdentifier("chat-load-error")
     .offset(y: -1.5)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .ignoresSafeArea()
@@ -488,14 +514,16 @@ struct MessageArrival<Content: View>: View {
   var body: some View {
     content
       .opacity(visible ? 1 : 0)
+      .animation(.easeOut(duration: reduceMotion ? 0.12 : isUser ? 0.20 : 0.132), value: visible)
+      .offset(y: visible || reduceMotion ? 0 : isUser ? 8 : 12)
+      .scaleEffect(visible || reduceMotion || isUser ? 1 : 0.94, anchor: .bottomLeading)
       .animation(
-        .timingCurve(0.23, 1, 0.32, 1, duration: reduceMotion ? 0.12 : 0.132), value: visible
+        reduceMotion
+          ? nil
+          : isUser
+            ? .easeInOut(duration: 0.35)
+            : .timingCurve(0.23, 1, 0.32, 1, duration: 0.24), value: visible
       )
-      .offset(y: visible || reduceMotion ? 0 : 12)
-      .scaleEffect(
-        visible || reduceMotion ? 1 : 0.94, anchor: isUser ? .bottomTrailing : .bottomLeading
-      )
-      .animation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.24), value: visible)
       .onAppear { visible = true }
       // The arrival owns its fade; SwiftUI's implicit insertion fade otherwise
       // compounds it and keeps the bubble invisible until the scroll settles.
@@ -520,6 +548,10 @@ struct MessageRow: View {
   var onReplyContext: ((String) -> Void)?
   @State private var drag: CGFloat = 0
   @State private var swipeFeedback = ReplySwipeFeedback()
+  @State private var swipingTimestamps: Bool?
+  @State private var localTimestamps = MessageTimestampReveal()
+  @Environment(\.messageTimestamps) private var sharedTimestamps
+  private var timestamps: MessageTimestampReveal { sharedTimestamps ?? localTimestamps }
   private var speaker: Bot? {
     guard viewOnly || channel.isGroup, !message.isUser else { return nil }
     return speakerOverride ?? store.bots.first { $0.id == message.senderBotId }
@@ -550,7 +582,7 @@ struct MessageRow: View {
       }
     }.modifier(SystemMessageContext(message: message, channel: channel))
   }
-  private var bubble: some View {
+  private var bubbleContent: some View {
     HStack(alignment: .bottom, spacing: 0) {
       if message.isUser { Spacer(minLength: 44) }
       if let speaker {
@@ -642,18 +674,37 @@ struct MessageRow: View {
             }
           }
         }
-      }.contentShape(Rectangle()).offset(x: drag)
+      }.contentShape(Rectangle())
         .accessibilityAction(named: "Message actions") { openActions() }
         .accessibilityAction(named: "Reply") {
           NativeHaptics.play(.light, source: "message.reply-action")
           onReply()
         }
       if !message.isUser { Spacer(minLength: 44) }
-    }.accessibilityElement(children: .contain).accessibilityIdentifier("message-" + message.id)
+    }
+  }
+  private var bubble: some View {
+    bubbleContent.offset(x: timestamps.offset < 0 ? timestamps.offset : drag)
       .background(alignment: .leading) {
-        Image(systemName: "arrow.uturn.backward").font(.system(size: 16))
-          .foregroundStyle(NativePalette.faint).padding(.leading, 18).opacity(drag > 5 ? 1 : 0)
+        Image(systemName: "arrow.uturn.backward").font(.system(size: 15, weight: .medium))
+          .foregroundStyle(NativePalette.chatMuted).frame(width: 30, height: 30)
+          .background(NativePalette.surface, in: Circle()).padding(.leading, 4)
+          .scaleEffect(0.65 + min(1, drag / 52) * 0.35)
+          .opacity(min(1, drag / 30)).accessibilityHidden(true)
       }
+      .overlay(alignment: .trailing) {
+        if let date = message.date {
+          Text(date.formatted(date: .omitted, time: .shortened))
+            .font(.system(size: 11)).monospacedDigit().foregroundStyle(NativePalette.chatMuted)
+            .lineLimit(1).minimumScaleFactor(0.8)
+            .frame(width: 76).offset(x: 80 + timestamps.offset)
+            .opacity(min(1, -timestamps.offset / 60)).accessibilityHidden(timestamps.offset == 0)
+            .accessibilityIdentifier("message-time-" + message.id)
+            .allowsHitTesting(false)
+        }
+      }
+      .clipped()
+      .accessibilityElement(children: .contain).accessibilityIdentifier("message-" + message.id)
   }
   private func openActions() {
     guard modals.sheet == nil, !viewOnly else { return }
@@ -681,8 +732,13 @@ struct MessageRow: View {
       .presentationCornerRadius(34).presentationBackground(NativePalette.background)))
   }
   private var replyGesture: MessageReplyGesture {
-    MessageReplyGesture { translation in
+    MessageReplyGesture(allowsLeftward: true) { translation in
       guard !viewOnly else { return }
+      if swipingTimestamps == nil { swipingTimestamps = translation.width < 0 }
+      if swipingTimestamps == true {
+        timestamps.offset = -min(88, max(0, -translation.width) * 0.8)
+        return
+      }
       let distance = max(0, translation.width)
       drag = min(78, min(distance, 52) + max(0, distance - 52) * 0.28)
       if swipeFeedback.move(Double(distance)) {
@@ -690,7 +746,7 @@ struct MessageRow: View {
       }
     } onEnded: { translation, velocity, cancelled in
       guard !viewOnly else { return }
-      if !cancelled {
+      if !cancelled, swipingTimestamps != true {
         let result = swipeFeedback.release(Double(translation.width), velocity: Double(velocity))
         if result.open {
           if result.signal { NativeHaptics.play(.light, source: "message.reply-swipe") }
@@ -701,7 +757,9 @@ struct MessageRow: View {
       }
       withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.82)) {
         drag = 0
+        timestamps.offset = 0
       }
+      swipingTimestamps = nil
     }
   }
   func react(_ emoji: String) {
@@ -903,7 +961,11 @@ struct MessageReplyQuote: View {
           Image(systemName: "arrow.turn.up.right").font(.system(size: 10))
           Text(original.map { $0.content.isEmpty ? "Attachment" : $0.content }
             ?? "View original message").font(.system(size: 12)).lineLimit(1)
-        }.frame(maxWidth: 328, alignment: .trailing).foregroundStyle(NativePalette.chatMuted)
+        }.padding(.horizontal, 10).padding(.vertical, 5)
+          .foregroundStyle(NativePalette.chatMuted)
+          .background(NativePalette.surface.opacity(0.5), in: Capsule())
+          .overlay(Capsule().strokeBorder(NativePalette.separator, lineWidth: 0.5))
+          .frame(maxWidth: 328, alignment: .trailing)
       }.buttonStyle(.plain).accessibilityIdentifier("reply-quote-" + ownerID)
         .accessibilityLabel("Reply to: " + (original?.displayContent ?? "View original message"))
   }
@@ -919,42 +981,59 @@ struct PendingMessageView: View {
     HStack(alignment: .bottom, spacing: 0) {
       Spacer(minLength: 44)
       VStack(alignment: .trailing, spacing: 5) {
-        if showsReplyContext, let reply = pending.input.replyToMessageId {
-          MessageReplyQuote(replyID: reply, channelID: pending.channelId, ownerID: pending.id,
-            onOpen: onReplyContext.map { action in { action(reply) } })
-        }
-        if !pending.input.content.isEmpty {
-          Group {
-            if RichMarkdownView.required(pending.input.content) {
-              RichMarkdownView(source: pending.input.content, forceDark: true).frame(
-                maxWidth: .infinity)
-            } else {
-              BubbleText {
-                MarkdownText(source: pending.input.content, textColor: .white, ownMessage: true)
-                  .font(.body).lineSpacing(1.5)
+        Group {
+          if showsReplyContext, let reply = pending.input.replyToMessageId {
+            MessageReplyQuote(
+              replyID: reply, channelID: pending.channelId, ownerID: pending.id,
+              onOpen: onReplyContext.map { action in { action(reply) } })
+          }
+          if !pending.input.content.isEmpty {
+            Group {
+              if RichMarkdownView.required(pending.input.content) {
+                RichMarkdownView(source: pending.input.content, forceDark: true).frame(
+                  maxWidth: .infinity)
+              } else {
+                BubbleText {
+                  MarkdownText(source: pending.input.content, textColor: .white, ownMessage: true)
+                    .font(.body).lineSpacing(1.5)
+                }
               }
-            }
-          }.padding(.horizontal, 14).padding(
-            .vertical, 9
-          ).foregroundStyle(.white).background(
-            accent == "blue" ? NativePalette.link : NativePalette.user,
-            in: RoundedRectangle(cornerRadius: 24))
-        }
-        if !(pending.stagedFiles ?? []).isEmpty || !pending.input.attachments.isEmpty {
-          PendingAttachments(pending: pending)
-        }
-        if let failure = pending.failure {
-          Text(failure).font(.caption).foregroundStyle(NativePalette.destructive)
-          HStack {
-            Button("Retry") { Task { await store.retry(pending.id) } }
-            Button("Discard", role: .destructive) { store.discard(pending.id) }
-          }.font(.caption)
-        } else if !store.online {
-          Text("Waiting for connection")
-            .font(.caption).foregroundStyle(NativePalette.muted)
-        }
+            }.padding(.horizontal, 14).padding(
+              .vertical, 9
+            ).foregroundStyle(.white).background(
+              accent == "blue" ? NativePalette.link : NativePalette.user,
+              in: RoundedRectangle(cornerRadius: 24))
+          }
+          if !(pending.stagedFiles ?? []).isEmpty || !pending.input.attachments.isEmpty {
+            PendingAttachments(pending: pending)
+          }
+        }.contextMenu { Button("Discard", role: .destructive) { store.discard(pending.id) } }
+
       }
     }.id(pending.id)
+
+  }
+}
+
+/// One shared layout surrounds both the optimistic and accepted content. The
+/// footnote has room for a full Retry target before any delivery status exists.
+struct MessageDeliveryRow<Content: View>: View {
+  @ScaledMetric(relativeTo: .caption) private var footnoteHeight: CGFloat = 44
+  let row: MessagePresentation.Row
+  @ViewBuilder var content: Content
+  var body: some View {
+    VStack(alignment: .trailing, spacing: 5) {
+      content
+      if row.isUser {
+        Group {
+          if case .pending(let pending) = row.content {
+            PendingSendStatus(pending: pending, showsSending: false)
+          } else {
+            Color.clear.frame(width: 0).accessibilityHidden(true)
+          }
+        }.frame(height: max(44, footnoteHeight))
+      }
+    }
   }
 }
 
@@ -966,8 +1045,11 @@ struct ThreadView: View {
   @State private var child: Message?
   @State private var childBranches = true
   var body: some View {
-    ThreadPage(root: root, channel: channel, initialFocus: initialFocus, branchesReplies: branchesReplies) {
-      message, branches in childBranches = branches; child = message
+    ThreadPage(
+      root: root, channel: channel, initialFocus: initialFocus, branchesReplies: branchesReplies
+    ) {
+      message, branches in
+      childBranches = branches; child = message
     }.navigationDestination(item: $child) { message in
       ThreadView(root: message, channel: channel, branchesReplies: childBranches)
     }
@@ -985,6 +1067,7 @@ struct ThreadPage: View {
   let onThread: (Message, Bool) -> Void
   @State private var timelineCache = ChatTimelineCache()
   @State private var modals = MessageModalPresenter()
+  @State private var timestamps = MessageTimestampReveal()
   @State private var scrollRequest: HistoryScrollRequest?
   @State private var exchange: BotExchangePeer?
   @State private var details = false
@@ -1026,10 +1109,13 @@ struct ThreadPage: View {
       }
       .messageModalHost(modals).nativeCanvas().toolbar(.hidden, for: .navigationBar)
       .chatFloatingBars(top: {
-        HStack {
-          if sideChrome?.holdsAllControls != true { backButton }
-          Spacer()
-        }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+        VStack(spacing: 0) {
+          HStack {
+            if sideChrome?.holdsAllControls != true { backButton }
+            Spacer()
+          }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+          MessageRefreshStatus(channelID: channel.id).padding(.horizontal, 20)
+        }
       }, bottom: {
         ComposerView(channel: channel, draftKey: draftKey,
           threadRootID: branchesReplies ? root.id : nil,
@@ -1093,34 +1179,41 @@ struct ThreadPage: View {
       case .confirmed(let entry):
         hash.combine(entry.message)
         animatesResize = entry.message.metadata["type"].string == "widget"
-      case .pending(let send): hash.combine(send.input.content); hash.combine(send.failure)
+      case .pending(let send):
+        hash.combine(send.input.content); hash.combine(send.failure)
+        hash.combine(send.deliveryUnconfirmed)
+        hash.combine(store.activeSendID == send.id)
+        hash.combine(store.checkingSendID == send.id)
       }
       result.append(NativeHistoryItem(id: row.id, scrollID: row.scrollID, version: hash.finalize(),
         anchorToBottom: row.timestamp != nil, animatesResize: animatesResize,
+        outgoingArrival: row.isUser && row.animatesArrival,
         prefetch: RichMarkdownView.prefetcher(row)) {
         AnyView(MessageArrival(animate: timelineCache.consumeArrival(row), isUser: row.isUser) {
-          VStack(alignment: .leading, spacing: 12) {
-            if let date = row.timestamp {
-              Text(chatTimestamp(date)).font(.system(size: 13)).foregroundStyle(NativePalette.chatFaint)
-                .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 2)
-            }
-            switch row.content {
-            case .confirmed(let entry):
-              let message = entry.message
-              MessageRow(message: message, channel: channel,
-                onReply: { if message.id == root.id { focusRequest = UUID() } else { onThread(message, branchesReplies) } },
-                onThread: { if message.id == root.id { focusRequest = UUID() } else { onThread(message, true) } },
-                onExchange: { exchange = $0 }, onRoutine: { store.focusedRoutine = $0; details = true },
-                showsReplyContext: false)
-            case .pending(let pending): PendingMessageView(pending: pending, showsReplyContext: false)
+          MessageDeliveryRow(row: row) {
+            VStack(alignment: .leading, spacing: 12) {
+              if let date = row.timestamp {
+                Text(chatTimestamp(date)).font(.system(size: 13)).foregroundStyle(NativePalette.chatFaint)
+                  .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 2)
+              }
+              switch row.content {
+              case .confirmed(let entry):
+                let message = entry.message
+                MessageRow(message: message, channel: channel,
+                  onReply: { if message.id == root.id { focusRequest = UUID() } else { onThread(message, branchesReplies) } },
+                  onThread: { if message.id == root.id { focusRequest = UUID() } else { onThread(message, true) } },
+                  onExchange: { exchange = $0 }, onRoutine: { store.focusedRoutine = $0; details = true },
+                  showsReplyContext: false)
+              case .pending(let pending): PendingMessageView(pending: pending, showsReplyContext: false)
+              }
             }
           }
         }.padding(.horizontal, 16).padding(.top, row.groupsWithPrevious ? 8 : 12)
-          .environment(store).environment(modals))
+          .environment(store).environment(modals).environment(\.messageTimestamps, timestamps))
       })
     }
     result.append(NativeHistoryItem(id: "bottom", scrollID: "bottom", version: 0) {
-      AnyView(ChatActivityFooter(channel: channel).environment(store).environment(modals))
+      AnyView(ChatActivityFooter(channel: channel).environment(store).environment(modals).environment(\.messageTimestamps, timestamps))
     })
     return result
   }

@@ -2,6 +2,8 @@ import type { BotView, ChannelMessageView, ChannelView } from "@openteam/contrac
 import { emptySidebarPreferences } from "@openteam/contracts/client-preferences";
 import { createRoot } from "react-dom/client";
 import "../../src/renderer/styles.css";
+import { Inspector } from "../../src/renderer/components/openteam/inspector";
+import { api } from "../../src/renderer/client/openteam-api";
 import { Sidebar } from "../../src/renderer/components/openteam/sidebar";
 import { TooltipProvider } from "../../src/renderer/components/ui/tooltip";
 import { useSidebarPreferences } from "../../src/renderer/hooks/use-sidebar-preferences";
@@ -10,6 +12,7 @@ import { useSidebarPreferences } from "../../src/renderer/hooks/use-sidebar-pref
 window.fetch = async () => {
   throw new Error("Network disabled in sidebar fixture");
 };
+Object.assign(api, { routines: async () => [] });
 const params = new URLSearchParams(location.search);
 const count = Number(params.get("count") ?? 40);
 localStorage.setItem(
@@ -44,7 +47,11 @@ const bots = new Map(
       name: channel.name,
       icon: ["hex-visor", "pod", "classic", "terminal"][index % 4],
       color: "#4b8efb",
-      status: "ready",
+      status: "active",
+      dmChannelId: channel.id,
+      conversationId: `conversation-${index}`,
+      title: "", description: "", instructions: "",
+      notificationsEnabled: true, draftingDisabled: false, draftAllowedRecipients: [],
     } as BotView,
   ])
 );
@@ -66,6 +73,17 @@ const latest = new Map(
 const noop = () => {};
 function Fixture() {
   const preferences = useSidebarPreferences();
+  if (params.has("settings")) return (
+    <TooltipProvider>
+      <div style={{ width: 420, height: "100vh" }}>
+        <Inspector channel={channels[0]!} botById={bots} active screenEnabled={false} mode="settings"
+          onEnableScreen={noop} onModeChange={noop} onUpdateBot={async () => bots.get("bot-0")!}
+          onRetryBot={async () => {}} onOpenTeam={noop} onSetGroupAvatar={async () => {}}
+          onSetMembers={async () => {}} onUpdateGroupProfile={async () => channels[0]!}
+          onBotAction={noop} />
+      </div>
+    </TooltipProvider>
+  );
   return (
     <TooltipProvider>
       <div style={{ display: "flex", height: "100vh" }}>
@@ -75,7 +93,6 @@ function Fixture() {
           latestMessageByChannel={latest}
           activeRunByChannel={new Map()}
           activeTaskChannelIds={new Set()}
-          hiddenAgentCount={0}
           selectedId="channel-0"
           preferences={preferences}
           onPreloadSearch={noop}
@@ -83,13 +100,11 @@ function Fixture() {
           onSelect={noop}
           onNewBot={noop}
           onNewGroup={noop}
-          onOpenHiddenAgents={noop}
           onOpenPlugins={noop}
           onOpenSettings={noop}
           onBotAction={noop}
           onDeleteChannel={noop}
           onEditChannel={noop}
-          onHideChannel={noop}
         />
       </div>
     </TooltipProvider>

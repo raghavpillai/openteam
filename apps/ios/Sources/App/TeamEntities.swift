@@ -40,7 +40,7 @@ struct TeamBotQuery: EntityStringQuery {
   @MainActor func entities(matching string: String) async throws -> [TeamBotEntity] {
     let client = try await SystemIntentClient.connect()
     return client.destinations.filter {
-      string.isEmpty ? !$0.hidden : $0.name.localizedStandardContains(string)
+      string.isEmpty || $0.name.localizedStandardContains(string)
     }.compactMap { $0.bot.map { TeamBotEntity($0, scope: client.scope) } }
   }
 }

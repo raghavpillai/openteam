@@ -1,6 +1,33 @@
 import type { ReactNode } from "react";
 import { OPENTEAM_DEEP_LINK_EVENT, type SettingsAnchor } from "../../../lib/app-deep-links";
 import { cn } from "../../../lib/cn";
+import "./ui.css";
+
+const settingsButton =
+  "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-[8px] px-3 text-[12px] font-normal outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-default disabled:opacity-50";
+
+export const settingsPrimaryButton = `${settingsButton} bg-black text-white enabled:hover:opacity-80 disabled:bg-black/[0.07] disabled:text-foreground dark:bg-white dark:text-black dark:disabled:bg-white/[0.09] dark:disabled:text-foreground`;
+export const settingsSecondaryButton = `${settingsButton} bg-black/[0.06] text-foreground enabled:hover:bg-black/[0.1] dark:bg-white/[0.09] dark:enabled:hover:bg-white/[0.13]`;
+export const settingsInput =
+  "h-7 min-w-0 rounded-[8px] border border-black/[0.09] bg-background px-2.5 text-[12px] shadow-none outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 dark:border-white/[0.1]";
+export const settingsSelect =
+  "h-7 min-w-0 rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 py-0 text-[12px] shadow-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 dark:border-white/[0.07] dark:bg-white/[0.07]";
+export const settingsRow =
+  "flex min-h-[52px] items-center gap-5 border-t border-black/[0.065] py-2 first:border-t-0 dark:border-white/[0.07]";
+
+export function SettingsIntro({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <p className={cn("-mt-4 mb-5 px-2 text-[12px] leading-4 text-foreground-secondary", className)}>
+      {children}
+    </p>
+  );
+}
 
 export function SettingsLink({
   anchor,
@@ -67,8 +94,9 @@ export function SettingsGroup({
 }) {
   return (
     <div
+      data-slot="settings-group"
       className={cn(
-        "overflow-hidden rounded-[12px] bg-black/[0.045] px-3.5 dark:bg-[#1b1b1b]",
+        "overflow-hidden rounded-[12px] bg-black/[0.045] px-3.5 dark:bg-[#1b1b1b] [[data-slot=settings-group]+&]:mt-3",
         className
       )}
     >
@@ -83,20 +111,21 @@ export function SettingsRow({
   control,
   className,
   anchors,
+  stackControl = false,
 }: {
   title: string;
   description?: ReactNode;
   control?: ReactNode;
   className?: string;
   anchors?: readonly SettingsAnchor[];
+  stackControl?: boolean;
 }) {
   return (
     <div
-      className={cn(
-        "flex min-h-[52px] items-center gap-5 border-t border-black/[0.065] py-1.5 first:border-t-0 dark:border-white/[0.07]",
-        className
-      )}
+      className={cn(settingsRow, className)}
       data-settings-anchor={anchors?.join(" ")}
+      data-slot="settings-row"
+      data-settings-layout={stackControl ? "form" : undefined}
     >
       <div className="min-w-0 flex-1">
         <div className="text-[13px] font-normal leading-[17px] text-foreground">{title}</div>
@@ -106,7 +135,11 @@ export function SettingsRow({
           </div>
         ) : null}
       </div>
-      {control ? <div className="shrink-0">{control}</div> : null}
+      {control ? (
+        <div className="min-w-0 shrink-0" data-slot="settings-control">
+          {control}
+        </div>
+      ) : null}
     </div>
   );
 }

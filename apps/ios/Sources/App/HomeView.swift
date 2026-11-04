@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.displayScale) private var displayScale
   /// Rows are zoom sources for the first bot's chat after onboarding.
   @Namespace private var zoom
   /// The chat that opens with the zoom transition; kept until it's closed again.
@@ -13,6 +14,15 @@ struct HomeView: View {
     var route: SettingsRoute?
   }
   @State private var settings: SettingsSheet?
+  @State private var marketplace = false
+  @State private var marketplaceRevision = 0
+  @State private var marketplaceHovered = false
+  @State private var accountHovered = false
+  @State private var lastUnread: String?
+  @State private var splitAvailable = false
+  private var referenceSidebar: Bool { UIDevice.current.userInterfaceIdiom == .pad || barRegions.hasHinge }
+  private var expandedReferenceSidebar: Bool { referenceSidebar && splitAvailable && !listHidden }
+  private var unreadChannels: [Channel] { visible.filter { store.isUnread($0) } }
   private enum CreationKind: String, Identifiable {
     case bot, group
     var id: Self { self }
@@ -26,33 +36,66 @@ struct HomeView: View {
   @State private var sectionName = ""
   @State private var deletingSection: JSON?
   @State private var listHidden = false
+  @State private var portraitLayout = false
   @State private var barRegions = BarRegions.none
   /// The conversation list's width beside a chat, as last dragged; 0 until then.
   @AppStorage("sidebarWidth") private var draggedSidebarWidth: Double = 0
   @State private var dragStartWidth: CGFloat?
   @Environment(\.horizontalSizeClass) private var sizeClass
-  private var visible: [Channel] { store.channels.filter { !store.isHidden($0) } }
+  private var visible: [Channel] { store.channels.filter { $0.kind != "agent_dm" } }
   private var sections: [JSON] { store.sidebar["sections"].array }
   var body: some View {
     GeometryReader { geometry in
+      let split = sizeClass == .regular || (barRegions.hasHinge && geometry.size.width >= 650)
+      let portrait = split && geometry.size.height > geometry.size.width
       let systemChrome = SideChrome(
         regions: barRegions, insets: geometry.safeAreaInsets, holdsAllControls: sizeClass == .compact)
       // In rotations without a right-hand system region, reserve a column so
       // these controls stay on the right without covering the conversation.
-      let reservesRightColumn = barRegions.hasHinge && systemChrome?.edge != .trailing
-      let chrome = reservesRightColumn
+      let reservesRightColumn = !portrait && barRegions.hasHinge
+        && (split || barRegions.sideEdge != nil) && systemChrome?.edge != .trailing
+      let chrome: SideChrome? = portrait ? nil : reservesRightColumn
         ? SideChrome(rightColumnHoldingAllControls: sizeClass == .compact) : systemChrome
       let rightColumnWidth = reservesRightColumn ? SideChrome.rightColumnWidth : 0
       Group {
-        switch HomeLayout(sizeClass: sizeClass) {
-        case .stack: stackLayout
-        case .split: splitLayout(width: geometry.size.width - rightColumnWidth, fold: HomeLayout.fold(in: geometry))
+        if split {
+          splitLayout(width: geometry.size.width - rightColumnWidth, fold: HomeLayout.fold(in: geometry))
+        } else { stackLayout }
+      }
+      .onChange(of: split, initial: true) { _, value in splitAvailable = value }
+      .overlay(alignment: .topTrailing) {
+        if !split, barRegions.hasHinge, barRegions.sideEdge == nil {
+          HStack(spacing: 12) {
+            if splitAvailable { sidebarToggle }
+            searchControl
+            creationMenu().frame(width: 44, height: 44).nativeInboxGlass()
+            if !expandedReferenceSidebar, store.navigation.isEmpty {
+              MarketplaceShortcut { marketplace = true }
+              accountControl
+            }
+          }.padding(.trailing, 18).padding(.top, 6)
+        }
+      }
+      .overlay(alignment: .topLeading) {
+        if splitAvailable, listHidden, portrait || !barRegions.hasHinge, store.navigation.isEmpty {
+          inboxHeader(isSidebar: false)
         }
       }
       .modifier(SideChromeBar(top: EmptyView?.none, side: sideActions))
       .environment(\.sideChrome, chrome)
-      .environment(\.topBarClearance, SideChrome.topBarClearance(barRegions, insets: geometry.safeAreaInsets))
+      // Use the space beside Duo's status cluster instead of its full top band.
+      .environment(\.topBarClearance, split && barRegions.hasHinge
+        ? max(0, barRegions.top - SideChrome.topBarPadding)
+        : SideChrome.topBarClearance(barRegions, insets: geometry.safeAreaInsets))
+      .environment(\.usesTopToolbarGuide, !(split && barRegions.hasHinge))
+      .environment(\.leadingChatTitle, portrait)
+      .environment(\.topBarTrailingInset, portrait && barRegions.hasHinge
+        ? max(systemChrome?.width ?? 0, SideChrome.topStatusWidth) : 0)
+      .onChange(of: portrait, initial: true) { _, value in portraitLayout = value }
     }
+    .ignoresSafeArea(.container, edges: splitAvailable && barRegions.hasHinge
+      ? (portraitLayout ? [.top, .trailing] : [.top]) : [])
+    .background { NativePalette.sidebar.ignoresSafeArea() }
     .readingBarRegions { barRegions = $0 }
     .onChange(of: store.navigation) { _, path in
       // Once the zoomed chat has closed (and zoomed back into its row), later
@@ -62,6 +105,9 @@ struct HomeView: View {
         try? await Task.sleep(for: .seconds(1))
         if store.navigation.isEmpty, store.landing == nil { zoomChannel = nil }
       }
+    }
+    .sheet(isPresented: $marketplace, onDismiss: { marketplaceRevision += 1 }) {
+      NavigationStack { PluginListView() }.referenceSheet()
     }
     .sheet(item: $settings) { sheet in
       SettingsView(initialRoute: sheet.route).referenceSheet()
@@ -128,7 +174,7 @@ struct HomeView: View {
   private var stackLayout: some View {
     @Bindable var store = store
     return NavigationStack(path: $store.navigation) {
-      conversationList
+      conversationList()
         .navigationDestination(for: String.self) { id in
           if id == zoomChannel {
             conversation(id).navigationTransition(.zoom(sourceID: id, in: zoom))
@@ -143,29 +189,35 @@ struct HomeView: View {
   /// The chat's leading button hides the list for a full-width chat.
   private func splitLayout(width: CGFloat, fold: CGRect?) -> some View {
     let selected = store.navigation.last.flatMap { store.channel($0) }
-    let showsList = selected == nil || !listHidden
+    let showsList = !listHidden
     let range = HomeLayout.sidebarRange(for: width)
     // Partly folded, the columns meet at the fold, as Notes' do, so neither
     // spans it; each keeps its content clear of the fold's band.
     let foldInset = (fold?.width ?? 0) / 2
     let draggedWidth: CGFloat = draggedSidebarWidth > 0
       ? min(range.upperBound, max(range.lowerBound, CGFloat(draggedSidebarWidth)))
-      : HomeLayout.sidebarWidth(for: width)
+      : (referenceSidebar ? SidebarMetrics.width : HomeLayout.sidebarWidth(for: width))
     let listWidth: CGFloat = fold?.midX ?? draggedWidth
     return HStack(spacing: 0) {
       if showsList {
         // A gray column, edge to edge, beside the chat; the open chat is a card on it.
-        conversationList
-          .environment(\.canvasColor, NativePalette.sidebar)
+        conversationList(isSidebar: referenceSidebar)
+          .environment(\.canvasColor, referenceSidebar ? SidebarFooterFade.canvas : NativePalette.sidebar)
           // The list never reaches the side region beside a chat.
           .environment(\.sideChrome, nil)
           .safeAreaPadding(.trailing, foldInset)
           .frame(width: listWidth)
+          .overlay(alignment: .trailing) {
+            NativePalette.separator.frame(width: 1 / displayScale)
+              .ignoresSafeArea(.container, edges: .vertical)
+              .allowsHitTesting(false).accessibilityHidden(true)
+          }
           .transition(.move(edge: .leading).combined(with: .opacity))
       }
       if let selected {
         NavigationStack {
           ChatView(channel: selected)
+            .ignoresSafeArea(.container, edges: barRegions.hasHinge ? .top : [])
             .environment(\.botVoicePresentation, store.botVoiceLaunch.presentation)
             .id(store.botVoiceLaunch.presentation)
         }
@@ -173,11 +225,12 @@ struct HomeView: View {
           .id(selected.id)
           .environment(
             \.chatLeadingControl,
-            ChatLeadingControl(title: listHidden ? "Show conversations" : "Hide conversations") {
+            ChatLeadingControl(title: listHidden ? "Show conversations" : "Hide conversations", external: barRegions.hasHinge && !portraitLayout) {
               withAnimation(.smooth(duration: 0.3)) { listHidden.toggle() }
             })
           .safeAreaPadding(.leading, showsList ? foldInset : 0)
           .environment(\.chatColumnLeading, showsList ? listWidth : 0)
+          .environment(\.conversationListVisible, showsList)
           .frame(maxWidth: .infinity)
       } else {
         ContentUnavailableView(
@@ -215,80 +268,116 @@ struct HomeView: View {
     .nativeCanvas()
     .environment(\.opensConversationsInPlace, true)
   }
-  private var conversationList: some View {
-    ScrollView {
-      LazyVStack(alignment: .leading, spacing: 0) {
-        if !store.online && !store.syncingState {
-          Label("Offline · messages will send when you reconnect", systemImage: "wifi.slash")
-            .font(.footnote).foregroundStyle(NativePalette.muted).padding(.vertical, 8)
-        }
-        if let banner = ModelStatusBanner(inference: store.runtime.inference) {
-          ModelStatusBannerView(banner: banner) {
-            settings = SettingsSheet(route: .model)
-          }.padding(.top, 4).padding(.bottom, 8)
-        }
-        if !store.pins.isEmpty {
-          ScrollView(.horizontal) {
-            HStack(alignment: .top, spacing: 20) {
-              ForEach(store.pins.compactMap { id in visible.first { $0.id == id } }) { channel in
-                ConversationLink(id: channel.id, highlightsSelection: false) {
-                  VStack(spacing: 7) {
-                    ChannelAvatar(channel: channel, size: 80)
-                    Text(channel.name).font(.subheadline).foregroundStyle(NativePalette.muted)
-                      .lineLimit(1)
-                  }.frame(width: 100).contentShape(Rectangle())
-                }.accessibilityIdentifier("pinned-" + channel.id)
-                  .contextMenu {
-                    conversationActions(channel)
-                  } preview: {
-                    conversationPreview(channel)
-                  }
+  private func conversationList(isSidebar: Bool = false) -> some View {
+    GeometryReader { geometry in
+      let clearance = isSidebar ? SidebarMetrics.footerBottom : 0
+      ScrollViewReader { proxy in
+        ZStack(alignment: .bottom) {
+          ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+              if let banner = ModelStatusBanner(inference: store.runtime.inference) {
+                ModelStatusBannerView(banner: banner) {
+                  settings = SettingsSheet(route: .model)
+                }.padding(.top, 4).padding(.bottom, 8)
               }
-            }.padding(.vertical, 15)
-          }.scrollIndicators(.hidden)
-        }
-        ForEach(sections, id: \.self) { section in
-          sectionView(
-            id: section["id"].string, name: section["name"].string,
-            collapsed: section["collapsed"].bool)
-        }
-        sectionView(
-          id: "", name: "Unassigned",
-          collapsed: !sections.isEmpty && store.sidebar["unassignedCollapsed"].bool,
-          showsHeading: !sections.isEmpty)
-        if visible.isEmpty && store.bots.isEmpty && store.state.bootstrap != nil {
-          // Desktop's empty state: a server without bots has nothing to chat with yet.
-          VStack(alignment: .leading, spacing: 12) {
-            Text("Bots do the work in OpenTeam. Create one to get started.")
-              .font(.subheadline).foregroundStyle(NativePalette.muted)
-              .fixedSize(horizontal: false, vertical: true)
-            Button("Create a bot") { if !store.syncingState { creation = .bot } }
-              .buttonStyle(ModelCapsuleButtonStyle(primary: true))
-              .disabled(store.syncingState)
-              .accessibilityIdentifier("empty-create-bot")
+              if !store.pins.isEmpty {
+                ScrollView(.horizontal) {
+                  HStack(alignment: .top, spacing: 20) {
+                    ForEach(store.pins.compactMap { id in visible.first { $0.id == id } }) { channel in
+                      ConversationLink(id: channel.id, highlightsSelection: false) {
+                        VStack(spacing: 7) {
+                          ChannelAvatar(channel: channel, size: 80)
+                          Text(channel.name).font(.subheadline).foregroundStyle(NativePalette.muted)
+                            .lineLimit(1)
+                        }.frame(width: 100).contentShape(Rectangle())
+                      }.accessibilityIdentifier("pinned-" + channel.id)
+                        .contextMenu {
+                          conversationActions(channel)
+                        } preview: {
+                          conversationPreview(channel)
+                        }
+                    }
+                  }.padding(.vertical, 15)
+                }.scrollIndicators(.hidden)
+              }
+              ForEach(sections, id: \.self) { section in
+                sectionView(
+                  id: section["id"].string, name: section["name"].string,
+                  collapsed: section["collapsed"].bool, isSidebar: isSidebar)
+              }
+              sectionView(
+                id: "", name: "Unassigned",
+                collapsed: !sections.isEmpty && store.sidebar["unassignedCollapsed"].bool,
+                showsHeading: !sections.isEmpty, isSidebar: isSidebar)
+              if visible.isEmpty && store.bots.isEmpty && store.state.bootstrap != nil {
+                // Desktop's empty state: a server without bots has nothing to chat with yet.
+                VStack(alignment: .leading, spacing: 12) {
+                  Text("Bots do the work in OpenTeam. Create one to get started.")
+                    .font(.subheadline).foregroundStyle(NativePalette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                  Button("Create a bot") { if !store.syncingState { creation = .bot } }
+                    .buttonStyle(ModelCapsuleButtonStyle(primary: true))
+                    .disabled(store.syncingState)
+                    .accessibilityIdentifier("empty-create-bot")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("empty-conversations")
+              } else if visible.isEmpty {
+                Text("No conversations yet")
+                  .font(.subheadline).foregroundStyle(NativePalette.muted)
+                  .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+                  .accessibilityIdentifier("empty-conversations")
+              }
+            }.padding(.horizontal, 20).padding(.bottom, isSidebar ? 94 : 30)
+          }.background(isSidebar ? SidebarFooterFade.canvas : NativePalette.background)
+            .scrollIndicators(.hidden)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+            .padding(.trailing, !isSidebar && sizeClass == .compact && barRegions.hasHinge && barRegions.sideEdge != nil && barRegions.sideEdge != .trailing
+              ? SideChrome.rightColumnWidth : 0)
+            .fadingTopBar(canvas: isSidebar ? SidebarFooterFade.canvas : NativePalette.background,
+              showsFade: portraitLayout || !barRegions.hasHinge) {
+              if portraitLayout || !barRegions.hasHinge { inboxHeader(isSidebar: isSidebar) }
+            }
+            .mask {
+              if isSidebar {
+                VStack(spacing: 0) {
+                  Color.black
+                  LinearGradient(stops: [
+                    .init(color: .black, location: 0), .init(color: .black, location: 0.38),
+                    .init(color: .black.opacity(0.6), location: 0.52),
+                    .init(color: .clear, location: 0.7), .init(color: .clear, location: 1),
+                  ], startPoint: .top, endPoint: .bottom).frame(height: 132 + clearance)
+                }
+              } else { Color.black }
+            }
+            .refreshable { await store.refresh() }
+          if isSidebar {
+            SidebarFooterFade().frame(height: 132 + clearance).ignoresSafeArea(edges: .bottom)
+            accountFooter.padding(.bottom, clearance)
           }
-          .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
-          .accessibilityElement(children: .contain)
-          .accessibilityIdentifier("empty-conversations")
-        } else if visible.isEmpty {
-          Text("No conversations yet")
-            .font(.subheadline).foregroundStyle(NativePalette.muted)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
-            .accessibilityIdentifier("empty-conversations")
         }
-      }.padding(.horizontal, 20).padding(.bottom, 30)
-    }.nativeCanvas().scrollIndicators(.hidden)
-      .onGeometryChange(for: CGFloat.self) {
-        $0.size.width
-      } action: {
-        contentWidth = $0
+        .overlay(alignment: .bottom) {
+          if !unreadChannels.isEmpty {
+            UnreadPill(count: unreadChannels.count, isSidebar: isSidebar) {
+              let ids = unreadChannels.map(\.id)
+              let next = lastUnread.flatMap { ids.firstIndex(of: $0) }.map { ($0 + 1) % ids.count } ?? 0
+              let id = ids[next]
+              lastUnread = id
+              Task {
+                await revealUnread(id)
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo(id, anchor: .center) }
+              }
+            }.padding(.bottom, isSidebar ? SidebarMetrics.unreadBottom + clearance : 12)
+              .accessibilityIdentifier("inbox-unread")
+          }
+        }
+        .background {
+          (isSidebar ? SidebarFooterFade.canvas : NativePalette.background).ignoresSafeArea()
+        }
+        .toolbar(.hidden, for: .navigationBar)
       }
-      .scrollClipDisabled()
-      .padding(.trailing, sizeClass == .compact && barRegions.hasHinge && barRegions.sideEdge != .trailing
-        ? SideChrome.rightColumnWidth : 0)
-      .modifier(SideChromeBar(top: header, side: sideHeader))
-      .toolbar(.hidden, for: .navigationBar)
-      .refreshable { await store.refresh() }
+    }.ignoresSafeArea(.container, edges: isSidebar ? .bottom : [])
   }
   @ViewBuilder private func conversation(_ id: String) -> some View {
     if let channel = store.channel(id) {
@@ -320,6 +409,51 @@ struct HomeView: View {
     guard !Task.isCancelled else { return }
     store.finishLanding()
   }
+  private var accountFooter: some View {
+    GeometryReader { geometry in
+      ZStack(alignment: .trailing) {
+        HStack(spacing: 0) {
+          Button {
+            settings = SettingsSheet()
+          } label: {
+            HStack(spacing: SidebarMetrics.accountGap) {
+              SidebarAccountMark(name: store.accountDisplayName)
+              Text(store.accountDisplayName)
+                .font(
+                  portraitLayout ? .body.weight(.medium) : .system(size: SidebarMetrics.accountFont)
+                )
+                .lineLimit(1)
+                .foregroundStyle(accountHovered ? NativePalette.chatMuted : NativePalette.text)
+                .opacity(marketplaceHovered ? 0 : 1)
+                .blur(radius: marketplaceHovered && !reduceMotion ? 2 : 0)
+                .accessibilityIdentifier("sidebar-account-name")
+            }.frame(height: 44).contentShape(Rectangle())
+          }.buttonStyle(.plain).accessibilityLabel("Settings, " + store.accountDisplayName)
+            .accessibilityIdentifier("settings-button")
+            .onHover { inside in
+              withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { accountHovered = inside }
+            }
+          Spacer(minLength: 0)
+        }.padding(.trailing, 90)
+        MarketplaceShortcut(
+          compact: true, revision: marketplaceRevision,
+          expandedWidth: geometry.size.width - SidebarMetrics.accountSize
+            - SidebarMetrics.accountGap,
+          onExpansionChange: { marketplaceHovered = $0 }
+        ) { marketplace = true }
+        .fixedSize()
+      }
+    }.frame(height: 44).padding(.leading, SidebarMetrics.leading).padding(
+      .trailing, SidebarMetrics.trailing)
+  }
+  private func revealUnread(_ id: String) async {
+    let sectionID = store.sidebar["sectionByChannel"][id].string
+    if let section = sections.first(where: { $0["id"].string == sectionID }) {
+      if section["collapsed"].bool { await toggleSection(sectionID) }
+    } else if store.sidebar["unassignedCollapsed"].bool {
+      await toggleSection("")
+    }
+  }
   func openSelectedConversation() {
     guard let target = pendingOpen else { return }
     pendingOpen = nil
@@ -330,77 +464,68 @@ struct HomeView: View {
       await store.open(target.channel, messageID: target.message)
     }
   }
-  var header: some View {
-    HStack(spacing: 4) {
-      Button {
-        settings = SettingsSheet()
-      } label: {
-        AccountMark(name: store.userName).padding(3).nativeGlass()
-      }
-      .buttonStyle(.plain).accessibilityLabel("Settings").accessibilityIdentifier("settings-button")
+  private var sidebarToggle: some View {
+    InboxChromeButton(title: listHidden ? "Show sidebar" : "Hide sidebar", symbol: "sidebar.left") {
+      withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { listHidden.toggle() }
+    }.accessibilityIdentifier("sidebar-toggle")
+  }
+  private var accountControl: some View {
+    Button { settings = SettingsSheet() } label: {
+      AccountMark(name: store.accountDisplayName, size: 32, initialsScale: 0.42)
+        .frame(width: 44, height: 44).nativeInboxGlass()
+    }.buttonStyle(.plain).accessibilityLabel("Settings, " + store.accountDisplayName)
+      .accessibilityIdentifier("settings-button")
+  }
+  private var searchControl: some View {
+    InboxChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
+      .accessibilityIdentifier("search-button")
+  }
+  private func inboxHeader(isSidebar: Bool) -> some View {
+    HStack(spacing: isSidebar ? 8 : 4) {
+      if splitAvailable { sidebarToggle }
+      if !isSidebar { accountControl }
       if store.syncingState {
         HStack(spacing: 8) {
           LoadingOrb(size: 16).accessibilityHidden(true)
           Text("Syncing state").font(.body.weight(.semibold)).lineLimit(1)
-        }
-        .padding(.leading, 12)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("syncing-state")
+        }.padding(.leading, 12).accessibilityElement(children: .combine)
+          .accessibilityIdentifier("syncing-state")
       }
       Spacer()
       MobileUpdateBadge()
-      if !barRegions.hasHinge && barRegions.sideEdge == nil {
-        ChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
-          .accessibilityIdentifier("search-button")
-        newMenu.frame(width: 44, height: 44).nativeGlass()
-      }
-    }.foregroundStyle(NativePalette.text).padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(
-      .bottom, 10
-    )
+      InboxChromeButton(title: "Search", symbol: "magnifyingglass",
+        pointSize: isSidebar ? SidebarMetrics.searchGlyph : 21) { search = true }
+        .accessibilityIdentifier("search-button")
+      creationMenu(pointSize: isSidebar ? SidebarMetrics.addGlyph : 20)
+        .frame(width: 44, height: 44).nativeInboxGlass()
+    }.foregroundStyle(NativePalette.text).padding(.leading, 18)
+      .padding(.trailing, isSidebar ? SidebarMetrics.toolbarTrailing : 18)
+      .modifier(TopBarClearance(isSidebar ? SidebarMetrics.toolbarTop : SideChrome.topBarPadding))
+      .padding(.bottom, 10)
   }
-  /// Shared by the list and open chat, including when the list is hidden.
+  /// Shared by the list and chat so Duo's sidebar toggle stays on the right.
   private var sideActions: some View {
     VStack(spacing: 12) {
-      VStack(spacing: 0) {
-        Button {
-          search = true
-        } label: {
-          Image(systemName: "magnifyingglass").font(.system(size: 21))
-            .frame(width: 48, height: 50).contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityLabel("Search").accessibilityIdentifier("search-button")
-        newMenu.frame(width: 48, height: 50)
-      }.padding(.vertical, 2).nativeGlass(radius: 24)
-      Spacer(minLength: 0)
+      if splitAvailable { sidebarToggle }
+      creationMenu().frame(width: 44, height: 44).nativeInboxGlass()
+      searchControl
+      Spacer(minLength: 12)
+      if !expandedReferenceSidebar, store.navigation.isEmpty {
+        MarketplaceShortcut { marketplace = true }
+        accountControl
+      }
     }.foregroundStyle(NativePalette.text)
   }
-  /// The folded conversation list keeps its account control at the foot.
-  var sideHeader: some View {
-    VStack(spacing: 12) {
-      if store.syncingState {
-        LoadingOrb(size: 20).frame(width: 48, height: 48).accessibilityLabel("Syncing state")
-          .accessibilityIdentifier("syncing-state")
-      }
-      Spacer(minLength: 0)
-      // The account sits at the foot of the region, like a tab bar's last item.
-      Button {
-        settings = SettingsSheet()
-      } label: {
-        AccountMark(name: store.userName, size: 42).padding(3).nativeGlass()
-      }
-      .buttonStyle(.plain).accessibilityLabel("Settings").accessibilityIdentifier("settings-button")
-    }.foregroundStyle(NativePalette.text)
-  }
-  private var newMenu: some View {
-    NativeActionMenu(symbol: "plus", pointSize: 20, title: "New conversation",
+  private func creationMenu(pointSize: CGFloat = 20) -> some View {
+    NativeActionMenu(symbol: "plus", pointSize: pointSize, title: "New conversation",
       identifier: "new-button", panelIdentifier: "creation-menu-panel",
       hapticSource: "home.create", systemMenu: true, actions: [
         .init(title: "New Bot", action: { if !store.syncingState { creation = .bot } }),
         .init(title: "New Group Chat", action: { if !store.syncingState { creation = .group } }),
-      ])
-      .disabled(store.syncingState)
+      ]).disabled(store.syncingState)
   }
 
-  func sectionView(id: String, name: String, collapsed: Bool, showsHeading: Bool = true)
+  func sectionView(id: String, name: String, collapsed: Bool, showsHeading: Bool = true, isSidebar: Bool = false)
     -> some View
   {
     let sorted = sortedRows(in: id)
@@ -444,11 +569,10 @@ struct HomeView: View {
         ForEach(sorted) { channel in
           ConversationSwipeRow(
             pinned: store.pins.contains(channel.id),
-            pin: { Task { await store.togglePin(channel.id) } },
-            hide: { Task { await store.hide(channel, hidden: true) } }
+            pin: { Task { await store.togglePin(channel.id) } }
           ) {
             ConversationLink(id: channel.id) {
-              ChannelRow(channel: channel).modifier(ZoomSource(id: channel.id, namespace: zoom))
+              ChannelRow(channel: channel, isSidebar: isSidebar).modifier(ZoomSource(id: channel.id, namespace: zoom))
             }
               .accessibilityIdentifier("channel-" + channel.id)
               .contextMenu {
@@ -495,9 +619,6 @@ struct HomeView: View {
           Task { await move(channel.id, to: section["id"].string) }
         }
       }
-    }
-    Button("Hide", systemImage: "eye.slash") {
-      Task { await store.hide(channel, hidden: true) }
     }
   }
   private func conversationPreview(_ channel: Channel) -> some View {
@@ -697,6 +818,8 @@ private struct SidebarResizeHandle: View {
 /// controls move when the status area grows, as with a Live Activity.
 struct SideChrome: Equatable {
   static let rightColumnWidth: CGFloat = 72
+  /// Space for the portrait clock and connectivity cluster above the content.
+  static let topStatusWidth: CGFloat = 140
   /// Reserve this width inside the page when UIKit provides no right-side region.
   var contentInset: CGFloat = 0
   var edge: HorizontalEdge
@@ -751,7 +874,9 @@ struct SideChromeBar<Top: View, Side: View>: ViewModifier {
         .overlay(alignment: chrome.edge == .trailing ? .topTrailing : .topLeading) {
           // Centered where iOS centers bar controls, under the status bar's items.
           let shift = chrome.contentInset > 0 ? 0 : chrome.width + chrome.width / 2 - chrome.center
-          side.frame(width: chrome.width).padding(.top, chrome.controlsTop)
+          side.environment(\.nativeRailControl, true)
+            .padding(.horizontal, 4).frame(width: max(52, chrome.width))
+            .padding(.top, chrome.controlsTop)
             .padding(.bottom, chrome.controlsBottom + 8)
             .frame(maxHeight: .infinity, alignment: .top)
             .offset(x: chrome.edge == .trailing ? shift : -shift)
@@ -794,11 +919,15 @@ struct TopBarClearance: ViewModifier {
 /// conversation list. Without one the chat shows Back.
 struct ChatLeadingControl {
   var title: String
+  var external = false
   var action: @MainActor () -> Void
 }
 extension EnvironmentValues {
   @Entry var botVoicePresentation: UUID?
   @Entry var chatLeadingControl: ChatLeadingControl?
+  @Entry var leadingChatTitle = false
+  @Entry var conversationListVisible = false
+  @Entry var topBarTrailingInset: CGFloat = 0
   /// Conversation links select the chat beside the list instead of pushing it.
   @Entry var opensConversationsInPlace = false
   /// The side region holding the status bar, when controls belong there.
@@ -817,6 +946,7 @@ private struct ConversationLink<Label: View>: View {
     if inPlace {
       Button {
         guard store.navigation.last != id else { return }
+        NativeHaptics.play(.light, source: "conversation.select")
         Task { await store.open(id) }
       } label: {
         label.background {
@@ -828,6 +958,9 @@ private struct ConversationLink<Label: View>: View {
         .accessibilityAddTraits(store.navigation.last == id ? .isSelected : [])
     } else {
       NavigationLink(value: id) { label }.buttonStyle(.borderless)
+        .simultaneousGesture(TapGesture().onEnded {
+          NativeHaptics.play(.light, source: "conversation.select")
+        })
     }
   }
 }
@@ -835,6 +968,7 @@ private struct ConversationLink<Label: View>: View {
 struct ChannelRow: View {
   @Environment(AppStore.self) private var store
   let channel: Channel
+  var isSidebar = false
   private var last: Message? { store.latestMessage(channel.id) }
   private var unread: Bool { store.isUnread(channel) }
   var body: some View {
@@ -842,7 +976,7 @@ struct ChannelRow: View {
       ChannelAvatar(channel: channel, size: 46)
       VStack(alignment: .leading, spacing: 3) {
         HStack(alignment: .firstTextBaseline) {
-          Text(channel.name).font(.body.weight(.medium)).foregroundStyle(NativePalette.text)
+          Text(channel.name).font(isSidebar ? .system(size: 18, weight: .medium) : .body.weight(.medium)).foregroundStyle(NativePalette.text)
             .lineLimit(1)
           if channel.showsGroupLabel {
             Text("Group").font(.system(size: 12)).foregroundStyle(NativePalette.muted)
@@ -864,7 +998,7 @@ struct ChannelRow: View {
           if unread { Circle().fill(NativePalette.link).frame(width: 10, height: 10) }
         }.foregroundStyle(NativePalette.muted)
       }
-    }.frame(minHeight: 80).contentShape(Rectangle()).accessibilityElement(children: .combine)
+    }.frame(minHeight: isSidebar ? SidebarMetrics.rowHeight : 80).contentShape(Rectangle()).accessibilityElement(children: .combine)
   }
   var preview: String {
     if !store.activeRuns(channel.id).isEmpty { return "Working…" }
@@ -881,7 +1015,7 @@ struct ChannelRow: View {
       ).day ?? 8)
     f.dateFormat =
       Calendar.current.isDateInToday(date)
-      ? "h:mm a" : (recent > 0 && recent < 7 ? "EEEE" : "M/d/yy")
+      ? "h:mm a" : (recent > 0 && recent < 7 ? "EEEE" : (isSidebar ? "MMM d" : "M/d/yy"))
     return f.string(from: date)
   }
 }
@@ -896,6 +1030,7 @@ struct CreateConversationView: View {
   @State private var color = "#a47952"
   @State private var shape = "classic"
   @State private var saving = false
+  @State private var creationFailure: String?
   @State private var requestID = UUID().uuidString
   @State private var groupQuery = ""
   @State private var namingGroup = false
@@ -1035,6 +1170,8 @@ struct CreateConversationView: View {
           .padding(.top, 12)
       }
     }.disabled(saving).interactiveDismissDisabled(saving).nativeCanvas()
+      .background { TopFailureBanner(message: creationFailure).frame(width: 0, height: 0) }
+      .onChange(of: name) { _, _ in creationFailure = nil }
       .onAppear { if group { groupSearchFocused = true } }
   }
   func colorRow(_ values: [String]) -> some View {
@@ -1055,6 +1192,7 @@ struct CreateConversationView: View {
   func save() async {
     guard !saving, !store.syncingState else { return }
     saving = true
+    creationFailure = nil
     defer { saving = false }
     let body: JSON =
       group
@@ -1071,12 +1209,19 @@ struct CreateConversationView: View {
         "description": .string(""),
         "instructions": .string(""), "color": .string(color), "icon": .string(shape),
       ])
-    if let result = await store.mutate(
-      group ? "/api/v0/channels" : "/api/v0/bots", body: body, successFeedback: .success,
-      feedbackSource: "conversation.create")
-    {
+    do {
+      let result = try await store.request(
+        group ? "/api/v0/channels" : "/api/v0/bots", method: "POST", body: body)
+      await store.refresh(quiet: true)
+      NativeHaptics.play(.success, source: "conversation.create")
       let id = group ? result["id"].string : result["dmChannelId"].string
       if !id.isEmpty { onCreated(id) }
+    } catch {
+      guard !UserFacingError.isCancelled(error) else { return }
+      creationFailure = group
+        ? "Could not create the group. Please try again."
+        : "Could not create the Bot. Please try again."
+      NativeHaptics.failure(error, source: "conversation.create")
     }
   }
 }
@@ -1098,9 +1243,22 @@ struct SearchView: View {
     ScrollView {
       LazyVStack(spacing: 0) {
         if loading { LoadingOrb(label: "Searching").padding() }
-        if let failure { InlineFailure(message: failure) { retryID += 1 }.padding() }
+        if let failure {
+          if failure == "Search unavailable" {
+            VStack(spacing: 18) {
+              Image(systemName: "magnifyingglass").font(.system(size: 32, weight: .regular))
+              Text(failure).font(.title2.weight(.semibold))
+                .accessibilityIdentifier("search-error")
+              Text("Try again in a moment.").foregroundStyle(NativePalette.muted)
+              Button("Try Again") { retryID += 1 }
+                .accessibilityIdentifier("search-retry")
+            }.frame(maxWidth: .infinity).padding(.vertical, 56)
+          } else {
+            InlineFailure(message: failure) { retryID += 1 }.padding()
+          }
+        }
         if searchQuery.isEmpty {
-          ForEach(store.channels.filter { !store.isHidden($0) }) { channel in
+          ForEach(store.channels.filter { $0.kind != "agent_dm" }) { channel in
             Button {
               focused = false
               onSelect(channel.id, nil, nil)
@@ -1165,7 +1323,7 @@ struct SearchView: View {
           loading = false
         } catch {
           if !Task.isCancelled {
-            failure = UserFacingError.message(error)
+            failure = "Search unavailable"
             loading = false
           }
         }
@@ -1220,13 +1378,12 @@ struct SearchView: View {
 }
 
 /// The inbox is a free-scrolling stack, so List-only swipeActions cannot receive
-/// its gestures. Keep the same deliberate Pin/Hide actions as the RN inbox.
+/// its gestures. Allow pinning with a rightward swipe.
 private struct ConversationSwipeRow<Content: View>: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.canvasColor) private var canvas
   let pinned: Bool
   let pin: () -> Void
-  let hide: () -> Void
   @ViewBuilder let content: () -> Content
   @State private var offset: CGFloat = 0
   @State private var origin: CGFloat = 0
@@ -1237,8 +1394,6 @@ private struct ConversationSwipeRow<Content: View>: View {
         swipeButton(pinned ? "Unpin" : "Pin", "pin.fill", NativePalette.warning, action: pin)
           .opacity(offset > 0 ? 1 : 0).allowsHitTesting(offset > 0).accessibilityHidden(offset <= 0)
         Spacer()
-        swipeButton("Hide", "eye.slash", NativePalette.destructive, action: hide)
-          .opacity(offset < 0 ? 1 : 0).allowsHitTesting(offset < 0).accessibilityHidden(offset >= 0)
       }.padding(.horizontal, 8)
       content().background(canvas).offset(x: offset)
         .gesture(
@@ -1249,11 +1404,11 @@ private struct ConversationSwipeRow<Content: View>: View {
                 origin = offset
                 dragging = true
               }
-              offset = min(82, max(-82, origin + translation.width))
+              offset = min(82, max(0, origin + translation.width))
             },
             onEnded: { _, velocity, cancelled in
               dragging = false
-              let target: CGFloat = cancelled ? 0 : abs(offset) >= 40 ? (offset > 0 ? 76 : -76) : 0
+              let target: CGFloat = cancelled ? 0 : offset >= 40 ? 76 : 0
               withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { offset = target }
             }))
     }

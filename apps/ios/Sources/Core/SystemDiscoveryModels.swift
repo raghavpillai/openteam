@@ -41,7 +41,7 @@ struct SystemEntityID: Equatable, Sendable {
 }
 
 /// Only a small, recent projection is donated. Drafts, pending sends, Bot
-/// instructions, hidden conversations and message metadata never enter the index.
+/// instructions and message metadata never enter the index.
 struct SystemDiscoverySnapshot: Sendable {
   static let conversationLimit = 30
   static let messagesPerConversation = 20
@@ -52,7 +52,7 @@ struct SystemDiscoverySnapshot: Sendable {
   init(bootstrap: Bootstrap, messages cached: [String: [Message]]) {
     let activeBots = Set(bootstrap.bots.filter { $0.status != "archived" }.map(\.id))
     destinations = Array(ShareDirectory.destinations(bootstrap).filter {
-      !$0.hidden && $0.members.contains { activeBots.contains($0.id) }
+      $0.members.contains { activeBots.contains($0.id) }
     }.prefix(Self.conversationLimit))
     let channels = Set(destinations.map(\.id))
     var byID: [String: Message] = [:]

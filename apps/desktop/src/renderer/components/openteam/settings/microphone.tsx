@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from "react";
 import { useMicrophoneDevices } from "../../../hooks/use-microphone-devices";
 import { microphoneErrorMessage, setMicrophonePreference } from "../../../lib/microphone";
-import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
+import { SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton } from "./ui";
 
 export interface MicrophoneControlProps {
   disabled: boolean;
@@ -10,8 +10,7 @@ export interface MicrophoneControlProps {
   onValueChange: (value: string) => void;
 }
 
-const actionClass =
-  "inline-flex h-7 items-center rounded-[8px] border border-black/[0.055] bg-black/[0.035] px-2.5 text-[12px] hover:bg-black/[0.065] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 dark:border-white/[0.07] dark:bg-white/[0.07] dark:hover:bg-white/[0.1]";
+const actionClass = settingsSecondaryButton;
 
 export function MicrophoneSettings({
   renderControl,
@@ -78,6 +77,7 @@ export function MicrophoneSettings({
       <SectionLabel>System</SectionLabel>
       <SettingsGroup>
         <SettingsRow
+          stackControl
           title="Microphone"
           anchors={["microphone"]}
           description={saveError || availability}
@@ -105,6 +105,7 @@ export function MicrophoneSettings({
           })}
         />
         <SettingsRow
+          stackControl
           title="Microphone access"
           description={
             accessError ||

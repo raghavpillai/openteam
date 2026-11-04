@@ -6,7 +6,7 @@ import type {
   PluginDynamicNamespace,
   SubagentType,
 } from "@openteam/contracts";
-import type { BotMessage } from "../bot-compaction";
+import type { BotArchiveBlob, BotMessage } from "../bot-compaction";
 import type { ComputerEventQueue } from "../computer-event-queue";
 import type { DynamicToolDefinition } from "../dynamic-tool-gateway";
 import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
@@ -41,6 +41,8 @@ export interface ActiveTurn {
   compactionRequestMessages?: BotMessage[];
   /** Canonical persisted history; Pi may remove retry failures only from memory. */
   compactionReadPiMessages?: () => BotMessage[];
+  compactionReadPiBoundary?: () => BotArchiveBlob["piBoundary"];
+  compactionUsageInvalidated?: () => boolean;
   pendingCompactionMeasurement?: { compactionId: string; epoch: number };
   todoUpdate: string | null;
   resetSelfSummaryCount: boolean;

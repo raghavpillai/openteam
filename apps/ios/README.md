@@ -56,7 +56,7 @@ Run the core, client-contract and default native UI checks against a booted simu
 bash apps/ios/scripts/verify.sh <simulator-udid>
 ```
 
-The script starts fixtures on ports 19997, 19992, 20070, 20071, 20072, 20081 and 20085.
+The script starts fixtures on ports 19997, 19992, 19994, 20070, 20071, 20072, 20081, 20085 and 20093.
 It uses ad hoc simulator signing so the discovery tests can exercise Keychain
 persistence across cold launches.
 `ModelSettingsUITests` uses port 20072 to check provider connection, model and reasoning
@@ -117,8 +117,10 @@ repository `output/`; they are not bundled with the app.
 
 Increment `release.json`'s build number before each TestFlight upload, keep its
 version in sync with this workspace's `package.json`, then regenerate the project.
-The tagged release workflow uses native Xcode archive/export on macOS. Its signing
-secrets and upload procedure are documented in [Releasing OpenTeam](../../.github/RELEASING.md).
+The v0.0.13 release candidate reserves build 63; source metadata does not establish
+a TestFlight upload or availability. Release archives and exports are built locally
+with Xcode on macOS. Follow [Releasing OpenTeam](../../.github/RELEASING.md) for
+release preparation and publication boundaries; tag pushes do not build releases.
 `ci-testflight.sh` is for an ephemeral CI runner, not a developer's personal keychain.
 Besides the app and notification profiles, it needs `IOS_SHARE_PROFILE_BASE64`.
 Uploading an archive does not establish Apple processing or tester availability.
@@ -213,7 +215,7 @@ only to a unique existing group; intents never create a group implicitly.
 **Settings → Siri and Spotlight** opts the connected account into on-device
 discovery and visible-message context. The named, protected Spotlight index holds
 at most 30 visible conversations, 20 messages per conversation, and 200 messages
-in total. Hidden/archived conversations, drafts, pending sends, Bot instructions,
+in total. Archived bots' conversations, drafts, pending sends, Bot instructions,
 and internal metadata are excluded. Index updates remove evicted entries and
 update changed content. Disabling discovery, signing out, re-authenticating, or
 changing accounts clears donated content. Saved entity identifiers include the
@@ -229,11 +231,17 @@ discovery disabled.
 Hosted integration tests exercise the actual intents, Keychain, and Spotlight
 with synthetic data, including real text/file exports, incremental indexing,
 revoked sessions, account changes during requests, and cold-launch navigation.
-Start the loopback fixture, then run the dedicated scheme
-on an isolated simulator (ad-hoc signing is needed for Keychain access):
+Start the loopback fixture and upload proxy in separate terminals, then run the
+dedicated scheme on an isolated simulator (ad-hoc signing is needed for Keychain
+access). The proxy on port 20086 supplies real TCP backpressure for the delivery
+progress tests; it forwards to the fixture on port 20084:
 
 ```sh
+# Terminal 1
 SWIFT_PARITY_PORT=20084 bun apps/ios/scripts/parity-server.ts
+# Terminal 2
+node apps/ios/scripts/send-upload-proxy.cjs
+# Terminal 3
 xcodebuild -project apps/ios/OpenTeamNative.xcodeproj -scheme SystemIntents \
   -destination 'platform=iOS Simulator,id=<simulator-udid>' \
   -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- test

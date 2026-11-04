@@ -557,7 +557,7 @@ describe("connected device browser network", () => {
       cleanup.push(() => rm(directory, { recursive: true, force: true }));
       await writeFile(join(directory, "package.json"), '{"type":"module"}');
       const built = await Bun.build({
-        entrypoints: [resolve("packages/plugin-sdk/test/browser-network/peer.fixture.ts")],
+        entrypoints: [resolve(import.meta.dirname, "../../../packages/plugin-sdk/test/browser-network/peer.fixture.ts")],
         target: "node",
         outdir: directory,
         naming: "peer.js",
@@ -567,7 +567,7 @@ describe("connected device browser network", () => {
         [
           process.execPath,
           "build",
-          resolve("apps/computer/src/browser-network-worker.ts"),
+          resolve(import.meta.dirname, "../../computer/src/browser-network-worker.ts"),
           "--target",
           "node",
           "--outfile",

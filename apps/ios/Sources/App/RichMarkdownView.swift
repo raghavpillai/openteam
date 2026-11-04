@@ -377,6 +377,7 @@ private struct MarkdownDocument: UIViewRepresentable {
   static func clear() {
     MessageTextCache.clear()
     AttachmentPreviewCache.clear()
+    VideoPoster.clear()
     DocumentMeasurer.shared.clear()
     DocumentHeightCache.shared.clear()
     DocumentPool.shared.clear()

@@ -46,7 +46,7 @@ struct TeamSiriPersonQuery: EntityStringQuery, IntentValueQuery, IndexedEntityQu
   @MainActor func entities(matching string: String) async throws -> [TeamSiriPerson] {
     let client = try await SystemIntentClient.connect()
     return client.destinations.filter {
-      string.isEmpty ? !$0.hidden : $0.name.localizedStandardContains(string)
+      string.isEmpty || $0.name.localizedStandardContains(string)
     }.compactMap { $0.bot.map { TeamSiriPerson($0, scope: client.scope) } }
   }
   @MainActor func values(for input: [IntentPerson]) async throws -> [TeamSiriPerson] {

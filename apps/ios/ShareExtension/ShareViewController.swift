@@ -65,7 +65,8 @@ struct SharedFile: Identifiable {
 
 @MainActor final class ShareModel: ObservableObject {
   enum Phase { case loading, ready, signedOut, failed(String) }
-  static let maximumFiles = 6
+  /// Matches Draft.maxAttachments and the share extension's activation limits.
+  static let maximumFiles = 20
 
   @Published var phase = Phase.loading
   @Published var targets: [ShareTarget] = []

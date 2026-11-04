@@ -162,11 +162,6 @@ export const CreateBotInput = Schema.Struct({
 });
 export type CreateBotInput = typeof CreateBotInput.Type;
 
-export const DuplicateBotInput = Schema.Struct({
-  clientRequestId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
-});
-export type DuplicateBotInput = typeof DuplicateBotInput.Type;
-
 export const UpdateBotInput = Schema.Struct({
   name: Schema.optional(Schema.String.pipe(Schema.filter((value) => value.trim().length > 0, {
     message: () => "Bot name must not be blank",
@@ -177,7 +172,6 @@ export const UpdateBotInput = Schema.Struct({
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
-  hiddenFromSidebar: Schema.optional(Schema.Boolean),
   draftingDisabled: Schema.optional(Schema.Boolean),
   draftAllowedRecipients: Schema.optional(
     Schema.Array(Schema.String.pipe(Schema.pattern(/^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/), Schema.maxLength(320))).pipe(Schema.maxItems(500))
@@ -1132,7 +1126,6 @@ export const UpdateStateInput = Schema.Struct({
   trigger: Schema.optional(Schema.Unknown),
   enabled: Schema.optional(Schema.Boolean),
   body: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
-  hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
   drafting_disabled: Schema.optional(Schema.Boolean),
   platform: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
@@ -1175,7 +1168,6 @@ export const UpdateProfileToolInput = Schema.Struct({
   title: Schema.optional(Schema.String),
   avatar_shape: optionalText,
   avatar_color: UpdateStateInput.fields.avatar_color,
-  hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
   drafting_disabled: Schema.optional(Schema.Boolean),
 });
@@ -1298,6 +1290,11 @@ export const DynamicToolCallRequest = Schema.Struct({
 });
 export type DynamicToolCallRequest = typeof DynamicToolCallRequest.Type;
 
+/** Images a turn shows the model inline: every photo a message can carry, as in the reference. */
+export const MAX_TURN_INLINE_IMAGES = CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage;
+/** Raw image bytes a turn sends inline. Base64 grows them by a third, and the computer's server
+ * refuses request bodies over Bun's 128 MiB default, so a turn stops adding images before that. */
+export const MAX_TURN_INLINE_IMAGE_BYTES = 80 * 1024 * 1024;
 export const ComputerTurnRequest = Schema.Struct({
   runId: Schema.String,
   botId: Schema.String,
@@ -1329,7 +1326,7 @@ export const ComputerTurnRequest = Schema.Struct({
   reasoning: Schema.Literal(...PI_REASONING_LEVELS),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),
   attachmentOwnerBotId: Schema.optional(Schema.String),
-  images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
+  images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(MAX_TURN_INLINE_IMAGES))),
   dynamicNamespaces: Schema.optional(Schema.Array(PluginDynamicNamespace)),
   pluginRuntimePackages: Schema.optional(Schema.Array(Schema.Unknown)),
 });

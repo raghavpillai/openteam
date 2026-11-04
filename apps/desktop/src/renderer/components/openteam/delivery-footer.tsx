@@ -1,72 +1,37 @@
-import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useRef, useState } from "react";
 import {
   type DurableSendRecord,
   durableSendStatusLabel,
 } from "@openteam/product-core/durable-delivery";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { formatOfflineDeliveryLabel } from "@openteam/product-core/timestamps";
-import {
-  subscribeDesktopSendTransport,
-  desktopSendTransportSnapshot,
-} from "../../lib/durable-sends";
-import { sendProgressRevealDelay } from "../../lib/send-progress";
 
-function SendProgress({ sinceMs }: { sinceMs: number }) {
-  const [reveal, setReveal] = useState(() => {
-    const mountedAtMs = Date.now();
-    return { sinceMs, mountedAtMs, delayMs: sendProgressRevealDelay(sinceMs, mountedAtMs) };
-  });
-  if (reveal.sinceMs !== sinceMs) {
-    setReveal({
-      ...reveal,
-      sinceMs,
-      // Once visible, a change in the oldest pending attempt must not hide it again.
-      delayMs:
-        Date.now() >= reveal.mountedAtMs + reveal.delayMs
-          ? reveal.delayMs
-          : sendProgressRevealDelay(sinceMs, reveal.mountedAtMs),
-    });
-  }
-  return (
-    <div
-      aria-hidden="true"
-      className="send-progress"
-      data-send-progress=""
-      style={{ animationDelay: `${reveal.delayMs}ms` }}
-    >
-      <div className="send-progress-track">
-        <div className="send-progress-segment" />
-      </div>
-    </div>
-  );
-}
-
-export const DeliveryFooter = memo(function DeliveryFooter({
-  delivery,
-  sendingSinceMs,
-  onCancel,
-  onDelete,
-  onResend,
-}: {
+type DeliveryFooterProps = {
   delivery: DurableSendRecord | null;
   sendingSinceMs: number | null;
   onCancel: (nonce: string) => Promise<unknown>;
   onDelete: (nonce: string) => Promise<unknown>;
   onResend: (nonce: string) => Promise<unknown>;
-}) {
+};
+
+// Every outgoing row owns the same caption lane, including after reconciliation.
+// Status changes can never resize the row and push a bottom-anchored bubble up.
+export const DeliveryFooter = memo(function DeliveryFooter(props: DeliveryFooterProps) {
+  return (
+    <div className="delivery-footer" data-delivery-footer="">
+      <DeliveryStatus {...props} />
+    </div>
+  );
+});
+
+function DeliveryStatus({
+  delivery,
+  onCancel,
+  onDelete,
+  onResend,
+}: DeliveryFooterProps) {
   const [busy, setBusy] = useState(false);
   const actionInFlight = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const transportDown = useSyncExternalStore(
-    subscribeDesktopSendTransport,
-    desktopSendTransportSnapshot,
-    desktopSendTransportSnapshot
-  );
-  const currentOfflineAtMs = delivery?.queuedAtMs ?? null;
-  const [retainedOfflineAtMs, setRetainedOfflineAtMs] = useState(currentOfflineAtMs);
-  useEffect(() => {
-    if (currentOfflineAtMs !== null) setRetainedOfflineAtMs(currentOfflineAtMs);
-  }, [currentOfflineAtMs]);
   const act = (operation: () => Promise<unknown>) => {
     if (actionInFlight.current) return;
     actionInFlight.current = true;
@@ -87,12 +52,12 @@ export const DeliveryFooter = memo(function DeliveryFooter({
     return (
       <div
         aria-label="Failed message actions"
-        className="mt-1 flex flex-wrap items-center justify-end gap-1 self-end text-[11px] leading-4"
+        className="delivery-caption text-[11px] leading-4"
         data-failed-send-actions=""
         role="group"
       >
         <span className="font-medium text-destructive" role="status">
-          {durableSendStatusLabel(delivery.phase)}
+          {delivery.failure?.uncertain ? "Delivery unconfirmed" : durableSendStatusLabel(delivery.phase)}
         </span>
         <button
           className={actionClass}
@@ -111,7 +76,11 @@ export const DeliveryFooter = memo(function DeliveryFooter({
           Delete
         </button>
         {actionError || delivery.failure?.message ? (
-          <span role="alert" className="w-full text-right text-destructive">
+          <span
+            role="alert"
+            className="w-full min-w-0 truncate text-right text-destructive"
+            title={actionError ?? clientErrorMessage(delivery.failure?.message, "The message could not be sent.")}
+          >
             {actionError ??
               clientErrorMessage(delivery.failure?.message, "The message could not be sent.")}
           </span>
@@ -119,58 +88,26 @@ export const DeliveryFooter = memo(function DeliveryFooter({
       </div>
     );
   }
-  const pending = delivery?.phase === "prepared" || delivery?.phase === "dispatching";
-  if (delivery?.phase === "queued" || (pending && transportDown)) {
+  // Queued sends remain normal bubbles. Cancellation is an intentional hover
+  // or keyboard action; routine queue/progress bookkeeping stays out of chat.
+  if (delivery?.phase === "queued") {
     return (
-      <div
-        className="mt-1 flex flex-wrap items-center justify-end gap-1 self-end text-[11px] leading-4 text-muted-foreground"
-        data-queued-send-notice=""
-        role="status"
-      >
-        <span>{durableSendStatusLabel("queued", transportDown)}</span>
-        {delivery?.phase === "queued" && (
-          <button
-            className={actionClass}
-            disabled={busy}
-            onClick={() => act(() => onCancel(delivery.nonce))}
-            type="button"
-          >
-            Cancel
-          </button>
-        )}
+      <div className="delivery-caption text-[11px] leading-4">
+        <button
+          className={`delivery-queued-cancel ${actionClass}`}
+          disabled={busy}
+          onClick={() => act(() => onCancel(delivery.nonce))}
+          type="button"
+        >
+          Cancel
+        </button>
         {actionError ? (
-          <span role="alert" className="w-full text-right text-destructive">
+          <span role="alert" className="w-full min-w-0 truncate text-right text-destructive" title={actionError}>
             {actionError}
           </span>
         ) : null}
       </div>
     );
   }
-  const progress =
-    pending && sendingSinceMs !== null && !transportDown ? (
-      <SendProgress sinceMs={sendingSinceMs} />
-    ) : null;
-  const offlineAtMs = currentOfflineAtMs ?? retainedOfflineAtMs;
-  if (
-    offlineAtMs !== null &&
-    (((pending || delivery?.phase === "accepted-awaiting-echo") && currentOfflineAtMs !== null) ||
-      (delivery === null && retainedOfflineAtMs !== null))
-  ) {
-    const clearing = delivery === null;
-    return (
-      <>
-        <div
-          aria-hidden={clearing || undefined}
-          className="sent-while-offline-notice self-end text-[11px] leading-4 text-muted-foreground"
-          data-cleared={clearing || undefined}
-          data-sent-while-offline=""
-          role="status"
-        >
-          {formatOfflineDeliveryLabel(offlineAtMs)}
-        </div>
-        {progress}
-      </>
-    );
-  }
-  return progress;
-});
+  return null;
+}

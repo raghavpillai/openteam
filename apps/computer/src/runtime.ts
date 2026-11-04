@@ -1,5 +1,6 @@
 import { createModelRuntime } from "./model-runtime";
 import { providerIdleFetch } from "./runtime/provider-idle-fetch";
+import { prepareCompactionHistory, recoverStagedPiCompaction } from "./runtime/compaction-history";
 import type { ComputerInferenceRequest } from "@openteam/contracts/service-protocol";
 import { prepareUserImages } from "./runtime/image-input";
 import { clampThinkingLevel } from "@earendil-works/pi-ai";
@@ -457,28 +458,23 @@ export class ComputerRuntime {
   }
 
   private async recoverStagedCompaction(contextSessionId: string): Promise<void> {
+    // Startup may recover before constructing its reader. Once a live reader
+    // exists, a separate manager must not adopt a different coordinate system.
+    const hasLiveHistory = () => {
+      const active = this.activeByContext.get(contextSessionId);
+      return Boolean(active?.session || active?.compactionReadPiMessages);
+    };
+    if (hasLiveHistory()) return;
     const stagedId = await this.compaction.stagedId(contextSessionId);
-    if (!stagedId) return;
+    if (!stagedId || hasLiveHistory()) return;
     const sessionPath = await existingContextSessionPath(this.sessionsDir, contextSessionId);
+    if (hasLiveHistory()) return;
     if (!sessionPath) {
       await this.compaction.recoverStaged(contextSessionId, 0, []);
       return;
     }
     const manager = SessionManager.open(sessionPath, this.sessionsDir);
-    const persistedCompactionIds = manager.getBranch().flatMap((entry) => {
-      if (entry.type !== "compaction" || !entry.details || typeof entry.details !== "object") {
-        return [];
-      }
-      const details = entry.details as Record<string, unknown>;
-      return details.openteamBotCompaction === true && typeof details.id === "string"
-        ? [details.id]
-        : [];
-    });
-    await this.compaction.recoverStaged(
-      contextSessionId,
-      manager.buildSessionContext().messages.length,
-      persistedCompactionIds
-    );
+    await recoverStagedPiCompaction(this.compaction, manager, contextSessionId);
   }
 
   /**
@@ -701,6 +697,12 @@ export class ComputerRuntime {
   ): Promise<AgentSession> {
     const modelRuntime = this.modelRuntime;
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
+    const compactionHistory = await prepareCompactionHistory(
+      this.compaction, this.compactionArchive, sessionManager, active.contextSessionId
+    );
+    active.compactionReadPiMessages = compactionHistory.read;
+    active.compactionReadPiBoundary = compactionHistory.boundary;
+    active.compactionUsageInvalidated = compactionHistory.hasUnmeasuredRecovery;
     let model = this.resolveModel(modelRef);
     if (active.subagentType === "computerUse" && !model.input.includes("image")) {
       // Refresh stale saved capabilities before rejecting a graphical task.
@@ -732,7 +734,7 @@ export class ComputerRuntime {
       noThemes: true,
       systemPrompt: taskProgressBaseInstructions(instructions),
       extensionFactories: [
-        this.compactionExtension(sessionManager, active),
+        this.compactionExtension(sessionManager, active, compactionHistory),
         reasoningExtension(model, active.reasoning),
         inferenceMetricsExtension(active.runId),
         pluginComponentsExtension(active),
@@ -775,14 +777,16 @@ export class ComputerRuntime {
 
   private compactionExtension(
     sessionManager: SessionManager,
-    active: ActiveTurn
+    active: ActiveTurn,
+    history: import("./runtime/compaction-history").CompactionHistory
   ): { name: string; hidden: boolean; factory: ExtensionFactory } {
     return compactionExtension(
       this.compaction,
       (...args) => this.inferCompaction(...args),
       sessionManager,
       active,
-      (messages) => this.tools.acknowledgeToolOutcomes(active, messages)
+      (messages) => this.tools.acknowledgeToolOutcomes(active, messages),
+      history
     );
   }
 

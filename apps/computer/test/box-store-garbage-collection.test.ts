@@ -13,7 +13,9 @@ async function manifest(root:string, hashes:string[], name='manifest.json'){
  const body={version:1 as const,revision:1,generatedAt:new Date().toISOString(),files:hashes.map((sha256,i)=>({path:`workspace/${i}`,sha256,size:1,mode:0o600}))};
  await writeFile(join(root,name),JSON.stringify({...body,etag:manifestEtag(body)}));
 }
-const sweep=(root:string, now:number, limits?:BlobCollectionLimits)=>withBoxStoreOperation(root,()=>collectBoxStoreBlobsLocked(root,now,limits));
+// Ordinary retention cases assume a healthy disk. Pressure cases override this
+// explicitly, so the developer machine's free space cannot change the scenario.
+const sweep=(root:string, now:number, limits?:BlobCollectionLimits)=>withBoxStoreOperation(root,()=>collectBoxStoreBlobsLocked(root,now,{freeBytes:async()=>({free:100*1024**3,total:200*1024**3}),...limits}));
 test('old blobs get a full observation grace period; current and conflict roots survive',async()=>{
  const root=await fixture(), current=await blob(root,'current'), conflict=await blob(root,'conflict'), orphan=await blob(root,'orphan');
  const now=Date.now()+1000;

@@ -7,7 +7,7 @@ import { link, mkdir, open, readdir, readFile, realpath, rm, stat } from "node:f
 import { isIP } from "node:net";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ApiError, type AssetKind, type AssetRef } from "@openteam/contracts";
+import { ApiError, MAX_TURN_INLINE_IMAGE_BYTES, MAX_TURN_INLINE_IMAGES, type AssetKind, type AssetRef } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
@@ -360,6 +360,25 @@ const classifyStaged = async (
   const dimensions = await jpegDimensionsFromFile(path, byteSize);
   return dimensions ? { ...detected, ...dimensions } : detected;
 };
+
+/** What is left of one turn request's inline images: a count and raw bytes. */
+export interface InlineImageBudget { images: number; bytes: number }
+export const inlineImageBudget = (): InlineImageBudget =>
+  ({ images: MAX_TURN_INLINE_IMAGES, bytes: MAX_TURN_INLINE_IMAGE_BYTES });
+
+/** A message's images in order, until the turn's count or byte budget runs out. Pass one
+ * budget to several messages sent in the same request so they share it. */
+export function inlineTurnImages(refs: readonly AssetRef[], budget = inlineImageBudget()): AssetRef[] {
+  const inline: AssetRef[] = [];
+  for (const ref of refs) {
+    if (ref.kind !== "image") continue;
+    if (budget.images === 0 || ref.byteSize > budget.bytes) break;
+    inline.push(ref);
+    budget.images -= 1;
+    budget.bytes -= ref.byteSize;
+  }
+  return inline;
+}
 
 export class AssetStore {
   readonly root: string;
@@ -734,10 +753,12 @@ export class AssetStore {
     return parsed;
   }
 
-  async runtimeImages(refs: readonly AssetRef[]): Promise<Array<{ url: string; alt?: string }>> {
-    const normalized = await this.normalizeRefs(refs.filter((ref) => ref.kind === "image"));
+  /** The images a turn shows the model inline. Every attachment, these included, is also saved
+   * on the box and listed in the message, so the bot can still open any image left out here. */
+  async runtimeImages(refs: readonly AssetRef[], budget?: InlineImageBudget): Promise<Array<{ url: string; alt?: string }>> {
+    const inline = inlineTurnImages(await this.normalizeRefs(refs.filter((ref) => ref.kind === "image")), budget);
     return Promise.all(
-      normalized.map(async (ref) => ({
+      inline.map(async (ref) => ({
         url: `data:${ref.mimeType};base64,${(await readFile(this.blobPath(ref.assetId))).toString("base64")}`,
         ...(ref.alt ? { alt: ref.alt } : {}),
       }))

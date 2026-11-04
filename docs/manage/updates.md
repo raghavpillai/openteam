@@ -1,6 +1,6 @@
 # Updates
 
-Update the server and the `openteam` CLI with one command. The desktop app updates separately.
+Update the server and the `openteam` CLI with one command, or manage server updates from **Settings → Updates** on desktop, iPhone, or iPad. The desktop and iOS apps have their own updates.
 
 ## Update the server
 
@@ -24,6 +24,8 @@ If the new version doesn't start, the updater rolls back to the previous version
 ## Update from the desktop app
 
 Open **Settings → Updates** to update the desktop app and the connected server. Under **Connected server**, the app shows the running server version. Choose **Update** and confirm to update that server to the installed desktop version. The version notice links directly to the relevant update. You can also open updates from **Settings → Server → Connected server → View updates**.
+
+The desktop sidebar also shows available app updates and download progress. Choose **Restart to update** once the download is ready.
 
 Server updates use your existing signed-in connection. They update that server's stack, including the worker, database migrations, and computer. No SSH destination or additional sign-in is needed. The app compares the server with the installed desktop even when it cannot check the desktop release feed.
 
@@ -50,7 +52,7 @@ Updates keep the software bots installed on their computer; see [what restarts a
 
 Open **Settings → Updates**, or choose **View updates** in **Settings → Server**. Updates shows the installed iOS app version and the connected server version. If the server is older, choose **Update to <version>** and confirm. This uses your existing signed-in connection and the same host updater as desktop. Updates wait for working bots and continue if you close the app; reopen Updates to check progress.
 
-Choose the **iOS app** row on the Updates page to open TestFlight for app updates. Manage the server's connected computers under **Settings → Server → Manage devices**.
+Choose the **iOS app** row on the Updates page to open TestFlight for app updates. When a newer iOS release is available, the app also shows an **Update** badge and an **Update in TestFlight** notice. Manage the server's connected computers under **Settings → Server → Manage devices**.
 
 ## After updating
 

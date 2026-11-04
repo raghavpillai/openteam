@@ -13,7 +13,7 @@ test("the Node network worker shuts down when its parent pipe closes and never p
       [
         process.execPath,
         "build",
-        resolve("apps/computer/src/browser-network-worker.ts"),
+        resolve(import.meta.dirname, "../src/browser-network-worker.ts"),
         "--target",
         "node",
         "--outfile",
@@ -56,7 +56,7 @@ test("chaos: diagnostic admission uses live worker state rather than its last st
   try {
     const modulePath = join(directory, "supervisor.mjs");
     const build = await Bun.build({
-      entrypoints: [resolve("apps/computer/src/browser-network.ts")],
+      entrypoints: [resolve(import.meta.dirname, "../src/browser-network.ts")],
       target: "bun",
       outdir: directory,
       naming: "supervisor.mjs",

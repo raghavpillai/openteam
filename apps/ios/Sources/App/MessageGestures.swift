@@ -93,3 +93,18 @@ struct MessageReplyGesture: UIGestureRecognizerRepresentable {
     return nil
   }
 }
+
+/// Shared by the hosted rows, so dragging one message reveals every visible time
+/// without rebuilding the table or changing any of its row measurements.
+@MainActor @Observable final class MessageTimestampReveal {
+  var offset: CGFloat = 0
+}
+private struct MessageTimestampKey: EnvironmentKey {
+  static let defaultValue: MessageTimestampReveal? = nil
+}
+extension EnvironmentValues {
+  var messageTimestamps: MessageTimestampReveal? {
+    get { self[MessageTimestampKey.self] }
+    set { self[MessageTimestampKey.self] = newValue }
+  }
+}

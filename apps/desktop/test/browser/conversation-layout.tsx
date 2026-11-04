@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import {
   Conversation,
@@ -147,6 +148,43 @@ function Fixture({
       </ConversationContent>
     </Conversation>
   );
+}
+// Isolate the shipping scroll controller from virtual-row measurement timing.
+// DOM height changes model decoded media and streamed/incoming content.
+function GlideFixture() {
+  const [rows, updateRows] = useState(entries.slice(0, 20));
+  setRows = updateRows;
+  return <Conversation style={{ height: 600, width: 800 }}>
+    <CaptureContext />
+    <ConversationContent>{rows.map(entry => <Row key={entry.id} entry={entry} />)}</ConversationContent>
+  </Conversation>;
+}
+const nextFrame = () => new Promise<number>(resolve => requestAnimationFrame(resolve));
+const motionSample = (time: number) => {
+  const viewport = context.scrollRef.current!;
+  return { time, top: viewport.scrollTop, target: viewport.scrollHeight - 1 - viewport.clientHeight };
+};
+type MotionSample = ReturnType<typeof motionSample>;
+async function startSendGlide() {
+  root.render(<GlideFixture />);
+  await wait(150);
+  const previousTarget = context.targetScrollTop;
+  const from = context.scrollRef.current!.scrollTop;
+  const completed = glideConversationToBottom(context, { awaitGrowth: 1_000, durationMs: 350 });
+  flushSync(() => setRows([...entries.slice(0, 20), { id: "send", type: "message", height: 180 }]));
+  const frames = [motionSample(await nextFrame())];
+  for (let i = 0; i < 5; i++) frames.push(motionSample(await nextFrame()));
+  return { completed, previousTarget, from, frames };
+}
+async function finishSendGlide(completed: Promise<boolean>, frames: MotionSample[]) {
+  const deadline = performance.now() + 2500;
+  while (isConversationGliding(context.state) && performance.now() < deadline)
+    frames.push(motionSample(await nextFrame()));
+  assert(!isConversationGliding(context.state) && await completed, "Retargeted send did not settle");
+  assert(Math.abs(frames.at(-1)!.target - frames.at(-1)!.top) <= 1, "Retargeted send stopped short");
+  const steps = frames.slice(1).map((frame, i) => frame.top - frames[i]!.top);
+  assert(steps.every(step => step >= -1 && step < 50), `Send jumped/backtracked: ${JSON.stringify(frames)}`);
+  return { frames, maxStep: Math.max(...steps) };
 }
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const sample = (): Sample | null => {
@@ -478,6 +516,78 @@ async function main() {
     assertGlide(arrived);
     assert(context.state.isAtBottom, "Send glide did not lock to the bottom");
   });
+  await run("a single send retains its 350ms smoothstep", async () => {
+    const { completed, previousTarget, from, frames } = await startSendGlide();
+    const result = await finishSendGlide(completed, frames);
+    const distance = frames[0]!.target - from;
+    for (const frame of frames) {
+      const t = Math.min(1, (frame.time - frames[0]!.time) / 350);
+      const expected = from + distance * t * t * (3 - 2 * t);
+      assert(Math.abs(frame.top - expected) <= 1, `Normal send curve changed: ${JSON.stringify(frame)}`);
+    }
+    assert(context.targetScrollTop === previousTarget, "Normal send did not restore the scroll target");
+    return result;
+  });
+  await run("send keeps moving through continuous target growth", async () => {
+    const { completed, previousTarget, frames } = await startSendGlide();
+    const growthFrames = [frames.at(-1)!];
+    const before = frames.at(-2)!;
+    const atRetarget = frames.at(-1)!;
+    const incomingSpeed = (atRetarget.top - before.top) / (atRetarget.time - before.time);
+    const row = document.querySelector<HTMLElement>('[data-message-id="send"]')!;
+    for (let i = 1; i <= 18; i++) {
+      row.style.height = `${180 + i * 8}px`;
+      const frame = motionSample(await nextFrame());
+      frames.push(frame);
+      growthFrames.push(frame);
+    }
+    const progress = growthFrames.at(-1)!.top - growthFrames[0]!.top;
+    const first = growthFrames[1]!;
+    const retargetSpeed = (first.top - atRetarget.top) / (first.time - atRetarget.time);
+    assert(retargetSpeed >= incomingSpeed * .8, "Retarget discarded the send's existing velocity");
+    assert(growthFrames.every((frame, i) => i === 0 || frame.target > growthFrames[i - 1]!.target),
+      "Continuous growth did not change the target every frame");
+    assert(growthFrames.slice(1).every((frame, i) => frame.top > growthFrames[i]!.top + .5) && progress > 100,
+      `Send stalled while target grew: ${JSON.stringify(growthFrames)}`);
+    const result = await finishSendGlide(completed, frames);
+    assert(context.targetScrollTop === previousTarget && context.state.isAtBottom, "Growth did not restore bottom follow");
+    return { progressDuringGrowth: progress, ...result };
+  });
+  await run("delayed incoming row and decoded media retarget a moving send", async () => {
+    const { completed, previousTarget, frames } = await startSendGlide();
+    const beforeIncoming = frames.at(-1)!;
+    flushSync(() => setRows([...entries.slice(0, 20), { id: "send", type: "message", height: 180 },
+      { id: "incoming-media", type: "message", height: 90 }]));
+    for (let i = 0; i < 5; i++) frames.push(motionSample(await nextFrame()));
+    assert(frames.at(-1)!.top > beforeIncoming.top + 20, "Delayed incoming row stopped the send");
+    const beforeMedia = frames.at(-1)!;
+    document.querySelector<HTMLElement>('[data-message-id="incoming-media"]')!.style.height = "270px";
+    frames.push(motionSample(await nextFrame()));
+    assert(frames.at(-1)!.top > beforeMedia.top + .5, "Decoded media reset the send velocity");
+    const result = await finishSendGlide(completed, frames);
+    assert(context.targetScrollTop === previousTarget, "Delayed growth did not restore the scroll target");
+    return result;
+  });
+  for (const interruption of ["wheel", "replacement", "unmount"] as const) {
+    await run(`retargeted send cancels on ${interruption}`, async () => {
+      const { completed, previousTarget, frames } = await startSendGlide();
+      const viewport = context.scrollRef.current!;
+      document.querySelector<HTMLElement>('[data-message-id="send"]')!.style.height = "300px";
+      frames.push(motionSample(await nextFrame()));
+      let replacement: Promise<boolean> | undefined;
+      if (interruption === "wheel") viewport.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
+      else if (interruption === "replacement") replacement = glideConversationToBottom(context);
+      else flushSync(() => root.render(null));
+      await nextFrame();
+      assert(!await completed, `${interruption} did not cancel the retargeted send`);
+      if (replacement) await finishSendGlide(replacement, frames);
+      const stopped = viewport.scrollTop;
+      await wait(100);
+      assert(!isConversationGliding(context.state) && context.targetScrollTop === previousTarget,
+        `${interruption} leaked glide ownership`);
+      assert(Math.abs(viewport.scrollTop - stopped) <= 1, `${interruption} left a running animation`);
+    });
+  }
   await run("reader input cancels a glide", async () => {
     await record(() => root.render(<Fixture id="cancel-glide" />));
     scrollUp(1500);

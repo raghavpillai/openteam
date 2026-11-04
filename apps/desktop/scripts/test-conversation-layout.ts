@@ -68,6 +68,8 @@ try {
   clearTimeout(timer);
   if (code !== 0) throw new Error(`Electron exited ${code}: ${stdout}\n${stderr}`);
   const result = JSON.parse(await readFile(join(directory, "results.json"), "utf8"));
+  if (process.env.CONVERSATION_LAYOUT_RESULTS)
+    await writeFile(resolve(process.env.CONVERSATION_LAYOUT_RESULTS), JSON.stringify(result, null, 2));
   for (const report of result.reports ?? [])
     console.log(`PASS ${report.name} (${report.rowMounts} row mounts)`);
   if (result.error) throw new Error(`${result.error}\n${result.stack ?? ""}\n${stderr}`);

@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { MAX_TURN_INLINE_IMAGE_BYTES, MAX_TURN_INLINE_IMAGES } from "@openteam/contracts";
 import { AssetStore } from "../src";
 
 const roots: string[] = [];
@@ -325,6 +326,53 @@ describe("content-addressed attachment store", () => {
       { url: `data:image/png;base64,${firstBytes.toString("base64")}`, alt: "First" },
       { url: `data:image/png;base64,${secondBytes.toString("base64")}` },
     ]);
+  });
+
+  test("shows every photo of a full message inline", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const refs = await Promise.all(Array.from({ length: MAX_TURN_INLINE_IMAGES }, (_, index) => {
+      const bytes = png();
+      bytes.writeUInt32BE(index + 2, 16);
+      return store.ingestBytes({ fileName: `photo-${index}.png`, bytes });
+    }));
+    const images = await store.runtimeImages(refs);
+    expect(images.map(image => image.url)).toEqual(await Promise.all(refs
+      .map(async ref => `data:image/png;base64,${(await readFile(store.contentPath(ref.assetId))).toString("base64")}`)));
+  });
+
+  test("shares one budget across the messages sent in one request", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const size = 24 * 1024 * 1024;
+    const image = (index: number) => {
+      const bytes = Buffer.alloc(size);
+      png().copy(bytes);
+      bytes.writeUInt32BE(index + 2, 16);
+      return store.ingestBytes({ fileName: `big-${index}.png`, bytes });
+    };
+    const [a, b, c, d] = await Promise.all([0, 1, 2, 3].map(image));
+    // Two replayed messages of two 24 MiB photos each: alone each fits, together the
+    // request would carry four, so the second message gets only what's left.
+    const budget = { images: MAX_TURN_INLINE_IMAGES, bytes: MAX_TURN_INLINE_IMAGE_BYTES };
+    expect((await store.runtimeImages([a!, b!], budget)).length).toBe(2);
+    expect((await store.runtimeImages([c!, d!], budget)).length).toBe(Math.floor(MAX_TURN_INLINE_IMAGE_BYTES / size) - 2);
+    expect((await store.runtimeImages([c!, d!])).length).toBe(2);
+  });
+
+  test("stops adding inline images before the turn outgrows its request", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const size = 24 * 1024 * 1024;
+    const refs = [];
+    for (let index = 0; index < 4; index++) {
+      const bytes = Buffer.concat([png(), Buffer.alloc(size)]);
+      bytes.writeUInt32BE(index + 2, 16);
+      refs.push(await store.ingestBytes({ fileName: `large-${index}.png`, bytes }));
+    }
+    const images = await store.runtimeImages(refs);
+    expect(images).toHaveLength(Math.floor(MAX_TURN_INLINE_IMAGE_BYTES / refs[0]!.byteSize));
+    expect(images.reduce((total, image) => total + image.url.length, 0)).toBeLessThan(128 * 1024 * 1024);
   });
 
   test("normalizes agent data URLs immediately instead of persisting inline bytes", async () => {

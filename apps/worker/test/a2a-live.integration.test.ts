@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -38,6 +38,7 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
   const turns: TurnInput[] = [];
   const acknowledgements: string[] = [];
   let app: AppService | null = null;
+  let restoreTimeZone = async () => {};
   let worker: WakeWorker | null = null;
   let sourceId = "";
   let probeId = "";
@@ -213,6 +214,8 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     },
   });
 
+  const envKeys = ["DATABASE_URL", "OPENTEAM_COMPUTER_URL", "OPENTEAM_CONTROL_TOKEN", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_AGENT_DATA_ROOT"] as const;
+  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   process.env.DATABASE_URL = databaseUrl;
   process.env.OPENTEAM_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
   process.env.OPENTEAM_CONTROL_TOKEN = "a2a-live-control-token";
@@ -221,10 +224,18 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
 
   try {
     app = new AppService();
+    const previousZone = await app.prisma.userTimeZoneSettings.findUnique({ where: { id: "global" } });
+    restoreTimeZone = async () => {
+      await app!.prisma.userTimeZoneSettings.deleteMany({ where: { id: "global" } });
+      if (previousZone) await app!.prisma.userTimeZoneSettings.create({ data: previousZone });
+    };
     await app.prisma.$executeRawUnsafe(
       'TRUNCATE TABLE "Computer", "Bot", "OutboxDelivery", "Event", "IdempotencyRecord" CASCADE'
     );
     await Effect.runPromise(app.boot());
+    await app.agentData.writeInferenceSettings({
+      providerId: "openai-codex", modelId: "fake", reasoning: "medium",
+    });
     const runningWorker = new WakeWorker();
     worker = runningWorker;
     await runningWorker.start();
@@ -347,7 +358,7 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
 Current routines and their runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.
 - parity-probe-handwritten [`);
     expect(probeTurn?.content).toContain("; folder parity-probe-handwritten; never run\n- parity-probe-harmless [");
-    expect(probeTurn?.content).toContain("; folder parity-probe-harmless; last run 8/27/2026, 7:51:55 PM UTC (succeeded)\n</automation_status>");
+    expect(probeTurn?.content).toContain("; folder parity-probe-harmless; last run 8/27/2026, 10:51:55 PM GMT+3 (succeeded)\n</automation_status>");
     expect(probeTurn?.content).toContain("</system_reminder>\n<timestamp>");
     expect(probeTurn?.content).toContain(
       `</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: Source (id: ${sourceId}).`
@@ -356,7 +367,7 @@ Current routines and their runtime status. This snapshot is authoritative for th
     expect(probeTurn?.content).toContain(
       "Local image files are shown to you alongside this message."
     );
-    expect(probeTurn?.content).not.toContain("Attached files available on the shared computer:");
+    expect(probeTurn?.content).not.toContain("The user attached");
     expect(probeTurn?.images).toHaveLength(1);
     expect(sourceTurn?.content).toContain(
       `[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: Parity Probe (id: ${probeId}).`
@@ -433,7 +444,19 @@ Current routines and their runtime status. This snapshot is authoritative for th
     if (process.env.OPENTEAM_A2A_PRINT_CAPTURE === "1") console.log(captureJson.trimEnd());
   } finally {
     if (worker) await worker.stop();
-    if (app) await Effect.runPromise(app.close());
+    worker = null;
+    if (app) {
+      const owned = await app.prisma.bot.findMany({ where: { defaultDirectory: { startsWith: workspace } }, select: { id: true } });
+      await app.prisma.bot.deleteMany({ where: { id: { in: owned.map((bot) => bot.id) } } });
+      await app.prisma.channel.deleteMany({ where: { kind: "group", workingDirectory: workspace } });
+      await restoreTimeZone();
+      await Effect.runPromise(app.close());
+    }
     fakeComputer.stop(true);
+    for (const key of envKeys) {
+      if (previousEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = previousEnv[key];
+    }
+    await rm(workspace, { recursive: true, force: true });
   }
 }, 45_000);

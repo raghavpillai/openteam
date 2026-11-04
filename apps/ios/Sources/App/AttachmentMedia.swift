@@ -1,6 +1,8 @@
+import AVFoundation
 import ImageIO
 import Photos
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct LoadedAttachment: Identifiable {
   let url: URL
@@ -35,6 +37,95 @@ struct LoadedAttachment: Identifiable {
   }
 }
 
+extension LoadedAttachment {
+  /// The video's first frame as its preview image.
+  func withVideoPoster(side: CGFloat) async -> Self {
+    let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+    generator.appliesPreferredTrackTransform = true
+    generator.maximumSize = CGSize(width: side, height: side)
+    let poster = (try? await generator.image(at: .zero).image).map { UIImage(cgImage: $0) }
+    return Self(url: url, image: poster, maximumPixels: maximumPixels)
+  }
+}
+
+/// A sent video's first frame, read in byte ranges: AVFoundation asks only for the
+/// parts it needs (the index, wherever the file keeps it, and the first frames), so a
+/// row no longer downloads the whole video before anyone taps it.
+enum VideoPoster {
+  @MainActor private static let posters: NSCache<NSString, UIImage> = {
+    let cache = NSCache<NSString, UIImage>()
+    cache.totalCostLimit = 24 * 1024 * 1024
+    return cache
+  }()
+  @MainActor static func cached(_ asset: Asset) -> UIImage? { posters.object(forKey: asset.assetId as NSString) }
+  @MainActor static func clear() { posters.removeAllObjects() }
+
+  @MainActor static func load(_ asset: Asset, store: AppStore, side: CGFloat) async -> UIImage? {
+    if let poster = cached(asset) { return poster }
+    guard let api = store.api, asset.byteSize > 0 else { return nil }
+    let loader = RangedAssetLoader(api: api, path: "/api/v0/assets/\(API.segment(asset.assetId))",
+      byteSize: Int64(asset.byteSize), mimeType: asset.mimeType)
+    let video = AVURLAsset(url: URL(string: "openteam-asset://video/\(asset.assetId)")!)
+    video.resourceLoader.setDelegate(loader, queue: RangedAssetLoader.queue)
+    let generator = AVAssetImageGenerator(asset: video)
+    generator.appliesPreferredTrackTransform = true
+    generator.maximumSize = CGSize(width: side, height: side)
+    let frame = try? await generator.image(at: .zero).image
+    withExtendedLifetime(loader) {}
+    guard let frame, store.api?.baseURL == api.baseURL, store.api?.token == api.token else { return nil }
+    let poster = UIImage(cgImage: frame)
+    posters.setObject(poster, forKey: asset.assetId as NSString, cost: frame.width * frame.height * 4)
+    return poster
+  }
+}
+
+/// Serves AVFoundation's reads of a server asset with authenticated Range requests.
+final class RangedAssetLoader: NSObject, AVAssetResourceLoaderDelegate, Sendable {
+  static let queue = DispatchQueue(label: "openteam.ranged-asset")
+  /// AVFoundation asks again for whatever a shorter answer leaves out.
+  private static let chunk: Int64 = 512 * 1024
+  let api: API
+  let path: String
+  let byteSize: Int64
+  let contentType: String
+  init(api: API, path: String, byteSize: Int64, mimeType: String) {
+    self.api = api
+    self.path = path
+    self.byteSize = byteSize
+    contentType = UTType(mimeType: mimeType)?.identifier ?? UTType.mpeg4Movie.identifier
+  }
+  func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
+    shouldWaitForLoadingOfRequestedResource request: AVAssetResourceLoadingRequest) -> Bool {
+    if let information = request.contentInformationRequest {
+      information.contentType = contentType
+      information.contentLength = byteSize
+      information.isByteRangeAccessSupported = true
+    }
+    guard let data = request.dataRequest else { request.finishLoading(); return true }
+    let start = data.currentOffset
+    let wanted = data.requestsAllDataToEndOfResource ? byteSize - start
+      : Int64(data.requestedLength) - (start - data.requestedOffset)
+    let end = min(byteSize, start + min(max(wanted, 1), Self.chunk)) - 1
+    guard start <= end else { request.finishLoading(); return true }
+    let api = api, path = path
+    nonisolated(unsafe) let loading = request
+    Task {
+      do {
+        let (bytes, response) = try await api.raw(path, headers: ["Range": "bytes=\(start)-\(end)"])
+        guard !loading.isCancelled else { return }
+        // A server that ignores Range sends the whole file; answer with the asked-for part.
+        let part = response.statusCode == 206 ? bytes
+          : bytes.subdata(in: Int(min(start, Int64(bytes.count)))..<Int(min(end + 1, Int64(bytes.count))))
+        loading.dataRequest?.respond(with: part)
+        loading.finishLoading()
+      } catch {
+        if !loading.isCancelled { loading.finishLoading(with: error) }
+      }
+    }
+    return true
+  }
+}
+
 /// Decoded chat previews survive cell recycling. A photo scrolled back into view
 /// is drawn in its row's first layout, instead of flashing a placeholder while
 /// the original downloads and decodes again. Cleared with the account's data.
@@ -42,6 +133,15 @@ struct LoadedAttachment: Identifiable {
   private final class Entry {
     let value: LoadedAttachment
     init(_ value: LoadedAttachment) { self.value = value }
+  }
+  private static let localValues: NSCache<NSString, LocalAttachmentPreview> = {
+    let cache = NSCache<NSString, LocalAttachmentPreview>()
+    cache.countLimit = Draft.maxAttachments
+    return cache
+  }()
+  static func local(_ asset: Asset) -> LocalAttachmentPreview? { localValues.object(forKey: key(asset)) }
+  static func saveLocal(_ preview: LocalAttachmentPreview, for asset: Asset) {
+    localValues.setObject(preview, forKey: key(asset))
   }
   private static let values: NSCache<NSString, Entry> = {
     let cache = NSCache<NSString, Entry>()
@@ -54,13 +154,96 @@ struct LoadedAttachment: Identifiable {
     let cost = value.image.map { Int($0.size.width * $0.size.height * $0.scale * $0.scale * 4) } ?? 0
     values.setObject(Entry(value), forKey: key(asset), cost: cost)
   }
-  static func clear() { values.removeAllObjects() }
+  static func clear() {
+    values.removeAllObjects()
+    localValues.removeAllObjects()
+  }
 }
 
 struct GalleryItem: Identifiable {
   let id: String
   let asset: Asset
   let caption: String
+}
+
+/// Pending and accepted attachments reserve exactly the same frame and typography.
+struct AttachmentPreview: View {
+  let asset: Asset
+  var image: UIImage?
+  var loading = false
+  var failure: String?
+  private var isImage: Bool { asset.mimeType.hasPrefix("image/") }
+  private var isVideo: Bool { asset.mimeType.hasPrefix("video/") }
+  var previewSize: CGSize {
+    isVideo ? CGSize(width: 292, height: 208) : AttachmentImageFile.previewSize(width: asset.width, height: asset.height)
+  }
+  var body: some View {
+    if isImage || isVideo {
+      ZStack {
+        if isVideo { Color.black } else { NativePalette.surface }
+        if let image {
+          if isVideo {
+            Image(uiImage: image).resizable().scaledToFit()
+              .frame(width: previewSize.width, height: previewSize.height)
+          } else {
+            Image(uiImage: image).resizable().scaledToFill()
+              .frame(width: previewSize.width, height: previewSize.height).clipped()
+          }
+        } else if failure != nil && isImage {
+          Label("Image unavailable", systemImage: "arrow.clockwise").font(.caption)
+            .foregroundStyle(NativePalette.muted)
+        } else if loading { LoadingOrb(label: "Loading image") }
+        else if isImage { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
+        if isVideo {
+          Group {
+            if loading { LoadingOrb(size: 22, label: "Opening") }
+            else {
+              Image(systemName: "play.fill").font(.system(size: 20)).foregroundStyle(.white).offset(x: 1.5)
+            }
+          }
+          .frame(width: 52, height: 52)
+          .modifier(NativeGlass(radius: 26, darkTint: 0.1))
+          .environment(\.colorScheme, .dark)
+        }
+      }.frame(width: previewSize.width, height: previewSize.height)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    } else {
+      HStack(spacing: 14) {
+        FileGlyph(kind: fileKind).frame(width: 34, height: 42)
+        VStack(alignment: .leading, spacing: 3) {
+          Text(asset.fileName).font(.body).foregroundStyle(NativePalette.text)
+            .lineLimit(1).truncationMode(.middle)
+          Text(loading ? "Opening…" : fileDetail)
+            .font(.subheadline).foregroundStyle(NativePalette.muted).lineLimit(1)
+        }
+        Spacer(minLength: 0)
+        if loading { LoadingOrb(size: 16, label: "Opening") }
+      }.padding(.leading, 16).padding(.trailing, 18).padding(.vertical, 14)
+        .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in min(width * 0.8, 340) }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        .background(NativePalette.background, in: RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(NativePalette.separator, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 26))
+    }
+  }
+  private var fileExtension: String { (asset.fileName as NSString).pathExtension.lowercased() }
+  private var fileKind: FileGlyph.Kind {
+    if asset.mimeType == "application/pdf" || fileExtension == "pdf" { return .pdf }
+    if ["zip", "tar", "gz", "7z", "rar"].contains(fileExtension) { return .archive }
+    if fileExtension.isEmpty && ["", "application/octet-stream"].contains(asset.mimeType) { return .unknown }
+    return .document
+  }
+  /// "PDF · 818 KB", or just the size when the file has no type.
+  private var fileDetail: String {
+    fileKind == .unknown || fileExtension.isEmpty ? fileSize : fileExtension.uppercased() + " · " + fileSize
+  }
+  private var fileSize: String {
+    let bytes = Double(asset.byteSize)
+    let unit: (Double, String) = bytes >= 1_000_000 ? (1_000_000, "MB") : (1_000, "KB")
+    guard bytes >= 1_000 else { return "\(asset.byteSize) bytes" }
+    let value = bytes / unit.0
+    return value.formatted(.number.precision(.fractionLength(value < 10 ? 1 : 0))) + " " + unit.1
+  }
 }
 
 struct AttachmentView: View {
@@ -70,16 +253,27 @@ struct AttachmentView: View {
   let channelID: String
   let messageID: String
   @State private var loaded: LoadedAttachment?
+  private let localPreview: LocalAttachmentPreview?
+  @State private var poster: UIImage?
   @State private var loading = false
   @State private var failure: String?
-  init(asset: Asset, channelID: String, messageID: String) {
+  init(asset: Asset, channelID: String, messageID: String, localPreview: LocalAttachmentPreview? = nil) {
     self.asset = asset
     self.channelID = channelID
     self.messageID = messageID
+    self.localPreview = localPreview ?? AttachmentPreviewCache.local(asset)
     _loaded = State(initialValue: AttachmentPreviewCache.value(asset))
+    _poster = State(initialValue: asset.mimeType.hasPrefix("video/") ? VideoPoster.cached(asset) : nil)
+  }
+  private var currentLocalPreview: LocalAttachmentPreview? {
+    localPreview.flatMap { $0.matches(store.api) ? $0 : nil }
   }
   private var isImage: Bool { asset.mimeType.hasPrefix("image/") }
-  private var previewSize: CGSize { AttachmentImageFile.previewSize(width: asset.width, height: asset.height) }
+  private var isVideo: Bool { asset.mimeType.hasPrefix("video/") }
+  /// Videos sit whole in a fixed black frame, letterboxed like the reference; photos take their own shape.
+  private var previewSize: CGSize {
+    isVideo ? CGSize(width: 292, height: 208) : AttachmentImageFile.previewSize(width: asset.width, height: asset.height)
+  }
   private var galleryID: String { messageID + ":" + asset.id + ":" + asset.fileName }
   private var gallery: [GalleryItem] {
     let items = store.messages(channelID).flatMap { message in
@@ -97,72 +291,50 @@ struct AttachmentView: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         if isImage {
           modals.fullScreen = .init(content: AnyView(NativePhotoGallery(
-            items: gallery, initialID: galleryID, initialFile: loaded)))
+            items: gallery, initialID: galleryID, initialFile: loaded ?? currentLocalPreview?.file)))
         } else { Task { await load(open: true) } }
       } label: {
-        if isImage {
-          ZStack {
-            NativePalette.surface
-            if let image = loaded?.image {
-              Image(uiImage: image).resizable().scaledToFit()
-            } else if failure != nil {
-              Label("Image unavailable", systemImage: "arrow.clockwise").font(.caption)
-                .foregroundStyle(NativePalette.muted)
-            } else if loading { LoadingOrb(label: "Loading image") }
-            else { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
-          }.frame(width: previewSize.width, height: previewSize.height)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-        } else {
-          HStack(spacing: 10) {
-            Image(systemName: archive ? "archivebox" : "doc")
-              .font(.system(size: 16)).foregroundStyle(archive ? Color(hex: "C9A333") : NativePalette.muted)
-              .frame(width: 28, height: 28).background(NativePalette.selection, in: RoundedRectangle(cornerRadius: 9))
-            VStack(alignment: .leading, spacing: 3) {
-              fileName.font(.system(size: 16, weight: .medium)).lineLimit(1).truncationMode(.middle)
-              Text(loading ? "Opening…" : fileSize)
-                .font(.system(size: 12)).foregroundStyle(NativePalette.faint)
-            }
-            if loading { LoadingOrb(size: 16, label: "Opening") }
-          }.padding(.horizontal, 13).padding(.vertical, 10)
-            .background(NativePalette.assistant, in: RoundedRectangle(cornerRadius: 20))
-        }
+        AttachmentPreview(asset: asset, image: poster ?? loaded?.image ?? currentLocalPreview?.image,
+          loading: loading, failure: failure)
       }.buttonStyle(.plain).disabled(loading && !isImage)
-        .accessibilityLabel("Open " + asset.fileName)
-        .accessibilityValue(failure != nil ? "Failed" : loaded != nil ? "Loaded" : "Loading")
+        .accessibilityLabel((isVideo ? "Play " : "Open ") + asset.fileName)
+        .accessibilityValue(failure != nil ? "Failed" : loaded != nil || poster != nil || currentLocalPreview?.image != nil ? "Loaded" : "Loading")
         .accessibilityIdentifier("attachment-" + asset.id)
       if let failure, !isImage { InlineFailure(message: failure) { Task { await load(open: true) } } }
     }
-    .task(id: asset.id) { if isImage { await load(open: false) } }
-  }
-  private var archive: Bool {
-    ["zip", "tar", "gz", "7z", "rar"].contains((asset.fileName as NSString).pathExtension.lowercased())
-  }
-  private var fileSize: String {
-    let bytes = Double(asset.byteSize)
-    let unit: (Double, String) = bytes >= 1_000_000 ? (1_000_000, "MB") : (1_000, "KB")
-    guard bytes >= 1_000 else { return "\(asset.byteSize) bytes" }
-    let value = bytes / unit.0
-    return value.formatted(.number.precision(.fractionLength(value < 10 ? 1 : 0))) + " " + unit.1
-  }
-  private var fileName: Text {
-    let name = asset.fileName as NSString
-    guard !name.pathExtension.isEmpty else { return Text(asset.fileName).foregroundColor(NativePalette.text) }
-    return Text(name.deletingPathExtension).foregroundColor(NativePalette.text)
-      + Text("." + name.pathExtension).foregroundColor(NativePalette.faint)
+    .task(id: asset.id) {
+      let api = store.api
+      if let preview = currentLocalPreview { await preview.load() }
+      guard store.api?.baseURL == api?.baseURL, store.api?.token == api?.token else { return }
+      if isImage, currentLocalPreview?.image == nil { await load(open: false) }
+      else if isVideo, poster == nil, currentLocalPreview?.image == nil {
+        poster = await VideoPoster.load(asset, store: store, side: max(previewSize.width, previewSize.height) * 3)
+      }
+    }
   }
   private func presentFile(_ file: LoadedAttachment?) {
     guard let file else { return }
+    if isVideo {
+      modals.fullScreen = .init(content: AnyView(
+        ComposerVideoViewer(video: ComposerPhoto(url: file.url, name: asset.fileName, mimeType: asset.mimeType))
+          .preferredColorScheme(.dark)))
+      return
+    }
     modals.sheet = .init(content: AnyView(NativeFilePreview(url: file.url, mimeType: asset.mimeType)))
   }
   private func load(open: Bool) async {
     guard !loading else { return }
     if let loaded { if open { presentFile(loaded) }; return }
+    if let file = currentLocalPreview?.file { if open { presentFile(file) }; return }
     loading = true
     defer { loading = false }
+    let api = store.api
     do {
-      let file = try await LoadedAttachment.fetch(asset, store: store)
+      var file = try await LoadedAttachment.fetch(asset, store: store)
       guard !isImage || file.image != nil else { throw APIError("This image could not be loaded.") }
-      if isImage { AttachmentPreviewCache.save(file, for: asset) }
+      if isVideo { file = await file.withVideoPoster(side: max(previewSize.width, previewSize.height) * 3) }
+      guard store.api?.baseURL == api?.baseURL, store.api?.token == api?.token else { return }
+      if isImage || isVideo { AttachmentPreviewCache.save(file, for: asset) }
       loaded = file
       failure = nil
       if open { presentFile(loaded) }
@@ -428,7 +600,7 @@ private struct ForwardAttachmentView: View {
       NativeList {
         Section { Text(asset.fileName).foregroundStyle(NativePalette.muted) }
         if let failure { InlineFailure(message: failure) }
-        ForEach(store.channels.filter { !store.isHidden($0) }) { channel in
+        ForEach(store.channels.filter { $0.kind != "agent_dm" }) { channel in
           Button { selected = channel.id } label: {
             HStack {
               ChannelAvatar(channel: channel, size: 32)
@@ -454,5 +626,68 @@ private struct ForwardAttachmentView: View {
           }
         }
     }.interactiveDismissDisabled(sending)
+  }
+}
+
+/// A page with a folded corner, marked by what the file is: a red band for PDFs,
+/// a question mark when the file has no type.
+struct FileGlyph: View {
+  enum Kind { case pdf, archive, document, unknown }
+  let kind: Kind
+
+  var body: some View {
+    GeometryReader { proxy in
+      let width = proxy.size.width, height = proxy.size.height
+      ZStack(alignment: .topLeading) {
+        FoldedPage(fold: width * 0.34).fill(Color(.systemGray4))
+        switch kind {
+        case .pdf:
+          FoldedPage(fold: width * 0.34).fill(Color(hex: "D0393E"))
+            .mask(alignment: .bottom) { Rectangle().frame(height: height * 0.3) }
+          lines(width: width, height: height, rows: 2)
+          RoundedRectangle(cornerRadius: 2).fill(Color(.systemGray))
+            .frame(width: width * 0.34, height: height * 0.18)
+            .offset(x: width * 0.48, y: height * 0.36)
+        case .archive:
+          VStack(spacing: height * 0.05) {
+            ForEach(0..<4, id: \.self) { _ in Rectangle().fill(Color(.systemGray)).frame(width: width * 0.14, height: height * 0.06) }
+          }.frame(width: width).offset(y: height * 0.12)
+        case .document:
+          lines(width: width, height: height, rows: 4)
+        case .unknown:
+          Text("?").font(.system(size: height * 0.42, weight: .regular)).foregroundStyle(Color(.systemGray))
+            .frame(width: width, height: height).offset(y: height * 0.05)
+        }
+      }
+    }
+    .accessibilityHidden(true)
+  }
+
+  private func lines(width: CGFloat, height: CGFloat, rows: Int) -> some View {
+    VStack(alignment: .leading, spacing: height * 0.07) {
+      ForEach(0..<rows, id: \.self) { row in
+        Capsule().fill(Color(.systemGray))
+          .frame(width: width * (row == 0 ? 0.36 : rows == 2 ? 0.28 : 0.62), height: height * 0.055)
+      }
+    }.offset(x: width * 0.14, y: height * 0.3)
+  }
+}
+
+private struct FoldedPage: Shape {
+  let fold: CGFloat
+  func path(in rect: CGRect) -> Path {
+    let radius = rect.width * 0.12
+    var path = Path()
+    path.move(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+    path.addLine(to: CGPoint(x: rect.maxX - fold, y: rect.minY))
+    path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + fold))
+    path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+    path.addQuadCurve(to: CGPoint(x: rect.maxX - radius, y: rect.maxY), control: CGPoint(x: rect.maxX, y: rect.maxY))
+    path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+    path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - radius), control: CGPoint(x: rect.minX, y: rect.maxY))
+    path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+    path.addQuadCurve(to: CGPoint(x: rect.minX + radius, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
+    path.closeSubpath()
+    return path
   }
 }

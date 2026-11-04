@@ -1,4 +1,5 @@
 import { fenceToolResults } from "./untrusted-results";
+import { imagesBeforeText } from "./user-content-order";
 import { repairImageHistory } from "./image-input";
 import type {
   ExtensionFactory,
@@ -74,9 +75,10 @@ export function compactionObservation(active: ActiveTurn): Omit<BotObservation, 
   return {
     contextSessionId: active.contextSessionId,
     piMessages,
+    piBoundary: active.compactionReadPiBoundary?.(),
     systemPrompt: active.instructions,
     userInfoMessage: active.userInfoMessage,
-    usedTokens: estimateBotMeasuredContextTokens(piMessages),
+    usedTokens: active.compactionUsageInvalidated?.() ? null : estimateBotMeasuredContextTokens(piMessages),
     maxTokens: usage?.contextWindow ?? active.session?.model?.contextWindow ?? 0,
     modelKey: sha256(canonicalJson({ model: active.modelRef, reasoning: active.reasoning, tools })),
     earlyThreshold: active.compactionEarlyThreshold,
@@ -110,9 +112,10 @@ export function compactionExtension(
   ) => Promise<BotSummaryResult>,
   sessionManager: SessionManager,
   active: ActiveTurn,
-  acknowledgeToolOutcomes?: (messages: BotMessage[]) => Promise<void>
+  acknowledgeToolOutcomes?: (messages: BotMessage[]) => Promise<void>,
+  history?: import("./compaction-history").CompactionHistory
 ): { name: string; hidden: boolean; factory: ExtensionFactory } {
-  const readPiMessages = () => sessionManager.buildSessionContext().messages as BotMessage[];
+  const readPiMessages = history?.read ?? (() => sessionManager.buildSessionContext().messages as BotMessage[]);
   active.compactionReadPiMessages = readPiMessages;
   const infer = (request: BotSummaryRequest, signal: AbortSignal) =>
     inferCompaction(active, request, signal);
@@ -144,6 +147,7 @@ export function compactionExtension(
               epoch: latest.epoch,
             };
         }
+        event.messages = imagesBeforeText(event.messages);
         await acknowledgeToolOutcomes?.(event.messages as BotMessage[]);
         if (active.diskPressureEpisode != null && !active.diskPressureReminded && active.session) {
           active.diskPressureReminded = true;
@@ -304,6 +308,7 @@ export function compactionExtension(
         }
         if (["error", "aborted"].includes(String(message.stopReason))) return;
         const measuredInputTokens = responseTokens(message, false);
+        if (measuredInputTokens > 0) history?.acceptUsage();
         if (active.pendingCompactionMeasurement && measuredInputTokens > 0) {
           const measurement = {
             ...active.pendingCompactionMeasurement,
@@ -339,29 +344,53 @@ export function compactionExtension(
       });
       pi.on("session_before_compact", async (event) => {
         deferredAutomatic = false;
-        const observation = compactionObservation(active);
-        const prepared = await compaction.beforePiCompaction({
-          ...observation,
-          piMessages: readPiMessages(),
-          readPiMessages,
-          reason: event.reason,
-          firstKeptEntryId: event.preparation.firstKeptEntryId,
-          tokensBefore: observation.usedTokens ?? event.preparation.tokensBefore,
-          infer,
-          signal: event.signal,
-        });
-        deferredAutomatic = event.reason !== "manual" && !prepared;
-        return prepared ? { compaction: prepared as never } : { cancel: true };
+        try {
+          const observation = compactionObservation(active);
+          const prepared = await compaction.beforePiCompaction({
+            ...observation,
+            piMessages: readPiMessages(),
+            readPiMessages,
+            reason: event.reason,
+            firstKeptEntryId: event.preparation.firstKeptEntryId,
+            tokensBefore: observation.usedTokens ?? event.preparation.tokensBefore,
+            infer,
+            signal: event.signal,
+          });
+          deferredAutomatic = event.reason !== "manual" && !prepared;
+          return prepared ? { compaction: prepared as never } : { cancel: true };
+        } catch (error) {
+          // Pi swallows hook exceptions and then runs its native summarizer.
+          // Explicit cancellation keeps the durable archive coordinate intact.
+          console.error("OpenTeam compaction preparation failed; cancelling Pi compaction", error);
+          return { cancel: true };
+        }
       });
-      pi.on("session_compact", async () => {
+      pi.on("session_compact", async (event) => {
+        // Pi looks up this event's entry by summary text, which may repeat.
+        // The durable leaf, and its archive ID, identify the new checkpoint.
+        const checkpoint = sessionManager.getLeafEntry();
+        const details = checkpoint?.type === "compaction"
+          ? checkpoint.details as { openteamBotCompaction?: boolean; id?: string } | undefined
+          : undefined;
+        const staged = await compaction.stagedId(active.contextSessionId);
+        if (checkpoint?.type !== "compaction" || !event.fromExtension ||
+          details?.openteamBotCompaction !== true || details.id !== staged) {
+          // An unowned native checkpoint must not change the archive's view.
+          // The reader preserves its accepted basis and all later entries.
+          readPiMessages();
+          console.error("Ignoring unowned Pi compaction for OpenTeam archive", checkpoint?.id);
+          return;
+        }
         // Counts always describe the durable transcript, including retry errors.
         // The model projection removes this entire prefix on every entry point.
-        const piBaseMessageCount = readPiMessages().length;
+        const piBaseMessageCount = sessionManager.buildSessionContext().messages.length;
         const adopted = await compaction.afterPiCompaction({
           contextSessionId: active.contextSessionId,
           piBaseMessageCount,
+          piBoundary: { leafId: checkpoint.id, compactionEntryId: checkpoint.id },
         });
         if (!adopted) return;
+        history?.acceptCompaction(checkpoint.id);
         active.compactionEarlyThreshold = undefined;
         publishCompaction(active, adopted);
       });

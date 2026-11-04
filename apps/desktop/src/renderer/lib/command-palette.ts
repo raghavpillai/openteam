@@ -83,13 +83,6 @@ export const PLUGINS_PALETTE_KEYWORDS = [
   "connectors",
   "customize",
 ] as const;
-export const HIDDEN_BOTS_PALETTE_KEYWORDS = [
-  "hidden",
-  "bots",
-  "agents",
-  "groups",
-  "unhide",
-] as const;
 export const UPDATE_PALETTE_KEYWORDS = [
   "app",
   "check",

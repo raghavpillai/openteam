@@ -76,6 +76,8 @@ export interface BotArchiveBlob {
   prefixDigest: string;
   summaryDigest: string;
   piBaseMessageCount: number;
+  /** Durable Pi coordinate system, independent of subsequent native compactions. */
+  piBoundary?: { leafId: string; compactionEntryId: string | null };
   userInfoMessage: BotMessage | null;
   lastUserMessage: BotMessage;
   preservedTailMessages: BotMessage[];
@@ -99,7 +101,7 @@ export type BotArchiveCommitInput = Omit<
   "version" | "sequence" | "selfSummaryCount" | "summaryDigest"
 >;
 
-export type BotArchiveIntentInput = Omit<BotArchiveCommitInput, "piBaseMessageCount">;
+export type BotArchiveIntentInput = Omit<BotArchiveCommitInput, "piBaseMessageCount" | "piBoundary">;
 
 export interface BotArchiveIntent {
   version: 1;

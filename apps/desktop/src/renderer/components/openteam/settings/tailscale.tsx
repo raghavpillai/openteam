@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DesktopTailscaleStatus } from "@openteam/contracts/tailscale";
 import { API_BASE } from "../../../client/http";
-import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
+import { SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton, settingsInput } from "./ui";
 
 export function TailscaleSettings() {
   const [result, setResult] = useState<DesktopTailscaleStatus | null>(null);
@@ -58,7 +58,7 @@ export function TailscaleSettings() {
   };
   const status = result?.status;
   const validPort = /^\d+$/.test(port) && Number(port) > 0 && Number(port) <= 65535;
-  const buttonClass = "rounded-md border border-border px-3 py-1.5 text-xs disabled:opacity-50";
+  const buttonClass = settingsSecondaryButton;
   return (
     <>
       <SectionLabel>Remote access</SectionLabel>
@@ -89,7 +89,7 @@ export function TailscaleSettings() {
               control={
                 <input
                   aria-label="Tailscale HTTPS port"
-                  className="w-24 rounded-md border border-border bg-transparent px-2 py-1 text-sm"
+                  className={`${settingsInput} w-24`}
                   type="number"
                   min="1"
                   max="65535"

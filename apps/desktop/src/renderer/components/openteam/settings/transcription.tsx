@@ -17,14 +17,23 @@ import {
   HOSTED_TRANSCRIPTION_MODELS,
 } from "../../../lib/transcription-providers";
 import { LoadingOrb } from "../../ui/loading-orb";
-import { Button } from "../../ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
-import { primaryButton, secondaryButton } from "../model-setup";
+import { Select, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { ProviderMark } from "../setup/provider-marks";
-import { InteractiveSwitch, SectionLabel, SettingsGroup, SettingsRow } from "./ui";
+import {
+  InteractiveSwitch,
+  SectionLabel,
+  SettingsGroup,
+  SettingsRow,
+  SettingsSelectContent,
+  SettingsIntro,
+  settingsPrimaryButton,
+  settingsSecondaryButton,
+  settingsInput,
+  settingsSelect,
+} from "./ui";
 import "./transcription.css";
 
-const inputClass = "transcription-input";
+const inputClass = `${settingsInput} transcription-input`;
 
 export default function VoiceNotesSettings() {
   return <TranscriptionSettingsPanel />;
@@ -139,10 +148,10 @@ export function TranscriptionSettingsPanel() {
   };
   return (
     <div className="transcription-settings">
-      <p className="mb-5 text-[13px] leading-5 text-foreground-secondary">
+      <SettingsIntro>
         Turn recordings into text you can review before sending. Shared by all apps connected to
         this server.
-      </p>
+      </SettingsIntro>
       {!saved ? (
         <SettingsGroup>
           <div
@@ -156,7 +165,11 @@ export function TranscriptionSettingsPanel() {
             ) : (
               <>
                 <span className="flex-1">{message}</span>
-                <button className={secondaryButton} onClick={() => void load()} type="button">
+                <button
+                  className={settingsSecondaryButton}
+                  onClick={() => void load()}
+                  type="button"
+                >
                   Try again
                 </button>
               </>
@@ -182,7 +195,7 @@ export function TranscriptionSettingsPanel() {
           <SettingsGroup className="transcription-fields">
             <SettingsRow
               title="Provider"
-              className="transcription-setting-row"
+              stackControl
               control={
                 <Select
                   value={draft.provider}
@@ -201,11 +214,11 @@ export function TranscriptionSettingsPanel() {
                 >
                   <SelectTrigger
                     aria-label="Transcription provider"
-                    className="transcription-input"
+                    className={`${settingsSelect} transcription-input`}
                   >
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SettingsSelectContent>
                     <SelectItem value="openai">
                       <span className="flex items-center gap-2">
                         <ProviderMark id="openai" /> OpenAI
@@ -227,14 +240,14 @@ export function TranscriptionSettingsPanel() {
                         Custom / OpenAI-compatible
                       </span>
                     </SelectItem>
-                  </SelectContent>
+                  </SettingsSelectContent>
                 </Select>
               }
             />
             {draft.provider === "openai-compatible" ? (
               <SettingsRow
                 title="Base URL"
-                className="transcription-setting-row"
+                stackControl
                 description="An audio service reachable from your OpenTeam server."
                 control={
                   <input
@@ -251,7 +264,7 @@ export function TranscriptionSettingsPanel() {
             ) : null}
             <SettingsRow
               title="Model"
-              className="transcription-setting-row"
+              stackControl
               control={
                 <input
                   className={inputClass}
@@ -268,7 +281,7 @@ export function TranscriptionSettingsPanel() {
           <SettingsGroup className="transcription-fields">
             <SettingsRow
               title="API key"
-              className="transcription-setting-row"
+              stackControl
               description={
                 removeKey
                   ? "Key will be deleted when you save."
@@ -279,7 +292,7 @@ export function TranscriptionSettingsPanel() {
                       : "Separate from chat sign-in. Keys stay on your server."
               }
               control={
-                <div className="transcription-key flex w-[270px] max-w-full items-center gap-2">
+                <div className="transcription-key flex w-[270px] max-w-full flex-wrap items-center gap-2">
                   <input
                     className={`${inputClass} min-w-0 flex-1`}
                     type="password"
@@ -300,11 +313,9 @@ export function TranscriptionSettingsPanel() {
                     }}
                   />
                   {saved.hasApiKey ? (
-                    <Button
+                    <button
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive"
+                      className={`${settingsSecondaryButton} text-destructive`}
                       onClick={() => {
                         setRemoveKey((value) => !value);
                         setApiKey("");
@@ -312,14 +323,14 @@ export function TranscriptionSettingsPanel() {
                       }}
                     >
                       {removeKey ? "Undo deletion" : "Delete key"}
-                    </Button>
+                    </button>
                   ) : null}
                 </div>
               }
             />
             <SettingsRow
               title="Language"
-              className="transcription-setting-row"
+              stackControl
               description="Leave blank to detect automatically, or use a code such as en."
               control={
                 <input
@@ -333,10 +344,10 @@ export function TranscriptionSettingsPanel() {
               }
             />
           </SettingsGroup>
-          <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-2 px-2">
             <button
               type="button"
-              className={secondaryButton}
+              className={settingsSecondaryButton}
               disabled={Boolean(busy) || Boolean(changed) || !saved.configured}
               onClick={() => void check()}
             >
@@ -344,7 +355,7 @@ export function TranscriptionSettingsPanel() {
             </button>
             <button
               type="button"
-              className={primaryButton}
+              className={settingsPrimaryButton}
               disabled={Boolean(busy) || !changed}
               onClick={() => void save()}
             >

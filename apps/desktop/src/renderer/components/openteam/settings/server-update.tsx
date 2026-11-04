@@ -8,15 +8,14 @@ import { API_BASE } from "../../../client/http";
 import { useServerUpdate } from "../../../hooks/use-server-update";
 import { cn } from "../../../lib/cn";
 import { inSidebarOrder, useSidebarBotOrder } from "../../../lib/sidebar-bot-order";
-import { SectionLabel, SettingsGroup } from "./ui";
+import { SectionLabel, SettingsGroup, settingsSecondaryButton } from "./ui";
 import { ServerUpdateProgressPanel } from "./server-update-progress";
 
 const FAILED = "The server update failed. Try again.";
 const BUSY_POLL_MS = 2_000;
 const CONFIRM_RESET_MS = 3_000;
 
-const button =
-  "inline-flex h-8 items-center rounded-[8px] bg-black/[0.08] px-3 text-[12px] text-foreground transition-colors disabled:opacity-50 dark:bg-white/[0.09]";
+const button = settingsSecondaryButton;
 
 /** A button that asks for a second click within 3 s before it acts, as the reference's settings do. */
 export function ConfirmButton({
@@ -187,7 +186,7 @@ export function ServerUpdateSettings({
       <SectionLabel>Connected server</SectionLabel>
       <SettingsGroup>
         <div
-          className="min-h-[52px] py-2.5"
+          className="min-h-[52px] py-2"
           data-settings-anchor="server-update"
           data-update-state={state}
         >
@@ -245,17 +244,6 @@ export function ServerUpdateSettings({
               startedAt={serverStartedAt}
               observedAt={serverObservedAt}
             />
-          ) : null}
-          {state !== "updating" ? (
-            <details className="mt-3 border-t border-black/[0.06] pt-2 text-[11px] leading-4 text-muted-foreground dark:border-white/[0.07]">
-              <summary className="w-fit cursor-pointer hover:text-foreground">
-                What stays after updating?
-              </summary>
-              <p className="mt-1.5 max-w-[480px]">
-                Bots keep their files, installed software and browser sign-ins. Open browser tabs
-                aren’t reopened.
-              </p>
-            </details>
           ) : null}
         </div>
       </SettingsGroup>

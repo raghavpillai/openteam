@@ -5,12 +5,10 @@ import { useServerUpdate } from "../../../hooks/use-server-update";
 import { requestDesktopUpdateRestart } from "../../../lib/desktop-update";
 import { LoadingOrb } from "../../ui/loading-orb";
 import { ServerUpdateSettings } from "./server-update";
-import { SectionLabel, SettingsGroup, SettingsLink, SettingsRow } from "./ui";
+import { SectionLabel, SettingsGroup, SettingsLink, SettingsRow, settingsPrimaryButton, settingsSecondaryButton } from "./ui";
 
-const primaryButton =
-  "inline-flex h-9 items-center gap-2 rounded-[9px] bg-black px-3 text-[13px] text-white enabled:hover:opacity-80 disabled:bg-black/[0.07] disabled:text-foreground disabled:opacity-50 dark:bg-white dark:text-black dark:disabled:bg-white/[0.09] dark:disabled:text-foreground";
-const secondaryButton =
-  "inline-flex h-9 items-center gap-2 rounded-[9px] bg-black/[0.04] px-3 text-[13px] hover:bg-black/[0.07] disabled:opacity-50 dark:bg-white/[0.07] dark:hover:bg-white/[0.1]";
+const primaryButton = settingsPrimaryButton;
+const secondaryButton = settingsSecondaryButton;
 
 const clientUpdateFailure = (status: OpenTeamUpdateStatus): string => {
   const summary =

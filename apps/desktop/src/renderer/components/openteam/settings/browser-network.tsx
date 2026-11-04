@@ -12,7 +12,7 @@ import { GripVertical, Laptop, Monitor, Server } from "lucide-react";
 import { DragDropProvider, KeyboardSensor, PointerSensor } from "@dnd-kit/react";
 import { isSortable, useSortable } from "@dnd-kit/react/sortable";
 import { PrivateSettingValue } from "./private-value";
-import { SectionLabel, SettingsGroup } from "./ui";
+import { SectionLabel, SettingsGroup, settingsPrimaryButton, settingsSecondaryButton } from "./ui";
 
 import { browserNetworkLabel } from "../../../lib/browser-network-status";
 
@@ -262,7 +262,7 @@ export function BrowserNetworkSettings() {
           </div>
           <button
             type="button"
-            className="bn-test"
+            className={settingsSecondaryButton}
             aria-label="Test active connection"
             title="Quick latency and speed estimate through the active exit; about 1.25 MB"
             disabled={!ready || testing}
@@ -273,10 +273,10 @@ export function BrowserNetworkSettings() {
         </div>
         {sharing?.supported && (
           <label className="bn-share">
-            <span>Use this computer as network</span>
+            <span>Route browser traffic through this computer</span>
             <input
               type="checkbox"
-              aria-label="Use this computer as network"
+              aria-label="Route browser traffic through this computer"
               checked={sharing.sharingAllowed}
               disabled={busy || !sharing.connected}
               onChange={(e) => void share(e.target.checked)}
@@ -296,7 +296,7 @@ export function BrowserNetworkSettings() {
                     setOrder(null);
                     setDraftRevision(null);
                   }}
-                  className="bn-discard"
+                  className={settingsSecondaryButton}
                 >
                   Discard
                 </button>
@@ -305,7 +305,7 @@ export function BrowserNetworkSettings() {
                 type="button"
                 disabled={busy || !view || !dirty}
                 onClick={() => void apply()}
-                className="bn-apply"
+                className={settingsPrimaryButton}
               >
                 Apply
               </button>
@@ -324,7 +324,7 @@ export function BrowserNetworkSettings() {
                 .catch((e) => setError(clientErrorMessage(e, "Could not retry connection")))
                 .finally(() => setBusy(false));
             }}
-            className="bn-retry"
+            className={`${settingsSecondaryButton} mb-2`}
           >
             Retry connection
           </button>

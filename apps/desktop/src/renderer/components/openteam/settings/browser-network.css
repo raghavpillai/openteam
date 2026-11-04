@@ -12,7 +12,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 40px;
+  min-height: 52px;
+  padding-block: 8px;
   border-top: 1px solid var(--border);
   font-size: 13px;
 }
@@ -49,7 +50,7 @@
   display: grid;
   place-items: center;
   width: 24px;
-  height: 32px;
+  height: 28px;
   flex-shrink: 0;
   touch-action: none;
   cursor: grab;
@@ -77,12 +78,14 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 44px;
+  min-height: 52px;
+  padding-block: 8px;
   border-top: 1px solid var(--border);
   font-size: 13px;
   cursor: pointer;
 }
 .bn-actions {
+  min-height: 52px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -97,20 +100,6 @@
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-}
-.bn-discard {
-  font-size: 12px;
-}
-.bn-apply {
-  height: 27px;
-  border-radius: 7px;
-  padding: 0 10px;
-  background: var(--foreground);
-  color: var(--background);
-  font-size: 12px;
-}
-.bn-apply:disabled {
-  opacity: 0.25;
 }
 .bn-switch {
   position: relative;
@@ -136,7 +125,7 @@
   transition: transform 0.15s;
 }
 .bn-switch:checked {
-  background: #059669;
+  background: var(--control-accent);
 }
 .bn-switch:checked:after {
   transform: translateX(14px);
@@ -147,11 +136,6 @@
 }
 .bn-switch:disabled {
   opacity: 0.4;
-}
-.bn-retry {
-  margin-bottom: 8px;
-  font-size: 12px;
-  text-decoration: underline;
 }
 .bn-error {
   padding-bottom: 8px;
@@ -186,9 +170,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 40px;
+  min-height: 52px;
+  padding-block: 8px;
   border-top: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 13px;
 }
 .bn-egress-values {
   display: flex;
@@ -215,10 +200,10 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 40px;
-  padding: 6px 0;
+  min-height: 52px;
+  padding: 8px 0;
   border-top: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 13px;
 }
 .bn-quality-label {
   flex-shrink: 0;
@@ -237,18 +222,4 @@
 }
 .bn-quality-values span {
   white-space: nowrap;
-}
-.bn-test {
-  flex-shrink: 0;
-  border-radius: 5px;
-  padding: 3px 6px;
-  background: color-mix(in srgb, var(--foreground) 6%, transparent);
-  font-size: 11px;
-}
-.bn-test:disabled {
-  opacity: 0.45;
-}
-.bn-test:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
 }

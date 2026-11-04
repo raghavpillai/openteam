@@ -109,7 +109,7 @@ export function ServerActivity() {
   }, [visible]);
 
   return (
-    <section aria-label="Live server activity" className="mb-4">
+    <section aria-label="Live server activity" className="mb-7">
       <div className="mb-2 flex items-center justify-between gap-3 px-2">
         {/* Same style as the other section labels (SectionLabel). */}
         <h3 className="text-[12px] font-normal leading-4 text-foreground-tertiary">Live activity</h3>

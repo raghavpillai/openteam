@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { MachineMessagesSettings } from "@openteam/client-core";
 import { api } from "../../../client/openteam-api";
 import { MessagesPermissionsDialog, missingGrants } from "./messages-permissions-dialog";
-import { InteractiveSwitch, SectionLabel, SettingsGroup, SettingsRow } from "./ui";
+import { InteractiveSwitch, SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton } from "./ui";
 
 /** This Mac's Messages switch, its macOS permissions, and who OpenTeam may text without asking. */
 export function MessagesSettings({
@@ -92,7 +92,7 @@ export function MessagesSettings({
             description={!permissions ? "Loading…" : missing.length ? `Needs ${missing.join(", ")}` : "Automation, Contacts and Full Disk Access are allowed"}
             control={
               <button
-                className="inline-flex h-7 items-center rounded-[8px] bg-black/[0.08] px-3 text-[12px] text-foreground disabled:text-foreground-tertiary dark:bg-white/[0.09]"
+                className={settingsSecondaryButton}
                 disabled={!permissions}
                 onClick={() => setDialogOpen(true)}
                 type="button"
@@ -130,7 +130,7 @@ export function MessagesSettings({
               control={
                 <button
                   aria-expanded={recipientsOpen}
-                  className="inline-flex h-7 items-center gap-1 rounded-[8px] bg-black/[0.08] px-3 text-[12px] text-foreground dark:bg-white/[0.09]"
+                  className={settingsSecondaryButton}
                   onClick={() => setRecipientsOpen((open) => !open)}
                   type="button"
                 >

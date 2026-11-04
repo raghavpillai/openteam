@@ -4,7 +4,7 @@ import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { api } from "../../../client/openteam-api";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../ui/dropdown-menu";
 import { lastOpened } from "./last-opened";
-import { SectionLabel, SettingsGroup } from "./ui";
+import { SectionLabel, SettingsGroup, settingsInput, settingsSecondaryButton } from "./ui";
 
 type Machine = Awaited<ReturnType<typeof api.machines>>[number];
 
@@ -93,10 +93,8 @@ export function MachineSettings() {
   </>;
 }
 
-const fieldClass =
-  "h-8 rounded-[8px] border border-black/[0.09] bg-background px-2.5 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30 dark:border-white/[0.1]";
-const buttonClass =
-  "inline-flex h-8 shrink-0 items-center rounded-[8px] bg-black/[0.08] px-3 text-[12px] text-foreground disabled:text-foreground-tertiary dark:bg-white/[0.09]";
+const fieldClass = settingsInput;
+const buttonClass = settingsSecondaryButton;
 
 /** Manual bridges and the bot's screen size: rarely needed, kept out of the device list. */
 export function AdvancedComputerSettings() {
@@ -115,7 +113,7 @@ export function AdvancedComputerSettings() {
     <SectionLabel>Advanced</SectionLabel>
     <SettingsGroup>
       <details className="animated-disclosure border-b border-black/[0.065] py-3 text-[12.5px] dark:border-white/[0.07]"><summary>Connect a bridge manually</summary>
-      <form className="flex gap-2 pt-2.5" onSubmit={event => { event.preventDefault(); void change(async () => { await api.registerMachine(address); setAddress(""); }); }}>
+      <form className="flex flex-wrap gap-2 pt-2.5" onSubmit={event => { event.preventDefault(); void change(async () => { await api.registerMachine(address); setAddress(""); }); }}>
         <input aria-label="Computer bridge URL" type="url" required placeholder="http://computer.local:port" value={address} onChange={event => setAddress(event.target.value)} className={`${fieldClass} min-w-0 flex-1`} />
         <button type="submit" disabled={busy || !address.trim()} className={buttonClass}>Add computer</button>
       </form>

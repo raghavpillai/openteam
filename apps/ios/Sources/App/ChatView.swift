@@ -148,7 +148,12 @@ struct ChatView: View {
       }
     }
     .nativeCanvas()
-    .chatFloatingBars(top: { if sideChrome?.holdsAllControls == true { titleBar } else { header } }, bottom: {
+    .chatFloatingBars(top: {
+      VStack(spacing: 0) {
+        if sideChrome?.holdsAllControls == true { titleBar } else { header }
+        MessageRefreshStatus(channelID: channel.id).padding(.horizontal, 20)
+      }
+    }, bottom: {
       if !showsLoadError {
         ComposerView(channel: channel, focusRequest: replyFocusRequest,
           dismissFocusRequest: dismissFocusRequest).disabled(!didPositionHistory)
@@ -202,6 +207,9 @@ struct ChatView: View {
         hash.combine(entry.showsReplyContext)
       case .pending(let pending):
         hash.combine(pending.failure)
+        hash.combine(pending.deliveryUnconfirmed)
+        hash.combine(store.activeSendID == pending.id)
+        hash.combine(store.checkingSendID == pending.id)
         hash.combine(pending.input.content)
         hash.combine(pending.input.attachments)
         hash.combine(pending.stagedFiles?.count)
@@ -209,9 +217,10 @@ struct ChatView: View {
       }
       result.append(NativeHistoryItem(id: row.id, scrollID: row.scrollID, version: hash.finalize(),
         anchorToBottom: row.timestamp != nil, animatesResize: animatesResize,
+        outgoingArrival: row.isUser && row.animatesArrival,
         prefetch: RichMarkdownView.prefetcher(row)) {
         AnyView(MessageArrival(animate: timelineCache.consumeArrival(row), isUser: row.isUser) {
-          timelineRow(row)
+          MessageDeliveryRow(row: row) { timelineRow(row) }
         }.padding(.horizontal, 16)
           .padding(.top, row.id == rows.first?.id ? 14 : row.groupsWithPrevious ? 8 : 12)
           .environment(store).environment(modals).environment(\.messageTimestamps, timestamps))
@@ -467,7 +476,8 @@ private struct ChatLoadErrorView: View {
   let retry: () -> Void
 
   var body: some View {
-    Button(action: retry) {
+    VStack {
+      Spacer()
       VStack(spacing: 16) {
         Image(systemName: "exclamationmark.triangle")
           .font(.system(size: 21, weight: .regular))
@@ -475,15 +485,14 @@ private struct ChatLoadErrorView: View {
           .font(.system(size: 18, weight: .semibold))
           .multilineTextAlignment(.center)
       }
-      .foregroundStyle(NativePalette.text)
-      .padding(.horizontal, 24)
-      .padding(.vertical, 12)
-      .contentShape(Rectangle())
+      .foregroundStyle(NativePalette.text).padding(.horizontal, 24)
+      Spacer()
+      Button("Try Again", action: retry)
+        .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+        .tint(NativePalette.text).foregroundStyle(NativePalette.background)
+        .controlSize(.large).accessibilityIdentifier("chat-load-error")
+        .padding(.bottom, 40)
     }
-    .buttonStyle(.plain)
-    .accessibilityLabel("Something went wrong")
-    .accessibilityHint("Try loading this conversation again")
-    .accessibilityIdentifier("chat-load-error")
     .offset(y: -1.5)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .ignoresSafeArea()
@@ -505,14 +514,16 @@ struct MessageArrival<Content: View>: View {
   var body: some View {
     content
       .opacity(visible ? 1 : 0)
+      .animation(.easeOut(duration: reduceMotion ? 0.12 : isUser ? 0.20 : 0.132), value: visible)
+      .offset(y: visible || reduceMotion ? 0 : isUser ? 8 : 12)
+      .scaleEffect(visible || reduceMotion || isUser ? 1 : 0.94, anchor: .bottomLeading)
       .animation(
-        .timingCurve(0.23, 1, 0.32, 1, duration: reduceMotion ? 0.12 : 0.132), value: visible
+        reduceMotion
+          ? nil
+          : isUser
+            ? .easeInOut(duration: 0.35)
+            : .timingCurve(0.23, 1, 0.32, 1, duration: 0.24), value: visible
       )
-      .offset(y: visible || reduceMotion ? 0 : 12)
-      .scaleEffect(
-        visible || reduceMotion ? 1 : 0.94, anchor: isUser ? .bottomTrailing : .bottomLeading
-      )
-      .animation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.24), value: visible)
       .onAppear { visible = true }
       // The arrival owns its fade; SwiftUI's implicit insertion fade otherwise
       // compounds it and keeps the bubble invisible until the scroll settles.
@@ -970,42 +981,59 @@ struct PendingMessageView: View {
     HStack(alignment: .bottom, spacing: 0) {
       Spacer(minLength: 44)
       VStack(alignment: .trailing, spacing: 5) {
-        if showsReplyContext, let reply = pending.input.replyToMessageId {
-          MessageReplyQuote(replyID: reply, channelID: pending.channelId, ownerID: pending.id,
-            onOpen: onReplyContext.map { action in { action(reply) } })
-        }
-        if !pending.input.content.isEmpty {
-          Group {
-            if RichMarkdownView.required(pending.input.content) {
-              RichMarkdownView(source: pending.input.content, forceDark: true).frame(
-                maxWidth: .infinity)
-            } else {
-              BubbleText {
-                MarkdownText(source: pending.input.content, textColor: .white, ownMessage: true)
-                  .font(.body).lineSpacing(1.5)
+        Group {
+          if showsReplyContext, let reply = pending.input.replyToMessageId {
+            MessageReplyQuote(
+              replyID: reply, channelID: pending.channelId, ownerID: pending.id,
+              onOpen: onReplyContext.map { action in { action(reply) } })
+          }
+          if !pending.input.content.isEmpty {
+            Group {
+              if RichMarkdownView.required(pending.input.content) {
+                RichMarkdownView(source: pending.input.content, forceDark: true).frame(
+                  maxWidth: .infinity)
+              } else {
+                BubbleText {
+                  MarkdownText(source: pending.input.content, textColor: .white, ownMessage: true)
+                    .font(.body).lineSpacing(1.5)
+                }
               }
-            }
-          }.padding(.horizontal, 14).padding(
-            .vertical, 9
-          ).foregroundStyle(.white).background(
-            accent == "blue" ? NativePalette.link : NativePalette.user,
-            in: RoundedRectangle(cornerRadius: 24))
-        }
-        if !(pending.stagedFiles ?? []).isEmpty || !pending.input.attachments.isEmpty {
-          PendingAttachments(pending: pending)
-        }
-        if let failure = pending.failure {
-          Text(failure).font(.caption).foregroundStyle(NativePalette.destructive)
-          HStack {
-            Button("Retry") { Task { await store.retry(pending.id) } }
-            Button("Discard", role: .destructive) { store.discard(pending.id) }
-          }.font(.caption)
-        } else if !store.online {
-          Text("Waiting for connection")
-            .font(.caption).foregroundStyle(NativePalette.muted)
-        }
+            }.padding(.horizontal, 14).padding(
+              .vertical, 9
+            ).foregroundStyle(.white).background(
+              accent == "blue" ? NativePalette.link : NativePalette.user,
+              in: RoundedRectangle(cornerRadius: 24))
+          }
+          if !(pending.stagedFiles ?? []).isEmpty || !pending.input.attachments.isEmpty {
+            PendingAttachments(pending: pending)
+          }
+        }.contextMenu { Button("Discard", role: .destructive) { store.discard(pending.id) } }
+
       }
     }.id(pending.id)
+
+  }
+}
+
+/// One shared layout surrounds both the optimistic and accepted content. The
+/// footnote has room for a full Retry target before any delivery status exists.
+struct MessageDeliveryRow<Content: View>: View {
+  @ScaledMetric(relativeTo: .caption) private var footnoteHeight: CGFloat = 44
+  let row: MessagePresentation.Row
+  @ViewBuilder var content: Content
+  var body: some View {
+    VStack(alignment: .trailing, spacing: 5) {
+      content
+      if row.isUser {
+        Group {
+          if case .pending(let pending) = row.content {
+            PendingSendStatus(pending: pending, showsSending: false)
+          } else {
+            Color.clear.frame(width: 0).accessibilityHidden(true)
+          }
+        }.frame(height: max(44, footnoteHeight))
+      }
+    }
   }
 }
 
@@ -1017,8 +1045,11 @@ struct ThreadView: View {
   @State private var child: Message?
   @State private var childBranches = true
   var body: some View {
-    ThreadPage(root: root, channel: channel, initialFocus: initialFocus, branchesReplies: branchesReplies) {
-      message, branches in childBranches = branches; child = message
+    ThreadPage(
+      root: root, channel: channel, initialFocus: initialFocus, branchesReplies: branchesReplies
+    ) {
+      message, branches in
+      childBranches = branches; child = message
     }.navigationDestination(item: $child) { message in
       ThreadView(root: message, channel: channel, branchesReplies: childBranches)
     }
@@ -1078,10 +1109,13 @@ struct ThreadPage: View {
       }
       .messageModalHost(modals).nativeCanvas().toolbar(.hidden, for: .navigationBar)
       .chatFloatingBars(top: {
-        HStack {
-          if sideChrome?.holdsAllControls != true { backButton }
-          Spacer()
-        }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+        VStack(spacing: 0) {
+          HStack {
+            if sideChrome?.holdsAllControls != true { backButton }
+            Spacer()
+          }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+          MessageRefreshStatus(channelID: channel.id).padding(.horizontal, 20)
+        }
       }, bottom: {
         ComposerView(channel: channel, draftKey: draftKey,
           threadRootID: branchesReplies ? root.id : nil,
@@ -1145,26 +1179,33 @@ struct ThreadPage: View {
       case .confirmed(let entry):
         hash.combine(entry.message)
         animatesResize = entry.message.metadata["type"].string == "widget"
-      case .pending(let send): hash.combine(send.input.content); hash.combine(send.failure)
+      case .pending(let send):
+        hash.combine(send.input.content); hash.combine(send.failure)
+        hash.combine(send.deliveryUnconfirmed)
+        hash.combine(store.activeSendID == send.id)
+        hash.combine(store.checkingSendID == send.id)
       }
       result.append(NativeHistoryItem(id: row.id, scrollID: row.scrollID, version: hash.finalize(),
         anchorToBottom: row.timestamp != nil, animatesResize: animatesResize,
+        outgoingArrival: row.isUser && row.animatesArrival,
         prefetch: RichMarkdownView.prefetcher(row)) {
         AnyView(MessageArrival(animate: timelineCache.consumeArrival(row), isUser: row.isUser) {
-          VStack(alignment: .leading, spacing: 12) {
-            if let date = row.timestamp {
-              Text(chatTimestamp(date)).font(.system(size: 13)).foregroundStyle(NativePalette.chatFaint)
-                .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 2)
-            }
-            switch row.content {
-            case .confirmed(let entry):
-              let message = entry.message
-              MessageRow(message: message, channel: channel,
-                onReply: { if message.id == root.id { focusRequest = UUID() } else { onThread(message, branchesReplies) } },
-                onThread: { if message.id == root.id { focusRequest = UUID() } else { onThread(message, true) } },
-                onExchange: { exchange = $0 }, onRoutine: { store.focusedRoutine = $0; details = true },
-                showsReplyContext: false)
-            case .pending(let pending): PendingMessageView(pending: pending, showsReplyContext: false)
+          MessageDeliveryRow(row: row) {
+            VStack(alignment: .leading, spacing: 12) {
+              if let date = row.timestamp {
+                Text(chatTimestamp(date)).font(.system(size: 13)).foregroundStyle(NativePalette.chatFaint)
+                  .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 2)
+              }
+              switch row.content {
+              case .confirmed(let entry):
+                let message = entry.message
+                MessageRow(message: message, channel: channel,
+                  onReply: { if message.id == root.id { focusRequest = UUID() } else { onThread(message, branchesReplies) } },
+                  onThread: { if message.id == root.id { focusRequest = UUID() } else { onThread(message, true) } },
+                  onExchange: { exchange = $0 }, onRoutine: { store.focusedRoutine = $0; details = true },
+                  showsReplyContext: false)
+              case .pending(let pending): PendingMessageView(pending: pending, showsReplyContext: false)
+              }
             }
           }
         }.padding(.horizontal, 16).padding(.top, row.groupsWithPrevious ? 8 : 12)

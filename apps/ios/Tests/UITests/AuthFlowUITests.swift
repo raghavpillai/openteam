@@ -568,8 +568,8 @@ final class AuthFlowUITests: XCTestCase {
     try await control("/__qa/control", ["offline": true])
     app.launch()
     let offline = app.staticTexts["Offline · messages will send when you reconnect"]
-    XCTAssertTrue(offline.waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["channel-channel-research"].exists)
+    XCTAssertTrue(app.buttons["channel-channel-research"].waitForExistence(timeout: 10))
+    XCTAssertFalse(offline.exists)
     XCTAssertFalse(app.staticTexts["Syncing state"].exists)
     XCTAssertFalse(app.alerts.firstMatch.exists)
     capture("cache-offline", app)

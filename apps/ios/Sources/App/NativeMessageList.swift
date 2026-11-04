@@ -15,6 +15,7 @@ struct NativeHistoryItem {
   let version: Int
   var anchorToBottom = false
   var animatesResize = false
+  var outgoingArrival = false
   /// Prepares asynchronously sized content (WebKit documents) before the row
   /// scrolls into view, so it is displayed at its final height.
   var prefetch: (() -> Void)?
@@ -111,6 +112,11 @@ struct NativeMessageList: UIViewControllerRepresentable {
   /// The table's (pixel-rounded) offset after the glide's last write.
   private var glideApplied: CGFloat = 0
   private var glideTime: CFTimeInterval = 0
+  private var outgoingArrival = false
+  private var glideDuration: CFTimeInterval?
+  private var glideElapsed: CFTimeInterval = 0
+  private var glideOrigin: CGFloat = 0
+  private var glidePreviousTarget: CGFloat?
   #if DEBUG
   private var glideStartTime: CFTimeInterval = 0
   private let recordsMotion = ProcessInfo.processInfo.arguments.contains("--trace-chat-layout")
@@ -251,6 +257,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
       pendingRequest = resolved
     }
     let previousIDs = orderedIDs
+    if positioned, values.contains(where: { $0.outgoingArrival && !previousIDs.contains($0.id) }) {
+      outgoingArrival = true
+    }
     // Any drag stops following, including one that ends a few points above
     // the end. A reader resting there still watches the latest message, so an
     // arrival resumes following instead of landing hidden behind the composer.
@@ -423,6 +432,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
           self.startFooterFollow(duration: deferredFooterChange > 0
             ? ChatActivityTiming.expansion : ChatActivityTiming.collapse, from: oldOffset.y)
         } else if self.glideLink != nil {
+          if self.outgoingArrival { self.glideToBottom() }
           // Already gliding to the latest message (a send, or an earlier
           // arrival). It re-reads the bottom every frame; restarting or
           // snapping here would break the motion.
@@ -805,7 +815,11 @@ struct NativeMessageList: UIViewControllerRepresentable {
       return min(max(y, -self.table.adjustedContentInset.top), self.bottomOffset.y)
     }
   }
-  private func glideToBottom() { glide(to: { [weak self] in self?.bottomOffset.y }) }
+  private func glideToBottom() {
+    let duration: CFTimeInterval? = outgoingArrival ? 0.35 : nil
+    outgoingArrival = false
+    glide(to: { [weak self] in self?.bottomOffset.y }, duration: duration)
+  }
   private enum Glide {
     /// Critically damped (no overshoot), like iMessage's scroll to the latest
     /// message: about 90% of the way in 0.23 s, settled within ~0.45-0.65 s.
@@ -822,9 +836,17 @@ struct NativeMessageList: UIViewControllerRepresentable {
   /// of stopped short of. Unlike animating the layer, UITableView mounts the
   /// rows passed on the way. A running glide keeps its position and velocity
   /// and only adopts the new target. A drag cancels it immediately.
-  private func glide(to target: @escaping () -> CGFloat?) {
+  private func glide(to target: @escaping () -> CGFloat?, duration: CFTimeInterval? = nil) {
     glideTarget = target
-    guard glideLink == nil else { return }
+    if glideLink != nil {
+      if let duration {
+        glideDuration = duration
+        glideElapsed = 0
+        glideOrigin = table.contentOffset.y
+        glidePreviousTarget = target()
+      }
+      return
+    }
     // Continue from what is on screen, including a robot follow in flight.
     stopFooterFollow()
     guard var destination = target() else { return }
@@ -841,6 +863,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
       positioning = false
       destination = target() ?? destination
     }
+    glideDuration = duration
+    glideElapsed = 0
+    glideOrigin = start
+    glidePreviousTarget = destination
     glideOffset = start
     glideApplied = table.contentOffset.y
     glideVelocity = Glide.launch * Glide.omega * (destination - start)
@@ -869,13 +895,34 @@ struct NativeMessageList: UIViewControllerRepresentable {
     // reconfigured mid-glide (a delivery acknowledgement).
     let shift = table.contentOffset.y - glideApplied
     if abs(shift) > 0.01 { glideOffset += shift }
-    let error = glideOffset - target
-    let omega = Glide.omega
-    let decay = exp(-omega * dt)
-    let pull = glideVelocity + omega * error
-    var next = target + (error + pull * dt) * decay
-    glideVelocity = (glideVelocity - omega * pull * dt) * decay
-    let settled = abs(next - target) < 0.3 && abs(glideVelocity) < 15
+    if glideDuration != nil, let previous = glidePreviousTarget, abs(target - previous) > 0.5 {
+      // Incoming content or a media resize changes the destination mid-send.
+      // Continue with the retargetable spring at the current position/velocity;
+      // applying the old elapsed percentage to the added height would jump.
+      glideDuration = nil
+    }
+    glidePreviousTarget = target
+    var next: CGFloat
+    let settled: Bool
+    if let duration = glideDuration {
+      // GrokBot's outgoing rows follow a 300 ms ease-in/out. Keep advancing the
+      // real offset so cells mount during motion, and re-read the target as they size.
+      glideOrigin += shift
+      glideElapsed += Double(dt)
+      let t = CGFloat(min(1, glideElapsed / duration))
+      let eased = t * t * (3 - 2 * t)
+      next = glideOrigin + (target - glideOrigin) * eased
+      glideVelocity = (target - glideOrigin) * 6 * t * (1 - t) / CGFloat(duration)
+      settled = t >= 1
+    } else {
+      let error = glideOffset - target
+      let omega = Glide.omega
+      let decay = exp(-omega * dt)
+      let pull = glideVelocity + omega * error
+      next = target + (error + pull * dt) * decay
+      glideVelocity = (glideVelocity - omega * pull * dt) * decay
+      settled = abs(next - target) < 0.3 && abs(glideVelocity) < 15
+    }
     if settled { next = target }
     positioning = true
     table.contentOffset = CGPoint(x: table.contentOffset.x, y: next)
@@ -896,6 +943,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     link.invalidate()
     glideLink = nil
     glideVelocity = 0
+    glideDuration = nil
     glideTarget = { nil }
     scrollingToTarget = false
     #if DEBUG

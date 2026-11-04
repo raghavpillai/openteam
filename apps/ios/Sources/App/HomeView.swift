@@ -275,10 +275,6 @@ struct HomeView: View {
         ZStack(alignment: .bottom) {
           ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-              if !store.online && !store.syncingState {
-                Label("Offline · messages will send when you reconnect", systemImage: "wifi.slash")
-                  .font(.footnote).foregroundStyle(NativePalette.muted).padding(.vertical, 8)
-              }
               if let banner = ModelStatusBanner(inference: store.runtime.inference) {
                 ModelStatusBannerView(banner: banner) {
                   settings = SettingsSheet(route: .model)
@@ -1034,6 +1030,7 @@ struct CreateConversationView: View {
   @State private var color = "#a47952"
   @State private var shape = "classic"
   @State private var saving = false
+  @State private var creationFailure: String?
   @State private var requestID = UUID().uuidString
   @State private var groupQuery = ""
   @State private var namingGroup = false
@@ -1173,6 +1170,8 @@ struct CreateConversationView: View {
           .padding(.top, 12)
       }
     }.disabled(saving).interactiveDismissDisabled(saving).nativeCanvas()
+      .background { TopFailureBanner(message: creationFailure).frame(width: 0, height: 0) }
+      .onChange(of: name) { _, _ in creationFailure = nil }
       .onAppear { if group { groupSearchFocused = true } }
   }
   func colorRow(_ values: [String]) -> some View {
@@ -1193,6 +1192,7 @@ struct CreateConversationView: View {
   func save() async {
     guard !saving, !store.syncingState else { return }
     saving = true
+    creationFailure = nil
     defer { saving = false }
     let body: JSON =
       group
@@ -1209,12 +1209,19 @@ struct CreateConversationView: View {
         "description": .string(""),
         "instructions": .string(""), "color": .string(color), "icon": .string(shape),
       ])
-    if let result = await store.mutate(
-      group ? "/api/v0/channels" : "/api/v0/bots", body: body, successFeedback: .success,
-      feedbackSource: "conversation.create")
-    {
+    do {
+      let result = try await store.request(
+        group ? "/api/v0/channels" : "/api/v0/bots", method: "POST", body: body)
+      await store.refresh(quiet: true)
+      NativeHaptics.play(.success, source: "conversation.create")
       let id = group ? result["id"].string : result["dmChannelId"].string
       if !id.isEmpty { onCreated(id) }
+    } catch {
+      guard !UserFacingError.isCancelled(error) else { return }
+      creationFailure = group
+        ? "Could not create the group. Please try again."
+        : "Could not create the Bot. Please try again."
+      NativeHaptics.failure(error, source: "conversation.create")
     }
   }
 }
@@ -1236,7 +1243,20 @@ struct SearchView: View {
     ScrollView {
       LazyVStack(spacing: 0) {
         if loading { LoadingOrb(label: "Searching").padding() }
-        if let failure { InlineFailure(message: failure) { retryID += 1 }.padding() }
+        if let failure {
+          if failure == "Search unavailable" {
+            VStack(spacing: 18) {
+              Image(systemName: "magnifyingglass").font(.system(size: 32, weight: .regular))
+              Text(failure).font(.title2.weight(.semibold))
+                .accessibilityIdentifier("search-error")
+              Text("Try again in a moment.").foregroundStyle(NativePalette.muted)
+              Button("Try Again") { retryID += 1 }
+                .accessibilityIdentifier("search-retry")
+            }.frame(maxWidth: .infinity).padding(.vertical, 56)
+          } else {
+            InlineFailure(message: failure) { retryID += 1 }.padding()
+          }
+        }
         if searchQuery.isEmpty {
           ForEach(store.channels.filter { $0.kind != "agent_dm" }) { channel in
             Button {
@@ -1303,7 +1323,7 @@ struct SearchView: View {
           loading = false
         } catch {
           if !Task.isCancelled {
-            failure = UserFacingError.message(error)
+            failure = "Search unavailable"
             loading = false
           }
         }

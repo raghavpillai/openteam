@@ -2327,7 +2327,7 @@ private fun ComputerViewerScreen(
                                 onFailure = { failure = it.message },
                             )
                         }
-                    }) { Text(if (controlling) "Release" else "Take control", color = Color.White) }
+                    }) { Text(if (controlling) "Release" else "Take control") }
                     TextButton(onClick = {
                         scope.launch {
                             setPaused(botId, !paused).fold(
@@ -2335,7 +2335,7 @@ private fun ComputerViewerScreen(
                                 onFailure = { failure = it.message },
                             )
                         }
-                    }) { Text(if (paused) "Resume" else "Pause", color = Color.White) }
+                    }) { Text(if (paused) "Resume" else "Pause") }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -2373,28 +2373,36 @@ private fun ComputerViewerScreen(
                         )
                     }
                 }
+            }
+            // The toolbar sits on the dark remote-screen overlay, so it keeps light content,
+            // but uses button colors so disabled actions (before Take control) read as disabled.
+            val toolbarButtonColors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                contentColor = Color.White,
+                disabledContentColor = Color.White.copy(alpha = .38f),
+            )
             Column(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = .82f)).padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 failure?.let { Text(it, color = Color(0xFFFF8A80), style = MaterialTheme.typography.bodySmall) }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TextButton(onClick = { clipboardOpen = true }, enabled = controlling && !paused) { Text("Clipboard", color = Color.White) }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = { clipboardOpen = true }, enabled = controlling && !paused, colors = toolbarButtonColors) { Text("Clipboard") }
                     listOf("Return", "Tab", "Escape", "BackSpace").forEach { key ->
-                        TextButton(onClick = { scope.launch { runCatching { renderer.send(com.openteam.platform.ComputerInput.Key(listOf(key))) } } }, enabled = controlling && !paused) {
-                            Text(key, color = Color.White)
+                        TextButton(onClick = { scope.launch { runCatching { renderer.send(com.openteam.platform.ComputerInput.Key(listOf(key))) } } }, enabled = controlling && !paused, colors = toolbarButtonColors) {
+                            Text(key)
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("chromium" to "Browser", "thunar" to "Files", "terminal" to "Terminal").forEach { (app, label) ->
-                        TextButton(onClick = { scope.launch { sendAction(botId, buildJsonObject { put("action", "open_app"); put("app", app) }) } }, enabled = controlling && !paused) {
-                            Text(label, color = Color.White)
+                        TextButton(onClick = { scope.launch { sendAction(botId, buildJsonObject { put("action", "open_app"); put("app", app) }) } }, enabled = controlling && !paused, colors = toolbarButtonColors) {
+                            Text(label)
                         }
                     }
                 }
             }
         }
+    }
     if (clipboardOpen) {
         AlertDialog(
             onDismissRequest = { clipboardOpen = false },
@@ -2411,9 +2419,6 @@ private fun ComputerViewerScreen(
             dismissButton = { TextButton(onClick = { clipboardOpen = false }) { Text("Cancel") } },
         )
     }
-    }
-}
-
 }
 
 @Composable

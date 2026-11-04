@@ -3,13 +3,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 app.setPath("userData", path.join(process.env.BOT_ACTIONS_TEST_DIR, "profile"));
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ show: false, width: 900, height: 800,
+  const win = new BrowserWindow({ show: true, width: 900, height: 800,
     webPreferences: { backgroundThrottling: false } });
   const run = (fn) => win.webContents.executeJavaScript(`(${fn.toString()})()`);
   const wait = () => new Promise((resolve) => setTimeout(resolve, 100));
   const until = async (fn) => {
     for (let attempt = 0; attempt < 100; attempt++) { if (await run(fn)) return; await wait(); }
-    throw new Error("GUI did not reach its expected state");
+    throw new Error(`GUI did not reach its expected state: ${fn.toString()}`);
   };
   const reports = [];
   const capture = async (suffix) => fs.writeFileSync(
@@ -20,11 +20,14 @@ app.whenReady().then(async () => {
       await win.loadURL(process.env.BOT_ACTIONS_TEST_URL + "?count=6&read=1");
       await until(() => !!document.querySelector('[data-channel-id="channel-0"] button'));
       await win.webContents.executeJavaScript(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+      win.focus();
+      await wait();
       for (const channelId of ["channel-0", "channel-1"]) {
         const point = await win.webContents.executeJavaScript(`(() => {
           const rect = document.querySelector('[data-channel-id="${channelId}"] button').getBoundingClientRect();
           return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
         })()`);
+        win.webContents.sendInputEvent({ type: "mouseMove", ...point });
         win.webContents.sendInputEvent({ type: "mouseDown", button: "right", clickCount: 1, ...point });
         win.webContents.sendInputEvent({ type: "mouseUp", button: "right", clickCount: 1, ...point });
         await until(() => !!document.querySelector('[role="menuitem"]'));

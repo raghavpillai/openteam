@@ -15,6 +15,7 @@ export function createDnsExchange(
     resolve: (result: Buffer) => void;
     reject: (error: Error) => void;
     controller: AbortController;
+    deadline: number;
     timer?: ReturnType<typeof setTimeout>;
     request?: ReturnType<typeof request>;
     slot?: Slot;
@@ -88,6 +89,10 @@ export function createDnsExchange(
     for (const slot of owner.slots) {
       if (slot.job || !owner.queue.length) continue;
       const job = owner.queue.shift()!;
+      if (performance.now() >= job.deadline) {
+        finish(owner, job, new Error("DNS timeout"));
+        continue;
+      }
       slot.job = job;
       job.slot = slot;
       if (routeKey() !== owner.key) {
@@ -100,6 +105,11 @@ export function createDnsExchange(
           if (job.done || owner.closed || routeKey() !== owner.key) {
             raw.destroy();
             if (!job.done) dispose(owner);
+            return;
+          }
+          if (performance.now() >= job.deadline) {
+            raw.destroy();
+            finish(owner, job, new Error("DNS timeout"));
             return;
           }
           slot.raw = raw;
@@ -142,6 +152,10 @@ export function createDnsExchange(
             response.on("aborted", () => finish(owner, job, new Error("DNS interrupted")));
             response.on("end", () => {
               if (job.done) return;
+              if (performance.now() >= job.deadline) {
+                finish(owner, job, new Error("DNS timeout"));
+                return;
+              }
               const result = Buffer.concat(chunks);
               if (
                 result.length < 12 ||
@@ -193,6 +207,7 @@ export function createDnsExchange(
         resolve,
         reject,
         controller: new AbortController(),
+        deadline: performance.now() + timeoutMs,
         done: false,
       };
       owner.jobs.add(job);

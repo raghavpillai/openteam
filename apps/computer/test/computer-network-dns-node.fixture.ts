@@ -119,9 +119,15 @@ try {
     },
     { timeoutMs: 40 }
   );
-  const timed = await Promise.allSettled(Array.from({ length: 4 }, () => delayed(query)));
+  const pendingQueries = Array.from({ length: 4 }, () => delayed(query));
+  // Expire queued jobs while the event loop is busy: an overdue timer must
+  // never allow a new relay dial to start after the absolute deadline.
+  const busyUntil = performance.now() + 70;
+  while (performance.now() < busyUntil) {}
+  const timed = await Promise.allSettled(pendingQueries);
   assert.ok(timed.every((value) => value.status === "rejected"));
   assert.ok(signals.every((signal) => signal.aborted));
+  assert.equal(signals.length, 2);
   let destroyed = 0;
   releases.forEach((release) =>
     release({

@@ -25,6 +25,9 @@ import {
   encodeFrame,
   FrameType,
   parseJson,
+  jsonBytes,
+  MAX_WINDOW,
+  WINDOW,
 } from "@openteam/plugin-sdk/browser-network/protocol";
 import { createBrowserProxy } from "@openteam/plugin-sdk/browser-network/socks";
 import { managedBrowserNetworkArguments } from "../../computer/src/browser-network";
@@ -46,7 +49,9 @@ async function until(check: () => boolean | Promise<boolean>, ms = 6000) {
     await Bun.sleep(10);
   }
 }
-async function fixture(options: { failbackMs?: number } = {}) {
+async function fixture(
+  options: { failbackMs?: number; legacyComputer?: boolean; legacyDevice?: boolean } = {}
+) {
   let settings: NetworkSettings = {
     deploymentId: crypto.randomUUID(),
     mode: "ranked",
@@ -144,6 +149,20 @@ async function fixture(options: { failbackMs?: number } = {}) {
             if (Number.isFinite(delay))
               setTimeout(() => service.websocket.message(socket, message), delay);
             return;
+          }
+        }
+        if (
+          typeof message !== "string" &&
+          ((socket.data.role === "computer" && options.legacyComputer) ||
+            (socket.data.role === "device" && options.legacyDevice))
+        ) {
+          const frame = decodeFrame(new Uint8Array(message));
+          if (frame.type === FrameType.Control) {
+            const control = parseJson(frame.payload);
+            if (control.op === "lease") {
+              delete control.maxWindow;
+              message = Buffer.from(encodeFrame(FrameType.Control, 0, jsonBytes(control)));
+            }
           }
         }
         service.websocket.message(socket, message);
@@ -557,7 +576,12 @@ describe("connected device browser network", () => {
       cleanup.push(() => rm(directory, { recursive: true, force: true }));
       await writeFile(join(directory, "package.json"), '{"type":"module"}');
       const built = await Bun.build({
-        entrypoints: [resolve(import.meta.dirname, "../../../packages/plugin-sdk/test/browser-network/peer.fixture.ts")],
+        entrypoints: [
+          resolve(
+            import.meta.dirname,
+            "../../../packages/plugin-sdk/test/browser-network/peer.fixture.ts"
+          ),
+        ],
         target: "node",
         outdir: directory,
         naming: "peer.js",
@@ -1281,3 +1305,66 @@ describe("browser network chaos recovery boundaries", () => {
     }
   });
 });
+
+for (const [legacyComputer, legacyDevice] of [
+  [false, false],
+  [true, false],
+  [false, true],
+  [true, true],
+])
+  test(`window negotiation transfers bulk data with mixed peers (computer=${legacyComputer}, device=${legacyDevice})`, async () => {
+    const f = await fixture({ legacyComputer, legacyDevice });
+    const device = f.device("window-exit");
+    await f.select("window-exit");
+    const expected = legacyComputer || legacyDevice ? WINDOW : MAX_WINDOW;
+    await until(
+      () =>
+        f.computer.available() &&
+        f.computer.route?.mode === "device" &&
+        f.computer.route.machineId === "window-exit" &&
+        f.computer.route.streamWindow === expected &&
+        device.route?.streamWindow === expected
+    );
+    const stream = await f.computer.open("desktop-only.example", 443);
+    const payload = Buffer.alloc(768 * 1024, 71);
+    const received: Buffer[] = [];
+    let length = 0;
+    const complete = new Promise<void>((resolve, reject) => {
+      stream.on("data", (chunk) => {
+        received.push(chunk);
+        length += chunk.length;
+        if (length === payload.length) resolve();
+      });
+      stream.on("error", reject);
+    });
+    stream.write(payload);
+    await complete;
+    expect(Buffer.concat(received)).toEqual(payload);
+    stream.destroy();
+  }, 10000);
+
+test("a legacy replacement exit fences a larger window before accepting new streams", async () => {
+  const options = { legacyDevice: false, failbackMs: 0 };
+  const f = await fixture(options);
+  const device = f.device("replacement-exit");
+  await f.select("replacement-exit");
+  await until(() => f.computer.route?.streamWindow === MAX_WINDOW);
+  const oldEpoch = f.computer.route!.epoch;
+  const stream = await f.computer.open("desktop-only.example", 443);
+  device.stop();
+  options.legacyDevice = true;
+  const replacement = f.device("replacement-exit");
+  await f.select("replacement-exit");
+  await until(
+    () =>
+      f.computer.available() &&
+      f.computer.route?.mode === "device" &&
+      f.computer.route.machineId === "replacement-exit" &&
+      f.computer.route.streamWindow === WINDOW &&
+      replacement.route?.streamWindow === WINDOW
+  );
+  expect(f.computer.route!.epoch).not.toBe(oldEpoch);
+  expect(stream.destroyed).toBe(true);
+  const fresh = await f.computer.open("desktop-only.example", 443);
+  fresh.destroy();
+}, 10000);

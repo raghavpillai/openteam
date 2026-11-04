@@ -17,7 +17,7 @@ export const SETTINGS_PALETTE_SECTIONS = [
   },
   {
     id: "network",
-    label: "Server: Browser network",
+    label: "Server: Computer network",
     icon: "computer",
     target: "browser-network",
     keywords: ["browser", "network", "priority", "fallback", "sharing", "connection"],

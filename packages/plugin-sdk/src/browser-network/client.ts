@@ -6,6 +6,10 @@ import {
   LEASE_MS,
   RENEW_MS,
   MAX_STREAMS,
+  MAX_WINDOW,
+  WINDOW,
+  validWindow,
+  RECONNECT_MAX_MS,
   type NetworkRoute,
   type OpenTarget,
 } from "./protocol";
@@ -28,7 +32,7 @@ export class BrowserNetworkClient {
     for (const waiter of this.routeWaiters) ready ? waiter.resolve() : waiter.reject();
     this.routeWaiters.clear();
   }
-  private waitForRoute(): Promise<void> {
+  private waitForRoute(signal?: AbortSignal): Promise<void> {
     if (this.available()) return Promise.resolve();
     const remaining = this.transitionUntil - performance.now();
     if (
@@ -41,12 +45,15 @@ export class BrowserNetworkClient {
     return new Promise((resolve, reject) => {
       const finish = (ready: boolean) => {
         clearTimeout(timer);
+        signal?.removeEventListener("abort", waiter.reject);
         this.routeWaiters.delete(waiter);
         ready ? resolve() : reject(new NetworkError("device_unavailable"));
       };
       const waiter = { resolve: () => finish(true), reject: () => finish(false) };
       const timer = setTimeout(waiter.reject, remaining);
       this.routeWaiters.add(waiter);
+      signal?.addEventListener("abort", waiter.reject, { once: true });
+      if (signal?.aborted) waiter.reject();
     });
   }
   route: NetworkRoute | null = null;
@@ -108,7 +115,12 @@ export class BrowserNetworkClient {
     }
     const nonce = randomBytes(32).toString("base64url");
     this.pending.set(nonce, performance.now());
-    this.mux.control({ op: "lease", nonce, deploymentId: this.options.deploymentId ?? null });
+    this.mux.control({
+      op: "lease",
+      nonce,
+      deploymentId: this.options.deploymentId ?? null,
+      maxWindow: MAX_WINDOW,
+    });
   }
   private connect() {
     if (this.stopped) return;
@@ -116,7 +128,7 @@ export class BrowserNetworkClient {
       headers: this.options.headers,
       perMessageDeflate: false,
       maxPayload: 65548,
-      handshakeTimeout: 10_000,
+      handshakeTimeout: 5_000,
       followRedirects: false,
     });
     this.ws = ws;
@@ -160,10 +172,18 @@ export class BrowserNetworkClient {
               typeof route.epoch !== "string" ||
               !Number.isSafeInteger(route.revision) ||
               typeof route.available !== "boolean" ||
+              (route.streamWindow !== undefined && !validWindow(route.streamWindow)) ||
               (this.options.deploymentId && route.deploymentId !== this.options.deploymentId)
             )
               throw new Error("Invalid route");
+            if (
+              this.route &&
+              this.route.epoch === route.epoch &&
+              (this.route.streamWindow ?? WINDOW) !== (route.streamWindow ?? WINDOW)
+            )
+              throw new Error("Window changed without fencing");
             if (this.route && this.route.epoch !== route.epoch) this.fence();
+            mux.configureWindow(route.streamWindow ?? WINDOW);
             this.route = route;
             // Keep backoff across flapping connections, even if they briefly
             // grant a lease. Reset only after a full healthy lease interval.
@@ -233,7 +253,8 @@ export class BrowserNetworkClient {
       if (!this.stopped) {
         this.retry = setTimeout(
           () => this.connect(),
-          Math.min(30_000, 1000 * 2 ** this.attempt++) * (0.8 + Math.random() * 0.4)
+          Math.min(RECONNECT_MAX_MS, 1000 * 2 ** Math.min(this.attempt++, 10)) *
+            (0.8 + Math.random() * 0.4)
         );
         this.retry.unref?.();
       }
@@ -243,21 +264,27 @@ export class BrowserNetworkClient {
     if (!this.available() || target.epoch !== this.route?.epoch)
       throw new NetworkError("device_unavailable");
   }
-  async open(host: string, port: number): Promise<Duplex> {
-    await this.waitForRoute();
+  async open(host: string, port: number, signal?: AbortSignal): Promise<Duplex> {
+    signal?.throwIfAborted();
+    await this.waitForRoute(signal);
+    signal?.throwIfAborted();
     const route = this.route;
     if (!route || !this.available()) throw new NetworkError("device_unavailable");
     const target = { host, port, epoch: route.epoch };
     if (route.mode === "server") {
       const controller = new AbortController();
+      const abort = () => controller.abort();
+      signal?.addEventListener("abort", abort, { once: true });
       this.directDials.add(controller);
       let socket: Duplex;
       try {
         socket = await dialTarget(target, controller.signal);
       } finally {
         this.directDials.delete(controller);
+        signal?.removeEventListener("abort", abort);
       }
       try {
+        signal?.throwIfAborted();
         this.assertRoute(target);
       } catch (error) {
         socket.destroy();
@@ -269,9 +296,20 @@ export class BrowserNetworkClient {
       return socket;
     }
     const stream: NetworkStream = this.mux!.open(target);
-    await stream.ready;
-    this.assertRoute(target);
-    return stream;
+    const abort = () => stream.destroy(new NetworkError("request_cancelled"));
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+    try {
+      await stream.ready;
+      signal?.throwIfAborted();
+      this.assertRoute(target);
+      return stream;
+    } catch (error) {
+      stream.destroy();
+      throw error;
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
   }
   private readonly direct = new Set<Duplex>();
   private readonly directDials = new Set<AbortController>();

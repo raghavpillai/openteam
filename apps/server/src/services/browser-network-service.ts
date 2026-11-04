@@ -12,6 +12,8 @@ import {
   MAX_STREAMS,
   NETWORK_PROTOCOL,
   WINDOW,
+  MAX_WINDOW,
+  validWindow,
   LEASE_MS,
   type BrowserNetworkView,
   type NetworkRoute,
@@ -111,8 +113,10 @@ export interface NetworkConnection {
   checking?: boolean;
   controlWindow?: number;
   controlCount?: number;
+  maxWindow?: number;
 }
 interface StreamState {
+  window: number;
   ready: boolean;
   credit: [number, number];
   ended: [boolean, boolean];
@@ -125,6 +129,7 @@ export class BrowserNetworkService {
   private settings?: NetworkSettings;
   private epoch = randomUUID();
   private activeSource: string | null = null;
+  private streamWindow = WINDOW;
   private readonly streams = new Map<number, StreamState>();
   private highestId = 0;
   private bytesSent = 0;
@@ -221,8 +226,17 @@ export class BrowserNetworkService {
           ) ?? best;
       }
     }
-    if (next !== this.activeSource || forceFence) {
+    const streamWindow =
+      next && next !== "server"
+        ? Math.min(
+            MAX_WINDOW,
+            this.computer?.maxWindow ?? WINDOW,
+            this.devices.get(next)?.maxWindow ?? WINDOW
+          )
+        : WINDOW;
+    if (next !== this.activeSource || forceFence || streamWindow !== this.streamWindow) {
       this.activeSource = next;
+      this.streamWindow = streamWindow;
       this.fence();
     }
   }
@@ -358,6 +372,7 @@ export class BrowserNetworkService {
       mode: this.activeSource === "server" ? "server" : "device",
       machineId,
       epoch: this.epoch,
+      streamWindow: this.streamWindow,
       available:
         this.activeSource === "server"
           ? peer === this.computer
@@ -382,6 +397,13 @@ export class BrowserNetworkService {
       if (control.op === "lease") {
         if (typeof control.nonce !== "string" || !/^[\w-]{43}$/.test(control.nonce))
           throw new Error("Invalid nonce");
+        const maxWindow = control.maxWindow ?? WINDOW;
+        if (
+          !validWindow(maxWindow) ||
+          (peer.maxWindow !== undefined && peer.maxWindow !== maxWindow)
+        )
+          throw new Error("Invalid window capability");
+        peer.maxWindow = maxWindow;
         await this.validate(peer);
         const current = await this.load();
         if (control.deploymentId && control.deploymentId !== current.deploymentId)
@@ -439,7 +461,12 @@ export class BrowserNetworkService {
         );
         return;
       }
-      this.streams.set(frame.id, { ready: false, credit: [WINDOW, WINDOW], ended: [false, false] });
+      this.streams.set(frame.id, {
+        ready: false,
+        window: this.streamWindow,
+        credit: [this.streamWindow, this.streamWindow],
+        ended: [false, false],
+      });
     } else {
       const stream = this.streams.get(frame.id);
       if (!stream) {
@@ -464,7 +491,8 @@ export class BrowserNetworkService {
       } else if (frame.type === FrameType.Window) {
         const count = new DataView(frame.payload.buffer, frame.payload.byteOffset, 4).getUint32(0),
           opposite = direction === 0 ? 1 : 0;
-        if (!count || stream.credit[opposite] + count > WINDOW) throw new Error("Invalid window");
+        if (!count || stream.credit[opposite] + count > stream.window)
+          throw new Error("Invalid window");
         stream.credit[opposite] += count;
       } else if (frame.type === FrameType.Fin) {
         if (!stream.ready || stream.ended[direction]) throw new Error("Invalid half close");

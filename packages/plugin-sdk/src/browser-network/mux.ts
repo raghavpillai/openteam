@@ -11,6 +11,7 @@ import {
   MAX_QUEUE,
   MAX_STREAMS,
   WINDOW,
+  validWindow,
   type OpenTarget,
 } from "./protocol";
 
@@ -24,7 +25,7 @@ type Write = { bytes: Buffer; offset: number; done: (error?: Error | null) => vo
 /** A bounded byte stream. TCP pipe backpressure controls receive-window replenishment. */
 export class NetworkStream extends Duplex {
   private credit = 0;
-  private receiveCredit = WINDOW;
+  private receiveCredit: number;
   private consumed = 0;
   private pending?: Write;
   private accepted = false;
@@ -36,9 +37,11 @@ export class NetworkStream extends Duplex {
   constructor(
     readonly id: number,
     private readonly mux: NetworkMux,
+    private readonly window: number,
     options: DuplexOptions = {}
   ) {
     super({ ...options, allowHalfOpen: true, highWaterMark: 32 * 1024 });
+    this.receiveCredit = window;
     this.ready = new Promise((resolve, reject) => {
       this.accept = resolve;
       this.refuse = reject;
@@ -49,7 +52,7 @@ export class NetworkStream extends Duplex {
   markReady() {
     if (this.accepted) throw new Error("Duplicate stream acknowledgement");
     this.accepted = true;
-    this.credit = WINDOW;
+    this.credit = this.window;
     this.accept();
     this.flush();
   }
@@ -128,7 +131,7 @@ export class NetworkStream extends Duplex {
       if (this.push(Buffer.from(payload))) this.replenish();
     } else if (type === FrameType.Window) {
       const count = new DataView(payload.buffer, payload.byteOffset, 4).getUint32(0);
-      if (!count || this.credit + count > WINDOW) throw new Error("Invalid stream credit");
+      if (!count || this.credit + count > this.window) throw new Error("Invalid stream credit");
       this.credit += count;
       this.flush();
     } else if (type === FrameType.Fin) {
@@ -140,6 +143,13 @@ export class NetworkStream extends Duplex {
 }
 
 export class NetworkMux {
+  private window = WINDOW;
+  configureWindow(window: number) {
+    if (!validWindow(window)) throw new Error("Invalid stream window");
+    if (window === this.window) return;
+    if (this.streams.size || this.dials.size) throw new Error("Window changed on an active route");
+    this.window = window;
+  }
   readonly streams = new Map<number, NetworkStream>();
   private nextId = 1;
   private highestIncoming = 0;
@@ -186,7 +196,7 @@ export class NetworkMux {
     return stream;
   }
   private create(id: number) {
-    const stream = new NetworkStream(id, this);
+    const stream = new NetworkStream(id, this, this.window);
     this.streams.set(id, stream);
     this.options.changed?.();
     const timer = setTimeout(() => stream.destroy(new NetworkError("connect_timeout")), 15_000);

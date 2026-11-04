@@ -39,7 +39,7 @@ export function BrowserNetworkSettings() {
       ]);
       if (!active) return;
       if (results[0].status === "fulfilled") setView(results[0].value);
-      else setError(clientErrorMessage(results[0].reason, "Could not load browser networking"));
+      else setError(clientErrorMessage(results[0].reason, "Could not load computer networking"));
       if (results[1].status === "fulfilled") setSharing(results[1].value);
       setLocalMachineId(
         results[2].status === "fulfilled" && results[2].value?.configured
@@ -124,7 +124,7 @@ export function BrowserNetworkSettings() {
     if (!view || !dirty) return;
     if (
       !window.confirm(
-        "Save this connection priority? Changing the active connection interrupts browser downloads and connections. Pages stay open; requests are not replayed."
+        "Save this connection priority? Changing the active connection interrupts downloads and network connections across the bot computer. Apps stay open; requests are not replayed."
       )
     )
       return;
@@ -142,7 +142,7 @@ export function BrowserNetworkSettings() {
       setOrder(null);
       setDraftRevision(null);
     } catch (e) {
-      setError(clientErrorMessage(e, "Could not change browser connection"));
+      setError(clientErrorMessage(e, "Could not change computer connection"));
       setOrder(null);
       setDraftRevision(null);
       try {
@@ -158,7 +158,7 @@ export function BrowserNetworkSettings() {
     if (
       allowed &&
       !window.confirm(
-        `Allow all managed bot browsers on ${sharing?.serverUrl ?? "this server"} to use this computer's internet connection while OpenTeam is open? Local and private network destinations remain blocked.`
+        `Allow all apps and commands on the bot computer at ${sharing?.serverUrl ?? "this server"} to use this computer's internet connection while OpenTeam is open? Public TCP connections and DNS are supported. Other UDP traffic and local and private network destinations remain blocked.`
       )
     )
       return;
@@ -178,7 +178,7 @@ export function BrowserNetworkSettings() {
   const ready = view && ["ready", "server"].includes(view.runtime.state);
   return (
     <section className="bn-network" data-settings-anchor="browser-network">
-      <SectionLabel>Browser network</SectionLabel>
+      <SectionLabel>Computer network</SectionLabel>
       <SettingsGroup>
         <p role="status" className="bn-status">
           {view ? browserNetworkLabel(view).split(" · ")[0] : "Loading connections…"}
@@ -264,7 +264,7 @@ export function BrowserNetworkSettings() {
             type="button"
             className={settingsSecondaryButton}
             aria-label="Test active connection"
-            title="Quick latency and speed estimate through the active exit; about 1.25 MB"
+            title="Quick latency and speed estimate from the bot computer; about 1.25 MB"
             disabled={!ready || testing}
             onClick={() => void testConnection()}
           >
@@ -273,10 +273,10 @@ export function BrowserNetworkSettings() {
         </div>
         {sharing?.supported && (
           <label className="bn-share">
-            <span>Route browser traffic through this computer</span>
+            <span>Share this computer’s connection</span>
             <input
               type="checkbox"
-              aria-label="Route browser traffic through this computer"
+              aria-label="Share this computer’s connection"
               checked={sharing.sharingAllowed}
               disabled={busy || !sharing.connected}
               onChange={(e) => void share(e.target.checked)}

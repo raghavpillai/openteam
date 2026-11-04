@@ -13,12 +13,12 @@ export function browserNetworkLabel(view: BrowserNetworkView) {
     case "ready":
       return `Using ${name}${view.settings.mode === "ranked" ? " · Ranked connections" : ""}`;
     case "waiting_for_device":
-      return `Waiting for ${name}; browser networking is paused`;
+      return `Waiting for ${name}; computer networking is paused`;
     case "applying":
-      return "Changing browser connection…";
+      return "Changing computer connection…";
     case "update_required":
       return "Computer connection unavailable; update or reconnect the computer runtime";
     default:
-      return "Browser network unavailable";
+      return "Computer network unavailable";
   }
 }

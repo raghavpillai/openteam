@@ -46,13 +46,23 @@ RUN apt-get update \
     /tmp/openteam-wallpaper-base.png \
     /openteam-wallpaper.png
 
+FROM --platform=$BUILDPLATFORM golang:1.25.4-bookworm@sha256:e17419604b6d1f9bc245694425f0ec9b1b53685c80850900a376fb10cb0f70cb AS network-tools
+ARG TARGETARCH
+# A pinned module and Go's checksum database verify the source and dependencies.
+RUN set -eu; CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go install -trimpath github.com/xjasonlyu/tun2socks/v2@v2.6.0; \
+  if [ -f /go/bin/tun2socks ]; then cp /go/bin/tun2socks /tun2socks; \
+  else cp /go/bin/linux_$TARGETARCH/tun2socks /tun2socks; fi
+
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS memory-tools
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*
-COPY docker/openteam-memory-init.c docker/openteam-desktop-exec.c /tmp/
+COPY docker/openteam-memory-init.c docker/openteam-desktop-exec.c docker/openteam-network-mark.c /tmp/
 RUN gcc -static -O2 -Wall -Wextra -Werror /tmp/openteam-memory-init.c -o /openteam-memory-init \
-  && gcc -static -O2 -Wall -Wextra -Werror /tmp/openteam-desktop-exec.c -o /openteam-desktop-exec
+  && gcc -static -O2 -Wall -Wextra -Werror /tmp/openteam-desktop-exec.c -o /openteam-desktop-exec \
+  && gcc -shared -fPIC -O2 -Wall -Wextra -Werror /tmp/openteam-network-mark.c -o /network-mark.so
 
 FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS runtime
+
+ENV OPENTEAM_COMPUTER_NETWORK=1
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -72,6 +82,7 @@ RUN apt-get update \
     gh \
     git \
     imagemagick \
+    iproute2 \
     jq \
     libreoffice-writer \
     libreoffice-calc \
@@ -80,6 +91,7 @@ RUN apt-get update \
     mousepad \
     mupdf \
     nodejs \
+    nftables \
     npm \
     file \
     novnc \
@@ -153,6 +165,9 @@ COPY --from=build --chown=box:box /app/apps/computer/dist/provider-cli.js /app/a
 COPY --from=build --chown=box:box /app/apps/computer/dist/browser-network-worker.mjs /app/apps/computer/dist/browser-network-worker.mjs
 COPY --from=build --chown=box:box /app/apps/computer/dist/installs-cli.js /app/apps/computer/dist/installs-cli.js
 COPY --from=memory-tools /openteam-memory-init /openteam-desktop-exec /usr/lib/openteam/bin/
+COPY --from=memory-tools /network-mark.so /usr/lib/openteam/lib/network-mark.so
+COPY --from=network-tools /tun2socks /usr/lib/openteam/bin/tun2socks
+COPY docker/openteam-computer-network.py /usr/lib/openteam/bin/openteam-computer-network.py
 COPY docker/openteam-memory-setup.py /usr/lib/openteam/bin/openteam-memory-setup.py
 COPY --chown=box:box docker/computer-entrypoint.sh /usr/lib/openteam/bin/openteam-computer-entrypoint
 COPY --chown=box:box docker/openteam-pi-auth /usr/lib/openteam/bin/openteam-pi-auth

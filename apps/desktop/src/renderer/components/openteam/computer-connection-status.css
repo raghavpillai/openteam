@@ -1,0 +1,24 @@
+.computer-connection-subtitle {
+  color: #777a7d;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 14px;
+  background: linear-gradient(90deg, #74777a 25%, #a1a4a6 50%, #74777a 75%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: computer-connection-shimmer 2.4s linear infinite;
+}
+
+@keyframes computer-connection-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .computer-connection-subtitle {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}

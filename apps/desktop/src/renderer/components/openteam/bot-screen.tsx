@@ -22,7 +22,7 @@ import {
   shouldRefreshScreenFrame,
 } from "../../lib/screen-session";
 import { Button } from "../ui/button";
-import { LoadingOrb } from "../ui/loading-orb";
+import { ComputerConnectionStatus } from "./computer-connection-status";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import VncComputer from "./vnc-computer";
@@ -265,12 +265,15 @@ export function BotScreen({
           ) : (
             <div className="relative size-full">
               <Skeleton className="size-full rounded-none bg-neutral-800" />
-              <span className="absolute inset-0 grid place-items-center px-4 text-center text-[11px] text-white/60">
+              <ComputerConnectionStatus
+                className="absolute inset-0 px-4 text-center text-[11px] text-white/60"
+                loading={!error && bot.status !== "failed" && screen?.state !== "failed"}
+              >
                 {error ??
                   (bot.status === "failed" || screen?.state === "failed"
                     ? "Computer setup needs attention"
                     : `Starting ${bot.name}'s screen…`)}
-              </span>
+              </ComputerConnectionStatus>
             </div>
           )}
         </Button>
@@ -345,13 +348,15 @@ export function BotScreen({
               ) : (
                 <div className="absolute inset-0 grid place-items-center text-center">
                   <div>
-                    <div className="flex items-center justify-center gap-2 text-[18px] font-medium">
-                      {!error && <LoadingOrb aria-hidden size={16} theme="dark" />}
+                    <ComputerConnectionStatus
+                      loading={!error && screen?.state !== "failed"}
+                      subtitle="Starting computer…"
+                    >
                       {error ??
                         (screen?.state === "failed"
                           ? "Computer setup needs attention"
                           : "Connecting…")}
-                    </div>
+                    </ComputerConnectionStatus>
                     {error && (
                       <Button
                         className="mt-4 border-white/15 bg-white/5 text-white hover:bg-white/10"

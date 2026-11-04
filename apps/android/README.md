@@ -33,6 +33,23 @@ ANDROID_SERIAL=emulator-5554 bash scripts/android/qa.sh instrumentation
 
 The full local sequence is available with `ANDROID_RUN_INSTRUMENTATION=1 bash scripts/android/qa.sh all`.
 
+## Notifications
+
+The Android client supports FCM when the deployment supplies Firebase Android
+client configuration and the worker supplies its server-side FCM credentials.
+This repository intentionally does not contain a Firebase project configuration
+file. Without one, the app uses a local notification fallback while its
+authenticated sync connection is alive: unread-count increases in other
+conversations produce local alerts with conversation tap targets. The fallback
+cannot wake a process that Android has terminated, so it does not replace FCM
+for reliable background delivery.
+
+To enable FCM, add the Firebase Android app configuration through the deployment
+build process, typically as `google-services.json` for the `com.openteam.android`
+application, and keep the worker credentials outside the repository. Verify
+both the credential-free payload tests and a real device delivery test before
+calling Android notifications complete.
+
 ## One-click run/debug on the Xiaomi phone
 
 Android Studio ships a committed run configuration named **Xiaomi Debug** that targets the Xiaomi `M154FF` device (`serial=a657db70`) and deploys the debug APK without a device chooser:

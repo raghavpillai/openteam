@@ -25,6 +25,8 @@ class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
     private lateinit var platform: AndroidPlatformRuntime
     private var lastReadMarker: String? = null
+    private var localUnreadSnapshot: Map<String, Int>? = null
+    private var localNotificationSessionKey: String? = null
     private val sessionStore by lazy { AndroidSecureSessionStore(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,6 +67,37 @@ class MainActivity : ComponentActivity() {
                         platform.bindSession(saved.server, saved.token, notificationScope(saved.server, saved.userId))
                     }
                 }
+            }
+        }
+        lifecycleScope.launch {
+            viewModel.state.collect { state ->
+                if (state.session == null) {
+                    localUnreadSnapshot = null
+                    localNotificationSessionKey = null
+                    return@collect
+                }
+                val sessionKey = "${state.session.server}|${state.session.accountName}"
+                if (localNotificationSessionKey != sessionKey) {
+                    localNotificationSessionKey = sessionKey
+                    localUnreadSnapshot = null
+                }
+                val current = state.conversations.associate { it.id to it.unread }
+                val previous = localUnreadSnapshot
+                val notificationsEnabled = state.features.settings.notifications.messages ||
+                    state.features.settings.notifications.mentions ||
+                    state.features.settings.notifications.routineRuns
+                if (previous != null && notificationsEnabled) {
+                    state.conversations
+                        .filter { it.id != state.activeConversationId && it.unread > (previous[it.id] ?: 0) }
+                        .forEach { conversation ->
+                            platform.showLocalNotification(
+                                conversation.id,
+                                conversation.title,
+                                conversation.preview ?: "New activity",
+                            )
+                        }
+                }
+                localUnreadSnapshot = current
             }
         }
         setContent {

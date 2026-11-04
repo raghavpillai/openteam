@@ -72,7 +72,7 @@ enum VideoPoster {
     generator.maximumSize = CGSize(width: side, height: side)
     let frame = try? await generator.image(at: .zero).image
     withExtendedLifetime(loader) {}
-    guard let frame, store.api?.token == api.token else { return nil }
+    guard let frame, store.api?.baseURL == api.baseURL, store.api?.token == api.token else { return nil }
     let poster = UIImage(cgImage: frame)
     posters.setObject(poster, forKey: asset.assetId as NSString, cost: frame.width * frame.height * 4)
     return poster
@@ -134,6 +134,15 @@ final class RangedAssetLoader: NSObject, AVAssetResourceLoaderDelegate, Sendable
     let value: LoadedAttachment
     init(_ value: LoadedAttachment) { self.value = value }
   }
+  private static let localValues: NSCache<NSString, LocalAttachmentPreview> = {
+    let cache = NSCache<NSString, LocalAttachmentPreview>()
+    cache.countLimit = Draft.maxAttachments
+    return cache
+  }()
+  static func local(_ asset: Asset) -> LocalAttachmentPreview? { localValues.object(forKey: key(asset)) }
+  static func saveLocal(_ preview: LocalAttachmentPreview, for asset: Asset) {
+    localValues.setObject(preview, forKey: key(asset))
+  }
   private static let values: NSCache<NSString, Entry> = {
     let cache = NSCache<NSString, Entry>()
     cache.totalCostLimit = 48 * 1024 * 1024
@@ -145,13 +154,96 @@ final class RangedAssetLoader: NSObject, AVAssetResourceLoaderDelegate, Sendable
     let cost = value.image.map { Int($0.size.width * $0.size.height * $0.scale * $0.scale * 4) } ?? 0
     values.setObject(Entry(value), forKey: key(asset), cost: cost)
   }
-  static func clear() { values.removeAllObjects() }
+  static func clear() {
+    values.removeAllObjects()
+    localValues.removeAllObjects()
+  }
 }
 
 struct GalleryItem: Identifiable {
   let id: String
   let asset: Asset
   let caption: String
+}
+
+/// Pending and accepted attachments reserve exactly the same frame and typography.
+struct AttachmentPreview: View {
+  let asset: Asset
+  var image: UIImage?
+  var loading = false
+  var failure: String?
+  private var isImage: Bool { asset.mimeType.hasPrefix("image/") }
+  private var isVideo: Bool { asset.mimeType.hasPrefix("video/") }
+  var previewSize: CGSize {
+    isVideo ? CGSize(width: 292, height: 208) : AttachmentImageFile.previewSize(width: asset.width, height: asset.height)
+  }
+  var body: some View {
+    if isImage || isVideo {
+      ZStack {
+        if isVideo { Color.black } else { NativePalette.surface }
+        if let image {
+          if isVideo {
+            Image(uiImage: image).resizable().scaledToFit()
+              .frame(width: previewSize.width, height: previewSize.height)
+          } else {
+            Image(uiImage: image).resizable().scaledToFill()
+              .frame(width: previewSize.width, height: previewSize.height).clipped()
+          }
+        } else if failure != nil && isImage {
+          Label("Image unavailable", systemImage: "arrow.clockwise").font(.caption)
+            .foregroundStyle(NativePalette.muted)
+        } else if loading { LoadingOrb(label: "Loading image") }
+        else if isImage { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
+        if isVideo {
+          Group {
+            if loading { LoadingOrb(size: 22, label: "Opening") }
+            else {
+              Image(systemName: "play.fill").font(.system(size: 20)).foregroundStyle(.white).offset(x: 1.5)
+            }
+          }
+          .frame(width: 52, height: 52)
+          .modifier(NativeGlass(radius: 26, darkTint: 0.1))
+          .environment(\.colorScheme, .dark)
+        }
+      }.frame(width: previewSize.width, height: previewSize.height)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    } else {
+      HStack(spacing: 14) {
+        FileGlyph(kind: fileKind).frame(width: 34, height: 42)
+        VStack(alignment: .leading, spacing: 3) {
+          Text(asset.fileName).font(.body).foregroundStyle(NativePalette.text)
+            .lineLimit(1).truncationMode(.middle)
+          Text(loading ? "Opening…" : fileDetail)
+            .font(.subheadline).foregroundStyle(NativePalette.muted).lineLimit(1)
+        }
+        Spacer(minLength: 0)
+        if loading { LoadingOrb(size: 16, label: "Opening") }
+      }.padding(.leading, 16).padding(.trailing, 18).padding(.vertical, 14)
+        .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in min(width * 0.8, 340) }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        .background(NativePalette.background, in: RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(NativePalette.separator, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 26))
+    }
+  }
+  private var fileExtension: String { (asset.fileName as NSString).pathExtension.lowercased() }
+  private var fileKind: FileGlyph.Kind {
+    if asset.mimeType == "application/pdf" || fileExtension == "pdf" { return .pdf }
+    if ["zip", "tar", "gz", "7z", "rar"].contains(fileExtension) { return .archive }
+    if fileExtension.isEmpty && ["", "application/octet-stream"].contains(asset.mimeType) { return .unknown }
+    return .document
+  }
+  /// "PDF · 818 KB", or just the size when the file has no type.
+  private var fileDetail: String {
+    fileKind == .unknown || fileExtension.isEmpty ? fileSize : fileExtension.uppercased() + " · " + fileSize
+  }
+  private var fileSize: String {
+    let bytes = Double(asset.byteSize)
+    let unit: (Double, String) = bytes >= 1_000_000 ? (1_000_000, "MB") : (1_000, "KB")
+    guard bytes >= 1_000 else { return "\(asset.byteSize) bytes" }
+    let value = bytes / unit.0
+    return value.formatted(.number.precision(.fractionLength(value < 10 ? 1 : 0))) + " " + unit.1
+  }
 }
 
 struct AttachmentView: View {
@@ -161,15 +253,20 @@ struct AttachmentView: View {
   let channelID: String
   let messageID: String
   @State private var loaded: LoadedAttachment?
+  private let localPreview: LocalAttachmentPreview?
   @State private var poster: UIImage?
   @State private var loading = false
   @State private var failure: String?
-  init(asset: Asset, channelID: String, messageID: String) {
+  init(asset: Asset, channelID: String, messageID: String, localPreview: LocalAttachmentPreview? = nil) {
     self.asset = asset
     self.channelID = channelID
     self.messageID = messageID
+    self.localPreview = localPreview ?? AttachmentPreviewCache.local(asset)
     _loaded = State(initialValue: AttachmentPreviewCache.value(asset))
     _poster = State(initialValue: asset.mimeType.hasPrefix("video/") ? VideoPoster.cached(asset) : nil)
+  }
+  private var currentLocalPreview: LocalAttachmentPreview? {
+    localPreview.flatMap { $0.matches(store.api) ? $0 : nil }
   }
   private var isImage: Bool { asset.mimeType.hasPrefix("image/") }
   private var isVideo: Bool { asset.mimeType.hasPrefix("video/") }
@@ -194,86 +291,26 @@ struct AttachmentView: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         if isImage {
           modals.fullScreen = .init(content: AnyView(NativePhotoGallery(
-            items: gallery, initialID: galleryID, initialFile: loaded)))
+            items: gallery, initialID: galleryID, initialFile: loaded ?? currentLocalPreview?.file)))
         } else { Task { await load(open: true) } }
       } label: {
-        if isImage || isVideo {
-          ZStack {
-            if isVideo { Color.black } else { NativePalette.surface }
-            if let image = isVideo ? poster ?? loaded?.image : loaded?.image {
-              if isVideo {
-                Image(uiImage: image).resizable().scaledToFit()
-                  .frame(width: previewSize.width, height: previewSize.height)
-              } else {
-                Image(uiImage: image).resizable().scaledToFill()
-                  .frame(width: previewSize.width, height: previewSize.height).clipped()
-              }
-            } else if failure != nil && isImage {
-              Label("Image unavailable", systemImage: "arrow.clockwise").font(.caption)
-                .foregroundStyle(NativePalette.muted)
-            } else if loading { LoadingOrb(label: "Loading image") }
-            else if isImage { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
-            if isVideo {
-              Group {
-                if loading && loaded == nil { LoadingOrb(size: 22, label: "Opening") }
-                else {
-                  Image(systemName: "play.fill").font(.system(size: 20)).foregroundStyle(.white).offset(x: 1.5)
-                }
-              }
-              .frame(width: 52, height: 52)
-              .modifier(NativeGlass(radius: 26, darkTint: 0.1))
-              .environment(\.colorScheme, .dark)
-            }
-          }.frame(width: previewSize.width, height: previewSize.height)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-        } else {
-          HStack(spacing: 14) {
-            FileGlyph(kind: fileKind).frame(width: 34, height: 42)
-            VStack(alignment: .leading, spacing: 3) {
-              Text(asset.fileName).font(.body).foregroundStyle(NativePalette.text)
-                .lineLimit(1).truncationMode(.middle)
-              Text(loading ? "Opening…" : fileDetail)
-                .font(.subheadline).foregroundStyle(NativePalette.muted).lineLimit(1)
-            }
-            Spacer(minLength: 0)
-            if loading { LoadingOrb(size: 16, label: "Opening") }
-          }.padding(.leading, 16).padding(.trailing, 18).padding(.vertical, 14)
-            .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in min(width * 0.8, 340) }
-            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-            .background(NativePalette.background, in: RoundedRectangle(cornerRadius: 26))
-            .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(NativePalette.separator, lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 26))
-        }
+        AttachmentPreview(asset: asset, image: poster ?? loaded?.image ?? currentLocalPreview?.image,
+          loading: loading, failure: failure)
       }.buttonStyle(.plain).disabled(loading && !isImage)
         .accessibilityLabel((isVideo ? "Play " : "Open ") + asset.fileName)
-        .accessibilityValue(failure != nil ? "Failed" : loaded != nil || poster != nil ? "Loaded" : "Loading")
+        .accessibilityValue(failure != nil ? "Failed" : loaded != nil || poster != nil || currentLocalPreview?.image != nil ? "Loaded" : "Loading")
         .accessibilityIdentifier("attachment-" + asset.id)
       if let failure, !isImage { InlineFailure(message: failure) { Task { await load(open: true) } } }
     }
     .task(id: asset.id) {
-      if isImage { await load(open: false) }
-      else if isVideo, poster == nil {
+      let api = store.api
+      if let preview = currentLocalPreview { await preview.load() }
+      guard store.api?.baseURL == api?.baseURL, store.api?.token == api?.token else { return }
+      if isImage, currentLocalPreview?.image == nil { await load(open: false) }
+      else if isVideo, poster == nil, currentLocalPreview?.image == nil {
         poster = await VideoPoster.load(asset, store: store, side: max(previewSize.width, previewSize.height) * 3)
       }
     }
-  }
-  private var fileExtension: String { (asset.fileName as NSString).pathExtension.lowercased() }
-  private var fileKind: FileGlyph.Kind {
-    if asset.mimeType == "application/pdf" || fileExtension == "pdf" { return .pdf }
-    if ["zip", "tar", "gz", "7z", "rar"].contains(fileExtension) { return .archive }
-    if fileExtension.isEmpty && ["", "application/octet-stream"].contains(asset.mimeType) { return .unknown }
-    return .document
-  }
-  /// "PDF · 818 KB", or just the size when the file has no type.
-  private var fileDetail: String {
-    fileKind == .unknown || fileExtension.isEmpty ? fileSize : fileExtension.uppercased() + " · " + fileSize
-  }
-  private var fileSize: String {
-    let bytes = Double(asset.byteSize)
-    let unit: (Double, String) = bytes >= 1_000_000 ? (1_000_000, "MB") : (1_000, "KB")
-    guard bytes >= 1_000 else { return "\(asset.byteSize) bytes" }
-    let value = bytes / unit.0
-    return value.formatted(.number.precision(.fractionLength(value < 10 ? 1 : 0))) + " " + unit.1
   }
   private func presentFile(_ file: LoadedAttachment?) {
     guard let file else { return }
@@ -288,12 +325,15 @@ struct AttachmentView: View {
   private func load(open: Bool) async {
     guard !loading else { return }
     if let loaded { if open { presentFile(loaded) }; return }
+    if let file = currentLocalPreview?.file { if open { presentFile(file) }; return }
     loading = true
     defer { loading = false }
+    let api = store.api
     do {
       var file = try await LoadedAttachment.fetch(asset, store: store)
       guard !isImage || file.image != nil else { throw APIError("This image could not be loaded.") }
       if isVideo { file = await file.withVideoPoster(side: max(previewSize.width, previewSize.height) * 3) }
+      guard store.api?.baseURL == api?.baseURL, store.api?.token == api?.token else { return }
       if isImage || isVideo { AttachmentPreviewCache.save(file, for: asset) }
       loaded = file
       failure = nil

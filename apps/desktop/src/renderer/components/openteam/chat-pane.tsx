@@ -11,6 +11,7 @@ import type { PromptDraft } from "../ai-elements/prompt-input";
 import "./permission-cards.css";
 import { usePluginMentions } from "../../hooks/use-plugin-mentions";
 import { DeliveryFooter } from "./delivery-footer";
+import { retainOutgoingMessageKey } from "../../lib/outgoing-message-key";
 import { sendProgressOwner } from "../../lib/send-progress";
 import type {
   AssetRef,
@@ -574,6 +575,7 @@ const MessageRow = memo(function MessageRow({
           onAnimationEnd={(event) => {
             if (
               event.animationName === "message-row-enter" ||
+              event.animationName === "message-row-enter-outgoing" ||
               event.animationName === "message-row-enter-reduced"
             ) {
               setEntranceActive(false);
@@ -733,13 +735,13 @@ const MessageRow = memo(function MessageRow({
               {threadReplyCount} {threadReplyCount === 1 ? "reply" : "replies"}
             </button>
           )}
-          <DeliveryFooter
+          {from === "user" && <DeliveryFooter
             delivery={delivery}
             sendingSinceMs={sendingSinceMs}
             onCancel={onCancelSend}
             onDelete={onDeleteSend}
             onResend={onResendSend}
-          />
+          />}
         </Message>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-[246px]">
@@ -1043,10 +1045,14 @@ export const ChatPane = memo(function ChatPane({
     () => durableRecoveries.filter((record) => record.target.channelId === channel.id),
     [channel.id, durableRecoveries]
   );
+  const outgoingKeyAliases = useRef(new Map<string, string>());
   const visibleMessages = useMemo(
     () =>
       projectOutgoingMessages(messages, channelSends).map((entry) => ({
         ...entry,
+        // A safe retry gets a new backend nonce but keeps the original bubble.
+        // Remember the accepted nonce too, so retiring the journal cannot remount it.
+        renderKey: retainOutgoingMessageKey(entry, outgoingKeyAliases.current),
         animateEntrance: entry.delivery !== null || enteringMessageIds.has(entry.message.id),
       })),
     [channelSends, enteringMessageIds, messages]
@@ -1300,7 +1306,7 @@ export const ChatPane = memo(function ChatPane({
     const loadingLatest = Promise.resolve(onScrollToNewest?.());
     const glide = () => {
       const conversation = conversationRef.current;
-      if (conversation) void glideConversationToBottom(conversation, { awaitGrowth: 1_000 });
+      if (conversation) void glideConversationToBottom(conversation, { awaitGrowth: 1_000, durationMs: 350 });
     };
     if (historyMode === "latest" && !hasNewerGap) {
       glide();

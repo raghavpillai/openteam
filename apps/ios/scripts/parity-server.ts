@@ -39,6 +39,11 @@ let events: any[];
 let sequence = 14;
 let offline = false;
 let dropNextSend = false;
+// Send-policy controls: override lookup states (last state repeats),
+// and lose/delay an acknowledgement after acceptance.
+let deliveryStatuses: string[] = [];
+let deliveryDelayMs = 0;
+let sendResponseDelayMs = 0;
 let dropNextRoutineRun = false;
 let authRequired = false;
 let authExpired = false;
@@ -70,6 +75,7 @@ function reset() {
   snapshot.runtime.transcription = "configured";
   sequence = 14; events = []; deliveries.clear(); routines = []; offline = false; dropNextSend = false; authRequired = false;
   dropNextRoutineRun = false;
+  deliveryStatuses = []; deliveryDelayMs = 0; sendResponseDelayMs = 0;
   pagedHistory = false;
   requestLog.length = 0;
   failures = {}; searchResults = null; authExpired = false; invalidServer = false; missingToken = false;
@@ -196,6 +202,9 @@ const server = Bun.serve({
       }
       offline = input.offline ?? offline; dropNextSend = input.dropNextSend ?? dropNextSend; authRequired = input.authRequired ?? authRequired;
       dropNextRoutineRun = input.dropNextRoutineRun ?? dropNextRoutineRun;
+      deliveryStatuses = input.deliveryStatuses ?? deliveryStatuses;
+      deliveryDelayMs = input.deliveryDelayMs ?? deliveryDelayMs;
+      sendResponseDelayMs = input.sendResponseDelayMs ?? sendResponseDelayMs;
       if (input.screenState) screen.state = input.screenState;
       if (input.pluginCanAuthenticate !== undefined) {
         functionality.connection.canAuthenticate = input.pluginCanAuthenticate;
@@ -344,6 +353,11 @@ const server = Bun.serve({
     }
     if (path.endsWith("/client-state")) return response({ channelId: path.split("/")[4], revision: String(sequence), channelRounds: [], runs: snapshot.runs, runItems: [], subagents: snapshot.subagents.filter(task => task.parentChannelId === path.split("/")[4]), truncated: { channelRounds:false, runs:false, runItems:false, subagents:false } });
     if (path.includes("/message-deliveries/")) {
+      if (deliveryDelayMs) await Bun.sleep(deliveryDelayMs);
+      if (deliveryStatuses.length) {
+        const status = deliveryStatuses.length > 1 ? deliveryStatuses.shift()! : deliveryStatuses[0]!;
+        return response({ clientId: path.split("/").at(-1), status, message: null });
+      }
       const message = deliveries.get(path.split("/").at(-1)!);
       return response({ clientId: path.split("/").at(-1), status: message ? "accepted" : "not_found", message: message ?? null, acceptedAtMs: message ? Date.now() : null });
     }
@@ -358,6 +372,7 @@ const server = Bun.serve({
         deliveries.set(input.clientId, message); snapshot.channelMessages.push(message); emit("channel.message.created", channelId);
       }
       if (dropNextSend) { dropNextSend = false; return response({ error: { message: "Simulated lost acknowledgment after durable acceptance" } }, 503); }
+      if (sendResponseDelayMs) await Bun.sleep(sendResponseDelayMs);
       return response({ message });
     }
     if (path.endsWith("/read")) {const channel=snapshot.channels.find(c=>c.id===path.split("/")[4]);if(channel){channel.unreadCount=0;channel.notificationState={channelId:channel.id,lastReadNotificationSequence:"0",notificationCursor:"0",notifications:[],activityUnreadCount:0,...channel.notificationState,lastReadSequence:input.throughSequence ?? "0"} as any;}return response({ channelId: path.split("/")[4], lastReadSequence: input.throughSequence ?? "0", unreadCount: 0 });}

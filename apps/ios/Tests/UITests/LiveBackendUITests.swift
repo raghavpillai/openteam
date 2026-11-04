@@ -115,13 +115,14 @@ import XCTest
     input.typeText(message)
     try await control(["offline": true])
     app.buttons["send-button"].tap()
-    XCTAssertTrue(app.staticTexts["Waiting for connection"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["Not delivered"].waitForExistence(timeout: 15))
     capture("offline-queued", app)
     try await control(["offline": false, "dropSend": true])
+    app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'retry-send-'")).firstMatch.tap()
     XCTAssertTrue(app.staticTexts["Native QA reply received"].waitForExistence(timeout: 45))
     let settled = expectation(
       for: NSPredicate(format: "exists == false"),
-      evaluatedWith: app.staticTexts["Waiting for connection"])
+      evaluatedWith: app.staticTexts["Not delivered"])
     await fulfillment(of: [settled], timeout: 30)
     let delivered = try await state()
     XCTAssertEqual(

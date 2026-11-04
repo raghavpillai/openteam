@@ -229,11 +229,17 @@ discovery disabled.
 Hosted integration tests exercise the actual intents, Keychain, and Spotlight
 with synthetic data, including real text/file exports, incremental indexing,
 revoked sessions, account changes during requests, and cold-launch navigation.
-Start the loopback fixture, then run the dedicated scheme
-on an isolated simulator (ad-hoc signing is needed for Keychain access):
+Start the loopback fixture and upload proxy in separate terminals, then run the
+dedicated scheme on an isolated simulator (ad-hoc signing is needed for Keychain
+access). The proxy on port 20086 supplies real TCP backpressure for the delivery
+progress tests; it forwards to the fixture on port 20084:
 
 ```sh
+# Terminal 1
 SWIFT_PARITY_PORT=20084 bun apps/ios/scripts/parity-server.ts
+# Terminal 2
+node apps/ios/scripts/send-upload-proxy.cjs
+# Terminal 3
 xcodebuild -project apps/ios/OpenTeamNative.xcodeproj -scheme SystemIntents \
   -destination 'platform=iOS Simulator,id=<simulator-udid>' \
   -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- test

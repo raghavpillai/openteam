@@ -140,6 +140,7 @@
     "test:composer-caret": "bun scripts/test-composer-caret.ts",
     "test:composer-button-parity": "bun scripts/test-composer-button-parity.ts",
     "test:message-send-motion": "bun scripts/test-message-send-motion.ts",
+    "test:message-send-lifecycle": "bun scripts/test-message-send-lifecycle.ts",
     "test:sidebar-parity": "bun scripts/test-sidebar-parity.ts",
     "test:bot-actions": "bun scripts/test-bot-actions.ts",
     "test:provider-settings": "bun scripts/test-provider-settings.ts",

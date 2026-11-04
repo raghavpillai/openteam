@@ -59,7 +59,7 @@ struct ComposerView: View {
     VStack(spacing: 0) {
       messageControls
     }.padding(.horizontal, 30).padding(.top, 4)
-      .padding(.bottom, 12)
+      .padding(.bottom, 4)
       // The voice glow rises from the bottom of the screen, behind the composer.
       .background(alignment: .bottom) {
         GeometryReader { composer in

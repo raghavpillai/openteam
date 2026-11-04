@@ -23,7 +23,13 @@ public struct PendingSend: Codable, Identifiable, Sendable {
   public var input: SendInput
   public var createdAt: Date
   public var failure: String?
+  /// A request may have been accepted. Retrying must reconcile with the same client nonce.
+  /// Optional to preserve caches written before delivery confirmation was tracked.
+  public var deliveryUnconfirmed: Bool?
   public var stagedFiles: [StagedFile]?
+  /// Uploaded `assetId:fileName` → staged file ID, committed with each upload.
+  /// Absent in older caches; previews then fetch the authoritative asset.
+  public var uploadedFileIDs: [String: String]?
   public var draftKey: String?
   public init(
     channelId: String, input: SendInput, stagedFiles: [StagedFile] = [], draftKey: String? = nil
@@ -42,6 +48,8 @@ public struct SavedState: Codable, Sendable {
   /// A bootstrap preview alone is not a downloaded conversation page. Optional so
   /// a cache saved without this field still decodes; its chats then refetch history.
   public var loadedHistoryChannels: Set<String>? = []
+  /// A confirmed local echo can be newer than cached history with unseen messages between.
+  public var incompleteHistoryChannels: Set<String>? = []
   public var drafts: [String: Draft] = [:]
   public var outbox: [PendingSend] = []
   public init() {}

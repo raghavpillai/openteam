@@ -37,11 +37,14 @@ public struct API: Sendable {
   public let baseURL: URL
   public let token: String?
   private let session: URLSession
+  private let onReachable: (@Sendable () async -> Void)?
   public init(
-    server: String, token: String? = nil, session: URLSession? = nil, timeout: TimeInterval = 35
+    server: String, token: String? = nil, session: URLSession? = nil, timeout: TimeInterval = 35,
+    onReachable: (@Sendable () async -> Void)? = nil
   ) throws {
     self.baseURL = try Self.normalize(server)
     self.token = token
+    self.onReachable = onReachable
     if let session {
       self.session = session
     } else {
@@ -189,6 +192,9 @@ public struct API: Sendable {
     guard let http = response as? HTTPURLResponse else {
       throw APIError("The server returned an invalid response.")
     }
+    // A response can prove reachability even when its payload cannot be decoded
+    // or the requested action is rejected. Server failures need a separate check.
+    if http.statusCode < 500, !Task.isCancelled { await onReachable?() }
     guard (200..<300).contains(http.statusCode) else {
       let json = (try? JSONDecoder().decode(JSON.self, from: result)) ?? .null
       let message = [json["error"]["message"].string, json["message"].string].first {

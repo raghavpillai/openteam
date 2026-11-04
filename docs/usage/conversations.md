@@ -34,3 +34,5 @@ All bots share the `/workspace` folder, so one bot can pick up another's files. 
 > Continue from /workspace/launch/brief.md. Verify the dates before you edit the recommendation.
 
 Bots can also message each other and hand tasks to helpers on their own.
+
+On iPhone and iPad, **Working in the background** appears in a bot's conversation while its background helpers are queued or running. Helpers waiting for input don't keep the working indicator active.

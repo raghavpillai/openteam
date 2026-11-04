@@ -6,6 +6,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +28,23 @@ private val LinkBlue = Color(0xFF016CEC)
 private val SuccessLight = Color(0xFF16845B)
 private val SuccessDark = Color(0xFF83D6A5)
 
+private val OpenTeamTypography = Typography().let { base ->
+    base.copy(
+        displayLarge = base.displayLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+        headlineLarge = base.headlineLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+        titleLarge = base.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+        bodyLarge = base.bodyLarge.copy(lineHeight = 24.sp),
+    )
+}
+
+private val OpenTeamShapes = Shapes(
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(28.dp),
+    extraLarge = RoundedCornerShape(34.dp),
+)
+
 @Composable
 fun OpenTeamTheme(
     appearance: AppSettings.Appearance = AppSettings.Appearance.System,
@@ -45,59 +63,53 @@ fun OpenTeamTheme(
         AppSettings.Accent.Purple -> Color(0xFF7B4FD1)
         AppSettings.Accent.Green -> if (darkTheme) SuccessDark else Color(0xFF277A45)
     }
-    val light = lightColorScheme(
-        primary = accentColor,
-        onPrimary = Color.White,
-        primaryContainer = UserBubbleLight,
-        onPrimaryContainer = Color.White,
-        secondary = LinkBlue,
-        secondaryContainer = SeparatorLight,
-        onSecondaryContainer = TextLight,
-        background = BackgroundLight,
-        surface = SurfaceLight,
-        surfaceVariant = SidebarLight,
-        onSurface = TextLight,
-        onSurfaceVariant = MutedLight,
-        outline = SeparatorLight,
-        tertiary = SuccessLight,
-        onTertiary = Color.White,
-        error = Color(0xFFC83A3A),
-    )
-    val dark = darkColorScheme(
-        primary = accentColor,
-        onPrimary = Color.Black,
-        primaryContainer = Color(0xFF545454),
-        onPrimaryContainer = Color.White,
-        secondary = Color(0xFF4D8DFF),
-        secondaryContainer = Color(0xFF303033),
-        onSecondaryContainer = Color.White,
-        background = Color(0xFF141414),
-        surface = Color(0xFF202020),
-        surfaceVariant = Color(0xFF181819),
-        onSurface = Color.White,
-        // Keep secondary and Chinese text legible on the dark canvas. The iOS
-        // reference uses white text for readable hierarchy rather than gray.
-        onSurfaceVariant = Color.White,
-        outline = Color(0xFF343434),
-        tertiary = SuccessDark,
-        onTertiary = Color(0xFF00391F),
-        error = Color(0xFFF48182),
-    )
+    // ColorScheme has no structural equality and LocalColorScheme is static, so a fresh
+    // instance on every recomposition invalidates the whole UI tree. Cache it per theme input.
+    val colorScheme = remember(darkTheme, accentColor) {
+        val light = lightColorScheme(
+            primary = accentColor,
+            onPrimary = Color.White,
+            primaryContainer = UserBubbleLight,
+            onPrimaryContainer = Color.White,
+            secondary = LinkBlue,
+            secondaryContainer = SeparatorLight,
+            onSecondaryContainer = TextLight,
+            background = BackgroundLight,
+            surface = SurfaceLight,
+            surfaceVariant = SidebarLight,
+            onSurface = TextLight,
+            onSurfaceVariant = MutedLight,
+            outline = SeparatorLight,
+            tertiary = SuccessLight,
+            onTertiary = Color.White,
+            error = Color(0xFFC83A3A),
+        )
+        val dark = darkColorScheme(
+            primary = accentColor,
+            onPrimary = Color.Black,
+            primaryContainer = Color(0xFF545454),
+            onPrimaryContainer = Color.White,
+            secondary = Color(0xFF4D8DFF),
+            secondaryContainer = Color(0xFF303033),
+            onSecondaryContainer = Color.White,
+            background = Color(0xFF141414),
+            surface = Color(0xFF202020),
+            surfaceVariant = Color(0xFF181819),
+            onSurface = Color.White,
+            // Keep secondary and Chinese text legible on the dark canvas. The iOS
+            // reference uses white text for readable hierarchy rather than gray.
+            onSurfaceVariant = Color.White,
+            outline = Color(0xFF343434),
+            tertiary = SuccessDark,
+            onTertiary = Color(0xFF00391F),
+            error = Color(0xFFF48182),
+        )
+        if (darkTheme) dark else light
+    }
     MaterialTheme(
-        colorScheme = if (darkTheme) dark else light,
-        typography = Typography().copy(
-            displayLarge = Typography().displayLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
-            headlineLarge = Typography().headlineLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
-            titleLarge = Typography().titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
-            bodyLarge = Typography().bodyLarge.copy(lineHeight = 24.sp),
-        ),
-        shapes = Shapes(
-            extraSmall = RoundedCornerShape(10.dp),
-            small = RoundedCornerShape(14.dp),
-            medium = RoundedCornerShape(20.dp),
-            large = RoundedCornerShape(28.dp),
-            extraLarge = RoundedCornerShape(34.dp),
-        ),
+        colorScheme = colorScheme,
+        typography = OpenTeamTypography,
+        shapes = OpenTeamShapes,
         content = {
             Surface(
                 modifier = Modifier.fillMaxSize(),

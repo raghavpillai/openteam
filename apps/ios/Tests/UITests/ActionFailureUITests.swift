@@ -13,14 +13,17 @@ final class ActionFailureUITests: XCTestCase {
     let (_, response) = try await URLSession.shared.data(for: request)
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
   }
-  private func launch(chat: Bool = false, draft: String? = nil, failures: [String: Any] = [:])
+  private func launch(chat: Bool = false, draft: String? = nil, failures: [String: Any] = [:],
+    appearance: String? = nil, textSize: String? = nil)
     async throws -> XCUIApplication
   {
     continueAfterFailure = false
     try await control([:], path: "/__qa/reset")
     if !failures.isEmpty { try await control(["failures": failures]) }
     let app = XCUIApplication()
-    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--appearance", ProcessInfo.processInfo.environment["ACTION_FAILURE_APPEARANCE"] ?? "dark"]
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--appearance",
+      appearance ?? ProcessInfo.processInfo.environment["ACTION_FAILURE_APPEARANCE"] ?? "dark"]
+    if let textSize { app.launchArguments += ["-UIPreferredContentSizeCategoryName", textSize] }
     if chat { app.launchArguments += ["--open-channel", "channel-research"] }
     if let draft { app.launchArguments += ["--visual-draft", draft] }
     app.launch()
@@ -41,6 +44,68 @@ final class ActionFailureUITests: XCTestCase {
   private func assertNoGlobalOfflineStatus(_ app: XCUIApplication) {
     XCTAssertFalse(app.staticTexts["Offline · messages will send when you reconnect"].exists)
     XCTAssertFalse(app.alerts.firstMatch.exists)
+  }
+
+  func testReachablePollAndHistoryFailuresDoNotShowConnectionBanner() async throws {
+    let app = try await launch(chat: true)
+    defer { app.terminate() }
+    let cached = app.staticTexts[
+      "On it. I’m separating verified behavior from assumptions before writing the mobile shell."]
+    XCTAssertTrue(cached.waitForExistence(timeout: 10))
+    try await control(["failures": [
+      "GET /api/v0/events/poll": ["status": 503, "count": 100],
+      "GET /api/v0/channels/channel-research/history": ["status": 503, "count": 100],
+    ]])
+    if app.buttons["chat-back"].exists {
+      app.buttons["chat-back"].tap()
+    } else {
+      app.buttons["channel-channel-ops"].tap()
+    }
+    app.buttons["channel-channel-research"].tap()
+    try await Task.sleep(for: .seconds(3))
+    XCTAssertTrue(cached.isHittable)
+    XCTAssertFalse(app.staticTexts["message-refresh-error"].exists)
+    XCTAssertFalse(app.buttons["retry-message-refresh"].exists)
+    capture("reachable-refresh-failure-no-connection-warning", app)
+  }
+
+  func testConfirmedOutageBannerIsReadableAndRecoversAutomatically() async throws {
+    try await assertOutageBanner(appearance: "dark")
+  }
+
+  func testConfirmedOutageBannerSupportsLightModeAndLargeText() async throws {
+    try await assertOutageBanner(appearance: "light", textSize: "UICTContentSizeCategoryAccessibilityXXXL")
+  }
+
+  private func assertOutageBanner(appearance: String, textSize: String? = nil) async throws {
+    let app = try await launch(chat: true, appearance: appearance, textSize: textSize)
+    defer { app.terminate() }
+    let cached = app.staticTexts[
+      "On it. I’m separating verified behavior from assumptions before writing the mobile shell."]
+    XCTAssertTrue(cached.waitForExistence(timeout: 10))
+    try await control(["offline": true])
+    let warning = app.staticTexts["message-refresh-error"]
+    XCTAssertTrue(warning.waitForExistence(timeout: 12))
+    XCTAssertEqual(warning.label, "Can’t connect to server")
+    let retry = app.buttons["retry-message-refresh"]
+    XCTAssertTrue(retry.isHittable)
+    XCTAssertGreaterThanOrEqual(retry.frame.height, 44)
+    XCTAssertTrue(app.frame.contains(retry.frame))
+    XCTAssertTrue(app.frame.contains(warning.frame))
+    if textSize != nil {
+      XCTAssertGreaterThan(retry.frame.height, 64, "The action must grow with accessibility text")
+    }
+    XCTAssertTrue(cached.exists)
+    XCTAssertFalse(app.buttons["chat-load-error"].exists)
+    capture("confirmed-outage-readable-banner-" + appearance, app)
+    // Recovery should clear the warning even if this particular history endpoint
+    // still fails. Poll/bootstrap success establishes that the server is reachable.
+    try await control(["offline": false, "failures": [
+      "GET /api/v0/channels/channel-research/history": ["status": 503, "count": 100],
+    ]])
+    XCTAssertTrue(warning.waitForNonExistence(timeout: 15))
+    XCTAssertTrue(cached.exists)
+    capture("connection-recovered-history-still-unavailable", app)
   }
 
   func testFailedSendAndRefreshUseLocalErrorsWithWorkingRetries() async throws {
@@ -74,8 +139,11 @@ final class ActionFailureUITests: XCTestCase {
     XCTAssertTrue(cached.exists)
     assertNoGlobalOfflineStatus(app)
     capture("message-failure-and-cached-refresh", app)
-    try await control(["offline": false])
+    // Exercise Retry while the outage is stable. Recovery can now clear the
+    // banner through any successful request before XCTest synthesizes a tap.
     app.buttons["retry-message-refresh"].tap()
+    XCTAssertTrue(app.staticTexts["message-refresh-error"].exists)
+    try await control(["offline": false])
     XCTAssertTrue(app.staticTexts["message-refresh-error"].waitForNonExistence(timeout: 10))
     XCTAssertTrue(app.staticTexts["Not delivered"].exists)
     retry.tap()

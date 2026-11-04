@@ -142,20 +142,78 @@ private struct FailureGlass: ViewModifier {
 
 struct MessageRefreshStatus: View {
   @Environment(AppStore.self) private var store
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   let channelID: String
   var body: some View {
-    if store.historyLoadFailures.contains(channelID), store.hasCachedHistory(channelID) {
-      HStack(spacing: 12) {
-        Text("Couldn't refresh — showing the last loaded messages.")
-          .fixedSize(horizontal: false, vertical: true)
-          .accessibilityIdentifier("message-refresh-error")
-        Spacer(minLength: 0)
-        Button("Retry") { Task { await store.loadHistory(channelID) } }
-          .disabled(store.busy.contains("history-" + channelID))
-          .accessibilityIdentifier("retry-message-refresh")
-      }.font(.footnote).foregroundStyle(NativePalette.muted)
-        .padding(.horizontal, 16).padding(.vertical, 10).nativeChatGlass()
+    if store.connectionUnavailable, store.hasCachedHistory(channelID) {
+      Group {
+        if dynamicTypeSize.isAccessibilitySize {
+          VStack(alignment: .leading, spacing: 8) {
+            statusLabel
+            retryButton
+          }
+        } else {
+          HStack(spacing: 12) {
+            statusLabel.frame(maxWidth: .infinity, alignment: .leading)
+            retryButton
+          }
+        }
+      }
+        .foregroundStyle(NativePalette.text)
+        .padding(.leading, 16).padding(.trailing, 12).padding(.vertical, 12)
+        .modifier(ConnectionStatusGlass(reduceTransparency: reduceTransparency))
         .padding(.bottom, 8)
+    }
+  }
+  private var statusLabel: some View {
+    HStack(alignment: .top, spacing: 10) {
+      if !dynamicTypeSize.isAccessibilitySize {
+        Image(systemName: "wifi.slash").font(.subheadline.weight(.semibold))
+          .padding(.top, 2).accessibilityHidden(true)
+      }
+      VStack(alignment: .leading, spacing: 4) {
+        Text("Can’t connect to server").font(.subheadline.weight(.semibold))
+          .accessibilityIdentifier("message-refresh-error")
+        Text("Saved messages. Reconnecting…")
+          .font(.footnote)
+      }.fixedSize(horizontal: false, vertical: true)
+    }
+  }
+  private var retryButton: some View {
+    Button { store.retryConnection() } label: {
+      ZStack {
+        Text("Retry").opacity(store.checkingConnection ? 0 : 1)
+        if store.checkingConnection {
+          ProgressView().tint(NativePalette.onPrimary)
+        }
+      }
+    }
+      .font(.subheadline.weight(.semibold))
+      .foregroundStyle(NativePalette.onPrimary)
+      .padding(.horizontal, 14).padding(.vertical, 10).frame(minHeight: 44)
+      .background(NativePalette.text, in: Capsule())
+      .fixedSize(horizontal: true, vertical: true)
+      .disabled(store.checkingConnection)
+      .buttonStyle(.plain)
+      .accessibilityLabel(store.checkingConnection ? "Retrying connection" : "Retry connection")
+      .accessibilityIdentifier("retry-message-refresh")
+  }
+}
+
+private struct ConnectionStatusGlass: ViewModifier {
+  @Environment(\.colorScheme) private var scheme
+  let reduceTransparency: Bool
+  func body(content: Content) -> some View {
+    if reduceTransparency {
+      content.background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 18))
+    } else {
+      // Clear glass keeps the chat's depth and reflections. A partial material
+      // diffuses backdrop lettering without applying regular glass's heavy fill.
+      content.background {
+        RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial)
+          .opacity(scheme == .dark ? 0.6 : 0.8)
+      }.modifier(NativeChatGlass(radius: 18))
     }
   }
 }

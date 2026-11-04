@@ -36,6 +36,10 @@ final class AppStore {
   private var writer: StateWriter?
   var error: String?
   var online = false
+  private(set) var connectionUnavailable = false
+  private var connectionCheck: Task<Void, Never>?
+  private var connectionCheckID: UUID?
+  var checkingConnection: Bool { connectionCheckID != nil }
   private var stateSyncs: Set<UUID> = []
   private var awaitingInitialSync = false
   private var syncUnavailable = false
@@ -439,7 +443,10 @@ final class AppStore {
   private func activate(
     _ next: SessionRecord, persistSession: Bool = false, requestPushPermission: Bool = true
   ) throws {
-    let nextAPI = try API(server: next.server, token: next.token)
+    let epoch = UUID()
+    let nextAPI = try API(server: next.server, token: next.token, onReachable: { [weak self] in
+      await self?.recordReachable(epoch: epoch)
+    })
     let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       .appendingPathComponent("OpenTeam", isDirectory: true)
     let scope = SHA256.hash(data: Data((next.server + "\n" + next.userID).utf8)).map {
@@ -459,7 +466,9 @@ final class AppStore {
     stateSyncs.removeAll()
     awaitingInitialSync = !launchComplete
     syncUnavailable = false
-    generation = UUID()
+    cancelConnectionCheck()
+    connectionUnavailable = false
+    generation = epoch
     activeSendID = nil
     checkingSendID = nil
     sending = false
@@ -645,27 +654,32 @@ final class AppStore {
     stateSyncs.insert(id)
     return id
   }
-  func refresh(quiet: Bool = false, flushPending: Bool = true) async {
-    guard let api, phase == .ready else { return }
+  @discardableResult
+  func refresh(quiet: Bool = false, flushPending: Bool = true) async -> Bool {
+    guard let api, phase == .ready else { return false }
     let epoch = generation
     let sync = beginStateSync()
     defer { stateSyncs.remove(sync) }
     do {
       let bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
-      guard epoch == generation, !Task.isCancelled else { return }
+      guard epoch == generation, !Task.isCancelled else { return false }
       apply(bootstrap)
       online = true
       syncUnavailable = false
       persist()
       let root = try await api.request("/api/v0/settings")
-      guard epoch == generation else { return }
+      guard epoch == generation, !Task.isCancelled else { return false }
       if root["settings"]["sidebarPreferences"]["version"].int == 2 {
         sidebar = root["settings"]["sidebarPreferences"]
       }
       // Pending sends are separate from loading the main screen's state.
       stateSyncs.remove(sync)
       if flushPending { await flush() }
-    } catch { if epoch == generation { handle(error, quiet: quiet) } }
+      return epoch == generation && !Task.isCancelled
+    } catch {
+      if epoch == generation { handle(error, quiet: quiet) }
+      return false
+    }
   }
   /// UI tests and QA opt in with `--qa-onboarding`; other UI-test fixtures never see it.
   private var onboardingForcedForQA: Bool {
@@ -746,6 +760,7 @@ final class AppStore {
     } else {
       lifecycle?.cancel()
       lifecycle = nil
+      cancelConnectionCheck()
       stopBackgroundHistories()
       stateSyncs.removeAll()
       flushPersistence()
@@ -772,7 +787,9 @@ final class AppStore {
     reportTimeZone()
     lifecycle = Task { [weak self] in
       guard let self else { return }
-      await refreshSession(epoch: epoch, sync: sync)
+      // Retain incomplete startup work independently of reachability and of
+      // other requests changing the loading indicator while startup is running.
+      var needsReconciliation = !(await refreshSession(epoch: epoch, sync: sync))
       guard epoch == generation, !Task.isCancelled, phase == .ready else { return }
       // Sending may include a progressing upload. Keep consuming acceptance
       // events while it runs so acknowledgement reconciliation stays responsive.
@@ -784,11 +801,14 @@ final class AppStore {
       var delay: UInt64 = 1
       while !Task.isCancelled, epoch == generation, phase == .ready, let api {
         do {
+          let wasOnline = online
           let batch = try await api.get(
             "/api/v0/events/poll", as: EventBatch.self, query: ["after": cursor, "waitMs": "25000"])
           try Task.checkCancellation()
           guard epoch == generation else { return }
-          let reconnectSync = online ? nil : beginStateSync()
+          // Reachability can recover through another request before this poll.
+          // Retain failed reconciliation work independently of connection state.
+          let reconnectSync = !wasOnline || needsReconciliation ? beginStateSync() : nil
           defer { if let reconnectSync { stateSyncs.remove(reconnectSync) } }
           online = true
           if reconnectSync != nil || !batch.events.isEmpty
@@ -815,12 +835,13 @@ final class AppStore {
             persist()
           }
           syncUnavailable = false
+          needsReconciliation = false
           delay = 1
           if let reconnectSync { stateSyncs.remove(reconnectSync) }
           Task { if epoch == generation { await flush() } }
         } catch {
           if Task.isCancelled || epoch != generation { return }
-          if let activeChannel { historyLoadFailures.insert(activeChannel) }
+          needsReconciliation = true
           handle(error, quiet: true)
           try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
           delay = min(delay * 2, 30)
@@ -828,7 +849,7 @@ final class AppStore {
       }
     }
   }
-  private func refreshSession(epoch: UUID, sync: UUID) async {
+  private func refreshSession(epoch: UUID, sync: UUID) async -> Bool {
     defer { stateSyncs.remove(sync) }
     if needsIdentityRefresh, let saved = record {
       do {
@@ -848,17 +869,17 @@ final class AppStore {
             guard epoch == self.generation else { throw CancellationError() }
             try SecureSession.save(updated)
           })
-        guard epoch == generation, !Task.isCancelled else { return }
+        guard epoch == generation, !Task.isCancelled else { return false }
         record = updated
         userName = updated.displayName
         needsIdentityRefresh = false
       } catch {
-        guard epoch == generation, !Task.isCancelled else { return }
+        guard epoch == generation, !Task.isCancelled else { return false }
         handle(APIError("Your session expired. Sign in again.", status: 401))
-        return
+        return false
       }
     }
-    await refresh(quiet: true, flushPending: false)
+    return await refresh(quiet: true, flushPending: false)
   }
   /// Replies keep landing in chats that are not open, usually with a notification.
   /// Read the newest page of those chats in the background, one at a time, so
@@ -1718,6 +1739,8 @@ final class AppStore {
       landing = nil
       activeChannel = nil
       online = false
+      cancelConnectionCheck()
+      connectionUnavailable = false
       authPath = []
       authError = cleanupFailure
       validatedServer = nil
@@ -1764,6 +1787,8 @@ final class AppStore {
     busy = []
     sending = false
     online = false
+    cancelConnectionCheck()
+    connectionUnavailable = false
     server = ""
     userName = ""
     validatedServer = nil
@@ -1815,6 +1840,8 @@ final class AppStore {
         NativeNotifications.shared.reset()
       #endif
       lifecycle?.cancel()
+      cancelConnectionCheck()
+      connectionUnavailable = false
       generation = UUID()
       activeSendID = nil
       checkingSendID = nil
@@ -1839,13 +1866,93 @@ final class AppStore {
       self.error = nil
     } else {
       if error is URLError || ((error as? APIError)?.status ?? 0) >= 500 {
-        online = false
+        // A timed-out long poll or a failing endpoint does not establish an
+        // outage. Confirm it independently before showing a connection warning.
+        confirmConnectionFailure()
         syncUnavailable = true
       } else if error is DecodingError {
         // A reachable server can return data this client cannot decode.
         syncUnavailable = true
       }
       if !quiet { self.error = UserFacingError.message(error) }
+    }
+  }
+
+  private func cancelConnectionCheck() {
+    connectionCheck?.cancel()
+    connectionCheck = nil
+    connectionCheckID = nil
+  }
+
+  private func recordReachable(epoch: UUID) {
+    guard epoch == generation, phase == .ready, !Task.isCancelled else { return }
+    cancelConnectionCheck()
+    online = true
+    connectionUnavailable = false
+  }
+
+  func retryConnection() {
+    confirmConnectionFailure(immediately: true)
+  }
+
+  private func confirmConnectionFailure(immediately: Bool = false) {
+    if immediately { cancelConnectionCheck() }
+    guard connectionCheck == nil, phase == .ready, foreground, let api else { return }
+    let epoch = generation
+    let checkID = UUID()
+    // A new warning requires sustained failure. Once an outage is already
+    // visible, a user retry only needs one bounded check to recover promptly.
+    let attempts = connectionUnavailable ? 1 : 3
+    connectionCheckID = checkID
+    connectionCheck = Task { [weak self] in
+      defer {
+        if let self, self.connectionCheckID == checkID {
+          self.connectionCheck = nil
+          self.connectionCheckID = nil
+        }
+      }
+      // Let short transitions recover without flashing a warning. Successful
+      // requests cancel this check, including an in-flight probe's stale result.
+      if !immediately {
+        do { try await Task.sleep(for: .seconds(1)) } catch { return }
+      }
+      var reachable = false
+      for attempt in 0..<attempts {
+        if attempt > 0 {
+          do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        }
+        guard !Task.isCancelled, self?.generation == epoch,
+          self?.connectionCheckID == checkID, self?.foreground == true
+        else { return }
+        do {
+          // An ordinary API observer would cancel this task on its own success.
+          let probe = try API(server: api.baseURL.absoluteString, token: api.token)
+          _ = try await probe.raw("/api/auth/config", timeout: 5)
+          reachable = true
+        } catch {
+          guard !UserFacingError.isCancelled(error) else { return }
+          if let response = error as? APIError, (100..<500).contains(response.status) {
+            reachable = true
+          } else if !(error is URLError) && ((error as? APIError)?.status ?? 0) < 500 {
+            return
+          }
+        }
+        if reachable { break }
+      }
+      guard let self, !Task.isCancelled, self.generation == epoch,
+        self.connectionCheckID == checkID, self.phase == .ready, self.foreground
+      else { return }
+      self.connectionCheck = nil
+      self.connectionCheckID = nil
+      if reachable {
+        self.recordReachable(epoch: epoch)
+        // A user retry bypasses the poll's backoff and reconciles fresh state.
+        if immediately { self.startEvents() }
+      } else {
+        self.online = false
+        self.connectionUnavailable = true
+        self.syncUnavailable = true
+      }
     }
   }
 }

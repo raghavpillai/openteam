@@ -107,6 +107,14 @@ test("packaged Electron fetch and WebSocket share an opaque origin", async () =>
   await denied(await connect(f, browserGrant.protocols, "bot-a", "file://"));
 });
 
+test("Android's synthetic viewer origin shares the native opaque origin", async () => {
+  const f = fixture();
+  const grant = await f.proxy.issue("bot-a", "session-a", null);
+  const socket = await connect(f, grant.protocols, "bot-a", "http://openteam-vnc.invalid");
+  await event(socket, "message");
+  expect(socket.readyState).toBe(WebSocket.OPEN);
+});
+
 test("session expiry or bot archival closes an already-open viewer", async () => {
   const f = fixture();
   const socket = await connect(f, (await f.proxy.issue("bot-a", "session-a", null)).protocols);

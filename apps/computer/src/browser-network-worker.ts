@@ -5,6 +5,7 @@ import { createEgressProbe } from "./browser-network-egress";
 import { createInterface } from "node:readline";
 import { startComputerDns, createDnsExchange } from "./computer-network-dns";
 import { runOrdinaryProbe, probeComputerNetwork } from "./computer-network-probe";
+import { startManagementDiscovery } from "./computer-network-management";
 
 const lines = createInterface({ input: process.stdin });
 let shutdown: (() => void) | undefined,
@@ -56,7 +57,10 @@ const client: BrowserNetworkClient = new BrowserNetworkClient({
 const proxy = createBrowserProxy((host, port) => client.open(host, port));
 const port = await proxy.listen(config.port);
 const dns = config.computerNetwork ? await startComputerDns(createDnsExchange(client)) : undefined;
-client.start();
+const management = config.computerNetwork
+  ? startManagementDiscovery(config.serverUrl, () => client.start())
+  : undefined;
+if (!config.computerNetwork) client.start();
 const egress = createEgressProbe(client);
 const quality = createQualityProbe(client);
 const checking = new Set<string>();
@@ -130,6 +134,7 @@ console.log(JSON.stringify({ started: true, port }));
 const status = setInterval(() => console.log(JSON.stringify(client.status())), 1000);
 shutdown = () => {
   clearInterval(status);
+  management?.stop();
   for (const diagnostic of diagnostics) diagnostic.abort();
   dns?.close();
   client.stop();

@@ -134,6 +134,93 @@ CMD ["sleep", "600"]
       `${prefix}-fixture`
     )
   );
+  await check("fresh computer boots before management DNS/server exists", async () => {
+    await exec("python3", "/fixture/openteam-computer-network.py", "http://future-server:8787");
+    assert.equal(await exec("cat", "/run/openteam-management.json"), "[]");
+  });
+  await run(
+    docker(
+      "exec",
+      "-d",
+      "-e",
+      "LD_PRELOAD=/fixture/network-mark.so",
+      `${prefix}-computer`,
+      "node",
+      "/fixture/fixture.mjs",
+      "discovery"
+    )
+  );
+  await check(
+    "missing server leaves management discovery waiting without weakening routing",
+    async () => {
+      await Bun.sleep(300);
+      assert.equal(
+        await exec("sh", "-c", "test -f /run/discovery-started && echo started || echo waiting"),
+        "waiting"
+      );
+    }
+  );
+  const futureName = `${prefix}-future`;
+  containers.push(futureName);
+  const launchFuture = (ip: string) =>
+    run(
+      docker(
+        "run",
+        "-d",
+        "--name",
+        futureName,
+        "--network",
+        network,
+        "--network-alias",
+        "future-server",
+        "--ip",
+        ip,
+        `${prefix}-fixture`,
+        "node",
+        "/fixture/fixture.mjs",
+        "target"
+      )
+    );
+  const discovered = async (ip: string) => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (JSON.parse(await exec("cat", "/run/openteam-management.json")).includes(ip)) return;
+      await Bun.sleep(100);
+    }
+    throw new Error("Management discovery did not publish the current server address");
+  };
+  await check("management becomes reachable after its server starts", async () => {
+    await launchFuture(`10.247.${subnet}.10`);
+    await discovered(`10.247.${subnet}.10`);
+    assert.equal(
+      await exec("curl", "-fsS", "--max-time", "3", "http://future-server:8787"),
+      "management-reachable"
+    );
+  });
+  await check("management DNS and routes refresh after server address changes", async () => {
+    await run(docker("rm", "-f", futureName));
+    await launchFuture(`10.247.${subnet}.11`);
+    await discovered(`10.247.${subnet}.11`);
+    assert.ok(
+      !JSON.parse(await exec("cat", "/run/openteam-management.json")).includes(
+        `10.247.${subnet}.10`
+      )
+    );
+    assert.equal(
+      await exec("curl", "-fsS", "--max-time", "3", "http://future-server:8787"),
+      "management-reachable"
+    );
+  });
+  await exec(
+    "python3",
+    "-c",
+    `import os,signal
+for p in os.listdir('/proc'):
+ if not p.isdigit(): continue
+ try: args=open('/proc/'+p+'/cmdline','rb').read().split(bytes([0]))
+ except OSError: continue
+ if len(args)>2 and args[1]==b'/fixture/fixture.mjs' and args[2]==b'discovery': os.kill(int(p),signal.SIGTERM)`
+  );
+  await Bun.sleep(200);
   await exec("python3", "/fixture/openteam-computer-network.py", `http://${targetIp}:8787`);
   const curl = ["curl", "--noproxy", "*", "-fsS", "--connect-timeout", "2", "--max-time", "4"];
   await check("startup blocks direct egress before any relay exists", () =>

@@ -6,6 +6,7 @@ import { createBrowserProxy } from "../../packages/plugin-sdk/src/browser-networ
 import { startComputerDns, createDnsExchange } from "../../apps/computer/src/computer-network-dns";
 import { runOrdinaryProbe } from "../../apps/computer/src/computer-network-probe";
 import { startControlFixture } from "../../packages/plugin-sdk/test/browser-network/control-fixture";
+import { startManagementDiscovery } from "../../apps/computer/src/computer-network-management";
 
 /** Test-only adapter to an existing SOCKS path; never opens a new app channel
  * or displaces the active computer's authenticated lease. */
@@ -57,7 +58,22 @@ async function upstream(host: string, port: number) {
   }
 }
 
-if (process.argv[2] === "control") {
+if (process.argv[2] === "discovery") {
+  const discovery = startManagementDiscovery(
+    "http://future-server:8787",
+    () => writeFileSync("/run/discovery-started", "ready"),
+    {
+      helper: "/fixture/openteam-computer-network.py",
+      intervalMs: 100,
+    }
+  );
+  process.once("SIGTERM", () => {
+    discovery.stop();
+    process.exit(0);
+  });
+  // Keep the test process alive while the production watcher uses an unref timer.
+  setInterval(() => {}, 1000);
+} else if (process.argv[2] === "control") {
   startControlFixture(18794, upstream);
 } else if (process.argv[2] === "dns-check") {
   const query = Buffer.from("007b01000001000000000000076578616d706c6503636f6d0000010001", "hex");

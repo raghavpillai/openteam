@@ -10,8 +10,6 @@ let orbModuleLoad: Promise<OrbModule> | undefined;
 export const preloadLoadingOrb = () =>
   (orbModuleLoad ??= import("thinking-orbs").then((loaded) => (orbModule = loaded)));
 
-// One orb for every loading state, matching the iOS app.
-const ORB_STATE = "composing";
 // 20, 32 and 64 are the library's tuned designs; other sizes scale the nearest
 // one. Below 17 px the dots thicken as the orb shrinks so it stays readable.
 const presetFor = (size: number): OrbSize => (size < 26 ? 20 : size < 48 ? 32 : 64);
@@ -26,7 +24,7 @@ const subscribeToTheme = (onChange: () => void) => {
 const subscribeToNothing = () => () => undefined;
 const documentIsDark = () => document.documentElement.dataset.theme === "dark";
 
-export type LoadingOrbProps = Omit<ThinkingOrbProps, "aria-label" | "dotSize" | "size" | "state"> & {
+export type LoadingOrbProps = Omit<ThinkingOrbProps, "aria-label" | "dotSize" | "size"> & {
   /** Rendered size in CSS pixels. */
   size?: number;
   /** Accessible name. */
@@ -40,6 +38,7 @@ export function LoadingOrb({
   inverse = false,
   label = "Loading",
   size = 20,
+  state = "composing",
   style,
   theme = "auto",
   ...props
@@ -69,7 +68,7 @@ export function LoadingOrb({
       className={cn("shrink-0", className)}
       dotSize={dotSizeFor(size)}
       size={presetFor(size)}
-      state={ORB_STATE}
+      state={state}
       style={{ width: size, height: size, ...style }}
       theme={inverse ? (dark ? "light" : "dark") : theme}
     />

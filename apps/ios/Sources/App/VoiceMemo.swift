@@ -1048,7 +1048,7 @@ struct VoiceBarContent: View {
 
   private var transcribing: some View {
     HStack(spacing: 10) {
-      LoadingOrb(size: 22, label: "Transcribing")
+      LoadingOrb(size: 22, label: "Transcribing", state: .listening)
         .matchedGeometryEffect(id: "lead", in: shared)
       Text("Transcribing…").font(.body).lineLimit(1).minimumScaleFactor(0.5)
         .foregroundStyle(NativePalette.chatMuted)

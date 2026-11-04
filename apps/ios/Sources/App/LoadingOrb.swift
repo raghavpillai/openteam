@@ -3,7 +3,7 @@ import ThinkingOrbsKit
 
 /// The app's indeterminate progress indicator: a thinking orb in place of a spinner.
 ///
-/// Every loading orb uses the same `composing` state. `size` is the spinner's old point size
+/// Loading defaults to `composing`; transcription uses `listening`. `size` is the point size
 /// (regular 20, small 16, mini 12); the orb draws the nearest tuned preset at that size.
 /// Pin `theme` to the opposite scheme on inverted surfaces such as a filled primary button.
 /// Bot activity keeps its own indicators (the robot, the activity footer).
@@ -11,11 +11,12 @@ struct LoadingOrb: View {
   var size: CGFloat = 20
   var theme: OrbTheme = .auto
   var label: String?
+  var state: OrbState = .composing
 
   var body: some View {
     // One element that carries the caller's label and identifier, like ProgressView did.
     ZStack {
-      ThinkingOrb(state: .composing, size: size > 40 ? .px64 : .px20, theme: theme, displaySize: Double(size))
+      ThinkingOrb(state: state, size: size > 40 ? .px64 : .px20, theme: theme, displaySize: Double(size))
     }
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(label ?? "Loading")

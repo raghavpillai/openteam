@@ -1,9 +1,10 @@
-import { memo, useRef, useState } from "react";
-import {
-  type DurableSendRecord,
-  durableSendStatusLabel,
-} from "@openteam/product-core/durable-delivery";
+import { type CSSProperties, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { DurableSendRecord } from "@openteam/product-core/durable-delivery";
+import { sendRetryProgressVisible } from "../../lib/send-progress";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 
 type DeliveryFooterProps = {
   delivery: DurableSendRecord | null;
@@ -13,12 +14,48 @@ type DeliveryFooterProps = {
   onResend: (nonce: string) => Promise<unknown>;
 };
 
-// Every outgoing row owns the same caption lane, including after reconciliation.
-// Status changes can never resize the row and push a bottom-anchored bubble up.
+// Keep the last caption mounted through its collapse, but allocate space only
+// while it is visible. The virtualizer measures each frame of the transition.
 export const DeliveryFooter = memo(function DeliveryFooter(props: DeliveryFooterProps) {
+  const pending = props.delivery != null && props.delivery.phase !== "accepted-awaiting-echo";
+  const expanded = props.delivery?.phase === "failed" || sendRetryProgressVisible(props.delivery);
+  const queued = props.delivery?.phase === "queued";
+  const [retained, setRetained] = useState(props.delivery);
+  const clipRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  useLayoutEffect(() => {
+    const clip = clipRef.current!;
+    const measure = () => setHeight(clip.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(clip);
+    return () => observer.disconnect();
+  }, []);
+  if (pending && retained !== props.delivery) setRetained(props.delivery);
+  useEffect(() => {
+    if (pending) return;
+    // Reduced motion has no transitionend; this also covers interrupted transitions.
+    const timer = setTimeout(() => setRetained(null),
+      matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 240);
+    return () => clearTimeout(timer);
+  }, [pending]);
   return (
-    <div className="delivery-footer" data-delivery-footer="">
-      <DeliveryStatus {...props} />
+    <div
+      className="delivery-footer"
+      data-delivery-footer=""
+      style={{"--delivery-height": `${height}px`} as CSSProperties}
+      data-expanded={expanded || undefined}
+      data-queued={queued || undefined}
+      aria-hidden={!pending || undefined}
+      inert={!pending}
+      onTransitionEnd={(event) => {
+        if (event.target === event.currentTarget && event.propertyName === "height" && !pending)
+          setRetained(null);
+      }}
+    >
+      <div ref={clipRef} className="delivery-footer-clip">
+        <DeliveryStatus {...props} delivery={pending ? props.delivery : retained} />
+      </div>
     </div>
   );
 });
@@ -32,15 +69,17 @@ function DeliveryStatus({
   const [busy, setBusy] = useState(false);
   const actionInFlight = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const act = (operation: () => Promise<unknown>) => {
     if (actionInFlight.current) return;
     actionInFlight.current = true;
     setBusy(true);
     setActionError(null);
     void operation()
-      .catch((cause) =>
-        setActionError(clientErrorMessage(cause, "The message could not be updated. Try again."))
-      )
+      .catch((cause) => {
+        setActionError(clientErrorMessage(cause, "The message could not be updated. Try again."));
+        setDetailsOpen(true);
+      })
       .finally(() => {
         actionInFlight.current = false;
         setBusy(false);
@@ -48,6 +87,21 @@ function DeliveryStatus({
   };
   const actionClass =
     "rounded px-0.5 text-[11px] font-medium leading-4 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 disabled:opacity-50";
+  const details = delivery ? (
+    <DropdownMenu open={detailsOpen} onOpenChange={setDetailsOpen}>
+      <DropdownMenuTrigger asChild>
+        <button className={actionClass} type="button" aria-label="Message delivery details">…</button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-w-72">
+        <p role={actionError ? "alert" : undefined} className="px-2 py-1.5 text-xs text-muted-foreground">
+          {actionError ?? clientErrorMessage(delivery.failure?.message, "The message could not be sent.")}
+        </p>
+        <DropdownMenuItem disabled={busy} onSelect={() => act(() => onDelete(delivery.nonce))}>
+          Delete message
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
   if (delivery?.phase === "failed") {
     return (
       <div
@@ -57,7 +111,7 @@ function DeliveryStatus({
         role="group"
       >
         <span className="font-medium text-destructive" role="status">
-          {delivery.failure?.uncertain ? "Delivery unconfirmed" : durableSendStatusLabel(delivery.phase)}
+          {delivery.failure?.uncertain ? "Delivery unconfirmed" : "Not delivered"}
         </span>
         <button
           className={actionClass}
@@ -65,47 +119,31 @@ function DeliveryStatus({
           onClick={() => act(() => onResend(delivery.nonce))}
           type="button"
         >
-          Resend
+          Retry
         </button>
-        <button
-          className={actionClass}
-          disabled={busy}
-          onClick={() => act(() => onDelete(delivery.nonce))}
-          type="button"
-        >
-          Delete
-        </button>
-        {actionError || delivery.failure?.message ? (
-          <span
-            role="alert"
-            className="w-full min-w-0 truncate text-right text-destructive"
-            title={actionError ?? clientErrorMessage(delivery.failure?.message, "The message could not be sent.")}
-          >
-            {actionError ??
-              clientErrorMessage(delivery.failure?.message, "The message could not be sent.")}
-          </span>
-        ) : null}
+        {details}
       </div>
     );
   }
-  // Queued sends remain normal bubbles. Cancellation is an intentional hover
-  // or keyboard action; routine queue/progress bookkeeping stays out of chat.
-  if (delivery?.phase === "queued") {
+  if (delivery && delivery.phase !== "accepted-awaiting-echo") {
     return (
-      <div className="delivery-caption text-[11px] leading-4">
-        <button
-          className={`delivery-queued-cancel ${actionClass}`}
-          disabled={busy}
-          onClick={() => act(() => onCancel(delivery.nonce))}
-          type="button"
-        >
-          Cancel
-        </button>
-        {actionError ? (
-          <span role="alert" className="w-full min-w-0 truncate text-right text-destructive" title={actionError}>
-            {actionError}
+      <div className={`delivery-caption delivery-caption-sending text-[11px] leading-4 text-muted-foreground${actionError ? " delivery-caption-sending-error" : ""}`}>
+        {delivery.phase === "queued" ? (
+          <button
+            className={`delivery-queued-cancel ${actionClass}`}
+            disabled={busy}
+            onClick={() => act(() => onCancel(delivery.nonce))}
+            type="button"
+          >
+            Cancel
+          </button>
+        ) : null}
+        {sendRetryProgressVisible(delivery) ? (
+          <span className="delivery-sending-bar" data-send-progress="" role="status" aria-label="Retrying message">
+            <span />
           </span>
         ) : null}
+        {actionError ? details : null}
       </div>
     );
   }

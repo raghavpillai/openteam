@@ -97,6 +97,8 @@ final class AppStore {
   private var flushRequested = false
   private(set) var activeSendID: String?
   private(set) var checkingSendID: String?
+  /// Presentation-only counts; polling a still-processing send is not a failure.
+  private(set) var sendRetryCounts: [String: Int] = [:]
   private var requestedSendIDs: Set<String> = []
   var sendStallTimeout: Duration = .seconds(10)
   var sendOverallTimeout: Duration = .seconds(120)
@@ -1236,6 +1238,7 @@ final class AppStore {
         sending = false
         activeSendID = nil
         checkingSendID = nil
+        sendRetryCounts = [:]
         if flushRequested {
           flushRequested = false
           Task { await flush() }
@@ -1248,6 +1251,7 @@ final class AppStore {
     {
       requestedSendIDs.remove(pending.id)
       activeSendID = pending.id
+      sendRetryCounts[pending.id] = 0
       checkingSendID = pending.deliveryUnconfirmed == true ? pending.id : nil
       guard epoch == generation, !Task.isCancelled else { return }
       guard let channel = channel(pending.channelId) else {
@@ -1377,6 +1381,9 @@ final class AppStore {
             if state.outbox.first(where: { $0.id == pending.id })?.deliveryUnconfirmed == true {
               checkingSendID = pending.id
             }
+          }
+          if Self.canRetrySend(error), !(error is SendPollingError) {
+            sendRetryCounts[pending.id, default: 0] += 1
           }
           if Self.canRetrySend(error), budget.remaining > .zero {
             let pause = min(backoff, budget.remaining)

@@ -78,6 +78,39 @@ import XCTest
     XCTAssertEqual(actual.height, expected.height, accuracy: 0.5, file: file, line: line)
   }
 
+  func testDeliverySpaceExistsOnlyForVisibleControls() throws {
+    let bar = measure(SendingRetryBar())
+    XCTAssertEqual(bar.width, 24, accuracy: 0.5)
+    XCTAssertEqual(bar.height, 2, accuracy: 0.5)
+    var send = PendingSend(channelId: "fixture", input: SendInput(content: "Hello", attachments: []))
+    var presentation = MessagePresentation()
+    func height(_ pending: [PendingSend], message: Message? = nil,
+      typeSize: DynamicTypeSize = .large) throws -> CGFloat {
+      let rows = presentation.project(MessageTimeline(message.map { [$0] } ?? []),
+        pending: pending, animateNew: false)
+      let row = try XCTUnwrap(rows.first)
+      return measure(MessageDeliveryRow(row: row) {
+        Color.gray.frame(width: 200, height: 40)
+      }, typeSize: typeSize).height
+    }
+    XCTAssertEqual(try height([send]), 40, accuracy: 0.5, "A normal send must not reserve retry space")
+    send.failure = "Rejected"
+    XCTAssertGreaterThanOrEqual(try height([send]), 86, "A visible Retry needs its real tap target")
+    XCTAssertGreaterThanOrEqual(try height([send], typeSize: .accessibility2), 86)
+    send.failure = nil
+    send.deliveryUnconfirmed = true
+    XCTAssertGreaterThanOrEqual(try height([send]), 86)
+    send.deliveryUnconfirmed = nil
+    XCTAssertEqual(try height([send]), 40, accuracy: 0.5)
+    let accepted = try JSONDecoder().decode(Message.self, from: JSONSerialization.data(withJSONObject: [
+      "id": "accepted", "clientId": send.id, "sequence": "1", "channelId": send.channelId,
+      "sender": "user", "content": "Hello", "metadata": [:],
+      "createdAt": "2026-11-04T15:00:00Z",
+    ]))
+    XCTAssertEqual(try height([], message: accepted), 40, accuracy: 0.5,
+      "Confirmed history must not retain an invisible delivery row")
+  }
+
   func testPhotoGeometryAcrossUploadAcceptanceAndFailure() throws {
     // Portrait, landscape, small originals, and EXIF-rotated JPEGs. The server
     // reports raw header dimensions, while ImageIO rotates the decoded thumbnail.

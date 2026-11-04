@@ -3,6 +3,7 @@ import PhotosUI
 import QuickLook
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 struct ChatView: View {
   @Environment(AppStore.self) private var store
@@ -210,16 +211,21 @@ struct ChatView: View {
         hash.combine(pending.deliveryUnconfirmed)
         hash.combine(store.activeSendID == pending.id)
         hash.combine(store.checkingSendID == pending.id)
+        hash.combine(store.sendRetryCounts[pending.id, default: 0])
         hash.combine(pending.input.content)
         hash.combine(pending.input.attachments)
         hash.combine(pending.stagedFiles?.count)
         hash.combine(store.online)
       }
+      // Delivery captions grow and collapse with the same native row animation
+      // as answered cards; ordinary accepted messages retain no caption lane.
+      animatesResize = animatesResize || row.isUser
       result.append(NativeHistoryItem(id: row.id, scrollID: row.scrollID, version: hash.finalize(),
         anchorToBottom: row.timestamp != nil, animatesResize: animatesResize,
         outgoingArrival: row.isUser && row.animatesArrival,
         prefetch: RichMarkdownView.prefetcher(row)) {
-        AnyView(MessageArrival(animate: timelineCache.consumeArrival(row), isUser: row.isUser) {
+        let arrives = timelineCache.consumeArrival(row)
+        return AnyView(MessageArrival(animate: arrives, isUser: row.isUser) {
           MessageDeliveryRow(row: row) { timelineRow(row) }
         }.padding(.horizontal, 16)
           .padding(.top, row.id == rows.first?.id ? 14 : row.groupsWithPrevious ? 8 : 12)
@@ -1015,25 +1021,39 @@ struct PendingMessageView: View {
   }
 }
 
-/// One shared layout surrounds both the optimistic and accepted content. The
-/// footnote has room for a full Retry target before any delivery status exists.
+/// Visible sending progress and delivery controls add only their own space. UIKit animates
+/// the hosting row's resize and follows its bottom edge along with this content.
 struct MessageDeliveryRow<Content: View>: View {
-  @ScaledMetric(relativeTo: .caption) private var footnoteHeight: CGFloat = 44
+  @Environment(AppStore.self) private var store
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let row: MessagePresentation.Row
   @ViewBuilder var content: Content
+  private var status: PendingSend? {
+    guard case .pending(let pending) = row.content,
+      pending.failure != nil
+        || (pending.deliveryUnconfirmed == true && store.activeSendID != pending.id)
+    else { return nil }
+    return pending
+  }
+  private var isSending: Bool {
+    if case .pending(let pending) = row.content {
+      return status == nil && store.sendRetryCounts[pending.id, default: 0] >= 2
+    }
+    return false
+  }
   var body: some View {
-    VStack(alignment: .trailing, spacing: 5) {
+    VStack(alignment: .trailing, spacing: 0) {
       content
-      if row.isUser {
-        Group {
-          if case .pending(let pending) = row.content {
-            PendingSendStatus(pending: pending, showsSending: false)
-          } else {
-            Color.clear.frame(width: 0).accessibilityHidden(true)
-          }
-        }.frame(height: max(44, footnoteHeight))
+      if let status {
+        PendingSendStatus(pending: status, showsSending: false)
+          .padding(.top, 2)
+          .transition(.opacity)
+      } else if isSending {
+        SendingRetryBar().padding(.top, 2).padding(.trailing, 6).transition(.opacity)
       }
     }
+    .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.24),
+      value: status != nil ? 2 : isSending ? 1 : 0)
   }
 }
 
@@ -1184,12 +1204,15 @@ struct ThreadPage: View {
         hash.combine(send.deliveryUnconfirmed)
         hash.combine(store.activeSendID == send.id)
         hash.combine(store.checkingSendID == send.id)
+        hash.combine(store.sendRetryCounts[send.id, default: 0])
       }
+      animatesResize = animatesResize || row.isUser
       result.append(NativeHistoryItem(id: row.id, scrollID: row.scrollID, version: hash.finalize(),
         anchorToBottom: row.timestamp != nil, animatesResize: animatesResize,
         outgoingArrival: row.isUser && row.animatesArrival,
         prefetch: RichMarkdownView.prefetcher(row)) {
-        AnyView(MessageArrival(animate: timelineCache.consumeArrival(row), isUser: row.isUser) {
+        let arrives = timelineCache.consumeArrival(row)
+        return AnyView(MessageArrival(animate: arrives, isUser: row.isUser) {
           MessageDeliveryRow(row: row) {
             VStack(alignment: .leading, spacing: 12) {
               if let date = row.timestamp {

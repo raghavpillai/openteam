@@ -87,6 +87,8 @@ export interface DurableSendRecord {
   updatedAtMs: number;
   attemptCount: number;
   dispatchStartedAtMs: number | null;
+  /** Start of this user-initiated send's bounded automatic retry window. */
+  retryStartedAtMs?: number;
   queuedAtMs: number | null;
   acceptedAtMs: number | null;
   acceptedMessage: ChannelMessageView | null;
@@ -128,6 +130,8 @@ export interface DurableSendRuntime {
   createNonce?: () => string;
   now?: () => number;
   ackTimeoutMs?: number;
+  /** Optional platform retry budget; offline compositions start it only on dispatch. */
+  retryTimeoutMs?: number;
   attachmentCommitTimeoutMs?: number;
   onTelemetry?: (event: DurableSendTelemetryEvent) => void;
 }
@@ -638,6 +642,7 @@ const parseDurableSendRecord = (value: unknown): DurableSendRecord | null => {
     updatedAtMs: value.updatedAtMs,
     attemptCount: Math.max(0, Math.trunc(value.attemptCount)),
     dispatchStartedAtMs: value.dispatchStartedAtMs,
+    ...(finiteNumber(value.retryStartedAtMs) ? { retryStartedAtMs: value.retryStartedAtMs } : {}),
     queuedAtMs: value.queuedAtMs,
     acceptedAtMs: value.acceptedAtMs,
     acceptedMessage,
@@ -980,15 +985,17 @@ export const createDurableSendController = (
     await persist().catch(() => persistEventually());
   };
 
-  const queue = async (record: DurableSendRecord, markComposedOffline = false): Promise<void> => {
+  const queue = async (record: DurableSendRecord, markComposedOffline = false, retrying = false): Promise<void> => {
     const current = records.get(record.nonce);
-    if (disposed || !current) return;
+    if (disposed || !current || current.phase === "failed" || current.phase === "accepted-awaiting-echo") return;
     // queuedAtMs is specifically the offline-composition marker used by
     // “Sent while offline”, not a generic time spent behind another send.
     const next = replace({
       ...current,
       phase: "queued",
       updatedAtMs: now(),
+      ...(retrying && runtime.retryTimeoutMs !== undefined && current.retryStartedAtMs === undefined
+        ? { retryStartedAtMs: now() } : {}),
       queuedAtMs:
         current.queuedAtMs ??
         (markComposedOffline && current.attemptCount === 0 ? current.createdAtMs : null),
@@ -1085,6 +1092,30 @@ export const createDurableSendController = (
     }
   };
 
+  const retryExpired = (record: DurableSendRecord) => runtime.retryTimeoutMs !== undefined
+    && record.retryStartedAtMs !== undefined
+    && now() - record.retryStartedAtMs >= runtime.retryTimeoutMs;
+  const finishRetryWindow = async (record: DurableSendRecord): Promise<void> => {
+    // Resolve the same nonce before parking it. An outage never justifies an
+    // automatic new nonce, and acceptance always wins over a local timeout.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const resolution = await Promise.race([
+      resolveLineage(record),
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 2_000); }),
+    ]).finally(() => { if (timer !== undefined) clearTimeout(timer); });
+    const current = records.get(record.nonce);
+    if (!current || current.phase === "failed" || current.phase === "accepted-awaiting-echo") return;
+    if (resolution?.status === "accepted" || resolution?.status === "rejected") {
+      await applyResolution(current, resolution);
+      return;
+    }
+    await fail(current, {
+      code: "retry_exhausted",
+      message: "Delivery could not be confirmed. Check your connection and retry.",
+      uncertain: current.attemptCount > 0,
+    });
+  };
+
   const dispatchRecord = (record: DurableSendRecord): Promise<void> => {
     if (disposed) return Promise.resolve();
     const existing = inFlight.get(record.nonce);
@@ -1094,6 +1125,7 @@ export const createDurableSendController = (
       if (!current || current.phase === "accepted-awaiting-echo" || current.phase === "failed") {
         return;
       }
+      if (retryExpired(current)) { await finishRetryWindow(current); return; }
       const staged = current.payload.stagedAttachments ?? [];
       if (staged.length > 0) {
         if (!runtime.commitStagedAttachments) {
@@ -1125,7 +1157,7 @@ export const createDurableSendController = (
           } else {
             // Bot marks an initially-online composition as offline when the
             // first attachment commit is where transport loss is discovered.
-            await queue(current, disposition === "offline");
+            await queue(current, disposition === "offline", true);
           }
           return;
         }
@@ -1180,8 +1212,8 @@ export const createDurableSendController = (
         const result = await runtime.dispatch(dispatching);
         await accepted(dispatching, result.message);
       } catch (cause) {
-        const latest = records.get(dispatching.nonce);
-        if (!latest) return;
+        let latest = records.get(dispatching.nonce);
+        if (!latest || latest.phase === "failed" || latest.phase === "accepted-awaiting-echo") return;
         const disposition = runtime.classifyError(cause);
         if (disposition === "fatal") {
           await fail(latest, {
@@ -1191,12 +1223,16 @@ export const createDurableSendController = (
           });
           return;
         }
+        // Start the budget before the acceptance lookup: the lookup itself may stall.
+        if (runtime.retryTimeoutMs !== undefined && latest.retryStartedAtMs === undefined) {
+          latest = replace({ ...latest, retryStartedAtMs: now() });
+        }
         const resolution = await resolveLineage(latest);
         if (resolution) {
           const outcome = await applyResolution(latest, resolution);
           if (outcome !== "not_found" && outcome !== "wait") return;
         }
-        await queue(latest);
+        await queue(latest, false, true);
       }
     })().finally(() => {
       inFlight.delete(record.nonce);
@@ -1406,6 +1442,11 @@ export const createDurableSendController = (
       if (disposed) return;
       const currentTime = now();
       for (const record of [...snapshot]) {
+        if (record.phase !== "failed" && record.phase !== "accepted-awaiting-echo"
+          && retryExpired(record)) {
+          await finishRetryWindow(record);
+          continue;
+        }
         if (
           record.phase === "queued" ||
           record.phase === "failed" ||
@@ -1476,6 +1517,7 @@ export const createDurableSendController = (
         updatedAtMs: createdAtMs,
         attemptCount: 0,
         dispatchStartedAtMs: null,
+        retryStartedAtMs: undefined,
         queuedAtMs: runtime.isTransportDown?.() === true ? createdAtMs : currentFailed.queuedAtMs,
         acceptedAtMs: null,
         acceptedMessage: null,

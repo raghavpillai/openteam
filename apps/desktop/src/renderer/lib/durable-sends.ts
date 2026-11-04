@@ -25,6 +25,7 @@ let transportDownSnapshot = navigator.onLine === false;
 const transportListeners = new Set<() => void>();
 const ephemeralStages = new Map<string, Blob>();
 const ATTACHMENT_COMMIT_TIMEOUT_MS = 120_000;
+const SEND_RETRY_TIMEOUT_MS = 10_000;
 
 class InactiveDeliveryScopeError extends Error {}
 
@@ -243,17 +244,42 @@ const startLifecycle = (controller: DurableSendController) => {
     if (document.visibilityState === "visible") flush();
   };
   document.addEventListener("visibilitychange", onVisibilityChange);
+  let retryTimer: number | undefined;
+  let expiring = false;
+  let active = true;
+  const scheduleRetryExpiry = () => {
+    window.clearTimeout(retryTimer);
+    if (!active || expiring) return;
+    const deadline = Math.min(...controller.getSnapshot().flatMap(record =>
+      record.phase !== "failed" && record.phase !== "accepted-awaiting-echo" && record.retryStartedAtMs !== undefined
+        ? [record.retryStartedAtMs + SEND_RETRY_TIMEOUT_MS] : []));
+    if (Number.isFinite(deadline)) retryTimer = window.setTimeout(expireAndFlush, Math.max(0, deadline - Date.now()));
+  };
+  const expireAndFlush = () => {
+    if (!active || expiring) return;
+    expiring = true;
+    void controller.expireAcknowledgements().finally(() => {
+      expiring = false;
+      if (!active) return;
+      scheduleRetryExpiry();
+      if (navigator.onLine !== false) void controller.flush();
+    });
+  };
+  const unsubscribeExpiry = controller.subscribe(scheduleRetryExpiry);
+  scheduleRetryExpiry();
   const interval = window.setInterval(() => {
     refreshTransportSnapshot();
-    void controller.expireAcknowledgements();
-    if (navigator.onLine !== false) void controller.flush();
+    expireAndFlush();
   }, 5_000);
   controllerCleanups.set(controller, () => {
+    active = false;
     window.removeEventListener("online", noteTransportChange);
     window.removeEventListener("offline", noteTransportChange);
     window.removeEventListener("focus", flush);
     document.removeEventListener("visibilitychange", onVisibilityChange);
     window.clearInterval(interval);
+    unsubscribeExpiry();
+    window.clearTimeout(retryTimer);
     controller.dispose();
   });
 };
@@ -285,6 +311,7 @@ export const desktopDurableSendController = (): DurableSendController => {
       return resolveAcceptance(record);
     },
     classifyError,
+    retryTimeoutMs: SEND_RETRY_TIMEOUT_MS,
     commitStagedAttachments: (record) =>
       withAttachmentCommitDeadline(
         mapWithConcurrency(

@@ -461,7 +461,7 @@ const stagedAttachment = (value: unknown): value is DurableStagedAttachment => {
       (finiteNumber(value.position) &&
         Number.isSafeInteger(value.position) &&
         value.position >= 0 &&
-        value.position < 6)) &&
+        value.position < CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage)) &&
     (value.alt === undefined || (typeof value.alt === "string" && value.alt.length <= 2_000)) &&
     (value.previewUri === undefined ||
       (typeof value.previewUri === "string" && value.previewUri.length <= 8_192)) &&
@@ -521,7 +521,7 @@ const parsePayload = (value: unknown): DurableSendPayload | null => {
     position === undefined ? [] : [position]
   );
   if (
-    parsedAssets.length + parsedStaged.length > 6 ||
+    parsedAssets.length + parsedStaged.length > CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage ||
     new Set(parsedStaged.map(({ stagingId }) => stagingId)).size !== parsedStaged.length ||
     new Set(positioned).size !== positioned.length ||
     positioned.some((position) => position >= parsedAssets.length + parsedStaged.length)
@@ -1240,6 +1240,9 @@ export const createDurableSendController = (
     restore,
     async enqueue(input) {
       if (disposed) throw new Error("Durable delivery controller is disposed");
+      // Anything persisted here must also survive restore. Reject an invalid
+      // composition before it can invalidate unrelated records in the journal.
+      if (!parsePayload(input.payload)) throw new Error("Message attachments or payload are invalid");
       await restore();
       if (disposed) throw new Error("Durable delivery controller is disposed");
       const createdAtMs = now();

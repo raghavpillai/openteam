@@ -188,12 +188,18 @@ private struct UnreadGlass: ViewModifier {
 /// The footer blurs the live list through a transparent material. Its mask affects
 /// the backdrop, leaving the rows available for the glass controls to refract.
 struct SidebarFooterFade: View {
-  static let canvas = NativePalette.color("F7F7F7", "1C1C1C")
+  static let canvas = NativePalette.color("F7F7F7", "1E1E1E")
   var body: some View {
     SidebarBackdropBlur()
       .overlay {
-        LinearGradient(colors: [.clear, Self.canvas.opacity(0.12), Self.canvas.opacity(0.28)],
-          startPoint: .top, endPoint: .bottom)
+        // Settle into the sidebar's exact canvas color. The material alone
+        // lifts dark footers to gray, unlike the supplied reference.
+        LinearGradient(stops: [
+          .init(color: .clear, location: 0),
+          .init(color: Self.canvas.opacity(0.75), location: 0.42),
+          .init(color: Self.canvas, location: 0.82),
+          .init(color: Self.canvas, location: 1),
+        ], startPoint: .top, endPoint: .bottom)
       }
       .mask {
         LinearGradient(stops: [

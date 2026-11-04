@@ -2965,7 +2965,7 @@ export const Sidebar = memo(function Sidebar({
                 data-scroll-fade-top={sidebarTopFade}
                 data-scroll-fade-bottom={sidebarBottomFade}
                 style={{
-                  maskImage: `linear-gradient(to bottom, ${sidebarTopFade ? "transparent 0px, black 28px" : "black 0px"}, ${sidebarBottomFade ? "black calc(100% - 28px), transparent 100%" : "black 100%"})`,
+                  maskImage: `linear-gradient(to bottom, ${sidebarTopFade ? "transparent 0px, black 28px" : "black 0px"}, ${sidebarBottomFade ? "black calc(100% - 48px), transparent 100%" : "black 100%"})`,
                 }}
               >
                 <SidebarMotion pinnedIds={preferences.pinnedIds} disabled={Boolean(dragSourceChannelId || dragSourceSectionId || sidebarResizing)}>

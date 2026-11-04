@@ -91,11 +91,11 @@ describe("portable product projections", () => {
     expect(selectChannelRows(value)[0]?.bot?.id).toBe("bot-1");
   });
 
-  test("keeps hidden agents addressable while omitting their rows from mobile navigation", () => {
+  test("shows chats with legacy hidden flags in navigation", () => {
     const value = snapshot();
     value.bots[0] = { ...value.bots[0]!, hiddenFromSidebar: true };
     expect(createSnapshotIndex(value).botById.get("bot-1")?.name).toBe("Bot");
-    expect(selectChannelRows(value)).toEqual([]);
+    expect(selectChannelRows(value)).toHaveLength(1);
 
     value.bots[0] = { ...value.bots[0]!, hiddenFromSidebar: false };
     value.channels[0] = {
@@ -105,7 +105,10 @@ describe("portable product projections", () => {
       hiddenFromSidebar: true,
     };
     expect(createSnapshotIndex(value).channelById.has("channel-1")).toBe(true);
-    expect(selectChannelRows(value)).toEqual([]);
+    expect(selectChannelRows(value)).toHaveLength(1);
+
+    value.channels.push({ ...value.channels[0]!, id: "internal-task", kind: "agent_dm" });
+    expect(selectChannelRows(value)).toHaveLength(1);
   });
 
   test("projects A2A metadata", () => {

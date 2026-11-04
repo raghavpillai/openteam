@@ -120,13 +120,12 @@ export class GroupAdministration {
       });
     });
 
-  listGroups = (includeHidden = false) =>
+  listGroups = (_includeHidden = false) =>
     serviceEffect(async (): Promise<ChannelView[]> => {
       const groups = await this.prisma.channel.findMany({
         where: {
           kind: "group",
           archivedAt: null,
-          ...(includeHidden ? {} : { hiddenFromSidebar: false }),
         },
         include: { members: { orderBy: { ordinal: "asc" } } },
         orderBy: { updatedAt: "desc" },
@@ -136,6 +135,7 @@ export class GroupAdministration {
 
   setGroupHidden = (channelId: string, input: SetChannelHiddenInput) =>
     serviceEffect(async (): Promise<ChannelView> => {
+      if (input.hidden) throw new ApiError(400, "hiding_removed", "Chats can no longer be hidden");
       const scope = `channel:${channelId}:hidden`;
       const requestHash = hashRequest(input);
       const existing = await this.prisma.idempotencyRecord.findUnique({

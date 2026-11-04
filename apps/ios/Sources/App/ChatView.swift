@@ -16,7 +16,6 @@ struct ChatView: View {
   let channel: Channel
   @State private var details = false
   @State private var replyFocusRequest = UUID()
-  @State private var duplicatedChannel: String?
   @State private var computerBot: Bot?
   @State private var timelineCache = ChatTimelineCache()
   @State private var modals = MessageModalPresenter()
@@ -161,15 +160,9 @@ struct ChatView: View {
     .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
     .toolbar(.hidden, for: .navigationBar).background(NativeBackGesture().frame(width: 0, height: 0))
     .navigationDestination(isPresented: $details) {
-      ConversationDetails(channelID: channel.id, onDuplicate: { duplicatedChannel = $0 })
+      ConversationDetails(channelID: channel.id)
     }
     .navigationDestination(item: $exchange) { peer in BotExchangeView(channel: channel, peer: peer) }
-    .onChange(of: details) { _, presented in
-      if !presented, let id = duplicatedChannel {
-        duplicatedChannel = nil
-        Task { await store.open(id) }
-      }
-    }
     .messageModalHost(modals)
     .fullScreenCover(item: $computerBot) { bot in ComputerView(bot: bot) }
     .navigationDestination(item: $thread) { message in

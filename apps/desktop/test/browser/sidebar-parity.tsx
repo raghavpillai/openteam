@@ -75,7 +75,6 @@ function Fixture() {
           latestMessageByChannel={latest}
           activeRunByChannel={new Map()}
           activeTaskChannelIds={new Set()}
-          hiddenAgentCount={0}
           selectedId="channel-0"
           preferences={preferences}
           onPreloadSearch={noop}
@@ -83,13 +82,11 @@ function Fixture() {
           onSelect={noop}
           onNewBot={noop}
           onNewGroup={noop}
-          onOpenHiddenAgents={noop}
           onOpenPlugins={noop}
           onOpenSettings={noop}
           onBotAction={noop}
           onDeleteChannel={noop}
           onEditChannel={noop}
-          onHideChannel={noop}
         />
       </div>
     </TooltipProvider>

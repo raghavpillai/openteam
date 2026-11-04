@@ -37,7 +37,7 @@ export function channelViews<
     hasAvatar: Boolean(channel.avatarPath),
     directKey: channel.directKey,
     workingDirectory: channel.workingDirectory,
-    hiddenFromSidebar: channel.hiddenFromSidebar,
+    hiddenFromSidebar: channel.kind === "agent_dm",
     members: channel.members.map((member) => ({ botId: member.botId, ordinal: member.ordinal })),
     unreadCount:
       (unreadCounts.get(channel.id) ?? 0) +

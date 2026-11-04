@@ -40,7 +40,7 @@ struct HomeView: View {
   @AppStorage("sidebarWidth") private var draggedSidebarWidth: Double = 0
   @State private var dragStartWidth: CGFloat?
   @Environment(\.horizontalSizeClass) private var sizeClass
-  private var visible: [Channel] { store.channels.filter { !store.isHidden($0) } }
+  private var visible: [Channel] { store.channels.filter { $0.kind != "agent_dm" } }
   private var sections: [JSON] { store.sidebar["sections"].array }
   var body: some View {
     GeometryReader { geometry in
@@ -549,8 +549,7 @@ struct HomeView: View {
         ForEach(sorted) { channel in
           ConversationSwipeRow(
             pinned: store.pins.contains(channel.id),
-            pin: { Task { await store.togglePin(channel.id) } },
-            hide: { Task { await store.hide(channel, hidden: true) } }
+            pin: { Task { await store.togglePin(channel.id) } }
           ) {
             ConversationLink(id: channel.id) {
               ChannelRow(channel: channel, isSidebar: isSidebar).modifier(ZoomSource(id: channel.id, namespace: zoom))
@@ -600,9 +599,6 @@ struct HomeView: View {
           Task { await move(channel.id, to: section["id"].string) }
         }
       }
-    }
-    Button("Hide", systemImage: "eye.slash") {
-      Task { await store.hide(channel, hidden: true) }
     }
   }
   private func conversationPreview(_ channel: Channel) -> some View {
@@ -1216,7 +1212,7 @@ struct SearchView: View {
         if loading { LoadingOrb(label: "Searching").padding() }
         if let failure { InlineFailure(message: failure) { retryID += 1 }.padding() }
         if searchQuery.isEmpty {
-          ForEach(store.channels.filter { !store.isHidden($0) }) { channel in
+          ForEach(store.channels.filter { $0.kind != "agent_dm" }) { channel in
             Button {
               focused = false
               onSelect(channel.id, nil, nil)
@@ -1336,13 +1332,12 @@ struct SearchView: View {
 }
 
 /// The inbox is a free-scrolling stack, so List-only swipeActions cannot receive
-/// its gestures. Keep the same deliberate Pin/Hide actions as the RN inbox.
+/// its gestures. Allow pinning with a rightward swipe.
 private struct ConversationSwipeRow<Content: View>: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.canvasColor) private var canvas
   let pinned: Bool
   let pin: () -> Void
-  let hide: () -> Void
   @ViewBuilder let content: () -> Content
   @State private var offset: CGFloat = 0
   @State private var origin: CGFloat = 0
@@ -1353,8 +1348,6 @@ private struct ConversationSwipeRow<Content: View>: View {
         swipeButton(pinned ? "Unpin" : "Pin", "pin.fill", NativePalette.warning, action: pin)
           .opacity(offset > 0 ? 1 : 0).allowsHitTesting(offset > 0).accessibilityHidden(offset <= 0)
         Spacer()
-        swipeButton("Hide", "eye.slash", NativePalette.destructive, action: hide)
-          .opacity(offset < 0 ? 1 : 0).allowsHitTesting(offset < 0).accessibilityHidden(offset >= 0)
       }.padding(.horizontal, 8)
       content().background(canvas).offset(x: offset)
         .gesture(
@@ -1365,11 +1358,11 @@ private struct ConversationSwipeRow<Content: View>: View {
                 origin = offset
                 dragging = true
               }
-              offset = min(82, max(-82, origin + translation.width))
+              offset = min(82, max(0, origin + translation.width))
             },
             onEnded: { _, velocity, cancelled in
               dragging = false
-              let target: CGFloat = cancelled ? 0 : abs(offset) >= 40 ? (offset > 0 ? 76 : -76) : 0
+              let target: CGFloat = cancelled ? 0 : offset >= 40 ? 76 : 0
               withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { offset = target }
             }))
     }

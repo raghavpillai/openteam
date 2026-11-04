@@ -39,7 +39,6 @@ import type {
   CreateBotInput,
   CreateGroupInput,
   CreateRoutineInput,
-  DuplicateBotInput,
   InferenceProviderAuthSessionView,
   InferenceTestResult,
   MessageDeliveryStatusView,
@@ -517,11 +516,6 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         method: "POST",
         body: JSON.stringify(input),
         signal,
-      }),
-    duplicateBot: (botId: string, input: DuplicateBotInput) =>
-      transport.request<BotView>(`/api/v0/bots/${encodeURIComponent(botId)}/duplicate`, {
-        method: "POST",
-        body: JSON.stringify(input),
       }),
     updateBot: (botId: string, input: UpdateBotInput) =>
       transport.request<BotView>(`/api/v0/bots/${encodeURIComponent(botId)}`, {

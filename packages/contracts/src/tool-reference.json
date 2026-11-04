@@ -1783,10 +1783,6 @@
             "gray"
           ]
         },
-        "hidden_from_sidebar": {
-          "type": "boolean",
-          "description": "Hides your sidebar row; you stay reachable through Cmd-K and Hidden chats."
-        },
         "notify_on_updates": {
           "type": "boolean",
           "description": "The \"Notify me about this assistant\" toggle."

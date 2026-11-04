@@ -65,15 +65,15 @@ final class ShareDirectoryTests: XCTestCase {
     XCTAssertEqual(ShareDirectory.destinations(data).map(\.id), ["channel-research", "channel-build"])
   }
 
-  func testHiddenChatsAppearOnlyWhenSearchedForOrChosen() throws {
+  func testLegacyHiddenChatsRemainVisible() throws {
     var data = try bootstrap()
     data.bots[1].hiddenFromSidebar = true
     data.channels[2].hiddenFromSidebar = true
     let list = ShareDirectory.destinations(data)
-    XCTAssertEqual(ShareDirectory.visible(list, query: "", selected: []).map(\.id), ["channel-research"])
+    XCTAssertEqual(ShareDirectory.visible(list, query: "", selected: []).map(\.id), ["channel-research", "channel-ops", "channel-build"])
     XCTAssertEqual(
       ShareDirectory.visible(list, query: "", selected: ["channel-ops"]).map(\.id),
-      ["channel-research", "channel-ops"])
+      ["channel-research", "channel-ops", "channel-build"])
     XCTAssertEqual(ShareDirectory.visible(list, query: " build ", selected: []).map(\.id), ["channel-build"])
   }
 

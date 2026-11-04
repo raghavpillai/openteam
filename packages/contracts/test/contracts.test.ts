@@ -99,10 +99,8 @@ describe("API contracts", () => {
     expect(value).toEqual({ clientRequestId: "create-default-0001" });
   });
 
-  test("accepts hiding a bot from the sidebar", () => {
-    expect(Schema.decodeUnknownSync(UpdateBotInput)({ hiddenFromSidebar: true })).toEqual({
-      hiddenFromSidebar: true,
-    });
+  test("ignores the removed bot hiding setting", () => {
+    expect(Schema.decodeUnknownSync(UpdateBotInput)({ hiddenFromSidebar: true })).toEqual({});
   });
 
   test("rejects an empty message", () => {

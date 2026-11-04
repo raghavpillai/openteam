@@ -20,7 +20,7 @@ Each bot also has its own settings. Open the bot and select its name at the top 
 
 ## iPhone settings
 
-The iPhone app's **Settings → Model** lets you connect an AI provider and choose and test the model and reasoning effort for every bot on your server. These are the same settings as **Settings → Model** on desktop. Settings also covers voice notes, web providers, plugins, appearance, notifications, your account, and hidden conversations.
+The iPhone app's **Settings → Model** lets you connect an AI provider and choose and test the model and reasoning effort for every bot on your server. These are the same settings as **Settings → Model** on desktop. Settings also covers voice notes, web providers, plugins, appearance, notifications, and your account.
 
 **Settings → Server** shows browser network priority and a connection test, the connected server's version, activity and services, with **Manage devices** for its connected computers and a **View updates** link. The phone can manage browser network priority but cannot share its own connection. **Settings → Updates** contains server updates and a link to TestFlight for iOS app updates.
 

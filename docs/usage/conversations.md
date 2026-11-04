@@ -17,6 +17,14 @@ When a bot asks a question or needs information, it waits for your answer in the
 - **Dictate** instead of typing with [voice notes](../configuration/transcription.md).
 - **Search** messages, bots, groups, files, links, and routines. Press **⌘K** on macOS or **Ctrl+K** on Windows and Linux.
 
+## If a message doesn't send
+
+Check the outgoing message in its conversation. Desktop shows **Resend** and **Delete** beside a failed send; iPhone and iPad show **Not delivered** with **Retry**. **Delivery unconfirmed** means the app couldn't confirm whether the server accepted the message. Use the message's retry action to check or retry that send.
+
+On iPhone and iPad, **Queued messages** also lists pending sends and lets you discard them. If a conversation is no longer available, choose **Recover to a draft** and select another conversation to recover the message without sending it.
+
+An iOS message refresh failure keeps the last loaded messages visible and offers **Retry** in the conversation. A failed action doesn't by itself mean the app has disconnected from the server.
+
 ## Create a group chat
 
 Choose **New chat**, then **Create group chat**. Pick the bots, then send your first message. A group can have up to six bots.

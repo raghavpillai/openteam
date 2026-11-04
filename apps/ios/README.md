@@ -117,8 +117,10 @@ repository `output/`; they are not bundled with the app.
 
 Increment `release.json`'s build number before each TestFlight upload, keep its
 version in sync with this workspace's `package.json`, then regenerate the project.
-The tagged release workflow uses native Xcode archive/export on macOS. Its signing
-secrets and upload procedure are documented in [Releasing OpenTeam](../../.github/RELEASING.md).
+The v0.0.13 release candidate reserves build 63; source metadata does not establish
+a TestFlight upload or availability. Release archives and exports are built locally
+with Xcode on macOS. Follow [Releasing OpenTeam](../../.github/RELEASING.md) for
+release preparation and publication boundaries; tag pushes do not build releases.
 `ci-testflight.sh` is for an ephemeral CI runner, not a developer's personal keychain.
 Besides the app and notification profiles, it needs `IOS_SHARE_PROFILE_BASE64`.
 Uploading an archive does not establish Apple processing or tester availability.
@@ -213,7 +215,7 @@ only to a unique existing group; intents never create a group implicitly.
 **Settings → Siri and Spotlight** opts the connected account into on-device
 discovery and visible-message context. The named, protected Spotlight index holds
 at most 30 visible conversations, 20 messages per conversation, and 200 messages
-in total. Hidden/archived conversations, drafts, pending sends, Bot instructions,
+in total. Archived bots' conversations, drafts, pending sends, Bot instructions,
 and internal metadata are excluded. Index updates remove evicted entries and
 update changed content. Disabling discovery, signing out, re-authenticating, or
 changing accounts clears donated content. Saved entity identifiers include the

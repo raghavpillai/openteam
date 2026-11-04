@@ -51,6 +51,10 @@ Then sign in again. Don't reset your keychain or delete saved credentials to get
 2. Run `openteam doctor` to check your model provider. Sign-ins can expire and accounts can run out of quota. To reconnect, see [model providers](../configuration/models.md#check-the-connection).
 3. If the bot is working on your own computer, make sure the desktop app is open and connected.
 
+## Doctor reports a workspace permission problem
+
+`openteam doctor` checks workspace read, write, and delete access using the bot's identity in the computer container. In v0.0.13, the default probe identity is UID/GID 1000; configured `OPENTEAM_AGENT_UID` and `OPENTEAM_AGENT_GID` values take precedence. If an older CLI reports a failure while bots can use the workspace, update the CLI and rerun the check before changing permissions.
+
 ## The screen doesn't load
 
 - Run `openteam status` and check that the `computer` service is healthy.

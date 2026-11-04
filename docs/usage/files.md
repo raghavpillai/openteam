@@ -8,6 +8,8 @@ Use the attachment button in the message box to add up to **20 attachments** to 
 
 On iPhone or iPad, tap **+** and choose **Camera**, **Photos**, or **Files**. The photo tray lets you select photos and videos; **All Photos** opens the full library. Review the attachments in the message box and remove any you don't want before sending.
 
+After you send on iPhone or iPad, pending attachments appear in the outgoing message while they upload. Supported images and videos use local thumbnails; other files show a file preview. The pending message stays in the conversation until delivery is confirmed or you discard it. See [message delivery status](conversations.md#if-a-message-doesnt-send) if it fails or remains unconfirmed.
+
 The bot receives each attachment's filename and size, so you can refer to files by name. Large image collections may exceed what the model can see at once; the bot can still open the remaining attachments as files.
 
 Say which file to use and what you want back:

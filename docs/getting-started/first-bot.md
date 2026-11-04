@@ -36,6 +36,10 @@ Right-click a bot in the sidebar to **Pin**, **Rename Bot**, **Edit Profile**, o
 
 Give bots names that describe their role, such as Research, Operations, or Docs. This makes them easier to tell apart in the sidebar and in group chats.
 
+Bot hiding and duplication are no longer available on desktop or iOS. To add another bot, use **Create new Bot**. Bots and group chats hidden in earlier versions become visible again when the server is updated to v0.0.13; use **Pin** to keep the conversations you use most near the top.
+
+On desktop, the sidebar footer places your account avatar and display name beside **Connect apps**. Select your account to open account controls, or **Connect apps** to manage app connections. The iPad and iPhone Duo sidebar has matching account and app controls; selecting your account opens Settings.
+
 ## Next steps
 
 - Bring several bots together in a [group chat](../usage/conversations.md#create-a-group-chat).

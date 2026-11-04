@@ -2,28 +2,35 @@ import type { NetworkEgress, NetworkQuality } from "@openteam/contracts/browser-
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { nodeBinary } from "./node-runtime";
 
 export const browserProxyPort = Number(process.env.OPENTEAM_BROWSER_PROXY_PORT ?? 18791);
 if (!Number.isInteger(browserProxyPort) || browserProxyPort < 1024 || browserProxyPort > 65535)
   throw new Error("Invalid browser proxy port");
-export const managedBrowserNetworkArguments = (port = browserProxyPort) => [
-  `--proxy-server=socks5://127.0.0.1:${port}`,
-  "--proxy-bypass-list=<-loopback>",
-  "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
-  "--disable-quic",
-  "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-  "--webrtc-ip-handling-policy=disable_non_proxied_udp",
-  "--disable-extensions",
-];
+export const managedBrowserNetworkArguments = (port = browserProxyPort) =>
+  process.env.OPENTEAM_COMPUTER_NETWORK === "1"
+    ? ["--disable-quic", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"]
+    : [
+        `--proxy-server=socks5://127.0.0.1:${port}`,
+        "--proxy-bypass-list=<-loopback>",
+        "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
+        "--disable-quic",
+        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+        "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+        "--disable-extensions",
+      ];
 
 export async function startBrowserNetwork(serverUrl: string, token: string) {
+  const computerNetwork = process.env.OPENTEAM_COMPUTER_NETWORK === "1";
+  if (computerNetwork && !existsSync("/run/openteam-network-ready"))
+    throw new Error("Computer network routing is not initialized");
   // Use the image's Node runtime for TCP streams. Bun versions in existing images
   // can discard pending TCP bytes on half-close; browser downloads must not depend on it.
   let child: ChildProcess | undefined,
     stopping = false,
-    retry: ReturnType<typeof setTimeout> | undefined;
+    retry: ReturnType<typeof setTimeout> | undefined,
+    tun: ChildProcess | undefined;
   type Diagnostic = NetworkEgress | NetworkQuality;
   const probes = new Map<
     string,
@@ -47,19 +54,63 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
     for (const kind of probes.keys()) failProbe(kind);
   };
   let state = { ready: false, mode: null as string | null, activeConnections: 0 };
-  const launch = () =>
-    new Promise<void>((resolve, reject) => {
+  const ensureTun = async () => {
+    if (!computerNetwork) return;
+    if (!tun || tun.exitCode !== null || tun.signalCode !== null || !tun.pid) {
+      tun = spawn(
+        "/usr/lib/openteam/bin/tun2socks",
+        [
+          "--device",
+          "tun://openteam0",
+          "--proxy",
+          `socks5://127.0.0.1:${browserProxyPort}`,
+          "--mtu",
+          "1500",
+          "--loglevel",
+          "error",
+        ],
+        { env: { PATH: process.env.PATH }, stdio: "ignore" }
+      );
+      tun.once("error", () => {});
+      tun.once("exit", () => {
+        state = { ready: false, mode: null, activeConnections: 0 };
+        // Withdraw the applied route/lease as soon as the data path disappears.
+        // The worker's exit handler restarts both paths, in order.
+        child?.kill();
+      });
+    }
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (stopping || !tun.pid || tun.exitCode !== null || tun.signalCode !== null) break;
+      try {
+        if (readFileSync("/sys/class/net/openteam0/carrier", "utf8").trim() === "1") return;
+      } catch {
+        /* A persistent but detached TUN reports no carrier. */
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    tun.kill();
+    throw new Error("Computer network interface did not become ready");
+  };
+  const launch = async () => {
+    await ensureTun();
+    return new Promise<void>((resolve, reject) => {
       const adjacent = join(import.meta.dirname, "browser-network-worker.mjs");
       const workerPath = existsSync(adjacent)
         ? adjacent
         : join(import.meta.dirname, "../dist/browser-network-worker.mjs");
       const worker = spawn(nodeBinary(), [workerPath], {
-        env: { PATH: process.env.PATH },
+        env: {
+          PATH: process.env.PATH,
+          ...(computerNetwork ? { LD_PRELOAD: "/usr/lib/openteam/lib/network-mark.so" } : {}),
+        },
         stdio: ["pipe", "pipe", "pipe"],
       });
       child = worker;
       // Keeping stdin open also ties the worker's lifetime to the gateway, even on SIGKILL.
-      worker.stdin!.write(JSON.stringify({ serverUrl, token, port: browserProxyPort }) + "\n");
+      worker.stdin!.on("error", () => {});
+      worker.stdin!.write(
+        JSON.stringify({ serverUrl, token, port: browserProxyPort, computerNetwork }) + "\n"
+      );
       let pending = "",
         started = false;
       const timeout = setTimeout(() => {
@@ -113,12 +164,32 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
         state = { ready: false, mode: null, activeConnections: 0 };
         if (!started) reject(new Error("Browser network worker exited before startup"));
         if (!stopping) {
-          retry = setTimeout(() => void launch().catch(() => {}), 3000);
+          retry = setTimeout(() => void restart(), 3000);
           retry.unref();
         }
       });
     });
-  await launch();
+  };
+  const restart = async () => {
+    if (stopping) return;
+    try {
+      await launch();
+    } catch {
+      if (!stopping) {
+        clearTimeout(retry);
+        retry = setTimeout(() => void restart(), 3000);
+        retry.unref();
+      }
+    }
+  };
+  try {
+    await launch();
+  } catch (error) {
+    stopping = true;
+    tun?.kill();
+    child?.kill();
+    throw error;
+  }
   const diagnostic = <T extends Diagnostic>(kind: "egress" | "quality"): Promise<T> => {
     const existing = probes.get(kind);
     if (existing) return existing.promise as Promise<T>;
@@ -145,13 +216,19 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
     return promise as Promise<T>;
   };
   return {
-    status: () => state,
+    status: () => ({
+      ...state,
+      ready:
+        state.ready &&
+        (!computerNetwork || (!!tun?.pid && tun.exitCode === null && tun.signalCode === null)),
+    }),
     egress: () => diagnostic<NetworkEgress>("egress"),
     quality: () => diagnostic<NetworkQuality>("quality"),
     close: async () => {
       stopping = true;
       failProbes();
       clearTimeout(retry);
+      tun?.kill();
       const worker = child;
       if (!worker || worker.exitCode !== null) return;
       await new Promise<void>((resolve) => {

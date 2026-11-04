@@ -4,6 +4,22 @@ Status: feature implemented in `feat/connected-device-browser-network`; the deta
 
 Date: October 31, 2026.
 
+## Computer-wide routing — November 4, 2026
+
+This change supersedes the browser-only scope in the historical design below. The source selection and ranked fallback policy now apply to the entire bot computer container: every desktop, dock launcher, shell, installed application, and root/sudo command. The Azure host and the server/database containers retain their own networks. Administrators inside the computer can still deliberately change kernel networking; this is a routing default, not an administrator isolation boundary.
+
+The production computer image enables `OPENTEAM_COMPUTER_NETWORK=1`. Before starting applications, the entrypoint installs an atomic nftables policy and creates a persistent `openteam0` TUN. Both IPv4 and IPv6 use a separate routing table with an unreachable default behind the TUN route, so losing the process or interface cannot expose the Docker default route. Applications receive no special proxy environment or browser flags. A pinned tun2socks v2.6.0 binary translates TCP to the existing loopback SOCKS gateway and leased, epoch-fenced relay. Public TCP ports are supported; private destinations remain blocked at the device. Updating the provider desktop is necessary to enable ports beyond 80/443 on older providers.
+
+Only the relay worker loads the socket-mark library. Its transport sockets use the original underlay; UID alone never grants an exemption. Supervisor and application traffic, including root commands, use the TUN. The exact management destination/port and replies to incoming management/VNC connections retain underlay routes, keeping the UI and reconnect path reachable. The management hostname is resolved and pinned for the container lifetime; recreate the computer if that endpoint's address changes. The supervisor waits for TUN carrier before starting the relay and withdraws the channel if the TUN process dies. Routing/firewall rules persist through all process failures.
+
+UDP and TCP port 53 are redirected before Docker's DNS NAT rules to a bounded loopback DNS service. It sends DNS wire messages over certificate-verified HTTPS to Cloudflare's literal bootstrap address `1.1.1.1:443`, through the selected leased route, with no system resolver fallback. Other outgoing UDP and unsupported protocols are rejected. IPv6 TCP is forwarded through the same route; if the selected exit has no IPv6, that connection fails instead of using Azure. This version does not support UDP applications or ICMP ping.
+
+Exit IP and connection quality probes run in a child without the relay socket mark, using ordinary DNS/TCP just like applications. In-flight results are fenced on route changes. Settings call this **Computer network**, and the sharing consent describes all applications and public TCP connections. Existing API paths retain their `browser-network` names for compatibility. In a source-only development runtime without container enforcement, the previous managed-browser proxy remains available; that mode does not claim computer-wide routing.
+
+Run `OPENTEAM_TEST_DOCKER_CONTEXT=<disposable-context> bun run test:computer-network:linux` for isolated Linux checks of startup blocking, root/user/sudo routing, ordinary and hardcoded UDP/TCP DNS, IPv6, physical-interface bypass, unsupported UDP, process death, interface removal, and surviving management connectivity. It creates no published ports or host mounts, uses no app credentials, and removes its containers and networks after the run.
+
+References: [Linux TUN devices](https://docs.kernel.org/networking/tuntap.html), [tun2socks routing](https://github.com/xjasonlyu/tun2socks/wiki/Examples), [Linux socket marks](https://man7.org/linux/man-pages/man7/socket.7.html).
+
 ## Implementation notes — November 1, 2026
 
 Implemented: authenticated outbound device/computer channels; bounded multiplexed TCP streams; SOCKS5 browser gateway; explicit deployment-wide selection; local desktop consent; public-address and port restrictions; monotonic challenge-bound leases; epoch fencing; source revocation/reconnect; settings, provider status and browser indicator; persisted selection with conditional revisions; and a separately bundled Node worker for the computer's TCP path. The existing image already contains Node. Using it avoids pending-byte loss during TCP half-close in the locally installed Bun version.

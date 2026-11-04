@@ -25,6 +25,9 @@ umask 0022
 # computer or helper. They do not launch desktops and must remain usable.
 if [ "${1:-}" = /usr/lib/openteam/bin/bun ] && [ "${2:-}" = /app/apps/computer/dist/main.js ]; then
   /usr/bin/python3 -I -S /usr/lib/openteam/bin/openteam-memory-setup.py
+  if [ "${OPENTEAM_COMPUTER_NETWORK:-}" = 1 ]; then
+    /usr/bin/python3 -I -S /usr/lib/openteam/bin/openteam-computer-network.py "${OPENTEAM_SERVER_URL:-http://server:8787}"
+  fi
 fi
 
 mkdir -p "$agent_dir"

@@ -101,11 +101,10 @@ describe("browser network protocol and desktop policy", () => {
       )
     ).rejects.toThrow("destination_blocked");
     await expect(
-      dialTarget(
-        { host: "example.com", port: 22, epoch: "e" },
-        new AbortController().signal,
-        options
-      )
+      dialTarget({ host: "example.com", port: 22, epoch: "e" }, new AbortController().signal, {
+        ...options,
+        ports: [80, 443],
+      })
     ).rejects.toThrow("port_blocked");
     const cancelled = new AbortController();
     cancelled.abort();
@@ -156,5 +155,26 @@ describe("browser network protocol and desktop policy", () => {
     expect(resolved).toBe(1);
     expect(pinned).toBe("8.8.8.8");
     socket.destroy();
+  });
+  test("computer routing allows public TCP ports beyond web traffic", async () => {
+    for (const port of [22, 993, 5432]) {
+      let dialed = 0;
+      const socket = await dialTarget(
+        { host: "8.8.8.8", port, epoch: "computer" },
+        new AbortController().signal,
+        {
+          publicOnly: true,
+          dial: (options: any) => {
+            dialed = options.port;
+            const socket = new EventEmitter() as any;
+            socket.destroy = () => {};
+            queueMicrotask(() => socket.emit("connect"));
+            return socket;
+          },
+        } as any
+      );
+      expect(dialed).toBe(port);
+      socket.destroy();
+    }
   });
 });

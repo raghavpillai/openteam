@@ -57,7 +57,7 @@ export async function dialTarget(
   const timeout = AbortSignal.timeout(15_000);
   const life = AbortSignal.any([signal, timeout]);
   life.throwIfAborted();
-  if (options.publicOnly && !(options.ports ?? [80, 443]).includes(target.port))
+  if (options.publicOnly && options.ports && !options.ports.includes(target.port))
     throw new NetworkError("port_blocked");
   const host = options.publicOnly ? canonicalHost(target.host) : target.host;
   let addresses: Array<{ address: string; family: number }>;

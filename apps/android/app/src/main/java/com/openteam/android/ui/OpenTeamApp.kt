@@ -4,7 +4,6 @@ package com.openteam.android.ui
 
 import android.Manifest
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.webkit.WebView
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -103,7 +102,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -141,6 +139,7 @@ import com.openteam.features.ReactionState
 import com.openteam.features.ReactionsAndActionsRow
 import com.openteam.features.RichMessageCardScreen
 import com.openteam.features.ChatAttachmentStrip
+import com.openteam.features.rememberDecodedBitmap
 import com.openteam.features.MarkdownMessage
 import com.openteam.features.PluginsScreen
 import com.openteam.features.ProviderSettingsScreen
@@ -2813,7 +2812,7 @@ private fun AttachmentGalleryDialog(
         mutableStateOf(attachments.indexOfFirst { it.id == initialId }.coerceAtLeast(0))
     }
     val current = attachments.getOrNull(index) ?: return
-    val bitmap = current.localUri?.let(BitmapFactory::decodeFile)
+    val bitmap = rememberDecodedBitmap(current.localUri, maxSizePx = 2048)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -2823,7 +2822,7 @@ private fun AttachmentGalleryDialog(
                 }
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     if (bitmap != null) {
-                        Image(bitmap.asImageBitmap(), current.alt ?: current.name, Modifier.fillMaxWidth())
+                        Image(bitmap, current.alt ?: current.name, Modifier.fillMaxWidth())
                     } else {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(current.mimeType.ifBlank { "Document" }, color = Color.White)

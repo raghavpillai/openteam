@@ -53,14 +53,18 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -285,6 +289,29 @@ fun AttachmentGalleryScreen(
     }
 }
 
+/**
+ * Decodes a local image off the main thread, downsampled to roughly [maxSizePx] on its longest
+ * edge. Full-size synchronous decodes during composition dropped frames while scrolling chats.
+ */
+@Composable
+fun rememberDecodedBitmap(path: String?, maxSizePx: Int): ImageBitmap? {
+    val bitmap by produceState<ImageBitmap?>(null, path, maxSizePx) {
+        value = path?.let { file ->
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(file, bounds)
+                    var sample = 1
+                    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSizePx) sample *= 2
+                    BitmapFactory.decodeFile(file, BitmapFactory.Options().apply { inSampleSize = sample })
+                        ?.asImageBitmap()
+                }.getOrNull()
+            }
+        }
+    }
+    return bitmap
+}
+
 @Composable
 fun ChatAttachmentStrip(
     attachments: List<Attachment>,
@@ -299,9 +326,9 @@ fun ChatAttachmentStrip(
             Card(Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     val localPath = attachment.localUri
-                    val bitmap = remember(localPath) { localPath?.let { BitmapFactory.decodeFile(it) } }
+                    val bitmap = rememberDecodedBitmap(localPath, maxSizePx = 256)
                     if (bitmap != null) {
-                        Image(bitmap.asImageBitmap(), contentDescription = attachment.alt ?: attachment.name, modifier = Modifier.size(52.dp))
+                        Image(bitmap, contentDescription = attachment.alt ?: attachment.name, modifier = Modifier.size(52.dp))
                     }
                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
                         Text(attachment.name, fontWeight = FontWeight.Medium)

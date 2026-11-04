@@ -6,6 +6,7 @@ import ipaddr from "ipaddr.js";
 export function createBrowserProxy(open: (host: string, port: number) => Promise<Duplex>) {
   const clients = new Set<Socket>();
   const server = createServer({ allowHalfOpen: true }, (client) => {
+    client.setNoDelay(true);
     clients.add(client);
     if (clients.size > 80) {
       client.destroy();

@@ -193,3 +193,21 @@ test("chaos: a backward wall-clock adjustment cannot keep stream admission rate-
     mux.close();
   }
 });
+
+test("negotiated windows preserve credit bounds and cannot change on active streams", () => {
+  const { mux, closed } = fixture();
+  mux.configureWindow(WINDOW * 2);
+  const stream = mux.open({ host: "example.com", port: 443, epoch: "large" });
+  mux.receive(encodeFrame(FrameType.Ready, stream.id));
+  for (let i = 0; i < 4; i++)
+    mux.receive(encodeFrame(FrameType.Data, stream.id, new Uint8Array(MAX_DATA)));
+  expect(stream.readableLength).toBe(WINDOW * 2);
+  expect(closed()).toBe(false);
+  expect(() => mux.configureWindow(WINDOW)).toThrow("active route");
+  mux.receive(encodeFrame(FrameType.Data, stream.id, new Uint8Array(1)));
+  expect(closed()).toBe(true);
+  const fresh = fixture();
+  for (const value of [0, WINDOW + 1, WINDOW * 4, NaN])
+    expect(() => fresh.mux.configureWindow(value)).toThrow();
+  fresh.mux.close();
+});

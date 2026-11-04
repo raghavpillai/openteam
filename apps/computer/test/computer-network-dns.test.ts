@@ -102,3 +102,64 @@ test("DNS deadlines include opening the tunnel and dispose of a late socket", as
   await Bun.sleep(5);
   expect(destroyed).toBe(true);
 }, 7000);
+
+test("Node DNS reuses bounded TLS, fences epochs, cancels queued/late dials and never replays", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const directory = await mkdtemp(join(tmpdir(), "openteam-dns-pool-"));
+  try {
+    const cert = join(directory, "cert.pem"),
+      key = join(directory, "key.pem");
+    const ssl = Bun.spawn(
+      [
+        "openssl",
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        key,
+        "-out",
+        cert,
+        "-days",
+        "1",
+        "-subj",
+        "/CN=cloudflare-dns.com",
+        "-addext",
+        "subjectAltName=DNS:cloudflare-dns.com",
+      ],
+      { stdout: "ignore", stderr: "ignore" }
+    );
+    expect(await ssl.exited).toBe(0);
+    const bundle = join(directory, "fixture.mjs");
+    const build = Bun.spawn(
+      [
+        process.execPath,
+        "build",
+        join(import.meta.dirname, "computer-network-dns-node.fixture.ts"),
+        "--target",
+        "node",
+        "--outfile",
+        bundle,
+      ],
+      { stdout: "ignore", stderr: "inherit" }
+    );
+    expect(await build.exited).toBe(0);
+    const run = Bun.spawn(["node", bundle, cert, key], {
+      env: { ...process.env, NODE_EXTRA_CA_CERTS: cert },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(run.stdout).text(),
+      new Response(run.stderr).text(),
+      run.exited,
+    ]);
+    if (code !== 0) throw new Error(stderr || stdout);
+    expect(JSON.parse(stdout).passed).toBe(true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 10000);

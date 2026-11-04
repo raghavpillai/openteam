@@ -112,12 +112,24 @@ if (process.argv[2] === "discovery") {
     process.env.UPSTREAM_SOCKS
       ? createDnsExchange({ open })
       : async (query) => {
-          const answer = Buffer.from(query);
+          // Keep only the question before appending answers. Host resolvers
+          // may add EDNS OPT records; retaining those after clearing ARCOUNT
+          // makes a synthetic reply malformed on those Docker hosts.
+          let end = 12;
+          while (query[end]) {
+            const length = query[end]!;
+            if (length > 63 || end + length + 1 >= query.length)
+              throw new Error("Invalid question");
+            end += length + 1;
+          }
+          end += 5;
+          if (end > query.length) throw new Error("Invalid question");
+          const answer = Buffer.from(query.subarray(0, end));
           answer[2] = 0x81;
           answer[3] = 0x80;
           answer.writeUInt16BE(0, 8);
           answer.writeUInt16BE(0, 10);
-          const kind = query.readUInt16BE(query.length - 4);
+          const kind = query.readUInt16BE(end - 4);
           answer.writeUInt16BE(kind === 1 ? 1 : 0, 6);
           if (kind !== 1) return answer;
           const record = Buffer.from([

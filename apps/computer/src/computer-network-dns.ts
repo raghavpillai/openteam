@@ -6,87 +6,209 @@ import type { Duplex } from "node:stream";
 
 /** DNS wire messages travel over HTTPS through the same leased exit as TCP.
  * No system lookup or direct fallback is performed, including on timeout. */
-export function createDnsExchange(client: { open(host: string, port: number): Promise<Duplex> }) {
-  return async (query: Buffer): Promise<Buffer> => {
-    if (query.length < 12 || query.length > 4096 || query[2]! & 0x80 || query.readUInt16BE(4) !== 1)
-      throw new Error("Invalid DNS query");
-    let raw: Duplex | undefined;
-    let agent: Agent | undefined;
-    let expired = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        expired = true;
-        raw?.destroy(new Error("DNS timeout"));
-        agent?.destroy();
-        reject(new Error("DNS timeout"));
-      }, 5000);
-    });
-    try {
-      const exchange = async () => {
-        // Literal bootstrap address avoids resolving the resolver through itself.
-        raw = await client.open("1.1.1.1", 443);
-        if (expired) {
-          raw.destroy();
-          throw new Error("DNS timeout");
-        }
-        agent = new Agent({ keepAlive: false });
-        agent.createConnection = () => connect({ socket: raw!, servername: "cloudflare-dns.com" });
-        return await new Promise<Buffer>((resolve, reject) => {
-          const req = request(
-            {
-              hostname: "cloudflare-dns.com",
-              path: "/dns-query",
-              method: "POST",
-              agent,
-              headers: {
-                "content-type": "application/dns-message",
-                accept: "application/dns-message",
-                "content-length": query.length,
-              },
-            },
-            (response) => {
-              if (
-                response.statusCode !== 200 ||
-                !response.headers["content-type"]?.startsWith("application/dns-message")
-              ) {
-                response.destroy();
-                reject(new Error("DNS unavailable"));
-                return;
-              }
-              const chunks: Buffer[] = [];
-              let length = 0;
-              response.on("data", (chunk: Buffer) => {
-                length += chunk.length;
-                if (length > 65535) response.destroy(new Error("DNS response too large"));
-                else chunks.push(chunk);
-              });
-              response.on("error", reject);
-              response.on("aborted", () => reject(new Error("DNS interrupted")));
-              response.on("end", () => {
-                const result = Buffer.concat(chunks);
-                if (
-                  result.length < 12 ||
-                  result.readUInt16BE(0) !== query.readUInt16BE(0) ||
-                  !(result[2]! & 0x80)
-                )
-                  reject(new Error("Invalid DNS response"));
-                else resolve(result);
-              });
-            }
-          );
-          req.on("error", reject);
-          req.end(query);
-        });
-      };
-      return await Promise.race([exchange(), deadline]);
-    } finally {
-      expired = true;
-      clearTimeout(timer);
-      agent?.destroy();
-      raw?.destroy();
+export function createDnsExchange(
+  client: { open(host: string, port: number, signal?: AbortSignal): Promise<Duplex> },
+  options: { routeKey?: () => string | null; timeoutMs?: number } = {}
+) {
+  type Job = {
+    query: Buffer;
+    resolve: (result: Buffer) => void;
+    reject: (error: Error) => void;
+    controller: AbortController;
+    timer?: ReturnType<typeof setTimeout>;
+    request?: ReturnType<typeof request>;
+    slot?: Slot;
+    done: boolean;
+  };
+  type Slot = { agent: Agent; job?: Job; raw?: Duplex; socket?: Duplex };
+  type Pool = { key: string; slots: Slot[]; jobs: Set<Job>; queue: Job[]; closed: boolean };
+  let pool: Pool | undefined,
+    closed = false;
+  const routeKey = options.routeKey ?? (() => "selected-route");
+  const timeoutMs = options.timeoutMs ?? 5000;
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000)
+    throw new Error("Invalid DNS deadline");
+
+  const agentFor = (owner: Pool, slot: Slot) => {
+    const agent = new Agent({ keepAlive: true, maxSockets: 1, maxFreeSockets: 1, timeout: 10_000 });
+    agent.createConnection = () => {
+      // Always return a prepared TLS socket synchronously. An undefined return
+      // can make alternate HTTP runtimes open their own direct connection.
+      const raw = slot.raw;
+      slot.raw = undefined;
+      if (!raw || owner.closed || slot.job?.done || routeKey() !== owner.key) {
+        raw?.destroy();
+        throw new Error("DNS connection unavailable");
+      }
+      const socket = connect({ socket: raw, servername: "cloudflare-dns.com" });
+      slot.socket = socket;
+      return socket;
+    };
+    return agent;
+  };
+  const finish = (owner: Pool, job: Job, error?: Error, result?: Buffer) => {
+    if (job.done) return;
+    job.done = true;
+    clearTimeout(job.timer);
+    owner.jobs.delete(job);
+    const queued = owner.queue.indexOf(job);
+    if (queued >= 0) owner.queue.splice(queued, 1);
+    if (error) {
+      job.controller.abort();
+      job.request?.destroy(error);
+      job.slot?.agent.destroy();
+      job.slot?.raw?.destroy();
+      job.slot?.socket?.destroy();
+    }
+    if (job.slot) {
+      const slot = job.slot;
+      slot.job = undefined;
+      if (error && !owner.closed) slot.agent = agentFor(owner, slot);
+    }
+    error ? job.reject(error) : job.resolve(result!);
+    pump(owner);
+  };
+  const dispose = (owner: Pool) => {
+    owner.closed = true;
+    for (const slot of owner.slots) {
+      slot.agent.destroy();
+      slot.raw?.destroy();
+      slot.socket?.destroy();
+    }
+    for (const job of [...owner.jobs]) finish(owner, job, new Error("DNS route changed"));
+  };
+  const syncRoute = () => {
+    if (pool && pool.key !== routeKey()) {
+      dispose(pool);
+      pool = undefined;
     }
   };
+  const pump = (owner: Pool) => {
+    if (owner.closed) return;
+    for (const slot of owner.slots) {
+      if (slot.job || !owner.queue.length) continue;
+      const job = owner.queue.shift()!;
+      slot.job = job;
+      job.slot = slot;
+      if (routeKey() !== owner.key) {
+        dispose(owner);
+        return;
+      }
+      void (async () => {
+        if (!slot.socket || slot.socket.destroyed) {
+          const raw = await client.open("1.1.1.1", 443, job.controller.signal);
+          if (job.done || owner.closed || routeKey() !== owner.key) {
+            raw.destroy();
+            if (!job.done) dispose(owner);
+            return;
+          }
+          slot.raw = raw;
+        }
+        const req = request(
+          {
+            hostname: "cloudflare-dns.com",
+            path: "/dns-query",
+            method: "POST",
+            agent: slot.agent,
+            headers: {
+              "content-type": "application/dns-message",
+              accept: "application/dns-message",
+              "content-length": job.query.length,
+            },
+          },
+          (response) => {
+            if (job.done) {
+              response.destroy();
+              return;
+            }
+            if (
+              response.statusCode !== 200 ||
+              !response.headers["content-type"]?.startsWith("application/dns-message") ||
+              (response.headers["content-encoding"] &&
+                response.headers["content-encoding"] !== "identity")
+            ) {
+              response.destroy();
+              finish(owner, job, new Error("DNS unavailable"));
+              return;
+            }
+            const chunks: Buffer[] = [];
+            let length = 0;
+            response.on("data", (chunk: Buffer) => {
+              length += chunk.length;
+              if (length > 65535) response.destroy(new Error("DNS response too large"));
+              else chunks.push(chunk);
+            });
+            response.on("error", (error) => finish(owner, job, error));
+            response.on("aborted", () => finish(owner, job, new Error("DNS interrupted")));
+            response.on("end", () => {
+              if (job.done) return;
+              const result = Buffer.concat(chunks);
+              if (
+                result.length < 12 ||
+                result.readUInt16BE(0) !== job.query.readUInt16BE(0) ||
+                !(result[2]! & 0x80)
+              )
+                finish(owner, job, new Error("Invalid DNS response"));
+              else if (routeKey() !== owner.key) {
+                dispose(owner);
+              } else {
+                if (response.headers.connection?.toLowerCase() === "close") {
+                  slot.agent.destroy();
+                  slot.socket?.destroy();
+                  slot.socket = undefined;
+                  slot.agent = agentFor(owner, slot);
+                }
+                finish(owner, job, undefined, result);
+              }
+            });
+          }
+        );
+        job.request = req;
+        req.on("error", (error) => finish(owner, job, error));
+        req.end(job.query);
+      })().catch((error) =>
+        finish(owner, job, error instanceof Error ? error : new Error("DNS unavailable"))
+      );
+    }
+  };
+  const exchange = (query: Buffer): Promise<Buffer> => {
+    if (query.length < 12 || query.length > 4096 || query[2]! & 0x80 || query.readUInt16BE(4) !== 1)
+      return Promise.reject(new Error("Invalid DNS query"));
+    syncRoute();
+    const key = routeKey();
+    if (closed || !key) return Promise.reject(new Error("DNS route unavailable"));
+    if (!pool) {
+      pool = { key, slots: [], jobs: new Set(), queue: [], closed: false };
+      for (let i = 0; i < 2; i++) {
+        const slot = {} as Slot;
+        slot.agent = agentFor(pool, slot);
+        pool.slots.push(slot);
+      }
+    }
+    const owner = pool;
+    if (owner.jobs.size >= 64) return Promise.reject(new Error("DNS capacity exceeded"));
+    return new Promise((resolve, reject) => {
+      const job: Job = {
+        query: Buffer.from(query),
+        resolve,
+        reject,
+        controller: new AbortController(),
+        done: false,
+      };
+      owner.jobs.add(job);
+      owner.queue.push(job);
+      // Includes queueing and tunnel establishment; a timed-out dial is cancelled.
+      job.timer = setTimeout(() => finish(owner, job, new Error("DNS timeout")), timeoutMs);
+      pump(owner);
+    });
+  };
+  exchange.syncRoute = syncRoute;
+  exchange.close = () => {
+    closed = true;
+    if (pool) dispose(pool);
+    pool = undefined;
+  };
+  return exchange;
 }
 
 export function dnsFailure(query: Buffer): Buffer {

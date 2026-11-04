@@ -4,6 +4,11 @@ export const LEASE_MS = 6_000;
 export const RENEW_MS = 2_000;
 export const MAX_STREAMS = 64;
 export const WINDOW = 128 * 1024;
+// v1 peers without a capability advertisement retain the original window.
+export const MAX_WINDOW = 256 * 1024;
+export const RECONNECT_MAX_MS = 4_000;
+export const validWindow = (value: unknown): value is number =>
+  value === WINDOW || value === MAX_WINDOW;
 export const MAX_DATA = 64 * 1024;
 export const MAX_QUEUE = 16 * 1024 * 1024;
 export const enum FrameType {
@@ -76,6 +81,7 @@ export interface NetworkRoute extends Omit<NetworkSettings, "mode"> {
   mode: "server" | "device";
   epoch: string;
   available: boolean;
+  streamWindow?: number;
 }
 export interface NetworkSettingsUpdate {
   expectedRevision: number;

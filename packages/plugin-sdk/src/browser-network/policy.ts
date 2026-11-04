@@ -87,6 +87,7 @@ export async function dialTarget(
           family: address.family,
           port: target.port,
           allowHalfOpen: true,
+          noDelay: true,
         });
         const attempt = AbortSignal.any([life, AbortSignal.timeout(3_000)]);
         const abort = () => socket.destroy(new NetworkError("connect_timeout"));

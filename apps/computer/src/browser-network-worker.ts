@@ -37,6 +37,7 @@ const config = JSON.parse(input) as {
 };
 const diagnostics = new Set<AbortController>();
 let diagnosticEpoch: string | undefined;
+let dnsExchange: ReturnType<typeof createDnsExchange> | undefined;
 const url = new URL(
   `${config.serverUrl.replace(/\/$/, "")}/api/v0/internal/browser-network/channel`
 );
@@ -46,6 +47,7 @@ const client: BrowserNetworkClient = new BrowserNetworkClient({
   url: url.href,
   headers: { authorization: `Bearer ${config.token}` },
   changed: () => {
+    dnsExchange?.syncRoute();
     const epoch = client.available() ? client.route?.epoch : undefined;
     if (epoch !== diagnosticEpoch) {
       diagnosticEpoch = epoch;
@@ -56,7 +58,12 @@ const client: BrowserNetworkClient = new BrowserNetworkClient({
 });
 const proxy = createBrowserProxy((host, port) => client.open(host, port));
 const port = await proxy.listen(config.port);
-const dns = config.computerNetwork ? await startComputerDns(createDnsExchange(client)) : undefined;
+dnsExchange = config.computerNetwork
+  ? createDnsExchange(client, {
+      routeKey: () => (client.available() ? (client.route?.epoch ?? null) : null),
+    })
+  : undefined;
+const dns = dnsExchange ? await startComputerDns(dnsExchange) : undefined;
 const management = config.computerNetwork
   ? startManagementDiscovery(config.serverUrl, () => client.start())
   : undefined;
@@ -137,6 +144,7 @@ shutdown = () => {
   management?.stop();
   for (const diagnostic of diagnostics) diagnostic.abort();
   dns?.close();
+  dnsExchange?.close();
   client.stop();
   void proxy.close().then(() => process.exit(0));
 };

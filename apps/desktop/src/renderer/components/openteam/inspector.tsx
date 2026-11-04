@@ -1,5 +1,5 @@
 import type { BotView, ChannelView, UpdateBotInput } from "@openteam/contracts";
-import { CopyPlus, Plus, Share, Trash2, X } from "lucide-react";
+import { Plus, Share, Trash2, X } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertDialog,
@@ -64,7 +64,7 @@ const draftOf = (bot: BotView): ProfileDraft => ({
 });
 
 /** Bot actions that live in the sidebar's menu too; Settings reuses the same handlers. */
-export type BotSettingsAction = "duplicate" | "delete";
+export type BotSettingsAction = "delete";
 
 const settingsAction =
   "flex h-9 w-full items-center gap-2 rounded-[9px] px-2 text-left text-[13px] outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring/25 disabled:pointer-events-none disabled:opacity-45";
@@ -291,10 +291,6 @@ function BotSettings({
         )}
         {onAction ? (
           <>
-            <button className={settingsAction} onClick={() => onAction("duplicate")} type="button">
-              <CopyPlus className="size-4 text-foreground-secondary" strokeWidth={1.7} />
-              Duplicate bot
-            </button>
             <button
               className={`${settingsAction} text-destructive`}
               onClick={() => onAction("delete")}

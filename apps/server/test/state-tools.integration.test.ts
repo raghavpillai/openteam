@@ -79,21 +79,21 @@ databaseTest("each state tool updates its fixed target and names itself in error
     });
 
     // Profile and settings are one tool; each half is its own idempotent update.
-    const profileArgs = { name: "Renamed state bot", title: "Designer", hidden_from_sidebar: true, notify_on_updates: false };
+    const profileArgs = { name: "Renamed state bot", title: "Designer", notify_on_updates: false };
     const profile = await call("UpdateProfile", profileArgs, "profile-call");
     expect(profile).toMatchObject({
       target: "profile", name: "Renamed state bot", title: "Designer", updated: true,
-      settings: { target: "settings", hidden_from_sidebar: true, notify_on_updates: false, updated: true },
+      settings: { target: "settings", notify_on_updates: false, updated: true },
     });
     expect(await call("UpdateProfile", profileArgs, "profile-call")).toEqual(profile);
     expect(await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).toMatchObject({
-      name: "Renamed state bot", title: "Designer", hiddenFromSidebar: true, notificationsEnabled: false,
+      name: "Renamed state bot", title: "Designer", hiddenFromSidebar: false, notificationsEnabled: false,
     });
     expect(await prisma.idempotencyRecord.count({ where: { scope: `state:${botId}`, key: { in: ["profile-call", "profile-call:settings"] } } })).toBe(2);
     await expect(call("UpdateProfile", { title: "Other" }, "profile-call")).rejects.toThrow(
       "This UpdateProfile call id was already used with different arguments"
     );
-    expect(await call("UpdateProfile", { hidden_from_sidebar: false })).toMatchObject({ target: "settings", hidden_from_sidebar: false });
+    expect(await call("UpdateProfile", { notify_on_updates: true })).toMatchObject({ target: "settings", notify_on_updates: true });
     expect(await call("UpdateProfile", {})).toMatchObject({
       refused: "nothing to change. Pass at least one of name, description, title, avatar_shape, or avatar_color.",
     });

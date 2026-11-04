@@ -1283,7 +1283,6 @@ export default function App() {
             }
           />
 
-
           <section className="relative flex min-w-0 flex-1 flex-col" data-workspace-main="">
             {!newBotPicker && !pendingBot && !landing && (
               <DesktopHeader

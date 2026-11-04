@@ -498,10 +498,6 @@
             ],
             "description": "The color of your default mark."
           },
-          "hidden_from_sidebar": {
-            "type": "boolean",
-            "description": "Hides your sidebar row without deleting your conversation or scheduled work; you stay reachable through Cmd-K and the Hidden chats manager."
-          },
           "notify_on_updates": {
             "type": "boolean",
             "description": "The \"Notify me about this assistant\" toggle."

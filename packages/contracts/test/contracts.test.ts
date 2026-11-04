@@ -742,7 +742,7 @@ describe("API contracts", () => {
       description: "An event listener instead of schedule. Fields depend on type; see Trigger shapes in the routines skill.",
     });
     expect(Object.keys((UPDATE_PROFILE_TOOL.inputSchema as { properties: object }).properties)).toEqual([
-      "name", "description", "title", "avatar_shape", "avatar_color", "hidden_from_sidebar", "notify_on_updates", "drafting_disabled",
+      "name", "description", "title", "avatar_shape", "avatar_color", "notify_on_updates", "drafting_disabled",
     ]);
     expect(
       Schema.decodeUnknownSync(UpdateMemoryToolInput)({
@@ -767,7 +767,6 @@ describe("API contracts", () => {
     ).toMatchObject({ action: "create", schedule: "@daily" });
     expect(Schema.decodeUnknownSync(UpdateProfileToolInput)({ title: "", hidden_from_sidebar: true })).toEqual({
       title: "",
-      hidden_from_sidebar: true,
     });
     expect(() => normalizeMainToolArguments("UpdateMemory", { action: "create", fact: "x", type: "profile" })).toThrow(
       "UpdateMemory only writes or forgets memory. Routines have their own UpdateRoutine tool."
@@ -791,8 +790,8 @@ describe("API contracts", () => {
 
   test("renders state results for the tool that ran", () => {
     expect(renderControlResult("UpdateProfile", { target: "profile", updated: true, settings: { target: "settings", updated: true } }, {
-      name: "Ada", hidden_from_sidebar: true,
-    })).toBe("Updated your name.\nUpdated your settings: hiddenFromSidebar.");
+      name: "Ada", notify_on_updates: false,
+    })).toBe("Updated your name.\nUpdated your settings: notifyOnAgentUpdates.");
     expect(renderControlResult("UpdateProfile", { target: "profile", updated: true, settings_error: "storage unavailable" }, {
       title: "Designer", notify_on_updates: false,
     })).toBe("Updated your title.\nSettings not saved: storage unavailable");

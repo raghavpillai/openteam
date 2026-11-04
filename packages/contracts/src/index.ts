@@ -1168,7 +1168,6 @@ export const UpdateProfileToolInput = Schema.Struct({
   title: Schema.optional(Schema.String),
   avatar_shape: optionalText,
   avatar_color: UpdateStateInput.fields.avatar_color,
-  hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
   drafting_disabled: Schema.optional(Schema.Boolean),
 });

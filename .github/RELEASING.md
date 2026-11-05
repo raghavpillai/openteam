@@ -22,8 +22,8 @@ draft notes in ignored `output/release-v0.0.14/release-notes.md` before publicat
 The read-only App Store Connect check on November 5, 2026 at 23:45 UTC found build
 `64` unused in both builds and build uploads for `dev.openbot.mobile` (app
 `6807991964`); this candidate uses it. Build `0.0.13 (63)` is now valid, unexpired,
-approved and in external beta testing in the public TestFlight group. The checked-in
-and live update feeds still advertise the previously verified `0.0.12 (62)`.
+approved and in external beta testing in the public TestFlight group. This candidate advances the checked-in update notice to that verified public
+build; the production notice changes when the site is deployed.
 Candidate metadata does not establish an upload or availability of build 64.
 
 ## Preparation checks

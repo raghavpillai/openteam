@@ -6,6 +6,10 @@ import UniformTypeIdentifiers
 /// resolve against the server, and recheck identity after every network boundary.
 @MainActor
 struct SystemIntentClient {
+  func latestMessage(channelID: String) -> Message? {
+    SystemConversationProjection.latestMessage(in: bootstrap.latestMessages, channelID: channelID)
+  }
+
   let session: SessionRecord
   let api: API
   let bootstrap: Bootstrap

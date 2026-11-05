@@ -23,7 +23,7 @@ sources = add('sources', dict(isa='PBXFileSystemSynchronizedRootGroup', path='So
 ui_tests = add('ui-tests', dict(isa='PBXFileSystemSynchronizedRootGroup', path='Tests/UITests', sourceTree='<group>'))
 resources = []
 resource_refs = []
-for path, kind in [('Resources/Assets.xcassets', 'folder.assetcatalog'), ('Resources/PrivacyInfo.xcprivacy', 'text.xml')]:
+for path, kind in [('Resources/Assets.xcassets', 'folder.assetcatalog'), ('Resources/PrivacyInfo.xcprivacy', 'text.xml'), ('Resources/Skills.skillsbundle', 'wrapper.skillsbundle')]:
     ref = add(path, dict(isa='PBXFileReference', lastKnownFileType=kind, path=path, sourceTree='<group>'))
     resources.append(add(path+'-build', dict(isa='PBXBuildFile', fileRef=ref))); resource_refs.append(ref)
 products = add('products', dict(isa='PBXGroup', children=[app, test, extension], name='Products', sourceTree='<group>'))
@@ -167,6 +167,7 @@ visual_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<Skip
 # Real inference is explicitly opt-in; regular UI verification stays deterministic.
 (schemes / 'VNCValidation.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'VNCValidationUITests'))
 (schemes / 'LaunchRobot.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'LaunchRobotUITests'))
+(schemes / 'SiriSkills.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'SiriSkillsUITests'))
 (schemes / 'Palette.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'PaletteUITests'))
 (schemes / 'Haptics.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'HapticsUITests'))
 (schemes / 'RoutineSchedule.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'RoutineScheduleUITests'))

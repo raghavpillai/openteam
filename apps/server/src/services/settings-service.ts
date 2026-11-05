@@ -1,13 +1,40 @@
 import {
   ApiError,
   type InferenceProviderAuthSessionView,
+  type InferenceTestResult,
   serverInferenceSettings,
   type ServerInferenceSettings,
   type ServerSettingsView,
 } from "@openteam/contracts";
 import type { AgentDataStore } from "@openteam/messaging";
+import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
 import { parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { serviceEffect } from "./service-utils";
+const CONNECTION_CHECK_TIMEOUT_MS = 60_000;
+
+const parseInferenceInput = (input: unknown): ServerInferenceSettings => {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError(400, "invalid_inference_settings", "Inference settings are required");
+  }
+  const value = input as Record<string, unknown>;
+  if (typeof value.providerId !== "string" || typeof value.modelId !== "string") {
+    throw new ApiError(
+      400,
+      "invalid_inference_settings",
+      "providerId, modelId, and reasoning are required"
+    );
+  }
+  try {
+    return serverInferenceSettings(value.providerId, value.modelId, value.reasoning);
+  } catch (error) {
+    throw new ApiError(
+      400,
+      "invalid_inference_settings",
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+};
+
 export class SettingsService {
   constructor(
     private readonly agentData: AgentDataStore,
@@ -17,16 +44,21 @@ export class SettingsService {
 
   taskSettings = () => serviceEffect(() => this.agentData.loadTaskConfiguration());
 
-  updateTaskSettings = (input: unknown) => serviceEffect(async () => {
-    let configuration;
-    try { configuration = parseTaskConfiguration(input); }
-    catch (error) { throw new ApiError(400, "invalid_task_settings", (error as Error).message); }
-    for (const profile of configuration.executorProfiles)
-      await this.computerJson("/v1/inference/settings/verify", {
-        method: "POST", body: JSON.stringify(profile),
-      });
-    return this.agentData.writeTaskConfiguration(configuration);
-  });
+  updateTaskSettings = (input: unknown) =>
+    serviceEffect(async () => {
+      let configuration;
+      try {
+        configuration = parseTaskConfiguration(input);
+      } catch (error) {
+        throw new ApiError(400, "invalid_task_settings", (error as Error).message);
+      }
+      for (const profile of configuration.executorProfiles)
+        await this.computerJson("/v1/inference/settings/verify", {
+          method: "POST",
+          body: JSON.stringify(profile),
+        });
+      return this.agentData.writeTaskConfiguration(configuration);
+    });
 
   serverSettings = (providerId?: string) =>
     serviceEffect(async (): Promise<ServerSettingsView> => {
@@ -41,32 +73,62 @@ export class SettingsService {
 
   updateInferenceSettings = (input: unknown) =>
     serviceEffect(async (): Promise<ServerInferenceSettings> => {
-      if (!input || typeof input !== "object" || Array.isArray(input)) {
-        throw new ApiError(400, "invalid_inference_settings", "Inference settings are required");
-      }
-      const value = input as Record<string, unknown>;
-      if (typeof value.providerId !== "string" || typeof value.modelId !== "string") {
-        throw new ApiError(
-          400,
-          "invalid_inference_settings",
-          "providerId, modelId, and reasoning are required"
-        );
-      }
-      let settings: ServerInferenceSettings;
-      try {
-        settings = serverInferenceSettings(value.providerId, value.modelId, value.reasoning);
-      } catch (error) {
-        throw new ApiError(
-          400,
-          "invalid_inference_settings",
-          error instanceof Error ? error.message : String(error)
-        );
-      }
-      await this.computerJson("/v1/inference/settings/verify", {
+      const settings = parseInferenceInput(input);
+      await this.computerJson(COMPUTER_API_PATHS.inferenceSettingsVerify, {
         method: "POST",
         body: JSON.stringify(settings),
       });
       return this.agentData.writeInferenceSettings(settings);
+    });
+
+  /** Sends one tiny request to the model, so a sign-in is proven rather than assumed. */
+  testInference = (input: unknown) =>
+    serviceEffect(async (): Promise<InferenceTestResult> => {
+      // No body, or an empty one, tests the saved model.
+      const empty =
+        input === null ||
+        input === undefined ||
+        (typeof input === "object" && Object.keys(input).length === 0);
+      const settings = empty
+        ? await this.agentData.loadInferenceSettings({ allowUnconfigured: true })
+        : parseInferenceInput(input);
+      if (!settings.modelId) {
+        throw new ApiError(409, "inference_not_configured", "Choose a model before testing it.");
+      }
+      const { providerId, modelId } = settings;
+      const startedAt = performance.now();
+      try {
+        await this.computerJson(COMPUTER_API_PATHS.inferenceSettingsVerify, {
+          method: "POST",
+          body: JSON.stringify(settings),
+        });
+        await this.computerJson(COMPUTER_API_PATHS.inference, {
+          method: "POST",
+          body: JSON.stringify({
+            kind: "connection-check",
+            instructions:
+              "You are checking that a model connection works. Follow the request exactly.",
+            prompt: "Reply with the single word OK.",
+            timeoutMs: CONNECTION_CHECK_TIMEOUT_MS,
+            model: `${providerId}/${modelId}`,
+            reasoning: settings.reasoning,
+          }),
+          signal: AbortSignal.timeout(CONNECTION_CHECK_TIMEOUT_MS + 15_000),
+        });
+        return {
+          ok: true,
+          providerId,
+          modelId,
+          latencyMs: Math.round(performance.now() - startedAt),
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          providerId,
+          modelId,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     });
 
   startInferenceProviderAuth = (providerId: string, authType: "api_key" | "oauth") =>

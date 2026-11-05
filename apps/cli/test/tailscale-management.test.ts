@@ -129,7 +129,6 @@ test("normal setup exposes Tailscale, previews custom port, and keeps backend lo
     version: "test",
     stages: SETUP_STAGES,
     current: parseEnvironment(f.original),
-    authenticated: true,
     fresh: true,
     ownerConfigured: true,
     tailscaleHost: host,
@@ -154,10 +153,9 @@ test("normal setup exposes Tailscale, previews custom port, and keeps backend lo
 
 test("typed setup offers the same explicit Tailscale selection", async () => {
   const f = fixture();
-  const answers = ["tailscale", "14443", "skip"];
+  const answers = ["tailscale", "14443"];
   const config = await collectSetupConfiguration(
     parseEnvironment(f.original),
-    true,
     {
       question: async () => answers.shift()!,
       secret: async () => {
@@ -170,7 +168,6 @@ test("typed setup offers the same explicit Tailscale selection", async () => {
   expect(config).toMatchObject({
     accessMode: "tailscale",
     publicUrl: `https://${host}:14443`,
-    skipInference: true,
   });
   expect(answers).toHaveLength(0);
 });
@@ -181,7 +178,6 @@ test("missing prerequisites stay visible and block setup", () => {
     version: "test",
     stages: SETUP_STAGES,
     current: parseEnvironment(f.original),
-    authenticated: true,
     ownerConfigured: true,
     tailscaleIssue: "Install Tailscale on this host.",
   });
@@ -337,6 +333,21 @@ test("unavailable CLI, stopped daemon, logged-out node, MagicDNS and HTTPS have 
   }
 });
 
+test("on Linux only root or the Tailscale operator is offered Serve", () => {
+  const f = fixture();
+  let prefs: object = { ControlURL: "https://controlplane.tailscale.com" };
+  f.fail((_command, args) => (args[0] === "debug" ? ok(JSON.stringify(prefs)) : null));
+  const user = { platform: "linux" as const, uid: 1001, username: "otonb" };
+  expect(inspectTailscale(f.runner, user).issue).toContain("sudo tailscale set --operator=otonb");
+  expect(inspectTailscale(f.runner, { ...user, uid: 0 }).issue).toBeNull();
+  expect(inspectTailscale(f.runner, { ...user, platform: "darwin" }).issue).toBeNull();
+  prefs = { ControlURL: "https://controlplane.tailscale.com", OperatorUser: "otonb" };
+  expect(inspectTailscale(f.runner, user).issue).toBeNull();
+  // Output that doesn't look like Tailscale's prefs leaves the decision to Serve itself.
+  prefs = { TCP: {} };
+  expect(inspectTailscale(f.runner, user).issue).toBeNull();
+});
+
 test("permissions and tailnet enablement links are actionable without echoing secrets", () => {
   const f = fixture();
   const node = { host, addresses: [], port: "14443" };
@@ -442,11 +453,10 @@ test("changing connection mode in quick setup asks for the new public hostname",
   const f = fixture();
   let env = replaceEnvironmentValue(f.original, "OPENTEAM_ACCESS_MODE", "private");
   env = replaceEnvironmentValue(env, "OPENTEAM_PUBLIC_URL", "http://100.100.10.5:8787");
-  const answers = ["https", "bot.example.com", "skip"];
+  const answers = ["https", "bot.example.com"];
   const prompts: string[] = [];
   const config = await collectSetupConfiguration(
     parseEnvironment(env),
-    true,
     {
       question: async (prompt) => {
         prompts.push(prompt);

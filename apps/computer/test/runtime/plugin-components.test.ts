@@ -76,13 +76,10 @@ test("installed hooks preserve commands and templates without review gates", asy
     expect(messages.some((message) => message.content.includes("explicit return types"))).toBe(
       true
     );
-    expect(
-      expandPluginAgent([pkg], { plugin_agent: "fixture:reviewer", prompt: "Audit parser" })
-    ).toMatchObject({
-      read_only: true,
-      subagent_type: "executor",
-      run_in_background: false,
-    });
+    const expanded = expandPluginAgent([pkg], { plugin_agent: "fixture:reviewer", prompt: "Audit parser" });
+    expect(expanded).toMatchObject({ read_only: true, subagent_type: "executor" });
+    // Every Task runs in the background, as in the reference, so a template sets no foreground default.
+    expect(expanded).not.toHaveProperty("run_in_background");
     expect(() =>
       expandPluginAgent([pkg], { plugin_agent: "fixture:reviewer", resume: "existing" })
     ).toThrow("fixed template");

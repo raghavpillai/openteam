@@ -38,6 +38,8 @@ export interface BoxStoreDirtyHint {
   workspace?: boolean;
   pi?: boolean;
   chrome?: boolean;
+  /** Profile directories under home (`chrome-profile`, `chrome-profile-2`) to capture even while their browser runs. */
+  chromeProfiles?: readonly string[];
 }
 
 export interface BoxStoreSyncMetrics {
@@ -80,6 +82,24 @@ export const EXCLUDED_DIRECTORY_NAMES = new Set([
   "Code Cache",
   "GPUCache",
 ]);
+
+/** Chromium rebuilds these on demand, and BrowserBroker already carries origin
+ * Cache Storage in the browser authority file. Snapshotting them only churns blobs. */
+export const CHROME_CACHE_DIRECTORY_NAMES = new Set([
+  "CacheStorage",
+  "component_crx_cache",
+  "extensions_crx_cache",
+  "DawnGraphiteCache",
+  "DawnWebGPUCache",
+]);
+
+export const excludedDirectory = (logical: string): boolean => {
+  const name = logical.slice(logical.lastIndexOf("/") + 1);
+  return (
+    EXCLUDED_DIRECTORY_NAMES.has(name) ||
+    (CHROME_CACHE_DIRECTORY_NAMES.has(name) && /^home\/box\/chrome-profile(?:-\d+)?\//.test(logical))
+  );
+};
 
 export const logicalContains = (parent: string, candidate: string): boolean =>
   candidate === parent || candidate.startsWith(`${parent}/`);

@@ -1,6 +1,8 @@
 /** Loopback-only, in-memory contract fixture shared by Swift UI tests and the RN reference.
  * Never use this harness as a product server. No model, external messages, or real accounts run here.
  */
+import { CLIENT_CAPABILITIES } from "../../../packages/contracts/src/capabilities";
+import { BrowserNetworkFixture } from "./browser-network-fixture";
 import { mobileFixture } from "./fixtures/snapshot";
 import type { ChannelMessageView, ClientBootstrapView, ClientSnapshot } from "../../../packages/contracts/src/index";
 import { visualFixture } from "./visual-fixtures";
@@ -8,10 +10,27 @@ import { randomUUID } from "node:crypto";
 import { FunctionalFixtures } from "./functional-fixtures";
 import { contentScene } from "./content-fixtures";
 import { validateFixtureRequest } from "./validate-fixture-request";
+import { ServerSetupFixture } from "./server-setup-fixture";
 import { validateUserFormValues } from "../../../packages/contracts/src/user-forms";
 import { DEFAULT_FETCH_PROVIDER, WEB_PROVIDER_LISTS, WEB_TOOLS, webProviderInfo, type WebProviderInfo, type WebTool } from "../../../packages/contracts/src/web-search";
+import { TranscriptionStore } from "../../server/src/transcription/store";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const port = Number(process.env.SWIFT_PARITY_PORT || 19997);
+// Dedicated key-parity scenarios exercise the production encrypted store.
+const keyQA = port === 20081;
+const keyDirectory = mkdtempSync(join(tmpdir(), "openteam-native-key-"));
+process.on("exit", () => rmSync(keyDirectory, { recursive: true, force: true }));
+const keyStore = new TranscriptionStore(join(keyDirectory, "settings.json"), () => "qa-encryption-secret".repeat(3));
+const keyPatches: unknown[] = [];
+async function resetKeys() {
+  if (!keyQA) return;
+  keyPatches.length = 0;
+  await keyStore.save({ enabled: true, provider: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-transcribe", language: "", apiKey: "synthetic-key-A7z9" });
+}
+await resetKeys();
 let snapshot: ClientSnapshot;
 let hapticAudit: unknown[] = [];
 let settings: any;
@@ -20,6 +39,11 @@ let events: any[];
 let sequence = 14;
 let offline = false;
 let dropNextSend = false;
+// Send-policy controls: override lookup states (last state repeats),
+// and lose/delay an acknowledgement after acceptance.
+let deliveryStatuses: string[] = [];
+let deliveryDelayMs = 0;
+let sendResponseDelayMs = 0;
 let dropNextRoutineRun = false;
 let authRequired = false;
 let authExpired = false;
@@ -29,24 +53,38 @@ let memories: any[] = [];
 let pagedHistory = false;
 let failures: Record<string, {status?: number; message?: string; count?: number; delayMs?: number}> = {};
 let searchResults: unknown[] | null = null;
+let browserNetwork = new BrowserNetworkFixture();
 let functionality = new FunctionalFixtures();
+let serverSetup = new ServerSetupFixture();
 let screen = {state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
+let serverRelease: any;
+let serverUpdate: any;
+let busyBots: any[] = [];
+let serverUpdateRequests: unknown[] = [];
 let contentReceipts:any[] = [];
 let routineExecutions:any[] = [];
 type WebProviderRow = { secret: string | null; check: { status: "passed" | "failed"; message: string; checkedAt: string } | null };
 let webProviders: { selected: Record<WebTool, string | null>; rows: Record<WebTool, Record<string, WebProviderRow>>; patches: unknown[]; checks: unknown[] };
 const deliveries = new Map<string, ChannelMessageView>();
+const uploadedAssets = new Map<string, { data: Uint8Array; mimeType: string }>();
 const wakeups = new Set<() => void>();
 const requestLog: Array<{ method: string; path: string; clientId?: string }> = [];
 function reset() {
+  uploadedAssets.clear();
   snapshot = structuredClone(mobileFixture);
   snapshot.runtime.transcription = "configured";
   sequence = 14; events = []; deliveries.clear(); routines = []; offline = false; dropNextSend = false; authRequired = false;
   dropNextRoutineRun = false;
+  deliveryStatuses = []; deliveryDelayMs = 0; sendResponseDelayMs = 0;
   pagedHistory = false;
   requestLog.length = 0;
   failures = {}; searchResults = null; authExpired = false; invalidServer = false; missingToken = false;
+  browserNetwork = new BrowserNetworkFixture();
   functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
+  serverSetup = new ServerSetupFixture();
+  serverRelease = { releaseVersion: "0.0.0", apiProtocolVersion: 1, minimumClientVersion: "0.0.0", maximumClientVersionExclusive: "1.0.0", recommendedClientVersion: "0.0.0", updateChannel: "beta" };
+  serverUpdate = { updaterAvailable: true, status: "ready", phase: null, targetVersion: null, message: null, jobId: null, safeToCloseDesktop: false };
+  busyBots = []; serverUpdateRequests = [];
   webProviders = { selected: { search: null, fetch: DEFAULT_FETCH_PROVIDER }, rows: { search: {}, fetch: {} }, patches: [], checks: [] };
   memories = [{ id: "memory-fixture", content: "Prefers concise summaries and clear next steps.", createdAt: 1789473600000, kind: "profile" }];
   settings = { version: 2, pinnedIds: [], unreadIds: [], unassignedCollapsed: false, sections: [], sectionByChannel: {}, channelOrderByGroup: {} };
@@ -59,7 +97,7 @@ function emit(topic = "channel.message.created", entityId: string | null = null)
 function bootstrap(): ClientBootstrapView {
   return { cursor: String(sequence), workspace: snapshot.workspace, bots: snapshot.bots, channels: snapshot.channels,
     latestMessages: pagedHistory ? snapshot.channelMessages.slice(-60) : snapshot.channelMessages, activeRuns: snapshot.runs,
-    channelRounds: [], subagents: [], runtime: snapshot.runtime, capabilities: { } as any };
+    channelRounds: [], subagents: snapshot.subagents, runtime: snapshot.runtime, capabilities: CLIENT_CAPABILITIES };
 }
 const response = (data: unknown, status = 200) => Response.json(data, { status });
 /** Mirrors the server's Settings → Providers rules and messages. Checks are deterministic:
@@ -123,8 +161,10 @@ const server = Bun.serve({
     // Slow-ASR regression tests must exceed the app's ordinary HTTP deadlines.
     if (path === "/api/v0/transcriptions") server.timeout(request, 150);
     let input: any = {};
-    if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
-    if (path === "/__qa/reset" && method === "POST") { reset(); emit("snapshot.reset"); return response({ ok: true }); }
+    const upload = path === "/api/v0/assets" && method === "POST" ? new Uint8Array(await request.arrayBuffer()) : null;
+    if (!upload && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
+    if (path === "/__qa/browser-network" && method === "POST") { browserNetwork.control(input); return response(browserNetwork.view()); }
+    if (path === "/__qa/reset" && method === "POST") { reset(); await resetKeys(); emit("snapshot.reset"); return response({ ok: true }); }
     if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=["history-pages","scroll-mixed-pages"].includes(input.scene); sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/content" && method === "POST") { snapshot=contentScene(snapshot,input.scene); if(input.scene==='routine-event')routines=[{id:'routine-event-fixture',name:'Morning summary',prompt:'Summarize the morning',schedule:'0 9 * * 1-5',scheduleKind:'cron',timezone:'America/New_York',enabled:false,revision:1,nextRunAt:null,latestExecution:null}]; sequence=400; emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/motion" && method === "POST") {
@@ -150,8 +190,21 @@ const server = Bun.serve({
       emit("channel.message.created",channel.id); return response({ok:true});
     }
     if (path === "/__qa/control" && method === "POST") {
+      if (input.serverRelease) Object.assign(serverRelease, input.serverRelease);
+      if (input.serverUpdate) Object.assign(serverUpdate, input.serverUpdate);
+      if (input.busyBots) busyBots = input.busyBots;
+      if (input.transcription !== undefined) snapshot.runtime.transcription = input.transcription;
+      if (input.modelSettings) serverSetup = new ServerSetupFixture(true);
+      if (input.largeModelCatalog !== undefined) serverSetup.largeModelCatalog = input.largeModelCatalog;
+      if (input.onboarding) {
+        snapshot.bots = []; snapshot.channels = []; snapshot.runs = []; snapshot.channelMessages = [];
+        snapshot.runtime.transcription = "missing";
+      }
       offline = input.offline ?? offline; dropNextSend = input.dropNextSend ?? dropNextSend; authRequired = input.authRequired ?? authRequired;
       dropNextRoutineRun = input.dropNextRoutineRun ?? dropNextRoutineRun;
+      deliveryStatuses = input.deliveryStatuses ?? deliveryStatuses;
+      deliveryDelayMs = input.deliveryDelayMs ?? deliveryDelayMs;
+      sendResponseDelayMs = input.sendResponseDelayMs ?? sendResponseDelayMs;
       if (input.screenState) screen.state = input.screenState;
       if (input.pluginCanAuthenticate !== undefined) {
         functionality.connection.canAuthenticate = input.pluginCanAuthenticate;
@@ -162,6 +215,8 @@ const server = Bun.serve({
         }
       }
       if (input.configuration) Object.assign(functionality.configuration, input.configuration);
+      if (input.pluginCatalog) functionality.catalog = input.pluginCatalog;
+      if (input.pluginInstalls) functionality.installs = input.pluginInstalls;
       if (input.customAvatarRevision) {
         snapshot.bots[0]!.hasAvatar = true;
         snapshot.bots[0]!.icon = "classic";
@@ -173,10 +228,12 @@ const server = Bun.serve({
       if (input.expireTakeover) screen.humanTakeover = false;
       authExpired = input.authExpired ?? authExpired; invalidServer = input.invalidServer ?? invalidServer; missingToken = input.missingToken ?? missingToken;
       if (input.failures) failures = input.failures;
+      if (input.subagents) snapshot.subagents = input.subagents;
+      if (input.runs) snapshot.runs = input.runs;
       if ("searchResults" in input) searchResults = input.searchResults;
       emit("snapshot.reset"); return response({ ok: true });
     }
-    if (path === "/__qa/state") return response({ messages: snapshot.channelMessages, requests: requestLog, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
+    if (path === "/__qa/state") return response({ transcription: keyQA ? await keyStore.view() : serverSetup.voice, transcriptionPatches: keyPatches, messages: snapshot.channelMessages, requests: requestLog, serverRelease, serverUpdate, serverUpdateRequests, modelSettings: { inference: serverSetup.inference, saves: serverSetup.saves, tests: serverSetup.tests }, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, browserNetwork: browserNetwork.view(), networkPatches: browserNetwork.patches, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
     if (path === "/__qa/haptics") {
       if (method === "POST") hapticAudit.push(input);
       if (method === "DELETE") hapticAudit = [];
@@ -184,7 +241,9 @@ const server = Bun.serve({
     }
     if (path === "/health") return response({ status: "ready", purpose: "swift-parity-fixture" });
     if (offline) return response({ error: { message: "Fixture offline", code: "offline" } }, 503);
-    const failure = failures[`${method} ${path}`];
+    const failure = failures[`${method} ${path}`] ?? Object.entries(failures).find(
+      ([key]) => key.endsWith("/*") && `${method} ${path}`.startsWith(key.slice(0, -1))
+    )?.[1];
     if (failure && (failure.count ?? 1) > 0) {
       failure.count = (failure.count ?? 1) - 1;
       if (failure.delayMs) await Bun.sleep(failure.delayMs);
@@ -201,6 +260,30 @@ const server = Bun.serve({
     if (path === "/api/auth/get-session") return response({ session: { id: "fixture" }, user: { id: "fixture-owner", name: "Fixture owner", username: "fixture", email: "fixture@example.invalid" } });
     const invalid = validateFixtureRequest(path,method,input); if(invalid)return response({message:invalid},400);
     requestLog.push({ method, path, ...(input.clientId ? { clientId: input.clientId } : {}) });
+    if (upload) {
+      const assetId = new Bun.CryptoHasher("sha256").update(upload).digest("hex");
+      const fileName = decodeURIComponent(request.headers.get("x-file-name") ?? "File");
+      const mimeType = request.headers.get("content-type") ?? "application/octet-stream";
+      uploadedAssets.set(assetId, { data: upload, mimeType });
+      contentReceipts.push({path, fileName, mimeType, byteSize: upload.byteLength, authenticated: request.headers.has("authorization")});
+      return response({ assetId, fileName, mimeType, byteSize: upload.byteLength,
+        kind: mimeType.startsWith("image/") ? "image" : "file" });
+    }
+    if (keyQA && path === "/api/v0/server-settings/transcription") {
+      if (method === "GET") return response(await keyStore.view());
+      if (method === "PUT") {
+        keyPatches.push({ ...input, ...(typeof input.apiKey === "string" ? { apiKey: "[replacement]" } : {}) });
+        try {
+          const value = await keyStore.save(input);
+          snapshot.runtime.transcription = value.configured ? "configured" : "missing";
+          return response(value);
+        } catch (error) {
+          return response({ message: (error as Error).message }, 400);
+        }
+      }
+    }
+    const setupResponse = serverSetup.handle(path, method, input, url);
+    if (setupResponse) return setupResponse;
     if (process.env.SWIFT_QA_LIVE_SCREEN_URL && /\/screen(?:\/(?:frame|stream|takeover|actions))?$/.test(path)) {
       const target = new URL(path, process.env.SWIFT_QA_LIVE_SCREEN_URL);
       if (!["127.0.0.1", "localhost"].includes(target.hostname)) throw new Error("Live QA screen must be loopback-only");
@@ -215,6 +298,9 @@ const server = Bun.serve({
     if(path.startsWith("/api/v0/assets/")){
       contentReceipts.push({path,authenticated:request.headers.has("authorization")});
       const id=path.split('/').at(-1)!;
+      const uploaded = uploadedAssets.get(id);
+      if (uploaded) return new Response(uploaded.data, {headers: {"Content-Type": uploaded.mimeType}});
+      if(id==='media-photo'||id==='media-video')return new Response(Bun.file(new URL(id==='media-photo'?'./fixtures/media-photo.jpg':'./fixtures/media-video.mp4',import.meta.url)),{headers:{'Content-Type':id==='media-photo'?'image/jpeg':'video/mp4'}});
       const archive=/^([789])\1{63}$/.test(id), photo=/^([1-6])\1{63}$/.test(id)||/^gallery-\d+$/.test(id);
       return new Response(Bun.file(new URL(archive?'./fixtures/media-archive.zip':id==='layout-portrait'?'./fixtures/layout-portrait.png':photo?'./fixtures/media-reference.png':'./fixtures/attachment.png',import.meta.url)),{headers:{'Content-Type':archive?'application/zip':'image/png'}});
     }
@@ -227,12 +313,24 @@ const server = Bun.serve({
       else{message.metadata.computerHandoffState=input.action==="start"?"active":"completed";screen.humanTakeover=input.action==="start";}
       emit("channel.message.updated",message.channelId);return response({accepted:true,message});
     }
+    const networkResponse = browserNetwork.handle(path,method,input); if(networkResponse) return networkResponse;
+    if (path === "/api/v0/system/version") return response(serverRelease);
+    if (path === "/api/v0/system/busy-bots") return response({ bots: busyBots });
+    if (path === "/api/v0/system/update") {
+      if (method === "POST") {
+        if (busyBots.length) return response({ message: "A bot is still working. Nothing changed." }, 409);
+        if (!serverUpdate.updaterAvailable) return response({ message: "The host updater is unavailable." }, 503);
+        if (input.targetVersion !== "0.0.11") return response({ message: "Unexpected update target." }, 400);
+        serverUpdateRequests.push(input);
+        Object.assign(serverUpdate, { status: "updating", phase: "pulling", targetVersion: input.targetVersion, message: "Pulling OpenTeam 0.0.11 container images", safeToCloseDesktop: true });
+      }
+      return response(serverUpdate);
+    }
     const functional = await functionality.handle(path,method,input,url,snapshot.bots);
     if (functional) return functional;
     if (path === "/api/v0/client-bootstrap") return response(bootstrap());
     if (path === "/api/v0/client-snapshot") return response({ ...snapshot, cursor: String(sequence) });
     if (path === "/api/v0/client-runtime") return response({ runtime: snapshot.runtime });
-    if (path === "/api/v0/system/version") return response({ releaseVersion: "0.0.0", apiProtocolVersion: 1, minimumClientVersion: "0.0.0", maximumClientVersionExclusive: "1.0.0", recommendedClientVersion: "0.0.0", updateChannel: "beta" });
     if (path === "/api/v0/settings") return response({ settings: { sidebarPreferences: settings }, valid: true });
     if (path === "/api/v0/server-settings/web-providers" || (path === "/api/v0/server-settings/web-providers/check" && method === "POST")) {
       if (method === "PATCH") webProviders.patches.push(input);
@@ -255,8 +353,13 @@ const server = Bun.serve({
       const page = pagedHistory ? messages.slice(-60) : messages;
       return response({ channelId, messages: page, threadContext: [], threadContextTruncated: false, beforeSequence: page[0]?.sequence ?? null, hasMore: pagedHistory && messages.length > page.length, revision: String(sequence) });
     }
-    if (path.endsWith("/client-state")) return response({ channelId: path.split("/")[4], revision: String(sequence), channelRounds: [], runs: snapshot.runs, runItems: [], subagents: [], truncated: { channelRounds:false, runs:false, runItems:false, subagents:false } });
+    if (path.endsWith("/client-state")) return response({ channelId: path.split("/")[4], revision: String(sequence), channelRounds: [], runs: snapshot.runs, runItems: [], subagents: snapshot.subagents.filter(task => task.parentChannelId === path.split("/")[4]), truncated: { channelRounds:false, runs:false, runItems:false, subagents:false } });
     if (path.includes("/message-deliveries/")) {
+      if (deliveryDelayMs) await Bun.sleep(deliveryDelayMs);
+      if (deliveryStatuses.length) {
+        const status = deliveryStatuses.length > 1 ? deliveryStatuses.shift()! : deliveryStatuses[0]!;
+        return response({ clientId: path.split("/").at(-1), status, message: null });
+      }
       const message = deliveries.get(path.split("/").at(-1)!);
       return response({ clientId: path.split("/").at(-1), status: message ? "accepted" : "not_found", message: message ?? null, acceptedAtMs: message ? Date.now() : null });
     }
@@ -271,9 +374,10 @@ const server = Bun.serve({
         deliveries.set(input.clientId, message); snapshot.channelMessages.push(message); emit("channel.message.created", channelId);
       }
       if (dropNextSend) { dropNextSend = false; return response({ error: { message: "Simulated lost acknowledgment after durable acceptance" } }, 503); }
+      if (sendResponseDelayMs) await Bun.sleep(sendResponseDelayMs);
       return response({ message });
     }
-    if (path.endsWith("/read")) {const channel=snapshot.channels.find(c=>c.id===path.split("/")[4]);if(channel){channel.unreadCount=0;channel.notificationState={...channel.notificationState,lastReadSequence:input.throughSequence} as any;}return response({ channelId: path.split("/")[4], lastReadSequence: input.throughSequence ?? "0", unreadCount: 0 });}
+    if (path.endsWith("/read")) {const channel=snapshot.channels.find(c=>c.id===path.split("/")[4]);if(channel){channel.unreadCount=0;channel.notificationState={channelId:channel.id,lastReadNotificationSequence:"0",notificationCursor:"0",notifications:[],activityUnreadCount:0,...channel.notificationState,lastReadSequence:input.throughSequence ?? "0"} as any;}return response({ channelId: path.split("/")[4], lastReadSequence: input.throughSequence ?? "0", unreadCount: 0 });}
     if (path === "/api/v0/search") {
       const q = (url.searchParams.get("q") ?? "").toLowerCase();
       if (searchResults) return response({ query: q, results: searchResults });
@@ -299,8 +403,9 @@ const server = Bun.serve({
     }
     if (path === "/api/v0/bots" && method === "POST") {
       const id = randomUUID(), now = new Date().toISOString();
-      const bot = { ...snapshot.bots[0], id, name:input.name, title:input.name, description:input.description ?? "", instructions:input.instructions ?? "", color:input.color ?? "#FD6A3A", icon:input.icon ?? "hexagon", conversationId:"conversation-"+id, dmChannelId:"channel-"+id, createdAt:now, updatedAt:now };
-      snapshot.bots.push(bot); snapshot.channels.push({ ...snapshot.channels[0], id:bot.dmChannelId, name:bot.name, directKey:id, members:[{botId:id,ordinal:0}], createdAt:now, updatedAt:now }); emit("bot.created"); return response(bot);
+      // First-run setup has no existing bot/channel to use as a complete template.
+      const bot = { ...mobileFixture.bots[0]!, id, name:input.name, title:input.name, description:input.description ?? "", instructions:input.instructions ?? "", color:input.color ?? "#FD6A3A", icon:input.icon ?? "hexagon", conversationId:"conversation-"+id, dmChannelId:"channel-"+id, createdAt:now, updatedAt:now };
+      snapshot.bots.push(bot); snapshot.channels.push({ ...mobileFixture.channels[0]!, id:bot.dmChannelId, name:bot.name, directKey:id, members:[{botId:id,ordinal:0}], createdAt:now, updatedAt:now }); emit("bot.created"); return response(bot);
     }
     if (path === "/api/v0/channels" && method === "POST") {
       const channel = { ...snapshot.channels[0], id:randomUUID(), kind:"group" as const, name:input.name, directKey:null, members:input.botIds.map((botId:string,ordinal:number)=>({botId,ordinal})) };

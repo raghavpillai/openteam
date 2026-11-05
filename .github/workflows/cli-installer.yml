@@ -32,6 +32,15 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts --filter @openteam/cli
       - name: Installer rendering and terminal behavior
         run: bun test ./apps/cli/test/setup-countdown.test.ts ./apps/landing/lib/install-script.test.ts
+      - name: Full CLI and browser-state preservation regressions
+        run: bun test ./apps/cli ./apps/computer/test/browser-cache-maintenance.test.ts
+      - name: Disk retention against real Docker
+        if: runner.os == 'Linux'
+        env:
+          OPENTEAM_TEST_DOCKER_CONTEXT: openteam-retention-ci
+        run: |
+          docker context create openteam-retention-ci --docker host=unix:///var/run/docker.sock
+          bun apps/cli/scripts/test-disk-maintenance-docker.ts
       - name: Native Windows PowerShell and PowerShell 7
         if: runner.os == 'Windows'
         run: |

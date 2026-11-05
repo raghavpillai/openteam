@@ -11,11 +11,11 @@ test("memory recording prefers clean visible messages and joins visible agent re
         createdAt: new Date(0),
       },
       visibleAssistant: [{ content: " First update. " }, { content: "Final answer." }],
-      internalAssistant: null,
+      internalAssistant: [{ content: "Checked the headers." }, { content: " " }],
     })
   ).toEqual({
     user: "Remember cobalt headers.",
-    assistant: "First update.\nFinal answer.",
+    assistant: "First update.\nFinal answer.\nChecked the headers.",
     occurredAt: occurredAt.getTime(),
   });
 });
@@ -27,11 +27,24 @@ test("memory recording falls back to internal messages without a visible deliver
       visibleUser: null,
       internalUser: { content: "Internal request", createdAt: occurredAt },
       visibleAssistant: [],
-      internalAssistant: { content: "Internal response" },
+      internalAssistant: [{ content: "Internal draft" }, { content: "Internal response" }],
     })
   ).toEqual({
     user: "Internal request",
-    assistant: "Internal response",
+    assistant: "Internal draft\nInternal response",
     occurredAt: occurredAt.getTime(),
   });
+});
+
+test("a turn answered with only a reaction or silence is still reviewed", () => {
+  const occurredAt = new Date("2026-08-27T20:09:00Z");
+  expect(
+    resolveTurnMemoryExchange({
+      visibleUser: { content: "FYI I'm vegetarian now", createdAt: occurredAt },
+      internalUser: null,
+      visibleAssistant: [],
+      internalAssistant: [],
+    })
+  ).toEqual({ user: "FYI I'm vegetarian now", assistant: "", occurredAt: occurredAt.getTime() });
+  expect(resolveTurnMemoryExchange({ visibleUser: null, internalUser: null, visibleAssistant: [{ content: "Hi" }], internalAssistant: [] })).toBeNull();
 });

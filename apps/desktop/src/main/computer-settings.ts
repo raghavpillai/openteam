@@ -1,15 +1,20 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-export interface ComputerSettings { version: 1; machineLabel: string | null; }
-export const DEFAULT_COMPUTER_SETTINGS: ComputerSettings = { version: 1, machineLabel: null };
+/** messagesEnabled: bots may read and send texts on this Mac. Only this Mac's app can turn it on. */
+export interface ComputerSettings { version: 1; machineLabel: string | null; messagesEnabled: boolean; }
+export const DEFAULT_COMPUTER_SETTINGS: ComputerSettings = { version: 1, machineLabel: null, messagesEnabled: false };
 export const normalizeComputerSettings = (value: unknown): ComputerSettings => {
   const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  return { version: 1, machineLabel: typeof record.machineLabel === "string" && record.machineLabel.trim() ? record.machineLabel.trim().slice(0, 80) : null };
+  return {
+    version: 1,
+    machineLabel: typeof record.machineLabel === "string" && record.machineLabel.trim() ? record.machineLabel.trim().slice(0, 80) : null,
+    messagesEnabled: record.messagesEnabled === true,
+  };
 };
 export interface ComputerSettingsStore {
   read(): Promise<ComputerSettings>;
-  update(input: { machineLabel: string }): Promise<ComputerSettings>;
+  update(input: { machineLabel?: string; messagesEnabled?: boolean }): Promise<ComputerSettings>;
 }
 
 export const createComputerSettingsStore = (path: string): ComputerSettingsStore => {
@@ -50,6 +55,7 @@ export const createComputerSettingsStore = (path: string): ComputerSettingsStore
       mutate((settings) => ({
         ...settings,
         machineLabel: input.machineLabel?.trim().slice(0, 80) || settings.machineLabel,
+        messagesEnabled: input.messagesEnabled ?? settings.messagesEnabled,
       })),
   };
 };

@@ -24,13 +24,17 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("temporal controls id
     const page = await (session as any).ensurePage();
     for (const [i, kind] of kinds.entries()) {
       expect(snapshot).toContain(`input-type=${kind}`);
-      await expect(session.execute("browser_type", { ref: ref(kind), text: values[i], clear: true })).rejects.toThrow("browser_fill");
+      // Typing one character at a time cannot drive a date/time control; filling can.
+      await expect(session.execute("browser_type", { target: ref(kind), text: values[i], slowly: true })).rejects.toThrow("without slowly");
       expect(await page.getByLabel(kind, { exact: true }).inputValue()).toBe('');
+      await session.execute("browser_type", { target: ref(kind), text: values[i] });
+      expect(await page.getByLabel(kind, { exact: true }).inputValue()).toBe(values[i]);
+      await page.getByLabel(kind, { exact: true }).fill('');
       const result = await session.execute("browser_fill_form", { fields: [{ target: ref(kind), name: kind, type: "textbox", value: values[i] }] });
       expect((result as any).isError).toBe(false);
       expect(await page.getByLabel(kind, { exact: true }).inputValue()).toBe(values[i]);
     }
-    await expect(session.execute("browser_type", { ref: ref('locked'), text: '2030-01-01' })).rejects.toThrow('not an enabled');
+    await expect(session.execute("browser_type", { target: ref('locked'), text: '2030-01-01' })).rejects.toThrow('not an enabled');
     expect(await page.getByLabel('locked').inputValue()).toBe('2020-01-01');
   } finally { await browser.close(); await driver.stop(); server.stop(true); await rm(root, { recursive: true, force: true }); }
 }, 30_000);

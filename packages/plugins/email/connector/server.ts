@@ -138,6 +138,27 @@ const readEmailAttachment = {
   },
 } as Pick<Tool, "name" | "description" | "inputSchema">;
 
+/**
+ * Arguments that fall back to their default when out of range, like the reference's
+ * `.catch(undefined)`, instead of failing the whole call.
+ */
+const DEFAULTED_WHEN_INVALID: Record<string, string[]> = {
+  SearchEmailThreads: ["limit", "mode"],
+  ReadEmailThread: ["max_messages", "body_max_chars"],
+};
+export function defaultInvalidArguments(tool: Pick<Tool, "name" | "inputSchema">) {
+  const checks = (DEFAULTED_WHEN_INVALID[tool.name] ?? []).map((key) => ({
+    key,
+    valid: createToolValidator({ type: "object", properties: { [key]: tool.inputSchema.properties[key] } }),
+  }));
+  return (args: Args): Args => {
+    const kept = { ...args };
+    for (const { key, valid } of checks)
+      if (key in kept && !valid({ [key]: kept[key] }).valid) delete kept[key];
+    return kept;
+  };
+}
+
 export const tools = (accountId: string): Tool[] => [
   read(listEmailInboxes(accountId), async ({ mailbox }) => mailbox.listInboxes()),
   read(searchEmailThreads, async ({ mailbox }, args) =>
@@ -246,7 +267,7 @@ export async function serveEmail(env: Record<string, string | undefined> = proce
   const entries = new Map(
     definitions.map((entry) => [
       entry.name,
-      { entry, validate: createToolValidator(entry.inputSchema) },
+      { entry, defaults: defaultInvalidArguments(entry), validate: createToolValidator(entry.inputSchema) },
     ])
   );
   const server = new Server(
@@ -266,7 +287,7 @@ export async function serveEmail(env: Record<string, string | undefined> = proce
     try {
       const match = entries.get(request.params.name);
       if (!match) throw new Error("Unknown tool");
-      const args = request.params.arguments ?? {};
+      const args = match.defaults(request.params.arguments ?? {});
       const result = match.validate(args);
       if (!result.valid) throw new Error(`Invalid tool arguments: ${result.errorMessage}`);
       const { settings, mailbox } = await connect();

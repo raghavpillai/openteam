@@ -18,14 +18,15 @@ const model: Model<"openai-completions"> = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
-test.each(["computerUse", "browserUse"] as const)("%s rejects a text-only model before starting a session", async (subagentType) => {
+test("computerUse rejects a text-only model before starting a session", async () => {
   const runtime = new ComputerRuntime() as any;
   runtime.modelRuntime = {};
   runtime.resolveModel = () => ({ ...model, input: ["text"] });
   let refreshes = 0;
   runtime.inferenceProviders = { verify: async () => { refreshes++; } };
-  await expect(runtime.createStandaloneSession("/tmp", "Inspect the desktop", {}, {
-    subagentType, reasoning: "off",
+  const manager = SessionManager.inMemory("/tmp");
+  await expect(runtime.createStandaloneSession("/tmp", "Inspect the desktop", manager, {
+    contextSessionId: manager.getSessionId(), subagentType: "computerUse", reasoning: "off",
   }, {})).rejects.toThrow("cannot inspect screenshots");
   expect(refreshes).toBe(1);
 });
@@ -93,7 +94,7 @@ test("a Computer screenshot reaches the model request through the real Pi tool l
       runId: crypto.randomUUID(), turnId: crypto.randomUUID(),
       modelRef: { providerId: model.provider, modelId: model.id }, reasoning: "off", cwd: root,
       instructions: "Inspect the native desktop", subagentType: "computerUse", requestSource: "subagent",
-      userInfoMessage: null, discoveredDynamicTools: new Set(), pluginAbortController: new AbortController(),
+      userInfoMessage: null, pluginAbortController: new AbortController(),
       queue: { push() {} },
     };
     const manager = SessionManager.create(root, join(root, "sessions"), { id: active.contextSessionId });

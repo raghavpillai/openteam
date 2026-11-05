@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { ClientSnapshot } from "@openteam/contracts";
 import { createSnapshotIndex } from "../src/renderer/lib/snapshot-index";
+import { activeAsyncTaskChannelIds, activeAsyncTasksForBot } from "../src/renderer/lib/async-tasks";
+import { reconcileSidebarRows, sidebarRowIsWorking } from "../src/renderer/lib/sidebar-rows";
 import {
   createSnapshotCaches,
   reconcileClientSnapshot,
@@ -15,7 +17,6 @@ function fixture(): ClientSnapshot {
       root: "/workspace",
       sharedDirectory: "/workspace",
       botsDirectory: "/workspace/bots",
-      projectsDirectory: "/workspace/projects",
     },
     bots: [
       {
@@ -108,7 +109,6 @@ function fixture(): ClientSnapshot {
         currentRunId: "child-run-1",
         description: "Inspect release state",
         subagentType: "executor",
-        runInBackground: true,
         status: "running",
         summary: null,
         errorMessage: null,
@@ -130,6 +130,39 @@ function fixture(): ClientSnapshot {
 }
 
 describe("desktop snapshot index", () => {
+  test("completed reply and parked ownership leave the sidebar idle until a real wake", () => {
+    const snapshot = fixture();
+    const original = snapshot.runs[0]!;
+    snapshot.runs = [
+      { ...original, status: "completed", requestState: "waiting", requestNextCheckAt: "2099-11-04T08:00:00Z" },
+      { ...original, id: "latest-result", status: "completed", requestState: "complete" },
+      { ...original, id: "blocked", status: "completed", requestState: "blocked" },
+    ];
+    snapshot.subagents = Array.from({ length: 8 }, (_, i) => ({
+      ...snapshot.subagents[0]!, id: `parked-${i}`, subagentId: `parked-${i}`, status: "waiting",
+    }));
+    const row = () => {
+      const index = createSnapshotIndex(snapshot);
+      return reconcileSidebarRows(new Map(), snapshot.channels, index.latestMessageByChannel,
+        index.activeRunByChannel, activeAsyncTaskChannelIds(snapshot.subagents)).rows[0]!;
+    };
+    expect(sidebarRowIsWorking(row())).toBe(false);
+    expect(activeAsyncTasksForBot(snapshot.subagents, "bot-1")).toHaveLength(8);
+    expect(createSnapshotIndex(snapshot).runsByChannel.get("channel-1")).toHaveLength(3);
+    for (const status of ["queued", "running"] as const) {
+      snapshot.runs.push({ ...original, id: "wake", status });
+      expect(sidebarRowIsWorking(row())).toBe(true);
+      snapshot.runs.pop();
+      expect(sidebarRowIsWorking(row())).toBe(false);
+    }
+    for (const status of ["provisioning", "queued", "running"] as const) {
+      snapshot.subagents.push({ ...snapshot.subagents[0]!, id: "wake", subagentId: "wake", status });
+      expect(sidebarRowIsWorking(row())).toBe(true);
+      snapshot.subagents.pop();
+      expect(sidebarRowIsWorking(row())).toBe(false);
+    }
+  });
+
   test("indexes hot channel data once for fast tab projections", () => {
     const index = createSnapshotIndex(fixture());
 

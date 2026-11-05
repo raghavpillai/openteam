@@ -1,8 +1,14 @@
-import { collectBoxStoreBlobsLocked, withBoxStoreOperation } from "./box-store/garbage-collection";
+import {
+  boxStoreFreeSpaceShortfall,
+  collectBoxStoreBlobsLocked,
+  PRESSURE_RETENTION_MS,
+  withBoxStoreOperation,
+} from "./box-store/garbage-collection";
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readdir, readFile, rm, stat, utimes } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, rename, rm, stat, utimes } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { fileDigest, stageFile, STREAM_FILE_THRESHOLD } from "./box-store/file-stream";
 import {
   type BoxStoreDirtyHint,
   type BoxStoreManifest,
@@ -14,6 +20,7 @@ import {
   COPY_IN_CRITICAL_BASENAMES,
   digest,
   EXCLUDED_DIRECTORY_NAMES,
+  excludedDirectory,
   logicalContains,
   manifestEtag,
   sqliteName,
@@ -21,6 +28,17 @@ import {
   sqliteSidecar,
   temporaryName,
 } from "./box-store/manifest";
+
+const CHROME_PROFILE_SOURCE = /^home\/box\/chrome-profile(?:-\d+)?$/;
+const CHROME_PROFILE_NAME = /^chrome-profile(?:-\d+)?$/;
+const BROWSER_STATE_SOURCE =
+  /^home\/box\/(?:chrome-profile(?:-\d+)?|\.openteam\/browser-(?:authority(?:\.key|\.json\.enc|\.parts)?|profile-authority)|\.pki\/nssdb)$/;
+const BROWSER_STATE_FILE =
+  /^(home\/box\/(?:chrome-profile(?:-\d+)?|\.openteam\/browser-(?:authority(?:\.key|\.json\.enc|\.parts)?|profile-authority)|\.pki\/nssdb))(?:\/|$)/;
+/** How often a periodic snapshot recaptures a profile whose Chromium is still running. */
+export const CHROME_PROFILE_SNAPSHOT_INTERVAL_MS = 30 * 60_000;
+
+type SnapshotContent = Buffer | Awaited<ReturnType<typeof stageFile>>;
 
 export class BoxStoreSync {
   private readonly storeRoot: string;
@@ -32,6 +50,7 @@ export class BoxStoreSync {
   private readonly workspaceRoot: string;
   private readonly hasLiveAgentHandle: (agentId: string) => boolean;
   private lastBlobCollection = 0;
+  private collectionPressure = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private periodic: ReturnType<typeof setInterval> | null = null;
   private scheduledRun: Promise<void> | null = null;
@@ -39,6 +58,9 @@ export class BoxStoreSync {
   private pendingFullSnapshot = false;
   private readonly pendingDirtyPrefixes = new Set<string>();
   private pendingChromeSnapshot = false;
+  private readonly pendingChromeProfiles = new Set<string>();
+  private readonly chromeProfileIntervalMs: number;
+  private readonly chromeProfileCapturedAt = new Map<string, number>();
   private readonly metrics: BoxStoreSyncMetrics = {
     scheduledRequests: 0,
     coalescedRequests: 0,
@@ -62,6 +84,7 @@ export class BoxStoreSync {
       sandRoot?: string;
       workspaceRoot?: string;
       hasLiveAgentHandle?: (agentId: string) => boolean;
+      chromeProfileIntervalMs?: number;
     } = {}
   ) {
     this.storeRoot = resolve(
@@ -78,6 +101,8 @@ export class BoxStoreSync {
       options.workspaceRoot ?? process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace"
     );
     this.hasLiveAgentHandle = options.hasLiveAgentHandle ?? (() => false);
+    this.chromeProfileIntervalMs =
+      options.chromeProfileIntervalMs ?? CHROME_PROFILE_SNAPSHOT_INTERVAL_MS;
   }
 
   async start(): Promise<void> {
@@ -134,7 +159,8 @@ export class BoxStoreSync {
         if (
           this.pendingFullSnapshot ||
           this.pendingDirtyPrefixes.size > 0 ||
-          this.pendingChromeSnapshot
+          this.pendingChromeSnapshot ||
+          this.pendingChromeProfiles.size > 0
         ) {
           this.startScheduledRun();
         }
@@ -154,29 +180,35 @@ export class BoxStoreSync {
       this.scheduledRerun ||
       this.pendingFullSnapshot ||
       this.pendingDirtyPrefixes.size > 0 ||
-      this.pendingChromeSnapshot
+      this.pendingChromeSnapshot ||
+      this.pendingChromeProfiles.size > 0
     );
   }
 
   private mergeDirtyHint(hint: BoxStoreDirtyHint): void {
+    // A full snapshot may defer running browser profiles, so an explicit
+    // browser request must survive being merged into one.
+    if (hint.chrome) this.pendingChromeSnapshot = true;
+    for (const name of hint.chromeProfiles ?? []) {
+      if (CHROME_PROFILE_NAME.test(name)) this.pendingChromeProfiles.add(name);
+    }
     if (
       hint.all !== false &&
       !hint.sand &&
       !hint.workspace &&
       !hint.pi &&
       !hint.chrome &&
+      !hint.chromeProfiles?.length &&
       !hint.agentIds?.length &&
       !hint.sandPaths?.length
     ) {
       this.pendingFullSnapshot = true;
       this.pendingDirtyPrefixes.clear();
-      this.pendingChromeSnapshot = false;
       return;
     }
     if (hint.all) {
       this.pendingFullSnapshot = true;
       this.pendingDirtyPrefixes.clear();
-      this.pendingChromeSnapshot = false;
       return;
     }
     if (this.pendingFullSnapshot) return;
@@ -199,20 +231,22 @@ export class BoxStoreSync {
       }
       this.pendingDirtyPrefixes.add(`home/box/sand-data/${segments.join("/")}`);
     }
-    if (hint.chrome) this.pendingChromeSnapshot = true;
   }
 
   private consumeDirtyHint(): BoxStoreDirtyHint {
+    const chrome = this.pendingChromeSnapshot;
+    // A whole-browser request already captures every profile.
+    const chromeProfiles = chrome ? [] : [...this.pendingChromeProfiles].sort();
+    this.pendingChromeSnapshot = false;
+    this.pendingChromeProfiles.clear();
+    const profiles = chromeProfiles.length ? { chromeProfiles } : {};
     if (this.pendingFullSnapshot) {
       this.pendingFullSnapshot = false;
       this.pendingDirtyPrefixes.clear();
-      this.pendingChromeSnapshot = false;
-      return { all: true };
+      return chrome ? { all: true, chrome } : { all: true, ...profiles };
     }
     const prefixes = collapseLogicalPrefixes(this.pendingDirtyPrefixes);
     this.pendingDirtyPrefixes.clear();
-    const chrome = this.pendingChromeSnapshot;
-    this.pendingChromeSnapshot = false;
     return {
       all: false,
       sand: prefixes.includes("home/box/sand-data"),
@@ -231,28 +265,42 @@ export class BoxStoreSync {
         return [prefix.slice("home/box/sand-data/".length)];
       }),
       chrome,
+      ...profiles,
     };
   }
 
   async snapshotOut(hint: BoxStoreDirtyHint = { all: true }): Promise<BoxStoreManifest> {
     return withBoxStoreOperation(this.storeRoot, async () => {
-      const manifest = await this.snapshotOutLocked(hint);
-      if (Date.now() - this.lastBlobCollection >= 60 * 60_000) {
-        try {
-          const collection = await collectBoxStoreBlobsLocked(this.storeRoot);
-          this.lastBlobCollection = Date.now();
-          if (collection.deleted) console.info(JSON.stringify({event: "box_store.collection", ...collection}));
-        } catch (error) {
-          // Snapshot publication remains valid even if optional maintenance fails.
-          console.warn("box-store collection", error);
+      try {
+        return await this.snapshotOutLocked(hint);
+      } finally {
+        // Collect after failed snapshots too: on a full disk every snapshot
+        // fails, and collection is the only thing that frees space.
+        // Collection is hourly, and every few minutes while unreferenced
+        // blobs are over budget or the disk is low.
+        const elapsed = Date.now() - this.lastBlobCollection;
+        if (
+          elapsed >= 60 * 60_000 ||
+          (elapsed >= PRESSURE_RETENTION_MS &&
+            (this.collectionPressure || (await boxStoreFreeSpaceShortfall(this.storeRoot)) > 0))
+        ) {
+          try {
+            const collection = await collectBoxStoreBlobsLocked(this.storeRoot);
+            this.lastBlobCollection = Date.now();
+            this.collectionPressure = collection.pressure;
+            if (collection.deleted) console.info(JSON.stringify({event: "box_store.collection", ...collection}));
+          } catch (error) {
+            // Snapshot publication remains valid even if optional maintenance fails.
+            console.warn("box-store collection", error);
+          }
         }
       }
-      return manifest;
     });
   }
 
   private async snapshotOutLocked(hint: BoxStoreDirtyHint): Promise<BoxStoreManifest> {
     this.metrics.snapshotRuns += 1;
+    const startedAt = Date.now();
     const startingManifest = await this.readManifest();
     const startingEtag = startingManifest?.etag ?? null;
     const signatureCache = await this.readSignatureCache(startingEtag);
@@ -262,35 +310,45 @@ export class BoxStoreSync {
         hint.workspace ||
         hint.pi ||
         hint.chrome ||
+        hint.chromeProfiles?.length ||
         hint.agentIds?.length ||
         hint.sandPaths?.length
     );
     const fullSnapshot =
       hint.all === true || !hasSpecificHint || !startingManifest || !signatureCache;
+    // Profiles deferred by a full snapshot keep their previous entries, exactly
+    // like clean roots in a partial snapshot.
+    const deferredProfiles =
+      fullSnapshot && !hint.chrome && startingManifest && signatureCache
+        ? (await this.deferredChromeProfiles(sources, startedAt)).filter(
+            (logical) => !hint.chromeProfiles?.includes(logical.slice("home/box/".length))
+          )
+        : [];
     const dirtyPrefixes = fullSnapshot
-      ? sources.map(({ logical }) => logical)
+      ? sources
+          .map(({ logical }) => logical)
+          .filter((logical) => !deferredProfiles.includes(logical))
       : this.dirtyPrefixesForHint(hint, sources, startingManifest);
+    const retained = (path: string): boolean =>
+      fullSnapshot
+        ? deferredProfiles.some((prefix) => logicalContains(prefix, path))
+        : !dirtyPrefixes.some((prefix) => logicalContains(prefix, path));
     const previousFiles = new Map(
       (startingManifest?.files ?? []).map((file) => [file.path, file] as const)
     );
-    const filesByPath = fullSnapshot ? new Map<string, ManifestFile>() : new Map(previousFiles);
+    const filesByPath = new Map([...previousFiles].filter(([path]) => retained(path)));
     const nextSignatures = new Map<string, string>();
-    if (!fullSnapshot && signatureCache) {
-      for (const [path, signature] of Object.entries(signatureCache.signatures)) {
-        if (!dirtyPrefixes.some((prefix) => logicalContains(prefix, path))) {
-          nextSignatures.set(path, signature);
-        }
-      }
-    }
-    for (const prefix of dirtyPrefixes) {
-      for (const path of filesByPath.keys()) {
-        if (logicalContains(prefix, path)) filesByPath.delete(path);
-      }
-      for (const path of nextSignatures.keys()) {
-        if (logicalContains(prefix, path)) nextSignatures.delete(path);
-      }
+    for (const [path, signature] of Object.entries(signatureCache?.signatures ?? {})) {
+      if (retained(path)) nextSignatures.set(path, signature);
     }
     const targets = this.collectionTargets(dirtyPrefixes, sources);
+    const capturedProfiles = sources
+      .map(({ logical }) => logical)
+      .filter(
+        (logical) =>
+          CHROME_PROFILE_SOURCE.test(logical) &&
+          dirtyPrefixes.some((prefix) => logicalContains(prefix, logical))
+      );
     for (const target of targets) {
       await this.collect(
         target.path,
@@ -330,6 +388,7 @@ export class BoxStoreSync {
       this.manifestPath,
       Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8")
     );
+    for (const logical of capturedProfiles) this.chromeProfileCapturedAt.set(logical, startedAt);
     const nextCache: SnapshotSignatureCache = {
       version: 1,
       manifestEtag: manifest.etag,
@@ -371,8 +430,10 @@ export class BoxStoreSync {
     );
     for (const file of orderedFiles) {
       const target = this.targetFor(file.path);
-      const existing = await readFile(target).catch(() => null);
-      if (existing && digest(existing) === file.sha256) {
+      const existingHash = file.size > STREAM_FILE_THRESHOLD
+        ? await fileDigest(target).catch(() => null)
+        : await readFile(target).then(digest).catch(() => null);
+      if (existingHash === file.sha256) {
         skipped += 1;
         continue;
       }
@@ -380,9 +441,20 @@ export class BoxStoreSync {
       if (agentId && sqliteName(basename(file.path)) && this.hasLiveAgentHandle(agentId)) {
         throw new Error(`box-store refused to replace a live agent database: ${agentId}`);
       }
-      const blob = await readFile(join(this.blobsRoot, file.sha256));
-      if (digest(blob) !== file.sha256) throw new Error(`box-store blob failed hash: ${file.path}`);
-      await atomicWrite(target, blob, file.mode);
+      const blobPath = join(this.blobsRoot, file.sha256);
+      if (file.size > STREAM_FILE_THRESHOLD) {
+        const staged = await stageFile(blobPath, dirname(target), file.mode);
+        try {
+          if (staged.sha256 !== file.sha256) throw new Error(`box-store blob failed hash: ${file.path}`);
+          await rename(staged.path, target);
+        } finally {
+          await rm(staged.path, { force: true }).catch(() => undefined);
+        }
+      } else {
+        const blob = await readFile(blobPath);
+        if (digest(blob) !== file.sha256) throw new Error(`box-store blob failed hash: ${file.path}`);
+        await atomicWrite(target, blob, file.mode);
+      }
       await chmod(target, file.mode).catch(() => undefined);
       copied += 1;
     }
@@ -403,6 +475,10 @@ export class BoxStoreSync {
         logical: "home/box/.openteam/browser-authority.json.enc",
       },
       {
+        path: join(this.home, ".openteam", "browser-authority.parts"),
+        logical: "home/box/.openteam/browser-authority.parts",
+      },
+      {
         path: join(this.home, ".openteam", "browser-profile-authority"),
         logical: "home/box/.openteam/browser-profile-authority",
       },
@@ -415,6 +491,29 @@ export class BoxStoreSync {
       }
     }
     return sources;
+  }
+
+  /**
+   * A running Chromium rewrites parts of its profile every few minutes even
+   * while idle (extension and IndexedDB LevelDB logs, cookie and quota
+   * databases), and each changed file is stored whole. Full snapshots therefore capture a running browser's profile
+   * at most once per interval. Explicit browser hints and the shutdown snapshot
+   * still capture it, and once the browser exits (Chromium removes its
+   * SingletonLock) the next periodic snapshot does too. The live profile itself
+   * stays on the home volume across restarts.
+   */
+  private async deferredChromeProfiles(
+    sources: Array<{ path: string; logical: string }>,
+    now: number
+  ): Promise<string[]> {
+    const deferred: string[] = [];
+    for (const { path, logical } of sources) {
+      if (!CHROME_PROFILE_SOURCE.test(logical)) continue;
+      const capturedAt = this.chromeProfileCapturedAt.get(logical);
+      if (capturedAt === undefined || now - capturedAt >= this.chromeProfileIntervalMs) continue;
+      if (await lstat(join(path, "SingletonLock")).catch(() => null)) deferred.push(logical);
+    }
+    return deferred;
   }
 
   private dirtyPrefixesForHint(
@@ -442,23 +541,20 @@ export class BoxStoreSync {
       }
       prefixes.add(`home/box/sand-data/${segments.join("/")}`);
     }
-    if (hint.chrome) {
+    if (hint.chrome || hint.chromeProfiles?.length) {
+      // A request for one profile still captures the shared sign-in state.
+      const requested = (root: string) =>
+        hint.chrome ||
+        !CHROME_PROFILE_SOURCE.test(root) ||
+        Boolean(hint.chromeProfiles?.includes(root.slice("home/box/".length)));
       for (const source of sources) {
-        if (
-          /^home\/box\/chrome-profile(?:-\d+)?$/.test(source.logical) ||
-          /^home\/box\/\.openteam\/browser-(?:authority(?:\.key|\.json\.enc)?|profile-authority)$/.test(
-            source.logical
-          ) ||
-          source.logical === "home/box/.pki/nssdb"
-        ) {
+        if (BROWSER_STATE_SOURCE.test(source.logical) && requested(source.logical)) {
           prefixes.add(source.logical);
         }
       }
       for (const file of manifest.files) {
-        const match = file.path.match(
-          /^(home\/box\/(?:chrome-profile(?:-\d+)?|\.openteam\/browser-(?:authority(?:\.key|\.json\.enc)?|profile-authority)|\.pki\/nssdb))(?:\/|$)/
-        );
-        if (match?.[1]) prefixes.add(match[1]);
+        const root = file.path.match(BROWSER_STATE_FILE)?.[1];
+        if (root && requested(root)) prefixes.add(root);
       }
     }
     return collapseLogicalPrefixes(prefixes);
@@ -475,7 +571,9 @@ export class BoxStoreSync {
       const suffix = prefix.slice(source.logical.length).replace(/^\//, "");
       const segments = suffix ? suffix.split("/") : [];
       if (
-        segments.some((segment) => EXCLUDED_DIRECTORY_NAMES.has(segment)) ||
+        segments.some((_, index) =>
+          excludedDirectory([source.logical, ...segments.slice(0, index + 1)].join("/"))
+        ) ||
         segments.some(
           (segment) =>
             temporaryName(segment) || sqliteSidecar(segment) || sqliteRecoveryArtifact(segment)
@@ -510,7 +608,7 @@ export class BoxStoreSync {
     const info = await lstat(path, { bigint: true }).catch(() => null);
     if (!info || info.isSymbolicLink()) return;
     if (info.isDirectory()) {
-      if (EXCLUDED_DIRECTORY_NAMES.has(basename(path))) return;
+      if (excludedDirectory(logical)) return;
       this.metrics.directoriesVisited += 1;
       for (const entry of await readdir(path)) {
         if (temporaryName(entry) || sqliteSidecar(entry) || sqliteRecoveryArtifact(entry)) continue;
@@ -539,21 +637,32 @@ export class BoxStoreSync {
       this.metrics.signatureReuses += 1;
       return;
     }
-    const bytes = sqliteName(basename(path))
-      ? await this.sqliteSnapshot(path)
-      : await readFile(path);
+    let content: SnapshotContent;
+    let snapshotSignature = signature;
+    if (sqliteName(basename(path))) {
+      const snapshot = await this.sqliteSnapshot(path, info);
+      content = snapshot.content;
+      snapshotSignature = snapshot.signature ?? signature;
+    } else {
+      content =
+        info.size > BigInt(STREAM_FILE_THRESHOLD)
+          ? await stageFile(path, this.blobsRoot)
+          : await readFile(path);
+    }
+    const size = Buffer.isBuffer(content) ? content.byteLength : content.size;
+    const sha256 = Buffer.isBuffer(content) ? digest(content) : content.sha256;
+    if (Buffer.isBuffer(content)) await this.storeBlob(sha256, content);
+    else await this.storeStagedBlob(content);
     this.metrics.sourceFilesRead += 1;
-    this.metrics.sourceBytesRead += bytes.byteLength;
-    const sha256 = digest(bytes);
+    this.metrics.sourceBytesRead += size;
     this.metrics.contentHashes += 1;
-    await this.storeBlob(sha256, bytes);
     files.set(logical, {
       path: logical,
       sha256,
-      size: bytes.byteLength,
+      size,
       mode: Number(info.mode & 0o777n),
     });
-    nextSignatures.set(logical, signature);
+    nextSignatures.set(logical, snapshotSignature);
   }
 
   private async sourceSignature(
@@ -570,7 +679,10 @@ export class BoxStoreSync {
     return `${base}|wal:${walSignature}`;
   }
 
-  private async sqliteSnapshot(path: string): Promise<Buffer> {
+  private async sqliteSnapshot(
+    path: string,
+    identity: { dev: bigint; ino: bigint; mode: bigint }
+  ): Promise<{ content: SnapshotContent; signature?: string }> {
     const sidecars = [`${path}-wal`, `${path}-shm`];
     const unopenedStoreMarkers = [...sidecars, join(dirname(path), "conversation-blobs.db")];
     if (
@@ -581,23 +693,65 @@ export class BoxStoreSync {
         )
       ).every((entry) => entry === null)
     ) {
-      const bytes = await readFile(path);
+      const content = await this.sqliteSnapshotContent(path);
       const stayedUnopened = (
         await Promise.all(
           unopenedStoreMarkers.map((candidate) => stat(candidate).catch(() => null))
         )
       ).every((entry) => entry === null);
-      if (stayedUnopened) return bytes;
+      if (stayedUnopened) return { content };
+      if (!Buffer.isBuffer(content)) await rm(content.path, { force: true });
     }
     const temporary = join(dirname(path), `.box-store-snap-${randomUUID()}`);
     const database = new Database(path, { readonly: true, strict: true });
     try {
+      const version = () =>
+        (database.query("PRAGMA data_version").get() as { data_version: number }).data_version;
+      const before = version();
       this.metrics.sqliteVacuums += 1;
       database.exec(`VACUUM INTO '${temporary.replaceAll("'", "''")}'`);
-      return await readFile(temporary);
+      const content = await this.sqliteSnapshotContent(temporary);
+      // Opening the WAL may change its ctime even without a commit (Linux).
+      // Refresh the signature only if this same database stayed unchanged
+      // through the snapshot and the final stat; otherwise the next scan retries.
+      let signature: string | undefined;
+      try {
+        const current = await lstat(path, { bigint: true });
+        if (
+          current.dev === identity.dev &&
+          current.ino === identity.ino &&
+          current.mode === identity.mode
+        ) {
+          const observed = await this.sourceSignature(path, current, true);
+          if (version() === before) signature = observed;
+        }
+      } catch {
+        // A concurrent removal/replacement must not mark newer state as saved.
+      }
+      return { content, signature };
     } finally {
       database.close(false);
       await rm(temporary, { force: true }).catch(() => undefined);
+    }
+  }
+
+  private async sqliteSnapshotContent(path: string): Promise<SnapshotContent> {
+    return (await stat(path)).size > STREAM_FILE_THRESHOLD
+      ? stageFile(path, this.blobsRoot)
+      : readFile(path);
+  }
+
+  private async storeStagedBlob(staged: Awaited<ReturnType<typeof stageFile>>): Promise<void> {
+    try {
+      const target = join(this.blobsRoot, staged.sha256);
+      if (await stat(target).catch(() => null)) {
+        const now = new Date();
+        await utimes(target, now, now);
+      } else {
+        await rename(staged.path, target);
+      }
+    } finally {
+      await rm(staged.path, { force: true }).catch(() => undefined);
     }
   }
 

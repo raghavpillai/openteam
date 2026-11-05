@@ -1,13 +1,15 @@
 import { TailscaleManager } from "./tailscale-manager";
+import type { DesktopBrowserNetwork } from "./browser-network";
 import { randomBytes } from "node:crypto";
 import { loadMachineIdentity } from "./host/machine-identity";
 import { DesktopMachineEnrollment } from "./host/machine-enrollment";
-import { open, rename, unlink } from "node:fs/promises";
-import { hostname } from "node:os";
+import { MessagesAccess } from "./host/messages-access";
+import { nativeCommand } from "./host/native-command";
+import { mkdtemp, open, readFile, rename, rm, unlink } from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import {
   compareOpenTeamVersions,
-  isOpenTeamVersion,
 } from "@openteam/contracts/version-compatibility";
 import { safeErrorMessage } from "@openteam/product-core/redaction";
 import {
@@ -31,6 +33,7 @@ import { applicationMenuTemplate } from "./application-menu";
 import { desktopSignIn, desktopSignOut } from "./auth-client";
 import { createOpenTeamClient } from "@openteam/client-core";
 import { DesktopPluginOAuth } from "./plugin-oauth";
+import { ProviderSignInCallback } from "./provider-sign-in";
 import { DesktopAuthTokenStore } from "./auth-token-store";
 import { resolveControlToken } from "./control-token";
 import {
@@ -46,7 +49,6 @@ import { NativeActionReceipts } from "./host/action-receipts";
 import { isAddressInUseError } from "./host/bridge-listener";
 import { HostJobManager } from "./host/job-manager";
 import {
-  type DesktopAgentNotificationState,
   DesktopNotificationManager,
   type DesktopNotificationSnapshot,
   parseNotificationChannels,
@@ -56,7 +58,7 @@ import {
   type ComputerSettings,
   type ComputerSettingsStore,
 } from "./computer-settings";
-import { ServerUpdater } from "./server-updater";
+import { readManagedInstallation } from "./local-installation";
 import {
   classifyDesktopUpdateError,
   type DesktopUpdateSnapshot,
@@ -79,6 +81,11 @@ const activityNotifications = new Map<string, Notification>();
 let isQuitting = false;
 const localMachine = { machineId: "", label: hostname() };
 let machineEnrollment: DesktopMachineEnrollment | null = null;
+let browserNetwork: DesktopBrowserNetwork | null = null;
+// Messages is macOS-only: other platforms report no Messages support at all.
+const messagesAccess = process.platform === "darwin"
+  ? new MessagesAccess(undefined, undefined, [...new Set([process.env.__CFBundleIdentifier, "dev.openteam.desktop"].filter((id): id is string => !!id))])
+  : null;
 let enrollmentServerUrl: string | null = null;
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#080808" : "#fbfbfb");
 const releasePage = "https://github.com/raghavpillai/openteam/releases/latest";
@@ -192,15 +199,6 @@ const tailscaleManager = new TailscaleManager({
     ? join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "openteam-cli.js")
     : join(import.meta.dirname, "openteam-cli.js"),
   executablePath: process.execPath,
-});
-
-const serverUpdater = new ServerUpdater({
-  cliPath: app.isPackaged
-    ? join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "openteam-cli.js")
-    : join(import.meta.dirname, "openteam-cli.js"),
-  executablePath: process.execPath,
-  fetcher: (input, init) => net.fetch(input instanceof URL ? input.toString() : input, init),
-  onStatus: (status) => mainWindow?.webContents.send("openteam:server-update-progress", status),
 });
 
 const checkForDesktopUpdate = async (): Promise<DesktopUpdateSnapshot> => {
@@ -635,6 +633,7 @@ ipcMain.handle("openteam:auth-token:write", (event, value: unknown) => {
 ipcMain.handle("openteam:auth-token:clear", async (event) => {
   const store = requireAuthTokenStore(event);
   pluginOAuth.closeAll();
+  providerSignIn.cancel();
   enrollmentServerUrl = null;
   await machineEnrollment?.stop();
   return store.clear();
@@ -678,13 +677,48 @@ ipcMain.handle("openteam:plugin-oauth:close", event => {
   pluginOAuth.closeAll();
 });
 
+// A server installed on this computer can be offered without typing its address.
+ipcMain.handle("openteam:local-server:detect", (event) => {
+  requireAuthSender(event);
+  const installation = readManagedInstallation();
+  return installation
+    ? {
+        url: `http://127.0.0.1:${installation.apiPort}`,
+        ...(installation.ownerUsername ? { username: installation.ownerUsername } : {}),
+      }
+    : null;
+});
+
+const providerSignIn = new ProviderSignInCallback();
+ipcMain.handle(
+  "openteam:provider-sign-in:capture",
+  (event, authorizationUrl: unknown, redirectUri: unknown) => {
+    requireAuthSender(event);
+    if (
+      typeof authorizationUrl !== "string" ||
+      authorizationUrl.length > 16_384 ||
+      typeof redirectUri !== "string" ||
+      redirectUri.length > 2048
+    )
+      throw new Error("Invalid provider sign-in request");
+    return providerSignIn.capture(authorizationUrl, redirectUri, (url) => shell.openExternal(url));
+  }
+);
+ipcMain.handle("openteam:provider-sign-in:cancel", (event) => {
+  requireAuthSender(event);
+  providerSignIn.cancel();
+});
+
 ipcMain.handle("openteam:machine:connect", (event, serverUrl: unknown) => {
   requireAuthSender(event);
   if (typeof serverUrl !== "string" || serverUrl.length > 8192) throw new Error("Invalid server URL");
   const url = new URL(serverUrl);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid server URL");
   const nextServerUrl = url.href.replace(/\/$/, "");
-  if (enrollmentServerUrl !== nextServerUrl) pluginOAuth.closeAll();
+  if (enrollmentServerUrl !== nextServerUrl) {
+    pluginOAuth.closeAll();
+    providerSignIn.cancel();
+  }
   enrollmentServerUrl = nextServerUrl;
   machineEnrollment?.configure(enrollmentServerUrl);
   return { machineId: localMachine.machineId };
@@ -754,86 +788,16 @@ ipcMain.handle("openteam:updates:install-client", async (event) => {
   autoUpdater.quitAndInstall(false, true);
 });
 
-const serverUpdateRequest = (value: unknown) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Server update request is invalid");
-  }
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate.serverUrl !== "string" || candidate.serverUrl.length > 2_000) {
-    throw new Error("Server URL is invalid");
-  }
-  if (
-    candidate.targetVersion !== undefined &&
-    candidate.targetVersion !== null &&
-    (typeof candidate.targetVersion !== "string" || !isOpenTeamVersion(candidate.targetVersion))
-  ) {
-    throw new Error("Target version is invalid");
-  }
-  if (
-    candidate.sshTarget !== undefined &&
-    candidate.sshTarget !== null &&
-    typeof candidate.sshTarget !== "string"
-  ) {
-    throw new Error("SSH destination is invalid");
-  }
-  const targetVersion =
-    typeof candidate.targetVersion === "string" ? candidate.targetVersion.replace(/^v/i, "") : null;
-  const sshTarget =
-    typeof candidate.sshTarget === "string" ? candidate.sshTarget.trim() || null : null;
-  return { serverUrl: candidate.serverUrl, targetVersion, sshTarget };
-};
-
 ipcMain.handle("openteam:tailscale", async (event, value) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Tailscale management is unavailable");
   return tailscaleManager.request(value);
 });
 
-ipcMain.handle("openteam:updates:server-status", async (event, value) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) {
-    throw new Error("Server update status is unavailable");
-  }
-  const request = serverUpdateRequest(value);
-  return serverUpdater.status(request.serverUrl, request.targetVersion, request.sshTarget);
-});
-
-ipcMain.handle("openteam:updates:update-server", async (event, value) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) {
-    throw new Error("Server update is unavailable");
-  }
-  const request = serverUpdateRequest(value);
-  return serverUpdater.update(request.serverUrl, request.targetVersion, request.sshTarget);
-});
-
-const desktopAgentState = (value: unknown): DesktopAgentNotificationState | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as Record<string, unknown>;
-  if (
-    ![candidate.botId, candidate.channelId, candidate.name].every(
-      (field) => typeof field === "string"
-    ) ||
-    ![candidate.notificationsEnabled, candidate.hiddenFromSidebar, candidate.isRunning].every(
-      (field) => typeof field === "boolean"
-    ) ||
-    (candidate.awaitingReason !== null && typeof candidate.awaitingReason !== "string") ||
-    (candidate.lastMessageId !== null && typeof candidate.lastMessageId !== "string") ||
-    (candidate.lastMessagePreview !== null && typeof candidate.lastMessagePreview !== "string") ||
-    typeof candidate.unreadCount !== "number" ||
-    !Number.isFinite(candidate.unreadCount)
-  ) {
-    return null;
-  }
-  return candidate as unknown as DesktopAgentNotificationState;
-};
 
 const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapshot | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as { notificationRouting?: unknown; cursor?: unknown; agents?: unknown; channels?: unknown };
-  const routing = candidate.notificationRouting as Record<string, unknown> | undefined;
-  if (routing !== undefined && (!routing || typeof routing !== "object" ||
-    typeof routing.smartEnabled !== "boolean" || ![routing.serverTime, routing.iosActiveUntil, routing.macActiveUntil].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0))) return null;
-  const agents = candidate.agents;
-  const channels =
-    candidate.channels === undefined ? undefined : parseNotificationChannels(candidate.channels);
+  const candidate = value as { cursor?: unknown; channels?: unknown };
+  const channels = parseNotificationChannels(candidate.channels);
   if (channels === null) return null;
   if (
     candidate.cursor !== undefined &&
@@ -841,16 +805,7 @@ const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapsho
   ) {
     return null;
   }
-  if (!Array.isArray(agents) || agents.length > 10_000) return null;
-  const parsed = agents.map(desktopAgentState);
-  return parsed.every((agent): agent is DesktopAgentNotificationState => Boolean(agent))
-    ? {
-        notificationRouting: routing as unknown as DesktopNotificationSnapshot["notificationRouting"],
-        agents: parsed,
-        ...(candidate.cursor ? { cursor: candidate.cursor } : {}),
-        ...(channels !== undefined ? { channels } : {}),
-      }
-    : null;
+  return { channels, ...(candidate.cursor ? { cursor: candidate.cursor } : {}) };
 };
 
 ipcMain.on("openteam:notifications:sync", (event, request: unknown) => {
@@ -963,7 +918,7 @@ const requireComputerSettings = (event: Electron.IpcMainInvokeEvent) => {
 };
 
 const computerSettingsView = (settings: ComputerSettings) => ({
-  ...settings, machine: { ...localMachine, label: settings.machineLabel ?? localMachine.label },
+  ...settings, machine: { ...localMachine, label: settings.machineLabel ?? localMachine.label }, messagesSupported: !!messagesAccess,
 });
 let computerClipboardActive = false;
 ipcMain.on("openteam:computer-clipboard-active", (event, active: unknown) => {
@@ -983,9 +938,63 @@ ipcMain.handle("openteam:computer-clipboard-write", (event, text: unknown) => {
   clipboard.writeText(text);
 });
 ipcMain.handle("openteam:computer:get", async event => computerSettingsView(await requireComputerSettings(event).read()));
+ipcMain.handle("openteam:network:get", event => { requireAuthSender(event); return browserNetwork?.status() ?? null; });
+ipcMain.handle("openteam:network:share", async (event, enabled: unknown) => {
+  requireAuthSender(event);
+  if (typeof enabled !== "boolean" || !browserNetwork) throw new Error("Invalid browser network permission");
+  return browserNetwork.setAllowed(enabled);
+});
 ipcMain.handle("openteam:computer:update", async (event, input: unknown) => {
-  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => key !== "machineLabel") || typeof (input as any).machineLabel !== "string" || !(input as any).machineLabel.trim()) throw new Error("A computer label is required");
-  return computerSettingsView(await requireComputerSettings(event).update({ machineLabel: (input as any).machineLabel }));
+  const record = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : null;
+  if (!record || !Object.keys(record).length || Object.keys(record).some(key => key !== "machineLabel" && key !== "messagesEnabled")) throw new Error("Invalid computer settings");
+  if ("machineLabel" in record && (typeof record.machineLabel !== "string" || !record.machineLabel.trim())) throw new Error("A computer label is required");
+  if ("messagesEnabled" in record && (typeof record.messagesEnabled !== "boolean" || !messagesAccess)) throw new Error("Messages is available on a Mac only");
+  const updated = await requireComputerSettings(event).update({
+    ...(typeof record.machineLabel === "string" ? { machineLabel: record.machineLabel } : {}),
+    ...(typeof record.messagesEnabled === "boolean" ? { messagesEnabled: record.messagesEnabled } : {}),
+  });
+  await machineEnrollment?.report();
+  return computerSettingsView(updated);
+});
+// app.getFileIcon crashes the main process on macOS 26 (a SIGTRAP in Chromium's thread pool),
+// so the Messages icon is converted once with sips instead.
+let messagesIconRequest: Promise<string | null> | undefined;
+ipcMain.handle("openteam:computer:messages-icon", async (event) => {
+  requireAuthSender(event);
+  if (!messagesAccess) return null;
+  messagesIconRequest ??= (async () => {
+    const directory = await mkdtemp(join(tmpdir(), "openteam-messages-icon-"));
+    try {
+      const target = join(directory, "messages.png");
+      await nativeCommand("/usr/bin/sips", ["-s", "format", "png", "-Z", "80", "/System/Applications/Messages.app/Contents/Resources/AppIcon.icns", "--out", target]);
+      return `data:image/png;base64,${(await readFile(target)).toString("base64")}`;
+    } catch {
+      return null;
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  })();
+  return messagesIconRequest;
+});
+ipcMain.handle("openteam:computer:messages-permissions", async (event, request: unknown) => {
+  requireAuthSender(event);
+  if (!messagesAccess) return null;
+  if (request === "fullDiskAccess") {
+    await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles");
+    return messagesAccess.permissions(0);
+  }
+  // macOS never asks twice: after a denial only System Settings can grant it.
+  const current = await messagesAccess.permissions(0);
+  if ((request === "automation" || request === "contacts") && current[request] === "denied") {
+    await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${request === "automation" ? "Privacy_Automation" : "Privacy_Contacts"}`);
+    return messagesAccess.request(request);
+  }
+  if (request === "automation" || request === "contacts") {
+    const permissions = await messagesAccess.request(request);
+    await machineEnrollment?.report();
+    return permissions;
+  }
+  return messagesAccess.permissions(0);
 });
 
 ipcMain.handle("openteam:performance-snapshot", async (event) => {
@@ -1118,8 +1127,6 @@ if (!hasSingleInstanceLock) {
         )
       );
       localMachine.machineId = await loadMachineIdentity(join(app.getPath("userData"), "machine-id"));
-      // Separate from legacy auth-session.bin: do not access Keychain to migrate.
-      // Users with an encrypted session sign in once to create the new local file.
       authTokenStore = new DesktopAuthTokenStore(
         join(app.getPath("userData"), "auth-session.json")
       );
@@ -1145,8 +1152,9 @@ if (!hasSingleInstanceLock) {
       const activityChanged = () => mainWindow?.webContents.send("openteam:notifications:activity-changed");
       powerMonitor.on("lock-screen", () => { notificationScreenLocked = true; activityChanged(); });
       powerMonitor.on("unlock-screen", () => { notificationScreenLocked = false; notificationDeliveryFailed = false; activityChanged(); });
-      powerMonitor.on("suspend", () => { notificationSuspended = true; activityChanged(); });
-      powerMonitor.on("resume", () => { notificationSuspended = false; activityChanged(); });
+      // A sleeping computer goes offline at once, so bots move Messages and other work to one that's awake.
+      powerMonitor.on("suspend", () => { notificationSuspended = true; activityChanged(); void machineEnrollment?.stop(); });
+      powerMonitor.on("resume", () => { notificationSuspended = false; activityChanged(); if (enrollmentServerUrl) machineEnrollment?.configure(enrollmentServerUrl); });
       powerMonitor.on("user-did-resign-active", () => { notificationScreenLocked = true; activityChanged(); });
       powerMonitor.on("user-did-become-active", () => { notificationScreenLocked = false; activityChanged(); });
       desktopNotifications = new DesktopNotificationManager({
@@ -1167,16 +1175,13 @@ if (!hasSingleInstanceLock) {
             icon: notificationEvent.sender?.avatarDataUrl
               ? nativeImage.createFromDataURL(notificationEvent.sender.avatarDataUrl)
               : undefined,
-            silent: notificationEvent.sound === null,
-            urgency: notificationEvent.urgency,
+            silent: true,
           });
           activeNotifications.add(notification);
-          if (notificationEvent.notificationId)
-            activityNotifications.set(notificationEvent.notificationId, notification);
+          activityNotifications.set(notificationEvent.notificationId, notification);
           const release = () => {
             activeNotifications.delete(notification);
-            if (notificationEvent.notificationId)
-              activityNotifications.delete(notificationEvent.notificationId);
+            activityNotifications.delete(notificationEvent.notificationId);
           };
           notification.once("close", release);
           notification.once("show", () => {
@@ -1197,10 +1202,10 @@ if (!hasSingleInstanceLock) {
           });
           notification.on("click", () => {
             focusMainWindow();
-            mainWindow?.webContents.send(
-              "openteam:notification-click",
-              notificationEvent.channelId
-            );
+            mainWindow?.webContents.send("openteam:notification-click", {
+              channelId: notificationEvent.channelId,
+              threadMessageId: notificationEvent.threadMessageId,
+            });
           });
           notification.show();
         },
@@ -1226,7 +1231,14 @@ if (!hasSingleInstanceLock) {
           machineId: localMachine.machineId,
           machineLabel: localMachine.label,
           runJob: hostJobs.run,
-          capabilities: new HostCapabilities(undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json"))),
+          capabilities: new HostCapabilities(undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json")), {
+            enabled: async () => (await computerSettings!.read()).messagesEnabled,
+            access: messagesAccess ?? undefined,
+            onGrantMissing: () => {
+              mainWindow?.webContents.send("openteam:messages-grants-needed");
+              if (process.platform === "darwin" && !mainWindow?.isFocused()) app.dock?.bounce("informational");
+            },
+          }),
         });
       try { hostBridge = await startBridge(port); }
       catch (error) {
@@ -1239,12 +1251,20 @@ if (!hasSingleInstanceLock) {
         machineId: localMachine.machineId,
         localUrl: `http://127.0.0.1:${address.port}`,
         localToken: bridgeToken,
+        onConnection: connection => { void browserNetwork?.configure(connection); },
         getToken: async () => (await authTokenStore!.read()).token,
         getIdentity: async () => {
           const settings = await computerSettings!.read();
-          return { label: settings.machineLabel ?? localMachine.label };
+          return {
+            label: settings.machineLabel ?? localMachine.label,
+            ...(messagesAccess ? { messages: { enabled: settings.messagesEnabled, ...await messagesAccess.permissions() } } : {}),
+          };
         },
       });
+      const { DesktopBrowserNetwork, NetworkConsentStore } = await import("./browser-network");
+      browserNetwork = new DesktopBrowserNetwork(localMachine.machineId, new NetworkConsentStore(join(app.getPath("userData"), "browser-network-consent.json")));
+      powerMonitor.on("suspend", () => browserNetwork?.setSuspended(true));
+      powerMonitor.on("resume", () => browserNetwork?.setSuspended(false));
       if (enrollmentServerUrl) machineEnrollment.configure(enrollmentServerUrl);
 
       app.on("activate", () => {
@@ -1266,6 +1286,7 @@ app.on("before-quit", () => {
   desktopUpdateTimer = null;
   desktopNotifications?.clear();
   void machineEnrollment?.stop();
+  browserNetwork?.stop();
   hostBridge?.close();
   hostJobs.close();
 });

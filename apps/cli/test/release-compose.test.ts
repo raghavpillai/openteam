@@ -11,6 +11,12 @@ afterEach(() => {
   }
 });
 
+test("the development stack gives the worker time for its graceful stop", async () => {
+  const compose = await Bun.file(resolve(import.meta.dir, "../../../docker-compose.yml")).text();
+  const worker = compose.split("\n  worker:\n")[1]!.split(/\n  [a-z-]+:\n|\nvolumes:/)[0]!;
+  expect(worker).toContain("stop_grace_period: 45s");
+});
+
 describe("release Compose rendering", () => {
   test("replaces every OpenTeam tag with its immutable multi-architecture digest", async () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-release-compose-"));
@@ -40,6 +46,9 @@ describe("release Compose rendering", () => {
     for (const [index, service] of services.entries()) {
       expect(rendered).toContain(`-${service}@sha256:${String(index + 1).repeat(64)}`);
     }
+    expect(rendered.match(/-computer@sha256:4{64}/g)).toHaveLength(2);
+    expect(rendered).toContain("OPENTEAM_DESKTOP_MEMORY_LIMIT: ${OPENTEAM_DESKTOP_MEMORY_LIMIT:-10g}");
+    expect(rendered).toContain("mem_limit: ${OPENTEAM_COMPUTER_MEMORY_LIMIT:-12g}");
     expect(rendered).not.toMatch(
       /^\s*image:.*-(?:server|worker|migrate|computer):\$\{OPENTEAM_VERSION/m
     );
@@ -62,10 +71,17 @@ describe("release Compose rendering", () => {
     expect(worker).toContain("OPENTEAM_APNS_TEAM_ID: ${OPENTEAM_APNS_TEAM_ID:-}");
     expect(worker).toContain("OPENTEAM_APNS_TOPIC: ${OPENTEAM_APNS_TOPIC:-dev.openbot.mobile}");
     expect(worker).toContain("OPENTEAM_APNS_PRIVATE_KEY: ${OPENTEAM_APNS_PRIVATE_KEY:-}");
+    // Longer than pg-boss's 30 s graceful stop, so stopping never kills the worker.
+    expect(worker).toContain("stop_grace_period: 45s");
     expect(rendered).not.toContain("OPENTEAM_WEB_SEARCH_");
     expect(rendered).not.toContain("OPENTEAM_PI_PROVIDER");
     expect(rendered).not.toContain("OPENTEAM_PI_MODEL");
     expect(rendered).not.toContain("OPENTEAM_PI_THINKING");
-    expect(rendered).toContain('cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]');
+    expect(rendered).toContain('cap_add: ["ALL"]');
+    expect(rendered).toContain("systempaths=unconfined");
+    expect(rendered).toContain("/dev/net/tun:/dev/net/tun");
+    // Bots' system-wide installs live in a volume, which an update's `up` creates.
+    expect(rendered).toContain("- openteam_computer_local:/usr/local");
+    expect(rendered).toMatch(/^ {2}openteam_computer_local:$/m);
   });
 });

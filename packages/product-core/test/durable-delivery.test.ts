@@ -998,7 +998,7 @@ describe("durable send controller", () => {
           ? {
               stagedAttachments: [
                 {
-                  stagingId: "stage-1",
+                  stagingId: "stage-file-1",
                   fileName: "fixture.txt",
                   mimeType: "text/plain",
                   byteSize: 4,
@@ -1116,4 +1116,116 @@ describe("durable send controller", () => {
     expect(controller.getSnapshot()[0]?.phase).toBe("accepted-awaiting-echo");
     controller.dispose();
   });
+});
+
+describe("bounded platform retries", () => {
+  test("expires repeated temporary failures while offline and resets the budget on explicit Retry", async () => {
+    const memory = memoryStorage();
+    let clock = 1_000, posts = 0, nonce = 0, offline = false;
+    const controller = createDurableSendController("bounded", memory.storage, {
+      now: () => clock, retryTimeoutMs: 10_000, createNonce: () => `bounded-${++nonce}`,
+      isTransportDown: () => offline, classifyError: () => "ambiguous",
+      resolveAcceptance: async () => ({status: "not_found"}),
+      dispatch: async () => { posts++; throw Error("503"); },
+    });
+    await controller.enqueue(input);
+    await waitFor(() => controller.getSnapshot()[0]?.phase === "queued");
+    expect(controller.getSnapshot()[0]?.retryStartedAtMs).toBe(1_000);
+    clock = 2_000;
+    await controller.flush();
+    expect(posts).toBe(2);
+    offline = true; clock = 11_001;
+    await controller.expireAcknowledgements();
+    const failed = controller.getSnapshot()[0]!;
+    expect(failed.phase).toBe("failed");
+    expect(failed.failure).toMatchObject({code: "retry_exhausted", uncertain: true});
+    await controller.flush();
+    expect(posts).toBe(2);
+    offline = false;
+    await controller.resendFailed(failed.nonce);
+    await waitFor(() => controller.getSnapshot()[0]?.phase === "queued");
+    expect(controller.getSnapshot()[0]?.retryStartedAtMs).toBe(clock);
+    expect(posts).toBe(3);
+    controller.dispose();
+  });
+  test("healthy slow submissions and never-submitted offline drafts do not consume a retry budget", async () => {
+    let clock = 1_000, offline = true;
+    const submission = deferred<{message: ChannelMessageView}>();
+    const controller = createDurableSendController("no-failure", memoryStorage().storage, {
+      now: () => clock, retryTimeoutMs: 10_000, createNonce: () => "never-rejected",
+      isTransportDown: () => offline, classifyError: () => "ambiguous",
+      resolveAcceptance: async () => ({status: "not_found"}), dispatch: () => submission.promise,
+    });
+    await controller.enqueue(input);
+    clock = 61_000;
+    await controller.expireAcknowledgements();
+    expect(controller.getSnapshot()[0]?.phase).toBe("queued");
+    offline = false;
+    const flush = controller.flush();
+    await waitFor(() => controller.getSnapshot()[0]?.phase === "dispatching");
+    clock += 20_000;
+    await controller.expireAcknowledgements();
+    expect(controller.getSnapshot()[0]?.phase).toBe("dispatching");
+    submission.resolve({message: acceptedMessage("healthy-slow")});
+    await flush;
+    expect(controller.getSnapshot()[0]?.phase).toBe("accepted-awaiting-echo");
+    controller.dispose();
+  });
+  test("server acceptance wins at the retry deadline and no extra submission is made", async () => {
+    let clock = 1_000, posts = 0, accepted = false;
+    const controller = createDurableSendController("deadline-acceptance", memoryStorage().storage, {
+      now: () => clock, retryTimeoutMs: 10_000, createNonce: () => "accepted-on-server",
+      classifyError: () => "ambiguous",
+      resolveAcceptance: async () => accepted
+        ? {status: "accepted", message: acceptedMessage("accepted-late"), acceptedAtMs: clock}
+        : {status: "not_found"},
+      dispatch: async () => { posts++; throw Error("Response lost"); },
+    });
+    await controller.enqueue(input);
+    await waitFor(() => controller.getSnapshot()[0]?.phase === "queued");
+    clock = 11_001; accepted = true;
+    await controller.expireAcknowledgements();
+    expect(controller.getSnapshot()[0]?.phase).toBe("accepted-awaiting-echo");
+    expect(posts).toBe(1);
+    controller.dispose();
+  });
+});
+
+test.each(["error", "acceptance"] as const)("a late %s after retry expiry cannot restart automatic sends", async (outcome) => {
+  let clock = 1_000, posts = 0;
+  const pending = deferred<{message: ChannelMessageView}>();
+  const controller = createDurableSendController(`late-${outcome}`, memoryStorage().storage, {
+    now: () => clock, retryTimeoutMs: 10_000, createNonce: () => `late-${outcome}`,
+    classifyError: () => "ambiguous", resolveAcceptance: async () => ({status: "not_found"}),
+    dispatch: async () => { if (++posts === 1) throw Error("503"); return pending.promise; },
+  });
+  await controller.enqueue(input);
+  await waitFor(() => controller.getSnapshot()[0]?.phase === "queued");
+  const active = controller.flush();
+  await waitFor(() => posts === 2);
+  clock = 11_001;
+  await controller.expireAcknowledgements();
+  expect(controller.getSnapshot()[0]?.phase).toBe("failed");
+  if (outcome === "error") pending.reject(Error("Late 503"));
+  else pending.resolve({message: acceptedMessage("late-real-acceptance")});
+  await active;
+  expect(controller.getSnapshot()[0]?.phase).toBe(outcome === "error" ? "failed" : "accepted-awaiting-echo");
+  expect(posts).toBe(2);
+  controller.dispose();
+});
+
+test("a stalled acceptance lookup after a temporary failure cannot keep the retry indicator alive forever", async () => {
+  let clock = 1_000;
+  const controller = createDurableSendController("stalled-lookup", memoryStorage().storage, {
+    now: () => clock, retryTimeoutMs: 10_000, createNonce: () => "stalled-lookup",
+    classifyError: () => "ambiguous", resolveAcceptance: () => new Promise(() => {}),
+    dispatch: async () => { throw Error("503"); },
+  });
+  await controller.enqueue(input);
+  await waitFor(() => controller.getSnapshot()[0]?.retryStartedAtMs === 1_000);
+  clock = 11_001;
+  await controller.expireAcknowledgements();
+  expect(controller.getSnapshot()[0]?.phase).toBe("failed");
+  expect(controller.getSnapshot()[0]?.failure?.uncertain).toBe(true);
+  controller.dispose();
 });

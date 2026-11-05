@@ -68,6 +68,9 @@ options = dict(method='app-store-connect', destination='upload', signingStyle='m
 PY
 output="${RUNNER_TEMP}/openteam-ios-release"
 mkdir -p "$output"
+# VoiceGlowKit's Metal shader needs Xcode's separately downloaded Metal toolchain.
+xcodebuild -showComponent MetalToolchain 2>/dev/null | grep -q 'Status: installed' \
+  || xcodebuild -downloadComponent MetalToolchain
 xcodebuild -project apps/ios/OpenTeamNative.xcodeproj -scheme OpenTeamNative \
   -configuration Release -destination 'generic/platform=iOS' \
   -archivePath "$output/OpenTeam.xcarchive" \

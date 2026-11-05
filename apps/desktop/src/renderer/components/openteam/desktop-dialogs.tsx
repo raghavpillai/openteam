@@ -1,5 +1,4 @@
 import type { BotTranscriptView, BotView, ChannelView } from "@openteam/contracts";
-import { LoaderCircle } from "lucide-react";
 import { lazy, Suspense } from "react";
 import {
   AlertDialog,
@@ -12,6 +11,7 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
+import { LoadingOrb } from "../ui/loading-orb";
 import { TranscriptDialog } from "./transcript-dialog";
 
 const GroupForm = lazy(() => import("./forms").then((module) => ({ default: module.GroupForm })));
@@ -85,7 +85,7 @@ export function DesktopDialogs({
                 <DialogDescription className="sr-only">
                   Loading channel creation form.
                 </DialogDescription>
-                <LoaderCircle aria-label="Loading" className="size-5 animate-spin" />
+                <LoadingOrb label="Loading" />
               </div>
             }
           >

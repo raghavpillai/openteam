@@ -29,8 +29,9 @@ sys.stderr.reconfigure(encoding='utf-8')
 OUTPUT = Path(sys.argv[1]).resolve()
 ASSETS = OUTPUT / 'assets'
 PASSED = []
-KEYS = {'escape': '\x1b', 'enter': '\r', 'letter': 'x', 'space': ' ',
+KEYS = {'escape': '\x1b', 'q': 'q', 'enter': '\r', 'letter': 'x', 'space': ' ',
         'ctrl-c': '\x03', 'arrow': '\x1b[A', 'paste': 'cancel pasted text\r'}
+CANCEL_KEYS = ('escape', 'q', 'ctrl-c')
 SHELLS = [shutil.which(name) for name in ('powershell.exe', 'pwsh.exe')]
 assert all(SHELLS), 'Both Windows PowerShell 5.1 and PowerShell 7 are required'
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
@@ -140,7 +141,7 @@ $ErrorActionPreference = 'Stop'
 function Invoke-WebRequest {
   param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)
   $name = ($Uri -split '/')[-1]
-  if ($env:NATIVE_RAW_ONLY -and $name.EndsWith('.gz')) { throw 'Fixture: gzip unavailable' }
+  if ($env:NATIVE_MISSING_GZIP -and $name.EndsWith('.gz')) { throw 'Fixture: gzip unavailable' }
   if ($env:NATIVE_BAD_CHECKSUM -and $name -eq 'SHA256SUMS') { $name = 'bad-checksums' }
   $PSBoundParameters['Uri'] = "$env:NATIVE_ASSET_URL/$name"
   Microsoft.PowerShell.Utility\Invoke-WebRequest @PSBoundParameters
@@ -149,9 +150,9 @@ Invoke-Expression ([System.IO.File]::ReadAllText($env:NATIVE_INSTALL_SCRIPT))
 ''', encoding='ascii')
         for shell in SHELLS:
             label = Path(shell).stem
-            scenarios = ['missing-docker', 'raw-fallback', 'bad-checksum', 'stopped',
+            scenarios = ['missing-docker', 'missing-gzip-rejected', 'bad-checksum', 'stopped',
                          'no-compose', 'old-compose', 'noninteractive', 'cancel-escape',
-                         'cancel-enter', 'cancel-ctrl-c']
+                         'cancel-q', 'cancel-ctrl-c']
             for scenario in scenarios:
                 name = f'{label}-bootstrap-{scenario}'
                 directory = base / name
@@ -159,7 +160,7 @@ Invoke-Expression ([System.IO.File]::ReadAllText($env:NATIVE_INSTALL_SCRIPT))
                 installation = directory / 'server'
                 bin_directory = directory / 'bin'
                 path = os.pathsep.join([str(Path(os.environ['SystemRoot']) / 'System32'), str(Path(shell).parent)])
-                if scenario not in ('missing-docker', 'raw-fallback', 'bad-checksum'):
+                if scenario not in ('missing-docker', 'missing-gzip-rejected', 'bad-checksum'):
                     path = str(ASSETS) + os.pathsep + path
                 # Let each PowerShell edition build its own module path; inheriting the
                 # PowerShell 7 runner's module path breaks 5.1's Get-FileHash autoload.
@@ -171,8 +172,8 @@ Invoke-Expression ([System.IO.File]::ReadAllText($env:NATIVE_INSTALL_SCRIPT))
                             'NATIVE_INSTALL_SCRIPT': str(OUTPUT / 'install.ps1'),
                             'NATIVE_DOCKER_MODE': scenario, 'TERM': 'xterm-256color',
                             'NO_COLOR': '1'})
-                if scenario == 'raw-fallback':
-                    env['NATIVE_RAW_ONLY'] = '1'
+                if scenario == 'missing-gzip-rejected':
+                    env['NATIVE_MISSING_GZIP'] = '1'
                 if scenario == 'bad-checksum':
                     env['NATIVE_BAD_CHECKSUM'] = '1'
                 cancel = scenario.startswith('cancel-')
@@ -183,7 +184,10 @@ Invoke-Expression ([System.IO.File]::ReadAllText($env:NATIVE_INSTALL_SCRIPT))
                 (OUTPUT / (name + '.log')).write_text(output, encoding='utf-8')
                 cli = bin_directory / 'openteam.exe'
                 cleaned = ' '.join(ANSI.sub('', output).split())
-                if scenario == 'bad-checksum':
+                if scenario == 'missing-gzip-rejected':
+                    check(code != 0 and not cli.exists() and 'gzip unavailable' in cleaned,
+                          'A release without its gzip asset must fail instead of using a legacy raw download', output)
+                elif scenario == 'bad-checksum':
                     check(code != 0 and not cli.exists() and 'checksum did not match' in cleaned,
                           'Corrupt download was not rejected', output)
                 else:
@@ -201,7 +205,6 @@ Invoke-Expression ([System.IO.File]::ReadAllText($env:NATIVE_INSTALL_SCRIPT))
                     else:
                         expected = {
                             'missing-docker': 'Install Docker Desktop',
-                            'raw-fallback': 'Install Docker Desktop',
                             'stopped': 'Open Docker Desktop',
                             'no-compose': '2.20.0',
                             'old-compose': '2.20.0',
@@ -224,15 +227,17 @@ Invoke-Expression ([System.IO.File]::ReadAllText($env:NATIVE_INSTALL_SCRIPT))
                     terminal=True, key=KEYS.get(scenario), columns=40 if scenario == 'narrow' else 100)
                 check(code == 0 and result_path.exists(), 'Countdown did not finish cleanly', output)
                 result = json.loads(result_path.read_text())
-                proceed = scenario in ('continue', 'narrow')
+                # Enter starts at once; Esc, q, and Ctrl-C cancel; other keys are ignored.
+                proceed = scenario not in CANCEL_KEYS
                 check(result['proceed'] == proceed, 'Wrong countdown outcome', output)
                 check(result['rawRestored'] and result['listenersRestored'],
                       'Countdown left terminal raw mode or input listeners behind', output)
-                if proceed:
+                if scenario in (*CANCEL_KEYS, 'enter'):
+                    check(result['elapsed'] < 2500, 'Keyboard response was delayed', output)
+                elif scenario != 'paste':
+                    # ConPTY may deliver a paste's final Enter on its own, which starts at once.
                     check(4900 <= result['elapsed'] < 7000, 'Countdown was not five seconds', output)
                     check(steps == set('12345'), 'Missing a visible countdown step', output)
-                else:
-                    check(result['elapsed'] < 2500, 'Keyboard cancellation was delayed', output)
                 record(name, output)
 
 finally:

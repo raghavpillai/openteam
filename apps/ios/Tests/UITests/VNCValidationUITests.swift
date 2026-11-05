@@ -89,7 +89,10 @@ import XCTest
     }
     app.buttons["Computer"].tap()
     if starting {
-      XCTAssertTrue(app.staticTexts["Starting desktop…"].waitForExistence(timeout: 3))
+      let loading = app.descendants(matching: .any)
+        .matching(identifier: "computer-loading-status").firstMatch
+      XCTAssertTrue(loading.waitForExistence(timeout: 3))
+      XCTAssertEqual(loading.label, "Starting computer…")
       capture("starting", app)
       _ = try await request("/__qa/control", ["statusDelay": 0, "vncDelay": 0])
     }

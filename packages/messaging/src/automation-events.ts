@@ -23,6 +23,8 @@ export interface AutomationEvent {
   repo?: string;
   pr?: number;
   actor?: string;
+  /** The pull request's author, for repo events about a PR. */
+  prOwner?: string;
   branch?: string;
   tenantId?: string;
   teamId?: string;
@@ -72,6 +74,7 @@ export function parseAutomationEvent(raw: unknown): AutomationEvent {
     "emoji",
     "repo",
     "actor",
+    "prOwner",
     "branch",
     "tenantId",
     "teamId",
@@ -103,6 +106,16 @@ export function parseAutomationEvent(raw: unknown): AutomationEvent {
 }
 const member = (filter: unknown, value?: string) =>
   !Array.isArray(filter) || !filter.length || (value !== undefined && filter.includes(value));
+/** userAllowlist gates who drives each kind: the PR author for PR and comment events, the
+ * reviewer or the PR author for review events, the assigner for assignments, and never CI. */
+const allowlisted = (filter: unknown, event: AutomationEvent) => {
+  if (!Array.isArray(filter) || !filter.length || event.kind.startsWith("ci-")) return true;
+  const logins = filter.map((login) => String(login).replace(/^@+/, "").toLowerCase());
+  const named = (login?: string) => login !== undefined && logins.includes(login.toLowerCase());
+  if (event.kind === "issue-assigned") return named(event.actor);
+  if (event.kind.startsWith("review-")) return named(event.actor) || named(event.prOwner);
+  return named(event.prOwner);
+};
 export function matchesAutomationEvent(
   trigger: Record<string, unknown>,
   event: AutomationEvent
@@ -146,11 +159,7 @@ export function matchesAutomationEvent(
         (trigger.ciBranch === undefined ||
           !event.kind.startsWith("ci-") ||
           trigger.ciBranch === event.branch) &&
-        (!Array.isArray(trigger.userAllowlist) ||
-          !trigger.userAllowlist.length ||
-          trigger.userAllowlist.some(
-            (user) => String(user).toLowerCase() === event.actor?.toLowerCase()
-          ))
+        allowlisted(trigger.userAllowlist, event)
       );
     case "microsoftTeams": {
       if (

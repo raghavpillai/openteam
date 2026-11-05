@@ -69,6 +69,7 @@ export function apnsPayload(
       botId: payload.botId,
       messageSequence: payload.messageSequence,
       notificationSequence: payload.notificationSequence,
+      threadMessageId: payload.threadMessageId,
       sender: payload.sender
         ? {
             name: truncateNotificationText(payload.sender.name, 80),

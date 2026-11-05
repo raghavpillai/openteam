@@ -174,7 +174,12 @@ export const retainStackImages = (
     project: project.projectName,
     owner: raw?.owner ?? randomUUID(),
     current: after,
-    rollback: [...new Set([...(raw?.current ?? []), ...before])],
+    // Reinstalling/forcing the same image set must not consume the previous
+    // distinct recovery point. Compare sets: Compose's service order can change.
+    rollback:
+      raw && raw.current.length === after.length && raw.current.every((id) => after.includes(id))
+        ? raw.rollback
+        : [...new Set([...(raw?.current ?? []), ...before])],
     owned: [...new Set([...(raw?.owned ?? []), ...before, ...after])],
   };
   const tag = (id: string) => `openteam-retention-${ledger.owner}:${id.slice(7)}`;
@@ -270,10 +275,28 @@ export const retainDatabaseBackups = (
   if (count === 0) return; // Explicitly retain all updater restore points.
   const ledger = backupLedger(paths);
   assertMaintenancePath(paths.backups);
-  const keep = new Set(ledger.files.slice(-count));
+  // Inventory before deleting anything. Exported/missing files must not consume
+  // retention slots and cause us to delete additional surviving restore points.
+  const existing: string[] = [];
+  const eligible = new Set<string>();
+  for (const name of new Set(ledger.files)) {
+    const path = join(paths.backups, name);
+    let stat: ReturnType<typeof lstatSync>;
+    try {
+      stat = lstatSync(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    assertMaintenancePath(path);
+    existing.push(name);
+    if (stat.isFile() && stat.nlink === 1 && stat.size > 0) eligible.add(name);
+  }
+  ledger.files = existing;
+  const keep = new Set([...eligible].slice(-count));
   if (protectedPath) keep.add(basename(protectedPath));
   for (const name of [...ledger.files]) {
-    if (keep.has(name)) continue;
+    if (keep.has(name) || !eligible.has(name)) continue;
     const path = join(paths.backups, name);
     if (!existsSync(path)) continue;
     assertMaintenancePath(path);

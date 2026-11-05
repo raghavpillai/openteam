@@ -53,6 +53,35 @@ private final class MockProtocol: URLProtocol, @unchecked Sendable {
 }
 
 final class TransportTests: XCTestCase, @unchecked Sendable {
+  func testReachabilityIsReportedBeforeDecodingAndForRejectedActions() async throws {
+    actor Responses {
+      var count = 0
+      func record() { count += 1 }
+    }
+    let responses = Responses()
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [MockProtocol.self]
+    let client = try API(server: "https://fixture.invalid", session: URLSession(configuration: config),
+      onReachable: { await responses.record() })
+    MockProtocol.stub.set { _ in (200, [:], Data("invalid json".utf8)) }
+    do {
+      _ = try await client.get("/api/v0/client-bootstrap", as: Bootstrap.self)
+      XCTFail("Must fail decoding")
+    } catch is DecodingError { }
+    let afterDecoding = await responses.count
+    XCTAssertEqual(afterDecoding, 1, "An invalid payload still proves a connection")
+    for status in [401, 403, 404, 422, 429, 500, 503] {
+      MockProtocol.stub.set { _ in (status, [:], Data("{}".utf8)) }
+      do { _ = try await client.raw("/api/v0/example"); XCTFail("Must reject failed action") }
+      catch let error as APIError { XCTAssertEqual(error.status, status) }
+    }
+    MockProtocol.stub.set { _ in throw URLError(.timedOut) }
+    do { _ = try await client.raw("/api/v0/events/poll"); XCTFail("Must throw timeout") }
+    catch let error as URLError { XCTAssertEqual(error.code, .timedOut) }
+    let total = await responses.count
+    XCTAssertEqual(total, 6, "Only responses below 500 establish reachability")
+  }
+
   func testSignOutSendsJSONAndExplicitSession() async throws {
     MockProtocol.stub.set { request in
       XCTAssertEqual(request.url?.path, "/team/api/auth/sign-out")

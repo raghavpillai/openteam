@@ -8,12 +8,14 @@ export interface TranscriptionSettings {
 }
 
 export interface TranscriptionSettingsInput extends TranscriptionSettings {
-  /** Omit to keep the saved key; null explicitly removes it. Never returned to clients. */
+  /** Omit or leave blank to keep the saved key; null explicitly removes it. Never returned to clients. */
   apiKey?: string | null;
 }
 
 export interface TranscriptionSettingsView extends TranscriptionSettings {
   hasApiKey: boolean;
+  /** Last four characters only; null for absent, unreadable, or short keys. */
+  apiKeySuffix?: string | null;
   configured: boolean;
 }
 

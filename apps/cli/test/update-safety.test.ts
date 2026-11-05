@@ -1,7 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { registerDatabaseBackup, retainDatabaseBackups } from "../src/disk-maintenance";
 import { installationPaths } from "../src/config";
 import {
   activeUpdateProcess,
@@ -79,5 +89,35 @@ describe("update transaction safety", () => {
       updatedAt: "2026-09-01T00:00:00.000Z",
     });
     expect(activeUpdateProcess(paths)).toBe(process.pid);
+  });
+
+  test("keeps the newest update backups and the current one, and nothing else is touched", () => {
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), "openteam-update-backups-")));
+    temporaryDirectories.push(directory);
+    const paths = installationPaths(directory);
+    writeFileSync(paths.environment, "");
+    mkdirSync(paths.backups);
+    const backup = (from: string, to: string, at: string) =>
+      `postgres-${from}-before-${to}-${at}-${randomUUID()}.sql`;
+    const names = [
+      backup("0.0.7", "0.0.8", "2026-10-24T10-00-00-000Z"),
+      backup("0.0.8", "0.0.9", "2026-10-26T10-00-00-000Z"),
+      backup("0.0.9", "0.0.10", "2026-10-26T18-00-00-000Z"),
+      backup("0.0.10", "0.0.11", "2026-11-02T09-00-00-000Z"),
+      backup("0.0.11", "0.0.12", "2026-11-09T09-00-00-000Z"),
+      "my-own-dump.sql",
+      "postgres-notes.txt",
+    ];
+    for (const name of names) writeFileSync(join(paths.backups, name), "SELECT 1;\n");
+    for (const name of names.slice(0, 5)) registerDatabaseBackup(paths, join(paths.backups, name));
+    // A clock set back makes this update's own backup sort as the oldest; rollback still needs it.
+    const current = join(paths.backups, names[0]!);
+    retainDatabaseBackups(paths, current);
+    expect(readdirSync(paths.backups).sort()).toEqual([names[0]!, ...names.slice(2)].sort());
+    writeFileSync(paths.environment, "OPENTEAM_BACKUP_RETENTION_COUNT=1\n");
+    retainDatabaseBackups(paths, null);
+    expect(readdirSync(paths.backups).sort()).toEqual(
+      [names[4]!, "my-own-dump.sql", "postgres-notes.txt"].sort()
+    );
   });
 });

@@ -11,6 +11,7 @@ import { installationExists, readManifest } from "./config";
 import { PROJECT_NAME } from "./constants";
 import { type ComposeProject, requireComposeProject } from "./docker";
 import { CliError } from "./errors";
+import { providerDisplayName } from "./model-provider-options";
 import type { CommandRunner } from "./process";
 import { readRuntimeInferenceSettings, writeRuntimeInferenceSettings } from "./runtime-settings";
 import { createTerminalPrompter, type SetupPrompter } from "./setup";
@@ -120,19 +121,24 @@ const chooseAuthType = async (
   const normalized = requested?.replace("-", "_");
   if (normalized === "oauth" || normalized === "api_key") {
     if (!provider.authMethods.some((method) => method.type === normalized)) {
-      throw new CliError(`${provider.name} does not support ${normalized.replace("_", " ")} login`);
+      throw new CliError(
+        `${providerDisplayName(provider)} does not support ${normalized.replace("_", " ")} login`
+      );
     }
     return normalized;
   }
   if (provider.authMethods.length === 0) {
-    throw new CliError(`${provider.name} does not expose an interactive login method`);
+    throw new CliError(
+      `${providerDisplayName(provider)} does not expose an interactive login method`
+    );
   }
   const firstMethod = provider.authMethods[0];
-  if (!firstMethod) throw new CliError(`${provider.name} has invalid authentication metadata`);
+  if (!firstMethod)
+    throw new CliError(`${providerDisplayName(provider)} has invalid authentication metadata`);
   if (provider.authMethods.length === 1) return firstMethod.type;
   if (prompter.select) {
     return prompter.select(
-      `Authentication for ${provider.name}`,
+      `Authentication for ${providerDisplayName(provider)}`,
       provider.authMethods.map((method) => ({
         label: method.label,
         value: method.type,
@@ -142,7 +148,7 @@ const chooseAuthType = async (
   }
   const answer = (
     await prompter.question(
-      `Authentication for ${provider.name} (${provider.authMethods.map((method) => method.type.replace("_", "-")).join("/")}): `
+      `Authentication for ${providerDisplayName(provider)} (${provider.authMethods.map((method) => method.type.replace("_", "-")).join("/")}): `
     )
   )
     .trim()
@@ -184,7 +190,9 @@ export const providerLoginCommand = async (
         return;
       }
     } else if (authType === "api_key") {
-      const key = (await prompter.secret(`${provider.name} API key or password: `)).trim();
+      const key = (
+        await prompter.secret(`${providerDisplayName(provider)} API key or password: `)
+      ).trim();
       if (!key) throw new CliError("Provider API key or password cannot be empty");
       project.runOrThrow(authCommand(["login", providerId, "api_key"]), { input: `${key}\n` });
     } else {
@@ -203,7 +211,7 @@ export const providerLoginCommand = async (
   );
   if (!connected) {
     throw new CliError(
-      `${provider.name} sign-in did not complete. Retry openteam provider login ${providerId} in an interactive terminal and finish the provider sign-in.`,
+      `${providerDisplayName(provider)} sign-in did not complete. Retry openteam provider login ${providerId} in an interactive terminal and finish the provider sign-in.`,
       2
     );
   }
@@ -211,7 +219,7 @@ export const providerLoginCommand = async (
     renderSummary(
       "provider",
       "CONNECTED",
-      [{ label: "Provider", value: `${provider.name} (${providerId})` }],
+      [{ label: "Provider", value: `${providerDisplayName(provider)} (${providerId})` }],
       [{ text: installationCommand(paths, `model list ${providerId}`), tone: "info" }]
     )
   );

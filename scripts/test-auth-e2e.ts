@@ -54,6 +54,7 @@ try {
     headers: new Headers({ authorization: `Bearer ${firstToken}` }),
   });
   assert.equal(firstSession?.user.username, "openteam.owner");
+  assert.equal(firstSession?.user.name, "OpenTeam.Owner", "sign-in must keep the typed username");
 
   const blockedReset = await authRequest("/change-password", {
     method: "POST",
@@ -68,7 +69,7 @@ try {
   });
   assert.equal(blockedReset.status, 404, "HTTP password changes must be disabled");
 
-  await setOwnerCredentials({ operation: "update", username: "renamed.owner" });
+  await setOwnerCredentials({ operation: "update", username: "Renamed.Owner" });
   const usernameRevokedSession = await auth.api.getSession({
     headers: new Headers({ authorization: `Bearer ${firstToken}` }),
   });
@@ -93,10 +94,18 @@ try {
   assert.equal(secondLogin.status, 200, await secondLogin.text());
   const secondToken = secondLogin.headers.get("set-auth-token");
   assert.ok(secondToken);
+  const secondSession = await auth.api.getSession({
+    headers: new Headers({ authorization: `Bearer ${secondToken}` }),
+  });
+  assert.equal(
+    secondSession?.user.name,
+    "Renamed.Owner",
+    "a password-only update must preserve username capitalization"
+  );
 
   await setOwnerCredentials({
     operation: "update",
-    username: "final.owner",
+    username: "Final.Owner",
     password: "third test password",
   });
   const bothRevokedSession = await auth.api.getSession({

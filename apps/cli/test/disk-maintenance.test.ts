@@ -143,6 +143,21 @@ test("preserves running/stopped container images, other installations, manual ta
   }
 });
 
+test("forcing an unchanged release preserves the previous distinct rollback stack across restarts", () => {
+  const { paths, runner, project } = fixture();
+  retainStackImages(paths, project, runner, [id(1), id(2)], [id(3), id(4)]);
+  const restarted = new ComposeProject(paths, project.command, runner, project.projectName);
+  retainStackImages(paths, restarted, runner, [id(3), id(4)], [id(4), id(3)]);
+  retainStackImages(paths, restarted, runner, [id(4), id(3)], [id(3), id(4)]);
+  expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual([]);
+  const ledger = JSON.parse(readFileSync(join(paths.directory, "image-retention.json"), "utf8"));
+  expect(ledger.rollback).toEqual([id(1), id(2)]);
+  for (const n of [1, 2, 3, 4]) expect(runner.images.has(id(n))).toBe(true);
+  retainStackImages(paths, restarted, runner, [id(3), id(4)], [id(5), id(6)]);
+  expect(runner.images.has(id(1))).toBe(false);
+  for (const n of [3, 4, 5, 6]) expect(runner.images.has(id(n))).toBe(true);
+});
+
 test("inventories custom prefixes, optional services, and actual pre-pull mutable-tag container IDs", () => {
   const { paths, runner, project } = fixture();
   runner.refs = {
@@ -312,4 +327,24 @@ test("configured smaller retention still protects the rollback dump and exported
   retainDatabaseBackups(paths, files[0]!);
   expect(files.map(existsSync)).toEqual([true, false, false, false, false, true]);
   expect(readFileSync(exported, "utf8")).toBe("private database bytes");
+});
+
+test("missing recent dumps do not displace surviving restore points from retention", () => {
+  const { paths, files } = backups();
+  rmSync(files[3]!);
+  rmSync(files[4]!);
+  retainDatabaseBackups(paths, files[5]!);
+  expect(files.map(existsSync)).toEqual([false, true, true, false, false, true]);
+  const ledger = JSON.parse(readFileSync(join(paths.directory, "backup-retention.json"), "utf8"));
+  expect(ledger.files).toHaveLength(3);
+  expect(ledger.files.every((name: string) => existsSync(join(paths.backups, name)))).toBe(true);
+});
+
+test("empty dumps cannot displace valid restore points", () => {
+  const { paths, files } = backups();
+  writeFileSync(files[3]!, "");
+  writeFileSync(files[4]!, "");
+  retainDatabaseBackups(paths, files[5]!);
+  for (const index of [1, 2, 5])
+    expect(readFileSync(files[index]!, "utf8")).toBe("private database bytes");
 });

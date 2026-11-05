@@ -19,7 +19,7 @@ test("Task preserves all runtime image/video types and uppercase filenames", () 
 });
 
 test("Task rejects more attachments than the worker can load before dispatch", () => {
-  const paths = Array.from({ length: 9 }, (_, i) => `/workspace/image-${i}.png`);
-  expect(parse({ ...task, file_attachments: paths.slice(0, 8) }).file_attachments).toHaveLength(8);
-  expect(() => parse({ ...task, file_attachments: paths })).toThrow("at most 8");
+  const paths = Array.from({ length: 65 }, (_, i) => `/workspace/image-${i}.png`);
+  expect(parse({ ...task, file_attachments: paths.slice(0, 64) }).file_attachments).toHaveLength(64);
+  expect(() => parse({ ...task, file_attachments: paths })).toThrow("A subagent can take at most 64 images in file_attachments. Attach fewer and try again.");
 });

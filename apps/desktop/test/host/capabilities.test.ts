@@ -5,8 +5,10 @@ import { tmpdir } from "node:os";
 import { createCipheriv, createHash, pbkdf2Sync } from "node:crypto";
 import { Database } from "bun:sqlite";
 import { ChromeCookies, decryptChromeCookie } from "../../src/main/host/chrome-cookies";
-import { MacMessages, validateMessageSend } from "../../src/main/host/messages";
+import { MacMessages } from "../../src/main/host/messages";
+import { validateMessageSend } from "@openteam/contracts/messages-send";
 import { nativeCommand } from "../../src/main/host/native-command";
+import { HostCapabilities } from "../../src/main/host/capabilities";
 
 test("Chrome import decrypts only requested profile/host pairs, verifies v24 domain hash, and preserves cookie metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-chrome-test-"));
@@ -122,4 +124,52 @@ test("Messages sends validate recipient and pass body as argv, never executable 
     verified: false,
   });
   expect(calls).toBe(1);
+});
+
+test("the cookie tool dispatches by its current name with parsed origins; the old name is unknown", async () => {
+  const requests: unknown[] = [];
+  const cookies = { collect: async (_botId: string, origins: unknown) => (requests.push(origins), { kind: "listed", items: [] }) };
+  const host = new HostCapabilities(undefined, cookies as unknown as ChromeCookies, "darwin");
+  expect(await host.handle({ tool: "RequestCookieOriginApproval", botId: "bot", arguments: { origins: [{ origin: "example.com", profileId: "Default" }] } })).toEqual({ kind: "listed", items: [] });
+  expect(requests).toEqual([[{ origin: "example.com", profileId: "Default" }]]);
+  await expect(host.handle({ tool: "RequestCookieOriginApproval", botId: "bot", arguments: { origins: "example.com" } })).rejects.toThrow();
+  await expect(host.handle({ tool: "import_chrome_cookies", botId: "bot", arguments: {} })).rejects.toThrow("Unknown desktop capability");
+  expect(requests).toHaveLength(1);
+});
+
+test("Messages requests run only while this Mac's own setting allows them", async () => {
+  let enabled = false;
+  let reads = 0;
+  const messages = { execute: async () => { reads++; return { kind: "items", items: [] }; }, people: async () => ({}) };
+  const host = new HostCapabilities(messages as unknown as MacMessages, undefined, "darwin", undefined, { enabled: async () => enabled });
+  const request = { tool: "ChatItems", botId: "bot-1", arguments: { chatGuid: "any;-;+15555550100" } };
+  await expect(host.handle(request)).rejects.toThrow("Messages is turned off in the user's settings on this Mac");
+  expect(reads).toBe(0);
+  enabled = true;
+  await expect(host.handle(request)).resolves.toMatchObject({ kind: "items" });
+  expect(reads).toBe(1);
+});
+
+test("a missing macOS grant names itself and opens the permissions dialog instead of failing generically", async () => {
+  let permissions = { fullDiskAccess: false, automation: "unknown", contacts: "notAsked" } as Record<string, unknown>;
+  let prompts = 0;
+  const access = { permissions: async () => permissions, noteAutomation: () => {} };
+  const messages = { execute: async () => ({ kind: "items", items: [] }), people: async () => ({}) };
+  const host = new HostCapabilities(messages as unknown as MacMessages, undefined, "darwin", undefined, {
+    enabled: async () => true,
+    access: access as never,
+    onGrantMissing: () => { prompts++; },
+  });
+  await expect(host.handle({ tool: "ChatItems", botId: "b", arguments: {} })).rejects.toThrow("has not granted OpenTeam Full Disk Access");
+  await expect(host.handle({ tool: "FindContacts", botId: "b", arguments: { query: "Alex" } })).rejects.toThrow("hasn't been asked for Contacts access yet");
+  expect(prompts).toBe(2);
+  permissions = { fullDiskAccess: true, automation: "notAsked", contacts: "notAsked" };
+  // Checking permissions never needs a grant, and reports what Settings shows.
+  await expect(host.handle({ tool: "CheckIMessagePermissions", botId: "b", arguments: {} })).resolves.toEqual({
+    kind: "check-permissions", fullDiskAccess: true, automation: "notAsked", contacts: "denied",
+  });
+  await expect(host.handle({ tool: "ChatItems", botId: "b", arguments: {} })).resolves.toMatchObject({ kind: "items" });
+  permissions = { fullDiskAccess: true, automation: "denied", contacts: "granted" };
+  await expect(host.handle({ tool: "SendIMessage", botId: "b", callId: "c", arguments: { text: "hi", to: "+15555550100" } })).rejects.toThrow("has not granted OpenTeam Automation for Messages");
+  expect(prompts).toBe(3);
 });

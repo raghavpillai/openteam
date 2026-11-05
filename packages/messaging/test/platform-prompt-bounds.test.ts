@@ -4,8 +4,10 @@ import {
   AgentMessaging,
   PLATFORM_PROMPT_GROUP_LIMIT,
   PLATFORM_PROMPT_PEER_LIMIT,
-  renderPlatformPromptTargetLines,
+  renderTeammatesUserInfo,
   selectPlatformPromptPeers,
+  TEAMMATES_POINTER,
+  NO_TEAMMATES_SECTION,
 } from "../src";
 
 const peers = (count: number) =>
@@ -15,12 +17,12 @@ const peers = (count: number) =>
     hiddenFromSidebar: index % 3 === 0,
   }));
 
-describe("bounded platform target context", () => {
-  test("keeps the target prompt bounded at 1k and 10k bots", () => {
-    const measurements = [10, 1_000, 10_000].map((count) => {
+describe("bounded teammates roster", () => {
+  test("keeps the roster bounded at 1k and 10k bots", () => {
+    const measurements = [100, 1_000, 10_000].map((count) => {
       const roster = peers(count);
       const selected = selectPlatformPromptPeers([], roster);
-      const bounded = renderPlatformPromptTargetLines(selected, []).join("\n");
+      const bounded = renderTeammatesUserInfo({ peers: selected, groups: [], agentsRoot: "/agent-data/agents", morePeers: true })!;
       return {
         count,
         boundedBytes: Buffer.byteLength(bounded),
@@ -30,7 +32,8 @@ describe("bounded platform target context", () => {
 
     expect(measurements[1]?.boundedBytes).toBe(measurements[2]?.boundedBytes);
     expect(measurements[1]?.bounded).toBe(measurements[2]?.bounded);
-    expect(measurements[2]?.boundedBytes).toBeLessThan(1_000);
+    expect(measurements[2]?.boundedBytes).toBeLessThan(4_000);
+    expect(measurements[2]?.bounded).toContain("\u2026and more (read the agent folders above for the full roster).");
     expect(selectPlatformPromptPeers([], peers(10_000))).toHaveLength(PLATFORM_PROMPT_PEER_LIMIT);
   });
 
@@ -42,7 +45,7 @@ describe("bounded platform target context", () => {
     ];
     const recent = [
       { id: "related-2", name: "Duplicate recent", hiddenFromSidebar: false },
-      ...peers(20),
+      ...peers(PLATFORM_PROMPT_PEER_LIMIT * 2),
     ];
     const selected = selectPlatformPromptPeers(related, recent);
     expect(selected.slice(0, 2).map(({ id }) => id)).toEqual(["related-1", "related-2"]);
@@ -50,7 +53,30 @@ describe("bounded platform target context", () => {
     expect(selected).toHaveLength(PLATFORM_PROMPT_PEER_LIMIT);
   });
 
-  test("applies SQL limits before materialization and teaches exact directory discovery", async () => {
+  test("renders teammates and group chats in id order, with descriptions and members", () => {
+    const block = renderTeammatesUserInfo({
+      peers: [
+        { id: "b-agent", name: "Researcher", description: "Finds  sources\nfast", hiddenFromSidebar: false },
+        { id: "a-agent", name: "Archivist", hiddenFromSidebar: true },
+      ],
+      groups: [{ id: "g-1", name: "Launch", workingDirectory: "/workspace/launch", members: [{ bot: { name: "Researcher" } }] }],
+      agentsRoot: "/agent-data/agents",
+    })!;
+    expect(block.split("\n")).toEqual([
+      "<teammates>",
+      'Each teammate is its own assistant with its own chat, persona, and memory, and the user may not know you can reach them. When looping one in would genuinely help, offer it ("want me to ask @Name?"), and treat "@ that agent", "tell my other agent\u2026", or "ask the group" as a request to send. Writing @ and a teammate\'s exact name in your private chat does not reach the teammate; use SendToAgent.',
+      expect.stringContaining("Every agent (yours included) is a sibling folder under /agent-data/agents."),
+      "Teammates you can message right now:",
+      "- Archivist (id: a-agent) (hidden from the user's sidebar, but reachable)",
+      "- Researcher (id: b-agent): Finds sources fast",
+      "Group chats (channels) you're in (post to one by its id to reach all its members):",
+      "- Launch (id: g-1): with Researcher (project folder: /workspace/launch)",
+      "</teammates>",
+    ]);
+    expect(renderTeammatesUserInfo({ peers: [], groups: [], agentsRoot: "/agent-data/agents" })).toBeNull();
+  });
+
+  test("applies SQL limits before materialization and points the prompt at the roster", async () => {
     const queryArgs: Record<string, unknown> = {};
     const recent = peers(PLATFORM_PROMPT_PEER_LIMIT + 1);
     const groups = Array.from({ length: PLATFORM_PROMPT_GROUP_LIMIT + 1 }, (_, index) => ({
@@ -68,7 +94,7 @@ describe("bounded platform target context", () => {
     }));
     const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
     Object.assign(messaging, {
-      defaultTimeZone: "UTC",
+      userTimeZone: async () => "UTC",
       agentData: {
         root: "/agent-data",
         preparePlatformSections: async (_bot: string, _context: string, epoch: number, live: Record<string, string>) => preparePromptSections({}, epoch, live),
@@ -77,9 +103,8 @@ describe("bounded platform target context", () => {
           profileSection: "You are Main.",
           profileSnapshot: null,
           identityAnnouncement: "",
-          memoryRender: "",
-          memorySnapshot: null,
-          skillRender: "",
+          memory: { policy: "## Memory\nMemory policy.", facts: "No facts recorded yet." },
+          skillRender: '<agent_skill fullPath="/agent-data/workflows/x/SKILL.md">X</agent_skill>',
           warnings: [],
         }),
         loadInferenceSettings: async () => ({
@@ -87,11 +112,12 @@ describe("bounded platform target context", () => {
           modelId: "gpt-5.5",
           reasoning: "high",
         }),
-        loadTaskConfiguration: async () => ({ combinedComputerUse: true, executorProfiles: [] }),
+        loadTaskConfiguration: async () => ({ executorProfiles: [] }),
       },
       prisma: {
+      run: { findMany: async () => [] },
         $queryRaw: async () => [],
-        contextSession: { findMany: async () => [] },
+        contextSession: { findMany: async () => [], findFirst: async () => null },
         bot: {
           findUniqueOrThrow: async (args: Record<string, unknown>) => {
             queryArgs.bot = args;
@@ -117,7 +143,6 @@ describe("bounded platform target context", () => {
             return groups;
           },
         },
-        projectMember: { findMany: async () => [] },
         botConnectorState: { findMany: async () => [] },
         routine: { findMany: async () => [] },
       },
@@ -125,7 +150,9 @@ describe("bounded platform target context", () => {
 
     const prompt = await AgentMessaging.prototype.platformPrompt.call(
       messaging as unknown as AgentMessaging,
-      "main"
+      "main",
+      "main-context",
+      ""
     );
     expect(queryArgs.bot).toMatchObject({ include: { todos: { take: 64 } } });
     expect(queryArgs.peers).toMatchObject({ take: PLATFORM_PROMPT_PEER_LIMIT + 1 });
@@ -133,11 +160,12 @@ describe("bounded platform target context", () => {
       take: PLATFORM_PROMPT_GROUP_LIMIT + 1,
       select: { members: { take: 6 } },
     });
-    expect(prompt.instructions).toContain("Recent and related SendToAgent targets");
-    expect(prompt.instructions).toContain("Agent Related Peer: related-peer");
-    expect(prompt.instructions).toContain(
-      "Use ListAgents or ListGroups for an exact id/name lookup"
-    );
-    expect(prompt.instructions).not.toContain(`Group ${PLATFORM_PROMPT_GROUP_LIMIT}:`);
+    expect(prompt.instructions).toContain(`## Teammates and groups\n${TEAMMATES_POINTER}`);
+    expect(prompt.instructions).not.toContain(NO_TEAMMATES_SECTION);
+    expect(prompt.userInfo).toContain("- Related Peer (id: related-peer)");
+    expect(prompt.userInfo).toContain("Teammates you can message right now:");
+    expect(prompt.userInfo).toContain("\u2026and more (read the agent folders above for the full roster).");
+    expect(prompt.userInfo).not.toContain(`Group ${PLATFORM_PROMPT_GROUP_LIMIT} (`);
+    expect(prompt.userInfo!.indexOf("<teammates>")).toBeLessThan(prompt.userInfo!.indexOf("<agent_skills>"));
   });
 });

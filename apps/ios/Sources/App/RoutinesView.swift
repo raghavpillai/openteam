@@ -29,7 +29,7 @@ struct ProfileRoutinesView: View {
   var body: some View {
     Section {
       if loading {
-        ProgressView("Loading routines…")
+        LoadingOrbLabel(title: "Loading routines…")
       } else if let failure {
         InlineFailure(message: failure) { Task { await load() } }
       } else if routines.isEmpty {
@@ -88,7 +88,7 @@ struct RoutinesView: View {
   var path: String { "/api/v0/\(isGroup ? "channels" : "bots")/\(API.segment(ownerID))/routines" }
   var body: some View {
     NativeList {
-      if loading { ProgressView("Loading routines…") }
+      if loading { LoadingOrbLabel(title: "Loading routines…") }
       if let failure { InlineFailure(message: failure) { Task { await load() } } }
       ForEach(routines) { routine in
         Button {
@@ -214,7 +214,7 @@ struct RoutineEditor: View {
               .disabled(running || saving)
           }
           Section("Recent runs") {
-            if historyLoading && executions.isEmpty { ProgressView("Loading recent runs…") }
+            if historyLoading && executions.isEmpty { LoadingOrbLabel(title: "Loading recent runs…") }
             if let historyFailure {
               InlineFailure(message: historyFailure) { Task { await history() } }
             }

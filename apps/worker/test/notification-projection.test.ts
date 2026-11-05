@@ -128,7 +128,7 @@ describe("OpenTeam-compatible notification transitions", () => {
     });
   });
 
-  test("an interactive bot message uses needs-input instead of done", async () => {
+  test("an interactive bot message notifies like any other message", async () => {
     const harness = notificationProjection({
       lastMessage: {
         content: "Deploy to production?",
@@ -144,7 +144,7 @@ describe("OpenTeam-compatible notification transitions", () => {
 
     expect(harness.deliveries).toHaveLength(1);
     expect(harness.deliveries[0]?.payload).toMatchObject({
-      kind: "agent-needs-input",
+      kind: "message",
       title: "Probe",
       body: "Deploy to production?",
     });

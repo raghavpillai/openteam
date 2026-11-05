@@ -112,13 +112,6 @@ export const renameDirectChannel = (
           data: { name: requestedName, updatedAt: occurredAt },
           include: { members: { orderBy: { ordinal: "asc" } } },
         });
-        await tx.agentPromptSnapshot.updateMany({
-          where: { botId: member.botId },
-          data: {
-            announcedName: requestedName,
-            announcedDescription: member.bot.description,
-          },
-        });
         await tx.channelMessage.create({
           data: {
             channelId: channel.id,
@@ -132,6 +125,7 @@ export const renameDirectChannel = (
           },
         });
         bootstrapRunId = await messaging.skipBootstrapForUser(tx, member.botId);
+        if (input.timeZone) await messaging.updateUserTimeZone(tx, { detected: input.timeZone });
         await messaging.enqueueWake(tx, {
           botId: member.botId,
           channelId: channel.id,
@@ -145,7 +139,6 @@ export const renameDirectChannel = (
           priority: PRIORITY.user,
           availableAt: new Date(occurredAt.getTime() + 750),
           occurredAt,
-          timeZone: input.timeZone,
           wrapUserContent: false,
         });
         await messaging.scheduleTranscriptProjection(tx, [member.botId]);

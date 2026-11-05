@@ -42,22 +42,6 @@ export function useBotRowActions(options: {
         setDeleteBotTarget(bot);
         return;
       }
-      if (action === "hide") {
-        void options
-          .mutate(() => api.updateBot(bot.id, { hiddenFromSidebar: true }))
-          .then(() => options.setSelectedId(null));
-        return;
-      }
-      if (action === "duplicate") {
-        void options
-          .mutate(() =>
-            api.duplicateBot(bot.id, {
-              clientRequestId: crypto.randomUUID(),
-            })
-          )
-          .then((duplicate) => options.setSelectedId(duplicate.dmChannelId));
-        return;
-      }
       options.setSelectedId(bot.dmChannelId);
       options.setDetailsOpen(true);
       options.setInspectorMode("settings");

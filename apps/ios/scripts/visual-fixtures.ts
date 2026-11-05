@@ -84,7 +84,12 @@ export function visualFixture(base: any, scene: string) {
     const name=isMotion?"Memory Deep 914 Box copy":isLong?"Compaction Ten 0913":isActions?"Memory Deep 914 Box":isDark?"Memory Deep 914 Server":"New Bot";
     const {channel}=bot("visual-chat",name,isDark?"#FA2AA4":isLong||isActions||isMotion?"#00B8A9":"#FF6600",isDark||isLong||isActions||isMotion?"cloud":"hexagon");
     if (isDark) { snapshot.bots[0].title=""; snapshot.bots[0].instructions=""; }
-    if (isMotion) {
+    if (scene === "delivery-spacing") {
+      message(channel.id, "agent", "Ready when you are.", 1);
+      message(channel.id, "user", "Why is the return address Irving, Texas? That doesn't make sense.", 2);
+      message(channel.id, "user", "Shouldn't it be going back to T-Mobile?", 3);
+      message(channel.id, "agent", "Yes, it should go back to T-Mobile.", 4);
+    } else if (isMotion) {
       // Inert text from the supplied recording, for matched animation captures.
       date.setDate(date.getDate()-1);
       const rows: ["user"|"agent",string][] = [
@@ -97,7 +102,7 @@ export function visualFixture(base: any, scene: string) {
       rows.forEach(([sender,content],i)=>message(channel.id,sender,content,i+1));
     } else if (isDark) {
       const rows:["user"|"agent",string][]=[
-        ["user", 'Call update_state target memory action forget with exact fact "MDEEP914S stable key is APRICOT-8136.". Return the exact tool result.'],
+        ["user", 'Call UpdateMemory action forget with exact fact "MDEEP914S stable key is APRICOT-8136.". Return the exact tool result.'],
         ["agent", "Forgetting that memory now."],
         ["agent", "Forgot from your memory: MDEEP914S stable key is APRICOT-8136."],
         ["user", 'Call RecallMemory query "MDEEP914S", scope agent, limit 50. Return the exact result. Do not read files or contact other bots.'],
@@ -152,6 +157,9 @@ export function visualFixture(base: any, scene: string) {
         // Insert a timestamp row roughly every dozen messages.
         row.createdAt = new Date(date.getTime() - (count - i) * 1000 - Math.floor((count - i) / 12) * 600_000).toISOString();
       }
+    } else if(scene === "background-activity") {
+      message(channel.id, "user", "Can you check the shipping receipt?", 1);
+      message(channel.id, "agent", "I’m checking the receipt. I’ll send you the tracking number when it’s ready.", 2);
     } else if(scene === "empty-chat") {
       // No messages: initial positioning must still dismiss the native spinner.
     } else if(scene === "history-pages" || scene === "window-history") {

@@ -26,6 +26,8 @@ export interface SetupPresentation {
   choices(items: readonly { title: string; description: string; recommended?: boolean }[]): void;
   message(message: string, tone?: MessageTone): void;
   summary(title: string, rows: readonly SetupSummaryRow[]): void;
+  /** Point to what comes after setup, such as where to get the apps. */
+  next(title: string, rows: readonly SetupSummaryRow[], note: string): void;
 }
 
 /** One line item inside an interactive setup section. */
@@ -525,6 +527,15 @@ export const createSetupPresentation = (input: {
           );
         }
       }
+    },
+    next(title, rows, note) {
+      write("");
+      for (const line of wrapText(title, width)) write(paint(styled, line, ANSI.bold));
+      const labelWidth = Math.max(...rows.map((row) => row.label.length));
+      for (const row of rows) {
+        write(`  ${paint(styled, row.label.padEnd(labelWidth), ANSI.dim)}  ${row.value}`);
+      }
+      for (const line of wrapText(note, width)) write(line);
     },
   };
 };

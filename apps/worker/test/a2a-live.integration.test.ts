@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -33,10 +33,12 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     channelId: string;
     deliveryId: string | null;
     instructions: string;
+    userInfo?: string | null;
   }
   const turns: TurnInput[] = [];
   const acknowledgements: string[] = [];
   let app: AppService | null = null;
+  let restoreTimeZone = async () => {};
   let worker: WakeWorker | null = null;
   let sourceId = "";
   let probeId = "";
@@ -68,6 +70,14 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
       if (!request.headers.get("authorization")?.startsWith("Bearer ")) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
+      if (request.method === "GET" && url.pathname.startsWith("/v1/context-sessions/")) {
+        return Response.json({
+          type: "context.state",
+          contextSessionId: url.pathname.split("/").at(-1),
+          epoch: 0,
+          archives: [],
+        });
+      }
       if (request.method === "GET" && url.pathname === "/v1/agent-stores") {
         return Response.json({ agents: [] });
       }
@@ -95,6 +105,9 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
       }
       if (request.method === "POST" && /^\/v1\/turns\/[^/]+\/cancel$/.test(url.pathname)) {
         return Response.json({ ok: true });
+      }
+      if (request.method === "POST" && /^\/v1\/bots\/[^/]+\/background-shells\/stop$/.test(url.pathname)) {
+        return Response.json({ stopped: 0 });
       }
       if (request.method === "POST" && url.pathname === "/v1/turns") {
         const input = (await request.json()) as TurnInput;
@@ -201,6 +214,8 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     },
   });
 
+  const envKeys = ["DATABASE_URL", "OPENTEAM_COMPUTER_URL", "OPENTEAM_CONTROL_TOKEN", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_AGENT_DATA_ROOT"] as const;
+  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   process.env.DATABASE_URL = databaseUrl;
   process.env.OPENTEAM_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
   process.env.OPENTEAM_CONTROL_TOKEN = "a2a-live-control-token";
@@ -209,10 +224,18 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
 
   try {
     app = new AppService();
+    const previousZone = await app.prisma.userTimeZoneSettings.findUnique({ where: { id: "global" } });
+    restoreTimeZone = async () => {
+      await app!.prisma.userTimeZoneSettings.deleteMany({ where: { id: "global" } });
+      if (previousZone) await app!.prisma.userTimeZoneSettings.create({ data: previousZone });
+    };
     await app.prisma.$executeRawUnsafe(
       'TRUNCATE TABLE "Computer", "Bot", "OutboxDelivery", "Event", "IdempotencyRecord" CASCADE'
     );
     await Effect.runPromise(app.boot());
+    await app.agentData.writeInferenceSettings({
+      providerId: "openai-codex", modelId: "fake", reasoning: "medium",
+    });
     const runningWorker = new WakeWorker();
     worker = runningWorker;
     await runningWorker.start();
@@ -329,22 +352,22 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     expect(peerTurns.map((turn) => turn.botId)).toEqual([probeId, sourceId]);
     const probeTurn = peerTurns.find((turn) => turn.botId === probeId);
     const sourceTurn = peerTurns.find((turn) => turn.botId === sourceId);
-    expect(probeTurn?.content).toContain(`[SAND_HIDDEN_PROMPT]<system_reminder>
+    // Routine status is a turn note in the reminder block ahead of the query, in the installation zone.
+    expect(probeTurn?.content).toStartWith(`<system_reminder>
 <automation_status>
-Current routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.
-- parity-probe-handwritten (folder parity-probe-handwritten): never run
-- parity-probe-harmless (folder parity-probe-harmless): last run 8/27/2026, 10:51:57 PM (succeeded)
-</automation_status>
-</system_reminder>
-
-[agent] A message just arrived from another of your user's agents: Source (id: ${sourceId}).`);
-    expect(probeTurn?.content).toStartWith("<timestamp>");
-    expect(probeTurn?.content).toContain("</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT]");
+Current routines and their runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.
+- parity-probe-handwritten [`);
+    expect(probeTurn?.content).toContain("; folder parity-probe-handwritten; never run\n- parity-probe-harmless [");
+    expect(probeTurn?.content).toContain("; folder parity-probe-harmless; last run 8/27/2026, 10:51:55 PM GMT+3 (succeeded)\n</automation_status>");
+    expect(probeTurn?.content).toContain("</system_reminder>\n<timestamp>");
+    expect(probeTurn?.content).toContain(
+      `</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: Source (id: ${sourceId}).`
+    );
     expect(probeTurn?.content).toContain(`${parityImageUrl} — Parity pixel`);
     expect(probeTurn?.content).toContain(
       "Local image files are shown to you alongside this message."
     );
-    expect(probeTurn?.content).not.toContain("Attached files available on the shared computer:");
+    expect(probeTurn?.content).not.toContain("The user attached");
     expect(probeTurn?.images).toHaveLength(1);
     expect(sourceTurn?.content).toContain(
       `[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: Parity Probe (id: ${probeId}).`
@@ -359,7 +382,8 @@ Current routine runtime status. This snapshot is authoritative for this turn and
         (turn) =>
           turn.instructions.includes("Agent-to-agent messaging is asynchronous, like texting.") &&
           turn.instructions.includes("Reply to a peer with SendToAgent") &&
-          turn.instructions.includes("Recent and related SendToAgent targets (bounded catalog):")
+          turn.instructions.includes("They're listed in the <teammates> block of <user_info>") &&
+          (turn.userInfo ?? "").includes("<teammates>")
       )
     ).toBe(true);
     expect(snapshot.runs.filter((run) => run.origin === "agent").map((run) => run.botId)).toEqual([
@@ -420,7 +444,19 @@ Current routine runtime status. This snapshot is authoritative for this turn and
     if (process.env.OPENTEAM_A2A_PRINT_CAPTURE === "1") console.log(captureJson.trimEnd());
   } finally {
     if (worker) await worker.stop();
-    if (app) await Effect.runPromise(app.close());
+    worker = null;
+    if (app) {
+      const owned = await app.prisma.bot.findMany({ where: { defaultDirectory: { startsWith: workspace } }, select: { id: true } });
+      await app.prisma.bot.deleteMany({ where: { id: { in: owned.map((bot) => bot.id) } } });
+      await app.prisma.channel.deleteMany({ where: { kind: "group", workingDirectory: workspace } });
+      await restoreTimeZone();
+      await Effect.runPromise(app.close());
+    }
     fakeComputer.stop(true);
+    for (const key of envKeys) {
+      if (previousEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = previousEnv[key];
+    }
+    await rm(workspace, { recursive: true, force: true });
   }
 }, 45_000);

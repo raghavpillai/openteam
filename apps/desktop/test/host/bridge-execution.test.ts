@@ -83,7 +83,7 @@ describe("host bridge direct execution", () => {
   test("retired review and permission endpoints do not exist", async () => {
     const { post } = await bridge();
     const response = await post("/v1/auto-review", {
-      surface:"subagentLaunch",summary:"Open the page",target:"browserUse",arguments:{task:"Open the page"},
+      surface:"subagentLaunch",summary:"Open the page",target:"computerUse",arguments:{task:"Open the page"},
     });
     expect(response.status).toBe(404);
     expect((await post("/v1/permissions/update", {})).status).toBe(404);

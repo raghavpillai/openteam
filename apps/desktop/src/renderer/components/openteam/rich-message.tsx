@@ -2,6 +2,7 @@ import "./permission-cards.css";
 import { SharedTemplateCard } from "./shared-template-card";
 import { parseExternalDraft } from "@openteam/contracts/external-draft";
 import { ExternalDraftCard } from "./external-draft-card";
+import { IMessageSendCard } from "./imessage-send-card";
 import type {
   BotView,
   ChannelMessageView,
@@ -644,6 +645,8 @@ export function RichMessage({ message, bot }: { message: ChannelMessageView; bot
       return null;
     }
   }
+  if (metadata.type === "imessage-send" && metadata.imessage && typeof metadata.imessage === "object")
+    return <IMessageSendCard message={message} />;
   if (metadata.type === "user-form") {
     try {
       return <UserFormCard form={parseUserForm(metadata.form)} message={message} />;

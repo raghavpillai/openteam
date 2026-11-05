@@ -6,52 +6,70 @@ import {
   graphicalDelegationInstructions,
   renderAgentSkillsUserInfo,
   renderSubagentRevivalPrompt,
+  renderShellCompletionPrompt,
+  renderRevivalBatchPrompt,
+  renderAutomationHandoffPrompt,
+  shellCompletionBlock,
+  subagentRevivalBlock,
+  describeHeldDuration,
+  HELD_REVIVAL_NOTE,
+  SUBAGENT_REVIVAL_INSTRUCTION,
   subagentSpecializationInstructions,
 } from "../src/index";
 import { PLATFORM_BASE_SYSTEM_PROMPT } from "../src/platform-system-prompt";
+import { omittedSkillsNotice } from "../src/skill-catalog";
 
 describe("main-agent graphical delegation instructions", () => {
-  test.each([
-    ["computerUse", true],
-    ["computerUse", false],
-    ["browserUse", false],
-  ] as const)("%s worker omits categorical handover instructions (combined=%s)", (type, combined) => {
-    const instructions = subagentSpecializationInstructions(type, combined);
+  test("the graphical worker omits categorical handover instructions", () => {
+    const instructions = subagentSpecializationInstructions("computerUse");
     expect(instructions).not.toContain("If the task reaches a password");
     expect(instructions).not.toContain("At a username/password step, stop");
     expect(instructions).not.toContain("Report SSO, passkeys");
     expect(instructions).not.toContain("Never retrieve or enter private credentials yourself");
-    expect(instructions).toContain("blocker");
+    expect(instructions).toContain("Status: blocked");
   });
 
-  test("routes graphical work to the available combined or split workers", () => {
-    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("subagent_type browserUse");
-    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain("subagent_type computerUse");
+  test("routes all browser and desktop work to computerUse", () => {
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
-      "Do not attempt graphical interaction yourself"
+      "delegate every browser and desktop interaction to a background computerUse subagent."
     );
-    const split = graphicalDelegationInstructions({ combinedComputerUse: false, executorProfiles: [] });
-    expect(split).toContain("subagent_type browserUse");
-    expect(split).toContain("subagent_type computerUse");
+    // The desktop guidance is inline, so the first browser dispatch needs no skill Read.
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain("When you delegate to a computerUse subagent:");
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain("put that exact URL in the task");
+    // The delegation bullets are the reference box-desktop skill's, verbatim.
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain("Prescribe a modality only when that modality is itself part of the desired result; otherwise let the child choose.");
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("box-desktop");
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("browserUse");
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
+      "You cannot click, type, or scroll there yourself"
+    );
+    const restricted = graphicalDelegationInstructions({
+      executorProfiles: [],
+      disabledToolIdentifiers: ["BROWSER_CLICK", "OPENAI_COMPUTER_USE"],
+    });
+    expect(restricted).toBe(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS);
+    const unavailable = graphicalDelegationInstructions({ executorProfiles: [], graphicalAvailable: false });
+    expect(unavailable).toContain("Browser and desktop workers are unavailable.");
+    expect(unavailable).not.toContain("computerUse subagent");
   });
 
-  test("gives computerUse the documented recovery and safety loop", () => {
+  test("gives the combined worker browser-first rules, few calls and a status report", () => {
     const instructions = subagentSpecializationInstructions("computerUse");
-    expect(instructions).toContain("Inspect a browser_snapshot");
-    expect(instructions).toContain("inspect the fresh final screenshot");
-    expect(instructions).toContain("OPENTEAM_BROWSER_DEBUG_PORT");
-    expect(instructions).toContain("playwright-core");
-    expect(instructions).toContain("Never use pkill -f");
-    expect(instructions).toContain("You cannot communicate with the user");
-  });
-
-  test("gives browserUse desktop-scoped tab, ref, and human-blocker rules", () => {
-    const instructions = subagentSpecializationInstructions("browserUse");
-    expect(instructions).toContain("assigned parent desktop's browser tabs");
-    expect(instructions).toContain("Preserve pre-existing and unsaved tabs");
-    expect(instructions).toContain("exact DOM nodes");
-    expect(instructions).toContain("any exact blocker");
-    expect(instructions).toContain("You cannot talk to the user directly");
+    expect(instructions).toContain("Use browser_run_code for anything inside a web page");
+    expect(instructions).toContain("Computer click with holdDurationMs");
+    expect(instructions).toContain("## Working fast");
+    expect(instructions).toContain("The ### Page block of each result names the page it acted on");
+    expect(instructions).toContain("never drive the browser from Shell");
+    expect(instructions).toContain("openteam-screen-launch chromium");
+    expect(instructions).toContain("first line is `Status: done`, `Status: partial` or `Status: blocked`");
+    expect(instructions).toContain("The owner has authorized completing CAPTCHAs");
+    expect(instructions).not.toContain("box-chrome");
+    // The worker has the Staying safe section, so a technical switch to Computer and a policy stop are named as in the reference.
+    expect(instructions).toContain("That switch is allowed despite the tool-error rule in Staying safe while you work, but permission, approval, and sign-in refusals are not technical failures");
+    expect(instructions).toContain("when a policy forbids it, or when the same step has failed");
+    expect(instructions).toContain("You drive this agent's own desktop on the box with Computer, plus file reads (Read) and a shell (Shell).");
+    expect(instructions).not.toContain("You have no desktop controls");
+    expect(instructions).not.toContain("tight see-act-verify loop");
   });
 
   test("uses the isolated Bot worker prompt for every subagent type", async () => {
@@ -60,11 +78,11 @@ describe("main-agent graphical delegation instructions", () => {
       "videoReview",
       "watchVideo",
       "computerUse",
-      "browserUse",
       "knowledgeWork",
     ] as const) {
       const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
       Object.assign(messaging, {
+        userTimeZone: async () => "Europe/Paris",
         agentData: { renderWorkerSkillCatalog: async (agent: string) => `<agent_skills>${agent} catalog</agent_skills>` },
         prisma: {
           bot: {
@@ -73,7 +91,7 @@ describe("main-agent graphical delegation instructions", () => {
               name: "Worker",
               instructions: "Child-only instructions",
               defaultDirectory: "/workspace",
-              subagentIdentity: { parentBotId: "parent", subagentType },
+              subagentIdentity: { parentBotId: "parent", subagentType, readOnly: false },
               todos: [],
             }),
           },
@@ -83,50 +101,85 @@ describe("main-agent graphical delegation instructions", () => {
       const prompt = await AgentMessaging.prototype.platformPrompt.call(
         messaging as unknown as AgentMessaging,
         "child",
-        undefined,
+        "child-context",
         "\n\n## Installed plugin skills\n\nSkill declared for this worker"
       );
+      const media = subagentType === "videoReview" || subagentType === "watchVideo";
+      const executes = subagentType === "executor" || subagentType === "knowledgeWork";
+      expect(prompt.instructions).not.toContain("Parent profile");
+      expect(prompt.instructions).not.toContain(PLATFORM_BASE_SYSTEM_PROMPT);
+      expect(prompt.instructions).not.toContain("## How a turn works");
+      // Executors and knowledgeWork open with the reference's user_info; knowledgeWork's own skills follow it, like the main agent's.
+      expect(prompt.instructions).not.toContain("<agent_skills>");
+      const userInfo = /^<user_info>\nToday's date: \w+ \w+ \d+, \d{4}\n<\/user_info>/;
+      if (subagentType === "knowledgeWork") {
+        expect(prompt.userInfo).toMatch(userInfo);
+        expect(prompt.userInfo).toEndWith("</user_info>\n\n<agent_skills>knowledgeWork catalog</agent_skills>");
+      } else if (subagentType === "executor") expect(prompt.userInfo).toMatch(new RegExp(`${userInfo.source}$`));
+      else expect(prompt.userInfo).toBeNull();
+      // Workers get what they need in their task: no memory, history or todo tools.
+      for (const name of ["ReadTranscript", "ReadAgentActivity", "RecallMemory", "TodoWrite"]) expect(prompt.instructions).not.toContain(name);
+      expect(prompt.instructions).not.toContain("Do not call SendToUser or SendToAgent.");
+      expect(prompt.instructions).not.toContain("Your current timezone is");
+      if (media) {
+        // A media worker's prompt is the whole review brief, with no tools or plugin skills to describe.
+        expect(prompt.instructions).toStartWith("You are running as a subagent under a parent agent.");
+        if (subagentType === "watchVideo") {
+          // A user's video is reviewed with the reference's own brief, plus the one line saying
+          // this worker sees still frames and no sound (the reference's hears the video).
+          expect(prompt.instructions).toContain("**Accuracy is paramount** - The coding agent cannot see what you see.");
+          expect(prompt.instructions).toContain("You see sampled still frames, not audio; say so when a question depends on sound or on motion between frames.");
+          expect(prompt.instructions).not.toMatch(/Canvas|DraftExternalMessage|Installed plugin skills|Child-only/);
+        } else {
+          expect(prompt.instructions).toContain("**Accuracy is paramount** - The parent agent cannot see what you see.");
+          expect(prompt.instructions).toContain("You see sampled still frames, not audio; say so when a question depends on sound or on motion between frames.");
+          expect(prompt.instructions).not.toMatch(/coding agent|Canvas|DraftExternalMessage|Installed plugin skills|Child-only/);
+        }
+        continue;
+      }
       expect(prompt.instructions).toContain(`running as the ${subagentType} subagent`);
       expect(prompt.instructions).toContain("## Installed plugin skills\n\nSkill declared for this worker");
       expect(prompt.instructions).toContain("Only that final assistant message is relayed");
-      expect(prompt.instructions).not.toContain("Parent profile");
-      expect(prompt.instructions).not.toContain(PLATFORM_BASE_SYSTEM_PROMPT);
-      expect(prompt.instructions).not.toContain("SendToUser is your only voice");
-      // knowledgeWork's own skills sit in its user_info block, like the main agent's.
-      expect(prompt.instructions).not.toContain("<agent_skills>");
-      if (subagentType === "knowledgeWork") expect(prompt.userInfo).toBe("<user_info>\n<agent_skills>knowledgeWork catalog</agent_skills>\n</user_info>");
-      else expect(prompt.userInfo).toBeNull();
-      // Workers on the parent's connectors hand messages under the user's name back as drafts.
-      if (subagentType === "executor" || subagentType === "knowledgeWork") {
-        expect(prompt.instructions).toContain("You cannot call DraftExternalMessage.");
-        expect(prompt.instructions).toContain("## Untrusted content");
-      } else {
-        expect(prompt.instructions).not.toContain("DraftExternalMessage");
-      }
-      if (subagentType === "knowledgeWork") {
-        // With the skill tool switched on, the Skill tool lists the skills instead of the catalog block.
-        process.env.OPENTEAM_SKILL_TOOL = "true";
-        try {
-          const toolPrompt = await AgentMessaging.prototype.platformPrompt.call(messaging as unknown as AgentMessaging, "child", undefined, "");
-          expect(toolPrompt.userInfo).toBeNull();
-          expect(toolPrompt.instructions).toContain("in the description of the Skill tool");
-        } finally {
-          delete process.env.OPENTEAM_SKILL_TOOL;
-        }
-      }
-      // Only executor and knowledgeWork can look back through their own run, other bots, and memory.
-      if (subagentType === "executor" || subagentType === "knowledgeWork") {
-        expect(prompt.instructions).toContain("The cursor namespace exposes TodoWrite, ReadTranscript and ReadAgentActivity");
-        expect(prompt.instructions).toContain("RecallMemory searches the bot's memory");
-      } else {
-        expect(prompt.instructions).not.toContain("ReadAgentActivity");
-      }
-      if (subagentType === "computerUse" || subagentType === "browserUse") {
-        expect(prompt.instructions).not.toContain("Your current timezone is");
-      } else {
-        expect(prompt.instructions).toContain("Your current timezone is");
-      }
+      expect(prompt.instructions).not.toContain("Subagent instructions:");
+      expect(prompt.instructions).not.toContain("Child-only instructions");
+      // Workers that read outside content hand messages under the user's name back as drafts, written as the user.
+      expect(prompt.instructions).toContain("You cannot call DraftExternalMessage.");
+      expect(prompt.instructions).toContain("## Untrusted content");
+      // A block is adapted around safely or reported; there is no review step or approval card.
+      expect(prompt.instructions).toContain("## Staying safe while you work\nWhen an action comes back blocked or refused, adapt by finding a genuinely safer, lower-privilege way to reach the SAME goal");
+      expect(prompt.instructions).not.toMatch(/Auto-review|approval card|smart_mode/);
+      expect(prompt.instructions).toContain("When WebSearch or WebFetch fails or comes back blocked");
+      expect(prompt.instructions.indexOf("## Staying safe while you work")).toBeLessThan(prompt.instructions.indexOf("You cannot call DraftExternalMessage."));
+      expect(prompt.instructions.indexOf("You cannot call DraftExternalMessage.")).toBeLessThan(prompt.instructions.indexOf("## Untrusted content"));
+      expect(prompt.instructions).toContain("Gmail create_draft, Gmail update_draft, or another connector draft tool. Tell the parent to call DraftExternalMessage. Put that ask in WakeParent when you have it");
+      // Only the executor carries the send rules.
+      expect(prompt.instructions.includes("## Irreversible and externally visible actions\nThese need the user's explicit approval")).toBe(subagentType === "executor");
+      expect(prompt.instructions.includes("so do not ask follow-up questions. Do the work the rules below allow")).toBe(subagentType === "executor");
+      expect(prompt.instructions).toContain("When acting through your user's accounts and apps, such as Slack, speak as them and never refer to them in the third person.");
+      // Executors keep the box clock and machines straight; the browser worker works on its desktop only.
+      expect(prompt.instructions.includes("## Time\nThe user lives in Europe/Paris (currently UTC+")).toBe(executes);
+      expect(prompt.instructions.includes("Call ListMachines to choose one of the user's registered computers")).toBe(executes);
+      expect(prompt.instructions).toContain("## Your box");
+      expect(prompt.instructions).not.toContain("CopyToBox");
+      // As in the reference, an executor's prompt ends with its box section: no extra verification brief.
+      if (executes) expect(prompt.instructions).toEndWith("omit it for box paths.");
+      expect(prompt.instructions).not.toMatch(/Preserve every requested success criterion|A background process starting is not proof/);
     }
+  });
+
+  test("a read-only worker is told so, and its box section keeps it off the user's computers", async () => {
+    const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
+    Object.assign(messaging, {
+      userTimeZone: async () => "UTC",
+      agentData: { renderWorkerSkillCatalog: async () => "" },
+      prisma: { bot: { findUniqueOrThrow: async () => ({ id: "child", name: "Worker", instructions: "", defaultDirectory: "/workspace",
+        subagentIdentity: { parentBotId: "parent", subagentType: "executor", readOnly: true }, todos: [] }) } },
+    });
+    const prompt = await AgentMessaging.prototype.platformPrompt.call(messaging as unknown as AgentMessaging, "child", "child-context", "");
+    expect(prompt.instructions).toContain("and anything you stopped short of.\nOperate in readonly mode: do not modify anything.");
+    expect(prompt.instructions).toContain("- The user's own computers are out of reach in this run");
+    expect(prompt.instructions).not.toContain("ListMachines");
+    expect(prompt.instructions).toContain("The user lives in UTC (currently UTC+0)");
   });
 
   test("renders the source-backed hidden completion wake without summary tags", () => {
@@ -137,11 +190,85 @@ describe("main-agent graphical delegation instructions", () => {
       result: "Release checks passed.",
     });
     expect(wake).toContain("[A background task just completed]");
-    expect(wake).toContain('Background task "Check release" (executor) finished:');
+    expect(wake).toContain('Background task "Check release" (executor) finished:\nRelease checks passed.\n\nPick the work back up:');
+    expect(wake).not.toContain("distinguish eventual completion");
     expect(wake).toContain("they cannot see the background task");
     expect(wake).toContain("tell them with a SendToUser");
     expect(wake).not.toContain("user_visible_high_level_summary");
     expect(wake).not.toContain("<response>");
+    expect(wake).toContain("If the handoff tells you to draft an email or Slack message, call DraftExternalMessage");
+    expect(wake).not.toContain("Status: partial");
+  });
+
+  test("a computerUse completion carries the Status-aware resume rule", () => {
+    const wake = renderSubagentRevivalPrompt({
+      title: "Ask support",
+      subagentType: "computerUse",
+      status: "completed",
+      result: "Status: partial\nThe agent said they will reply within 30 minutes.",
+    });
+    expect(wake).toContain("A computerUse report opens with its Status.");
+    expect(wake).toContain("`Status: blocked`: never resume that subagent. When the block is a sign-in, captcha, payment or confirmation, use the in-chat form or the box handoff");
+    expect(wake).toContain("`Status: partial`: resume it only when the report names a concrete next step");
+  });
+
+  test("renders a finished background shell like a finished subagent, naming the command", () => {
+    expect(renderShellCompletionPrompt({ id: "123456", scope: "bot", outputPath: "/t/123456.log", exitCode: 1, title: "npm test" })).toBe(
+      [
+        "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
+        "",
+        'Background task "npm test" (shell) failed:',
+        "exit_code=1",
+        "Full output: /t/123456.log",
+        "",
+        SUBAGENT_REVIVAL_INSTRUCTION,
+      ].join("\n")
+    );
+    const host = renderShellCompletionPrompt({ id: "x", hostShellId: "77", machineId: "mac", scope: "bot", outputPath: "/h/77.log", exitCode: 0 });
+    expect(host).toContain('Background task "Background command 77" (shell) finished:\nFull output: /h/77.log\nThis is on the user’s computer; use Read or AwaitShell with machineId "mac".\n');
+  });
+
+  test("batches completions that are ready together and dates the late ones", () => {
+    const report = subagentRevivalBlock({ title: "Find flights", subagentType: "executor", status: "completed", result: "Two nonstops found.\n" });
+    const shell = shellCompletionBlock({ id: "9", scope: "bot", outputPath: "/t/9.log", exitCode: 2, title: "npm test" });
+    expect(report).toBe('Background task "Find flights" (executor) finished:\nTwo nonstops found.');
+    expect(renderRevivalBatchPrompt([
+      { block: report, subagentType: "executor" },
+      { block: shell, subagentType: "shell", heldForMs: 7 * 60_000 + 10_000 },
+    ])).toBe([
+      "[SAND_HIDDEN_PROMPT][A background task just completed] 2 background tasks you started have finished.",
+      "",
+      'Background task "Find flights" (executor) finished:\nTwo nonstops found.',
+      "",
+      'Background task "npm test" (shell) failed:\nexit_code=2\nFull output: /t/9.log\n(This finished about 7 minutes ago and reached you only now, so it may be out of date.)',
+      "",
+      SUBAGENT_REVIVAL_INSTRUCTION,
+      HELD_REVIVAL_NOTE,
+    ].join("\n"));
+    expect(HELD_REVIVAL_NOTE).toBe("Some of these results were held back and arrive late; each one says how long it waited. Judge each by its age: act on it only if it is still current, and skip it if it is stale, already handled, or overtaken by a newer result. Never fold a held result into a reply about something else the user asked.");
+    const room = "This work belongs to group room \"Launch\".";
+    const single = renderRevivalBatchPrompt([{ block: report, subagentType: "executor", note: room, heldForMs: 2 * 3_600_000 }]);
+    expect(single).toStartWith("[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.\n");
+    expect(single).toContain("(This finished about 2 hours ago and reached you only now");
+    expect(single).toEndWith(`${HELD_REVIVAL_NOTE}\n\n${room}`);
+    expect([30_000, 60_000, 89 * 60_000, 90 * 60_000, 47 * 3_600_000, 50 * 3_600_000].map(describeHeldDuration))
+      .toEqual(["1 minute", "1 minute", "89 minutes", "2 hours", "47 hours", "2 days"]);
+  });
+
+  test("renders a routine's handoff with the reference's parent instructions", () => {
+    expect(renderAutomationHandoffPrompt("Tell the user the build is green.")).toBe([
+      "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
+      "",
+      "Tell the user the build is green.",
+      "",
+      "An automation explicitly handed this work to you because only the parent can communicate outside its isolated run. Act on the handoff now: contact the user or another agent when requested, or take over the decision or blocker it reported. Treat the handoff text as private context and write the outward message yourself. Never message the user just to say that nothing has changed. If the handoff tells you to draft an email or Slack message, call DraftExternalMessage with the recipient, the channel or connector, the thread or other context, and the proposed text it includes. Do not send that message through a connector yourself.",
+      "This handoff is still owed even if the user has sent you something new since it arrived: deliver it in this turn, in the same reply as your answer to their message, and do not drop it because the routine ran at an unexpected time.",
+    ].join("\n"));
+    const late = renderAutomationHandoffPrompt("Tell the user the build is green.", 7 * 60_000);
+    expect(late).toContain("Tell the user the build is green.\n(This finished about 7 minutes ago and reached you only now, so it may be out of date.)");
+    expect(late).toContain("It reached you late, so act on a handoff only while it still matters: contact the user");
+    expect(late).toEndWith(`\n${HELD_REVIVAL_NOTE}`);
+    expect(late).not.toContain("still owed");
   });
 
   test("renders an administrator broadcast as a hidden non-user wake", () => {
@@ -153,12 +280,27 @@ describe("main-agent graphical delegation instructions", () => {
     expect(wake).toContain("Use SendToUser");
   });
 
-  test("renders saved-skill metadata in a bounded user-info section", () => {
-    const userInfo = renderAgentSkillsUserInfo(
-      "- Verify release: Checks deployment state.\n  Path: /agent/skills/verify/SKILL.md"
-    );
-    expect(userInfo).toStartWith("<user_info>\n<agent_skills>");
-    expect(userInfo).toContain("/agent/skills/verify/SKILL.md");
-    expect(userInfo).toEndWith("</agent_skills>\n</user_info>");
+  test("renders the main skill catalog after user_info with the reference preamble", () => {
+    const item = '<agent_skill fullPath="/agent/skills/verify/SKILL.md">Checks deployment state.</agent_skill>';
+    const userInfo = renderAgentSkillsUserInfo(item, "<memory_context>\nfacts\n</memory_context>", "<teammates>\nroster\n</teammates>", "Wednesday Oct 21, 2026");
+    expect(userInfo).toBe([
+      "<user_info>\nToday's date: Wednesday Oct 21, 2026\n</user_info>",
+      "<memory_context>\nfacts\n</memory_context>",
+      "<teammates>\nroster\n</teammates>",
+      [
+        "<agent_skills>",
+        "When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge. To use a skill, read the skill file at the provided absolute path using the Read tool, then follow the instructions within. When a skill is relevant, read and follow it IMMEDIATELY as your first action. NEVER just announce or mention a skill without actually reading and following it. Only use skills listed below.",
+        "",
+        "",
+        '<available_skills description="Skills the agent can use. Use the Read tool with the provided absolute path to fetch full contents.">',
+        item,
+        "</available_skills>",
+        "</agent_skills>",
+      ].join("\n"),
+    ].join("\n\n"));
+    expect(renderAgentSkillsUserInfo("")).toBe("<user_info>\n</user_info>");
+    const omitted = renderAgentSkillsUserInfo(`${item}\n\n${omittedSkillsNotice(3, ["/agent/workflows"])}`);
+    expect(omitted).toContain("NEVER just announce or mention a skill without actually reading and following it. Use the skills listed below. If a later task specifically requires discovering more skills, additional skills may exist in the directories shown in the skills section.");
+    expect(omitted).toContain(`${item}\n\nAdditional skills omitted from this initial list (3). Directories containing omitted skills: /agent/workflows.\n</available_skills>`);
   });
 });

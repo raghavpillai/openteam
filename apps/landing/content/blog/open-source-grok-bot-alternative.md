@@ -3,7 +3,7 @@ title: An open-source Grok Bot alternative that runs on your own hardware
 seoTitle: Open-source Grok Bot alternative on your own hardware
 description: Grok Bot runs only in xAI's cloud. OpenTeam is an open-source, self-hosted alternative on your own hardware. How the two compare, and where Grok Bot wins.
 date: 2026-10-10
-updated: 2026-10-13
+updated: 2026-10-26
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam desktop app with a Research bot's chat, a live preview of its Linux screen and a weekday routine
@@ -73,7 +73,7 @@ It's a compatibility layer, not a copy of xAI's service. OpenTeam doesn't claim 
 
 ### Each bot gets its own computer, on your hardware
 
-The server runs in Docker on a Mac, Windows or Linux machine, with 8 GB of RAM recommended ([installation](/docs/getting-started/installation)). Every bot gets a persistent Linux desktop (XFCE, 1280×800) with Chromium and a terminal, which you can watch live and take over ([docs](/docs/usage/computer)). Up to 100 desktops share one hardened container with dropped Linux capabilities and a read-only filesystem.
+The server runs in Docker on a Mac, Windows or Linux machine, with 8 GB of RAM recommended ([installation](/docs/getting-started/installation)). Every bot gets a persistent Linux desktop (XFCE, 1280×800) with Chromium and a terminal, which you can watch live and take over ([docs](/docs/usage/computer)). Up to 100 desktops share one Docker container, where bots can use passwordless `sudo`.
 
 Grok Bot's bots share one microVM; OpenTeam's share one container and one Unix user. Neither makes the line between your own bots a security boundary. The difference is who runs the machine. Work continues with the apps closed, but a server on a laptop that sleeps stops until it wakes. To reach it from your phone, use your local network or a VPN such as Tailscale.
 
@@ -87,7 +87,7 @@ As in Grok Bot, you sign in once on any bot's screen and every bot is signed in.
 
 ### Your model, your team, your schedules
 
-One model serves every bot, chosen in **Settings → Server**: an OpenAI, Anthropic or OpenRouter key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([models](/docs/configuration/models)). Bots can't each have their own model.
+One model serves every bot, chosen in **Settings → Model**: an OpenAI, Anthropic or OpenRouter key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([models](/docs/configuration/models)). Bots can't each have their own model.
 
 Group chats hold up to six bots that take turns, with at most three rounds and ten bot replies per message you send. Bots also message each other directly, create teammates and delegate to subagents. Routines run on up to eight schedules, at most every five minutes, or on events ([routines](/docs/usage/routines)). Bundled plugins include Gmail, Google Calendar, Google Drive, GitHub, Linear, Notion, Slack, Granola and 1Password, plus custom MCP servers.
 

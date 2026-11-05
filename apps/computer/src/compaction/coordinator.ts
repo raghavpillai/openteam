@@ -2,6 +2,17 @@ import { randomUUID } from "node:crypto";
 import { BotNoSummaryResponseError } from "./response";
 import type { BotCompactionArchiveStore } from "./archive";
 import {
+  buildExternalSummaryPrompt,
+  type ExternalPartition,
+  externalDurableBlocks,
+  externalOutputTokens,
+  externalPromptChars,
+  externalSummaryMessage,
+  partitionForExternalSummary,
+  reduceExternalPromptChars,
+  SUMMARIZATION_SYSTEM_PROMPT,
+} from "./external";
+import {
   BOT_IMAGE_TRIGGER,
   botDurableBlocks,
   botMessageDigest,
@@ -88,6 +99,7 @@ export interface PendingSummary {
   reason: BotCompactionReason;
   capturedMessages: BotMessage[];
   partition: BotPartition;
+  external?: ExternalPartition;
   durableBlocks: string[];
   prefixDigest: string;
   systemDigest: string;
@@ -108,6 +120,7 @@ export interface PendingSummary {
 export interface BotObservation {
   contextSessionId: string;
   piMessages: readonly BotMessage[];
+  piBoundary?: BotArchiveBlob["piBoundary"];
   systemPrompt: string;
   userInfoMessage?: BotMessage | null;
   usedTokens: number | null;
@@ -121,7 +134,6 @@ export interface BotObservation {
   isRootProject?: boolean;
   transcriptPath?: string;
   todoUpdate?: string;
-  automationTrigger?: string;
   infer: (request: BotSummaryRequest, signal: AbortSignal) => Promise<BotSummaryResult>;
 }
 
@@ -169,10 +181,10 @@ export class BotCompactionCoordinator {
     this.forcedReasons.delete(contextSessionId);
   }
 
-  private clearVolatile(contextSessionId: string): void {
+  private clearVolatile(contextSessionId: string, preservePersisted = false): void {
     this.pending.get(contextSessionId)?.controller?.abort();
     this.pending.delete(contextSessionId);
-    this.prepared.delete(contextSessionId);
+    if (!preservePersisted) this.prepared.delete(contextSessionId);
     this.forcedReasons.delete(contextSessionId);
     this.projectedEvents.delete(contextSessionId);
     this.projectedCommits.delete(contextSessionId);
@@ -180,12 +192,14 @@ export class BotCompactionCoordinator {
 
   async failCompaction(contextSessionId: string): Promise<void> {
     const prepared = this.prepared.get(contextSessionId);
-    this.clearVolatile(contextSessionId);
+    // A cancelled retry must retain the outstanding checkpoint and its intent.
+    this.clearVolatile(contextSessionId, prepared?.piPersisted === true);
     if (!prepared?.piPersisted) await this.store.discardStaged(contextSessionId);
   }
 
   async remove(contextSessionId: string): Promise<void> {
     await this.failCompaction(contextSessionId);
+    this.clearVolatile(contextSessionId);
     this.inputLimitFailures.delete(contextSessionId);
     await this.store.remove(contextSessionId);
   }
@@ -197,7 +211,8 @@ export class BotCompactionCoordinator {
   async recoverStaged(
     contextSessionId: string,
     piBaseMessageCount: number,
-    persistedCompactionIds: readonly string[]
+    persistedCompactionIds: readonly string[],
+    piBoundary?: BotArchiveBlob["piBoundary"]
   ): Promise<BotArchiveBlob | null> {
     const stagedId = await this.store.stagedId(contextSessionId);
     if (!stagedId) return null;
@@ -206,7 +221,9 @@ export class BotCompactionCoordinator {
       this.clearVolatile(contextSessionId);
       return null;
     }
-    const recovered = await this.store.commitStaged(contextSessionId, stagedId, piBaseMessageCount);
+    const recovered = await this.store.commitStaged(
+      contextSessionId, stagedId, piBaseMessageCount, piBoundary
+    );
     this.clearVolatile(contextSessionId);
     return recovered;
   }
@@ -408,6 +425,7 @@ export class BotCompactionCoordinator {
   async modelContextMessages(input: {
     contextSessionId: string;
     piMessages: readonly BotMessage[];
+    piBoundary?: BotArchiveBlob["piBoundary"];
     systemPrompt: string;
     userInfoMessage?: BotMessage | null;
     usedTokens: number | null;
@@ -420,14 +438,20 @@ export class BotCompactionCoordinator {
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
     );
+    if (this.prepared.has(input.contextSessionId)) return current;
     const pending = this.pending.get(input.contextSessionId);
-    if (!pending?.result) return current;
+    // Overflow summaries are adopted only through Pi's compaction, in their own layout.
+    if (!pending?.result || pending.external) return current;
+    const ownsProjection = () =>
+      this.pending.get(input.contextSessionId) === pending &&
+      !this.prepared.has(input.contextSessionId);
     if (!this.matches(pending, input, current)) {
       pending.controller?.abort();
       this.pending.delete(input.contextSessionId);
       return current;
     }
     const usedTokens = await this.usedTokens(input, current);
+    if (!ownsProjection()) return current;
     const earlyThreshold = pending.earlyThreshold ?? input.earlyThreshold;
     const warrantsMidLoopPersist =
       countBotImages(current) >= BOT_IMAGE_TRIGGER ||
@@ -455,12 +479,14 @@ export class BotCompactionCoordinator {
       ],
       input.tools
     );
+    if (!ownsProjection()) return current;
     const blob = await this.store.commit(input.contextSessionId, {
       id: pending.id,
       reason: pending.reason,
       summary: pending.result.text,
       prefixDigest: pending.prefixDigest,
       piBaseMessageCount: input.piMessages.length,
+      ...(input.piBoundary ? { piBoundary: input.piBoundary } : {}),
       userInfoMessage: pending.partition.userInfoMessage,
       lastUserMessage: pending.partition.lastUserMessage,
       preservedTailMessages: tail,
@@ -476,9 +502,12 @@ export class BotCompactionCoordinator {
       metrics: this.metrics(pending.result, tail),
       startedAt: pending.startedAt,
       completedAt,
-    });
-    this.pending.delete(input.contextSessionId);
-    this.inputLimitFailures.delete(input.contextSessionId);
+    }, ownsProjection);
+    if (!blob) return current;
+    if (this.pending.get(input.contextSessionId) === pending) {
+      this.pending.delete(input.contextSessionId);
+      this.inputLimitFailures.delete(input.contextSessionId);
+    }
     this.projectedEvents.set(input.contextSessionId, compactionEvent(input.contextSessionId, blob));
     this.projectedCommits.add(input.contextSessionId);
     return [
@@ -500,6 +529,7 @@ export class BotCompactionCoordinator {
   }
 
   async observe(input: BotObservation): Promise<void> {
+    if (this.prepared.has(input.contextSessionId)) return;
     const messages = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
@@ -513,6 +543,7 @@ export class BotCompactionCoordinator {
         : shouldStartBotSummary(usedTokens, input.maxTokens, input.earlyThreshold)
           ? "approaching_token_limit"
           : null;
+    if (this.prepared.has(input.contextSessionId)) return;
     const existing = this.pending.get(input.contextSessionId);
     if (existing) {
       if (this.matches(existing, input, messages)) {
@@ -670,6 +701,74 @@ export class BotCompactionCoordinator {
     throw lastError ?? new Error("Self-summary failed without an error");
   }
 
+  private async generateExternal(
+    messagesToSummarize: readonly BotMessage[],
+    infer: BotObservation["infer"],
+    signal: AbortSignal,
+    contextWindow: number
+  ): Promise<BotSummaryResult> {
+    const started = performance.now();
+    const maxTokens = externalOutputTokens(contextWindow, 0);
+    let budget = externalPromptChars(contextWindow, maxTokens);
+    let shorter = false;
+    let usage: BotSummaryUsage | undefined;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+      const prompt = buildExternalSummaryPrompt(messagesToSummarize, { budget, shorter });
+      try {
+        const result = await infer({
+          systemPrompt: SUMMARIZATION_SYSTEM_PROMPT,
+          userInfoMessage: null,
+          messagesToSummarize: [],
+          shorter,
+          external: { prompt, maxTokens },
+        }, signal);
+        if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+        if (result.usage) usage = addSummaryUsage(usage, result.usage);
+        if (!result.text.trim()) {
+          lastError = new Error("Summarization returned empty text");
+          continue;
+        }
+        return {
+          ...result,
+          ...(usage ? { usage } : {}),
+          generation: {
+            completedAt: new Date().toISOString(),
+            durationMs: Math.round(performance.now() - started),
+            inputTokens: typeof result.usage?.input === "number" ? result.usage.input + (result.usage.cacheRead ?? 0) + (result.usage.cacheWrite ?? 0) : null,
+            outputTokens: typeof result.usage?.output === "number" ? result.usage.output : null,
+          },
+        };
+      } catch (error) {
+        lastError = error;
+        if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+        const directive = botSummaryRetryDirective(error, { retryNoSummaryResponse: true });
+        if (!directive.retry || attempt === 3) break;
+        if (directive.reduceInputs) budget = reduceExternalPromptChars(budget, attempt, prompt.length);
+        shorter ||= directive.shorter;
+        if (directive.delay) await this.retryDelay(signal);
+      }
+    }
+    throw lastError ?? new Error("External summarization failed without an error");
+  }
+
+  private retryDelay(signal: AbortSignal): Promise<void> {
+    return new Promise<void>((resolveDelay, rejectDelay) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        rejectDelay(new DOMException("Compaction aborted", "AbortError"));
+      };
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolveDelay();
+      }, this.retryDelayMs);
+      timer.unref();
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) onAbort();
+    });
+  }
+
   async beforePiCompaction(input: {
     contextSessionId: string;
     piMessages: readonly BotMessage[];
@@ -687,11 +786,13 @@ export class BotCompactionCoordinator {
     isRootProject?: boolean;
     transcriptPath?: string;
     todoUpdate?: string;
-    automationTrigger?: string;
     infer: BotObservation["infer"];
     signal: AbortSignal;
   }): Promise<BotPreparedCompaction | null> {
     if (input.signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+    // A native preparation owns this candidate, including while staging or
+    // awaiting archive adoption. Reusing it could duplicate its checkpoint.
+    if (this.prepared.has(input.contextSessionId)) return null;
     const current = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
@@ -727,7 +828,10 @@ export class BotCompactionCoordinator {
       const messageCount = 1 + current.filter((message) => message.role !== "system").length;
       if (messageCount < 3)
         throw new Error(`Self-summary requires at least 3 messages, got ${messageCount}`);
-      const partition = partitionForBotSummary(current);
+      // Overflow recovery uses the reference's external summarizer over a size-capped
+      // transcript; the in-progress request and its tail stay verbatim.
+      const external = input.reason === "overflow" ? partitionForExternalSummary(current, input.maxTokens ?? 0) : null;
+      const partition = external ?? partitionForBotSummary(current);
       if (!partition) return null;
       const forced = this.forcedReasons.get(input.contextSessionId);
       const reason: BotCompactionReason =
@@ -740,7 +844,10 @@ export class BotCompactionCoordinator {
         reason,
         capturedMessages: current,
         partition,
-        durableBlocks: botDurableBlocks(partition.lastUserMessage, input),
+        ...(external ? { external } : {}),
+        durableBlocks: external
+          ? externalDurableBlocks(external.messagesToSummarize, input)
+          : botDurableBlocks(partition.lastUserMessage, input),
         prefixDigest: botMessageDigest(current),
         systemDigest: sha256(input.systemPrompt),
         modelKey: input.modelKey ?? "",
@@ -752,18 +859,23 @@ export class BotCompactionCoordinator {
         turnCount: countBotTurns(current),
         startedAt: new Date().toISOString(),
         controller,
-        promise: this.generate(
-          partition,
-          input.systemPrompt,
-          input.infer,
-          AbortSignal.any([input.signal, controller.signal]),
-          input.tools
-        ),
+        promise: external
+          ? this.generateExternal(external.messagesToSummarize, input.infer, AbortSignal.any([input.signal, controller.signal]), input.maxTokens ?? 0)
+          : this.generate(
+              partition,
+              input.systemPrompt,
+              input.infer,
+              AbortSignal.any([input.signal, controller.signal]),
+              input.tools
+            ),
         result: null,
         projectedMidLoop: false,
       };
       this.pending.set(input.contextSessionId, pending);
     }
+    const ownsCandidate = () =>
+      this.pending.get(input.contextSessionId) === pending &&
+      !this.prepared.has(input.contextSessionId);
     const forcedReason = this.forcedReasons.get(input.contextSessionId);
     if (forcedReason) pending.reason = forcedReason;
     else if (input.reason === "overflow") pending.reason = "fallback_on_limit_error";
@@ -775,6 +887,7 @@ export class BotCompactionCoordinator {
       pending,
       pending.controller ? AbortSignal.any([input.signal, pending.controller.signal]) : input.signal
     );
+    if (!ownsCandidate()) return null;
     pending.result = result;
     const refreshed = replaceBotUserInfo(
       await this.contextMessages(
@@ -783,28 +896,52 @@ export class BotCompactionCoordinator {
       ),
       input.userInfoMessage ?? null
     );
+    if (!ownsCandidate()) return null;
     if (!messagesHavePrefixByValue(pending.capturedMessages, refreshed)) {
       this.pending.delete(input.contextSessionId);
       return null;
     }
-    const tail = closeBotPreservedTail(pending.capturedMessages.length, refreshed);
+    const external = pending.external;
+    const tail = external
+      ? [
+          ...(external.requestAfterSummary ? [external.requestAfterSummary] : []),
+          // The failed overflow response is not history; Pi drops it before retrying.
+          ...closeBotPreservedTail(Math.min(external.tailStart, pending.capturedMessages.length), refreshed).filter(
+            (message) => !(message.role === "assistant" && ["error", "aborted"].includes(String(message.stopReason)))
+          ),
+        ]
+      : closeBotPreservedTail(pending.capturedMessages.length, refreshed);
     const completedAt = new Date().toISOString();
     const tokensAfter = estimateBotContextTokens(
       input.systemPrompt,
-      [
-        ...(pending.partition.userInfoMessage ? [pending.partition.userInfoMessage] : []),
-        pending.partition.lastUserMessage,
-        botSummaryMessage(
-          result.text,
-          (await this.store.manifest(input.contextSessionId)).selfSummaryCount + 1,
-          Date.parse(completedAt),
-          pending.durableBlocks
-        ),
-        ...tail,
-      ],
+      external
+        ? [
+            ...(pending.partition.userInfoMessage ? [pending.partition.userInfoMessage] : []),
+            externalSummaryMessage(result.text, pending.durableBlocks, Date.parse(completedAt)),
+            ...tail,
+          ]
+        : [
+            ...(pending.partition.userInfoMessage ? [pending.partition.userInfoMessage] : []),
+            pending.partition.lastUserMessage,
+            botSummaryMessage(
+              result.text,
+              (await this.store.manifest(input.contextSessionId)).selfSummaryCount + 1,
+              Date.parse(completedAt),
+              pending.durableBlocks
+            ),
+            ...tail,
+          ],
       input.tools
     );
-    await this.store.stage(input.contextSessionId, {
+    if (!ownsCandidate()) return null;
+    // Reserve the candidate before staging yields to the archive lock. A
+    // projection waiting on that same lock must observe this native owner.
+    const prepared = { pending, result, tail, piPersisted: false };
+    this.prepared.set(input.contextSessionId, prepared);
+    const ownsPreparation = () =>
+      this.prepared.get(input.contextSessionId) === prepared &&
+      this.pending.get(input.contextSessionId) === pending;
+    const staged = await this.store.stage(input.contextSessionId, {
       id: pending.id,
       reason: pending.reason,
       summary: result.text,
@@ -813,6 +950,7 @@ export class BotCompactionCoordinator {
       lastUserMessage: pending.partition.lastUserMessage,
       preservedTailMessages: tail,
       durableBlocks: pending.durableBlocks,
+      ...(external ? { flavor: "external" as const } : {}),
       summarizedMessages: redactBotArchiveMessages(
         pending.partition.messagesToSummarize.filter((message) => !isSummary(message))
       ),
@@ -824,13 +962,12 @@ export class BotCompactionCoordinator {
       metrics: this.metrics(result, tail),
       startedAt: pending.startedAt,
       completedAt,
-    });
-    this.prepared.set(input.contextSessionId, {
-      pending,
-      result,
-      tail,
-      piPersisted: false,
-    });
+    }, ownsPreparation);
+    if (!staged || !ownsPreparation()) {
+      if (this.prepared.get(input.contextSessionId) === prepared)
+        this.prepared.delete(input.contextSessionId);
+      return null;
+    }
     this.forcedReasons.delete(input.contextSessionId);
     return {
       summary: result.text,
@@ -850,18 +987,25 @@ export class BotCompactionCoordinator {
   async afterPiCompaction(input: {
     contextSessionId: string;
     piBaseMessageCount: number;
+    piBoundary?: BotArchiveBlob["piBoundary"];
   }): Promise<BotCompactionEvent | null> {
     const prepared = this.prepared.get(input.contextSessionId);
     if (!prepared) return null;
     prepared.piPersisted = true;
+    if (this.pending.get(input.contextSessionId) === prepared.pending)
+      this.pending.delete(input.contextSessionId);
     const blob = await this.store.commitStaged(
       input.contextSessionId,
       prepared.pending.id,
-      input.piBaseMessageCount
+      input.piBaseMessageCount,
+      input.piBoundary
     );
-    this.prepared.delete(input.contextSessionId);
-    this.pending.delete(input.contextSessionId);
-    this.inputLimitFailures.delete(input.contextSessionId);
+    if (this.prepared.get(input.contextSessionId) === prepared) {
+      this.prepared.delete(input.contextSessionId);
+      this.inputLimitFailures.delete(input.contextSessionId);
+    }
+    if (this.pending.get(input.contextSessionId) === prepared.pending)
+      this.pending.delete(input.contextSessionId);
     return compactionEvent(input.contextSessionId, blob);
   }
 

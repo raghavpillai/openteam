@@ -4,6 +4,7 @@ struct PluginListView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   @State private var settings: JSON = .null
+  @State private var verticalBar = false
   @State private var query = ""
   @State private var category = "All"
   @State private var selected: JSON?
@@ -11,7 +12,8 @@ struct PluginListView: View {
   // Keep aligned with client-core/plugin-marketplace.ts.
   private let categories = [
     "All", "Featured", "Team plugins", "Agent Orchestration", "Documents and Files",
-    "Finance and Legal", "Inbox and Collaboration", "MCP", "Productivity", "Scheduling",
+    "Finance and Legal", "Inbox and Collaboration", "Login and Credential Management", "MCP",
+    "Productivity", "Scheduling",
   ]
   @State private var failure: String?
   @State private var loading = true
@@ -21,11 +23,22 @@ struct PluginListView: View {
   private func installed(_ plugin: JSON) -> JSON? {
     settings["installs"].array.first { key($0) == key(plugin) }
   }
-  private var groups: [(name: String, plugins: [JSON])] {
-    if installedOnly { return [("Installed", filtered(settings["installs"].array))] }
+  /// Everything the current view lists before search and category: installs, or the catalog
+  /// plus custom installs.
+  private var listed: [JSON] {
+    if installedOnly { return settings["installs"].array }
     let catalog = settings["catalog"].array
-    let extra = settings["installs"].array.filter { item in !catalog.contains { key($0) == key(item) } }
-    let values = filtered(catalog + extra, usingCategory: true)
+    return catalog + settings["installs"].array.filter { item in !catalog.contains { key($0) == key(item) } }
+  }
+  /// Only categories with something in them, plus the current one so the menu shows its check.
+  private var availableCategories: [String] {
+    categories.filter { name in
+      name == "All" || name == category || listed.contains { matches($0, category: name) }
+    }
+  }
+  private var groups: [(name: String, plugins: [JSON])] {
+    if installedOnly { return [("Installed", filtered(listed, usingCategory: true))] }
+    let values = filtered(listed, usingCategory: true)
     if !query.isEmpty || category != "All" { return [(query.isEmpty ? category : "Results", values)] }
     var names: [String] = []
     for item in values where !item["featured"].bool {
@@ -44,7 +57,7 @@ struct PluginListView: View {
       .floatingBar(edge: .top) { searchBar }
       .overlay {
         if loading && settings == .null {
-          ProgressView().accessibilityLabel("Loading plugins…")
+          LoadingOrb(label: "Loading plugins…")
             .accessibilityIdentifier("plugins-loading")
         }
       }
@@ -53,15 +66,31 @@ struct PluginListView: View {
       .navigationDestination(item: $selected) { plugin in
         PluginDetailView(plugin: plugin, installed: installed(plugin) != nil, onChange: load)
       }
-      .toolbar { catalogToolbar }.task { await load() }.refreshable { await load() }
+      .toolbar { catalogToolbar }.readingVerticalBar($verticalBar)
+      .onChange(of: installedOnly) { _, _ in
+        // A category with nothing in the other view would only show an empty list.
+        if !listed.contains(where: { matches($0, category: category) }) { category = "All" }
+      }
+      .task { await load() }.refreshable { await load() }
   }
   @ToolbarContentBuilder private var catalogToolbar: some ToolbarContent {
 
-        ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
-        if #available(iOS 26.0, *) {
+        if verticalBar {
+          // A standard item, so iOS can move Back into the side bar; the title
+          // stays a horizontal heading, as text does.
+          ToolbarItem(placement: .topBarLeading) {
+            Button(action: back) { Label("Back", systemImage: "chevron.left") }
+              .accessibilityIdentifier("marketplace-back")
+          }
+          ToolbarItem(placement: .principal) {
+            Text(title).font(.system(size: 17, weight: .medium)).fixedSize()
+          }
+        } else if #available(iOS 26.0, *) {
+          ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
           ToolbarItem(placement: .topBarLeading) { catalogHeading }
             .sharedBackgroundVisibility(.hidden)
         } else {
+          ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
           ToolbarItem(placement: .topBarLeading) { catalogHeading }
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -75,12 +104,15 @@ struct PluginListView: View {
           }.accessibilityIdentifier("installed-plugins")
         }
         }
+  private var title: String { installedOnly ? "Installed" : "Plugins" }
+  private func back() {
+    if installedOnly { installedOnly = false } else { dismiss() }
+  }
   private var catalogHeading: some View {
     HStack(spacing: 14) {
-      ChromeButton(title: "Back", symbol: "chevron.left") {
-        if installedOnly { installedOnly = false } else { dismiss() }
-      }
-      Text(installedOnly ? "Installed" : "Plugins")
+      ChromeButton(title: "Back", symbol: "chevron.left", action: back)
+        .accessibilityIdentifier("marketplace-back")
+      Text(title)
         .font(.system(size: 17, weight: .medium)).fixedSize()
     }.fixedSize()
   }
@@ -109,7 +141,10 @@ struct PluginListView: View {
           }
         }
         if !loading, failure == nil, groups.allSatisfy({ $0.plugins.isEmpty }) {
-          Text(query.isEmpty && category == "All" ? "No plugins available." : "No plugins match this filter.")
+          Text(
+            !query.isEmpty || category != "All"
+              ? "No plugins match this filter."
+              : installedOnly ? "No plugins installed yet." : "No plugins available.")
             .foregroundStyle(NativePalette.muted).padding(.vertical, 24)
         }
         if !loading {
@@ -137,7 +172,7 @@ struct PluginListView: View {
       }.padding(.horizontal, 12).frame(height: 40).nativeGlass()
       Menu {
         Picker("Filter plugins", selection: $category.hapticSelection("plugin.category")) {
-          ForEach(categories, id: \.self) { Text($0).tag($0) }
+          ForEach(availableCategories, id: \.self) { Text($0).tag($0) }
         }
       } label: {
         Image(systemName: "line.3.horizontal.decrease").font(.system(size: 18))
@@ -151,13 +186,16 @@ struct PluginListView: View {
         plugin[$0].string.localizedCaseInsensitiveContains(query)
       }
       guard textMatches, usingCategory else { return textMatches }
-      switch category {
-      case "All": return true
-      case "Featured": return plugin["featured"].bool
-      case "Team plugins": return !plugin["featured"].bool
-      case "MCP": return plugin["components"].array.contains(.string("mcp"))
-      default: return normalizedCategory(plugin["category"].string) == normalizedCategory(category)
-      }
+      return matches(plugin, category: category)
+    }
+  }
+  private func matches(_ plugin: JSON, category: String) -> Bool {
+    switch category {
+    case "All": return true
+    case "Featured": return plugin["featured"].bool
+    case "Team plugins": return !plugin["featured"].bool
+    case "MCP": return plugin["components"].array.contains(.string("mcp"))
+    default: return normalizedCategory(plugin["category"].string) == normalizedCategory(category)
     }
   }
   private func normalizedCategory(_ value: String) -> String {
@@ -173,7 +211,7 @@ struct PluginListView: View {
   }
   private func pluginRow(_ plugin: JSON) -> some View {
     HStack(spacing: 16) {
-      PluginCatalogMark(plugin: plugin, fallback: nil, size: 38)
+      PluginCatalogMark(plugin: plugin, fallback: nil, size: 40)
       VStack(alignment: .leading, spacing: 3) {
         Text(plugin["name"].string).font(.system(size: 17)).foregroundStyle(NativePalette.text)
         Text(plugin["description"].string).font(.system(size: 14))
@@ -195,31 +233,84 @@ struct PluginListView: View {
   }
 }
 
-/// Package-owned PNG/JPEG icons arrive as data URLs and work without a network
-/// request. External logos remain optional; unsupported/missing icons use a mark.
-private struct PluginCatalogMark: View {
+/// Shared app-icon treatment for catalog rows, installed counts, and the sidebar.
+/// Preserve each provider's artwork, with optical padding inside a continuous tile.
+struct PluginCatalogMark: View {
   let plugin: JSON
   let fallback: JSON?
   let size: CGFloat
+  private var key: String {
+    [plugin["pluginKey"].string, plugin["key"].string, fallback?["key"].string ?? "", plugin["name"].string]
+      .first { !$0.isEmpty }?.lowercased().replacingOccurrences(of: " (managed)", with: "")
+      .replacingOccurrences(of: " ", with: "-") ?? ""
+  }
+  private var logoScale: CGFloat {
+    switch key {
+    case "1password": 0.56
+    case "granola": 1
+    case "slack", "slack-stealth": 0.66
+    case "notion", "google-calendar": 0.9
+    case "google-docs", "google-sheets", "google-slides": 0.86
+    default: 0.8
+    }
+  }
+  private var tileColor: Color {
+    switch key {
+    case "1password": Color(hex: "303136")
+    case "granola": Color(hex: "B2C248")
+    case "slack", "slack-stealth": Color(white: 0.965)
+    default: .white
+    }
+  }
+  private func artwork(_ image: Image) -> some View {
+    image.renderingMode(key == "1password" ? .template : .original)
+      .resizable().interpolation(.high).scaledToFit().foregroundStyle(.white)
+  }
   private var source: String {
     [plugin["logoUrl"].string, plugin["catalog"]["logoUrl"].string, fallback?["logoUrl"].string ?? ""]
       .first { !$0.isEmpty } ?? ""
   }
+  private var bundled: UIImage? {
+    let keys = [plugin["pluginKey"].string, plugin["key"].string,
+      fallback?["key"].string ?? "", plugin["name"].string]
+    for key in keys {
+      let normalized = key.lowercased().replacingOccurrences(of: " (managed)", with: "")
+        .replacingOccurrences(of: " ", with: "-")
+      if let image = UIImage(named: "Plugin-" + normalized) { return image }
+    }
+    return nil
+  }
   var body: some View {
-    Group {
-      if source.hasPrefix("data:image/"), source.contains(";base64,"),
-        let encoded = source.components(separatedBy: ";base64,").last, encoded.count <= 350_000,
-        let data = Data(base64Encoded: encoded), let image = UIImage(data: data) {
-        Image(uiImage: image).resizable().scaledToFit().background(.white)
-      } else if let url = URL(string: source), ["https", "http"].contains(url.scheme ?? "") {
-        AsyncImage(url: url) { image in image.resizable().scaledToFit() } placeholder: { placeholder }
-      } else { placeholder }
-    }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.2))
+    let shape = RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+    ZStack {
+      shape.fill(tileColor)
+      providerArtwork.frame(width: size * logoScale, height: size * logoScale)
+    }.frame(width: size, height: size).clipShape(shape)
+      .overlay(shape.strokeBorder(.black.opacity(0.08), lineWidth: size < 24 ? 0.3 : 0.5))
       .accessibilityHidden(true)
   }
-  private var placeholder: some View {
-    RoundedRectangle(cornerRadius: size * 0.2).fill(NativePalette.selection)
-      .overlay { Image(systemName: "puzzlepiece.extension").font(.system(size: size * 0.58)).foregroundStyle(NativePalette.muted) }
+  private var providerArtwork: some View {
+    Group {
+      // Standard provider artwork ships in Assets.car. Never wait for an image
+      // URL (or decode a duplicate server payload) when the app already has it.
+      if let bundled {
+        artwork(Image(uiImage: bundled))
+      } else if source.hasPrefix("data:image/"), source.contains(";base64,"),
+        let encoded = source.components(separatedBy: ";base64,").last, encoded.count <= 350_000,
+        let data = Data(base64Encoded: encoded), let image = UIImage(data: data) {
+        artwork(Image(uiImage: image))
+      } else if let url = URL(string: source), ["https", "http"].contains(url.scheme ?? "") {
+        AsyncImage(url: url) { image in artwork(image) } placeholder: { placeholder }
+      } else { placeholder }
+    }
+  }
+  @ViewBuilder private var placeholder: some View {
+    if let bundled {
+      artwork(Image(uiImage: bundled))
+    } else {
+      Image(systemName: "puzzlepiece.extension.fill")
+        .font(.system(size: size * 0.5)).foregroundStyle(Color(white: 0.43))
+    }
   }
 }
 

@@ -17,7 +17,7 @@ for (const service of services) {
   if (!compose.includes(taggedImage)) {
     throw new Error(`Could not find the ${service} release image in ${sourcePath}`);
   }
-  compose = compose.replace(taggedImage, pinnedImage);
+  compose = compose.replaceAll(taggedImage, pinnedImage);
 }
 
 if (/^\s*image:.*-(?:server|worker|migrate|computer):\$\{OPENTEAM_VERSION/m.test(compose)) {

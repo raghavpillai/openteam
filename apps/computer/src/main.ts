@@ -1,11 +1,12 @@
 import { FormPreparationError } from "./user-form-host";
+import { startBrowserNetwork } from "./browser-network";
+import { ComputerDisplaySettings } from "./display-settings";
 import { FORM_PREPARATION_FAILURE_MESSAGES } from "@openteam/contracts";
 import { timingSafeEqual } from "node:crypto";
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   type BotTranscriptView,
-  ComputerSteerRequest,
   ComputerTurnRequest,
   ScreenActionInput,
   ScreenClipboardInput,
@@ -19,6 +20,8 @@ import {
   parseComputerInferenceRequest,
 } from "@openteam/contracts/service-protocol";
 import { Schema } from "effect";
+import { keepSources } from "./apt-packages";
+import { createBoxClock } from "./box-clock";
 import { BoxStoreSync } from "./box-store-sync";
 import { computerEventStream } from "./computer-event-stream";
 import { BotAgentStore } from "./bot-agent-store";
@@ -36,42 +39,34 @@ import { TranscriptMirror } from "./transcript-mirror";
 const port = Number(process.env.OPENTEAM_COMPUTER_PORT ?? 8790);
 const controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
 const workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
+const browserNetwork = await startBrowserNetwork(process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787", controlToken);
 const readiness = new ComputerReadiness(() => checkAgentWorkspace(workspaceRoot));
-let displayCache: { width: number; height: number; until: number } | undefined;
-const screens = new ScreenBroker(undefined, async () => {
-  if (displayCache && displayCache.until > Date.now()) return displayCache;
+const setBoxClock = createBoxClock();
+const displaySettings = new ComputerDisplaySettings(async () => {
   const response = await fetch(
     `${process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787"}/api/v0/internal/computer-display`,
     { headers: { authorization: `Bearer ${controlToken}` }, signal: AbortSignal.timeout(5_000) }
   );
   if (!response.ok) throw new Error("Computer display settings are unavailable");
-  const value = (await response.json()) as { width: number; height: number };
-  if (
-    !Number.isInteger(value.width) ||
-    !Number.isInteger(value.height) ||
-    value.width < 640 ||
-    value.width > 7680 ||
-    value.height < 480 ||
-    value.height > 4320
-  )
-    throw new Error("Invalid computer display dimensions");
-  displayCache = { ...value, until: Date.now() + 30_000 };
-  return displayCache;
+  return response.json();
 });
+const screens = new ScreenBroker(undefined, () => displaySettings.get());
 const agentStores = new BotAgentStore();
 const boxStore = new BoxStoreSync({
   hasLiveAgentHandle: (agentId) => agentStores.hasLiveHandle(agentId),
 });
 await boxStore.start();
 const transcripts = new TranscriptMirror();
-const runtime = new ComputerRuntime(screens, agentStores, ({ botId }) =>
+const runtime = new ComputerRuntime(screens, agentStores, ({ botId, screenBotId }) => {
+  // Only the browser this turn used; other running profiles keep the periodic interval.
+  const profile = screens.takeBrowserUse(screenBotId);
   boxStore.scheduleSnapshot(5_000, {
     agentIds: [botId],
     workspace: true,
     pi: true,
-    chrome: true,
-  })
-);
+    ...(profile ? { chromeProfiles: [profile] } : {}),
+  });
+});
 const stdioMcp = new McpRuntimeRouter(new StdioMcpManager());
 
 const json = (value: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -179,7 +174,7 @@ const server = Bun.serve({
   hostname: "0.0.0.0",
   port,
   idleTimeout: 255,
-  async fetch(request) {
+  async fetch(request, requestServer) {
     const url = new URL(request.url);
     if (url.pathname === "/health" || url.pathname === "/health/authenticated") {
       if (url.pathname === "/health/authenticated" && !authorized(request))
@@ -209,8 +204,17 @@ const server = Bun.serve({
       }
     }
     if (!authorized(request)) return json({ error: "unauthorized" }, 401);
+    if (url.pathname === "/v1/browser-network" && request.method === "GET") return json(browserNetwork.status());
 
     try {
+      if (url.pathname === "/v1/browser-network/quality" && request.method === "POST") {
+        try { return json(await browserNetwork.quality(), 200, { "cache-control": "no-store" }); }
+        catch { return json({ error: "Could not test the active browser connection" }, 503); }
+      }
+      if (url.pathname === "/v1/browser-network/egress" && request.method === "POST") {
+        try { return json(await browserNetwork.egress()); }
+        catch { return json({ error: "Could not check browser exit connection" }, 503); }
+      }
       if (request.method === "GET" && url.pathname === "/v1/task-capabilities") {
         return json({
           boxAvailable: await readiness.check(),
@@ -317,35 +321,6 @@ const server = Bun.serve({
           return json({ error: "Invalid web provider check" }, 400);
         }
         return json(await checkWebProvider(input, AbortSignal.timeout(60_000)));
-      }
-
-      if (request.method === "PUT" && url.pathname === "/v1/projects") {
-        const body = (await request.json()) as {
-          path?: unknown;
-          name?: unknown;
-          description?: unknown;
-        };
-        if (
-          typeof body.path !== "string" ||
-          typeof body.name !== "string" ||
-          typeof body.description !== "string"
-        ) {
-          return json({ error: "path, name, and description are required" }, 400);
-        }
-        const path = safePath(body.path);
-        await mkdir(path, { recursive: true });
-        const actual = await realpath(path);
-        safePath(actual);
-        try {
-          await writeFile(
-            resolve(actual, "project.md"),
-            `# ${body.name}\n\n${body.description || "Shared OpenTeam project."}\n`,
-            { encoding: "utf8", flag: "wx" }
-          );
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        }
-        return json({ path: actual });
       }
 
       if (request.method === "PUT" && url.pathname.startsWith("/v1/workspaces/")) {
@@ -496,9 +471,9 @@ const server = Bun.serve({
         if (action === "prepare") {
           try { return json(await runtime.userForms.prepare(botId!, formId!, input.form)); }
           catch (error) {
-            const kinds = error instanceof FormPreparationError ? error.failureKinds : [(error as { kind?: string })?.kind];
-            const safe = [...new Set(kinds.filter(kind => typeof kind === "string" && Object.hasOwn(FORM_PREPARATION_FAILURE_MESSAGES, kind)))];
-            return json({ error: "form_preflight_failed", failureKinds: safe }, 400);
+            if (error instanceof FormPreparationError) return json(error.body, 400);
+            const kind = (error as { kind?: unknown } | undefined)?.kind;
+            return json({ error: "form_preflight_failed", failureKinds: typeof kind === "string" && Object.hasOwn(FORM_PREPARATION_FAILURE_MESSAGES, kind) ? [kind] : [] }, 400);
           }
         }
         if (action === "prefill") return json(await runtime.userForms.prefill(botId!, formId!));
@@ -601,6 +576,8 @@ const server = Bun.serve({
           runtimeGeneration?: number;
         };
         if (typeof body.toolName !== "string") return json({ error: "toolName is required" }, 400);
+        // A connector call may outlast the idle timeout; it has its own budget.
+        requestServer.timeout(request, 0);
         return json({
           result: await stdioMcp.call(
             mcpCallMatch[1],
@@ -625,6 +602,7 @@ const server = Bun.serve({
       if (request.method === "POST" && url.pathname === COMPUTER_API_PATHS.turns) {
         const input = Schema.decodeUnknownSync(ComputerTurnRequest)(await request.json());
         safePath(input.cwd);
+        await setBoxClock(input.timeZone);
         const events = await runtime.run(input);
         const body = computerEventStream(events, undefined, {
           onCancel: async () => {
@@ -641,18 +619,16 @@ const server = Bun.serve({
         });
       }
 
-      const steerMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/steer$/);
-      if (request.method === "POST" && steerMatch?.[1]) {
-        const input = Schema.decodeUnknownSync(ComputerSteerRequest)(await request.json());
-        await runtime.steer(steerMatch[1], input);
-        return json({ ok: true });
-      }
-
       const cancelMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/cancel$/);
       if (request.method === "POST" && cancelMatch?.[1]) {
-        await runtime.cancel(cancelMatch[1]);
-        return json({ ok: true });
+        const body = await request.json().catch(() => null) as { reason?: unknown; recovery?: unknown } | null;
+        const cancelled = await runtime.cancel(cancelMatch[1], body?.reason === "user_message" || body?.reason === "parent_message" || body?.reason === "stop" ? body.reason : undefined, { recovery: body?.recovery === true });
+        return cancelled ? json({ ok: true }) : json({ ok: false, error: "run_not_dispatched" }, 409);
       }
+
+      const backgroundShellsMatch = url.pathname.match(/^\/v1\/bots\/([^/]+)\/background-shells\/stop$/);
+      if (request.method === "POST" && backgroundShellsMatch?.[1])
+        return json({ stopped: runtime.stopBackgroundShells(decodeURIComponent(backgroundShellsMatch[1])) });
 
       const contextSessionMatch = url.pathname.match(/^\/v1\/context-sessions\/([^/]+)$/);
       if (request.method === "GET" && contextSessionMatch?.[1]) {
@@ -708,10 +684,15 @@ const shutdown = (): Promise<void> => {
   server.stop();
   runtime.closeIdleProviderConnections();
   shutdownPromise = Promise.all([
+    browserNetwork.close(),
+    runtime.recordLeftRunningProcesses().catch((error) => console.warn(`Left-running process record failed: ${String(error)}`)),
     stdioMcp.closeAll(),
+    // A source a bot removed without running apt since must not come back at the next start.
+    keepSources().catch((error) => console.error(`openteam installs: keeping apt sources failed: ${String(error)}`)),
     (async () => {
-      await agentStores.closeAll();
-      boxStore.scheduleSnapshot(0, { sand: true });
+      await Promise.all([agentStores.closeAll(), screens.shutdown()]);
+      // Include browser profiles: periodic snapshots defer a running browser's profile.
+      boxStore.scheduleSnapshot(0, { sand: true, chrome: true });
       await boxStore.flushScheduledSnapshots();
     })(),
   ]).then(() => undefined);
@@ -720,10 +701,14 @@ const shutdown = (): Promise<void> => {
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
-    void shutdown().catch((error) => {
-      console.error(`OpenTeam computer gateway shutdown failed: ${String(error)}`);
-      process.exitCode = 1;
-    });
+    // Exit explicitly: desktop processes would otherwise keep the gateway
+    // alive until Docker kills the container.
+    void shutdown()
+      .catch((error) => {
+        console.error(`OpenTeam computer gateway shutdown failed: ${String(error)}`);
+        process.exitCode = 1;
+      })
+      .finally(() => process.exit());
   });
 }
 

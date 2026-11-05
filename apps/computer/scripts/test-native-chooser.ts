@@ -40,7 +40,7 @@ try {
   };
   context = await driver.playwright.chromium.launchPersistentContext(join(root, "profile"), {
     headless: false,
-    executablePath: "/usr/local/bin/google-chrome",
+    executablePath: "/usr/lib/openteam/bin/google-chrome",
     env,
     args: ["--no-sandbox", "--remote-debugging-port=0", "--window-size=1040,735"],
   });

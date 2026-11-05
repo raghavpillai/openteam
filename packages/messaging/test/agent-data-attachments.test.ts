@@ -102,6 +102,14 @@ describe("agent attachment materialization", () => {
     expect(await readdir(join(dataRoot, ".attachment-staging"))).toEqual([]);
   });
 
+  test("names a file that arrived without a name by its detected type", async () => {
+    const { store, dataRoot, attachment, assetId } = await fixture(true);
+    const paths = await store.materializeAttachments("bot-1", "nameless-message", [
+      { ...attachment, fileName: "1089646", mimeType: "application/pdf", kind: "pdf" },
+    ]);
+    expect(paths).toEqual([join(dataRoot, "agents", "bot-1", "attachments", `${assetId}.pdf`)]);
+  });
+
   test("materializes a verified empty upload without treating it as missing", async () => {
     const { store, dataRoot, attachment, assetId } = await fixture(true, Buffer.alloc(0));
     const paths = await store.materializeAttachments("bot-1", "empty-message", [attachment]);

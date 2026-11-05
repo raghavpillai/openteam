@@ -19,7 +19,7 @@ const manifest = {
       description: "Sign in",
       body: "Shared sign-in workflow.",
       path: "skills/sign-in",
-      agents: ["main", "browserUse", "computerUse"],
+      agents: ["main", "computerUse"],
     },
   ],
 };
@@ -67,12 +67,10 @@ test("cataloged plugin skills leave only provider-workflow notes in the main age
 
 test("agents a skill names keep its full text, and executors get no skills", async () => {
   await syncCache();
-  for (const agent of ["browserUse", "computerUse"] as const) {
-    const worker = await pluginSkillInstructions(prisma, "child", agent);
-    expect(worker).toContain("Shared sign-in workflow.");
-    expect(worker).not.toContain("Main agent workflow.");
-    expect(worker).not.toContain("Private workflow.");
-  }
+  const worker = await pluginSkillInstructions(prisma, "child", "computerUse");
+  expect(worker).toContain("Shared sign-in workflow.");
+  expect(worker).not.toContain("Main agent workflow.");
+  expect(worker).not.toContain("Private workflow.");
   expect((await pluginRuntimeContext(prisma, "parent", "executor")).skillInstructions).toBe("");
 });
 

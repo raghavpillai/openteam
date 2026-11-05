@@ -1,12 +1,7 @@
 import {
-  AGENT_DIRECTORY_DEFAULT_LIMIT,
-  AGENT_DIRECTORY_MAX_LIMIT,
-  AGENT_DIRECTORY_QUERY_MAX_LENGTH,
   ApiError,
   type CreateAgentInput,
   type CreateChannelInput,
-  type ListAgentsInput,
-  type ListGroupsInput,
   type UpdateAgentInput,
   type UpdateChannelInput,
 } from "@openteam/contracts";
@@ -23,27 +18,6 @@ export const CHANNEL_UPDATE_NEEDS_MEMBER =
   "A channel needs at least one member, so this removal was not applied.";
 export const channelNotFoundMessage = (channelId: string) =>
   `No channel found with id ${channelId}.`;
-
-const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
-
-const directoryQuery = (value?: string): string =>
-  (value ?? "")
-    .normalize("NFKC")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, AGENT_DIRECTORY_QUERY_MAX_LENGTH);
-
-const directoryLimit = (value?: number): number =>
-  Math.max(
-    1,
-    Math.min(
-      AGENT_DIRECTORY_MAX_LIMIT,
-      Number.isInteger(value) ? (value as number) : AGENT_DIRECTORY_DEFAULT_LIMIT
-    )
-  );
-
-const directoryText = (value: string, maximum: number): string =>
-  value.replace(/\s+/g, " ").trim().slice(0, maximum);
 
 export const nextChannelMemberIds = (input: {
   current: readonly string[];
@@ -66,146 +40,6 @@ export class AdministrationService {
     private readonly agentData: AgentDataStore
   ) {}
 
-  async listAgents(parentBotId: string, input: ListAgentsInput) {
-    const query = directoryQuery(input.query);
-    const limit = directoryLimit(input.limit);
-    const baseWhere: Prisma.BotWhereInput = {
-      id: { not: parentBotId },
-      status: "active",
-      subagentIdentity: { is: null },
-    };
-    const fetch = (where: Prisma.BotWhereInput) =>
-      this.prisma.bot.findMany({
-        where,
-        select: {
-          id: true,
-          name: true,
-          title: true,
-          description: true,
-          hiddenFromSidebar: true,
-          updatedAt: true,
-        },
-        orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
-        take: limit + 1,
-      });
-
-    let rows: Awaited<ReturnType<typeof fetch>>;
-    if (!query) {
-      rows = await fetch(baseWhere);
-    } else {
-      const exact = await fetch({
-        AND: [
-          baseWhere,
-          {
-            OR: [
-              ...(UUID.test(query) ? [{ id: query }] : []),
-              { name: { equals: query, mode: "insensitive" } },
-            ],
-          },
-        ],
-      });
-      rows =
-        exact.length > 0
-          ? exact
-          : await fetch({
-              AND: [
-                baseWhere,
-                {
-                  OR: [
-                    { name: { contains: query, mode: "insensitive" } },
-                    { title: { contains: query, mode: "insensitive" } },
-                    { description: { contains: query, mode: "insensitive" } },
-                  ],
-                },
-              ],
-            });
-    }
-
-    return {
-      query,
-      agents: rows.slice(0, limit).map((agent) => ({
-        id: agent.id,
-        name: directoryText(agent.name, 160),
-        title: directoryText(agent.title, 160),
-        description: directoryText(agent.description, 500),
-        hiddenFromSidebar: agent.hiddenFromSidebar,
-      })),
-      hasMore: rows.length > limit,
-    };
-  }
-
-  async listGroups(parentBotId: string, input: ListGroupsInput) {
-    const query = directoryQuery(input.query);
-    const limit = directoryLimit(input.limit);
-    const baseWhere: Prisma.ChannelWhereInput = {
-      kind: "group",
-      archivedAt: null,
-      members: { some: { botId: parentBotId } },
-    };
-    const fetch = (where: Prisma.ChannelWhereInput) =>
-      this.prisma.channel.findMany({
-        where,
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          updatedAt: true,
-          members: {
-            orderBy: { ordinal: "asc" },
-            take: GROUP_MAX_MEMBERS,
-            select: { botId: true, bot: { select: { name: true } } },
-          },
-        },
-        orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
-        take: limit + 1,
-      });
-
-    let rows: Awaited<ReturnType<typeof fetch>>;
-    if (!query) {
-      rows = await fetch(baseWhere);
-    } else {
-      const exact = await fetch({
-        AND: [
-          baseWhere,
-          {
-            OR: [
-              ...(UUID.test(query) ? [{ id: query }] : []),
-              { name: { equals: query, mode: "insensitive" } },
-            ],
-          },
-        ],
-      });
-      rows =
-        exact.length > 0
-          ? exact
-          : await fetch({
-              AND: [
-                baseWhere,
-                {
-                  OR: [
-                    { name: { contains: query, mode: "insensitive" } },
-                    { description: { contains: query, mode: "insensitive" } },
-                  ],
-                },
-              ],
-            });
-    }
-
-    return {
-      query,
-      groups: rows.slice(0, limit).map((group) => ({
-        id: group.id,
-        name: directoryText(group.name, 160),
-        description: directoryText(group.description, 500),
-        members: group.members.map((member) => ({
-          id: member.botId,
-          name: directoryText(member.bot.name, 160),
-        })),
-      })),
-      hasMore: rows.length > limit,
-    };
-  }
-
   async createAgent(parentBotId: string, callId: string, input: CreateAgentInput) {
     if (input.section_id && !(await this.agentData.listSections()).some((section) => section.id === input.section_id)) {
       throw new ApiError(404, "section_not_found", `No sidebar section found with id ${input.section_id}`);
@@ -219,40 +53,27 @@ export class AdministrationService {
       })
     );
     if (input.section_id) await this.agentData.assignAgentSection(bot.id, input.section_id);
-    return `Created agent "${bot.name}" (id: ${bot.id}). Message it with SendToAgent using that id.`;
+    return `Created agent "${bot.name}" (id: ${bot.id})${input.section_id ? ` in sidebar section ${input.section_id}` : ""}.`;
   }
 
   async updateAgent(parentBotId: string, callId: string, input: UpdateAgentInput) {
+    // An empty field counts as not provided, so nothing is ever cleared.
+    const name = input.name?.trim() || undefined, description = input.description?.trim() || undefined;
+    if (!name && !description) return "Nothing to update: provide a new name and/or description.";
     const target = await this.prisma.bot.findUnique({
       where: { id: input.agent_id },
       include: { subagentIdentity: { select: { id: true } } },
     });
-    if (!target || target.status === "archived" || target.subagentIdentity) {
-      throw new ApiError(404, "agent_not_found", "Agent not found");
-    }
+    if (!target || target.status === "archived" || target.subagentIdentity) return `No agent found with id ${input.agent_id}.`;
     if (target.id === parentBotId) {
       throw new ApiError(
         400,
         "cannot_update_self",
-        "UpdateAgent is only for other agents; update your own profile with update_state"
-      );
-    }
-    if (input.name !== undefined && input.name.trim().length === 0) {
-      throw new ApiError(400, "agent_name_required", "An agent name cannot be cleared");
-    }
-    if (input.description !== undefined && input.description.trim().length === 0) {
-      throw new ApiError(
-        400,
-        "agent_description_required",
-        "An agent description cannot be cleared"
+        "UpdateAgent is only for other agents; update your own profile with UpdateProfile"
       );
     }
     const bot = await Effect.runPromise(
-      this.bots.update(input.agent_id, {
-        name: input.name,
-        description: input.description,
-        instructions: input.description,
-      })
+      this.bots.update(input.agent_id, { name, description, instructions: description })
     );
     await this.prisma.$transaction((tx) =>
       appendEvent(tx, "agent.profile_updated_by_agent", bot.id, {
@@ -265,21 +86,17 @@ export class AdministrationService {
   }
 
   async createChannel(parentBotId: string, callId: string, input: CreateChannelInput) {
-    const memberIds = [...new Set(input.member_ids)];
-    if (memberIds.length > GROUP_MAX_MEMBERS) {
-      throw new ApiError(400, "channel_too_large", "A channel can have at most six members");
-    }
-    const active = await this.prisma.bot.findMany({
-      where: {
-        id: { in: memberIds },
-        status: "active",
-        subagentIdentity: { is: null },
-      },
-      select: { id: true, name: true },
-    });
-    if (active.length !== memberIds.length) {
-      throw new ApiError(400, "invalid_channel_members", "Every channel member must be an agent");
-    }
+    const requested = [...new Set(input.member_ids)];
+    const nested = await this.prisma.channel.count({ where: { id: { in: requested }, kind: "group" } });
+    if (nested)
+      throw new ApiError(400, "channel_member_is_channel", `A channel can only contain individual agents, not other channels. Remove the channel${nested === 1 ? "" : "s"} from the member list.`);
+    // Like the reference, stale ids are dropped and the channel is capped rather than refused.
+    const active = new Set((await this.prisma.bot.findMany({
+      where: { id: { in: requested }, status: "active", subagentIdentity: { is: null } },
+      select: { id: true },
+    })).map(({ id }) => id));
+    const memberIds = requested.filter((id) => active.has(id)).slice(0, GROUP_MAX_MEMBERS);
+    if (!memberIds.length) throw new ApiError(400, "invalid_channel_members", "A channel needs at least one existing member agent.");
     const scope = `channel-tool:create:${parentBotId}`;
     const requestHash = hashRequest(input);
     const previous = await this.prisma.idempotencyRecord.findUnique({
@@ -404,9 +221,8 @@ export class AdministrationService {
         },
         include: { members: { orderBy: { ordinal: "asc" } } },
       });
-      if (!channel) {
-        throw new ApiError(404, "channel_not_found", channelNotFoundMessage(input.channel_id));
-      }
+      if (!channel)
+        return { acknowledgement: channelNotFoundMessage(input.channel_id), memberIds: [], affectedBotIds: [], changed: false };
 
       if (!(input.add_member_ids?.length || input.remove_member_ids?.length)) {
         return {

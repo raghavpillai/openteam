@@ -9,6 +9,7 @@ import {
   inputClass,
   PluginButton,
   PluginField,
+  PluginSelect,
   usePluginOperation,
 } from "./plugin-ui";
 
@@ -63,17 +64,17 @@ export function PackageStudio({
         </p>
       </div>
       <PluginField label="Plugin type">
-        <select
-          aria-label="Plugin type"
-          className={inputClass}
+        <PluginSelect<PluginTemplateMode>
+          label="Plugin type"
           value={mode}
-          onChange={(event) => setMode(event.target.value as PluginTemplateMode)}
-        >
-          <option value="skills">Skills</option>
-          <option value="remote-mcp">Remote MCP</option>
-          <option value="packaged-mcp">Packaged MCP</option>
-          <option value="hybrid">Hybrid skills + packaged MCP</option>
-        </select>
+          onChange={setMode}
+          options={[
+            { value: "skills", label: "Skills" },
+            { value: "remote-mcp", label: "Remote MCP" },
+            { value: "packaged-mcp", label: "Packaged MCP" },
+            { value: "hybrid", label: "Hybrid skills + packaged MCP" },
+          ]}
+        />
       </PluginField>
       <div className="flex flex-wrap gap-2">
         <PluginButton

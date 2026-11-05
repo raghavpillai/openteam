@@ -9,7 +9,7 @@ const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const integration = test.skipIf(!databaseUrl);
 
 integration(
-  "plugins shipped with a release update with it, reconnect, and expose their host parts",
+  "plugins shipped with a release update with it and reconnect",
   async () => {
     const prisma = createPrismaClient(databaseUrl!);
     const service = new PluginService(prisma, undefined, {
@@ -23,10 +23,6 @@ integration(
       description: `Release ${version}`,
       ...extra,
     });
-    const host = {
-      installedMarker: ".config/systemd/user/example.service",
-      refreshCommand: ["python3", "connector/install-host.py", "--computer-container", "{computerContainer}"],
-    };
     let catalog: PluginDefinition[] = [release("1.0.0")];
     // The bundled catalog is the release's package list.
     (service as unknown as { marketplace: { plugins: () => Promise<PluginDefinition[]> } }).marketplace = {
@@ -45,8 +41,7 @@ integration(
         expect((await installation()).version).toBe("1.0.0");
       }
 
-      catalog = [release("1.1.0", { host, files: { "connector/install-host.py": "print('installed')" } })];
-      expect(await service.hostComponents()).toEqual([]); // The installation does not run this package yet.
+      catalog = [release("1.1.0")];
       expect(await service.updateReleasedPlugins()).toEqual([connection!.id]);
       expect((await installation()).version).toBe("1.1.0");
       const activity = await prisma.pluginActivity.findFirst({
@@ -54,39 +49,12 @@ integration(
         orderBy: { createdAt: "desc" },
       });
       expect(activity?.summary).toContain("1.1.0 with OpenTeam");
-      expect(await service.hostComponents()).toEqual([
-        { key, name: catalog[0]!.name, version: "1.1.0", ...host, files: { "connector/install-host.py": "print('installed')" } },
-      ]);
-
-      // Only working connections restart after a host refresh, and every outcome shows in the plugin's activity.
-      const restarted: string[] = [];
-      (service as unknown as { restart: (id: string) => unknown }).restart = (id: string) => {
-        restarted.push(id);
-        return Effect.succeed({ status: "ready" });
-      };
-      const latest = () =>
-        prisma.pluginActivity.findFirst({ where: { installation: { pluginKey: key } }, orderBy: { createdAt: "desc" } });
-      await prisma.pluginConnection.update({ where: { id: connection!.id }, data: { status: "error" } });
-      expect(await service.hostRefreshed(key, true)).toEqual({ restarted: [{ connectionId: connection!.id, status: "ready" }] });
-      expect(await latest()).toMatchObject({ kind: "plugin.host_refreshed", summary: `Refreshed ${catalog[0]!.name} 1.1.0 on the OpenTeam host` });
-      expect(await service.hostRefreshed(key, false, "PermissionError: gateway.py")).toEqual({ restarted: [] });
-      expect(await latest()).toMatchObject({
-        kind: "plugin.host_refresh_failed",
-        summary: `Couldn't refresh ${catalog[0]!.name} on the OpenTeam host. Run openteam update --force there to retry (PermissionError: gateway.py)`,
-        metadata: { detail: "PermissionError: gateway.py" },
-      });
-      await prisma.pluginConnection.update({ where: { id: connection!.id }, data: { status: "needs_auth" } });
-      expect((await service.hostRefreshed(key, true)).restarted).toEqual([]);
-      expect(restarted).toEqual([connection!.id]);
-      expect(await service.hostRefreshed(`missing-${key}`, true)).toEqual({ restarted: [] });
-
-      // An uploaded draft of the same plugin is the administrator's choice: no automatic update, no host refresh.
+      // An uploaded draft of the same plugin is the administrator's choice: no automatic update.
       const draft = await prisma.pluginDraft.create({
         data: { name: "Uploaded copy", definition: JSON.parse(JSON.stringify(release("1.1.0"))) },
       });
-      catalog = [release("1.2.0", { host })];
+      catalog = [release("1.2.0")];
       expect(await service.updateReleasedPlugins()).toEqual([]);
-      expect(await service.hostComponents()).toEqual([]);
       await prisma.pluginDraft.delete({ where: { id: draft.id } });
 
       // Packages fetched from upstream at install time still need a reviewed update.

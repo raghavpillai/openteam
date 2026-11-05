@@ -1,0 +1,29 @@
+#!/bin/sh
+# Usage: openteam-box-timezone apply ZONE
+# Sets the box clock to the user's IANA time zone so `date`, file mtimes,
+# logs and the desktop clock read in the user's time. Processes without TZ
+# read /etc/localtime, so a new zone reaches every shell started afterwards.
+set -eu
+
+[ "${1:-}" = apply ] && [ $# -eq 2 ] || { echo "usage: openteam-box-timezone apply ZONE" >&2; exit 2; }
+zone=$2
+root=/usr/share/zoneinfo
+
+is_zone_file() { [ -f "$1" ] && [ "$(head -c 4 "$1")" = TZif ]; }
+
+resolve() {
+  case "$1" in ''|/*|*..*|*//*|*/|*[!A-Za-z0-9_+/-]*) return 1 ;; esac
+  if is_zone_file "$root/$1"; then printf '%s\n' "$1"; return 0; fi
+  # The settings accept any letter case (as Intl does); zoneinfo names are exact.
+  match=$(find "$root" \( -path "$root/posix" -o -path "$root/right" \) -prune -o -ipath "$root/$1" -print | head -n 1)
+  [ -n "$match" ] && is_zone_file "$match" || return 1
+  printf '%s\n' "${match#"$root"/}"
+}
+
+if ! resolved=$(resolve "$zone"); then
+  echo "box-timezone: unknown time zone \"$zone\"; the box clock stays on UTC" >&2
+  resolved=Etc/UTC
+fi
+ln -sfn "$root/$resolved" /etc/localtime
+printf '%s\n' "$resolved" > /etc/timezone
+echo "box-timezone: box clock set to $resolved"

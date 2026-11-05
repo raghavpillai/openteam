@@ -67,7 +67,7 @@ export const toolItem = (
   result?: unknown
 ): Record<string, unknown> => {
   const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
-  if (["bash", "Shell", "ExternalShell"].includes(toolName)) {
+  if (["bash", "Shell"].includes(toolName)) {
     const toolResult =
       result && typeof result === "object" ? (result as Record<string, unknown>) : null;
     const details =

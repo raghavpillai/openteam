@@ -3,6 +3,7 @@ title: A Claude Cowork alternative that runs on your own server
 seoTitle: Claude Cowork alternative that runs on your own server
 description: Since October 6, new Claude Cowork tasks on Pro and Max run on Anthropic's servers. OpenTeam is a self-hosted Claude Cowork alternative. Where each wins.
 date: 2026-10-07
+updated: 2026-10-26
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam macOS app with a Research bot's chat, a live preview of the bot's Linux screen, and a weekday routine
@@ -72,7 +73,7 @@ OpenTeam's first public release, v0.0.0, shipped on October 6 ([GitHub](https://
 
 Every bot has a persistent Linux desktop (XFCE, 1280×800) with Chromium and a terminal. You can watch its screen live from the app and take over when it needs you, for example at a CAPTCHA, a 2FA prompt or a payment page ([docs](/docs/usage/computer)).
 
-Where Cowork gives each session a fresh sandbox, OpenTeam keeps each bot's computer between tasks. Up to 100 desktops run in one hardened container with dropped Linux capabilities and a read-only filesystem. Isolation between bots is by convention: they share one Unix user inside that container.
+Where Cowork gives each session a fresh sandbox, OpenTeam keeps each bot's computer between tasks. Up to 100 desktops run in one Docker container, where bots can use passwordless `sudo` to install packages. It shares your server's kernel and isn't a separate VM boundary ([computer](/docs/usage/computer)). Isolation between bots is by convention: they share one Unix user inside that container.
 
 ![A bot's Linux desktop with a sample vendor comparison open in Chromium and a dock with the browser and terminal](/screenshots/linux-vendor-review.png "A bot's own Linux desktop, captured September 12, 2026, with sample data. Image: OpenTeam.")
 
@@ -86,7 +87,7 @@ Your model provider still sees what each task sends it, including file contents.
 
 ### Claude through an API key, or another model
 
-You choose one model for the whole server in **Settings → Server**. The options are an Anthropic, OpenAI or OpenRouter API key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([docs](/docs/configuration/models)). Every bot uses that model; you can't give each bot its own.
+You choose one model for the whole server in **Settings → Model**. The options are an Anthropic, OpenAI or OpenRouter API key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([docs](/docs/configuration/models)). Every bot uses that model; you can't give each bot its own.
 
 With an Anthropic key you pay API rates per token. By default, Anthropic doesn't use inputs or outputs from its commercial products, including the API, to train its models ([Anthropic](https://privacy.claude.com/en/articles/7996868-is-my-data-used-for-model-training)). To keep model requests on your own hardware, point OpenTeam at a local server:
 
@@ -161,7 +162,7 @@ Not on Pro or Max for new tasks. Anthropic removed that option on October 6, 202
 
 ### Can I use Claude models with OpenTeam?
 
-Yes, with an Anthropic API key. Paste it during setup or in **Settings → Server**, and every bot uses the Claude model you pick, billed at Anthropic's API rates.
+Yes, with an Anthropic API key. Paste it during setup or in **Settings → Model**, and every bot uses the Claude model you pick, billed at Anthropic's API rates.
 
 ## Try OpenTeam
 

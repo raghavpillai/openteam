@@ -95,12 +95,16 @@ describe("routine execution restart reconciliation", () => {
     Object.defineProperty(worker, "prisma", {
       value: { $transaction: async (work: (client: typeof tx) => Promise<void>) => work(tx) },
     });
+    const settled: unknown[] = [];
+    Object.defineProperty(worker, "routines", { value: { afterGroupExecution: async (input: unknown) => settled.push(input) } });
 
     await (
       worker as unknown as {
         recoverGroupRoutineExecution(executionId: string, rootMessageId: string): Promise<void>;
       }
     ).recoverGroupRoutineExecution("execution-1", "message-1");
+    // A finished PR watch and waiting events are handled once the repair is committed.
+    expect(settled).toEqual([{ executionId: "execution-1", routineId: "routine-1" }]);
 
     expect(executionUpdates).toHaveLength(1);
     expect(executionUpdates[0]).toMatchObject({

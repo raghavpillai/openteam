@@ -270,6 +270,7 @@ export function normalizeWebhook(
       repo: binding.repository,
       pr,
       actor: payload.sender?.login,
+      prOwner: payload.pull_request?.user?.login ?? (payload.issue?.pull_request ? payload.issue.user?.login : undefined),
       branch: check.head_branch ?? payload.pull_request?.head?.ref,
     })
   );

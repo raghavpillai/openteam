@@ -10,6 +10,7 @@ interface PendingHostShell {
   machineId: string;
   shellId: string;
   outputPath: string;
+  title?: string;
   completion?: ShellCompletionInput;
 }
 /** Computer-side outbox survives desktop disconnects and runtime restarts. It
@@ -83,6 +84,7 @@ export class HostShellCompletions {
                     machineId: job.machineId,
                     hostShellId: job.shellId,
                     error: receipt.error,
+                    ...(job.title ? { title: job.title } : {}),
                   };
                   await this.save(path, job);
                 }

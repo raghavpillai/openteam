@@ -9,7 +9,7 @@ import {
 } from "@openteam/client-core";
 import type { BotView, ScreenStatusView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { LoaderCircle, Minimize2, Monitor, RefreshCw } from "lucide-react";
+import { Minimize2, Monitor, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { API_BASE } from "../../client/http";
@@ -22,6 +22,7 @@ import {
   shouldRefreshScreenFrame,
 } from "../../lib/screen-session";
 import { Button } from "../ui/button";
+import { ComputerConnectionStatus } from "./computer-connection-status";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import VncComputer from "./vnc-computer";
@@ -264,12 +265,15 @@ export function BotScreen({
           ) : (
             <div className="relative size-full">
               <Skeleton className="size-full rounded-none bg-neutral-800" />
-              <span className="absolute inset-0 grid place-items-center px-4 text-center text-[11px] text-white/60">
+              <ComputerConnectionStatus
+                className="absolute inset-0 px-4 text-center text-[11px] text-white/60"
+                loading={!error && bot.status !== "failed" && screen?.state !== "failed"}
+              >
                 {error ??
                   (bot.status === "failed" || screen?.state === "failed"
                     ? "Computer setup needs attention"
                     : `Starting ${bot.name}'s screen…`)}
-              </span>
+              </ComputerConnectionStatus>
             </div>
           )}
         </Button>
@@ -344,13 +348,15 @@ export function BotScreen({
               ) : (
                 <div className="absolute inset-0 grid place-items-center text-center">
                   <div>
-                    <div className="flex items-center justify-center gap-2 text-[18px] font-medium">
-                      {!error && <LoaderCircle className="size-4 animate-spin" />}
+                    <ComputerConnectionStatus
+                      loading={!error && screen?.state !== "failed"}
+                      subtitle="Starting computer…"
+                    >
                       {error ??
                         (screen?.state === "failed"
                           ? "Computer setup needs attention"
                           : "Connecting…")}
-                    </div>
+                    </ComputerConnectionStatus>
                     {error && (
                       <Button
                         className="mt-4 border-white/15 bg-white/5 text-white hover:bg-white/10"

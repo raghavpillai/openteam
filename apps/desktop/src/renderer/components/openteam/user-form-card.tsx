@@ -11,6 +11,7 @@ import {
 } from "@openteam/contracts/user-forms";
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../../client/openteam-api";
+import { LoadingOrb } from "../ui/loading-orb";
 
 export function UserFormCard({ message, form }: { message: ChannelMessageView; form: UserForm }) {
   const inFlight = useRef(false);
@@ -138,7 +139,7 @@ export function UserFormCard({ message, form }: { message: ChannelMessageView; f
           {status === "submitted" && (
             <PermissionIcon name="check" className="size-3" />
           )}
-          {status === "sending" && <span aria-hidden="true" className="permission-spinner" />}
+          {status === "sending" && <LoadingOrb aria-hidden size={12} />}
           <span className="permission-pill-label">{label}</span>
         </span>
       </section>

@@ -45,6 +45,10 @@ await context.route("**/*", (route) => {
 await page.addInitScript(() => {
   const target = window as any;
   target.openteam = {
+    computer: {
+      get: async () => ({ messagesSupported: false }),
+      messagesPermissions: async () => null,
+    },
     pluginOAuth: {
       start: (id: string, force = false) => target.fixtureOAuthStart(id, force),
       cancel: (id: string, state: string) => target.fixtureOAuthCancel(id, state),
@@ -89,12 +93,12 @@ try {
   await page.screenshot({ path: resolve(output, "waiting.png"), fullPage: true });
   await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
   await page
-    .getByText("Ready to authorize", { exact: true })
+    .getByText("Sign-in needed", { exact: true })
     .first()
     .waitFor();
   await provider.close();
   provider = await openProvider(() =>
-    page.getByRole("button", { name: "Authorize", exact: true }).click()
+    page.getByRole("button", { name: "Sign in", exact: true }).click()
   );
   await provider.getByRole("button", { name: "Authorize Account A" }).click();
   await provider
@@ -113,12 +117,14 @@ try {
     "Connected account must execute a real fixture tool"
   );
   await page.getByRole("button", { name: "default account settings", exact: true }).click();
-  await page.getByLabel("Sign-in callback", { exact: true }).selectOption("server");
+  await page.getByRole("combobox", { name: "Sign-in callback", exact: true }).click();
+  await page.getByRole("option", { name: "Server callback", exact: true }).click();
   await page.getByRole("button", { name: "Save callback settings", exact: true }).click();
-  await page.waitForFunction(() => (document.querySelector('select[aria-label="Sign-in callback"]') as HTMLSelectElement)?.value === "server");
+  await page.getByRole("combobox", { name: "Sign-in callback", exact: true }).filter({ hasText: "Server callback" }).waitFor();
   await page.getByRole("button", { name: "Save callback settings", exact: true }).waitFor();
   assert((await client.pluginConfiguration(connection.id)).oauthCallbackMode === "server", "Callback mode must persist in DB");
-  await page.getByLabel("Sign-in callback", { exact: true }).selectOption("desktop");
+  await page.getByRole("combobox", { name: "Sign-in callback", exact: true }).click();
+  await page.getByRole("option", { name: "Desktop listener (advanced)", exact: true }).click();
   await page.getByRole("button", { name: "Save callback settings", exact: true }).click();
   await page.screenshot({ path: resolve(output, "callback-settings.png"), fullPage: true });
   provider = await openProvider(() => page.getByRole("button", { name: "Authenticate", exact: true }).click());

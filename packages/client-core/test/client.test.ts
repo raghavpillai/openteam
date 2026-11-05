@@ -3,8 +3,8 @@ import {
   consumeProductEventStream,
   createOpenTeamClient,
   normalizeBaseUrl,
-  normalizeClientSnapshot,
   sidebarPreferencesFromRootSettings,
+  withDefaultScheme,
 } from "../src";
 
 describe("mobile-safe OpenTeam client", () => {
@@ -368,7 +368,6 @@ describe("mobile-safe OpenTeam client", () => {
     });
 
     await client.createBot({ clientRequestId: "create-bot-1", name: "Research" });
-    await client.duplicateBot("bot/1", { clientRequestId: "duplicate-bot-1" });
     await client.createGroup({ name: "Launch", botIds: ["bot/1"] });
     await client.renameChannel("channel/1", "Launch room");
     await client.updateChannelProfile("channel/1", "Launch room", "Ships the launch");
@@ -389,11 +388,6 @@ describe("mobile-safe OpenTeam client", () => {
         "http://openteam.test/api/v0/bots",
         "POST",
         { clientRequestId: "create-bot-1", name: "Research" },
-      ],
-      [
-        "http://openteam.test/api/v0/bots/bot%2F1/duplicate",
-        "POST",
-        { clientRequestId: "duplicate-bot-1" },
       ],
       ["http://openteam.test/api/v0/channels", "POST", { name: "Launch", botIds: ["bot/1"] }],
       [
@@ -546,7 +540,7 @@ describe("mobile-safe OpenTeam client", () => {
       },
     });
 
-    await expect(client.snapshot()).rejects.toMatchObject({ status: 401 });
+    await expect(client.bootstrap()).rejects.toMatchObject({ status: 401 });
     expect(new Headers(calls[0]?.headers).get("authorization")).toBe("Bearer signed-session");
     expect(unauthorized).toEqual(["signed-session"]);
   });
@@ -578,31 +572,37 @@ describe("mobile-safe OpenTeam client", () => {
       "http://openteam.test/api/v0/bots/bot%2F1/screen/frame?v=42"
     );
   });
+});
 
-  test("normalizes missing snapshot lists during reconnect", () => {
-    const snapshot = normalizeClientSnapshot({
-      cursor: "partial",
-      workspace: {
-        root: "/workspace",
-        sharedDirectory: "/workspace/shared",
-        botsDirectory: "/workspace/bots",
-        projectsDirectory: "/workspace/projects",
-      },
-      runtime: {
-        server: "ready",
-        database: "ready",
-        queue: "ready",
-        computer: "ready",
-        inference: "ready",
-      },
-    } as Parameters<typeof normalizeClientSnapshot>[0]);
+test("adds the scheme people leave off server addresses", () => {
+  expect(withDefaultScheme("192.168.1.20:8787")).toBe("http://192.168.1.20:8787");
+  expect(withDefaultScheme(" localhost:8787 ")).toBe("http://localhost:8787");
+  expect(withDefaultScheme("mac-mini.local:8787")).toBe("http://mac-mini.local:8787");
+  expect(withDefaultScheme("mac-mini:8787")).toBe("http://mac-mini:8787");
+  expect(withDefaultScheme("[::1]:8787")).toBe("http://[::1]:8787");
+  expect(withDefaultScheme("openteam.example.com")).toBe("https://openteam.example.com");
+  expect(withDefaultScheme("box.tail1234.ts.net")).toBe("https://box.tail1234.ts.net");
+  expect(withDefaultScheme("box.tail1234.ts.net:8788")).toBe("http://box.tail1234.ts.net:8788");
+  expect(withDefaultScheme("openteam.example.com:443")).toBe("https://openteam.example.com:443");
+  expect(withDefaultScheme("203.0.113.9:8787/")).toBe("http://203.0.113.9:8787/");
+  expect(withDefaultScheme("http://openteam.example.com")).toBe("http://openteam.example.com");
+  expect(withDefaultScheme("")).toBe("");
+});
 
-    expect(snapshot.bots).toEqual([]);
-    expect(snapshot.channels).toEqual([]);
-    expect(snapshot.channelMessages).toEqual([]);
-    expect(snapshot.channelRounds).toEqual([]);
-    expect(snapshot.runs).toEqual([]);
-    expect(snapshot.runItems).toEqual([]);
-    expect(snapshot.subagents).toEqual([]);
-  });
+test("first-run requests can be given up on without waiting for the server", async () => {
+  const signals: Array<AbortSignal | null | undefined> = [];
+  const fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    signals.push(init?.signal);
+    return Response.json({});
+  }) as unknown as typeof globalThis.fetch;
+  const client = createOpenTeamClient({ baseUrl: "http://openteam.test", fetch });
+  const signal = new AbortController().signal;
+
+  await client.bootstrap(signal);
+  await client.runtime(signal);
+  await client.serverSettings(undefined, signal);
+  await client.testInferenceSettings(undefined, signal);
+  await client.createBot({ clientRequestId: "first-bot-1", name: "Juniper" }, signal);
+
+  expect(signals).toEqual([signal, signal, signal, signal, signal]);
 });

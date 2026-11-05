@@ -2,8 +2,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { auth, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { PluginToolDefinition } from "./catalog";
-import { discoverAllTools } from "@openteam/plugin-sdk";
+import { ResultSchema, ToolSchema } from "@modelcontextprotocol/sdk/types.js";
+import { discoverAllTools, MCP_TOOL_CALL_TIMEOUT_MS, repairedToolsPage, type PluginToolDefinition } from "@openteam/plugin-sdk";
+
+/** Bun's fetch otherwise gives up on a quiet tool call after 300 seconds, inside its own budget. */
+const LONG_CALL_INIT = { timeout: false } as RequestInit;
 
 export interface HttpMcpConnectionOptions {
   endpoint: string;
@@ -47,7 +50,12 @@ export class McpHttpClientManager {
   ): Promise<PluginToolDefinition[]> {
     const managed = await this.get(connectionId, options);
     return (
-      await discoverAllTools((cursor) => managed.client.listTools({ cursor }, { timeout: 30_000 }))
+      await discoverAllTools((cursor) => repairedToolsPage(
+        () => managed.client.listTools({ cursor }, { timeout: 30_000 }),
+        () => managed.client.request({ method: "tools/list", params: cursor ? { cursor } : {} }, ResultSchema, { timeout: 30_000 }),
+        (tool) => { const parsed = ToolSchema.safeParse(tool); return parsed.success ? parsed.data : undefined; },
+        (name) => console.warn(`[mcp:${connectionId}] Left out an MCP tool whose definition is invalid: ${name}`)
+      ))
     ).map(toolDefinition);
   }
 
@@ -68,7 +76,7 @@ export class McpHttpClientManager {
             : {},
       },
       undefined,
-      { signal, timeout: 60_000 }
+      { signal, timeout: MCP_TOOL_CALL_TIMEOUT_MS }
     );
   }
 
@@ -182,7 +190,7 @@ export class McpHttpClientManager {
       kind === "streamable-http"
         ? new StreamableHTTPClientTransport(new URL(options.endpoint), {
             authProvider: options.authProvider,
-            requestInit: { headers: options.headers },
+            requestInit: { headers: options.headers, ...LONG_CALL_INIT },
             reconnectionOptions: {
               initialReconnectionDelay: 500,
               maxReconnectionDelay: 10_000,
@@ -192,7 +200,7 @@ export class McpHttpClientManager {
           })
         : new SSEClientTransport(new URL(options.endpoint), {
             authProvider: options.authProvider,
-            requestInit: { headers: options.headers },
+            requestInit: { headers: options.headers, ...LONG_CALL_INIT },
             fetch: options.headers
               ? (url, init) =>
                   fetch(url, {

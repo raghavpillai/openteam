@@ -45,7 +45,6 @@ export interface ScreenStatus {
   browserStateCoverage: Array<
     | "cookies"
     | "local-storage"
-    | "session-storage"
     | "indexed-db"
     | "service-workers"
     | "cache-storage"
@@ -55,7 +54,6 @@ export interface ScreenStatus {
     | "settings"
     | "bookmarks"
     | "history"
-    | "open-tabs"
   >;
   browserTargetRouting: "bot-owned-tabs";
   error: string | null;

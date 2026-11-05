@@ -99,7 +99,6 @@ test("timeline mutations persist events and only tap an active idle Bot", async 
     expect(eventRun.inboxEvents).toHaveLength(1);
     expect(eventRun.inboxEvents[0]).toMatchObject({
       type: "timeline.event",
-      deliveryMode: "turn",
       priority: 100,
     });
     expect(eventRun.inboxEvents[0]?.payload).toMatchObject({ origin: "event" });

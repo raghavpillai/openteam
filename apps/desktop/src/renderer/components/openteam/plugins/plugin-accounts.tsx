@@ -1,7 +1,9 @@
+import { PluginSelect } from "./plugin-ui";
 import type { PluginConnectionView } from "@openteam/contracts";
-import { Check, LoaderCircle, SquarePen, Plus, Settings2 } from "lucide-react";
+import { Check, SquarePen, Plus, Settings2 } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AnimatedCollapse } from "../../ui/animated-collapse";
+import { LoadingOrb } from "../../ui/loading-orb";
 import { cn } from "../../../lib/cn";
 import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { PluginAuthorization } from "./plugin-authorization";
@@ -127,7 +129,7 @@ export function PluginAccountRow({
         )}
         {!editing && !ready && !authorization && (
           <button className={button} type="button" disabled={busy} onClick={() => onConnect()}>
-            {busy ? <LoaderCircle className="size-3 animate-spin" /> : null}
+            {busy ? <LoadingOrb aria-hidden size={12} /> : null}
             {connection.configured ? (connection.auth === "oauth" ? "Sign in" : "Connect") : "Set up"}
           </button>
         )}
@@ -199,18 +201,13 @@ export function AddPluginAccount({
           }}
         >
           {choices.length > 1 && (
-            <select
-              aria-label="Connector for new account"
+            <PluginSelect
+              label="Connector for new account"
               className="h-8 rounded-md bg-background px-2 text-[12px]"
               value={connector}
-              onChange={(e) => setConnector(e.target.value)}
-            >
-              {choices.map((c) => (
-                <option value={c.connectorKey} key={c.connectorKey}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onChange={setConnector}
+              options={choices.map(c => ({ value: c.connectorKey, label: c.name }))}
+            />
           )}
           <input
             ref={labelRef}

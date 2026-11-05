@@ -31,6 +31,55 @@
         animation: openteam-boot-reveal 300ms ease-out 180ms forwards;
       }
       #root:not(:empty) + #openteam-boot-shell { display: none; }
+      /* Signing in on a first run reloads into setup with #openteam-setup-frame in the URL
+         (first-run-shell.tsx). Until the app renders, the boot screen is then setup's frame
+         instead of the logo, from the very first paint, so the window never blanks. */
+      :root:has(#openteam-setup-frame:target) {
+        --openteam-boot-background: #ffffff;
+        --openteam-boot-ink: #111113;
+        --openteam-boot-line: rgb(17 17 19 / 10%);
+        --openteam-boot-stage: radial-gradient(circle at 50% 42%, #dfe8f8, transparent 62%), #edf2fb;
+        --openteam-boot-panel: clamp(400px, 40vw, 500px);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:has(#openteam-setup-frame:target):not([data-theme="light"]) {
+          --openteam-boot-background: #121214;
+          --openteam-boot-ink: #f4f4f6;
+          --openteam-boot-line: rgb(255 255 255 / 10%);
+          --openteam-boot-stage: radial-gradient(circle at 50% 42%, #172338, transparent 62%), #111a29;
+        }
+      }
+      :root:has(#openteam-setup-frame:target)[data-theme="dark"] {
+        --openteam-boot-background: #121214;
+        --openteam-boot-ink: #f4f4f6;
+        --openteam-boot-line: rgb(255 255 255 / 10%);
+        --openteam-boot-stage: radial-gradient(circle at 50% 42%, #172338, transparent 62%), #111a29;
+      }
+      :root:has(#openteam-setup-frame:target) #openteam-boot-shell > svg { display: none; }
+      :root:has(#openteam-setup-frame:target) #openteam-boot-shell::before {
+        position: absolute;
+        inset: 0 0 0 var(--openteam-boot-panel);
+        background: var(--openteam-boot-stage);
+        box-shadow: -1px 0 0 var(--openteam-boot-line);
+        content: "";
+      }
+      /* The progress bar on its first step: four segments 6 px apart. */
+      :root:has(#openteam-setup-frame:target) #openteam-boot-shell::after {
+        position: absolute;
+        top: 56px;
+        left: 48px;
+        width: calc(var(--openteam-boot-panel) - 96px);
+        height: 4px;
+        background: linear-gradient(90deg, var(--openteam-boot-ink) 0 calc(25% - 4.5px), transparent 0 calc(25% + 1.5px), var(--openteam-boot-line) 0 calc(50% - 3px), transparent 0 calc(50% + 3px), var(--openteam-boot-line) 0 calc(75% - 1.5px), transparent 0 calc(75% + 4.5px), var(--openteam-boot-line) 0);
+        content: "";
+      }
+      @media (max-width: 860px) {
+        :root:has(#openteam-setup-frame:target) #openteam-boot-shell::before { display: none; }
+        :root:has(#openteam-setup-frame:target) #openteam-boot-shell::after { left: max(48px, calc(50% - 220px)); width: min(440px, calc(100% - 96px)); }
+      }
+      @media (max-height: 640px) {
+        :root:has(#openteam-setup-frame:target) #openteam-boot-shell::after { top: 32px; }
+      }
       @keyframes openteam-boot-reveal { to { opacity: 1; } }
       @media (prefers-reduced-motion: reduce) {
         #openteam-boot-shell > svg { opacity: 1; animation: none; }
@@ -39,6 +88,7 @@
     <script type="module" src="/src/renderer/boot-theme.ts"></script>
   </head>
   <body>
+    <i hidden id="openteam-setup-frame"></i>
     <div id="root"></div>
     <div id="openteam-boot-shell" aria-hidden="true">
       <svg aria-hidden="true" width="56" height="56" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">

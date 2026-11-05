@@ -1,4 +1,5 @@
 import { startNotificationPresence } from "./lib/notification-presence";
+import { startTimeZoneReporting } from "./lib/time-zone";
 import { authHeaders } from "./client/auth";
 import { API_BASE } from "./client/http";
 import type { PromptDraft } from "./components/ai-elements/prompt-input";
@@ -7,6 +8,7 @@ import type {
   BotView,
   ChannelMessageView,
   ChannelView,
+  CreateBotInput,
   SearchResultView,
   UpdateBotInput,
 } from "@openteam/contracts";
@@ -18,9 +20,18 @@ import { preloadMessageRenderers } from "./components/ai-elements/message";
 import { ChatPane } from "./components/openteam/chat-pane";
 import { DesktopHeader } from "./components/openteam/desktop-header";
 import type { SearchAction } from "./components/openteam/search-dialog";
-import { HiddenAgentsDialog, Sidebar } from "./components/openteam/sidebar";
+import { Sidebar } from "./components/openteam/sidebar";
+import { FirstRunShell } from "./components/openteam/first-run-shell";
+import {
+  clearLandingRow,
+  LANDING_HOLD_MS,
+  landingStep,
+  markLandingRow,
+} from "./components/openteam/landing";
+import { ModelStatusBanner } from "./components/openteam/model-status-banner";
 import { VersionMismatchBanner } from "./components/openteam/version-mismatch-banner";
 import { Button } from "./components/ui/button";
+import { LoadingOrb } from "./components/ui/loading-orb";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { type InspectorMode, useBotRowActions } from "./hooks/use-bot-row-actions";
 import { useChannelSelection } from "./hooks/use-channel-selection";
@@ -43,7 +54,6 @@ import { cn } from "./lib/cn";
 import { requestDesktopUpdateRestart } from "./lib/desktop-update";
 import {
   CHAT_SETTINGS_KEYWORDS,
-  HIDDEN_BOTS_PALETTE_KEYWORDS,
   PLUGINS_PALETTE_KEYWORDS,
   SETTINGS_PALETTE_SECTIONS,
   THEME_PALETTE_COMMANDS,
@@ -65,11 +75,18 @@ import {
   shouldForceCompactSidebar,
 } from "./lib/panel-resize";
 import { measureUntilNextPaint, recordPerformance } from "./lib/performance";
+import { requestErrorMessage, withDeadline } from "./lib/request-errors";
 import { enableScreenForSession } from "./lib/screen-session";
 import { useSnapshotIndex } from "./lib/snapshot-index";
+import { SidebarBotOrderContext } from "./lib/sidebar-bot-order";
+import { sidebarChannelOrder } from "./lib/sidebar-rows";
 import { readThemePreference, setThemePreference, THEME_CHANGE_EVENT } from "./lib/theme";
 import { useOpenTeam } from "./state/use-openteam";
+import { MessagesGrantsPrompt } from "./components/openteam/settings/messages-permissions-dialog";
 
+const Onboarding = lazy(() =>
+  import("./components/openteam/onboarding").then((module) => ({ default: module.Onboarding }))
+);
 const A2AExchangeSheet = lazy(() =>
   import("./components/openteam/a2a-exchange-sheet").then((module) => ({
     default: module.A2AExchangeSheet,
@@ -127,7 +144,8 @@ const clampInspectorWidth = (width: number, windowWidth: number, sidebarWidth: n
   );
 const readInspectorWidth = () => {
   const stored = Number(localStorage.getItem(INSPECTOR_WIDTH_KEY));
-  return Math.max(MIN_INSPECTOR_WIDTH,
+  return Math.max(
+    MIN_INSPECTOR_WIDTH,
     Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_INSPECTOR_WIDTH
   );
 };
@@ -180,6 +198,31 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const onboardingKey = `openteam:onboarding-finished:${API_BASE}`;
+  const [onboardingFinished, setOnboardingFinished] = useState(
+    () => localStorage.getItem(onboardingKey) === "1"
+  );
+  const finishOnboarding = useCallback(() => {
+    localStorage.setItem(onboardingKey, "1");
+    setOnboardingFinished(true);
+  }, [onboardingKey]);
+  // Setup is decided on arrival: a new server, or one with no model yet, gets a short guided
+  // setup that stays open until it's finished. Losing the model later is flagged by the model
+  // status toast instead of sending someone back to setup.
+  const needsSetup = snapshot
+    ? snapshot.bots.length === 0 || snapshot.runtime.inference === "missing"
+    : null;
+  const [setupOpen, setSetupOpen] = useState(false);
+  const showSetup = !onboardingFinished && (setupOpen || needsSetup === true);
+  useEffect(() => {
+    if (showSetup) setSetupOpen(true);
+    else if (needsSetup === false && !onboardingFinished) finishOnboarding();
+  }, [finishOnboarding, needsSetup, onboardingFinished, showSetup]);
+  // The first bot's landing: setup hands over to the main page with the bot arriving in the
+  // sidebar, which holds for a moment before its chat opens (see landing.ts).
+  const [landing, setLanding] = useState<{ channelId: string; name: string } | null>(null);
+  const channelByIdRef = useRef(index.channelById);
+  channelByIdRef.current = index.channelById;
   const [themePreference, setThemePreferenceState] = useState(readThemePreference);
   const [paletteUpdateStatus, setPaletteUpdateStatus] = useState<OpenTeamUpdateStatus | null>(null);
   const [pluginsOpen, setPluginsOpen] = useState(false);
@@ -201,13 +244,15 @@ export default function App() {
     routineId: string;
     nonce: number;
   } | null>(null);
-  const [transferredDraft, setTransferredDraft] = useState<{ channelId: string | null; draft: PromptDraft } | null>(null);
+  const [transferredDraft, setTransferredDraft] = useState<{
+    channelId: string | null;
+    draft: PromptDraft;
+  } | null>(null);
   const consumeTransferredDraft = useCallback(() => setTransferredDraft(null), []);
   const [newBotPicker, setNewBotPicker] = useState(false);
   const [newChatDraft, setNewChatDraft] = useState(0);
   const [newGroupDialog, setNewGroupDialog] = useState(false);
   const [deleteGroupTarget, setDeleteGroupTarget] = useState<ChannelView | null>(null);
-  const [hiddenAgentsOpen, setHiddenAgentsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [sidebarLayout, setSidebarLayout] = useState({
@@ -228,6 +273,8 @@ export default function App() {
   const inspectorPanelRef = useRef<HTMLDivElement | null>(null);
   const inspectorContentRef = useRef<HTMLDivElement | null>(null);
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>("summary");
+  // A routine opened from bot settings returns there, not to the details summary.
+  const [routineReturnMode, setRoutineReturnMode] = useState<"summary" | "settings">("summary");
   const [enabledScreenIds, setEnabledScreenIds] = useState<ReadonlySet<string>>(() => new Set());
   const [computerHandoff, setComputerHandoff] = useState<ComputerHandoffOpenDetail | null>(null);
   const [a2aExchange, setA2AExchange] = useState<A2AExchangeState | null>(null);
@@ -242,16 +289,26 @@ export default function App() {
   const creatingBot = useRef(false);
   const sidebarPreferences = useSidebarPreferences();
   const previousUnreadSnapshot = useRef(snapshot);
-  const [composerFocus, setComposerFocus] = useState<{ channelId: string; nonce: number } | null>(null);
+  const [composerFocus, setComposerFocus] = useState<{ channelId: string; nonce: number } | null>(
+    null
+  );
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   const readReceipts = useRef(createReadReceiptController());
   const forcedSidebarCompact = shouldForceCompactSidebar(viewportWidth, sidebarLayout.width);
   const sidebarMaxWidth = maxSidebarWidthForLayout(viewportWidth, detailsOpen ? inspectorWidth : 0);
   const effectiveSidebarWidth =
-    forcedSidebarCompact || sidebarLayout.compact ? COMPACT_SIDEBAR_WIDTH : Math.min(sidebarLayout.width, sidebarMaxWidth);
+    forcedSidebarCompact || sidebarLayout.compact
+      ? COMPACT_SIDEBAR_WIDTH
+      : Math.min(sidebarLayout.width, sidebarMaxWidth);
   const detailsDocked = canShowInspector(viewportWidth, effectiveSidebarWidth);
   const visibleDetailsOpen = detailsOpen;
+  // Toasts sit bottom-right; while the details panel is open they move left of it, so they
+  // don't cover its controls (bot settings ends with Duplicate and Delete there).
+  const toastInsetRight = visibleDetailsOpen && selectedId ? inspectorWidth : 0;
+  useEffect(() => {
+    document.documentElement.style.setProperty("--toast-inset-right", `${toastInsetRight}px`);
+  }, [toastInsetRight]);
   const detailsOverlay = detailsOpen && !detailsDocked;
   const inspectorMaxWidth = maxInspectorWidthForLayout(viewportWidth, effectiveSidebarWidth);
   const renderedInspectorWidth = clampInspectorWidth(
@@ -302,10 +359,13 @@ export default function App() {
   );
 
   useEffect(() => () => readReceipts.current.clear(), []);
-  useEffect(() => () => {
-    // Cancel avatar work and reset native presence/cursors across sign-out or server changes.
-    syncDesktopNotificationSnapshot(window.openteam?.notifications, null, new Set());
-  }, []);
+  useEffect(
+    () => () => {
+      // Cancel avatar work and reset native presence/cursors across sign-out or server changes.
+      syncDesktopNotificationSnapshot(window.openteam?.notifications, null);
+    },
+    []
+  );
 
   useEffect(() => {
     const native = window.openteam;
@@ -313,18 +373,29 @@ export default function App() {
     const headers = { "content-type": "application/json", ...authHeaders() };
     const stop = startNotificationPresence({
       activity: () => native.notifications.activity(),
-      subscribe: changed => native.notifications.onActivityChange(changed),
-      send: input => api.updateNotificationPresence(input),
-      release: input => {
+      subscribe: (changed) => native.notifications.onActivityChange(changed),
+      send: (input) => api.updateNotificationPresence(input),
+      release: (input) => {
         // Capture the old credentials: logout/server switch must retire the old lease.
-        void fetch(`${API_BASE}/api/v0/notification-presence`, { method: "POST", headers,
-          body: JSON.stringify(input), keepalive: true }).catch(() => undefined);
+        void fetch(`${API_BASE}/api/v0/notification-presence`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(input),
+          keepalive: true,
+        }).catch(() => undefined);
       },
     });
     window.addEventListener("beforeunload", stop);
-    return () => { window.removeEventListener("beforeunload", stop); stop(); };
+    return () => {
+      window.removeEventListener("beforeunload", stop);
+      stop();
+    };
   }, [appReady]);
 
+  useEffect(() => {
+    if (!appReady) return;
+    return startTimeZoneReporting({ send: (detectedTimeZone) => api.updateUserTimeZone({ detectedTimeZone }) });
+  }, [appReady]);
 
   useEffect(() => {
     const handleResize = () => setViewportWidth(window.innerWidth);
@@ -349,7 +420,7 @@ export default function App() {
     return () => window.removeEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink);
   }, []);
   useEffect(() => {
-    const unsubscribe = window.openteam?.onNotificationClick((channelId) => {
+    const unsubscribe = window.openteam?.onNotificationClick(({ channelId, threadMessageId }) => {
       invalidateSearchNavigation(selectedId, searchMessageTarget?.channelId);
       setA2AExchange(null);
       a2aExchangeTrigger.current = null;
@@ -359,9 +430,19 @@ export default function App() {
       setInspectorMode("summary");
       markChannelRead(channelId);
       setDetailsOpen(false);
+      if (!threadMessageId) return;
+      // A reply inside a thread opens that thread at the reply, like a search result.
+      const nonce = ++searchLoadNonce.current;
+      void ensureMessageLoaded(channelId, threadMessageId)
+        .then((found) => {
+          if (found && searchLoadNonce.current === nonce)
+            setSearchMessageTarget({ channelId, messageId: threadMessageId, nonce });
+        })
+        .catch(() => undefined);
     });
     return unsubscribe;
   }, [
+    ensureMessageLoaded,
     invalidateSearchNavigation,
     markChannelRead,
     searchMessageTarget?.channelId,
@@ -372,12 +453,8 @@ export default function App() {
     if (selectedId) void loadChannel(selectedId).catch(() => undefined);
   }, [loadChannel, selectedId]);
   useEffect(() => {
-    syncDesktopNotificationSnapshot(
-      window.openteam?.notifications,
-      snapshot,
-      sidebarPreferences.unreadIds
-    );
-  }, [sidebarPreferences.unreadIds, snapshot]);
+    syncDesktopNotificationSnapshot(window.openteam?.notifications, snapshot);
+  }, [snapshot]);
   useEffect(() => {
     const publishVisibleChannel = () => {
       const focused = document.hasFocus();
@@ -515,29 +592,87 @@ export default function App() {
     [handleStandardBotRowAction]
   );
 
-  const createNewBot = useCallback(async (requestedName?: string, draft?: PromptDraft) => {
-    if (creatingBot.current) return;
-    creatingBot.current = true;
-    if (draft) setTransferredDraft({ channelId: null, draft });
-    setNewBotPicker(false);
-    const name = requestedName?.trim() || "New Bot";
-    setPendingBot({ name });
-    try {
-      const bot = await mutate(() =>
-        api.createBot({ clientRequestId: crypto.randomUUID(), name })
+  const createNewBot = useCallback(
+    async (requestedName?: string, draft?: PromptDraft) => {
+      if (creatingBot.current) return;
+      creatingBot.current = true;
+      if (draft) setTransferredDraft({ channelId: null, draft });
+      setNewBotPicker(false);
+      const name = requestedName?.trim() || "New Bot";
+      setPendingBot({ name });
+      try {
+        const bot = await mutate(() =>
+          api.createBot({ clientRequestId: crypto.randomUUID(), name })
+        );
+        setInspectorMode("summary");
+        setDetailsOpen(false);
+        setPendingBot({ name: bot.name, dmChannelId: bot.dmChannelId });
+        if (draft) setTransferredDraft({ channelId: bot.dmChannelId, draft });
+      } catch {
+        // Keep the composer draft available when bot creation fails.
+        setPendingBot(null);
+        if (draft) setNewBotPicker(true);
+      } finally {
+        creatingBot.current = false;
+      }
+    },
+    [mutate]
+  );
+
+  // Setup hands over to its first bot: the main page appears with the bot flying into its
+  // sidebar row, holds there a moment with the row lit, then opens its chat for the
+  // greeting. Also how setup opens a bot that another device made in the meantime.
+  const landOnFirstBot = useCallback(
+    async (bot: BotView) => {
+      const channelId = bot.dmChannelId;
+      // The bot's chat normally arrives within moments (a create refreshes the snapshot).
+      for (let wait = 0; !channelByIdRef.current.has(channelId) && wait < 40; wait += 1) {
+        if (wait === 10) void refresh();
+        await new Promise((resolve) => window.setTimeout(resolve, 100));
+      }
+      let unname = () => {};
+      await landingStep(
+        "arrive",
+        () => {
+          setInspectorMode("summary");
+          setDetailsOpen(false);
+          setLanding({ channelId, name: bot.name });
+          finishOnboarding();
+        },
+        () => {
+          unname = markLandingRow(channelId);
+        }
       );
-      setInspectorMode("summary");
-      setDetailsOpen(false);
-      setPendingBot({ name: bot.name, dmChannelId: bot.dmChannelId });
-      if (draft) setTransferredDraft({ channelId: bot.dmChannelId, draft });
-    } catch {
-      // Keep the composer draft available when bot creation fails.
-      setPendingBot(null);
-      if (draft) setNewBotPicker(true);
-    } finally {
-      creatingBot.current = false;
-    }
-  }, [mutate]);
+      unname();
+      await new Promise((resolve) => window.setTimeout(resolve, LANDING_HOLD_MS));
+      await landingStep("open", () => {
+        clearLandingRow();
+        setSelectedId(channelId);
+        setLanding(null);
+      });
+    },
+    [finishOnboarding, refresh, setSelectedId]
+  );
+
+  // Setup's first bot. Setup keeps one request ID per profile, so pressing Create again after
+  // a lost answer returns the bot the server already made. A failure (or no answer in time)
+  // is thrown back to setup, which shows it and retries.
+  const createFirstBot = useCallback(
+    async (input: CreateBotInput) => {
+      if (creatingBot.current) throw new Error("A bot is already being created.");
+      creatingBot.current = true;
+      let bot: BotView;
+      try {
+        bot = await withDeadline((signal) => api.createBot(input, signal));
+      } finally {
+        creatingBot.current = false;
+      }
+      // The landing waits for the bot's chat to arrive, so a slow refresh can't hold it up.
+      void refresh(true);
+      await landOnFirstBot(bot);
+    },
+    [landOnFirstBot, refresh]
+  );
 
   useEffect(() => {
     if (!pendingBot?.dmChannelId || !index.channelById.has(pendingBot.dmChannelId)) return;
@@ -568,14 +703,6 @@ export default function App() {
       mutate(() => api.setChannelMembers(channelId, botIds)).then(() => undefined),
     [mutate]
   );
-  const hideGroup = useCallback(
-    (channel: ChannelView) => {
-      void mutate(() => api.setChannelHidden(channel.id, true)).then(() => {
-        if (selectedId === channel.id) setSelectedId(null);
-      });
-    },
-    [mutate, selectedId, setSelectedId]
-  );
   const confirmDeleteGroup = useCallback(() => {
     if (!deleteGroupTarget) return;
     const channelId = deleteGroupTarget.id;
@@ -584,18 +711,6 @@ export default function App() {
       if (selectedId === channelId) setSelectedId(null);
     });
   }, [deleteGroupTarget, mutate, selectedId, setSelectedId]);
-  const unhideBot = useCallback(
-    async (bot: BotView) => {
-      await mutate(() => api.updateBot(bot.id, { hiddenFromSidebar: false }));
-    },
-    [mutate]
-  );
-  const unhideGroup = useCallback(
-    async (channel: ChannelView) => {
-      await mutate(() => api.setChannelHidden(channel.id, false));
-    },
-    [mutate]
-  );
   const setChannelAvatar = useCallback(
     (channelId: string, pngBase64: string | null) =>
       mutate(() => api.setChannelAvatar(channelId, pngBase64)).then(() => undefined),
@@ -611,30 +726,30 @@ export default function App() {
   }, []);
 
   const snapshotChannels = snapshot?.channels;
-  const hiddenBots = useMemo(
-    () => snapshot?.bots.filter((bot) => bot.hiddenFromSidebar) ?? [],
-    [snapshot?.bots]
-  );
-  const hiddenGroups = useMemo(
-    () =>
-      snapshotChannels?.filter(
-        (channel) => channel.kind === "group" && channel.hiddenFromSidebar
-      ) ?? [],
+  const visibleChannels = useMemo(
+    () => snapshotChannels?.filter((channel) => channel.kind !== "agent_dm") ?? [],
     [snapshotChannels]
   );
-  const hiddenAgentCount = hiddenBots.length + hiddenGroups.length;
-  const visibleChannels = useMemo(() => {
-    if (!snapshotChannels || !snapshot) return [];
-    const hiddenBotIds = new Set(
-      snapshot.bots.filter((bot) => bot.hiddenFromSidebar).map((bot) => bot.id)
-    );
-    return snapshotChannels.filter((channel) => {
-      if (channel.kind === "agent_dm" || channel.hiddenFromSidebar) return false;
-      if (channel.kind !== "bot_dm") return true;
-      const botId = channel.members[0]?.botId;
-      return Boolean(botId && !hiddenBotIds.has(botId));
-    });
-  }, [snapshot, snapshotChannels]);
+  const sidebarBotOrder = useMemo(
+    () => [
+      ...new Set(
+        sidebarChannelOrder(
+          visibleChannels,
+          index.latestMessageByChannel,
+          sidebarPreferences.pinnedIds,
+          sidebarPreferences.sections,
+          sidebarPreferences.sectionByChannel
+        ).flatMap((channel) => channel.members.map((member) => member.botId))
+      ),
+    ],
+    [
+      index.latestMessageByChannel,
+      sidebarPreferences.pinnedIds,
+      sidebarPreferences.sectionByChannel,
+      sidebarPreferences.sections,
+      visibleChannels,
+    ]
+  );
   const activeTaskChannelIds = useMemo(
     () => activeAsyncTaskChannelIds(snapshot?.subagents ?? []),
     [snapshot?.subagents]
@@ -650,7 +765,6 @@ export default function App() {
     setNewGroupDialog(true);
   }, []);
   const openAbout = useCallback(() => setAboutOpen(true), []);
-  const openHiddenAgents = useCallback(() => setHiddenAgentsOpen(true), []);
   const openSettingsTarget = useCallback((anchor: SettingsAnchor | null) => {
     setSettingsTarget(anchor ? { anchor, nonce: Date.now() } : null);
     setSettingsOpen(true);
@@ -672,7 +786,9 @@ export default function App() {
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const selectSidebarChannel = useCallback(
     (id: string, focusComposer = false) => {
-      setComposerFocus((previous) => focusComposer ? { channelId: id, nonce: (previous?.nonce ?? 0) + 1 } : null);
+      setComposerFocus((previous) =>
+        focusComposer ? { channelId: id, nonce: (previous?.nonce ?? 0) + 1 } : null
+      );
       invalidateSearchNavigation(selectedId, searchMessageTarget?.channelId);
       setA2AExchange(null);
       a2aExchangeTrigger.current = null;
@@ -921,13 +1037,16 @@ export default function App() {
     },
     [index.botById, selectSidebarChannel]
   );
-  const openTranscriptBotProfile = useCallback((botId: string) => {
-    const target = index.botById.get(botId);
-    if (!target) return;
-    selectSidebarChannel(target.dmChannelId);
-    setInspectorMode("settings");
-    setDetailsOpen(true);
-  }, [index.botById, selectSidebarChannel]);
+  const openTranscriptBotProfile = useCallback(
+    (botId: string) => {
+      const target = index.botById.get(botId);
+      if (!target) return;
+      selectSidebarChannel(target.dmChannelId);
+      setInspectorMode("settings");
+      setDetailsOpen(true);
+    },
+    [index.botById, selectSidebarChannel]
+  );
   const finishA2AAnimation = useCallback(() => {
     setA2AExchange((current) => {
       if (!current) return current;
@@ -1000,18 +1119,6 @@ export default function App() {
         icon: "plugins",
         run: openPlugins,
       },
-      ...(hiddenAgentCount > 0
-        ? [
-            {
-              id: "hidden-bots",
-              title: "Open Hidden Bots",
-              subtitle: "Sidebar",
-              keywords: HIDDEN_BOTS_PALETTE_KEYWORDS,
-              icon: "hidden" as const,
-              run: openHiddenAgents,
-            },
-          ]
-        : []),
       ...THEME_PALETTE_COMMANDS.map((theme) => ({
         id: `theme:${theme.preference}`,
         title: `Theme: ${theme.label}`,
@@ -1050,8 +1157,6 @@ export default function App() {
         : []),
     ],
     [
-      hiddenAgentCount,
-      openHiddenAgents,
       openPlugins,
       openSettingsTarget,
       paletteUpdateStatus,
@@ -1103,453 +1208,532 @@ export default function App() {
   );
 
   if (!snapshot) {
+    // A first run keeps setup's frame on screen between signing in and the server check, and
+    // says so in it, with a retry, when the server can't be loaded.
+    const problem = error
+      ? requestErrorMessage(error, "Couldn't load your server. Try again.")
+      : null;
+    if (!onboardingFinished) {
+      return <FirstRunShell onRetry={() => void refresh()} problem={problem} serverCheck />;
+    }
     return (
       <main className="grid h-screen place-items-center bg-background text-foreground">
         <div className="text-center">
-          <LoaderCircle className="mx-auto size-7 animate-spin" />
+          <LoadingOrb aria-hidden className="mx-auto" size={28} />
           <p className="mt-3 text-sm">Connecting to OpenTeam…</p>
-          {error && <p className="mt-2 max-w-sm text-xs text-destructive">{error}</p>}
+          {problem && <p className="mt-2 max-w-sm text-xs text-destructive">{problem}</p>}
         </div>
       </main>
     );
   }
 
+  if (showSetup) {
+    return (
+      <Suspense fallback={<FirstRunShell serverCheck />}>
+        <Onboarding
+          bots={snapshot.bots}
+          onCreateBot={createFirstBot}
+          onOpenBot={landOnFirstBot}
+          // Setup recedes as the app settles in underneath.
+          onFinish={() => void landingStep("arrive", finishOnboarding)}
+          runtime={snapshot.runtime}
+        />
+      </Suspense>
+    );
+  }
+
   return (
     <BotAvatarActivityProvider
-      channel={newBotPicker || pendingBot ? null : a2aExchangeChannel ?? selected}
+      channel={newBotPicker || pendingBot ? null : (a2aExchangeChannel ?? selected)}
       run={index.activeRunByChannel.get((a2aExchangeChannel ?? selected)?.id ?? "")}
       runsByChannel={index.runsByChannel}
     >
-    <TooltipProvider>
-      <main className="flex h-screen overflow-hidden bg-background text-foreground">
-        <div aria-hidden="true" className="electron-window-drag-strip" />
-        <Sidebar
-          itemsByRun={index.itemsByRun}
-          activeRunByChannel={index.activeRunByChannel}
-          activeTaskChannelIds={activeTaskChannelIds}
-          botById={index.botById}
-          channels={visibleChannels}
-          creating={newBotPicker}
-          forcedCompact={forcedSidebarCompact}
-          maxExpandedWidth={sidebarMaxWidth}
-          hiddenAgentCount={hiddenAgentCount}
-          latestMessageByChannel={index.latestMessageByChannel}
-          onBotAction={handleBotRowAction}
-          onDeleteChannel={setDeleteGroupTarget}
-          onEditChannel={editSidebarChannel}
-          onHideChannel={hideGroup}
-          onLayoutChange={handleSidebarLayoutChange}
-          onNewBot={openNewBot}
-          onNewGroup={openNewGroup}
-          onOpenHiddenAgents={openHiddenAgents}
-          onOpenPlugins={openPlugins}
-          onOpenSettings={openSettings}
-          onPreloadSearch={preloadSearchDialog}
-          onSearch={openSearch}
-          onSelect={selectSidebarChannel}
-          pendingBot={pendingBot}
-          preferences={sidebarPreferences}
-          selectedId={
-            newBotPicker || pendingBot
-              ? null
-              : selected?.kind === "agent_dm"
-                ? lastWritableChannelId.current
-                : selectedId
-          }
-        />
+      <TooltipProvider>
+        <main className="flex h-screen overflow-hidden bg-background text-foreground">
+          <div aria-hidden="true" className="electron-window-drag-strip" />
+          <Sidebar
+            itemsByRun={index.itemsByRun}
+            activeRunByChannel={index.activeRunByChannel}
+            activeTaskChannelIds={activeTaskChannelIds}
+            botById={index.botById}
+            channels={visibleChannels}
+            creating={newBotPicker}
+            forcedCompact={forcedSidebarCompact}
+            maxExpandedWidth={sidebarMaxWidth}
+            latestMessageByChannel={index.latestMessageByChannel}
+            onBotAction={handleBotRowAction}
+            onDeleteChannel={setDeleteGroupTarget}
+            onEditChannel={editSidebarChannel}
+            onLayoutChange={handleSidebarLayoutChange}
+            onNewBot={openNewBot}
+            onNewGroup={openNewGroup}
+            onOpenPlugins={openPlugins}
+            onOpenSettings={openSettings}
+            onPreloadSearch={preloadSearchDialog}
+            onSearch={openSearch}
+            onSelect={selectSidebarChannel}
+            pendingBot={pendingBot}
+            preferences={sidebarPreferences}
+            selectedId={
+              newBotPicker || pendingBot || landing
+                ? null
+                : selected?.kind === "agent_dm"
+                  ? lastWritableChannelId.current
+                  : selectedId
+            }
+          />
 
-        <HiddenAgentsDialog
-          botById={index.botById}
-          hiddenBots={hiddenBots}
-          hiddenGroups={hiddenGroups}
-          onOpenChange={setHiddenAgentsOpen}
-          onOpenChannel={selectSidebarChannel}
-          onUnhideBot={unhideBot}
-          onUnhideGroup={unhideGroup}
-          open={hiddenAgentsOpen}
-        />
-
-        <section className="relative flex min-w-0 flex-1 flex-col">
-          {!newBotPicker && !pendingBot && (
-            <DesktopHeader
-              agentNameById={index.agentNameById}
-              botById={index.botById}
-              detailsOpen={visibleDetailsOpen}
-              directPerspectiveBotId={directPerspectiveBotId}
-              inspectorWidth={inspectorWidth}
-              inspectorMode={inspectorMode}
-              onDetailsOpenChange={(open) => {
-                if (open) setInspectorMode("summary");
-                setDetailsOpen(open);
-              }}
-              onShowSettings={() => setInspectorMode("settings")}
-              onShowSummary={() => setInspectorMode("summary")}
-              exchange={
-                a2aExchange && a2aExchangeChannel
-                  ? {
-                      channel: a2aExchangeChannel,
-                      perspectiveBotId: a2aExchange.sourceBotId,
-                      phase: a2aExchange.phase,
-                    }
-                  : undefined
-              }
-              selected={selected}
-              selectedBot={selectedBot}
-            />
-          )}
-
-          <VersionMismatchBanner />
-
-          {error && (
-            <div className="flex items-center gap-2 border-b border-destructive/15 bg-destructive/8 px-4 py-2 text-xs text-destructive">
-              <CircleAlert className="size-3.5" />
-              <span className="flex-1">{error}</span>
-              <Button onClick={() => void refresh()} size="sm" variant="ghost">
-                <RefreshCw className="size-3.5" /> Retry
-              </Button>
-            </div>
-          )}
-
-          {newBotPicker ? (
-            <Suspense
-              fallback={
-                <div className="grid min-h-0 flex-1 place-items-center" role="status">
-                  <LoaderCircle aria-label="Loading new Bot" className="size-6 animate-spin" />
-                </div>
-              }
-            >
-              <NewBotScreen
-                key={newChatDraft}
+          <section className="relative flex min-w-0 flex-1 flex-col" data-workspace-main="">
+            {!newBotPicker && !pendingBot && !landing && (
+              <DesktopHeader
+                agentNameById={index.agentNameById}
                 botById={index.botById}
-                channels={visibleChannels}
-                onCancel={() => {
-                  setNewBotPicker(false);
-                  requestAnimationFrame(() => document.querySelector<HTMLElement>('[contenteditable="true"]:not([inert] *)')?.focus());
+                detailsOpen={visibleDetailsOpen}
+                directPerspectiveBotId={directPerspectiveBotId}
+                inspectorWidth={inspectorWidth}
+                inspectorMode={inspectorMode}
+                onDetailsOpenChange={(open) => {
+                  if (open) setInspectorMode("summary");
+                  setDetailsOpen(open);
                 }}
-                incomingDraft={transferredDraft?.channelId === null ? transferredDraft.draft : null}
-                onDraftApplied={consumeTransferredDraft}
-                onCreateBot={(name, draft) => void createNewBot(name, draft)}
-                onCreateGroup={(botIds) => mutate(() => api.createGroup({ name: botIds.map((id) => index.botById.get(id)?.name ?? "Bot").join(", ").slice(0, 120), botIds }))}
-                onSelect={(id, draft) => {
-                  if (draft) setTransferredDraft({ channelId: id, draft });
-                  selectSidebarChannel(id);
-                }}
+                onShowSettings={() => setInspectorMode("settings")}
+                onShowSummary={() =>
+                  setInspectorMode(inspectorMode === "routine" ? routineReturnMode : "summary")
+                }
+                exchange={
+                  a2aExchange && a2aExchangeChannel
+                    ? {
+                        channel: a2aExchangeChannel,
+                        perspectiveBotId: a2aExchange.sourceBotId,
+                        phase: a2aExchange.phase,
+                      }
+                    : undefined
+                }
+                selected={selected}
+                selectedBot={selectedBot}
               />
-            </Suspense>
-          ) : pendingBot ? (
-            <div
-              aria-label={`Creating ${pendingBot.name}`}
-              aria-live="polite"
-              className="grid min-h-0 flex-1 place-items-center bg-background text-muted-foreground"
-              data-new-bot-state="creating"
-              role="status"
-            >
-              <LoaderCircle className="size-8 animate-spin" strokeWidth={1.5} />
-            </div>
-          ) : selected ? (
-            <div className="flex min-h-0 flex-1">
-              <div className="relative min-w-0 flex-1">
-                {warmIds.map((channelId) => {
-                  const channel = index.channelById.get(channelId);
-                  if (!channel) return null;
-                  const historyStatus = historyByChannel.get(channelId);
-                  const bot =
-                    channel.kind === "bot_dm"
-                      ? index.botById.get(channel.members[0]?.botId ?? "")
-                      : undefined;
-                  return (
-                    <div
-                      aria-hidden={channelId !== selectedId || Boolean(a2aExchangeChannel)}
-                      className={channelId === selectedId ? "absolute inset-0" : "hidden"}
-                      inert={channelId === selectedId && Boolean(a2aExchangeChannel)}
-                      key={channelId}
-                    >
-                      <ChatPane
-                        active={channelId === selectedId && !a2aExchangeChannel}
-                        activityTruncated={
-                          historyByChannel.get(channelId)?.activityTruncated ?? false
-                        }
-                        threadContextTruncated={
-                          historyByChannel.get(channelId)?.threadContextTruncated ?? false
-                        }
-                        activeRun={index.activeRunByChannel.get(channelId)}
-                        agentNameById={index.agentNameById}
-                        botById={index.botById}
-                        channel={channel}
-                        composerFocusRequest={composerFocus?.channelId === channelId ? composerFocus.nonce : undefined}
-                        incomingDraft={transferredDraft?.channelId === channelId ? transferredDraft.draft : null}
-                        onDraftApplied={consumeTransferredDraft}
-                        capabilities={capabilities}
-                        focusMessage={
-                          searchMessageTarget?.channelId === channelId ? searchMessageTarget : null
-                        }
-                        hasNewer={historyStatus?.hasNewer ?? false}
-                        hasNewerGap={historyStatus?.hasNewerGap ?? false}
-                        hasOlder={historyStatus?.hasOlder ?? false}
-                        historyGeneration={historyStatus?.generation ?? 0}
-                        historyMode={historyStatus?.mode ?? "latest"}
-                        initialHistoryPending={historyStatus?.initialLoading ?? true}
-                        transcriptBehind={transcriptBehindChannelIds.has(channelId)}
-                        itemsByRun={index.itemsByRun}
-                        messages={transcriptMessagesByChannel.get(channelId) ?? EMPTY_MESSAGES}
-                        loadingNewer={historyStatus?.loadingNewer ?? false}
-                        loadingOlder={historyStatus?.loadingOlder ?? false}
-                        mutate={mutate}
-                        onLoadOlder={loadOlderHandlers.get(channelId)}
-                        onLoadNewer={loadNewerHandlers.get(channelId)}
-                        onReactMessage={reactToMessage}
-                        onScrollToNewest={scrollNewestHandlers.get(channelId)}
-                        onViewportAtBottomChange={viewportBottomHandlers.get(channelId)}
-                        onViewportMessagesChange={viewportMessageHandlers.get(channelId)}
-                        onCloseViewOnly={
-                          channel.kind === "agent_dm" ? closeViewOnlyChat : undefined
-                        }
-                        onOpenA2A={channel.kind === "bot_dm" && bot ? openA2AChat : undefined}
-                        onOpenRoutine={openRoutineHandlers.get(channelId)}
-                        onOpenBotChat={openInspectorBot}
-                        onOpenBotProfile={openTranscriptBotProfile}
-                        runs={index.runsByChannel.get(channelId) ?? []}
-                        runtime={snapshot.runtime}
-                        selectedBot={bot}
-                        searchContextMessageIds={searchContextMessageIdsByChannel.get(channelId)}
-                        subagents={index.subagentsByChannel.get(channelId) ?? []}
-                        threadContextMessageIds={threadContextMessageIdsByChannel.get(channelId)}
-                      />
-                    </div>
-                  );
-                })}
-                {a2aExchange && a2aExchangeChannel && (
-                  <Suspense fallback={null}>
-                    <A2AExchangeSheet
-                      label={`${a2aExchangeChannel.name} agent exchange`}
-                      onAnimationEnd={finishA2AAnimation}
-                      phase={a2aExchange.phase}
-                    >
-                      <ChatPane
-                        activeRun={undefined}
-                        activityTruncated={false}
-                        threadContextTruncated={false}
-                        agentNameById={index.agentNameById}
-                        botById={index.botById}
-                        channel={a2aExchangeChannel}
-                        capabilities={capabilities}
-                        focusMessage={null}
-                        itemsByRun={index.itemsByRun}
-                        messages={a2aExchangeView?.messages ?? []}
-                        mutate={mutate}
-                        onReactMessage={reactToMessage}
-                        onCloseViewOnly={closeA2AChat}
-                        onOpenBotChat={openInspectorBot}
-                        onOpenBotProfile={openTranscriptBotProfile}
-                        runs={[]}
-                        runtime={snapshot.runtime}
-                        searchContextMessageIds={searchContextMessageIdsByChannel.get(
-                          a2aExchangeChannel.id
-                        )}
-                        subagents={[]}
-                        threadContextMessageIds={threadContextMessageIdsByChannel.get(
-                          a2aExchangeChannel.id
-                        )}
-                      />
-                    </A2AExchangeSheet>
-                  </Suspense>
-                )}
+            )}
+
+            <VersionMismatchBanner />
+            <ModelStatusBanner
+              inference={snapshot.runtime.inference}
+              onOpenSettings={() => openSettingsTarget("inference-provider")}
+              paused={settingsOpen || pluginsOpen}
+            />
+
+            {error && (
+              <div className="flex items-center gap-2 border-b border-destructive/15 bg-destructive/8 px-4 py-2 text-xs text-destructive">
+                <CircleAlert className="size-3.5" />
+                <span className="flex-1">{error}</span>
+                <Button onClick={() => void refresh()} size="sm" variant="ghost">
+                  <RefreshCw className="size-3.5" /> Retry
+                </Button>
               </div>
-              <section
-                aria-label="Conversation details"
-                aria-hidden={!visibleDetailsOpen}
-                className={cn(
-                  "shrink-0 overflow-hidden bg-inspector opacity-100",
-                  detailsOverlay && "absolute inset-y-0 right-0 z-20 shadow-2xl",
-                  !visibleDetailsOpen && "pointer-events-none opacity-0"
-                )}
-                inert={!visibleDetailsOpen}
-                ref={inspectorPanelRef}
-                style={{ width: visibleDetailsOpen ? renderedInspectorWidth : 0 }}
-              >
-                <div
-                  className={cn("relative h-full", visibleDetailsOpen ? "[transform:translateX(0)] opacity-100 transition-[transform,opacity] duration-[var(--motion-reveal)] ease-[var(--ease-pane)]" : "[transform:translateX(40px)] opacity-0")}
-                  ref={inspectorContentRef}
-                  style={{ width: renderedInspectorWidth }}
-                >
-                  {/* biome-ignore lint/a11y/useSemanticElements: This interactive separator contains a visible resize handle and exposes range semantics. */}
-                  <div
-                    aria-label="Resize details"
-                    aria-orientation="vertical"
-                    aria-valuemax={inspectorMaxWidth}
-                    aria-valuemin={MIN_INSPECTOR_WIDTH}
-                    aria-valuenow={renderedInspectorWidth}
-                    className="electron-no-drag group absolute inset-y-0 left-0 z-40 w-2 cursor-col-resize touch-none outline-none"
-                    data-inspector-resizer=""
-                    data-resizing={inspectorResizing ? "true" : "false"}
-                    onDoubleClick={() => {
-                      setInspectorWidth(DEFAULT_INSPECTOR_WIDTH);
-                      localStorage.setItem(INSPECTOR_WIDTH_KEY, String(DEFAULT_INSPECTOR_WIDTH));
-                    }}
-                    onKeyDown={(event) => {
-                      let next = renderedInspectorWidth;
-                      if (event.key === "ArrowLeft") next += 16;
-                      else if (event.key === "ArrowRight") next -= 16;
-                      else if (event.key === "Home") next = MIN_INSPECTOR_WIDTH;
-                      else if (event.key === "End") next = inspectorMaxWidth;
-                      else return;
-                      event.preventDefault();
-                      updateInspectorWidth(next);
-                      localStorage.setItem(
-                        INSPECTOR_WIDTH_KEY,
-                        String(clampInspectorWidth(next, viewportWidth, effectiveSidebarWidth))
-                      );
-                    }}
-                    onPointerCancel={(event) => finishInspectorResize(event.currentTarget, true)}
-                    onPointerDown={(event) => {
-                      if (event.button !== 0) return;
-                      event.preventDefault();
-                      event.currentTarget.setPointerCapture(event.pointerId);
-                      inspectorResizeSessionRef.current = {
-                        pointerId: event.pointerId,
-                        startX: event.clientX,
-                        startWidth: renderedInspectorWidth,
-                        width: renderedInspectorWidth,
-                        shouldClose: false,
-                        cursor: document.body.style.cursor,
-                        userSelect: document.body.style.userSelect,
-                      };
-                      setInspectorResizing(true);
-                      document.body.style.cursor = "col-resize";
-                      document.body.style.userSelect = "none";
-                    }}
-                    onPointerMove={(event) => {
-                      const session = inspectorResizeSessionRef.current;
-                      if (!session || session.pointerId !== event.pointerId) return;
-                      const next = resizeInspector(
-                        session.startWidth,
-                        session.startX,
-                        event.clientX
-                      );
-                      session.shouldClose = next.shouldClose;
-                      const width = previewInspectorWidth(next.width);
-                      event.currentTarget.setAttribute("aria-valuenow", String(width));
-                    }}
-                    onPointerUp={(event) => finishInspectorResize(event.currentTarget)}
-                    role="separator"
-                    tabIndex={0}
-                  >
-                    <span
-                      className={cn(
-                        "absolute inset-y-0 left-0 w-[0.5px] bg-divider transition-colors duration-150 ease-out group-hover:bg-divider-hover group-focus-visible:bg-divider-hover motion-reduce:transition-none",
-                        inspectorResizing && "!bg-divider-active"
-                      )}
-                    />
+            )}
+
+            {newBotPicker ? (
+              <Suspense
+                fallback={
+                  <div className="grid min-h-0 flex-1 place-items-center" role="status">
+                    <LoadingOrb label="Loading new Bot" size={24} />
                   </div>
-                  {visibleDetailsOpen && selected && (
-                    <div className="absolute inset-0">
-                      <Suspense fallback={null}>
-                        <Inspector
-                          active
+                }
+              >
+                <NewBotScreen
+                  key={newChatDraft}
+                  botById={index.botById}
+                  channels={visibleChannels}
+                  onCancel={() => {
+                    setNewBotPicker(false);
+                    requestAnimationFrame(() =>
+                      document
+                        .querySelector<HTMLElement>('[contenteditable="true"]:not([inert] *)')
+                        ?.focus()
+                    );
+                  }}
+                  incomingDraft={
+                    transferredDraft?.channelId === null ? transferredDraft.draft : null
+                  }
+                  onDraftApplied={consumeTransferredDraft}
+                  onCreateBot={(name, draft) => void createNewBot(name, draft)}
+                  onCreateGroup={(botIds) =>
+                    mutate(() =>
+                      api.createGroup({
+                        name: botIds
+                          .map((id) => index.botById.get(id)?.name ?? "Bot")
+                          .join(", ")
+                          .slice(0, 120),
+                        botIds,
+                      })
+                    )
+                  }
+                  onSelect={(id, draft) => {
+                    if (draft) setTransferredDraft({ channelId: id, draft });
+                    selectSidebarChannel(id);
+                  }}
+                />
+              </Suspense>
+            ) : pendingBot ? (
+              <div
+                aria-label={`Creating ${pendingBot.name}`}
+                aria-live="polite"
+                className="grid min-h-0 flex-1 place-items-center bg-background text-muted-foreground"
+                data-new-bot-state="creating"
+                role="status"
+              >
+                <LoaderCircle className="size-8 animate-spin" strokeWidth={1.5} />
+              </div>
+            ) : landing ? (
+              // The main page, for a moment, as the first bot arrives in the sidebar.
+              <div
+                aria-live="polite"
+                className="grid min-h-0 flex-1 place-items-center"
+                role="status"
+              >
+                <p className="landing-note text-[17px] font-medium text-foreground">
+                  {landing.name} joined your team
+                </p>
+              </div>
+            ) : selected ? (
+              <div className="flex min-h-0 flex-1">
+                <div className="relative min-w-0 flex-1">
+                  {warmIds.map((channelId) => {
+                    const channel = index.channelById.get(channelId);
+                    if (!channel) return null;
+                    const historyStatus = historyByChannel.get(channelId);
+                    const bot =
+                      channel.kind === "bot_dm"
+                        ? index.botById.get(channel.members[0]?.botId ?? "")
+                        : undefined;
+                    return (
+                      <div
+                        aria-hidden={channelId !== selectedId || Boolean(a2aExchangeChannel)}
+                        className={channelId === selectedId ? "absolute inset-0" : "hidden"}
+                        inert={channelId === selectedId && Boolean(a2aExchangeChannel)}
+                        key={channelId}
+                      >
+                        <ChatPane
+                          active={channelId === selectedId && !a2aExchangeChannel}
+                          activityTruncated={
+                            historyByChannel.get(channelId)?.activityTruncated ?? false
+                          }
+                          threadContextTruncated={
+                            historyByChannel.get(channelId)?.threadContextTruncated ?? false
+                          }
+                          activeRun={index.activeRunByChannel.get(channelId)}
+                          agentNameById={index.agentNameById}
                           botById={index.botById}
-                          channel={selected}
-                          computerHandoff={
-                            computerHandoff?.botId === selected.members[0]?.botId
-                              ? computerHandoff
+                          channel={channel}
+                          composerFocusRequest={
+                            composerFocus?.channelId === channelId ? composerFocus.nonce : undefined
+                          }
+                          incomingDraft={
+                            transferredDraft?.channelId === channelId
+                              ? transferredDraft.draft
                               : null
                           }
-                          key={selected.id}
-                          screenEnabled={Boolean(
-                            selected.kind === "bot_dm" &&
-                              enabledScreenIds.has(selected.members[0]?.botId ?? "")
-                          )}
-                          mode={inspectorMode}
-                          onEnableScreen={enableScreen}
-                          onFinishComputerHandoff={() => setComputerHandoff(null)}
-                          onModeChange={setInspectorMode}
-                          onOpenTeam={openInspectorBot}
-                          onRetryBot={retryInspectorBot}
-                          onSetGroupAvatar={setChannelAvatar}
-                          onSetMembers={setChannelMembers}
-                          onUpdateGroupProfile={updateGroupProfile}
-                          routineOpenRequest={
-                            routineOpenTarget?.channelId === selected.id ? routineOpenTarget : null
+                          onDraftApplied={consumeTransferredDraft}
+                          capabilities={capabilities}
+                          focusMessage={
+                            searchMessageTarget?.channelId === channelId
+                              ? searchMessageTarget
+                              : null
                           }
-                          onUpdateBot={updateInspectorBot}
+                          hasNewer={historyStatus?.hasNewer ?? false}
+                          hasNewerGap={historyStatus?.hasNewerGap ?? false}
+                          hasOlder={historyStatus?.hasOlder ?? false}
+                          historyGeneration={historyStatus?.generation ?? 0}
+                          historyMode={historyStatus?.mode ?? "latest"}
+                          initialHistoryPending={historyStatus?.initialLoading ?? true}
+                          transcriptBehind={transcriptBehindChannelIds.has(channelId)}
+                          itemsByRun={index.itemsByRun}
+                          messages={transcriptMessagesByChannel.get(channelId) ?? EMPTY_MESSAGES}
+                          loadingNewer={historyStatus?.loadingNewer ?? false}
+                          loadingOlder={historyStatus?.loadingOlder ?? false}
+                          mutate={mutate}
+                          onLoadOlder={loadOlderHandlers.get(channelId)}
+                          onLoadNewer={loadNewerHandlers.get(channelId)}
+                          onReactMessage={reactToMessage}
+                          onScrollToNewest={scrollNewestHandlers.get(channelId)}
+                          onViewportAtBottomChange={viewportBottomHandlers.get(channelId)}
+                          onViewportMessagesChange={viewportMessageHandlers.get(channelId)}
+                          onCloseViewOnly={
+                            channel.kind === "agent_dm" ? closeViewOnlyChat : undefined
+                          }
+                          onOpenA2A={channel.kind === "bot_dm" && bot ? openA2AChat : undefined}
+                          onOpenRoutine={openRoutineHandlers.get(channelId)}
+                          onOpenBotChat={openInspectorBot}
+                          onOpenBotProfile={openTranscriptBotProfile}
+                          runs={index.runsByChannel.get(channelId) ?? []}
+                          runtime={snapshot.runtime}
+                          selectedBot={bot}
+                          searchContextMessageIds={searchContextMessageIdsByChannel.get(channelId)}
+                          subagents={index.subagentsByChannel.get(channelId) ?? []}
+                          threadContextMessageIds={threadContextMessageIdsByChannel.get(channelId)}
                         />
-                      </Suspense>
-                    </div>
+                      </div>
+                    );
+                  })}
+                  {a2aExchange && a2aExchangeChannel && (
+                    <Suspense fallback={null}>
+                      <A2AExchangeSheet
+                        label={`${a2aExchangeChannel.name} agent exchange`}
+                        onAnimationEnd={finishA2AAnimation}
+                        phase={a2aExchange.phase}
+                      >
+                        <ChatPane
+                          activeRun={undefined}
+                          activityTruncated={false}
+                          threadContextTruncated={false}
+                          agentNameById={index.agentNameById}
+                          botById={index.botById}
+                          channel={a2aExchangeChannel}
+                          capabilities={capabilities}
+                          focusMessage={null}
+                          itemsByRun={index.itemsByRun}
+                          messages={a2aExchangeView?.messages ?? []}
+                          mutate={mutate}
+                          onReactMessage={reactToMessage}
+                          onCloseViewOnly={closeA2AChat}
+                          onOpenBotChat={openInspectorBot}
+                          onOpenBotProfile={openTranscriptBotProfile}
+                          runs={[]}
+                          runtime={snapshot.runtime}
+                          searchContextMessageIds={searchContextMessageIdsByChannel.get(
+                            a2aExchangeChannel.id
+                          )}
+                          subagents={[]}
+                          threadContextMessageIds={threadContextMessageIdsByChannel.get(
+                            a2aExchangeChannel.id
+                          )}
+                        />
+                      </A2AExchangeSheet>
+                    </Suspense>
                   )}
                 </div>
-              </section>
-            </div>
-          ) : (
-            <div className="grid flex-1 place-items-center text-sm text-muted-foreground">
-              Create a bot to get started.
-            </div>
-          )}
-        </section>
+                <section
+                  aria-label="Conversation details"
+                  aria-hidden={!visibleDetailsOpen}
+                  className={cn(
+                    "shrink-0 overflow-hidden bg-inspector opacity-100",
+                    detailsOverlay && "absolute inset-y-0 right-0 z-20 shadow-2xl",
+                    !visibleDetailsOpen && "pointer-events-none opacity-0"
+                  )}
+                  inert={!visibleDetailsOpen}
+                  ref={inspectorPanelRef}
+                  style={{ width: visibleDetailsOpen ? renderedInspectorWidth : 0 }}
+                >
+                  <div
+                    className={cn(
+                      "relative h-full",
+                      visibleDetailsOpen
+                        ? "[transform:translateX(0)] opacity-100 transition-[transform,opacity] duration-[var(--motion-reveal)] ease-[var(--ease-pane)]"
+                        : "[transform:translateX(40px)] opacity-0"
+                    )}
+                    ref={inspectorContentRef}
+                    style={{ width: renderedInspectorWidth }}
+                  >
+                    {/* biome-ignore lint/a11y/useSemanticElements: This interactive separator contains a visible resize handle and exposes range semantics. */}
+                    <div
+                      aria-label="Resize details"
+                      aria-orientation="vertical"
+                      aria-valuemax={inspectorMaxWidth}
+                      aria-valuemin={MIN_INSPECTOR_WIDTH}
+                      aria-valuenow={renderedInspectorWidth}
+                      className="electron-no-drag group absolute inset-y-0 left-0 z-40 w-2 cursor-col-resize touch-none outline-none"
+                      data-inspector-resizer=""
+                      data-resizing={inspectorResizing ? "true" : "false"}
+                      onDoubleClick={() => {
+                        setInspectorWidth(DEFAULT_INSPECTOR_WIDTH);
+                        localStorage.setItem(INSPECTOR_WIDTH_KEY, String(DEFAULT_INSPECTOR_WIDTH));
+                      }}
+                      onKeyDown={(event) => {
+                        let next = renderedInspectorWidth;
+                        if (event.key === "ArrowLeft") next += 16;
+                        else if (event.key === "ArrowRight") next -= 16;
+                        else if (event.key === "Home") next = MIN_INSPECTOR_WIDTH;
+                        else if (event.key === "End") next = inspectorMaxWidth;
+                        else return;
+                        event.preventDefault();
+                        updateInspectorWidth(next);
+                        localStorage.setItem(
+                          INSPECTOR_WIDTH_KEY,
+                          String(clampInspectorWidth(next, viewportWidth, effectiveSidebarWidth))
+                        );
+                      }}
+                      onPointerCancel={(event) => finishInspectorResize(event.currentTarget, true)}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0) return;
+                        event.preventDefault();
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                        inspectorResizeSessionRef.current = {
+                          pointerId: event.pointerId,
+                          startX: event.clientX,
+                          startWidth: renderedInspectorWidth,
+                          width: renderedInspectorWidth,
+                          shouldClose: false,
+                          cursor: document.body.style.cursor,
+                          userSelect: document.body.style.userSelect,
+                        };
+                        setInspectorResizing(true);
+                        document.body.style.cursor = "col-resize";
+                        document.body.style.userSelect = "none";
+                      }}
+                      onPointerMove={(event) => {
+                        const session = inspectorResizeSessionRef.current;
+                        if (!session || session.pointerId !== event.pointerId) return;
+                        const next = resizeInspector(
+                          session.startWidth,
+                          session.startX,
+                          event.clientX
+                        );
+                        session.shouldClose = next.shouldClose;
+                        const width = previewInspectorWidth(next.width);
+                        event.currentTarget.setAttribute("aria-valuenow", String(width));
+                      }}
+                      onPointerUp={(event) => finishInspectorResize(event.currentTarget)}
+                      role="separator"
+                      tabIndex={0}
+                    >
+                      <span
+                        className={cn(
+                          "absolute inset-y-0 left-0 w-[0.5px] bg-divider transition-colors duration-150 ease-out group-hover:bg-divider-hover group-focus-visible:bg-divider-hover motion-reduce:transition-none",
+                          inspectorResizing && "!bg-divider-active"
+                        )}
+                      />
+                    </div>
+                    {visibleDetailsOpen && selected && (
+                      <div className="absolute inset-0">
+                        <Suspense fallback={null}>
+                          <Inspector
+                            active
+                            botById={index.botById}
+                            channel={selected}
+                            computerHandoff={
+                              computerHandoff?.botId === selected.members[0]?.botId
+                                ? computerHandoff
+                                : null
+                            }
+                            key={selected.id}
+                            screenEnabled={Boolean(
+                              selected.kind === "bot_dm" &&
+                                enabledScreenIds.has(selected.members[0]?.botId ?? "")
+                            )}
+                            mode={inspectorMode}
+                            onEnableScreen={enableScreen}
+                            onFinishComputerHandoff={() => setComputerHandoff(null)}
+                            onModeChange={(mode) => {
+                              if (mode === "routine")
+                                setRoutineReturnMode(inspectorMode === "settings" ? "settings" : "summary");
+                              setInspectorMode(mode);
+                            }}
+                            onOpenTeam={openInspectorBot}
+                            onRetryBot={retryInspectorBot}
+                            onSetGroupAvatar={setChannelAvatar}
+                            onSetMembers={setChannelMembers}
+                            onUpdateGroupProfile={updateGroupProfile}
+                            routineOpenRequest={
+                              routineOpenTarget?.channelId === selected.id
+                                ? routineOpenTarget
+                                : null
+                            }
+                            onUpdateBot={updateInspectorBot}
+                            onBotAction={handleStandardBotRowAction}
+                          />
+                        </Suspense>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
+            ) : (
+              <div className="grid flex-1 place-items-center text-sm text-muted-foreground">
+                {snapshot.bots.length === 0 ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <span>Bots do the work in OpenTeam. Create one to get started.</span>
+                    <Button onClick={() => void createNewBot()} size="sm">
+                      Create a bot
+                    </Button>
+                  </div>
+                ) : (
+                  "Choose a chat, or press + to create a bot."
+                )}
+              </div>
+            )}
+          </section>
 
-        {loadedSurfaces.current.dialogs && (
-          <Suspense fallback={null}>
-            <DesktopDialogs
-              activeBots={snapshot.bots.filter((bot) => bot.status === "active")}
-              deleteBotTarget={deleteBotTarget}
-              deleteGroupTarget={deleteGroupTarget}
-              newGroupOpen={newGroupDialog}
-              onConfirmDeleteBot={confirmDeleteBot}
-              onConfirmDeleteGroup={confirmDeleteGroup}
-              onCreateGroup={async (name, botIds) => {
-                const channel = await mutate(() => api.createGroup({ name, botIds }));
-                setSelectedId(channel.id);
-                setNewBotPicker(false);
-                setNewGroupDialog(false);
-              }}
-              onDeleteBotOpenChange={(open) => !open && setDeleteBotTarget(null)}
-              onDeleteGroupOpenChange={(open) => !open && setDeleteGroupTarget(null)}
-              onNewGroupOpenChange={setNewGroupDialog}
-              onTranscriptOpenChange={(open) => !open && setRowTranscript(null)}
-              rowTranscript={rowTranscript}
-            />
-          </Suspense>
-        )}
-        {loadedSurfaces.current.search && (
-          <Suspense fallback={null}>
-            <SearchDialog
-              actions={searchActions}
-              botById={index.botById}
-              channelById={index.channelById}
-              onOpenChange={setSearchOpen}
-              onSelectResult={selectSearchResult}
-              open={searchOpen}
-            />
-          </Suspense>
-        )}
-        {loadedSurfaces.current.settings && (
-          <Suspense fallback={null}>
-            <SettingsPanel
-              onOpenChange={setSettingsOpen}
-              open={settingsOpen}
-              target={settingsTarget}
-            />
-          </Suspense>
-        )}
-        {loadedSurfaces.current.plugins && (
-          <Suspense fallback={null}>
-            <PluginDialog onOpenChange={setPluginsOpen} open={pluginsOpen} target={pluginTarget} />
-          </Suspense>
-        )}
-        {loadedSurfaces.current.about && (
-          <Suspense fallback={null}>
-            <AboutPanel onOpenChange={setAboutOpen} open={aboutOpen} />
-          </Suspense>
-        )}
-        {asyncTasksBot && (
-          <Suspense fallback={null}>
-            <AsyncTasksPanel
-              bot={asyncTasksBot}
-              onClose={() => setAsyncTasksBotId(null)}
-              tasks={asyncTasks}
-            />
-          </Suspense>
-        )}
-      </main>
-    </TooltipProvider>
+          <MessagesGrantsPrompt />
+          {loadedSurfaces.current.dialogs && (
+            <Suspense fallback={null}>
+              <DesktopDialogs
+                activeBots={snapshot.bots.filter((bot) => bot.status === "active")}
+                deleteBotTarget={deleteBotTarget}
+                deleteGroupTarget={deleteGroupTarget}
+                newGroupOpen={newGroupDialog}
+                onConfirmDeleteBot={confirmDeleteBot}
+                onConfirmDeleteGroup={confirmDeleteGroup}
+                onCreateGroup={async (name, botIds) => {
+                  const channel = await mutate(() => api.createGroup({ name, botIds }));
+                  setSelectedId(channel.id);
+                  setNewBotPicker(false);
+                  setNewGroupDialog(false);
+                }}
+                onDeleteBotOpenChange={(open) => !open && setDeleteBotTarget(null)}
+                onDeleteGroupOpenChange={(open) => !open && setDeleteGroupTarget(null)}
+                onNewGroupOpenChange={setNewGroupDialog}
+                onTranscriptOpenChange={(open) => !open && setRowTranscript(null)}
+                rowTranscript={rowTranscript}
+              />
+            </Suspense>
+          )}
+          {loadedSurfaces.current.search && (
+            <Suspense fallback={null}>
+              <SearchDialog
+                actions={searchActions}
+                botById={index.botById}
+                channelById={index.channelById}
+                onOpenChange={setSearchOpen}
+                onSelectResult={selectSearchResult}
+                open={searchOpen}
+              />
+            </Suspense>
+          )}
+          {loadedSurfaces.current.settings && (
+            <Suspense fallback={null}>
+              <SidebarBotOrderContext.Provider value={sidebarBotOrder}>
+                <SettingsPanel
+                  onOpenChange={setSettingsOpen}
+                  open={settingsOpen}
+                  target={settingsTarget}
+                />
+              </SidebarBotOrderContext.Provider>
+            </Suspense>
+          )}
+          {loadedSurfaces.current.plugins && (
+            <Suspense fallback={null}>
+              <PluginDialog
+                onOpenChange={setPluginsOpen}
+                open={pluginsOpen}
+                target={pluginTarget}
+              />
+            </Suspense>
+          )}
+          {loadedSurfaces.current.about && (
+            <Suspense fallback={null}>
+              <AboutPanel onOpenChange={setAboutOpen} open={aboutOpen} />
+            </Suspense>
+          )}
+          {asyncTasksBot && (
+            <Suspense fallback={null}>
+              <AsyncTasksPanel
+                bot={asyncTasksBot}
+                onClose={() => setAsyncTasksBotId(null)}
+                tasks={asyncTasks}
+              />
+            </Suspense>
+          )}
+        </main>
+      </TooltipProvider>
     </BotAvatarActivityProvider>
   );
 }

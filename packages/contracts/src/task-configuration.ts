@@ -6,7 +6,6 @@ export interface ExecutorProfile extends ServerInferenceSettings {
 }
 
 export interface TaskConfiguration {
-  combinedComputerUse: boolean;
   executorProfiles: ExecutorProfile[];
   defaultExecutorProfile?: string;
   graphicalAvailable?: boolean;
@@ -14,7 +13,6 @@ export interface TaskConfiguration {
 }
 
 export const defaultTaskConfiguration = (): TaskConfiguration => ({
-  combinedComputerUse: true,
   executorProfiles: [],
 });
 
@@ -26,7 +24,6 @@ export function parseTaskConfiguration(input: unknown): TaskConfiguration {
     Object.keys(value).some(
       (key) =>
         ![
-          "combinedComputerUse",
           "executorProfiles",
           "defaultExecutorProfile",
           "graphicalAvailable",
@@ -35,12 +32,8 @@ export function parseTaskConfiguration(input: unknown): TaskConfiguration {
     )
   )
     throw new Error("Unknown Task setting");
-  if (
-    typeof value.combinedComputerUse !== "boolean" ||
-    !Array.isArray(value.executorProfiles) ||
-    value.executorProfiles.length > 20
-  )
-    throw new Error("Choose a computer worker mode and at most 20 executor profiles");
+  if (!Array.isArray(value.executorProfiles) || value.executorProfiles.length > 20)
+    throw new Error("Choose at most 20 executor profiles");
   const names = new Set<string>();
   if (value.graphicalAvailable !== undefined && typeof value.graphicalAvailable !== "boolean")
     throw new Error("Invalid graphical availability");
@@ -81,7 +74,6 @@ export function parseTaskConfiguration(input: unknown): TaskConfiguration {
   )
     throw new Error("The default executor profile must name one of the configured profiles");
   return {
-    combinedComputerUse: value.combinedComputerUse,
     executorProfiles,
     ...(value.graphicalAvailable === undefined
       ? {}
@@ -99,18 +91,12 @@ export const taskTypeNames = (config = defaultTaskConfiguration()) => [
   "executor",
   "videoReview",
   "watchVideo",
-  ...(config.graphicalAvailable === false
-    ? []
-    : ["computerUse", ...(config.combinedComputerUse ? [] : ["browserUse"])]),
+  ...(config.graphicalAvailable === false ? [] : ["computerUse"]),
   "knowledgeWork",
 ];
 
 /** Workers that run with the parent's connector accounts. */
 export const subagentUsesParentConnectors = (subagentType: string | null | undefined): boolean =>
-  subagentType === "executor" || subagentType === "knowledgeWork";
-
-/** Workers that can look back: their own run, the user's other bots, and the bot's memory. */
-export const subagentHasHistoryTools = (subagentType: string | null | undefined): boolean =>
   subagentType === "executor" || subagentType === "knowledgeWork";
 
 export interface TaskCapabilities {
@@ -121,17 +107,12 @@ export function selectTaskConfiguration(
   config: TaskConfiguration,
   capabilities: TaskCapabilities
 ): TaskConfiguration {
-  const graphicalAvailable =
-    config.graphicalAvailable !== false &&
-    capabilities.desktopAvailable &&
-    capabilities.boxAvailable;
-  const toolsAvailable = !config.disabledToolIdentifiers?.some(
-    (id) => id.startsWith("BROWSER_") || ["OPENAI_COMPUTER_USE", "SHELL", "READ"].includes(id)
-  );
   return {
     ...config,
-    graphicalAvailable,
-    combinedComputerUse: config.combinedComputerUse && graphicalAvailable && toolsAvailable,
+    graphicalAvailable:
+      config.graphicalAvailable !== false &&
+      capabilities.desktopAvailable &&
+      capabilities.boxAvailable,
   };
 }
 export const taskToolEnabled = (config: TaskConfiguration | undefined, tool: string) =>
@@ -139,34 +120,46 @@ export const taskToolEnabled = (config: TaskConfiguration | undefined, tool: str
     tool === "Computer" ? "OPENAI_COMPUTER_USE" : tool.toUpperCase()
   );
 
+const BACKGROUND_TASK = "It runs in the background like any Task: you are notified when it finishes, so do not poll or await it.";
+
 export function taskUserInfo(config = defaultTaskConfiguration()): string {
-  const browserCapabilities = [
-    ["browser_console_messages", "read browser console errors and warnings without opening native developer tools"],
-    ["browser_take_screenshot", "capture page evidence and return the saved file path"],
-    ["browser_file_upload", "respond to page file choosers using workspace files"],
-  ].filter(([tool]) => taskToolEnabled(config, tool!));
+  const graphical = config.graphicalAvailable !== false;
   return [
     "<available_subagent_types>",
-    "executor: general delegated work with search, fetch, files and shell; no browser or desktop controls and no nested workers. Supply a self-contained task with all required context and completion criteria. If graphical verification may be needed, route that part to an available graphical worker from the parent.",
-    "videoReview and watchVideo: media review.",
-    config.graphicalAvailable === false
-      ? "Browser and desktop workers are unavailable on this computer."
-      : config.combinedComputerUse
-        ? "computerUse: browser and desktop work using structured browser tools and desktop controls on the same persistent box. Only one computerUse worker may run at a time."
-        : "computerUse: desktop interaction and sites that defeat browser automation. Only one computerUse worker may run at a time.\nbrowserUse: structured browser interaction; prefer it for browser-only work.",
-    "knowledgeWork: A higher-powered executor for five kinds of work, and only these: (1) slides and decks (`.pptx`, Google Slides); (2) spreadsheets (`.xlsx`, `.csv`, Google Sheets); (3) written documents (`.docx`, Google Docs, Notion pages); (4) emails; (5) Slack messages. Use it when a skill names it or the deliverable is one of these. Email and Slack messages under the user's name still come back to you to draft. It starts with no context, so give it everything it needs in the prompt. It runs in the background like any Task: you are notified when it finishes, so do not poll or await it. It runs headless and cannot talk to the user; it reports its result back to you, and you deliver it.",
+    "Available subagent_types and a quick description of what they do:",
+    [
+      "- executor: Your workhorse: a background subagent with your full work toolset (Shell, box tools, web and MCP tools) that executes one stream of work while you stay available to the user.",
+      "Reuse or resume an idle executor for new work in the same workstream. Typically you'll use one or two active executors; four is a soft maximum unless the user is explicitly multitasking or requests parallel threads.",
+      "It starts with no context. The dispatch prompt must be self-contained: the goal, the specifics, relevant conversation context, any of your memories or user preferences that matter, explicit success criteria, and what to report back.",
+      BACKGROUND_TASK,
+      "It runs headless and cannot talk to the user; it reports its result back to you, and you deliver it. It has no browser, desktop, or subagent tools.",
+      ...(graphical ? ["It cannot use or dispatch computerUse, so dispatch browser and desktop work to computerUse yourself."] : []),
+    ].join(" "),
+    "- videoReview: Analyze videos with an expert visual video model. Pass file paths via the `file_attachments` parameter. Use this to verify your understanding of a video you generated before referencing it in your response. Your prompt should include: (1) what you believe is in the video, (2) questions to verify.",
+    '- watchVideo: Describe or analyze videos with an expert video description and analysis model. Use WatchVideo for user-inputted videos; if you generate a video artifact, prefer VideoReview. Use this subagent type to generate a description of user-provided videos, or to ask specific questions about said videos. Pass file paths via the `file_attachments` parameter. ALWAYS start by asking for a video description by asking "Describe what is happening in the attached video, in detail". You may resume the same subagent to ask more specific, detailed follow-up questions. When using, include relevant context about the video, e.g. details from the conversation about what the video may contain and why it is relevant (do not make assumptions, just share what you know). When resuming, you need not re-attach the videos.',
+    graphical
+      ? [
+          "- computerUse: Delegate a self-contained browser or desktop task to a background subagent that operates your box's browser and desktop: websites, GUI apps, file dialogs, and drag interactions. It shares the box browser's persistent logins.",
+          "Display is 1280×800. Computer click/move/scroll x,y are pixels in that space (origin top-left); never emit coordinates outside 0..1279 × 0..799.",
+          BACKGROUND_TASK,
+          "It runs headless and cannot ask follow-ups, so give it a tightly-scoped, self-contained task, the smallest concrete step rather than a sprawling goal, with the specifics it needs (site, account, exact values), explicit success criteria and stopping point, and what to report back; break a big goal into several narrow dispatches, and if one runs long or loops, steer it with MessageSubagent or stop it with StopSubagent.",
+          "Only one computerUse subagent can run at a time, because they share your desktop's single screen. Never dispatch a second while one is still running.",
+          // Workers enter the credentials, codes and card details they are given or can read themselves.
+          "At a sign-in, a one-time code, or a card field it uses what your task gives it or what it can read from the user's connected sources; when it has nothing to enter, it stops and reports the exact current URL, and you get what it needs, then dispatch it again.",
+          "A captcha is not a human step: it attempts every one itself, whether a checkbox, a puzzle or an image challenge, and stops only after it tried and could not get past it.",
+          "A press-and-hold I'm-human button is a mouse hold, not a human step: it holds it with Computer click holdDurationMs until the widget completes.",
+        ].join(" ")
+      : "Browser and desktop workers are unavailable on this computer.",
+    // Past the reference: a small single file is quicker to make inline than through a worker.
+    "- knowledgeWork: A higher-powered executor for five kinds of work, and only these: (1) slides and decks (`.pptx`, Google Slides); (2) spreadsheets (`.xlsx`, `.csv`, Google Sheets); (3) written documents (`.docx`, Google Docs, Notion pages); (4) emails; (5) Slack messages. Use it when a skill names it or the deliverable is one of these, except a small file you can make yourself in one or two Shell calls: make that yourself. Email and Slack messages under the user's name still come back to you to draft. It starts with no context, so give it everything it needs in the prompt. " +
+      BACKGROUND_TASK +
+      " It runs headless and cannot talk to the user; it reports its result back to you, and you deliver it.",
     "</available_subagent_types>",
-    ...(config.graphicalAvailable !== false && browserCapabilities.length
-      ? ["Browser capabilities of the graphical worker (subject to the task's modality restrictions): " +
-          browserCapabilities.map(([tool, capability]) => `${tool}: ${capability}`).join("; ") +
-          ". Delegate the required result; the worker can use these tools without additional native UI steps."]
-      : []),
   ].join("\n");
 }
 
-/** Worker inference is inherited from the server-authored parent run.
- * Legacy profiles remain readable in stored configurations, but neither their
- * defaults nor tool arguments may select a worker model or reasoning level. */
+/** Worker inference is inherited from the server-authored parent run. Neither
+ * executor profiles nor Task tool arguments select a worker model or reasoning level. */
 export function taskInference(
   _config: TaskConfiguration,
   _input: { subagent_type?: string; model?: string; resume?: string },

@@ -194,14 +194,29 @@ describe("interactive model editor", () => {
     api.catalog = async (...args) => ({
       ...(await catalog(...args)),
       providers: [
-        { id: "nvidia", name: "NVIDIA", custom: false, connected: false, modelCount: 38 },
-        { id: "openai", name: "OpenAI", custom: false, connected: false, modelCount: 38 },
+        {
+          id: "nvidia",
+          name: "NVIDIA",
+          custom: false,
+          connected: false,
+          modelCount: 38,
+          authMethods: [],
+        },
+        {
+          id: "openai",
+          name: "OpenAI",
+          custom: false,
+          connected: false,
+          modelCount: 38,
+          authMethods: [{ type: "api_key", label: "API key", subscription: false }],
+        },
         {
           id: "openai-codex",
           name: "OpenAI Codex",
           custom: false,
           connected: false,
           modelCount: 20,
+          authMethods: [{ type: "oauth", label: "ChatGPT", subscription: true }],
         },
         {
           id: "my-nvidia",
@@ -209,6 +224,7 @@ describe("interactive model editor", () => {
           custom: true,
           connected: false,
           modelCount: 38,
+          authMethods: [],
         },
       ],
     });
@@ -371,10 +387,19 @@ describe("interactive model editor", () => {
     await s.load();
     await press(s, "right");
     await edit(s, "apiKey", "");
+    expect(screen(s)).toContain("••••A7z9");
     expect(s.dirty()).toBe(false);
     await edit(s, "language", "fr");
     await activate(s, "save");
     expect(calls.transcription[0]).not.toHaveProperty("apiKey");
+    await activate(s, "remove-key");
+    expect(s.rows().find((row) => "id" in row && row.id === "remove-key")).toMatchObject({
+      kind: "action",
+      label: "Undo key deletion",
+    });
+    expect(screen(s)).toContain("Key will be deleted when you save");
+    await activate(s, "remove-key");
+    expect(s.transcription).not.toHaveProperty("apiKey");
     await activate(s, "remove-key");
     await activate(s, "save");
     expect(calls.transcription[1]?.apiKey).toBeNull();
@@ -412,6 +437,11 @@ describe("interactive model editor", () => {
     expect(screen(s)).not.toContain("Saved; blank keeps it");
     await activate(s, "save");
     expect(calls.transcription[0]).not.toHaveProperty("apiKey");
+    expect(s.savedTranscription?.hasApiKey).toBe(true);
+    expect(screen(s)).toContain("replacement key");
+    await activate(s, "remove-key");
+    await activate(s, "save");
+    expect(calls.transcription[1]?.apiKey).toBeNull();
     expect(s.savedTranscription?.hasApiKey).toBe(false);
   });
   test("invalid endpoint and language stay in edit mode; escape leaves settings untouched", async () => {

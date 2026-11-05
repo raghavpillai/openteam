@@ -130,7 +130,7 @@ export class SnapshotService {
         this.prisma.runItem.findMany({ orderBy: { createdAt: "asc" } }),
         this.prisma.subagentAttempt.findMany({
           include: {
-            subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
           },
           orderBy: { createdAt: "asc" },
         }),
@@ -218,7 +218,7 @@ export class SnapshotService {
         this.prisma.subagentAttempt.findMany({
           where: { parentChannelId: { in: channelIds } },
           include: {
-            subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
           },
           orderBy: { createdAt: "asc" },
         }),
@@ -262,10 +262,7 @@ export class SnapshotService {
     } as ClientSnapshot;
   }
 
-  /**
-   * Small, additive startup surface for clients that load channel history on
-   * demand. The legacy full snapshot remains unchanged for rolling upgrades.
-   */
+  /** Small startup surface for clients that load channel history on demand. */
   bootstrap = () => serviceEffect(() => this.sharedClientBootstrap());
 
   private async sharedClientBootstrap(): Promise<ClientBootstrapView> {
@@ -316,7 +313,7 @@ export class SnapshotService {
         this.prisma.run.findMany({
           where: {
             channelId: { in: channelIds },
-            status: { in: ["queued", "running"] },
+            OR: [{ status: { in: ["queued", "running"] } }, { requestNextCheckAt: { not: null }, requestStoppedAt: null }],
           },
           orderBy: { createdAt: "asc" },
         }),
@@ -330,10 +327,10 @@ export class SnapshotService {
         this.prisma.subagentAttempt.findMany({
           where: {
             parentChannelId: { in: channelIds },
-            status: { in: ["provisioning", "queued", "running"] },
+            status: { in: ["provisioning", "queued", "running", "waiting"] },
           },
           include: {
-            subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
           },
           orderBy: { createdAt: "asc" },
         }),
@@ -517,7 +514,7 @@ export class SnapshotService {
           take: roundLimit + 1,
         }),
         this.prisma.run.findMany({
-          where: { channelId, status: { in: ["queued", "running"] } },
+          where: { channelId, OR: [{ status: { in: ["queued", "running"] } }, { requestNextCheckAt: { not: null }, requestStoppedAt: null }] },
           orderBy: { createdAt: "desc" },
           take: runLimit + 1,
         }),
@@ -532,10 +529,10 @@ export class SnapshotService {
         this.prisma.subagentAttempt.findMany({
           where: {
             parentChannelId: channelId,
-            status: { in: ["provisioning", "queued", "running"] },
+            status: { in: ["provisioning", "queued", "running", "waiting"] },
           },
           include: {
-            subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
           },
           orderBy: { createdAt: "desc" },
           take: subagentLimit + 1,
@@ -543,10 +540,10 @@ export class SnapshotService {
         this.prisma.subagentAttempt.findMany({
           where: {
             parentChannelId: channelId,
-            status: { notIn: ["provisioning", "queued", "running"] },
+            status: { notIn: ["provisioning", "queued", "running", "waiting"] },
           },
           include: {
-            subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            subagent: { select: { id: true, parentBotId: true, subagentType: true, status: true, currentRunId: true } },
           },
           orderBy: { createdAt: "desc" },
           take: subagentLimit + 1,
@@ -564,7 +561,7 @@ export class SnapshotService {
         subagentLimit
       );
       const runIds = runs.items.map((run) => run.id);
-      const currentRunIds = new Set(currentRuns.map((run) => run.id));
+      const currentRunIds = new Set(currentRuns.filter(run => ["queued", "running"].includes(run.status)).map((run) => run.id));
       const selectedCurrentRunIds = runIds.filter((runId) => currentRunIds.has(runId));
       const runItemLimit = CHANNEL_CLIENT_STATE_LIMITS.runItems;
       // Clients read run items only to describe queued or running work.

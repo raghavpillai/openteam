@@ -3,6 +3,31 @@ import XCTest
 @testable import OpenTeamCore
 
 final class HapticFeedbackTests: XCTestCase {
+  func testVoiceResistanceBuildsLightlyWithoutPulsingAtRestOrOnBoundaryJitter() throws {
+    var resistance = VoiceCancelResistanceFeedback()
+    XCTAssertNil(resistance.move(0, time: 0))
+    let first = try XCTUnwrap(resistance.move(0.01, time: 0.1))
+    XCTAssertLessThan(first, 0.15)
+    XCTAssertNil(resistance.move(0.01, time: 0.2), "A stationary finger adds no feedback")
+    let next = try XCTUnwrap(resistance.move(0.13, time: 0.3))
+    XCTAssertGreaterThan(next, first)
+    XCTAssertNil(resistance.move(0.12, time: 0.4))
+    XCTAssertNil(resistance.move(0.13, time: 0.5), "Jitter cannot replay the same detent")
+    let stretched = try XCTUnwrap(resistance.move(0.9, time: 0.6))
+    XCTAssertGreaterThan(stretched, next)
+    XCTAssertLessThan(stretched, 0.53, "Even the stretched feedback stays light")
+    XCTAssertNil(resistance.move(0, time: 0.7))
+    XCTAssertNotNil(resistance.move(0.01, time: 0.8), "Returning to the dead zone resets the stretch")
+  }
+
+  func testFastVoiceSwipeDoesNotBunchResistancePulses() {
+    var resistance = VoiceCancelResistanceFeedback()
+    XCTAssertNotNil(resistance.move(0.01, time: 0))
+    XCTAssertNil(resistance.move(0.2, time: 0.01))
+    XCTAssertNil(resistance.move(0.4, time: 0.02))
+    XCTAssertNotNil(resistance.move(0.6, time: 0.05))
+  }
+
   func testAppFeedbackRequiresBothPreferenceAndForeground() {
     XCTAssertFalse(HapticPolicy.allows(enabled: false, active: true))
     XCTAssertFalse(HapticPolicy.allows(enabled: true, active: false))

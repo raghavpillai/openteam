@@ -1,3 +1,4 @@
+import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import type {
   AssetKind,
   AssetRef,
@@ -88,7 +89,7 @@ export const messageStagedAttachments = (
 ): DurableStagedAttachment[] => {
   const candidates = messageMetadata(message).clientStagedAttachments;
   if (!Array.isArray(candidates)) return [];
-  return candidates.slice(0, 6).flatMap((candidate) => {
+  return candidates.slice(0, CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage).flatMap((candidate) => {
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
     const value = candidate as Partial<DurableStagedAttachment>;
     if (
@@ -179,23 +180,15 @@ export const messageRenderKey = (message: ChannelMessageView): string =>
 
 export const channelMessageAddress = (message: ChannelMessageView): string => {
   const address = messageMetadata(message).address;
-  if (typeof address === "string") return address;
-  if (message.sender === "user") return `t${message.sequence}u`;
-  return typeof address === "string" ? address : `t${message.sequence}a0`;
+  return typeof address === "string" ? address : message.id;
 };
 
 export const replyTargetFor = (
   message: ChannelMessageView,
-  messagesById: ReadonlyMap<string, ChannelMessageView>,
-  messagesByAddress: ReadonlyMap<string, ChannelMessageView> = new Map()
+  messagesById: ReadonlyMap<string, ChannelMessageView>
 ): ChannelMessageView | null => {
-  const metadata = messageMetadata(message);
-  if (typeof metadata.replyTo === "string") {
-    const target = messagesById.get(metadata.replyTo);
-    if (target) return target;
-  }
-  const legacyAddress = typeof metadata.reply_to === "string" ? metadata.reply_to : null;
-  return legacyAddress ? (messagesByAddress.get(legacyAddress) ?? null) : null;
+  const replyTo = messageMetadata(message).replyTo;
+  return typeof replyTo === "string" ? (messagesById.get(replyTo) ?? null) : null;
 };
 
 export const messageSenderLabel = (
@@ -233,6 +226,7 @@ export const messageDisplayProjection = (message: ChannelMessageView): MessageDi
     metadata.type === "bot-template" ||
     metadata.type === "user-form" ||
     metadata.type === "external-draft" ||
+    metadata.type === "imessage-send" ||
     metadata.type === "widget" ||
     metadata.type === "secret-request" ||
     metadata.type === "computer-handoff" ||

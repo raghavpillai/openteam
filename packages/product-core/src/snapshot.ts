@@ -97,16 +97,14 @@ export interface ChannelRowProjection {
 }
 
 export const selectChannelRows = (
-  snapshot: ClientSnapshot,
-  options: { includeHiddenBots?: boolean } = {}
+  snapshot: ClientSnapshot
 ): ChannelRowProjection[] => {
   const index = createSnapshotIndex(snapshot);
   return snapshot.channels
     .flatMap((channel) => {
-      if (channel.kind === "group" && channel.hiddenFromSidebar) return [];
+      if (channel.kind === "agent_dm") return [];
       const botId = channel.kind === "bot_dm" ? channel.members[0]?.botId : undefined;
       const bot = botId ? (index.botById.get(botId) ?? null) : null;
-      if (!options.includeHiddenBots && bot?.hiddenFromSidebar) return [];
       const activeRun = index.activeRunByChannel.get(channel.id) ?? null;
       return [
         {
@@ -124,7 +122,3 @@ export const selectChannelRows = (
     });
 };
 
-/** @deprecated Use the platform-neutral ChannelRowProjection name. */
-export type MobileChannelRow = ChannelRowProjection;
-/** @deprecated Use selectChannelRows. */
-export const selectMobileChannelRows = selectChannelRows;

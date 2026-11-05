@@ -46,7 +46,6 @@ export const PLUGIN_SKILL_AGENTS: readonly PluginSkillAgent[] = [
   "videoReview",
   "watchVideo",
   "computerUse",
-  "browserUse",
   "knowledgeWork",
 ];
 /** Skills that do not name their agents are for the main agent only. */
@@ -101,6 +100,21 @@ const validateFields = (fields: readonly PluginField[], allowEnvironment = false
       throw new Error(`Invalid options: ${field.key}`);
   }
 };
+
+/** Clone mutable package data without copying immutable installation payload strings. */
+export function clonePluginDefinition(plugin: PluginDefinition): PluginDefinition {
+  const { files, binaryFiles, ...metadata } = plugin;
+  const cloneFiles = (value: Record<string, string> | undefined) =>
+    value && Object.getPrototypeOf(value) === Object.prototype &&
+    Object.values(value).every((content) => typeof content === "string")
+      ? { ...value }
+      : structuredClone(value);
+  return {
+    ...structuredClone(metadata),
+    ...(Object.hasOwn(plugin, "files") ? { files: cloneFiles(files) } : {}),
+    ...(Object.hasOwn(plugin, "binaryFiles") ? { binaryFiles: cloneFiles(binaryFiles) } : {}),
+  };
+}
 
 export function parsePluginDefinition(value: unknown): PluginDefinition {
   const plugin = objectValue(value) as unknown as PluginDefinition;
@@ -298,28 +312,6 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
       throw new Error("Invalid installation instructions");
     for (const step of plugin.installationSteps) requireText(step, "installation step", 4000);
   }
-  if (plugin.host !== undefined) {
-    const host = objectValue(plugin.host);
-    const marker = host.installedMarker;
-    if (
-      typeof marker !== "string" ||
-      !marker ||
-      marker.length > 300 ||
-      marker.startsWith("/") ||
-      marker.split("/").some((part) => !part || part === "." || part === "..")
-    )
-      throw new Error(`Invalid host component marker: ${plugin.key}`);
-    const command = host.refreshCommand;
-    if (
-      !Array.isArray(command) ||
-      !command.length ||
-      command.length > 20 ||
-      command.some((part) => typeof part !== "string" || !part || part.length > 500)
-    )
-      throw new Error(`Invalid host component command: ${plugin.key}`);
-    if (command.some((part) => /\{(?!computerContainer\})[^}]*\}/.test(part)))
-      throw new Error(`Unknown host component placeholder: ${plugin.key}`);
-  }
   validateFields(plugin.setupFields ?? [], true);
   for (const setup of [plugin.setup, ...plugin.connections.map((connection) => connection.setup)]) {
     if (!setup) continue;
@@ -363,7 +355,7 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
     }
   if (paths.size > 1000 || total > 20 * 1024 * 1024)
     throw new Error("Package exceeds its 20 MB or 1,000 file limit");
-  return structuredClone(plugin);
+  return clonePluginDefinition(plugin);
 }
 
 export function validatePluginCatalog(catalog: readonly PluginDefinition[]): void {

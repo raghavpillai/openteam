@@ -39,7 +39,7 @@ import XCTest
       app.buttons["Reply"].waitForExistence(timeout: 2),
       "QA-02: Attachment hold has no message-action entry point.")
   }
-  func testSwipingAnAttachmentOpensFocusedReply() async throws {
+  func testSwipingAnAttachmentQuotesItInTheComposer() async throws {
     let app = try await launch("attachment")
     let attachment = app.buttons["Open Fixture image.png"]
     XCTAssertTrue(attachment.waitForExistence(timeout: 10))
@@ -47,8 +47,8 @@ import XCTest
     start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 150, dy: 0)))
     capture("attachment-swipe", app)
     XCTAssertTrue(
-      app.buttons["thread-back"].waitForExistence(timeout: 2),
-      "QA-02: Attachment swipe must open the focused reply page.")
+      app.buttons["Cancel reply"].waitForExistence(timeout: 2),
+      "QA-02: Attachment swipe must quote the attachment in the composer.")
   }
   func testExistingThreadHasVisibleEntryPoint() async throws {
     let app = try await launch("thread")
@@ -159,20 +159,5 @@ import XCTest
     let (data, response) = try await URLSession.shared.data(for: request)
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-  }
-  func testLegacyApprovalsAreHidden() async throws {
-    let app = try await launch("approval")
-    XCTAssertFalse(app.switches["approval-site-Profile 2-example.com"].exists)
-    XCTAssertFalse(app.buttons["approve-qa-chrome"].exists)
-  }
-
-  func testRetiredReviewRulesAreAbsent() async throws {
-    let app = try await launch("rules", openChat: false)
-    app.buttons["settings-button"].tap()
-    let more = app.buttons["More preferences"]
-    for _ in 0..<7 where !more.isHittable { app.swipeUp() }
-    more.tap()
-    XCTAssertFalse(app.buttons["Auto-review rules"].exists)
-    XCTAssertFalse(app.buttons["save-review-rules"].exists)
   }
 }

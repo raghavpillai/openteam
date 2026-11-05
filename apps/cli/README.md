@@ -9,16 +9,25 @@ The resulting `tailscale` access mode uses loopback backend ports and a persiste
 ## First installation and prerequisites
 
 The shell and PowerShell installers install and verify the CLI before starting server setup.
-Docker is required for the server. If Docker is missing, its engine is stopped or inaccessible,
-or Compose is missing or older than 2.20.0, setup stops with an explanation and recovery steps.
-The CLI stays installed, and preflight does not create server configuration or start containers.
-After fixing the problem, run `openteam setup`; it installs the server if necessary or resumes
-an existing installation. `openteam doctor` can also check prerequisites before installation.
+The shell installer adds its directory (`~/.local/bin` by default) to `PATH` in the startup file
+for `$SHELL`: `~/.zshrc` (or `$ZDOTDIR/.zshrc`), `~/.bashrc` plus the login profile on macOS,
+`~/.config/fish/conf.d/openteam.fish`, or `~/.profile`. Set `OPENTEAM_NO_MODIFY_PATH=1` to skip
+this. Until a new terminal opens, CLI hints name the installed binary by its absolute path.
 
-Automatic setup starts after a five-second countdown once preflight passes. Press any key
-(including Esc, Enter, or Ctrl+C) to cancel; the CLI stays installed and prints the command
-to continue later. Cancellation happens before downloading server configuration or images.
-Explicit `openteam setup` starts immediately. `--no-setup` skips both the countdown and guided setup.
+Docker is required for the server. If the docker command is missing, setup prints where to get
+Docker and the command to run afterwards. In an interactive macOS terminal, setup starts an
+installed Docker Desktop whose engine is stopped and waits up to two minutes for it. If the
+engine is still unavailable or inaccessible, or Compose is missing or older than 2.20.0, setup
+stops with an explanation and recovery steps. The CLI stays installed, and preflight does not
+create server configuration or start containers. After fixing the problem, run `openteam setup`;
+it installs the server if necessary or resumes an existing installation. `openteam doctor` can
+also check prerequisites before installation.
+
+Automatic setup starts after a five-second countdown once preflight passes. Press Enter to start
+now, or Esc, q, or Ctrl+C to cancel; other keys are ignored. After cancelling, the CLI stays
+installed and prints the command to continue later. Cancellation happens before downloading
+server configuration or images. Explicit `openteam setup` starts immediately. `--no-setup` skips
+both the countdown and guided setup.
 
 In a noninteractive shell, prerequisite errors still appear. Once preflight passes, guided
 installation asks you to continue in a terminal before downloading server configuration.
@@ -242,18 +251,20 @@ formats. Human update progress shows each phase as it happens.
 `openteam install` enters staged setup in the same command. The standalone `openteam setup` command
 reconfigures an existing installation without changing its owner or signing out active sessions.
 Fresh installs automatically use a detected Tailscale, WireGuard, or LAN address for private-network
-access, create the OpenTeam username and password, and optionally connect an inference provider. A
-recommended model is selected automatically, or inference can be skipped and configured later. The guided choices cover
-ChatGPT Plus/Pro OAuth, Claude Pro/Max OAuth, OpenAI and Anthropic API keys, and compatible custom
-endpoints. `openteam setup` reviews connection modes; `--advanced` also exposes server and inference tuning. Public HTTPS uses a bundled Caddy service:
+access and create the OpenTeam username and password. Setup asks every question before it downloads
+the server images, then starts the server and points to the desktop and iPhone apps, which connect a
+model. Setup never reads or changes model settings; on a server without the apps, use `openteam model`
+and `openteam provider`. `openteam setup` reviews connection modes; `--advanced` also exposes the API
+port, time zone, and tasks at once. Public HTTPS uses a bundled Caddy service:
 point a domain's A/AAAA record at the VM and open inbound TCP ports 80 and 443, and Caddy obtains and
 renews the certificate automatically. No certificate needs to exist on the VM beforehand.
-Normal setup runs as one interactive session with Connection, Account, Inference, and Review sections. Left and Right
+Normal setup runs as one interactive session with Connection, Account, and Review sections. Left and Right
 move between sections, Up and Down move the highlight within a section, Enter picks the highlighted
 option or edits the highlighted field, typing replaces a highlighted field, and finishing required fields
 advances automatically. Esc cancels without changes. The Review section lists anything
-still missing and applies the configuration. Terminals without cursor support (`TERM=dumb`) fall back to
-typed prompts.
+still missing and applies the configuration. Startup port checks run when you start; a conflict returns
+to Connection with your answers kept and the API port editable. Terminals without cursor support
+(`TERM=dumb`) fall back to typed prompts.
 
 Public HTTP accepts an IP address or hostname, but it sends passwords and bearer sessions without
 encryption and is rejected by the iOS app. Setup therefore requires an explicit warning
@@ -264,15 +275,8 @@ Passwords are hidden, confirmed, and sent to the server over stdin; they are nev
 Use `openteam account update` to interactively replace both credentials. Pass `--username <name>`
 for a username-only update, `--password` for a hidden password-only prompt, or combine the flags.
 Every credential update revokes all current sessions. Use `openteam setup --advanced` to override
-the connection mode, hostname, local API port, time zone, model, thinking level, or number of tasks that can run at once.
-The time zone, private-network address, free API port, current inference settings, and initial task limit are
-detected when possible. Setup also detects compatible Codex CLI and Claude Code sign-ins and reuses
-them without opening another browser login when the installed computer image supports importing
-sign-ins. Older images use a fresh provider sign-in and explain this before setup is applied. For
-ChatGPT sign-in over SSH, choose Device code login when prompted.
-Setup and provider login verify that authentication was saved before reporting a connection.
-If input closes before sign-in finishes, retry the login in an interactive terminal. Setup also
-checks that the running server can use the sign-in before declaring authenticated setup ready.
+the connection mode, hostname, local API port, time zone, or number of tasks that can run at once.
+The time zone, private-network address, free API port, and initial task limit are detected when possible.
 The setup header shows the CLI version; the installed server release is labeled separately.
 
 Run `openteam model` to open the interactive model editor for an installed, running server. Left/Right
@@ -300,7 +304,9 @@ Transcription offers
 OpenAI or an OpenAI-compatible audio endpoint, model browsing or manual model ID entry, language,
 and a masked API key. Browsing does not save or enable transcription. Model discovery filters out
 known chat, embedding, image, and speech-generation models. Saved keys stay on the server, blank key edits
-keep them, and changing endpoints never transfers a stored key. Use **Remove saved key** to clear it.
+keep them. Saved keys show only their last four characters. Use **Delete key**, then **Save transcription**,
+to clear one; **Undo key deletion** cancels a pending deletion. Changing endpoints requires a replacement
+key or explicit deletion and never transfers a stored key.
 **Test saved connection** checks the provider and model catalog; send a voice note to verify actual
 audio transcription. Transcription needs its own API credentials, separate from ChatGPT sign-in.
 
@@ -399,6 +405,7 @@ The 4 GiB free-space preflight still applies: retention does not make a nearly f
   does not delete their tags. Retention tags protect recovery IDs across restarts but do not rewrite
   mutable Compose references for manual rollback. No volumes, networks, build cache, or arbitrary
   Docker state are pruned.
+  Reinstalling the same image set with `--force` preserves the previous distinct rollback stack.
 - **Database dumps:** keep the newest **3** registered updater dumps, plus the current update's
   rollback dump if outside those three. `backup-retention.json` records ownership in creation order;
   only new UUID-suffixed dumps explicitly registered by the updater are eligible. Existing/manual
@@ -410,6 +417,7 @@ The 4 GiB free-space preflight still applies: retention does not make a nearly f
   a particular dump indefinitely, copy it to private off-host storage or a manual subdirectory under
   `backups/` before the next successful update; only its registered top-level copy is eligible for
   retention. Protect exported dumps as sensitive database contents. Do not edit ownership ledgers.
+  Missing or empty dumps do not count toward the number of surviving restore points to retain.
 - **Browser:** Chromium gets a **128 MiB HTTP disk-cache target** (not a cap on total profile size).
   Before relaunch or after an owned browser stops, only `Cache`, `Code Cache`, and `GPUCache` directly
   under the user-data root or `Default`/`Profile N` can be removed. Cleanup requires confirmed normal
@@ -437,3 +445,12 @@ This interactively removes eligible old unused cache only from that selected bui
 4 GB cache target; shared layers still used by images may remain. The builder may serve other projects,
 so coordinate with its owners. Avoid global `docker system prune`/volume pruning as routine OpenTeam
 maintenance. Review legacy images by exact ID and all container references before removing any.
+
+The preservation regressions run in installer CI on Linux, macOS, and Windows. For real-daemon
+validation, select an isolated throwaway Docker context and run
+`OPENTEAM_TEST_DOCKER_CONTEXT=<test-context> bun apps/cli/scripts/test-disk-maintenance-docker.ts`.
+The harness removes only its exact fixture resources and never prunes the daemon. Linux CI also
+runs this harness. For a real browser restart check, set `OPENTEAM_TEST_CHROMIUM_EXECUTABLE` to a
+Chromium executable and run `bun apps/computer/scripts/test-browser-cache-maintenance.ts`. This
+uses a temporary profile and loopback fixture login; it verifies authentication and persistent
+site storage after actual cache removal and a browser restart, without opening user profiles.

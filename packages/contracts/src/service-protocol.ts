@@ -17,7 +17,7 @@ export const COMPUTER_API_PATHS = {
   agentStores: "/v1/agent-stores",
   reconcileAgentStores: "/v1/agent-stores/reconcile",
   turnCancel: (runId: string) => `/v1/turns/${encodeURIComponent(runId)}/cancel`,
-  turnSteer: (runId: string) => `/v1/turns/${encodeURIComponent(runId)}/steer`,
+  backgroundShellsStop: (botId: string) => `/v1/bots/${encodeURIComponent(botId)}/background-shells/stop`,
   agentStore: (ownerId: string) => `/v1/agent-stores/${encodeURIComponent(ownerId)}`,
 } as const;
 
@@ -104,11 +104,6 @@ export const parseComputerEvent = (value: unknown): ComputerEvent => {
     case "prompt.delivered":
       requiredString(value.turnId, "turnId");
       break;
-    case "input.delivered":
-      for (const field of ["turnId", "inboxId", "clientMessageId"] as const) {
-        requiredString(value[field], field);
-      }
-      break;
     case "item.started":
     case "item.completed":
       requiredString(value.turnId, "turnId");
@@ -174,7 +169,7 @@ export interface AgentDirectorySnapshot {
 }
 
 export interface ComputerInferenceRequest {
-  kind: "extraction" | "episode" | "synthesis" | "verification";
+  kind: "extraction" | "verification" | "connection-check";
   /** Internal verification only: capture this desktop locally, never accept image bytes from the actor. */
   screenBotId?: string;
   instructions: string;
@@ -191,7 +186,7 @@ export interface ComputerInferenceResponse {
 
 export const parseComputerInferenceRequest = (value: unknown): ComputerInferenceRequest => {
   const input = isRecord(value) ? value : {};
-  if (!["extraction", "episode", "synthesis", "verification"].includes(String(input.kind))) {
+  if (!["extraction", "verification", "connection-check"].includes(String(input.kind))) {
     throw new Error("Inference kind is invalid");
   }
   const instructions = requiredString(input.instructions, "Inference instructions");

@@ -1,12 +1,35 @@
 import Foundation
 
 public enum HapticEffect: String, Codable, Sendable {
-  case selection, light, medium, success, error
+  case selection, light, medium, rigid, soft, heavy, success, warning, error
 }
 
 /// React Native's haptics-core.ts gate. Recheck when an async result arrives.
 public enum HapticPolicy {
   public static func allows(enabled: Bool, active: Bool) -> Bool { enabled && active }
+}
+
+/// Soft, increasingly weighty pulses as a cancellation swipe stretches farther.
+/// Distance drives feedback; holding still or jittering around a detent adds no pulses.
+public struct VoiceCancelResistanceFeedback {
+  private var furthestStep = 0
+  private var lastPulse = -Double.infinity
+  public init() {}
+
+  public mutating func move(_ progress: Double, time: TimeInterval) -> Double? {
+    let tension = min(1, max(0, progress))
+    guard tension > 0 else {
+      furthestStep = 0
+      return nil
+    }
+    let step = Int(ceil(tension * 8))
+    guard step > furthestStep else { return nil }
+    furthestStep = step
+    // A quick flick must not bunch several impacts together.
+    guard time - lastPulse >= 0.045 else { return nil }
+    lastPulse = time
+    return 0.12 + 0.4 * pow(tension, 1.5)
+  }
 }
 
 /// Matches reply-swipe.ts: 52-point arm, 40-point reset, one cue per gesture.

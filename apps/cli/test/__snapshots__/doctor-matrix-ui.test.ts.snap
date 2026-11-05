@@ -10,9 +10,10 @@ exports[`doctor UI scenario matrix docker-missing has a stable 80-column termina
   Completed in 0.4s
 
   NEXT STEPS
-  1. Install Docker Desktop from https://docs.docker.com/desktop/, then open a
-     new terminal and run docker --version. If Docker is already installed,
-     check that its command is on PATH and check the executable's permissions.
+  1. Install Docker Desktop from
+     https://www.docker.com/products/docker-desktop/, then open a new terminal
+     and run docker --version. If Docker is already installed, check that its
+     command is on PATH and check the executable's permissions.
   2. After resolving the failed checks, run openteam install again.
 
   HOST & SETUP ────────────────────────────────────────────────────────────────
@@ -46,12 +47,12 @@ exports[`doctor UI scenario matrix docker-missing has a stable 80-column termina
 
   NEXT STEPS ──────────────────────────
   1. Install Docker Desktop from
-  https://docs.docker.com/desktop/, then
-  open a new terminal and run docker
-  --version. If Docker is already
-  installed, check that its command is
-  on PATH and check the executable's
-  permissions.
+  https://www.docker.com/products/docker
+  -desktop/, then open a new terminal
+  and run docker --version. If Docker is
+  already installed, check that its
+  command is on PATH and check the
+  executable's permissions.
   2. After resolving the failed checks,
   run openteam install again."
 `;
@@ -186,7 +187,8 @@ exports[`doctor UI scenario matrix provider-quota has a stable 80-column termina
 
   NEXT STEPS
   1. Check the model provider's quota or billing, or wait for its rate limit to
-     reset. Use openteam model list to choose another available model if needed.
+     reset. To switch models, use Settings → Server in the OpenTeam app, or run
+     openteam model.
   2. After completing these steps, run openteam doctor again.
 
   HOST & SETUP ────────────────────────────────────────────────────────────────
@@ -224,9 +226,9 @@ exports[`doctor UI scenario matrix provider-quota has a stable 80-column termina
   NEXT STEPS ──────────────────────────
   1. Check the model provider's quota or
   billing, or wait for its rate limit to
-  reset. Use openteam model list to
-  choose another available model if
-  needed.
+  reset. To switch models, use Settings
+  → Server in the OpenTeam app, or run
+  openteam model.
   2. After completing these steps, run
   openteam doctor again."
 `;

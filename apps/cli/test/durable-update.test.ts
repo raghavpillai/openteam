@@ -322,7 +322,7 @@ describe("durable one-command update", () => {
         randomUUID(),
         { executable: "/usr/bin/node", argv: ["/usr/bin/node", "/app/openteam.js", "update"] }
       )
-    ).rejects.toThrow("Another OpenTeam update is already running");
+    ).rejects.toThrow("Another OpenTeam setup or update is already running");
     expect(readUpdateState(paths)).toMatchObject({ jobId: activeJob, status: "running" });
   });
 

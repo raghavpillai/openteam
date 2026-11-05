@@ -6,7 +6,7 @@ import { createPluginFlowFixture } from "../../server/test/plugin/fixtures/plugi
 if (!process.env.OPENTEAM_TEST_DATABASE_URL) throw new Error("A disposable test database is required");
 const uiOrigin = process.env.OPENTEAM_TEST_UI_ORIGIN ?? "http://127.0.0.1:63387";
 const fixture = await createPluginFlowFixture(process.env.OPENTEAM_TEST_DATABASE_URL, { packaged: true });
-// A packaged connector whose only setup is a non-secret value, like iMessage (SSH)'s Mac address.
+// A packaged connector whose only setup is a non-secret value, like a Mac's SSH address.
 const plugin = createPluginTemplate("packaged-mcp", `flow-address-${crypto.randomUUID()}`);
 plugin.name = "Flow Address";
 plugin.setupFields = [];

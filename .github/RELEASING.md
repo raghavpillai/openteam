@@ -5,6 +5,29 @@ workflow. GitHub Releases remains the download host used by `openteam.so/downloa
 and the install scripts; uploading locally built artifacts does not require GitHub
 Actions. The CLI installer workflow runs tests only.
 
+## v0.0.13 release candidate
+
+Prepare v0.0.13 from `eb8ae082c4a7c0cf30bafb140045a6e615a1b81b`, with
+v0.0.12 as the previous release. Keep the root and all workspace package versions,
+`bun.lock` workspace versions, and `apps/ios/release.json` at `0.0.13`. Reserve iOS
+build `63` and regenerate the checked-in Xcode project with
+`python3 apps/ios/scripts/generate-project.py`.
+
+This candidate includes PRs #223–#228: desktop settings controls and copy; removal
+of bot hiding and duplication; voice composer visuals; the doctor workspace probe's
+bot identity; sidebar account controls; and contextual send failures and pending
+attachment previews. Previously hidden bots and group chats become visible again
+after the server update. Review the draft notes in ignored
+`output/release-v0.0.13/release-notes.md` before publication.
+
+Record focused metadata/configuration checks separately from the full repository
+gate, desktop interaction QA, and native iPhone/iPad QA. Those broader checks must
+be reviewed before promoting the candidate. A version bump and passing source
+checks do not establish installer quality, device behavior, or TestFlight availability.
+Candidate preparation does not publish a tag, GitHub release, installer, container,
+or TestFlight build. Keep public update feeds at their last verified releases until
+the new artifacts are available and verified.
+
 ## macOS desktop
 
 Build the requested source revision in an isolated checkout so unrelated working-tree

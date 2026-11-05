@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore } from "../../src/agent-data";
 import { atomicWrite, jsonFile } from "../../src/file-state";
+import { renderSkillFile } from "../../src/skill-files";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 test.skipIf(!url)("watching observes edits made immediately after startup resolves", async () => {
@@ -40,11 +41,13 @@ test.skipIf(!url)("watching observes edits made immediately after startup resolv
 });
 
 
-test.skipIf(!url)("watching imports new memory directories after repeated atomic profile replacements", async () => {
+test.skipIf(!url)("watching imports new skill directories after repeated atomic profile replacements", async () => {
   const db = createPrismaClient(url!);
   const root = await mkdtemp(join(tmpdir(), "watcher-replacement-"));
   const botId = crypto.randomUUID();
   const store = new AgentDataStore(db, { root: join(root, "data"), workspaceRoot: root });
+  const slug = `watcher-probe-${botId.slice(0, 8)}`;
+  const skill = join(store.workflowsDirectory(), slug);
   try {
     await db.bot.create({ data: { id: botId, name: "Replacement fixture", status: "active", defaultDirectory: root } });
     await store.initializeBot(botId);
@@ -57,12 +60,12 @@ test.skipIf(!url)("watching imports new memory directories after repeated atomic
         await atomicWrite(join(directory, "profile.json"), jsonFile({ name }));
         await Bun.sleep(8);
       }
-      await atomicWrite(join(directory, "memory", "profile.md"), `- (2026-09-24) Memory replacement ${round}.\n`);
+      await atomicWrite(join(skill, "SKILL.md"), renderSkillFile({ name: `Replacement skill ${round}`, description: "Watcher probe", body: "Probe." }));
       const deadline = Date.now() + 2000;
       let observed = false;
       while (Date.now() < deadline) {
-        const fact = await db.memoryFact.findFirst({ where: { namespace: `agent:${botId}`, fact: `Memory replacement ${round}.` } });
-        if (fact && (await db.bot.findUniqueOrThrow({ where: { id: botId } })).name === name) {
+        const saved = await db.savedSkill.findFirst({ where: { slug, name: `Replacement skill ${round}` } });
+        if (saved && (await db.bot.findUniqueOrThrow({ where: { id: botId } })).name === name) {
           observed = true;
           break;
         }
@@ -70,11 +73,12 @@ test.skipIf(!url)("watching imports new memory directories after repeated atomic
       }
       expect(observed).toBe(true);
       // The next iteration must rediscover both the directory and its file.
-      await rm(join(directory, "memory"), { recursive: true, force: true });
+      await rm(skill, { recursive: true, force: true });
       await Bun.sleep(300);
     }
   } finally {
     await store.stopWatching();
+    await db.savedSkill.deleteMany({ where: { slug } });
     await db.bot.deleteMany({ where: { id: botId } });
     await db.$disconnect();
     await rm(root, { recursive: true, force: true });
@@ -86,15 +90,14 @@ test.skipIf(!url)("watching recovers lost notifications and stops reconciliation
   const root = await mkdtemp(join(tmpdir(), "watcher-lost-events-"));
   const botId = crypto.randomUUID();
   const store = new AgentDataStore(db, { root: join(root, "data"), workspaceRoot: root });
-  const memoryPath = join(store.botDirectory(botId), "memory", "profile.md");
-  const observe = async (fact: string | null) => {
+  const settingsPath = join(store.botDirectory(botId), "settings.json");
+  const observe = async (hiddenFromSidebar: boolean) => {
     const deadline = Date.now() + 2500;
     while (Date.now() < deadline) {
-      const facts = await db.memoryFact.findMany({ where: { namespace: `agent:${botId}` }, select: { fact: true } });
-      if (fact === null ? facts.length === 0 : facts.some(value => value.fact === fact)) return;
+      if ((await db.bot.findUniqueOrThrow({ where: { id: botId } })).hiddenFromSidebar === hiddenFromSidebar) return;
       await Bun.sleep(25);
     }
-    throw new Error(`Watcher failed to reconcile ${fact ?? "deleted memory"}`);
+    throw new Error(`Watcher failed to reconcile hiddenFromSidebar=${hiddenFromSidebar}`);
   };
   try {
     await db.bot.create({ data: { id: botId, name: "Lost events", status: "active", defaultDirectory: root } });
@@ -102,16 +105,18 @@ test.skipIf(!url)("watching recovers lost notifications and stops reconciliation
     await Promise.all(Array.from({ length: 5 }, () => store.startWatching()));
     // Simulate the observed failure: native monitoring stays open but delivers no events.
     (store as unknown as { watcher: { removeAllListeners(event: string): void } }).watcher.removeAllListeners("all");
-    await atomicWrite(memoryPath, "- (2026-09-24) Created without a notification.\n");
-    await observe("Created without a notification.");
-    await atomicWrite(memoryPath, "- (2026-09-24) Updated without a notification.\n");
-    await observe("Updated without a notification.");
-    await rm(memoryPath);
-    await observe(null);
+    await atomicWrite(settingsPath, jsonFile({ hiddenFromSidebar: true }));
+    await observe(true);
+    await atomicWrite(settingsPath, jsonFile({ hiddenFromSidebar: false }));
+    await observe(false);
+    await atomicWrite(settingsPath, jsonFile({ hiddenFromSidebar: true }));
+    await observe(true);
+    await rm(settingsPath);
+    await observe(false);
     await store.stopWatching();
-    await atomicWrite(memoryPath, "- (2026-09-24) Written after shutdown.\n");
+    await atomicWrite(settingsPath, jsonFile({ hiddenFromSidebar: true }));
     await Bun.sleep(1300);
-    expect(await db.memoryFact.count({ where: { namespace: `agent:${botId}` } })).toBe(0);
+    expect((await db.bot.findUniqueOrThrow({ where: { id: botId } })).hiddenFromSidebar).toBe(false);
   } finally {
     await store.stopWatching();
     await db.bot.deleteMany({ where: { id: botId } });

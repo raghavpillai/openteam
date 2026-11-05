@@ -17,6 +17,7 @@ const serviceFixture = (
   options: {
     childIdentity?: Record<string, unknown> | null;
     administration?: Record<string, unknown>;
+    subagents?: Record<string, unknown>;
   } = {}
 ) => {
   const deliveries: Array<{
@@ -49,7 +50,7 @@ const serviceFixture = (
     {} as never,
     async () => {},
     {} as never,
-    {} as never,
+    (options.subagents ?? {}) as never,
     (options.administration ?? {}) as never,
     {} as never
   );
@@ -74,7 +75,8 @@ describe("InternalToolService user-delivery tool name", () => {
   test("creates an explicit computer handoff and tells the agent to wait", async () => {
     const { deliveries, service } = serviceFixture();
     await expect(
-      Effect.runPromise(service.execute(request("request_box_help", { instruction: "Finish 2FA", reason: "auth" })))
+      // The page address prepares the box browser; the handoff card itself stays the same.
+      Effect.runPromise(service.execute(request("request_box_help", { instruction: "Finish 2FA", reason: "auth", url: "https://example.com/login" })))
     ).resolves.toMatchObject({ sent: true, waiting_for_user: true });
     expect(deliveries).toEqual([
       {
@@ -85,49 +87,31 @@ describe("InternalToolService user-delivery tool name", () => {
     ]);
   });
 
-  test("routes bounded directory reads for parent agents", async () => {
-    const calls: Array<{ kind: string; botId: string; input: unknown }> = [];
-    const { service } = serviceFixture({
-      administration: {
-        listAgents: async (botId: string, input: unknown) => {
-          calls.push({ kind: "agents", botId, input });
-          return { agents: [] };
-        },
-        listGroups: async (botId: string, input: unknown) => {
-          calls.push({ kind: "groups", botId, input });
-          return { groups: [] };
-        },
-      },
-    });
-
-    await expect(
-      Effect.runPromise(service.execute(request("ListAgents", { query: "research", limit: 3 })))
-    ).resolves.toEqual({ agents: [] });
-    await expect(
-      Effect.runPromise(service.execute(request("ListGroups", { limit: 2 })))
-    ).resolves.toEqual({ groups: [] });
-    expect(calls).toEqual([
-      { kind: "agents", botId: "bot-1", input: { query: "research", limit: 3 } },
-      { kind: "groups", botId: "bot-1", input: { limit: 2 } },
-    ]);
+  test("teammates come from user_info and other conversations from ReadTranscript, so the old lookups are unknown", async () => {
+    const { service } = serviceFixture();
+    for (const tool of ["ListAgents", "ListGroups", "read_sibling_thread"])
+      await expect(Effect.runPromise(service.execute(request(tool, {})))).rejects.toThrow(`Unknown tool ${tool}`);
   });
 
-  test("blocks directory control-plane tools for subagents before routing", async () => {
+  test("StopSubagent passes all: true or one id to the subagent service", async () => {
+    const calls: unknown[] = [];
+    const { service } = serviceFixture({
+      subagents: { stop: async (_botId: string, _callId: string, input: unknown) => (calls.push(input), { stopped_all: true }) },
+    });
+    await Effect.runPromise(service.execute(request("StopSubagent", { all: true })));
+    await Effect.runPromise(service.execute(request("StopSubagent", { subagent_id: "sand-subagent-1" })));
+    await expect(Effect.runPromise(service.execute(request("StopSubagent", {})))).rejects.toThrow();
+    expect(calls).toEqual([{ all: true }, { subagent_id: "sand-subagent-1" }]);
+  });
+
+  test("blocks parent control-plane tools for subagents before routing", async () => {
     let calls = 0;
     const { service } = serviceFixture({
       childIdentity: { id: "child-identity", parentBotId: "parent-id" },
-      administration: {
-        listAgents: async () => {
-          calls += 1;
-        },
-        listGroups: async () => {
-          calls += 1;
-        },
-      },
+      subagents: { stop: async () => { calls += 1; } },
     });
 
-    for (const tool of ["ListAgents", "ListGroups", "request_box_help"]) {
-      const args = tool === "request_box_help" ? { instruction: "Finish 2FA" } : {};
+    for (const [tool, args] of [["request_box_help", { instruction: "Finish 2FA" }], ["StopSubagent", { all: true }]] as const) {
       await expect(Effect.runPromise(service.execute(request(tool, args)))).rejects.toThrow(
         "parent-agent only"
       );

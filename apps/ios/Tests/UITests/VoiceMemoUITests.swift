@@ -61,31 +61,38 @@ import XCTest
     element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
   }
 
-  func testMicrophoneEdgesAndCornersStartHandsFreeWithAndWithoutKeyboard() async throws {
+  func testMicrophoneEdgesAndCornersStartHandsFreeWithKeyboardClosed() async throws {
+    try await verifyMicrophoneBounds(keyboard: false)
+  }
+
+  func testMicrophoneEdgesAndCornersStartHandsFreeWithKeyboardOpen() async throws {
+    try await verifyMicrophoneBounds(keyboard: true)
+  }
+
+  private func verifyMicrophoneBounds(keyboard: Bool) async throws {
     // This audit measures stationary bounds. Hold/drag tests and MP4 captures
     // separately cover normal motion; avoid XCTest waiting on cosmetic springs.
     let app = try await launch(appearance: "light", arguments: ["--qa-reduce-motion"])
+    defer { app.terminate() }
     let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
-    for keyboard in [false, true] {
-      for (dx, dy) in [(-13.0, 0.0), (13, 0), (-24, 0), (24, 0), (0, -24), (0, 24),
-                       (-24, -24), (24, -24), (-24, 24), (24, 24)] {
-        // Let the discarded bar finish its spring before asking the restored
-        // text field to focus; otherwise XCTest waits on the closing animation.
-        try await Task.sleep(for: .seconds(1))
-        if keyboard {
-          field.tap()
-          XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        }
-        let microphone = mic(app)
-        XCTAssertTrue(microphone.waitForExistence(timeout: 5))
-        XCTAssertGreaterThanOrEqual(microphone.frame.width, 52)
-        XCTAssertGreaterThanOrEqual(microphone.frame.height, 52)
-        center(of: microphone).withOffset(CGVector(dx: dx, dy: dy)).tap()
-        XCTAssertTrue(app.buttons["Stop recording"].waitForExistence(timeout: 4),
-          "Mic missed at (\(dx), \(dy)), keyboard: \(keyboard)")
-        app.buttons["Discard recording"].tap()
-        XCTAssertTrue(microphone.waitForExistence(timeout: 5))
+    for (dx, dy) in [(-13.0, 0.0), (13, 0), (-24, 0), (24, 0), (0, -24), (0, 24),
+                     (-24, -24), (24, -24), (-24, 24), (24, 24)] {
+      // Let the discarded bar finish its spring before asking the restored
+      // text field to focus; otherwise XCTest waits on the closing animation.
+      try await Task.sleep(for: .seconds(1))
+      if keyboard {
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
       }
+      let microphone = mic(app)
+      XCTAssertTrue(microphone.waitForExistence(timeout: 5))
+      XCTAssertGreaterThanOrEqual(microphone.frame.width, 52)
+      XCTAssertGreaterThanOrEqual(microphone.frame.height, 52)
+      center(of: microphone).withOffset(CGVector(dx: dx, dy: dy)).tap()
+      XCTAssertTrue(app.buttons["Stop recording"].waitForExistence(timeout: 4),
+        "Mic missed at (\(dx), \(dy)), keyboard: \(keyboard)")
+      app.buttons["Discard recording"].tap()
+      XCTAssertTrue(microphone.waitForExistence(timeout: 5))
     }
     let count = try await uploads()
     XCTAssertEqual(count, 0, "Edge taps start hands-free; they must never send automatically")

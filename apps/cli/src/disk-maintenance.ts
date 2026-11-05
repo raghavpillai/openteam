@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import type { InstallationPaths } from "./config";
-import { writeFileAtomic } from "./config";
+import { parseEnvironment, writeFileAtomic } from "./config";
 import type { ComposeProject } from "./docker";
 import type { CommandRunner } from "./process";
 
@@ -257,9 +257,20 @@ export const retainDatabaseBackups = (
   paths: InstallationPaths,
   protectedPath: string | null
 ): void => {
+  const setting =
+    parseEnvironment(readFileSync(paths.environment, "utf8"))
+      .get("OPENTEAM_BACKUP_RETENTION_COUNT")
+      ?.trim() || String(DATABASE_BACKUPS_TO_KEEP);
+  if (!/^(0|[1-9][0-9]*)$/.test(setting) || !Number.isSafeInteger(Number(setting))) {
+    throw new Error(
+      "OPENTEAM_BACKUP_RETENTION_COUNT must be a non-negative whole number; backups preserved"
+    );
+  }
+  const count = Number(setting);
+  if (count === 0) return; // Explicitly retain all updater restore points.
   const ledger = backupLedger(paths);
   assertMaintenancePath(paths.backups);
-  const keep = new Set(ledger.files.slice(-DATABASE_BACKUPS_TO_KEEP));
+  const keep = new Set(ledger.files.slice(-count));
   if (protectedPath) keep.add(basename(protectedPath));
   for (const name of [...ledger.files]) {
     if (keep.has(name)) continue;

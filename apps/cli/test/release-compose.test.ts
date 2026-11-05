@@ -47,7 +47,10 @@ describe("release Compose rendering", () => {
     for (const service of Object.values(yaml.services)) {
       expect(service.logging).toEqual({
         driver: "json-file",
-        options: { "max-size": "10m", "max-file": "3" },
+        options: {
+          "max-size": "${OPENTEAM_LOG_MAX_SIZE:-10m}",
+          "max-file": "${OPENTEAM_LOG_MAX_FILES:-3}",
+        },
       });
     }
     expect(rendered).toContain('profiles: ["https"]');

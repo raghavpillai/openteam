@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as filesystem from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -32,6 +33,7 @@ import {
   UPDATE_PROGRESS_PREFIX,
 } from "../src/lifecycle";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
+import { registerDatabaseBackup } from "../src/disk-maintenance";
 import { readUpdateState } from "../src/update-safety";
 
 class HealthyDockerRunner implements CommandRunner {
@@ -675,6 +677,17 @@ describe("installed lifecycle", () => {
   test("restores the database before restarting the prior release after startup fails", async () => {
     const { paths } = fixture();
     const runner = new HealthyDockerRunner(false, true);
+    mkdirSync(paths.backups);
+    const oldBackups = Array.from({ length: 4 }, (_, i) =>
+      join(
+        paths.backups,
+        `postgres-1.0.0-before-1.2.3-2026-10-0${i + 1}T00-00-00-000Z-${randomUUID()}.sql`
+      )
+    );
+    for (const backup of oldBackups) {
+      writeFileSync(backup, "older restore point");
+      registerDatabaseBackup(paths, backup);
+    }
     await expect(
       updateCommand(
         paths,
@@ -687,6 +700,7 @@ describe("installed lifecycle", () => {
       false
     );
     expect(existsSync(join(paths.directory, "image-retention.json"))).toBe(false);
+    expect(oldBackups.every(existsSync)).toBe(true);
     expect(existsSync(readUpdateState(paths)?.backupPath ?? "")).toBe(true);
     expect(runner.calls.some((call) => call.args.includes("dropdb"))).toBe(true);
     expect(runner.calls.some((call) => call.args.includes("createdb"))).toBe(true);

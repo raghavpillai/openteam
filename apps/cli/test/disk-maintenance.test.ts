@@ -116,6 +116,11 @@ test("retains current and prior full stacks across successive updates and new pr
   expect(runner.calls.some((args) => args.includes("prune") || args.includes("--force"))).toBe(
     false
   );
+  expect(
+    runner.calls.some((args) =>
+      ["volume", "network", "system", "builder", "buildx"].includes(args[0]!)
+    )
+  ).toBe(false);
 });
 
 test("preserves running/stopped container images, other installations, manual tags, and untracked images", () => {
@@ -285,4 +290,26 @@ test("unpulled optional profile images are skipped, but active or ambiguous inve
     if (mode === "optional") expect(captureStackImages(paths, project, runner)).toEqual([id(1)]);
     else expect(() => captureStackImages(paths, project, runner)).toThrow();
   }
+});
+
+test("backup retention can be disabled or increased; invalid settings preserve all restore points", () => {
+  for (const count of ["0", "6", "-1", "invalid", "9007199254740992"]) {
+    const { paths, files } = backups();
+    writeFileSync(paths.environment, `OPENTEAM_BACKUP_RETENTION_COUNT=${count}\n`);
+    if (count === "0" || count === "6") retainDatabaseBackups(paths, files[5]!);
+    else expect(() => retainDatabaseBackups(paths, files[5]!)).toThrow("backups preserved");
+    expect(files.every(existsSync)).toBe(true);
+  }
+});
+
+test("configured smaller retention still protects the rollback dump and exported copies", () => {
+  const { paths, files } = backups();
+  writeFileSync(paths.environment, "OPENTEAM_BACKUP_RETENTION_COUNT=1\n");
+  const manual = join(paths.backups, "manual");
+  mkdirSync(manual);
+  const exported = join(manual, "keep.sql");
+  writeFileSync(exported, readFileSync(files[1]!));
+  retainDatabaseBackups(paths, files[0]!);
+  expect(files.map(existsSync)).toEqual([true, false, false, false, false, true]);
+  expect(readFileSync(exported, "utf8")).toBe("private database bytes");
 });

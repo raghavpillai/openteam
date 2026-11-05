@@ -5,6 +5,7 @@ import { Avatar as AvatarPrimitive } from "radix-ui";
 import { memo } from "react";
 import { API_BASE } from "../../client/http";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
+import { useResourceActive } from "../../hooks/resource-activity";
 import { useAuthSession } from "../../hooks/use-auth-session";
 import { accountPresentation } from "../../lib/account";
 import { cn } from "../../lib/cn";
@@ -29,11 +30,12 @@ export const BotAvatar = memo(function BotAvatar({
   className?: string;
 }) {
   const activityMode = useBotAvatarMode(bot?.id, channelId);
+  const resourcesActive = useResourceActive();
   const avatarUrl =
     bot?.hasAvatar && bot.id && bot.updatedAt
       ? `${API_BASE}/api/v0/bots/${bot.id}/avatar?v=${encodeURIComponent(bot.updatedAt)}`
       : null;
-  const avatarSource = useAuthenticatedResource(avatarUrl);
+  const avatarSource = useAuthenticatedResource(avatarUrl, { enabled: resourcesActive });
   return (
     <AvatarPrimitive.Root
       className={cn(

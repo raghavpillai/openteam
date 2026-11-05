@@ -163,7 +163,9 @@ atMost("renderer bytes", result.renderer.bytes, 16_531_000);
 // Settings → Timezone, 4,096,699; Messages and the Settings cleanup, 4,101,637.
 // The same November feature baseline measures 4,113,699 gzip bytes.
 // The same v0.0.13 build measures 4,116,499 gzip bytes.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_117_500);
+// Resource ownership and background lifecycle controls measure 4,118,074 gzip
+// bytes. Allow 2 KB for worker retirement, blob leases and shared activity hooks.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_119_500);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun

@@ -68,6 +68,68 @@ failed Instruments connections as completed traces.
 
 ## Build and release gates
 
+### Background activity and foreground parity
+
+Run `bun run --cwd apps/desktop test:window-activity` and repeat with
+`WINDOW_ACTIVITY_REDUCED=1` to cover normal/reduced motion, 100 activity cycles,
+stale preload replies, idle/update polling, observer/listener cleanup, and actual
+MediaRecorder encoding across background transitions. The source audio is a
+synthetic tone; the test does not request microphone permission or upload audio.
+
+`bun run --cwd apps/desktop test:window-sync` mounts the actual desktop state hook
+and exercises event reconnect, overdue runtime refresh, offline delivery, and
+notification projection through the production preload. APIs/event transport and
+the OS notification adapter are fixture-controlled; this does not post OS banners.
+
+For a foreground comparison, prepare a separate checkout of the PR's base with
+the same dependencies, then run:
+
+```sh
+bun run --cwd apps/desktop test:window-foreground /absolute/path/to/base-checkout
+```
+
+The same fixture is served against each checkout without editing the base. It
+compares 16 foreground screenshots (light/dark, 600/900 px widths, idle/active
+chat, recording/processing), visible canvas pixels, layout geometry, and draft
+preservation. Animation clocks and CSS poses are fixed only in the fixture.
+
+Use `bun apps/desktop/scripts/test-window-activity.ts --native` for a separate
+native QA window. Exercise Cover, Hide, native minimize/restore, and Finish with
+CUA; `output/window-activity/native-events.jsonl` records the real native events
+and renderer state. This runs the same native activity binder as the app, with
+an isolated profile. Automated signal tests do not replace this OS-level check.
+
+Results are retained under `output/window-activity` and `output/window-foreground`.
+
+Run `bun run --cwd apps/desktop test:resource-lifecycle` for the production-built
+resource ownership fixture. It exercises shared authenticated blobs, credential
+invalidation, inactive-view and hidden-window parking, a real chat draft and
+caret, highlighter worker retirement and recreation, pending jobs and stale
+callbacks. The computer viewer uses the shipping lifecycle with a synthetic VNC
+transport and verifies that the control heartbeat continues while decoding stops.
+Long idle deadlines advance under a fixture clock. Browser work and worker jobs
+run on their normal event loops.
+
+On macOS, `bun apps/desktop/scripts/test-resource-lifecycle.ts --native-focus`
+builds the same fixture and drives native windows through the production activity
+binder. It brings a QA window and Finder forward. The suite uses real idle
+deadlines and checks visible/unfocused, partial overlap, full overlap, another
+active app, hidden, minimized, and show-without-focus states. It compares code
+pixels, text, selection, scrolling, copy payloads, new highlights and real composer
+state. The visible/unfocused and hidden cases wait 65 seconds to cross both the
+worker deadline and inactive blob expiry. It also exercises 100 rapid window
+switches, 25 switches to Finder and back, and pending highlighting across an idle
+deadline. Results and code screenshots go to `output/focus-lifecycle`. Clipboard
+writes are recorded by the fixture. App activation uses the native macOS API.
+
+Optional presentation uses a 30-second grace period. Visible consumers pin their
+blob URLs. Unused compressed blobs have a 16 MiB, 64-entry, 30-second cache budget.
+Decoded image buffers and graphics caches require separate native measurements.
+The highlighter retires after 30 idle seconds in the background and recreates on
+demand while the renderer retains completed token results.
+These tests establish lifecycle/visual behavior; they do not establish RAM savings
+or substitute for a long-duration memory profile.
+
 `bun desktop:performance` performs a clean renderer/main/preload/utility build, reads the generated Vite manifest, and enforces startup, CSS, complete-renderer, and lazy-feature closure budgets.
 
 `bun desktop:performance:release` additionally removes electron-builder's generated `release` tree, rebuilds and packages the app, and requires current ASAR/ZIP/DMG artifacts. The gate compares every `dist` and `dist-electron` file byte-for-byte with `app.asar`, so a missing, mixed-generation, or stale package cannot pass.

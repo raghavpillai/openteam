@@ -15,8 +15,10 @@ import { PrivateSettingValue } from "./private-value";
 import { SectionLabel, SettingsGroup, settingsPrimaryButton, settingsSecondaryButton } from "./ui";
 
 import { browserNetworkLabel } from "../../../lib/browser-network-status";
+import { useWindowVisible } from "../../../hooks/use-window-active";
 
 export function BrowserNetworkSettings() {
+  const visible = useWindowVisible();
   const [view, setView] = useState<BrowserNetworkView | null>(null);
   const [egress, setEgress] = useState<NetworkEgress | null>(null);
   const [quality, setQuality] = useState<NetworkQuality | null>(null);
@@ -30,6 +32,7 @@ export function BrowserNetworkSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
+    if (!visible) return;
     let active = true;
     const refresh = async () => {
       const results = await Promise.allSettled([
@@ -53,7 +56,7 @@ export function BrowserNetworkSettings() {
       active = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [visible]);
   const routeKey =
     view?.runtime.routeEpoch ??
     `${view?.settings.revision}:${view?.runtime.state}:${view?.runtime.activeMachineId}`;
@@ -82,7 +85,7 @@ export function BrowserNetworkSettings() {
     }
   };
   useEffect(() => {
-    if (!view || !["ready", "server"].includes(view.runtime.state)) return;
+    if (!visible || !view || !["ready", "server"].includes(view.runtime.state)) return;
     let active = true;
     setEgress(null);
     setEgressFailed(false);
@@ -106,7 +109,7 @@ export function BrowserNetworkSettings() {
       active = false;
       clearInterval(timer);
     };
-  }, [routeKey, view?.runtime.state]);
+  }, [routeKey, view?.runtime.state, visible]);
   const savedOrder = view?.settings.sourceOrder?.length ? view.settings.sourceOrder : ["server"];
   const ranked = order ?? savedOrder;
   const dirty = !!view && JSON.stringify(ranked) !== JSON.stringify(savedOrder);

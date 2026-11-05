@@ -245,6 +245,7 @@ const startLifecycle = (controller: DurableSendController) => {
   };
   document.addEventListener("visibilitychange", onVisibilityChange);
   let retryTimer: number | undefined;
+  let interval: number | undefined;
   let expiring = false;
   let active = true;
   const scheduleRetryExpiry = () => {
@@ -265,12 +266,26 @@ const startLifecycle = (controller: DurableSendController) => {
       if (navigator.onLine !== false) void controller.flush();
     });
   };
-  const unsubscribeExpiry = controller.subscribe(scheduleRetryExpiry);
+  const syncPolling = () => {
+    const needed = active && (transportDownUntilMs > Date.now() ||
+      controller.getSnapshot().some(record => record.phase !== "failed"));
+    if (needed && interval === undefined) {
+      interval = window.setInterval(() => {
+        refreshTransportSnapshot();
+        expireAndFlush();
+        syncPolling();
+      }, 5_000);
+    } else if (!needed && interval !== undefined) {
+      window.clearInterval(interval);
+      interval = undefined;
+    }
+  };
+  const unsubscribeExpiry = controller.subscribe(() => {
+    scheduleRetryExpiry();
+    syncPolling();
+  });
   scheduleRetryExpiry();
-  const interval = window.setInterval(() => {
-    refreshTransportSnapshot();
-    expireAndFlush();
-  }, 5_000);
+  syncPolling();
   controllerCleanups.set(controller, () => {
     active = false;
     window.removeEventListener("online", noteTransportChange);

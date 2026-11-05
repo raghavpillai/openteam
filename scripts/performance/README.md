@@ -110,6 +110,18 @@ transport and verifies that the control heartbeat continues while decoding stops
 Long idle deadlines advance under a fixture clock. Browser work and worker jobs
 run on their normal event loops.
 
+On macOS, `bun apps/desktop/scripts/test-resource-lifecycle.ts --native-focus`
+builds the same fixture and drives native windows through the production activity
+binder. It brings a QA window and Finder forward. The suite uses real idle
+deadlines and checks visible/unfocused, partial overlap, full overlap, another
+active app, hidden, minimized, and show-without-focus states. It compares code
+pixels, text, selection, scrolling, copy payloads, new highlights and real composer
+state. The visible/unfocused and hidden cases wait 65 seconds to cross both the
+worker deadline and inactive blob expiry. It also exercises 100 rapid window
+switches, 25 switches to Finder and back, and pending highlighting across an idle
+deadline. Results and code screenshots go to `output/focus-lifecycle`. Clipboard
+writes are recorded by the fixture. App activation uses the native macOS API.
+
 Optional presentation uses a 30-second grace period. Visible consumers pin their
 blob URLs. Unused compressed blobs have a 16 MiB, 64-entry, 30-second cache budget.
 Decoded image buffers and graphics caches require separate native measurements.

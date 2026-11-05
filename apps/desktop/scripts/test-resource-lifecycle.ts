@@ -1,11 +1,17 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { build } from "vite";
 
 const require = createRequire(import.meta.url);
+const nativeFocus = process.argv.includes("--native-focus");
+if (nativeFocus && process.platform !== "darwin") {
+  throw new Error("The native focus lifecycle suite requires macOS");
+}
 const directory = await mkdtemp(join(tmpdir(), "openteam-resource-lifecycle-"));
+const output =
+  process.env.FOCUS_LIFECYCLE_OUTPUT ?? resolve(import.meta.dir, "../../../output/focus-lifecycle");
 let server: ReturnType<typeof Bun.serve> | undefined;
 try {
   const preload = await Bun.build({
@@ -17,6 +23,18 @@ try {
     format: "cjs",
   });
   if (!preload.success) throw new Error(preload.logs.join("\n"));
+  if (nativeFocus) {
+    const activity = await Bun.build({
+      entrypoints: [resolve(import.meta.dir, "../src/main/window-activity.ts")],
+      outdir: directory,
+      naming: "window-activity.cjs",
+      external: ["electron"],
+      target: "node",
+      format: "cjs",
+    });
+    if (!activity.success) throw new Error(activity.logs.join("\n"));
+    await mkdir(output, { recursive: true });
+  }
   const renderer = join(directory, "renderer");
   await build({
     root: resolve(import.meta.dir, ".."),
@@ -51,23 +69,30 @@ try {
   const child = Bun.spawn(
     [
       require("electron") as string,
-      resolve(import.meta.dir, "../test/browser/resource-lifecycle-runner.cjs"),
+      resolve(
+        import.meta.dir,
+        nativeFocus
+          ? "../test/browser/focus-lifecycle-runner.cjs"
+          : "../test/browser/resource-lifecycle-runner.cjs"
+      ),
     ],
     {
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: undefined,
         RESOURCE_LIFECYCLE_DIR: directory,
-        RESOURCE_LIFECYCLE_URL: `${server.url}test/browser/resource-lifecycle.html`,
+        RESOURCE_LIFECYCLE_URL: `${server.url}test/browser/resource-lifecycle.html${nativeFocus ? "?realtime" : ""}`,
+        FOCUS_LIFECYCLE_OUTPUT: nativeFocus ? output : undefined,
       },
       stdout: "inherit",
       stderr: "pipe",
     }
   );
-  const timeout = setTimeout(() => child.kill(), 120_000);
+  const timeout = setTimeout(() => child.kill(), nativeFocus ? 900_000 : 120_000);
   const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
   clearTimeout(timeout);
   const result = JSON.parse(await readFile(join(directory, "results.json"), "utf8"));
+  if (nativeFocus) await writeFile(join(output, "results.json"), JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result, null, 2));
   if (code || result.error) throw new Error(result.error ?? stderr);
 } finally {

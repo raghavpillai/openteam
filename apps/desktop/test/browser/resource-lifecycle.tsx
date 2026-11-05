@@ -102,9 +102,12 @@ window.Worker = class extends BrowserWorker {
 };
 
 const originalFetch = window.fetch.bind(window);
-const png = await originalFetch(
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=="
-).then((response) => response.blob());
+const imageBlob = new Blob(
+  [
+    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="40"><rect width="64" height="40" fill="teal"/><circle cx="32" cy="20" r="12" fill="white"/></svg>',
+  ],
+  { type: "image/svg+xml" }
+);
 const requests: Array<{ path: string; aborted: boolean }> = [];
 const heldFetches: Array<() => void> = [];
 window.fetch = async (input, options) => {
@@ -126,7 +129,8 @@ window.fetch = async (input, options) => {
       },
       { once: true }
     );
-    const complete = () => resolve(new Response(png, { headers: { "content-type": "image/png" } }));
+    const complete = () =>
+      resolve(new Response(imageBlob, { headers: { "content-type": "image/svg+xml" } }));
     if (url.pathname.includes("hold")) heldFetches.push(complete);
     else complete();
   });
@@ -160,6 +164,9 @@ const root = createRoot(document.getElementById("root")!);
 let ChatPane:
   | typeof import("../../src/renderer/components/openteam/chat-pane").ChatPane
   | undefined;
+let MessageResponse:
+  | typeof import("../../src/renderer/components/ai-elements/message").MessageResponse
+  | undefined;
 const disposeVisibility = installWindowVisibility();
 await preloadLoadingOrb();
 type Options = {
@@ -169,6 +176,7 @@ type Options = {
   screen?: boolean;
   group?: boolean;
   chat?: boolean;
+  markdown?: string;
 };
 function Resource({ source, index, retain }: { source: string; index: number; retain?: string }) {
   const enabled = useResourceActive();
@@ -192,6 +200,11 @@ const render = (options: Options) =>
               ))}
               <LoadingOrb />
             </ResourceActivityProvider>
+            {options.markdown && MessageResponse && (
+              <div data-code-surface style={{ width: "calc(100% - 24px)", margin: 12 }}>
+                <MessageResponse>{options.markdown}</MessageResponse>
+              </div>
+            )}
             {options.group && (
               <GroupActivityContent
                 activity={{
@@ -253,6 +266,14 @@ const highlight = (source: string, language: string) => {
     });
 };
 Object.assign(window, {
+  renderResourceMarkdown: async (source: string, language = "typescript") => {
+    MessageResponse ??= (await import("../../src/renderer/components/ai-elements/message"))
+      .MessageResponse;
+    render({
+      sources: ["/api/fixture/image", "/api/fixture/image"],
+      markdown: `\`\`\`${language}\n${source}\n\`\`\``,
+    });
+  },
   renderResourceChat: async () => {
     ChatPane ??= (await import("../../src/renderer/components/openteam/chat-pane")).ChatPane;
     render({ chat: true, sources: ["/api/fixture/image"] });

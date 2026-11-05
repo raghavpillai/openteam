@@ -29,6 +29,7 @@ struct ComposerView: View {
   /// Picked photos and videos still being copied out of the library.
   @State private var pending: [PendingAttachment] = []
   @StateObject private var memo = VoiceMemoController()
+  @AppStorage("voice-recording-tip-dismissed") private var voiceTipDismissed = false
   @Environment(\.chatColumnLeading) private var columnLeading
   /// The idle pill's height, where the gooey merge starts from.
   @State private var pillHeight: CGFloat = 44
@@ -172,6 +173,7 @@ struct ComposerView: View {
       // Recording frees the keyboard (the glow sits at the bottom of the screen) and the
       // hidden draft must not take typing.
       .onChange(of: memo.phase) { _, phase in
+        if phase != .idle { voiceTipDismissed = true }
         if phase == .holding || phase == .locked || phase == .review { focused = false }
       }
       .task(id: key) {
@@ -279,9 +281,9 @@ struct ComposerView: View {
           axis: .vertical
         )
         .font(.body).lineLimit(1...8).focused($focused).tint(NativePalette.chatInsertion)
-        .padding(.leading, 16).padding(.trailing, 48)
+        .padding(.leading, 16).padding(.trailing, 60)
         .padding(.vertical, text.wrappedValue.contains("\n") ? 7 : 11)
-        .frame(minHeight: 44).accessibilityIdentifier(
+        .frame(minHeight: 52).accessibilityIdentifier(
           focusedReply ? "thread-message-input" : "message-input"
         )
         .contentShape(Rectangle())
@@ -295,8 +297,7 @@ struct ComposerView: View {
           }.overlay(alignment: .leading) { focusPadding.frame(width: 16) }
         }
         .overlay(alignment: .bottomTrailing) {
-          // The visible pill is 36 × 28; its separate 44-point hit area keeps
-          // sending/recording reachable without changing the reference inset.
+          // The trailing slot stays clear of the microphone's 52-point surface.
           trailingAction.padding(.trailing, 5)
             .animation(contentAnimation, value: hasContent)
         }
@@ -370,6 +371,20 @@ struct ComposerView: View {
             .frame(height: 0, alignment: .bottom).offset(y: -10)
             .transition(reduceMotion ? .opacity
               : .opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)).combined(with: .offset(y: 6)))
+        } else if !voiceTipDismissed, memo.phase == .idle, !hasContent, transcriptionConfigured {
+          HStack(spacing: 4) {
+            Text("Tap to record. Hold to send.").font(.footnote.weight(.medium))
+            Button { voiceTipDismissed = true } label: {
+              Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                .frame(width: 32, height: 44).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel("Dismiss recording tip")
+          }
+          .padding(.leading, 14).padding(.trailing, 4)
+          .foregroundStyle(NativePalette.text)
+          .nativeChatGlass(radius: 22, regularInLightMode: true)
+          .fixedSize()
+          .accessibilityIdentifier("voice-recording-tip")
+          .frame(height: 0, alignment: .bottom).offset(y: -10)
         }
       }.animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.28, dampingFraction: 0.8),
         value: memo.hint)

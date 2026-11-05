@@ -60,6 +60,56 @@ import XCTest
   private func center(of element: XCUIElement) -> XCUICoordinate {
     element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
   }
+
+  func testMicrophoneEdgesAndCornersStartHandsFreeWithAndWithoutKeyboard() async throws {
+    let app = try await launch(appearance: "light")
+    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    for keyboard in [false, true] {
+      for (dx, dy) in [(-13.0, 0.0), (13, 0), (-24, 0), (24, 0), (0, -24), (0, 24),
+                       (-24, -24), (24, -24), (-24, 24), (24, 24)] {
+        if keyboard {
+          field.tap()
+          XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        }
+        let microphone = mic(app)
+        XCTAssertTrue(microphone.waitForExistence(timeout: 5))
+        // Wait for the trash/composer spring to finish before sampling geometry.
+        try await Task.sleep(for: .seconds(1))
+        XCTAssertGreaterThanOrEqual(microphone.frame.width, 52)
+        XCTAssertGreaterThanOrEqual(microphone.frame.height, 52)
+        center(of: microphone).withOffset(CGVector(dx: dx, dy: dy)).tap()
+        XCTAssertTrue(app.buttons["Stop recording"].waitForExistence(timeout: 4),
+          "Mic missed at (\(dx), \(dy)), keyboard: \(keyboard)")
+        app.buttons["Discard recording"].tap()
+        XCTAssertTrue(microphone.waitForExistence(timeout: 5))
+      }
+    }
+    let count = try await uploads()
+    XCTAssertEqual(count, 0, "Edge taps start hands-free; they must never send automatically")
+  }
+
+  func testHandsFreeStopKeepsTheTakeUntilSend() async throws {
+    let app = try await launch()
+    mic(app).tap()
+    let stop = app.buttons["Stop recording"]
+    XCTAssertTrue(stop.waitForExistence(timeout: 4))
+    try await Task.sleep(for: .seconds(1))
+    stop.tap()
+    XCTAssertEqual(app.descendants(matching: .any)["voice-clock"].label, "Voice note ready")
+    XCTAssertTrue(stop.waitForNonExistence(timeout: 3))
+    let count = try await uploads()
+    XCTAssertEqual(count, 0)
+    app.buttons["Send voice note"].tap()
+    try await waitForMessage(app, transcript)
+  }
+
+  func testHoldStartedAtTheEdgeKeepsTrackingOutsideTheTarget() async throws {
+    let app = try await launch()
+    let start = center(of: mic(app)).withOffset(CGVector(dx: 24, dy: 0))
+    start.press(forDuration: 1, thenDragTo: start.withOffset(CGVector(dx: 35, dy: 12)),
+      withVelocity: .slow, thenHoldForDuration: 0.3)
+    try await waitForMessage(app, transcript)
+  }
   /// Press the mic, hold, then slide by (dx, dy) points and hold before lifting.
   private func holdAndSlide(_ app: XCUIApplication, dx: CGFloat, dy: CGFloat, hold: TimeInterval = 1) {
     let start = center(of: mic(app))

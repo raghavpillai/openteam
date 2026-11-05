@@ -202,6 +202,7 @@ final class AppStore {
             try activate(saved)
             await refresh()
             startEvents()
+            await routePendingDeepLink()
           } catch {
             phase = .signedOut
             authError = UserFacingError.message(error)
@@ -272,6 +273,7 @@ final class AppStore {
       try activate(saved)
       needsIdentityRefresh = true
       startEvents()
+      await routePendingDeepLink()
     } catch {
       phase = .signedOut
       authError = UserFacingError.message(error)
@@ -437,10 +439,7 @@ final class AppStore {
     startEvents()
     authError = nil
     authPath = []
-    if let url = pendingDeepLink {
-      pendingDeepLink = nil
-      await deepLink(url)
-    }
+    await routePendingDeepLink()
   }
   private func activate(
     _ next: SessionRecord, persistSession: Bool = false, requestPushPermission: Bool = true
@@ -1562,18 +1561,22 @@ final class AppStore {
     navigation = [channelID]
   }
   func deepLink(_ url: URL) async {
-    guard ["openteam", "openteam-swift"].contains(url.scheme ?? "") else { return }
+    let parts = url.pathComponents.filter { $0 != "/" }
+    guard ["openteam", "openteam-swift"].contains(url.scheme ?? ""), url.host == "chat",
+      parts.count == 1, let id = parts.first else { return }
     guard phase == .ready else {
       pendingDeepLink = url
       return
     }
-    let parts = url.pathComponents.filter { $0 != "/" }
-    if url.host == "chat", let id = parts.first {
-      let message = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first {
-        $0.name == "messageId"
-      }?.value
-      await open(id, messageID: message)
-    }
+    let message = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first {
+      $0.name == "messageId"
+    }?.value
+    await open(id, messageID: message)
+  }
+  private func routePendingDeepLink() async {
+    guard phase == .ready, let url = pendingDeepLink else { return }
+    pendingDeepLink = nil
+    await deepLink(url)
   }
   func setSystemDiscoveryEnabled(_ enabled: Bool) {
     guard let record, !testing else { return }

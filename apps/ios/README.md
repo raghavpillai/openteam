@@ -197,13 +197,19 @@ requests expire after 30 seconds and are cleared on account changes, sign-out,
 or entering the background. The saved session is checked again immediately
 before a visible composer consumes the recording request. Newer shortcut
 destinations supersede older context lookups and queued cold-launch requests.
-Saved Bot parameters resolve from the connected account's existing local cache.
+Bot suggestions, name searches, and saved Bot parameters resolve from the
+connected account's existing local cache, including the iOS 27 Siri Bot picker.
 Known Bots open without waiting for server bootstrap, and a configured voice
 composer can start recording once visible. Normal foreground sync refreshes the
 directory and transcription configuration independently. Missing or corrupt
-caches fall back to live resolution; sending and exporting still validate against
+caches fall back to a live directory projection that decodes only Bot identity,
+name, role, status, and chat membership. Unrelated history or runtime response
+fields cannot break the Bot picker. Sending and exporting still validate against
 the server. Device unlock, Shortcuts dispatch, app startup, and microphone
 permission can still add delay.
+
+The `openteam://chat/<channel-id>` URL scheme (`openteam-swift://` in Debug)
+also resumes a link received before the saved account finishes restoring.
 
 On iOS 27, the Messages App Schemas additionally expose drafting and sending
 messages through Siri AI. A Bot is a message person, a chat is a conversation,
@@ -246,6 +252,54 @@ xcodebuild -project apps/ios/OpenTeamNative.xcodeproj -scheme SystemIntents \
   -destination 'platform=iOS Simulator,id=<simulator-udid>' \
   -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- test
 ```
+
+For manual Shortcuts UI checks, the simulator app additionally needs a code
+signature with a TeamIdentifier. Ad-hoc signing permits the hosted tests to use
+Keychain, but `linkd` can refuse to find the App Shortcuts provider because the
+signature has no team identity. Use a separately signed simulator app for this
+check; do not infer a shipping-app registration failure from that simulator error.
+
+#### Integration audit on November 5, 2026
+
+The audit used current `origin/main` at `134d5a42f`, with fixes on
+`fix/ios-shortcuts-audit`, rather than the older root checkout. The picker failure
+was reproduced with an incompatible bootstrap fixture. The exact response from
+the photographed iPhone was not available, so its failing server field is unknown.
+
+- **Bot selection and opening:** fixed both the App Shortcut and iOS 27 Siri
+  picker to use the account cache, with a minimal live directory fallback.
+  The real iOS 26 Shortcuts app displayed Research, Ops, and Build. Choosing
+  Build opened its chat while the fixture server was offline; an uncached
+  transcript still requires the server. Saved entity identifiers are unchanged.
+- **Voice shortcut:** verified chosen-recipient handoff, cold and warm starts,
+  repeated invocations, existing-draft preservation, account changes, permission
+  denial, background cancellation, audio interruptions, and recording limits.
+  Audio lifecycle tests use synthetic recordings rather than physical microphones.
+- **Sending, routines, search, and file transfers:** exercised the production
+  intent handlers against synthetic accounts, including actual uploaded/exported
+  bytes, accepted message results, routine execution, older-message context,
+  invalid recipients, oversized attachment counts, offline errors, and revocation.
+- **Siri and Spotlight:** verified the iOS 27 messaging schemas, draft preservation,
+  unsupported scheduling rejection, actual Spotlight indexing/editing/removal,
+  opt-out, sign-out cleanup, and discovery settings across cold launches.
+- **Chat URLs:** fixed queued chat links being lost when restoring an existing
+  session. Invalid routes cannot replace the latest queued valid chat link.
+- **Share extension:** opened OpenTeam from Safari's actual system share sheet,
+  selected Research, sent a URL, and verified exactly one matching message in
+  Research's fixture conversation. Per-conversation system suggestions still
+  require the separately documented device/coreduet checks.
+- **Notifications:** exercised foreground suppression, thread opening, read and
+  badge cleanup, foreground reconciliation, registration retry, preferences, and
+  retirement. The cold-launch read assertion now waits for transcript positioning
+  before checking the actual receipt. Eight notification cases passed across the
+  suite and focused reruns; the background-wake case skipped on this simulator.
+
+Validation also passed 200 core tests, 60 iOS 27 system tests, 40 iOS 26 Bot/voice
+tests, two discovery UI tests, seven renderer tests, and native signing/transport/extension configuration
+checks. Fixture-based tests do not certify production APNs background delivery,
+physical Back Tap or Action button gestures, spoken Siri service behavior, real
+camera/photo permissions, or physical microphone interruptions. The audit does
+not publish an iOS build; installed iPhones need a subsequent release of the fix.
 
 `SystemIntegrationUITests` verifies the discovery setting through the real
 signed-in UI, persistence across cold launches, and sending a chat message with

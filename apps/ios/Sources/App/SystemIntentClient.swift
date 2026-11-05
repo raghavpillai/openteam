@@ -22,8 +22,14 @@ struct SystemIntentClient {
   static func connect() async throws -> Self {
     let session = try savedSession()
     let api = try API(server: session.server, token: session.token, timeout: 15)
-    let bootstrap: Bootstrap
-    do { bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self) }
+    let bootstrap = try await loadBootstrap(session: session, api: api, as: Bootstrap.self)
+    return Self(session: session, api: api, bootstrap: bootstrap)
+  }
+
+  /// Pickers decode a directory projection; actions still decode the full product state.
+  static func loadBootstrap<T: Decodable & Sendable>(session: SessionRecord, api: API, as type: T.Type) async throws -> T {
+    let value: T
+    do { value = try await api.get("/api/v0/client-bootstrap", as: type) }
     catch let failure as APIError where failure.unauthorized {
       // A revoked session may be discovered by a background intent before the
       // app resumes. Invalidate that session too, otherwise a later cached-state
@@ -43,9 +49,8 @@ struct SystemIntentClient {
       // that object and would terminate the app during parameter refresh.
       throw APIError(UserFacingError.message(error))
     }
-    let client = Self(session: session, api: api, bootstrap: bootstrap)
-    try client.validateSession()
-    return client
+    try validateSession(session)
+    return value
   }
 
   static func validateSession(_ session: SessionRecord) throws {

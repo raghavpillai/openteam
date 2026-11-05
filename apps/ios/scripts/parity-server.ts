@@ -51,7 +51,7 @@ let invalidServer = false;
 let missingToken = false;
 let memories: any[] = [];
 let pagedHistory = false;
-let failures: Record<string, {status?: number; message?: string; count?: number; delayMs?: number}> = {};
+let failures: Record<string, {status?: number; message?: string; count?: number; delayMs?: number; body?: unknown}> = {};
 let searchResults: unknown[] | null = null;
 let browserNetwork = new BrowserNetworkFixture();
 let functionality = new FunctionalFixtures();
@@ -247,7 +247,7 @@ const server = Bun.serve({
     if (failure && (failure.count ?? 1) > 0) {
       failure.count = (failure.count ?? 1) - 1;
       if (failure.delayMs) await Bun.sleep(failure.delayMs);
-      if (failure.status) return response(failure.message ? { message: failure.message } : {}, failure.status);
+      if (failure.status) return response(failure.body ?? (failure.message ? { message: failure.message } : {}), failure.status);
     }
     if (path === "/api/auth/config") return response(invalidServer ? {mode:"unrecognized"} : { mode: authRequired ? "required" : "disabled" });
     if (path === "/api/auth/login") {

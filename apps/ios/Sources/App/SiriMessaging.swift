@@ -32,6 +32,12 @@ struct TeamSiriPerson: IndexedEntity, Transferable {
 @available(iOS 27.0, *)
 struct TeamSiriPersonQuery: EntityStringQuery, IntentValueQuery, IndexedEntityQuery {
   @MainActor func entities(for identifiers: [String]) async throws -> [TeamSiriPerson] {
+    // The owner is message context rather than a Bot; resolve it through the live account below.
+    if identifiers.allSatisfy({ SystemEntityID($0)?.localID != "owner" }) {
+      return try await TeamBotQuery().entities(for: identifiers).map {
+        TeamSiriPerson(id: $0.id, name: $0.name)
+      }
+    }
     let client = try await SystemIntentClient.connect()
     return try identifiers.compactMap { value in
       let id = try client.identifier(value, kind: .bot)
@@ -44,10 +50,9 @@ struct TeamSiriPersonQuery: EntityStringQuery, IntentValueQuery, IndexedEntityQu
   }
   @MainActor func suggestedEntities() async throws -> [TeamSiriPerson] { try await entities(matching: "") }
   @MainActor func entities(matching string: String) async throws -> [TeamSiriPerson] {
-    let client = try await SystemIntentClient.connect()
-    return client.destinations.filter {
-      string.isEmpty || $0.name.localizedStandardContains(string)
-    }.compactMap { $0.bot.map { TeamSiriPerson($0, scope: client.scope) } }
+    try await TeamBotQuery().entities(matching: string).map {
+      TeamSiriPerson(id: $0.id, name: $0.name)
+    }
   }
   @MainActor func values(for input: [IntentPerson]) async throws -> [TeamSiriPerson] {
     let client = try await SystemIntentClient.connect()

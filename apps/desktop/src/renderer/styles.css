@@ -1638,3 +1638,9 @@ textarea,
 :root[data-window-hidden] *::after {
   animation-play-state: paused !important;
 }
+
+:root[data-window-inactive] *,
+:root[data-window-inactive] *::before,
+:root[data-window-inactive] *::after {
+  animation-play-state: paused !important;
+}

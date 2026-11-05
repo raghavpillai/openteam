@@ -4,6 +4,7 @@
 import { Trash2 } from "lucide-react";
 import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 import { getAudioContext } from "voice-glow";
+import { useWindowActive } from "../../../hooks/use-window-active";
 import { BotArrowUpIcon, BotCloseIcon, BotPlusIcon } from "../../ai-elements/composer-icons";
 import { LoadingOrb, preloadLoadingOrb } from "../../ui/loading-orb";
 import { VoiceBackdropGlow } from "./voice-backdrop-glow";
@@ -59,8 +60,10 @@ function useReducedMotion() {
 // The voice across the bar: a dotted baseline the take scrolls over
 // continuously, newest sound entering at the right edge.
 function VoiceWave({ stream }: { stream: MediaStream | null }) {
+  const active = useWindowActive();
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
+    if (!active) return;
     const element = canvas.current;
     const context = element?.getContext("2d");
     if (!element || !context) return;
@@ -151,7 +154,7 @@ function VoiceWave({ stream }: { stream: MediaStream | null }) {
       analyser?.disconnect();
       for (const clone of tap?.getTracks() ?? []) clone.stop();
     };
-  }, [stream]);
+  }, [stream, active]);
   return (
     <canvas aria-hidden="true" className="vm-wave" data-voice-wave ref={canvas} tabIndex={-1} />
   );

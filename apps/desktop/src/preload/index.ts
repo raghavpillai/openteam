@@ -128,6 +128,20 @@ contextBridge.exposeInMainWorld("openteam", {
     return () => ipcRenderer.removeListener("openteam:app-menu", listener);
   },
   visibility: {
+    subscribeActivity: (callback: (active: boolean) => void) => {
+      let subscribed = true;
+      let receivedEvent = false;
+      const listener = (_event: Electron.IpcRendererEvent, active: unknown) => {
+        if (typeof active !== "boolean") return;
+        receivedEvent = true;
+        if (subscribed) callback(active);
+      };
+      ipcRenderer.on("openteam:window-activity-changed", listener);
+      void ipcRenderer.invoke("openteam:window-activity").then((active) => {
+        if (subscribed && !receivedEvent && typeof active === "boolean") callback(active);
+      }).catch(() => { /* Browser focus remains the fallback during shutdown. */ });
+      return () => { subscribed = false; ipcRenderer.removeListener("openteam:window-activity-changed", listener); };
+    },
     subscribe: (callback: (visible: boolean) => void) => {
       let active = true;
       let receivedEvent = false;

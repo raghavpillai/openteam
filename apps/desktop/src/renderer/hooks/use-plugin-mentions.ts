@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { MentionOption } from "@openteam/product-core/mentions";
 import { api } from "../client/openteam-api";
+import { isWindowActive } from "../lib/window-visibility";
 
 export function usePluginMentions(botId?: string): MentionOption[] {
   const [items, setItems] = useState<MentionOption[]>([]);
@@ -12,7 +13,7 @@ export function usePluginMentions(botId?: string): MentionOption[] {
     refresh();
     window.addEventListener("focus", refresh);
     window.addEventListener("openteam:plugins-changed", refresh);
-    const timer = setInterval(refresh, 30_000);
+    const timer = setInterval(() => { if (isWindowActive()) refresh(); }, 30_000);
     return () => { active = false; clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener("openteam:plugins-changed", refresh); };
   }, [botId]);
   return items;

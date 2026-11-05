@@ -8,7 +8,10 @@ interface Window {
       onComputerAction(callback: (action: "copy" | "cut" | "paste") => void): () => void;
     };
     onMenuAction?: (listener: (action: "about" | "updates" | "settings") => void) => () => void;
-    visibility?: { subscribe: (callback: (visible: boolean) => void) => () => void };
+    visibility?: {
+      subscribe: (callback: (visible: boolean) => void) => () => void;
+      subscribeActivity?: (callback: (active: boolean) => void) => () => void;
+    };
     auth: {
       connectMachine: (serverUrl: string) => Promise<{ machineId: string }>;
       machineStatus: () => Promise<{ machineId: string; connected: boolean; configured: boolean; error: string | null }>;

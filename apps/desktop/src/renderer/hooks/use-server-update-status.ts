@@ -3,6 +3,7 @@ import { api } from "../client/openteam-api";
 import { API_BASE } from "../client/http";
 import { readServerUpdateSnapshot, saveServerUpdateSnapshot } from "../lib/server-update-cache";
 import { isOpenTeamVersion } from "@openteam/contracts/version-compatibility";
+import { isWindowActive } from "../lib/window-visibility";
 
 const manualCommand = (targetVersion: string | null) =>
   targetVersion && isOpenTeamVersion(targetVersion)
@@ -136,7 +137,10 @@ export function useServerUpdateStatus(targetVersion: string | null) {
 
   useEffect(() => {
     const interval = window.setInterval(
-      () => void refresh(),
+      () => {
+        // An update already in progress must remain observable in the background.
+        if (view.status?.status === "updating" || isWindowActive()) void refresh();
+      },
       view.status?.status === "updating" ? 1_500 : view.reconnecting ? 5_000 : 60_000
     );
     return () => window.clearInterval(interval);

@@ -1,4 +1,4 @@
-import { isWindowVisible, WINDOW_VISIBILITY_EVENT } from "../../lib/window-visibility";
+import { isWindowActive, WINDOW_ACTIVITY_EVENT } from "../../lib/window-visibility";
 import { DEFAULT_BOT_AVATAR } from "@openteam/contracts/bot-avatar";
 import {
   createElement,
@@ -74,23 +74,23 @@ export const BotAvatarGlyph = memo(function BotAvatarGlyph({
     };
   }, [robot]);
   useLayoutEffect(() => {
-    motion.current?.setMode(visible ? mode : "still", visible && isWindowVisible());
+    motion.current?.setMode(visible ? mode : "still", visible && isWindowActive());
   }, [mode, visible, robot]);
   useEffect(() => {
     if (mode === "still") return;
     const element = ref.current;
     if (!element) return;
     let inViewport = false;
-    const sync = () => setVisible(inViewport && isWindowVisible());
+    const sync = () => setVisible(inViewport && isWindowActive());
     const observer = new IntersectionObserver(([entry]) => {
       inViewport = entry?.isIntersecting ?? false;
       sync();
     });
     observer.observe(element);
-    window.addEventListener(WINDOW_VISIBILITY_EVENT, sync);
+    window.addEventListener(WINDOW_ACTIVITY_EVENT, sync);
     return () => {
       observer.disconnect();
-      window.removeEventListener(WINDOW_VISIBILITY_EVENT, sync);
+      window.removeEventListener(WINDOW_ACTIVITY_EVENT, sync);
     };
   }, [mode]);
   return (

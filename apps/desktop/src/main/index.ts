@@ -72,6 +72,10 @@ ipcMain.handle("openteam:window-visibility", (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Window is unavailable");
   return isMainWindowVisible();
 });
+ipcMain.handle("openteam:window-activity", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Window is unavailable");
+  return isMainWindowVisible() && mainWindow.isFocused();
+});
 let authTokenStore: DesktopAuthTokenStore | null = null;
 let computerSettings: ComputerSettingsStore | null = null;
 let desktopNotifications: DesktopNotificationManager | null = null;
@@ -1034,6 +1038,16 @@ const createWindow = async () => {
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
   const publishVisibility = () => mainWindow?.webContents.send("openteam:window-visibility-changed", isMainWindowVisible());
+  const publishActivity = () => mainWindow?.webContents.send(
+    "openteam:window-activity-changed", isMainWindowVisible() && mainWindow.isFocused()
+  );
+  mainWindow.on("show", publishActivity);
+  mainWindow.on("hide", publishActivity);
+  mainWindow.on("minimize", publishActivity);
+  mainWindow.on("restore", publishActivity);
+  mainWindow.on("focus", publishActivity);
+  mainWindow.on("blur", publishActivity);
+  mainWindow.webContents.on("did-finish-load", publishActivity);
   mainWindow.on("show", publishVisibility);
   mainWindow.on("hide", publishVisibility);
   mainWindow.on("minimize", publishVisibility);

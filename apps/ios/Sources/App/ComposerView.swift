@@ -33,6 +33,7 @@ struct ComposerView: View {
   /// The idle pill's height, where the gooey merge starts from.
   @State private var pillHeight: CGFloat = 44
   @State private var pluginMentions: [JSON] = []
+  @State private var resumeEditingAfterVoice = false
   @FocusState private var focused: Bool
   private var draft: Draft { store.draft(key) }
   private var attachmentCount: Int {
@@ -171,8 +172,16 @@ struct ComposerView: View {
       .onChange(of: isEnabled) { _, enabled in if enabled { startRequestedRecording() } }
       // Recording frees the keyboard (the glow sits at the bottom of the screen) and the
       // hidden draft must not take typing.
-      .onChange(of: memo.phase) { _, phase in
+      .onChange(of: memo.phase) { previous, phase in
+        if previous == .idle, phase == .pressing || phase == .locked {
+          resumeEditingAfterVoice = resumeEditingAfterVoice || focused
+        }
         if phase == .holding || phase == .locked || phase == .review { focused = false }
+        if phase == .idle {
+          let resume = resumeEditingAfterVoice
+          resumeEditingAfterVoice = false
+          if resume, visible, scenePhase == .active { focused = true }
+        }
       }
       .task(id: key) {
         configureVoice()
@@ -295,8 +304,8 @@ struct ComposerView: View {
           }.overlay(alignment: .leading) { focusPadding.frame(width: 16) }
         }
         .overlay(alignment: .bottomTrailing) {
-          // The visible pill is 36 × 28; its separate 44-point hit area keeps
-          // sending/recording reachable without changing the reference inset.
+          // Artwork keeps the original inset. The separate microphone overlay
+          // owns a larger invisible target, including the surrounding padding.
           trailingAction.padding(.trailing, 5)
             .animation(contentAnimation, value: hasContent)
         }
@@ -441,6 +450,8 @@ struct ComposerView: View {
   }
   /// The + menu path (there is a draft): straight to the hands-free bar.
   func startLockedRecording() {
+    guard memo.phase == .idle else { return }
+    resumeEditingAfterVoice = focused
     focused = false
     memo.startLocked()
   }

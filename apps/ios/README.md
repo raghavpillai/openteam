@@ -12,7 +12,7 @@ signing team are configured in `release.json`.
 
 ## Build and run
 
-Use macOS with Xcode 27+ and Swift 6; the deployment target is iOS 18. Open
+Use macOS with Xcode 27.3 beta or later and Swift 6; the deployment target is iOS 18. Open
 `OpenTeamNative.xcodeproj`, select the `OpenTeamNative` scheme and an iOS simulator,
 and Run. Connect to your OpenTeam server using its reachable HTTP or HTTPS address.
 The native target has no Expo, React Native or CocoaPods runtime dependency. Its only
@@ -36,6 +36,55 @@ swift test --package-path apps/ios -c release
 notification avatar artwork, offline Markdown/KaTeX/Mermaid documents, and noVNC
 viewer. Its JavaScript dependencies are pinned in this workspace's `package.json`.
 Ordinary messages, chat navigation, composer and state are native Swift views.
+
+## Siri AI preview and app skills
+
+Build with Xcode 27.3 beta or later. Existing Shortcuts (including a saved Bot
+assigned to Back Tap) still use the same intent identifiers and support iOS 18+.
+The new custom Siri tools become available on iOS 27.3; the Messages domain
+schemas are available on iOS 27. `ToolIntent` conformances are availability-scoped
+extensions so introducing Siri tools does not remove older saved actions.
+
+`Resources/Skills.skillsbundle` contains three Apple app skills: delegate a task,
+review a conversation, and run an existing routine once. Xcode compiles them to
+`Metadata.appintents/Skills.skillsc`; these are instructions for Siri's reasoning,
+not executable workflows or guarantees about its choice of actions. Send and run
+actions acknowledge asynchronous server work, not a completed Bot answer.
+
+The user's Siri and Spotlight setting gates on-screen message/conversation
+annotations and the bounded on-device index. Live entity queries and transfers
+check the connected account; entity and intent metadata require authentication.
+Conversation previews use committed messages only and refresh after edits, and
+message read state uses the channel's read cursor. Message search reaches beyond
+the recent index. Named groups use explicit conversation send/draft tools because
+the 27.3 SDK currently rejects conversation destinations in the Messages schema,
+even though the preview documentation lists them. Recipient-based schema actions
+require a unique existing group and never choose between duplicate groups.
+
+Apple's Siri AI developer preview requires an Apple Intelligence-capable device
+on iOS 27.3 with preview access and a development-signed app or internal TestFlight
+build. External TestFlight/App Store builds do not enable preview testing. The
+Simulator can verify actions and indexing, but cannot validate Siri's live
+reasoning or app-skill selection. See Apple's [preview requirements](https://developer.apple.com/documentation/appintents/siri-ai-developer-preview)
+and [app skills guide](https://developer.apple.com/documentation/appintents/orchestrating-complex-actions-with-app-skills).
+
+After building, verify compiler output with:
+
+```sh
+python3 apps/ios/scripts/check-siri-skills.py <path-to-OpenTeamNative.app>
+```
+
+The opt-in `SiriSkills` scheme compiles device-only `SiriEvaluations` tests for
+server search, named-group drafting and a conversational follow-up. Use an
+isolated QA account with a group named `Release review`. Enable
+`OPENTEAM_LIVE_SIRI_TESTS=1` in the test runner's environment and provide
+`OPENTEAM_SIRI_QA_CONVERSATION_ID` with that group's full account-scoped entity ID
+(the `TeamConversationEntity` ID, not the raw server channel ID). Without opt-in,
+the tests skip. These cases open drafts; review and clear the QA drafts between
+runs. Also verify on device that "this conversation" follows the visible chat,
+a draft is never sent without a send request, ambiguous recipients ask for a
+choice, and locking/signing out prevents access. A successful simulator suite
+alone does not establish that Siri's natural-language reasoning passes.
 
 ## QA
 

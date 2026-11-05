@@ -48,6 +48,7 @@ struct SystemDiscoverySnapshot: Sendable {
   static let messageLimit = 200
   let destinations: [ShareDestination]
   let messages: [Message]
+  let latestMessages: [String: Message]
 
   init(bootstrap: Bootstrap, messages cached: [String: [Message]]) {
     let activeBots = Set(bootstrap.bots.filter { $0.status != "archived" }.map(\.id))
@@ -62,6 +63,11 @@ struct SystemDiscoverySnapshot: Sendable {
     // The server bootstrap wins over any older cached copy of the same message.
     for message in bootstrap.latestMessages where channels.contains(message.channelId) {
       byID[message.id] = message
+    }
+    let grouped = Dictionary(grouping: byID.values, by: \.channelId)
+    latestMessages = grouped.compactMapValues { values in
+      guard let channelID = values.first?.channelId else { return nil }
+      return SystemConversationProjection.latestMessage(in: values, channelID: channelID)
     }
     var counts: [String: Int] = [:]
     messages = Array(byID.values.sorted {

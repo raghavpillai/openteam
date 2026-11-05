@@ -2,6 +2,7 @@ import { Download, X } from "lucide-react";
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { API_BASE } from "../../client/http";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
+import { useResourceActive } from "../../hooks/resource-activity";
 import { cn } from "../../lib/cn";
 import { imageRowWidth, planImageRow } from "./attachment-visuals";
 import { Dialog, DialogContent, DialogDescription, DialogPortal, DialogTitle } from "../ui/dialog";
@@ -40,7 +41,7 @@ const useSettledImageSource = (source: string | null) => {
       cancelled = true;
     };
   }, [shown, source]);
-  return source === shown || !shown || shown.startsWith("blob:") ? source : shown;
+  return !source || source === shown || !shown || shown.startsWith("blob:") ? source : shown;
 };
 
 export function ImageAttachment({
@@ -55,11 +56,12 @@ export function ImageAttachment({
   variant?: "composer" | "message" | "message-grid" | "tile";
 }) {
   const [open, setOpen] = useState(false);
+  const resourcesActive = useResourceActive();
   const label = image.alt?.trim() || "Image";
   const rawSource = image.url.startsWith("/api/")
     ? new URL(image.url, API_BASE).toString()
     : image.url;
-  const fetchedSource = useAuthenticatedResource(rawSource);
+  const fetchedSource = useAuthenticatedResource(rawSource, { enabled: resourcesActive });
   const source = useSettledImageSource(fetchedSource);
   // Reserve the frame from attachment metadata before fetching/decoding bytes.
   // Images without dimensions keep the fallback frame even after load, so
@@ -174,8 +176,9 @@ export function ImageAttachment({
 function MediaThumbnail({ image, index, total, active, onSelect }: {
   image: DisplayImage; index: number; total: number; active: boolean; onSelect: () => void;
 }) {
+  const resourcesActive = useResourceActive();
   const raw = image.url.startsWith("/api/") ? new URL(image.url, API_BASE).toString() : image.url;
-  const source = useAuthenticatedResource(raw);
+  const source = useAuthenticatedResource(raw, { enabled: resourcesActive });
   return (
     <button
       aria-current={active || undefined}
@@ -210,6 +213,7 @@ const useChatColumnWidth = (ref: RefObject<HTMLElement | null>) => {
 };
 
 export function MessageImageGallery({ images }: { images: DisplayImage[] }) {
+  const resourcesActive = useResourceActive();
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const columnWidth = useChatColumnWidth(rowRef);
@@ -236,7 +240,7 @@ export function MessageImageGallery({ images }: { images: DisplayImage[] }) {
       ? new URL(activeImage.url, API_BASE).toString()
       : activeImage.url
     : null;
-  const activeSource = useAuthenticatedResource(activeRawSource);
+  const activeSource = useAuthenticatedResource(activeRawSource, { enabled: resourcesActive });
   if (images.length === 0) return null;
   const activeLabel = activeImage?.alt?.trim() || "Image";
   const downloadActive = () => {

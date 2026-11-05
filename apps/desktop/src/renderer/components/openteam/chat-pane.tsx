@@ -1,4 +1,5 @@
 import { useDayClock } from "../../hooks/use-day-clock";
+import { ResourceActivityProvider } from "../../hooks/resource-activity";
 import { ThinkingCaption } from "./thinking-caption";
 import { thinkingActivity } from "../../lib/thinking-activity";
 import { EXECUTING_ASYNC_TASK_STATUSES } from "../../lib/async-tasks";
@@ -1235,7 +1236,7 @@ export const ChatPane = memo(function ChatPane({
     },
     [onReactMessage]
   );
-  const pluginMentions = usePluginMentions(selectedBot?.id ?? channel.members[0]?.botId);
+  const pluginMentions = usePluginMentions(selectedBot?.id ?? channel.members[0]?.botId, active);
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const bots =
       channel.kind === "group"
@@ -1452,7 +1453,7 @@ export const ChatPane = memo(function ChatPane({
       ? null
       : { index, messageId: focusMessage.messageId, nonce: focusMessage.nonce };
   }, [focusMessage, messagesById, renderedTimeline]);
-  return (
+  const content = (
     <div
       className={cn(
         "relative flex size-full min-h-0 flex-col bg-background",
@@ -1777,4 +1778,5 @@ export const ChatPane = memo(function ChatPane({
       )}
     </div>
   );
+  return <ResourceActivityProvider active={active}>{content}</ResourceActivityProvider>;
 }, chatPanePropsEqual);

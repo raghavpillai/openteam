@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useWindowVisible } from "../../../hooks/use-window-active";
 import { Monitor, MoreHorizontal } from "lucide-react";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { api } from "../../../client/openteam-api";
@@ -57,21 +58,23 @@ function DeviceRow({ machine, current, busy, onChange }: { machine: Machine; cur
 }
 
 export function MachineSettings() {
+  const visible = useWindowVisible();
   const [machines, setMachines] = useState<Machine[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [local, setLocal] = useState<{machineId:string;connected:boolean;configured:boolean;error:string|null} | null>(null);
-  const load = async () => {
+  const load = useCallback(async () => {
     const [roster, status] = await Promise.all([api.machines(), window.openteam?.auth.machineStatus?.().catch(() => null)]);
     setMachines(roster); setLocal(status ?? null);
-  };
-  useEffect(() => { void load().catch(e => setError(clientErrorMessage(e, "Could not load computers"))); }, []);
+  }, []);
   useEffect(() => {
+    if (!visible) return;
+    void load().catch(e => setError(clientErrorMessage(e, "Could not load computers")));
     const refresh = () => { void load().catch(() => {}); };
     const timer = setInterval(refresh, 10_000);
     window.addEventListener("openteam:machines-changed", refresh);
     return () => { clearInterval(timer); window.removeEventListener("openteam:machines-changed", refresh); };
-  }, []);
+  }, [load, visible]);
   // This computer first, then the ones online, then the rest.
   const rank = (machine: Machine) =>
     local?.machineId === machine.machineId ? 0 : machine.connected ? 1 : machine.enabled ? 2 : 3;

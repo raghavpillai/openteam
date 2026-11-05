@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import type { OrbSize, ThinkingOrbProps } from "thinking-orbs";
 import { cn } from "../../lib/cn";
 import { useWindowActive } from "../../hooks/use-window-active";
+import { useResourceActive } from "../../hooks/resource-activity";
 
 // Startup screens show orbs, so the library loads on first use instead of
 // joining the startup closure. Until it resolves, an empty box holds the space.
@@ -46,15 +47,16 @@ export function LoadingOrb({
   ...props
 }: LoadingOrbProps) {
   const active = useWindowActive();
+  const resourcesActive = useResourceActive();
   const [loaded, setLoaded] = useState(orbModule);
   useEffect(() => {
-    if (!loaded) void preloadLoadingOrb().then(setLoaded);
-  }, [loaded]);
+    if (!loaded && resourcesActive) void preloadLoadingOrb().then(setLoaded);
+  }, [loaded, resourcesActive]);
   const dark = useSyncExternalStore(
     inverse ? subscribeToTheme : subscribeToNothing,
     documentIsDark
   );
-  if (!loaded) {
+  if (!loaded || !resourcesActive) {
     return (
       <span
         aria-hidden="true"

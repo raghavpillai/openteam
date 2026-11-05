@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import type { BrowserNetworkView } from "@openteam/contracts/browser-network";
 import { api } from "../../client/openteam-api";
 import { browserNetworkLabel } from "../../lib/browser-network-status";
+import { useWindowVisible } from "../../hooks/use-window-active";
 
 export function BrowserNetworkIndicator() {
+  const visible = useWindowVisible();
   const [view, setView] = useState<BrowserNetworkView | null>(null);
   useEffect(() => {
+    if (!visible) return;
     let active = true;
     const load = () => {
       void api
@@ -26,7 +29,7 @@ export function BrowserNetworkIndicator() {
       active = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [visible]);
   return view ? (
     <div
       role="status"

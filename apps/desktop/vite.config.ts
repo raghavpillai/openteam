@@ -104,6 +104,15 @@ export default defineConfig({
       name: "plugin-common",
       test: /(?:plugins\/(?:plugin-ui|plugin-mark|plugin-authorization)|product-core\/src\/plugin-authorization|renderer\/lib\/plugin-settings-scale)\.(?:ts|tsx)$/,
       includeDependenciesRecursively: false,
+    }, {
+      // Share one lifecycle dependency across visual and settings entry points.
+      name: "activity",
+      test: /src\/renderer\/(?:hooks\/(?:use-window-active|resource-activity|use-visible-now)|lib\/window-visibility)\.(?:ts|tsx)$/,
+      includeDependenciesRecursively: false,
+    }, {
+      name: "resources",
+      test: /src\/renderer\/(?:hooks\/use-authenticated-resource|lib\/blob-resource-cache)\.ts$/,
+      includeDependenciesRecursively: false,
     }] } } },
   },
 });

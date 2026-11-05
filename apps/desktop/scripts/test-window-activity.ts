@@ -11,7 +11,7 @@ const server = await createServer({
   root: resolve(import.meta.dir, ".."),
   cacheDir: join(directory, "vite-cache"),
   configFile: resolve(import.meta.dir, "../vite.config.ts"),
-  server: { port: 0, strictPort: false },
+  server: { port: 0, strictPort: false, hmr: false },
 });
 try {
   await mkdir(output, { recursive: true });

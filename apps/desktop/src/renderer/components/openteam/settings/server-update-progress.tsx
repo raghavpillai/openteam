@@ -1,6 +1,6 @@
 import { SERVER_UPDATE_STEPS, serverUpdateProgress } from "@openteam/contracts/server-updates";
 import { Check, LoaderCircle, ShieldCheck, Wifi } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useVisibleNow } from "../../../hooks/use-visible-now";
 import { cn } from "../../../lib/cn";
 
 export function ServerUpdateProgressPanel({
@@ -19,12 +19,7 @@ export function ServerUpdateProgressPanel({
   observedAt: number | null;
 }) {
   const progress = serverUpdateProgress(phase);
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    if (startedAt === null) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [startedAt]);
+  const now = useVisibleNow(1_000, startedAt !== null);
   const elapsed = startedAt === null ? null : Math.max(0, Math.floor((now - startedAt) / 1000));
   return (
     <div

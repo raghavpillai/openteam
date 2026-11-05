@@ -13,6 +13,11 @@ export const subscribeWindowActivity = (onChange: () => void) => {
   return () => window.removeEventListener(WINDOW_ACTIVITY_EVENT, onChange);
 };
 
+export const subscribeWindowVisibility = (onChange: () => void) => {
+  window.addEventListener(WINDOW_VISIBILITY_EVENT, onChange);
+  return () => window.removeEventListener(WINDOW_VISIBILITY_EVENT, onChange);
+};
+
 // Background throttling stays disabled for durable notifications. Explicit native
 // visibility controls visual work without falsifying the browser's visibility API.
 export const installWindowVisibility = () => {

@@ -19,6 +19,15 @@ let clockOffset = 0;
 const realNow = Date.now;
 Date.now = () => realNow() + clockOffset;
 const runtimeTimers = new Map<number, () => void>();
+const deliveryPolls = new Set<number>();
+const nativeInterval = window.setInterval.bind(window);
+const nativeClearInterval = window.clearInterval.bind(window);
+window.setInterval = ((callback: () => void, delay: number) => {
+  const id = nativeInterval(callback, delay);
+  if (delay === 5_000) deliveryPolls.add(id);
+  return id;
+}) as typeof window.setInterval;
+window.clearInterval = id => { deliveryPolls.delete(id!); nativeClearInterval(id); };
 const nativeTimeout = window.setTimeout.bind(window);
 const nativeClear = window.clearTimeout.bind(window);
 window.setTimeout = ((callback: () => void, delay: number) => {
@@ -70,7 +79,7 @@ root.render(<Probe />);
 let delivery: ReturnType<typeof desktopDurableSendController> | null = null;
 Object.assign(window, {
   syncProbe: () => ({ bootstraps, connections, aborts, cursors, runtimeReads, cursor: state?.snapshot?.cursor,
-    active: isWindowActive(), errors, sendCount, deliveries: delivery?.getSnapshot().map(record => record.phase) ?? [] }),
+    active: isWindowActive(), errors, sendCount, deliveryPolls: deliveryPolls.size, deliveries: delivery?.getSnapshot().map(record => record.phase) ?? [] }),
   advanceRuntime: () => { clockOffset += 31_000; },
   tickRuntime: () => { for (const [id, callback] of [...runtimeTimers]) { window.clearTimeout(id); callback(); } },
   injectNotification: () => {

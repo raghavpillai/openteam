@@ -5,6 +5,7 @@ import { Trash2 } from "lucide-react";
 import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 import { getAudioContext } from "voice-glow";
 import { useWindowActive } from "../../../hooks/use-window-active";
+import { useResourceActive } from "../../../hooks/resource-activity";
 import { BotArrowUpIcon, BotCloseIcon, BotPlusIcon } from "../../ai-elements/composer-icons";
 import { LoadingOrb, preloadLoadingOrb } from "../../ui/loading-orb";
 import { VoiceBackdropGlow } from "./voice-backdrop-glow";
@@ -60,7 +61,9 @@ function useReducedMotion() {
 // The voice across the bar: a dotted baseline the take scrolls over
 // continuously, newest sound entering at the right edge.
 function VoiceWave({ stream }: { stream: MediaStream | null }) {
-  const active = useWindowActive();
+  const windowActive = useWindowActive();
+  const resourcesActive = useResourceActive();
+  const active = windowActive && resourcesActive;
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     if (!active) return;

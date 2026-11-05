@@ -140,6 +140,7 @@
     "test:window-activity": "bun scripts/test-window-activity.ts",
     "test:window-sync": "bun scripts/test-window-activity.ts --sync",
     "test:window-foreground": "bun scripts/test-window-foreground.ts",
+    "test:resource-lifecycle": "bun scripts/test-resource-lifecycle.ts",
     "test:composer-caret": "bun scripts/test-composer-caret.ts",
     "test:composer-button-parity": "bun scripts/test-composer-button-parity.ts",
     "test:message-send-motion": "bun scripts/test-message-send-motion.ts",

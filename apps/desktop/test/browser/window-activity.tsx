@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { useVoiceNote } from "../../src/renderer/hooks/use-voice-note";
 import { BotAvatarGlyph } from "../../src/renderer/components/openteam/avatar-picker-icons";
 import VoiceMemoLayer from "../../src/renderer/components/openteam/voice-memo/voice-memo-layer";
@@ -154,7 +155,7 @@ Object.assign(window, {
   finishTranscription: () => finishTranscription(),
   updateOffline: () => { updateUnavailable = true; refreshUpdate(); },
   updateIdle: () => { updateUnavailable = false; updateState = "idle"; refreshUpdate(); },
-  disposeActivity: () => { root.render(null); disposeVisibility(); },
+  disposeActivity: () => { flushSync(() => root.render(null)); disposeVisibility(); },
   reinstallActivity: () => { disposeVisibility = installWindowVisibility(); render(); },
   activityProbe: () => ({
     active: isWindowActive(),

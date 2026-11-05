@@ -21,6 +21,8 @@ export function bindWindowActivity(window: BrowserWindow) {
   window.on("hide", publishVisibility);
   window.on("minimize", publishVisibility);
   window.on("restore", publishVisibility);
+  // macOS can focus a shown window without another show event after a reload.
+  window.on("focus", publishVisibility);
   webContents.on("did-finish-load", publishVisibility);
   return () => {
     window.off("show", publishActivity);
@@ -34,6 +36,7 @@ export function bindWindowActivity(window: BrowserWindow) {
     window.off("hide", publishVisibility);
     window.off("minimize", publishVisibility);
     window.off("restore", publishVisibility);
+    window.off("focus", publishVisibility);
     webContents.off("did-finish-load", publishVisibility);
   };
 }

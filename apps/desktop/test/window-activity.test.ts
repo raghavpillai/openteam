@@ -22,11 +22,28 @@ describe("native desktop activity", () => {
     }
     stop();
   });
-  test("focus/blur publish activity without changing notification visibility", () => {
+  test("focus reconciles visibility while blur only changes activity", () => {
     const { state, sent, window, stop } = host();
     state.focused = false; window.emit("blur");
     state.focused = true; window.emit("focus");
-    expect(sent).toEqual([["openteam:window-activity-changed", false], ["openteam:window-activity-changed", true]]);
+    expect(sent).toEqual([
+      ["openteam:window-activity-changed", false],
+      ["openteam:window-activity-changed", true],
+      ["openteam:window-visibility-changed", true],
+    ]);
+    stop();
+  });
+  test("focus repairs a missed show event after a hidden reload", () => {
+    const { state, sent, window, stop } = host();
+    state.shown = false;
+    window.webContents.emit("did-finish-load");
+    state.shown = true;
+    state.focused = true;
+    window.emit("focus");
+    expect(sent.slice(-2)).toEqual([
+      ["openteam:window-activity-changed", true],
+      ["openteam:window-visibility-changed", true],
+    ]);
     stop();
   });
   test("hide, minimize, restore, show and reload publish both signals", () => {

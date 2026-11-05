@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { getAudioContext } from "voice-glow";
 import { useWindowActive } from "../../../hooks/use-window-active";
+import { useResourceActive } from "../../../hooks/resource-activity";
 import {
   downwardReach,
   mobileVoiceLevel,
@@ -90,7 +91,9 @@ export function VoiceBackdropGlow({
   dark: boolean;
   reducedMotion: boolean;
 }) {
-  const active = useWindowActive();
+  const windowActive = useWindowActive();
+  const resourcesActive = useResourceActive();
+  const active = windowActive && resourcesActive;
   const canvas = useRef<HTMLCanvasElement>(null);
   const analyser = useRef<AnalyserNode | null>(null);
   const state = useRef({ processing, exiting, radius, dark, reducedMotion });

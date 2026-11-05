@@ -1,5 +1,8 @@
 import { useSyncExternalStore } from "react";
-import { isWindowActive, subscribeWindowActivity } from "../lib/window-visibility";
+import { isWindowActive, isWindowVisible, subscribeWindowActivity, subscribeWindowVisibility } from "../lib/window-visibility";
 
 export const useWindowActive = () =>
   useSyncExternalStore(subscribeWindowActivity, isWindowActive, () => true);
+
+export const useWindowVisible = () =>
+  useSyncExternalStore(subscribeWindowVisibility, isWindowVisible, () => true);

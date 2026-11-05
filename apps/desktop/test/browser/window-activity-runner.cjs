@@ -73,10 +73,12 @@ app.whenReady().then(async () => {
       check((await read()).cursors[1] === "3", "the hidden live stream reconnects from the latest committed cursor");
       await evaluate("window.queueOffline()");
       check((await read()).sendCount === 0, "an offline message remains queued while the window is hidden");
+      check((await read()).deliveryPolls === 1, "pending background delivery arms its retry poll");
       await evaluate("window.reconnectDelivery()"); await waitFor(p => p.sendCount === 1 && p.deliveries.includes("accepted-awaiting-echo"));
       check(true, "delivery reconnect flushes the queued message without foregrounding the window");
       await evaluate("window.acknowledgeDelivery()"); await waitFor(p => p.deliveries.length === 0);
       check((await read()).sendCount === 1, "the background message is acknowledged without duplicate dispatch");
+      check((await read()).deliveryPolls === 0, "an empty delivery queue releases its retry poll");
       await evaluate("window.advanceRuntime()"); signal(true,true);
       await waitFor(p => p.runtimeReads > 0);
       check(true, "native foreground resume immediately refreshes overdue runtime status");
@@ -230,7 +232,7 @@ app.whenReady().then(async () => {
     await waitFor(p => p.voiceState === "idle");
     check((await read()).captureTracks.every(state => state === "ended"), "background cancellation releases every captured recording track");
     await evaluate("window.disposeActivity()");
-    const disposed = await waitFor(p => p.resources.frames === 0 && p.resources.intervals === 0 && p.resources.visualizerTracks === 0);
+    const disposed = await waitFor(p => !p.avatar && p.paints.length === 0 && p.resources.frames === 0 && p.resources.intervals === 0 && p.resources.visualizerTracks === 0);
     check(disposed.resources.frames === 0 && disposed.resources.intervals === 0 && disposed.resources.visualizerTracks === 0, "unmount removes decorative frames, polling intervals, and cloned tracks: " + JSON.stringify(disposed.resources));
     check(Object.values(disposed.resources.observers).every(count => count === 0), "unmount disconnects every observed DOM resource");
     check(Object.values(disposed.resources.listeners).every(count => count === 0), "unmount removes activity/focus/visibility listeners");

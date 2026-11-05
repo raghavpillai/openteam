@@ -1,4 +1,4 @@
-import { isWindowVisible } from "../../lib/window-visibility";
+import { useWindowVisible } from "../../hooks/use-window-active";
 import { CalendarClock, CirclePause, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../client/openteam-api";
@@ -37,9 +37,12 @@ export function RoutinesSummary({
   embedded?: boolean;
 }) {
   const [routines, setRoutines] = useState<RoutineView[] | null>(null);
+  const visible = useWindowVisible();
   useEffect(() => {
     setRoutines(null);
-    if (!active) return;
+  }, [active, ownerId, ownerKind]);
+  useEffect(() => {
+    if (!active || !visible) return;
     let stopped = false;
     let inFlight = false;
     let rerun = false;
@@ -66,9 +69,7 @@ export function RoutinesSummary({
       }
     };
     void refresh();
-    const timer = window.setInterval(() => {
-      if (isWindowVisible()) void refresh();
-    }, 3_000);
+    const timer = window.setInterval(() => void refresh(), 3_000);
     const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);
     return () => {
@@ -76,7 +77,7 @@ export function RoutinesSummary({
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [active, ownerId, ownerKind]);
+  }, [active, ownerId, ownerKind, visible]);
 
   const sorted = useMemo(
     () => [

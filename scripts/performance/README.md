@@ -100,6 +100,21 @@ and renderer state. This runs the same native activity binder as the app, with
 an isolated profile. Automated signal tests do not replace this OS-level check.
 
 Results are retained under `output/window-activity` and `output/window-foreground`.
+
+Run `bun run --cwd apps/desktop test:resource-lifecycle` for the production-built
+resource ownership fixture. It exercises shared authenticated blobs, credential
+invalidation, inactive-view and hidden-window parking, a real chat draft and
+caret, highlighter worker retirement and recreation, pending jobs and stale
+callbacks. The computer viewer uses the shipping lifecycle with a synthetic VNC
+transport and verifies that the control heartbeat continues while decoding stops.
+Long idle deadlines advance under a fixture clock. Browser work and worker jobs
+run on their normal event loops.
+
+Optional presentation uses a 30-second grace period. Visible consumers pin their
+blob URLs. Unused compressed blobs have a 16 MiB, 64-entry, 30-second cache budget.
+Decoded image buffers and graphics caches require separate native measurements.
+The highlighter retires after 30 idle seconds in the background and recreates on
+demand while the renderer retains completed token results.
 These tests establish lifecycle/visual behavior; they do not establish RAM savings
 or substitute for a long-duration memory profile.
 

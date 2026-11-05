@@ -8,6 +8,7 @@ import {
   type UrlTransform,
 } from "streamdown";
 import { useAuthenticatedResource } from "../../../hooks/use-authenticated-resource";
+import { useResourceActive } from "../../../hooks/resource-activity";
 import { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
 import { SANITIZED_MESSAGE_LINK_PREFIX, SANITIZED_OPENTEAM_LINK_PREFIX } from "./markdown-source";
 export { messageRemarkPlugins, prepareMessageMarkdown } from "./markdown-source";
@@ -133,7 +134,8 @@ function MessageImage({
   node: _node,
   ...props
 }: ComponentProps<"img"> & { node?: unknown }) {
-  const source = useAuthenticatedResource(typeof src === "string" ? src : null);
+  const resourcesActive = useResourceActive();
+  const source = useAuthenticatedResource(typeof src === "string" ? src : null, { enabled: resourcesActive });
   const width = Number(props.width);
   const height = Number(props.height);
   const knownSize = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;

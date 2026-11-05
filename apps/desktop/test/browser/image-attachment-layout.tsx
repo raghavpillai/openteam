@@ -107,8 +107,11 @@ async function run() {
         root.render(null);
         await pause();
         pending.clear();
+        const errorsBefore = imageErrors;
         render(images, narrow, visit);
-        await waitFor(() => pending.size === 1);
+        await waitFor(() => pending.size === 1 ||
+          (scenario.name === "broken" ? imageErrors > errorsBefore :
+            [...document.querySelectorAll("img")].some((image) => image.naturalWidth > 0)));
         check(!document.querySelector("img:not([src])"), "Loading must not show a broken image");
         const before = sample();
         if (!narrow) {
@@ -122,7 +125,6 @@ async function run() {
         }
         if (initial) equalGeometry(initial, before, `${scenario.name}: revisit`);
         initial = before;
-        const errorsBefore = imageErrors;
         for (const release of pending.values()) release();
         await waitFor(() =>
           scenario.name === "broken"

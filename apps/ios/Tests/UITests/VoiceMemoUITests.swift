@@ -67,14 +67,15 @@ import XCTest
     for keyboard in [false, true] {
       for (dx, dy) in [(-13.0, 0.0), (13, 0), (-24, 0), (24, 0), (0, -24), (0, 24),
                        (-24, -24), (24, -24), (-24, 24), (24, 24)] {
+        // Let the discarded bar finish its spring before asking the restored
+        // text field to focus; otherwise XCTest waits on the closing animation.
+        try await Task.sleep(for: .seconds(1))
         if keyboard {
           field.tap()
           XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         }
         let microphone = mic(app)
         XCTAssertTrue(microphone.waitForExistence(timeout: 5))
-        // Wait for the trash/composer spring to finish before sampling geometry.
-        try await Task.sleep(for: .seconds(1))
         XCTAssertGreaterThanOrEqual(microphone.frame.width, 52)
         XCTAssertGreaterThanOrEqual(microphone.frame.height, 52)
         center(of: microphone).withOffset(CGVector(dx: dx, dy: dy)).tap()

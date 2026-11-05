@@ -259,6 +259,11 @@ Keychain, but `linkd` can refuse to find the App Shortcuts provider because the
 signature has no team identity. Use a separately signed simulator app for this
 check; do not infer a shipping-app registration failure from that simulator error.
 
+The iOS 27.1 Duo simulator can keep the app in the foreground after Home. The
+voice background UI check verifies the actual application state and skips when
+that runtime never backgrounds the app; run the check on a regular iPhone
+simulator or device to verify stopping for review on background entry.
+
 #### Integration audit on November 5, 2026
 
 The audit used current `origin/main` at `134d5a42f`, with fixes on
@@ -270,7 +275,9 @@ the photographed iPhone was not available, so its failing server field is unknow
   picker to use the account cache, with a minimal live directory fallback.
   The real iOS 26 Shortcuts app displayed Research, Ops, and Build. Choosing
   Build opened its chat while the fixture server was offline; an uncached
-  transcript still requires the server. Saved entity identifiers are unchanged.
+  transcript still requires the server. A saved shortcut with Build fixed as its
+  parameter also reopened its cached conversation from a fully closed app while
+  offline. Saved entity identifiers are unchanged.
 - **Voice shortcut:** verified chosen-recipient handoff, cold and warm starts,
   repeated invocations, existing-draft preservation, account changes, permission
   denial, background cancellation, audio interruptions, and recording limits.
@@ -294,9 +301,13 @@ the photographed iPhone was not available, so its failing server field is unknow
   before checking the actual receipt. Eight notification cases passed across the
   suite and focused reruns; the background-wake case skipped on this simulator.
 
-Validation also passed 200 core tests, 60 iOS 27 system tests, 40 iOS 26 Bot/voice
-tests, two discovery UI tests, seven renderer tests, and native signing/transport/extension configuration
-checks. Fixture-based tests do not certify production APNs background delivery,
+Validation also passed 200 core tests, all 112 iOS 27 hosted system tests,
+40 iOS 26 Bot/voice tests, 72 client-core tests, two discovery UI tests, four
+voice UI flows, seven renderer tests, Debug test builds, an arm64 simulator
+Release build, and native signing/transport/extension configuration checks.
+The background voice UI flow passed on a regular iPhone running iOS 27.0;
+its Duo runtime precondition is described above. Fixture-based tests do not
+certify production APNs background delivery,
 physical Back Tap or Action button gestures, spoken Siri service behavior, real
 camera/photo permissions, or physical microphone interruptions. The audit does
 not publish an iOS build; installed iPhones need a subsequent release of the fix.

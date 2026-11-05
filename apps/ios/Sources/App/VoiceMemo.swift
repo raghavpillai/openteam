@@ -816,7 +816,7 @@ struct VoiceKnob: View {
     var hit: CGFloat
   }
 
-  private static let mic = CGPoint(x: -30, y: -26)
+  private static let mic = CGPoint(x: -27, y: -22)
   private static let restFill = Color(red: 118 / 255, green: 118 / 255, blue: 128 / 255).opacity(0.24)
 
   private var look: Look {
@@ -828,8 +828,10 @@ struct VoiceKnob: View {
       return Look(center: VoiceBar.sendCenter, size: CGSize(width: 32, height: 32), fill: Self.restFill,
         ink: NativePalette.chatMuted, symbol: "xmark", iconSize: 12, hit: 44)
     default:
-      return Look(center: Self.mic, size: CGSize(width: 44, height: 44), fill: Self.restFill,
-        ink: NativePalette.chatMuted, symbol: "mic.fill", iconSize: 19, hit: 52)
+      // Preserve the compact artwork and its original inset. Only the invisible
+      // touch surface grows into the padding around it, including the outer edge.
+      return Look(center: Self.mic, size: CGSize(width: 36, height: 28), fill: Self.restFill,
+        ink: NativePalette.chatMuted, symbol: "mic.fill", iconSize: 16, hit: 52)
     }
   }
 

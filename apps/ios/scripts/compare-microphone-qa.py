@@ -13,6 +13,8 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument('directory', type=Path)
+parser.add_argument('--after', default='after-compact', help='After-capture directory inside directory')
+parser.add_argument('--name', default='microphone-before-after-compact.mp4')
 args = parser.parse_args()
 root = args.directory.resolve()
 font = '/System/Library/Fonts/Supplemental/Arial.ttf'
@@ -21,7 +23,7 @@ filters = []
 stages = [(0, 9, 'Tap 13pt left of center'), (9, 17, 'Tap 13pt right of center'),
     (17, 25, 'Tap 23pt toward the upper-left corner'), (25, 37, 'Tap hands-free, then stop and review'),
     (37, 43, 'Hold with 12pt drift, then release'), (43, 55, 'Slide up to lock; lift and keep recording')]
-for index, side in enumerate(['before', 'after']):
+for index, side in enumerate(['before', args.after]):
     data = json.loads((root / side / 'results.json').read_text())
     chain = ['setpts=PTS-STARTPTS', 'fps=30', 'scale=402:874']
     # Mark actual commanded coordinates in device points, before cropping.
@@ -39,10 +41,10 @@ for stage, (start, end, label) in enumerate(stages):
     draw = ImageDraw.Draw(image)
     draw.rectangle((0, 0, 1072, 79), fill='#111827')
     draw.rectangle((0, 686, 1072, 740), fill='#111827')
-    for index, side in enumerate(['before', 'after']):
+    for index, side in enumerate(['before', args.after]):
         x = index * 536 + 20
-        draw.text((x, 12), side.upper(), font=ImageFont.truetype(font, 25), fill='white')
-        draw.text((x, 45), 'main 6a2eb397' if index == 0 else '52pt surface + 44pt button',
+        draw.text((x, 12), 'BEFORE' if index == 0 else 'AFTER', font=ImageFont.truetype(font, 25), fill='white')
+        draw.text((x, 45), 'main 6a2eb397' if index == 0 else 'Same small mic; invisible 52pt target',
             font=ImageFont.truetype(font, 17), fill='#cbd5e1')
         draw.text((x, 694), label, font=ImageFont.truetype(font, 17), fill='#e2e8f0')
         status = 'Blue square = touch start; offsets from each button center'
@@ -62,7 +64,7 @@ filters.append('[label5]format=yuv420p[out]')
 graph = root / 'comparison-filter.txt'
 graph.write_text(';\n'.join(filters))
 subprocess.run(['ffmpeg', '-y', '-v', 'warning', '-i', str(root / 'before/raw.mp4'),
-    '-i', str(root / 'after/raw.mp4'), *images, '-/filter_complex', str(graph), '-map', '[out]',
+    '-i', str(root / args.after / 'raw.mp4'), *images, '-/filter_complex', str(graph), '-map', '[out]',
     '-an', '-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-movflags', '+faststart',
-    '-t', '54.5', str(root / 'microphone-before-after.mp4')], check=True)
-print(root / 'microphone-before-after.mp4')
+    '-t', '54.5', str(root / args.name)], check=True)
+print(root / args.name)

@@ -57,7 +57,7 @@
     <string name="bot_share">分享机器人</string>
     <string name="bot_edit">编辑</string>
     <string name="bot_routines_title">定时任务</string>
-    <string name="bot_routines_status">0 已开启</string>
+    <string name="bot_routines_status">已开启 0 个</string>
     <string name="bot_library_title">资料库</string>
     <string name="bot_computer_idle">空闲</string>
     <string name="bot_notifications">通知</string>
@@ -76,8 +76,8 @@
     <string name="directory_section_unassigned">未分组</string>
     <string name="shortcut_find_messages">查找消息</string>
     <string name="shortcut_find_messages_long">搜索 OpenTeam 消息</string>
-    <string name="directory_pin">Pin 到顶部</string>
-    <string name="directory_unpin">取消 Pin</string>
+    <string name="directory_pin">置顶</string>
+    <string name="directory_unpin">取消置顶</string>
     <string name="directory_move_to_section">移动到「%1$s」</string>
     <string name="directory_yesterday">昨天</string>
     <string name="directory_share_title">选择一个对话进行分享</string>

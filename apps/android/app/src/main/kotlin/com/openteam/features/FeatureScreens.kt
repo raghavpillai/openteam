@@ -77,7 +77,7 @@ private fun FeaturePage(title: String, onBack: (() -> Unit)? = null, content: @C
                 navigationIcon = {
                     onBack?.let {
                         IconButton(onClick = it) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localizedText("Back", "返回"))
                         }
                     }
                 },
@@ -112,7 +112,7 @@ private fun StateMessage(message: String, onRetry: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(message, color = MaterialTheme.colorScheme.error)
         Spacer(Modifier.height(12.dp))
-        Button(onClick = onRetry) { Text("Retry") }
+        Button(onClick = onRetry) { Text(localizedText("Retry", "重试")) }
     }
 }
 
@@ -122,11 +122,62 @@ private fun OperationStatus(state: FeatureOperationState) {
         FeatureOperationState.Idle -> Unit
         FeatureOperationState.Pending -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-            Text("Working…", style = MaterialTheme.typography.bodySmall)
+            Text(localizedText("Working…", "处理中…"), style = MaterialTheme.typography.bodySmall)
         }
         is FeatureOperationState.Succeeded -> state.message?.let { Text(it, color = MaterialTheme.colorScheme.tertiary) }
         is FeatureOperationState.Failed -> Text(state.message, color = MaterialTheme.colorScheme.error)
     }
+}
+
+@Composable
+private fun MessageAction.localizedLabel(): String = when (this) {
+    MessageAction.Fork -> localizedText("Fork", "分支")
+    MessageAction.Stop -> localizedText("Stop", "停止")
+    MessageAction.Dismiss -> localizedText("Dismiss", "忽略")
+    MessageAction.Approve -> localizedText("Approve", "批准")
+}
+
+@Composable
+private fun RoutineSchedule.Frequency.localizedLabel(): String = when (this) {
+    RoutineSchedule.Frequency.Hourly -> localizedText("Hourly", "每小时")
+    RoutineSchedule.Frequency.Daily -> localizedText("Daily", "每天")
+    RoutineSchedule.Frequency.Weekdays -> localizedText("Weekdays", "工作日")
+    RoutineSchedule.Frequency.Weekly -> localizedText("Weekly", "每周")
+    RoutineSchedule.Frequency.Monthly -> localizedText("Monthly", "每月")
+    RoutineSchedule.Frequency.Interval -> localizedText("Interval", "间隔")
+}
+
+@Composable
+private fun RoutineSchedule.localizedSummary(): String {
+    val safeMinutes = timeMinutes.coerceIn(0, 23 * 60 + 59)
+    val hour = safeMinutes / 60
+    val minute = safeMinutes % 60
+    val time = "%02d:%02d".format(hour, minute)
+    val weekday = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+        .getOrElse((dayOfWeek - 1).coerceIn(0, 6)) { "Monday" }
+    val chineseWeekday = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+        .getOrElse((dayOfWeek - 1).coerceIn(0, 6)) { "周一" }
+    val ordinal = when {
+        dayOfMonth % 100 in 11..13 -> "${dayOfMonth}th"
+        dayOfMonth % 10 == 1 -> "${dayOfMonth}st"
+        dayOfMonth % 10 == 2 -> "${dayOfMonth}nd"
+        dayOfMonth % 10 == 3 -> "${dayOfMonth}rd"
+        else -> "${dayOfMonth}th"
+    }
+    val chineseUnit = when (intervalUnit) {
+        RoutineSchedule.IntervalUnit.Minutes -> "分钟"
+        RoutineSchedule.IntervalUnit.Hours -> "小时"
+        RoutineSchedule.IntervalUnit.Days -> "天"
+        RoutineSchedule.IntervalUnit.Weeks -> "周"
+    }
+    return when (frequency) {
+        RoutineSchedule.Frequency.Hourly -> localizedText("Every hour at :%02d".format(minute), "每小时在 :%02d".format(minute))
+        RoutineSchedule.Frequency.Daily -> localizedText("Daily at $time", "每天 $time")
+        RoutineSchedule.Frequency.Weekdays -> localizedText("Weekdays at $time", "工作日 $time")
+        RoutineSchedule.Frequency.Weekly -> localizedText("Weekly on $weekday at $time", "每周${chineseWeekday} $time")
+        RoutineSchedule.Frequency.Monthly -> localizedText("Monthly on the $ordinal at $time", "每月${dayOfMonth}日 $time")
+        RoutineSchedule.Frequency.Interval -> localizedText("Every $intervalAmount ${intervalUnit.label}", "每 $intervalAmount $chineseUnit")
+    } + " ($timeZone)"
 }
 
 @Composable
@@ -181,7 +232,7 @@ fun RichMessageCardScreen(
                         OutlinedTextField(
                             value = value,
                             onValueChange = { value = it },
-                            label = { Text("Secret") },
+                            label = { Text(localizedText("Secret", "密钥")) },
                             visualTransformation = PasswordVisualTransformation(),
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
@@ -208,9 +259,15 @@ fun RichMessageCardScreen(
                                 )
                             }
                         }
+                        val submitLabel = localizedText("Submit", "提交")
                         ActionButton(
-                            RichMessageAction("widget-response", "Submit"),
-                        ) { onAction(RichMessageAction("widget-response", "Submit", route = "widget-response"), mapOf("value" to selected.joinToString("\n"), "_richType" to "widget-response")) }
+                            RichMessageAction("widget-response", submitLabel),
+                        ) {
+                            onAction(
+                                RichMessageAction("widget-response", submitLabel, route = "widget-response"),
+                                mapOf("value" to selected.joinToString("\n"), "_richType" to "widget-response"),
+                            )
+                        }
                     }
                 }
             }
@@ -257,10 +314,10 @@ fun AttachmentGalleryScreen(
     onAttachmentAction: (Attachment, AttachmentAction) -> Unit,
     onUpload: () -> Unit = {},
 ) {
-    FeaturePage("Attachments") {
+    FeaturePage(localizedText("Attachments", "附件")) {
         LoadStateContent(state, onRetry) { attachments ->
             LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item { Button(onClick = onUpload) { Text("Add attachment") } }
+                item { Button(onClick = onUpload) { Text(localizedText("Add attachment", "添加附件")) } }
                 items(attachments, key = { it.id }) { attachment ->
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -272,13 +329,13 @@ fun AttachmentGalleryScreen(
                             Text(attachment.state.label(), style = MaterialTheme.typography.labelMedium)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 if (attachment.state == AttachmentState.Available) {
-                                    TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Preview) }) { Text("Preview") }
-                                    TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Download) }) { Text("Download") }
-                                    TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Save) }) { Text("Save") }
-                                    TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Share) }) { Text("Share") }
-                                    TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Forward) }) { Text("Forward") }
+                                    TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Preview) }) { Text(localizedText("Preview", "预览")) }
+                                    TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Download) }) { Text(localizedText("Download", "下载")) }
+                                    TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Save) }) { Text(localizedText("Save", "保存")) }
+                                    TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Share) }) { Text(localizedText("Share", "分享")) }
+                                    TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Forward) }) { Text(localizedText("Forward", "转发")) }
                                 }
-                                if (attachment.state == AttachmentState.Failed) TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Retry) }) { Text("Retry") }
+                                if (attachment.state == AttachmentState.Failed) TextButton(onClick = { onAttachmentAction(attachment, AttachmentAction.Retry) }) { Text(localizedText("Retry", "重试")) }
                             }
                         }
                     }
@@ -334,13 +391,13 @@ fun ChatAttachmentStrip(
                         Text(attachment.name, fontWeight = FontWeight.Medium)
                         Text("${attachment.mimeType} · ${formatBytes(attachment.sizeBytes)}", style = MaterialTheme.typography.bodySmall)
                     }
-                    TextButton(onClick = { onPreview(attachment, AttachmentAction.Preview) }) { Text(if (localPath == null) "Preview" else "Open") }
-                    if (localPath == null) TextButton(onClick = { onDownload(attachment, AttachmentAction.Download) }) { Text("Download") }
+                    TextButton(onClick = { onPreview(attachment, AttachmentAction.Preview) }) { Text(if (localPath == null) localizedText("Preview", "预览") else localizedText("Open", "打开")) }
+                    if (localPath == null) TextButton(onClick = { onDownload(attachment, AttachmentAction.Download) }) { Text(localizedText("Download", "下载")) }
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    TextButton(onClick = { onSave(attachment) }) { Text("Save") }
-                    TextButton(onClick = { onShare(attachment) }) { Text("Share") }
-                    TextButton(onClick = { onForward(attachment) }) { Text("Forward") }
+                    TextButton(onClick = { onSave(attachment) }) { Text(localizedText("Save", "保存")) }
+                    TextButton(onClick = { onShare(attachment) }) { Text(localizedText("Share", "分享")) }
+                    TextButton(onClick = { onForward(attachment) }) { Text(localizedText("Forward", "转发")) }
                 }
             }
         }
@@ -349,12 +406,13 @@ fun ChatAttachmentStrip(
 
 enum class AttachmentAction { Preview, Download, Share, Save, Forward, Retry }
 
+@Composable
 private fun AttachmentState.label() = when (this) {
-    AttachmentState.Queued -> "Queued"
-    AttachmentState.Uploading -> "Uploading…"
-    AttachmentState.Available -> "Ready"
-    AttachmentState.Downloading -> "Downloading…"
-    AttachmentState.Failed -> "Transfer failed"
+    AttachmentState.Queued -> localizedText("Queued", "排队中")
+    AttachmentState.Uploading -> localizedText("Uploading…", "正在上传…")
+    AttachmentState.Available -> localizedText("Ready", "就绪")
+    AttachmentState.Downloading -> localizedText("Downloading…", "正在下载…")
+    AttachmentState.Failed -> localizedText("Transfer failed", "传输失败")
 }
 
 private fun formatBytes(value: Long): String = when {
@@ -380,7 +438,7 @@ fun ReactionsAndActionsRow(
             }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            MessageAction.entries.forEach { action -> TextButton(onClick = { onAction(action) }) { Text(action.label) } }
+            MessageAction.entries.forEach { action -> TextButton(onClick = { onAction(action) }) { Text(action.localizedLabel()) } }
         }
         OperationStatus(state.operation)
     }
@@ -395,10 +453,10 @@ fun RoutinesScreen(
     onToggle: (Routine) -> Unit,
     onRun: (Routine) -> Unit,
 ) {
-    FeaturePage("Routines") {
-        LoadStateContent(state, onRetry, emptyAction = { OutlinedButton(onClick = onAdd) { Text("Add routine") } }) { routines ->
+    FeaturePage(localizedText("Routines", "例行任务")) {
+        LoadStateContent(state, onRetry, emptyAction = { OutlinedButton(onClick = onAdd) { Text(localizedText("Add routine", "添加例行任务")) } }) { routines ->
             LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item { Button(onClick = onAdd) { Text("Add routine") } }
+                item { Button(onClick = onAdd) { Text(localizedText("Add routine", "添加例行任务")) } }
                 items(routines, key = { it.id }) { routine ->
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -406,16 +464,16 @@ fun RoutinesScreen(
                                 Text(routine.name, Modifier.weight(1f), fontWeight = FontWeight.Bold)
                                 Switch(checked = routine.enabled, onCheckedChange = { onToggle(routine) })
                             }
-                            Text(routine.schedule.summary(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(routine.schedule.localizedSummary(), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(routine.prompt, maxLines = 3, style = MaterialTheme.typography.bodySmall)
-                            routine.nextRunAt?.let { Text("Next: $it", style = MaterialTheme.typography.labelSmall) }
+                            routine.nextRunAt?.let { Text(localizedText("Next: $it", "下次运行：$it"), style = MaterialTheme.typography.labelSmall) }
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(onClick = { onEdit(routine) }) { Text("Edit") }
-                                TextButton(onClick = { onRun(routine) }) { Text("Run now") }
+                                OutlinedButton(onClick = { onEdit(routine) }) { Text(localizedText("Edit", "编辑")) }
+                                TextButton(onClick = { onRun(routine) }) { Text(localizedText("Run now", "立即运行")) }
                             }
                             if (routine.executions.isNotEmpty()) {
                                 HorizontalDivider()
-                                Text("Recent runs", fontWeight = FontWeight.Medium)
+                                Text(localizedText("Recent runs", "最近运行记录"), fontWeight = FontWeight.Medium)
                                 routine.executions.take(3).forEach { execution -> Text("${execution.status} · ${execution.createdAt}", style = MaterialTheme.typography.bodySmall) }
                             }
                         }
@@ -435,42 +493,42 @@ fun RoutineEditorScreen(
     operation: FeatureOperationState = FeatureOperationState.Idle,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
-    FeaturePage(if (routine.id.isBlank()) "New routine" else "Edit routine") {
+    FeaturePage(if (routine.id.isBlank()) localizedText("New routine", "新建例行任务") else localizedText("Edit routine", "编辑例行任务")) {
         LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                OutlinedTextField(routine.name, { onChange(routine.copy(name = it)) }, label = { Text("Routine name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(routine.name, { onChange(routine.copy(name = it)) }, label = { Text(localizedText("Routine name", "例行任务名称")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(routine.prompt, { onChange(routine.copy(prompt = it)) }, label = { Text("Instructions") }, modifier = Modifier.fillMaxWidth().height(130.dp))
+                OutlinedTextField(routine.prompt, { onChange(routine.copy(prompt = it)) }, label = { Text(localizedText("Instructions", "说明")) }, modifier = Modifier.fillMaxWidth().height(130.dp))
             }
             item {
-                Text("Frequency", fontWeight = FontWeight.Bold)
+                Text(localizedText("Frequency", "频率"), fontWeight = FontWeight.Bold)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     RoutineSchedule.Frequency.entries.forEach { frequency ->
                         FilterChip(
                             selected = routine.schedule.frequency == frequency,
                             onClick = { onChange(routine.copy(schedule = routine.schedule.copy(frequency = frequency))) },
-                            label = { Text(frequency.label) },
+                            label = { Text(frequency.localizedLabel()) },
                         )
                     }
                 }
             }
             item {
-                OutlinedTextField(routine.schedule.timeZone, { onChange(routine.copy(schedule = routine.schedule.copy(timeZone = it))) }, label = { Text("Time zone") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(routine.schedule.timeMinutes.toString(), { it.toIntOrNull()?.let { minutes -> onChange(routine.copy(schedule = routine.schedule.copy(timeMinutes = minutes))) } }, label = { Text("Time of day (minutes after midnight)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(routine.schedule.timeZone, { onChange(routine.copy(schedule = routine.schedule.copy(timeZone = it))) }, label = { Text(localizedText("Time zone", "时区")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(routine.schedule.timeMinutes.toString(), { it.toIntOrNull()?.let { minutes -> onChange(routine.copy(schedule = routine.schedule.copy(timeMinutes = minutes))) } }, label = { Text(localizedText("Time of day (minutes after midnight)", "时间（距午夜的分钟数）")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 if (routine.schedule.frequency == RoutineSchedule.Frequency.Weekly) {
-                    OutlinedTextField(routine.schedule.dayOfWeek.toString(), { it.toIntOrNull()?.let { day -> onChange(routine.copy(schedule = routine.schedule.copy(dayOfWeek = day))) } }, label = { Text("Day of week (1–7)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(routine.schedule.dayOfWeek.toString(), { it.toIntOrNull()?.let { day -> onChange(routine.copy(schedule = routine.schedule.copy(dayOfWeek = day))) } }, label = { Text(localizedText("Day of week (1–7)", "星期几（1–7）")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 }
                 if (routine.schedule.frequency == RoutineSchedule.Frequency.Monthly) {
-                    OutlinedTextField(routine.schedule.dayOfMonth.toString(), { it.toIntOrNull()?.let { day -> onChange(routine.copy(schedule = routine.schedule.copy(dayOfMonth = day))) } }, label = { Text("Day of month (1–31)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(routine.schedule.dayOfMonth.toString(), { it.toIntOrNull()?.let { day -> onChange(routine.copy(schedule = routine.schedule.copy(dayOfMonth = day))) } }, label = { Text(localizedText("Day of month (1–31)", "每月第几天（1–31）")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 }
                 if (routine.schedule.frequency == RoutineSchedule.Frequency.Interval) {
-                    OutlinedTextField(routine.schedule.intervalAmount.toString(), { it.toIntOrNull()?.let { amount -> onChange(routine.copy(schedule = routine.schedule.copy(intervalAmount = amount.coerceAtLeast(1)))) } }, label = { Text("Every") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(routine.schedule.intervalAmount.toString(), { it.toIntOrNull()?.let { amount -> onChange(routine.copy(schedule = routine.schedule.copy(intervalAmount = amount.coerceAtLeast(1)))) } }, label = { Text(localizedText("Every", "每隔")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onSave, enabled = routine.name.isNotBlank() && routine.prompt.isNotBlank()) { Text("Save") }
-                    onDelete?.let { TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) } }
+                    Button(onClick = onSave, enabled = routine.name.isNotBlank() && routine.prompt.isNotBlank()) { Text(localizedText("Save", "保存")) }
+                    onDelete?.let { TextButton(onClick = { confirmDelete = true }) { Text(localizedText("Delete", "删除"), color = MaterialTheme.colorScheme.error) } }
                 }
                 OperationStatus(operation)
             }
@@ -478,10 +536,10 @@ fun RoutineEditorScreen(
         if (confirmDelete) {
             AlertDialog(
                 onDismissRequest = { confirmDelete = false },
-                title = { Text("Delete routine?") },
-                text = { Text("This removes the routine and its schedule from the server.") },
-                confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete?.invoke() }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
-                dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+                title = { Text(localizedText("Delete routine?", "删除例行任务？")) },
+                text = { Text(localizedText("This removes the routine and its schedule from the server.", "这会从服务器删除例行任务及其计划。")) },
+                confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete?.invoke() }) { Text(localizedText("Delete", "删除"), color = MaterialTheme.colorScheme.error) } },
+                dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(localizedText("Cancel", "取消")) } },
             )
         }
     }
@@ -497,17 +555,17 @@ fun AccountMemoryScreen(
     onSignOut: () -> Unit,
 ) {
     var pendingAction by remember { mutableStateOf<String?>(null) }
-    FeaturePage("Account and memory") {
+    FeaturePage(localizedText("Account and memory", "账户与记忆")) {
         LoadStateContent(state, onRetry) { account ->
             LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
                     Text(account.profile.displayName, style = MaterialTheme.typography.titleLarge)
                     Text(account.profile.server, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if (account.profile.connected) "Connected" else "Offline")
-                    Text("Version ${account.profile.version}", style = MaterialTheme.typography.labelSmall)
+                    Text(if (account.profile.connected) localizedText("Connected", "已连接") else localizedText("Offline", "离线"))
+                    Text(localizedText("Version ${account.profile.version}", "版本 ${account.profile.version}"), style = MaterialTheme.typography.labelSmall)
                 }
-                item { Text("Memory", style = MaterialTheme.typography.titleMedium) }
-                if (account.memories.isEmpty()) item { Text("No saved memories yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                item { Text(localizedText("Memory", "记忆"), style = MaterialTheme.typography.titleMedium) }
+                if (account.memories.isEmpty()) item { Text(localizedText("No saved memories yet.", "还没有保存的记忆。"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(account.memories, key = { it.id }) { memory ->
                     Card(Modifier.fillMaxWidth().clickable { onEditMemory(memory) }) {
                         Column(Modifier.padding(12.dp)) { Text(memory.title, fontWeight = FontWeight.Medium); Text(memory.content, maxLines = 3); Text(memory.updatedAt, style = MaterialTheme.typography.labelSmall) }
@@ -515,16 +573,18 @@ fun AccountMemoryScreen(
                 }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { pendingAction = "clear" }) { Text("Clear memory") }
-                        TextButton(onClick = { pendingAction = "reset" }) { Text("Reset local data", color = MaterialTheme.colorScheme.error) }
+                        OutlinedButton(onClick = { pendingAction = "clear" }) { Text(localizedText("Clear memory", "清除记忆")) }
+                        TextButton(onClick = { pendingAction = "reset" }) {
+                            Text(localizedText("Reset local data", "重置本地数据"), color = MaterialTheme.colorScheme.error)
+                        }
                     }
-                    Button(onClick = { pendingAction = "sign-out" }) { Text("Sign out") }
+                    Button(onClick = { pendingAction = "sign-out" }) { Text(localizedText("Sign out", "退出登录")) }
                 }
             }
         }
         pendingAction?.let { action ->
-            val title = when (action) { "clear" -> "Clear memory?"; "reset" -> "Reset local data?"; else -> "Sign out?" }
-            val detail = when (action) { "clear" -> "Saved memories will be removed from the server."; "reset" -> "Local drafts and feature state will be cleared."; else -> "You will need to sign in again to use this server." }
+            val title = when (action) { "clear" -> localizedText("Clear memory?", "清除记忆？"); "reset" -> localizedText("Reset local data?", "重置本地数据？"); else -> localizedText("Sign out?", "退出登录？") }
+            val detail = when (action) { "clear" -> localizedText("Saved memories will be removed from the server.", "服务器将删除已保存的记忆。"); "reset" -> localizedText("Local drafts and feature state will be cleared.", "本地草稿和功能状态将被清除。"); else -> localizedText("You will need to sign in again to use this server.", "你需要重新登录才能使用此服务器。") }
             AlertDialog(
                 onDismissRequest = { pendingAction = null },
                 title = { Text(title) },
@@ -533,9 +593,9 @@ fun AccountMemoryScreen(
                     TextButton(onClick = {
                         when (action) { "clear" -> onClearMemory(); "reset" -> onReset(); else -> onSignOut() }
                         pendingAction = null
-                    }) { Text("Continue", color = if (action == "sign-out") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
+                    }) { Text(localizedText("Continue", "继续"), color = if (action == "sign-out") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
                 },
-                dismissButton = { TextButton(onClick = { pendingAction = null }) { Text("Cancel") } },
+                dismissButton = { TextButton(onClick = { pendingAction = null }) { Text(localizedText("Cancel", "取消")) } },
             )
         }
     }
@@ -987,8 +1047,8 @@ fun PluginsScreen(
     onConfigure: (Plugin, JsonObject) -> Unit,
     onTestTool: (Plugin) -> Unit,
 ) {
-    FeaturePage("Plugins") {
-        LoadStateContent(state, onRetry, emptyAction = { Text("No plugins available.") }) { plugins ->
+    FeaturePage(localizedText("Plugins", "插件")) {
+        LoadStateContent(state, onRetry, emptyAction = { Text(localizedText("No plugins available.", "没有可用插件。")) }) { plugins ->
             var filter by remember { mutableStateOf("") }
             val authorizationPending = plugins.any { it.authorizationUrl != null }
             LaunchedEffect(authorizationPending) {
@@ -998,7 +1058,7 @@ fun PluginsScreen(
                 }
             }
             Column(Modifier.fillMaxSize().padding(12.dp)) {
-                OutlinedTextField(filter, { filter = it }, label = { Text("Filter plugins") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(filter, { filter = it }, label = { Text(localizedText("Filter plugins", "筛选插件")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 Spacer(Modifier.height(8.dp))
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(plugins.filter { filter.isBlank() || it.name.contains(filter, true) || it.description.contains(filter, true) }, key = { "${it.id}:${it.connectionId ?: "plugin"}" }) { plugin ->
@@ -1011,17 +1071,17 @@ fun PluginsScreen(
                                 Text(plugin.description)
                                 plugin.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    if (plugin.installedVersion == null) Button(onClick = { onInstall(plugin) }, enabled = !plugin.busy) { Text("Install") }
+                                    if (plugin.installedVersion == null) Button(onClick = { onInstall(plugin) }, enabled = !plugin.busy) { Text(localizedText("Install", "安装")) }
                                     else {
-                                        if (plugin.latestVersion != null && plugin.latestVersion != plugin.installedVersion) TextButton(onClick = { onUpdate(plugin) }, enabled = !plugin.busy) { Text("Update") }
-                                        TextButton(onClick = { confirmRollback = true }, enabled = !plugin.busy) { Text("Rollback") }
-                                        TextButton(onClick = { configure = true }, enabled = !plugin.busy) { Text("Configure") }
-                                        TextButton(onClick = { onTestTool(plugin) }, enabled = !plugin.busy) { Text("Test tool") }
+                                        if (plugin.latestVersion != null && plugin.latestVersion != plugin.installedVersion) TextButton(onClick = { onUpdate(plugin) }, enabled = !plugin.busy) { Text(localizedText("Update", "更新")) }
+                                        TextButton(onClick = { confirmRollback = true }, enabled = !plugin.busy) { Text(localizedText("Rollback", "回滚")) }
+                                        TextButton(onClick = { configure = true }, enabled = !plugin.busy) { Text(localizedText("Configure", "配置")) }
+                                        TextButton(onClick = { onTestTool(plugin) }, enabled = !plugin.busy) { Text(localizedText("Test tool", "测试工具")) }
                                     }
-                                    if (plugin.requiresOAuth && !plugin.configured && plugin.authorizationUrl == null) TextButton(onClick = { onAuthorize(plugin) }, enabled = !plugin.busy) { Text("Authorize") }
+                                    if (plugin.requiresOAuth && !plugin.configured && plugin.authorizationUrl == null) TextButton(onClick = { onAuthorize(plugin) }, enabled = !plugin.busy) { Text(localizedText("Authorize", "授权")) }
                                     if (plugin.authorizationUrl != null) {
-                                        Text("Waiting for browser sign-in", style = MaterialTheme.typography.labelSmall)
-                                        TextButton(onClick = { onCancelAuthorization(plugin) }, enabled = !plugin.busy) { Text("Cancel") }
+                                        Text(localizedText("Waiting for browser sign-in", "等待浏览器登录"), style = MaterialTheme.typography.labelSmall)
+                                        TextButton(onClick = { onCancelAuthorization(plugin) }, enabled = !plugin.busy) { Text(localizedText("Cancel", "取消")) }
                                     }
                                 }
                                 if (plugin.busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -1030,12 +1090,12 @@ fun PluginsScreen(
                         if (configure) {
                             AlertDialog(
                                 onDismissRequest = { configure = false },
-                                title = { Text("Configure ${plugin.name}") },
+                                title = { Text(localizedText("Configure ${plugin.name}", "配置 ${plugin.name}")) },
                                 text = {
                                     OutlinedTextField(
                                         value = configuration,
                                         onValueChange = { configuration = it },
-                                        label = { Text("Configuration JSON") },
+                                        label = { Text(localizedText("Configuration JSON", "配置 JSON")) },
                                         modifier = Modifier.fillMaxWidth(),
                                         minLines = 5,
                                     )
@@ -1044,18 +1104,18 @@ fun PluginsScreen(
                                     TextButton(onClick = {
                                         runCatching { Json.parseToJsonElement(configuration).jsonObject }
                                             .onSuccess { onConfigure(plugin, it); configure = false }
-                                    }) { Text("Save") }
+                                    }) { Text(localizedText("Save", "保存")) }
                                 },
-                                dismissButton = { TextButton(onClick = { configure = false }) { Text("Cancel") } },
+                                dismissButton = { TextButton(onClick = { configure = false }) { Text(localizedText("Cancel", "取消")) } },
                             )
                         }
                         if (confirmRollback) {
                             AlertDialog(
                                 onDismissRequest = { confirmRollback = false },
-                                title = { Text("Roll back ${plugin.name}?") },
-                                text = { Text("The server will restore the previous installed plugin version.") },
-                                confirmButton = { TextButton(onClick = { confirmRollback = false; onRollback(plugin) }) { Text("Roll back", color = MaterialTheme.colorScheme.error) } },
-                                dismissButton = { TextButton(onClick = { confirmRollback = false }) { Text("Cancel") } },
+                                title = { Text(localizedText("Roll back ${plugin.name}?", "回滚 ${plugin.name}？")) },
+                                text = { Text(localizedText("The server will restore the previous installed plugin version.", "服务器将恢复之前安装的插件版本。")) },
+                                confirmButton = { TextButton(onClick = { confirmRollback = false; onRollback(plugin) }) { Text(localizedText("Roll back", "回滚"), color = MaterialTheme.colorScheme.error) } },
+                                dismissButton = { TextButton(onClick = { confirmRollback = false }) { Text(localizedText("Cancel", "取消")) } },
                             )
                         }
                     }

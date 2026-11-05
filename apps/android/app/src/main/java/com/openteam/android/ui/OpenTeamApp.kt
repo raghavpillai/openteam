@@ -3,12 +3,16 @@
 package com.openteam.android.ui
 
 import android.Manifest
+import android.os.Build
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.webkit.WebView
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
@@ -106,11 +110,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -150,6 +157,9 @@ import com.openteam.features.RoutineEditorScreen
 import com.openteam.features.RoutinesScreen
 import com.openteam.features.SettingsScreen
 import com.openteam.features.WebProviderSettingsScreen
+import com.openteam.features.LocalAppLanguage
+import com.openteam.features.localizedText
+import com.openteam.features.AppSettings
 import com.openteam.platform.SharePayload
 import com.openteam.platform.VoiceRecordingState
 import com.openteam.platform.AndroidVncWebViewRenderer
@@ -219,6 +229,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
         }
     }
 
+    val shareActionLabel = if (state.features.settings.language == AppSettings.Language.Chinese) "分享" else "Share"
     LaunchedEffect(state.pendingOutgoingShare) {
         state.pendingOutgoingShare?.let { share ->
             val intent = Intent(Intent.ACTION_SEND).apply {
@@ -227,7 +238,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 putExtra(Intent.EXTRA_TEXT, share.fileName)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(intent, "Share ${share.fileName}"))
+            context.startActivity(Intent.createChooser(intent, "$shareActionLabel ${share.fileName}"))
             appViewModel.consumeOutgoingShare()
         }
     }
@@ -285,34 +296,35 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
 
     // Navigation Compose owns the back callback here so Android predictive-back gestures
     // can seek through the same slide transition used by normal navigation.
-    NavHost(
-        navController = navController,
-        startDestination = LOGIN,
-        enterTransition = {
+    CompositionLocalProvider(LocalAppLanguage provides state.features.settings.language) {
+        NavHost(
+            navController = navController,
+            startDestination = LOGIN,
+            enterTransition = {
             slideIntoContainer(
                 AnimatedContentTransitionScope.SlideDirection.Left,
                 animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
             )
-        },
-        exitTransition = {
+            },
+            exitTransition = {
             slideOutOfContainer(
                 AnimatedContentTransitionScope.SlideDirection.Left,
                 animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
             )
-        },
-        popEnterTransition = {
+            },
+            popEnterTransition = {
             slideIntoContainer(
                 AnimatedContentTransitionScope.SlideDirection.Right,
                 animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
             )
-        },
-        popExitTransition = {
+            },
+            popExitTransition = {
             slideOutOfContainer(
                 AnimatedContentTransitionScope.SlideDirection.Right,
                 animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
             )
-        },
-    ) {
+            },
+        ) {
         composable(LOGIN) {
             SignInScreen(
                 loading = state.loading,
@@ -363,7 +375,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
         composable(BOT_DETAILS, arguments = listOf(navArgument("conversationId") { type = NavType.StringType })) { entry ->
             val id = entry.arguments?.getString("conversationId").orEmpty()
             val conversation = state.conversations.firstOrNull { it.id == id }
-            val shareLabel = stringResource(com.openteam.android.R.string.bot_share)
+            val shareLabel = localizedText("Share bot", "分享机器人")
             BotDetailsScreen(
                 conversation = conversation,
                 onBack = { navController.popBackStack() },
@@ -428,7 +440,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             val id = entry.arguments?.getString("conversationId").orEmpty()
             val conversation = state.conversations.firstOrNull { it.id == id }
             ComputerViewerScreen(
-                title = conversation?.title ?: "Cloud computer",
+                title = conversation?.title ?: localizedText("Cloud computer", "云电脑"),
                 botId = conversation?.botId.orEmpty(),
                 server = state.session?.server,
                 requestGrant = appViewModel::requestComputerGrant,
@@ -446,7 +458,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             LaunchedEffect(id) { if (state.activeConversationId != id) appViewModel.openConversation(id) }
             ChatScreen(
                 conversationId = id,
-                title = conversation?.title ?: "Conversation",
+                title = conversation?.title ?: localizedText("Conversation", "对话"),
                 messages = state.messages,
                 targetMessageId = state.activeMessageId,
                 draft = state.draft,
@@ -612,6 +624,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onOpenExtensions = { navController.navigate(PLUGINS) },
             )
         }
+        }
     }
 }
 
@@ -627,16 +640,16 @@ private fun OutboxScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localizedText("Back", "返回"))
                     }
                 },
-                title = { Text("Outbox") },
+                title = { Text(localizedText("Outbox", "发件箱")) },
             )
         },
     ) { padding ->
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("All messages have been delivered.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(localizedText("All messages have been delivered.", "所有消息都已发送。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(
@@ -648,7 +661,7 @@ private fun OutboxScreen(
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(item.content.ifBlank { "Attachment-only message" }, fontWeight = FontWeight.Medium)
-                            Text("Conversation: ${item.channelId}", style = MaterialTheme.typography.labelSmall)
+                            Text(localizedText("Conversation: ${item.channelId}", "对话：${item.channelId}"), style = MaterialTheme.typography.labelSmall)
                             if (item.attachments.isNotEmpty()) {
                                 Text(
                                     item.attachments.joinToString(", ") { attachment ->
@@ -658,14 +671,14 @@ private fun OutboxScreen(
                                 )
                             }
                             Text(
-                                item.failure?.let { "Failed: $it" } ?: "Queued for delivery",
+                                item.failure?.let { localizedText("Failed: $it", "失败：$it") } ?: localizedText("Queued for delivery", "已排队等待发送"),
                                 color = if (item.failure == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton(onClick = { onRetry(item.id) }) { Text("Retry") }
+                                TextButton(onClick = { onRetry(item.id) }) { Text(localizedText("Retry", "重试")) }
                                 TextButton(onClick = { onDiscard(item.id) }) {
-                                    Text("Discard", color = MaterialTheme.colorScheme.error)
+                                    Text(localizedText("Discard", "丢弃"), color = MaterialTheme.colorScheme.error)
                                 }
                             }
                         }
@@ -689,8 +702,8 @@ private fun SidebarManagementScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                title = { Text("Organize conversations") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, localizedText("Back", "返回")) } },
+                title = { Text(localizedText("Organize conversations", "整理对话")) },
             )
         },
     ) { padding ->
@@ -699,28 +712,30 @@ private fun SidebarManagementScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp),
         ) {
-            item { Text("Sections", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            item { Text(localizedText("Sections", "分区"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
             if (sidebar.sections.isEmpty()) {
-                item { Text("No custom sections yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                item { Text(localizedText("No custom sections yet.", "还没有自定义分区。"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             items(sidebar.sections, key = { "section:${it.id}" }) { section ->
                 var name by remember(section.id, section.name) { mutableStateOf(section.name) }
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(name, { name = it }, label = { Text("Section name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        OutlinedTextField(name, { name = it }, label = { Text(localizedText("Section name", "分区名称")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { onRename(section.id, name) }, enabled = name.trim().isNotEmpty()) { Text("Save") }
-                            TextButton(onClick = { onDeleteSection(section.id) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                            Button(onClick = { onRename(section.id, name) }, enabled = name.trim().isNotEmpty()) { Text(localizedText("Save", "保存")) }
+                        TextButton(onClick = { onDeleteSection(section.id) }) {
+                            Text(localizedText("Delete", "删除"), color = MaterialTheme.colorScheme.error)
+                        }
                         }
                     }
                 }
             }
             item {
                 Spacer(Modifier.height(8.dp))
-                Text("Hidden conversations", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(localizedText("Hidden conversations", "隐藏的对话"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
             if (hidden.isEmpty()) {
-                item { Text("No hidden conversations.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                item { Text(localizedText("No hidden conversations.", "没有隐藏的对话。"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             items(hidden, key = { "hidden:${it.id}" }) { conversation ->
                 Card(Modifier.fillMaxWidth()) {
@@ -729,8 +744,10 @@ private fun SidebarManagementScreen(
                             Text(conversation.title, fontWeight = FontWeight.Medium)
                             Text(conversation.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        TextButton(onClick = { onUnhide(conversation) }) { Text("Unhide") }
-                        TextButton(onClick = { onDeleteConversation(conversation) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                        TextButton(onClick = { onUnhide(conversation) }) { Text(localizedText("Unhide", "取消隐藏")) }
+                        TextButton(onClick = { onDeleteConversation(conversation) }) {
+                            Text(localizedText("Delete", "删除"), color = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
@@ -753,8 +770,8 @@ private fun MessageSearchScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                title = { Text("Find messages") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, localizedText("Back", "返回")) } },
+                title = { Text(localizedText("Find messages", "查找消息")) },
             )
         },
     ) { padding ->
@@ -762,7 +779,7 @@ private fun MessageSearchScreen(
             OutlinedTextField(
                 query,
                 { query = it },
-                label = { Text("Search messages") },
+                label = { Text(localizedText("Search messages", "搜索消息")) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
@@ -772,7 +789,7 @@ private fun MessageSearchScreen(
             } else if (error != null) {
                 Text(error, color = MaterialTheme.colorScheme.error)
             } else if (query.isBlank()) {
-                Text("Enter a phrase to search messages.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(localizedText("Enter a phrase to search messages.", "输入要搜索的内容。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 SearchResultsList(
                     results = results,
@@ -1088,7 +1105,7 @@ private fun IosWizardHero(stage: String) {
                 Text("●  ●  ●   Terminal", color = Color.White.copy(alpha = .55f), style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(8.dp))
                 Text("$ openteam setup", color = Color.White.copy(alpha = .48f), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-                Text("✓ OpenTeam is ready", color = Color(0xFF3DDC84), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                Text("✓ ${localizedText("OpenTeam is ready", "OpenTeam 已就绪")}", color = Color(0xFF3DDC84), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                 Text("Server   192.168.1.20:8787", color = Color.White.copy(alpha = .88f), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -1099,7 +1116,7 @@ private fun IosWizardHero(stage: String) {
 private fun IosWizardTopBar(onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack, modifier = Modifier.testTag("wizard-back")) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(com.openteam.android.R.string.chat_back))
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localizedText("Back to conversations", "返回对话列表"))
         }
         Spacer(Modifier.weight(1f))
         Text(stringResource(com.openteam.android.R.string.app_name), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1228,52 +1245,90 @@ private fun DirectoryScreen(
     var query by remember { mutableStateOf("") }
     var searchFilter by remember { mutableStateOf(SearchFilter.All) }
     var rowMenuId by remember { mutableStateOf<String?>(null) }
+    val searchFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val activity = LocalContext.current as? ComponentActivity
     // Only manually pinned chats appear in the top row, and they are removed from the
     // grouped list below so each chat is shown in exactly one place.
     val grouped = remember(rows, sidebar) { groupConversations(rows, sidebar) }
     val pinnedRows = grouped.pinned
     val unassignedRows = grouped.unassigned
     val showSectionHeadings = grouped.showUnassignedHeading
-    val settingsLabel = stringResource(com.openteam.android.R.string.directory_settings)
+    val settingsLabel = localizedText("Settings", "设置")
+    val closeSearch = {
+        keyboardController?.hide()
+        searchVisible = false
+        query = ""
+        searchFilter = SearchFilter.All
+        onClearSearch()
+    }
+    BackHandler(enabled = searchVisible) {
+        closeSearch()
+    }
+    DisposableEffect(activity, searchVisible) {
+        if (activity == null || !searchVisible || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            onDispose { }
+        } else {
+            val callback = OnBackInvokedCallback { closeSearch() }
+            activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_OVERLAY,
+                callback,
+            )
+            onDispose {
+                activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback)
+            }
+        }
+    }
     LaunchedEffect(searchVisible, query, searchFilter) {
         if (searchVisible) onSearch(query, searchFilter.apiValue) else onClearSearch()
+    }
+    LaunchedEffect(searchVisible) {
+        if (searchVisible) searchFocusRequester.requestFocus()
     }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {},
+                title = {
+                    if (searchVisible) {
+                        Text(localizedText("Search Content", "搜索内容"))
+                    }
+                },
                 navigationIcon = {
-                    IconButton(
-                        onClick = onSettings,
-                        modifier = Modifier.padding(start = 10.dp).size(48.dp).semantics {
-                            contentDescription = settingsLabel
-                        },
-                    ) {
-                        Box(
-                            Modifier.size(36.dp).clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = .13f)),
-                            contentAlignment = Alignment.Center,
+                    if (!searchVisible) {
+                        IconButton(
+                            onClick = onSettings,
+                            modifier = Modifier.padding(start = 10.dp).size(48.dp).semantics {
+                                contentDescription = settingsLabel
+                            },
                         ) {
-                            Text(
-                                accountName.take(1).uppercase().ifBlank { "O" },
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f),
-                                fontWeight = FontWeight.Medium,
-                                style = MaterialTheme.typography.titleLarge,
-                            )
+                            Box(
+                                Modifier.size(36.dp).clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = .13f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    accountName.take(1).uppercase().ifBlank { "O" },
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f),
+                                    fontWeight = FontWeight.Medium,
+                                    style = MaterialTheme.typography.titleLarge,
+                                )
+                            }
                         }
                     }
                 },
                 actions = {
-                    IosChromeIcon(
-                        icon = { Icon(Icons.Default.Refresh, contentDescription = null) },
-                        contentDescription = "Outbox",
-                        onClick = onOutbox,
-                    )
-                    IosChromeIcon(
-                        icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                        contentDescription = stringResource(com.openteam.android.R.string.directory_create),
-                        onClick = onRoutines,
-                    )
+                    if (!searchVisible) {
+                        IosChromeIcon(
+                            icon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                            contentDescription = localizedText("Outbox", "发件箱"),
+                            onClick = onOutbox,
+                        )
+                        IosChromeIcon(
+                            icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                            contentDescription = localizedText("Create conversation", "创建对话"),
+                            onClick = onRoutines,
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -1286,12 +1341,9 @@ private fun DirectoryScreen(
                 ExpandedSearchBar(
                     query = query,
                     onQueryChange = { query = it },
+                    focusRequester = searchFocusRequester,
                     onClear = { query = "" },
-                    onClose = {
-                        searchVisible = false
-                        query = ""
-                        searchFilter = SearchFilter.All
-                    },
+                    onClose = closeSearch,
                 )
             } else FloatingSearchBar(onClick = { searchVisible = true })
         },
@@ -1300,15 +1352,17 @@ private fun DirectoryScreen(
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)) {
             if (searchVisible) {
                 SearchFilterRow(selected = searchFilter, onSelected = { searchFilter = it })
-            }
-            if (searchVisible && query.isNotBlank()) {
-                SearchResultsList(
-                    results = searchResults,
-                    loading = searchLoading,
-                    error = searchError,
-                    conversations = rows,
-                    onSelect = onOpenSearchResult,
-                )
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    if (query.isNotBlank()) {
+                        SearchResultsList(
+                            results = searchResults,
+                            loading = searchLoading,
+                            error = searchError,
+                            conversations = rows,
+                            onSelect = onOpenSearchResult,
+                        )
+                    }
+                }
             } else {
             if (pinnedRows.isNotEmpty()) {
                 if (pinnedRows.size == 1) {
@@ -1352,7 +1406,7 @@ private fun DirectoryScreen(
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Column(Modifier.padding(14.dp)) {
-                        Text(stringResource(com.openteam.android.R.string.directory_share_title), fontWeight = FontWeight.SemiBold)
+                        Text(localizedText("Share with a conversation", "选择一个对话进行分享"), fontWeight = FontWeight.SemiBold)
                         Text(
                             share.text?.takeIf { it.isNotBlank() }
                                 ?: if (share.streams.size > 1) "${share.streams.size} attachments" else share.stream?.toString().orEmpty(),
@@ -1401,7 +1455,7 @@ private fun DirectoryScreen(
                 if (showSectionHeadings) {
                     item(key = "section-unassigned") {
                         DirectorySectionHeader(
-                            name = stringResource(com.openteam.android.R.string.directory_section_unassigned),
+                            name = localizedText("Unassigned", "未分组"),
                             collapsed = sidebar.unassignedCollapsed,
                             count = unassignedRows.size,
                             onClick = { onToggleSection(null) },
@@ -1472,7 +1526,7 @@ private fun SearchResultsList(
         if (!loading && error == null && results.isEmpty()) {
             item(key = "search-empty") {
                 Text(
-                    stringResource(com.openteam.android.R.string.search_no_results),
+                    localizedText("No results", "没有找到结果"),
                     modifier = Modifier.fillMaxWidth().padding(20.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1514,7 +1568,7 @@ private fun SearchResultRow(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    result.kind.replaceFirstChar { it.uppercase() },
+                    localizedSearchResultKind(result.kind),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1532,14 +1586,29 @@ private fun SearchResultRow(
     }
 }
 
-private enum class SearchFilter(val apiValue: String, val labelRes: Int) {
-    All("all", com.openteam.android.R.string.search_filter_all),
-    Messages("messages", com.openteam.android.R.string.search_filter_messages),
-    Robots("bots", com.openteam.android.R.string.search_filter_robots),
-    Groups("channels", com.openteam.android.R.string.search_filter_groups),
-    Files("files", com.openteam.android.R.string.search_filter_files),
-    ScheduledTasks("routines", com.openteam.android.R.string.search_filter_scheduled_tasks),
-    Other("links", com.openteam.android.R.string.search_filter_other),
+@Composable
+private fun localizedSearchResultKind(kind: String): String = when (kind.lowercase(Locale.ROOT)) {
+    "messages" -> localizedText("Messages", "消息")
+    "bots" -> localizedText("Robots", "机器人")
+    "channels" -> localizedText("Group chats", "群聊")
+    "files" -> localizedText("Files", "文件")
+    "routines" -> localizedText("Scheduled tasks", "定时任务")
+    "links" -> localizedText("Other", "其他")
+    else -> kind.replaceFirstChar { it.uppercase() }
+}
+
+private enum class SearchFilter(
+    val apiValue: String,
+    val englishLabel: String,
+    val chineseLabel: String,
+) {
+    All("all", "All", "全部"),
+    Messages("messages", "Messages", "消息"),
+    Robots("bots", "Robots", "机器人"),
+    Groups("channels", "Group chats", "群聊"),
+    Files("files", "Files", "文件"),
+    ScheduledTasks("routines", "Scheduled tasks", "定时任务"),
+    Other("links", "Other", "其他"),
 }
 
 @Composable
@@ -1552,7 +1621,7 @@ private fun SearchFilterRow(selected: SearchFilter, onSelected: (SearchFilter) -
         SearchFilter.values().forEach { filter ->
             val active = filter == selected
             Text(
-                stringResource(filter.labelRes),
+                localizedText(filter.englishLabel, filter.chineseLabel),
                 modifier = Modifier.clip(CircleShape)
                     .background(
                         if (active) MaterialTheme.colorScheme.onSurface
@@ -1621,7 +1690,7 @@ private fun DirectoryConversationRow(
 ) {
     val timestamp = conversationTimestampLabel(
         row.updatedAt,
-        yesterday = stringResource(com.openteam.android.R.string.directory_yesterday),
+        yesterday = localizedText("Yesterday", "昨天"),
     )
     Box {
         Row(
@@ -1657,7 +1726,7 @@ private fun DirectoryConversationRow(
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        row.preview ?: stringResource(com.openteam.android.R.string.directory_no_messages),
+                        row.preview ?: localizedText("No messages yet", "还没有消息"),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -1676,26 +1745,24 @@ private fun DirectoryConversationRow(
             DropdownMenuItem(
                 text = {
                     Text(
-                        stringResource(
-                            if (pinned) com.openteam.android.R.string.directory_unpin
-                            else com.openteam.android.R.string.directory_pin,
-                        ),
+                        if (pinned) localizedText("Unpin", "取消置顶")
+                        else localizedText("Pin to top", "置顶"),
                     )
                 },
                 onClick = { onDismissMenu(); onTogglePin() },
             )
             DropdownMenuItem(
-                text = { Text(stringResource(com.openteam.android.R.string.directory_bot_details)) },
+                text = { Text(localizedText("Bot details", "机器人详情")) },
                 onClick = { onDismissMenu(); onBotDetails() },
             )
             sections.forEach { section ->
                 DropdownMenuItem(
-                    text = { Text(stringResource(com.openteam.android.R.string.directory_move_to_section, section.name)) },
+                    text = { Text(localizedText("Move to \"${section.name}\"", "移动到「${section.name}」")) },
                     onClick = { onDismissMenu(); onMoveToSection(section.id) },
                 )
             }
             DropdownMenuItem(
-                text = { Text(stringResource(com.openteam.android.R.string.directory_section_unassigned)) },
+                text = { Text(localizedText("Unassigned", "未分组")) },
                 onClick = { onDismissMenu(); onMoveToSection(null) },
             )
         }
@@ -1780,7 +1847,7 @@ private fun FloatingSearchBar(onClick: () -> Unit) {
             Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(12.dp))
             Text(
-                stringResource(com.openteam.android.R.string.directory_search_dock),
+                localizedText("Search", "搜索"),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyLarge,
             )
@@ -1792,27 +1859,28 @@ private fun FloatingSearchBar(onClick: () -> Unit) {
 private fun ExpandedSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
+    focusRequester: FocusRequester,
     onClear: () -> Unit,
     onClose: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().imePadding().padding(horizontal = 18.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().imePadding().padding(horizontal = 14.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         OutlinedTextField(
             value = query,
             onValueChange = onQueryChange,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).focusRequester(focusRequester),
             singleLine = true,
-            placeholder = { Text(stringResource(com.openteam.android.R.string.directory_search_dock)) },
+            placeholder = { Text(localizedText("Search", "搜索")) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = onClear) {
                         Icon(
                             Icons.Default.Close,
-                            contentDescription = stringResource(com.openteam.android.R.string.common_clear),
+                            contentDescription = localizedText("Clear", "清除"),
                         )
                     }
                 }
@@ -1831,7 +1899,7 @@ private fun ExpandedSearchBar(
         ) {
             Icon(
                 Icons.Default.Close,
-                contentDescription = stringResource(com.openteam.android.R.string.directory_close_search),
+                contentDescription = localizedText("Close search", "关闭搜索"),
             )
         }
     }
@@ -1861,25 +1929,25 @@ private fun BotDetailsScreen(
         Modifier.fillMaxSize()
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             ProfileChromeButton(
-                contentDescription = stringResource(com.openteam.android.R.string.chat_back),
+                contentDescription = localizedText("Back to conversations", "返回对话列表"),
                 onClick = onBack,
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
             }
             Spacer(Modifier.weight(1f))
             ProfileChromeButton(
-                contentDescription = stringResource(com.openteam.android.R.string.bot_share),
+                contentDescription = localizedText("Share bot", "分享机器人"),
                 onClick = onShare,
             ) {
                 Icon(Icons.Default.Share, contentDescription = null)
             }
             Box {
                 ProfileChromeButton(
-                    contentDescription = stringResource(com.openteam.android.R.string.directory_settings),
+                    contentDescription = localizedText("More settings", "更多设置"),
                     onClick = { moreMenuVisible = true },
                 ) {
                     Icon(Icons.Default.MoreHoriz, contentDescription = null)
@@ -1889,24 +1957,24 @@ private fun BotDetailsScreen(
                     onDismissRequest = { moreMenuVisible = false },
                 ) {
                     DropdownMenuItem(
-                        text = { Text(stringResource(com.openteam.android.R.string.bot_open_chat)) },
+                        text = { Text(localizedText("Open conversation", "打开对话")) },
                         onClick = { moreMenuVisible = false; onOpenChat() },
                     )
                     DropdownMenuItem(
-                        text = { Text("Edit profile") },
+                        text = { Text(localizedText("Edit profile", "编辑资料")) },
                         onClick = { moreMenuVisible = false; onEdit() },
                     )
                     conversation?.let { row ->
                         DropdownMenuItem(
-                            text = { Text("Duplicate bot") },
+                            text = { Text(localizedText("Duplicate bot", "复制机器人")) },
                             onClick = { moreMenuVisible = false; onDuplicate(row) },
                         )
                         DropdownMenuItem(
-                            text = { Text("Hide from sidebar") },
+                            text = { Text(localizedText("Hide from sidebar", "从侧边栏隐藏")) },
                             onClick = { moreMenuVisible = false; onHide(row) },
                         )
                         DropdownMenuItem(
-                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                            text = { Text(localizedText("Delete", "删除"), color = MaterialTheme.colorScheme.error) },
                             onClick = { moreMenuVisible = false; onDelete(row) },
                         )
                     }
@@ -1914,48 +1982,48 @@ private fun BotDetailsScreen(
             }
         }
 
-        Spacer(Modifier.height(44.dp))
+        Spacer(Modifier.height(24.dp))
         conversation?.let {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                BotAvatar(it, 128.dp)
-                Spacer(Modifier.height(16.dp))
-                Text(it.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+                BotAvatar(it, 96.dp)
                 Spacer(Modifier.height(12.dp))
+                Text(it.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(10.dp))
                 Box(
                     Modifier.clip(CircleShape)
                         .background(MaterialTheme.colorScheme.secondaryContainer)
                         .clickable(onClick = onEdit)
-                        .padding(horizontal = 22.dp, vertical = 10.dp),
+                        .padding(horizontal = 18.dp, vertical = 9.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(17.dp))
-                        Spacer(Modifier.width(7.dp))
-                        Text(stringResource(com.openteam.android.R.string.bot_edit), fontWeight = FontWeight.Medium)
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(localizedText("Edit", "编辑"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                     }
                 }
             }
         }
 
-        Spacer(Modifier.height(36.dp))
+        Spacer(Modifier.height(28.dp))
         ProfileGroupedCard(surface) {
             ProfileCapabilityRow(
                 icon = Icons.Default.AccessTime,
-                title = stringResource(com.openteam.android.R.string.bot_routines_title),
-                status = stringResource(com.openteam.android.R.string.bot_routines_status),
+                title = localizedText("Scheduled routines", "定时任务"),
+                status = localizedText("0 enabled", "已开启 0 个"),
                 onClick = onRoutines,
             )
             ProfileDivider(muted)
             ProfileCapabilityRow(
                 icon = Icons.Default.FolderOpen,
-                title = stringResource(com.openteam.android.R.string.bot_library_title),
+                title = localizedText("Library", "资料库"),
                 status = null,
                 onClick = onOpenChat,
             )
             ProfileDivider(muted)
             ProfileCapabilityRow(
                 icon = Icons.Default.Computer,
-                title = stringResource(com.openteam.android.R.string.bot_cloud_computer),
-                status = stringResource(com.openteam.android.R.string.bot_computer_idle),
+                title = localizedText("Cloud computer", "云电脑"),
+                status = localizedText("Idle", "空闲"),
                 onClick = onComputer,
             )
         }
@@ -1963,19 +2031,19 @@ private fun BotDetailsScreen(
         Spacer(Modifier.height(18.dp))
         Column(
             Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
+                .clip(RoundedCornerShape(20.dp))
                 .background(surface)
-                .border(1.dp, muted.copy(alpha = .12f), RoundedCornerShape(24.dp)),
+                .border(1.dp, muted.copy(alpha = .12f), RoundedCornerShape(20.dp)),
         ) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Default.Notifications, contentDescription = null, tint = muted)
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(14.dp))
                 Text(
-                    stringResource(com.openteam.android.R.string.bot_notifications),
-                    style = MaterialTheme.typography.titleMedium,
+                    localizedText("Notifications", "通知"),
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f),
                 )
@@ -1986,12 +2054,12 @@ private fun BotDetailsScreen(
             }
         }
         Text(
-            stringResource(com.openteam.android.R.string.bot_notifications_detail),
+            localizedText("The bot will notify you when work is ready for your attention.", "机器人完成任务或需要你处理时通知你。"),
             color = muted,
             style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         )
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(12.dp))
     }
 }
 
@@ -2012,8 +2080,8 @@ private fun CreateConversationScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                title = { Text(if (group) "Create group" else "Create bot") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, localizedText("Back", "返回")) } },
+                title = { Text(if (group) localizedText("Create group", "创建群聊") else localizedText("Create bot", "创建机器人")) },
             )
         },
     ) { padding ->
@@ -2022,13 +2090,13 @@ private fun CreateConversationScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = !group, onClick = { group = false }, label = { Text("Bot") })
-                FilterChip(selected = group, onClick = { group = true }, label = { Text("Group") })
+                FilterChip(selected = !group, onClick = { group = false }, label = { Text(localizedText("Bot", "机器人")) })
+                FilterChip(selected = group, onClick = { group = true }, label = { Text(localizedText("Group", "群聊")) })
             }
-            OutlinedTextField(name, { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(description, { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(name, { name = it }, label = { Text(localizedText("Name", "名称")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(description, { description = it }, label = { Text(localizedText("Description", "描述")) }, modifier = Modifier.fillMaxWidth())
             if (group) {
-                Text("Members", fontWeight = FontWeight.SemiBold)
+                Text(localizedText("Members", "成员"), fontWeight = FontWeight.SemiBold)
                 bots.forEach { bot ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.Checkbox(
@@ -2041,9 +2109,9 @@ private fun CreateConversationScreen(
                     }
                 }
             } else {
-                OutlinedTextField(instructions, { instructions = it }, label = { Text("Instructions") }, modifier = Modifier.fillMaxWidth(), minLines = 5)
-                OutlinedTextField(icon, { icon = it }, label = { Text("Icon") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(color, { color = it }, label = { Text("Color (#RRGGBB)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(instructions, { instructions = it }, label = { Text(localizedText("Instructions", "说明")) }, modifier = Modifier.fillMaxWidth(), minLines = 5)
+                OutlinedTextField(icon, { icon = it }, label = { Text(localizedText("Icon", "图标")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(color, { color = it }, label = { Text(localizedText("Color (#RRGGBB)", "颜色（#RRGGBB）")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             }
             Button(
                 onClick = {
@@ -2052,7 +2120,7 @@ private fun CreateConversationScreen(
                 },
                 enabled = name.isNotBlank() && (!group || selected.value.isNotEmpty()),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Create") }
+            ) { Text(localizedText("Create", "创建")) }
         }
     }
 }
@@ -2066,7 +2134,7 @@ private fun ConversationProfileScreen(
     onBack: () -> Unit,
 ) {
     if (conversation == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Conversation is unavailable.") }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(localizedText("Conversation is unavailable.", "对话不可用。")) }
         return
     }
     var name by remember(conversation.id) { mutableStateOf(conversation.title) }
@@ -2078,16 +2146,16 @@ private fun ConversationProfileScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                title = { Text("Edit profile") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, localizedText("Back", "返回")) } },
+                title = { Text(localizedText("Edit profile", "编辑资料")) },
             )
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(name, { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(description, { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(name, { name = it }, label = { Text(localizedText("Name", "名称")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(description, { description = it }, label = { Text(localizedText("Description", "描述")) }, modifier = Modifier.fillMaxWidth())
             if (conversation.isGroup) {
-                Text("Members", fontWeight = FontWeight.SemiBold)
+                Text(localizedText("Members", "成员"), fontWeight = FontWeight.SemiBold)
                 bots.forEach { bot ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.Checkbox(
@@ -2098,9 +2166,9 @@ private fun ConversationProfileScreen(
                     }
                 }
             } else {
-                OutlinedTextField(instructions, { instructions = it }, label = { Text("Instructions") }, modifier = Modifier.fillMaxWidth(), minLines = 5)
-                OutlinedTextField(icon, { icon = it }, label = { Text("Icon") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(color, { color = it }, label = { Text("Color (#RRGGBB)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(instructions, { instructions = it }, label = { Text(localizedText("Instructions", "说明")) }, modifier = Modifier.fillMaxWidth(), minLines = 5)
+                OutlinedTextField(icon, { icon = it }, label = { Text(localizedText("Icon", "图标")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(color, { color = it }, label = { Text(localizedText("Color (#RRGGBB)", "颜色（#RRGGBB）")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             }
             Button(
                 onClick = {
@@ -2109,7 +2177,7 @@ private fun ConversationProfileScreen(
                 },
                 enabled = name.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Save") }
+            ) { Text(localizedText("Save", "保存")) }
         }
     }
 }
@@ -2122,7 +2190,7 @@ private fun ProfileChromeButton(
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(64.dp)
+        modifier = Modifier.size(48.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surface)
             .semantics { this.contentDescription = contentDescription },
@@ -2148,7 +2216,7 @@ private fun ProfileGroupedCard(
 @Composable
 private fun ProfileDivider(muted: Color) {
     HorizontalDivider(
-        modifier = Modifier.padding(start = 70.dp),
+        modifier = Modifier.padding(start = 56.dp),
         color = muted.copy(alpha = .12f),
     )
 }
@@ -2161,15 +2229,15 @@ private fun ProfileCapabilityRow(
     onClick: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 18.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
-        Spacer(Modifier.width(22.dp))
-        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(16.dp))
+        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         if (!status.isNullOrBlank()) {
-            Text(status, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(12.dp))
+            Text(status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(10.dp))
         }
         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.rotate(180f), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -2218,7 +2286,7 @@ private fun MarketplaceScreen(
                 title = { Text(stringResource(com.openteam.android.R.string.marketplace_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(com.openteam.android.R.string.chat_back))
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localizedText("Back to conversations", "返回对话列表"))
                     }
                 },
             )
@@ -2339,7 +2407,7 @@ private fun ComputerViewerScreen(
                                 onFailure = { failure = it.message },
                             )
                         }
-                    }) { Text(if (controlling) "Release" else "Take control") }
+                    }) { Text(if (controlling) localizedText("Release", "释放控制") else localizedText("Take control", "接管控制")) }
                     TextButton(onClick = {
                         scope.launch {
                             setPaused(botId, !paused).fold(
@@ -2347,11 +2415,11 @@ private fun ComputerViewerScreen(
                                 onFailure = { failure = it.message },
                             )
                         }
-                    }) { Text(if (paused) "Resume" else "Pause") }
+                    }) { Text(if (paused) localizedText("Resume", "继续") else localizedText("Pause", "暂停")) }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(com.openteam.android.R.string.chat_back))
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localizedText("Back to conversations", "返回对话列表"))
                     }
                 },
             )
@@ -2398,7 +2466,7 @@ private fun ComputerViewerScreen(
             ) {
                 failure?.let { Text(it, color = Color(0xFFFF8A80), style = MaterialTheme.typography.bodySmall) }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TextButton(onClick = { clipboardOpen = true }, enabled = controlling && !paused, colors = toolbarButtonColors) { Text("Clipboard") }
+                    TextButton(onClick = { clipboardOpen = true }, enabled = controlling && !paused, colors = toolbarButtonColors) { Text(localizedText("Clipboard", "剪贴板")) }
                     listOf("Return", "Tab", "Escape", "BackSpace").forEach { key ->
                         TextButton(onClick = { scope.launch { runCatching { renderer.send(com.openteam.platform.ComputerInput.Key(listOf(key))) } } }, enabled = controlling && !paused, colors = toolbarButtonColors) {
                             Text(key)
@@ -2418,17 +2486,17 @@ private fun ComputerViewerScreen(
     if (clipboardOpen) {
         AlertDialog(
             onDismissRequest = { clipboardOpen = false },
-            title = { Text("Send text to computer") },
-            text = { OutlinedTextField(clipboardText, { clipboardText = it }, label = { Text("Text") }, minLines = 3) },
+            title = { Text(localizedText("Send text to computer", "发送文本到云电脑")) },
+            text = { OutlinedTextField(clipboardText, { clipboardText = it }, label = { Text(localizedText("Text", "文本")) }, minLines = 3) },
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
                         sendClipboard(botId, clipboardText).onFailure { failure = it.message }
                         clipboardOpen = false
                     }
-                }, enabled = clipboardText.isNotBlank() && controlling && !paused) { Text("Send") }
+                }, enabled = clipboardText.isNotBlank() && controlling && !paused) { Text(localizedText("Send", "发送")) }
             },
-            dismissButton = { TextButton(onClick = { clipboardOpen = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { clipboardOpen = false }) { Text(localizedText("Cancel", "取消")) } },
         )
     }
 }
@@ -2543,7 +2611,7 @@ private fun ChatScreen(
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(com.openteam.android.R.string.chat_back),
+                            contentDescription = localizedText("Back to conversations", "返回对话列表"),
                         )
                     }
                 },
@@ -2567,19 +2635,19 @@ private fun ChatScreen(
                 when (voiceState) {
                     VoiceRecordingState.Idle -> Unit
                     is VoiceRecordingState.Starting -> Text(stringResource(com.openteam.android.R.string.chat_record_voice), style = MaterialTheme.typography.bodySmall)
-                    is VoiceRecordingState.Recording -> voiceControls("Recording voice note", onStopVoice, onCancelVoice)
-                    is VoiceRecordingState.Interrupted -> voiceControls("Recording paused", onStopVoice, onCancelVoice)
+                    is VoiceRecordingState.Recording -> voiceControls(localizedText("Recording voice note", "正在录制语音消息"), onStopVoice, onCancelVoice)
+                    is VoiceRecordingState.Interrupted -> voiceControls(localizedText("Recording paused", "录音已暂停"), onStopVoice, onCancelVoice)
                     is VoiceRecordingState.Transcribing -> voiceControls("Transcribing…", null, onCancelVoice)
                     is VoiceRecordingState.Review -> {
-                        Text(voiceState.error ?: "Transcription failed", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        Text(voiceState.error ?: localizedText("Transcription failed", "语音转写失败"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = onRetryVoice) { Text("Retry") }
-                            TextButton(onClick = onCancelVoice) { Text("Discard") }
+                            TextButton(onClick = onRetryVoice) { Text(localizedText("Retry", "重试")) }
+                            TextButton(onClick = onCancelVoice) { Text(localizedText("Discard", "丢弃")) }
                         }
                     }
                     is VoiceRecordingState.Failed -> {
                         Text(voiceState.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = onCancelVoice) { Text("Dismiss") }
+                        TextButton(onClick = onCancelVoice) { Text(localizedText("Dismiss", "关闭")) }
                     }
                 }
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -2605,8 +2673,8 @@ private fun ChatScreen(
                 }
                 when (operation) {
                     FeatureOperationState.Idle -> Unit
-                    FeatureOperationState.Pending -> Text("Working…", Modifier.testTag("chat-operation-status"), style = MaterialTheme.typography.bodySmall)
-                    is FeatureOperationState.Succeeded -> Text(operation.message ?: "Done", Modifier.testTag("chat-operation-status"), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+                    FeatureOperationState.Pending -> Text(localizedText("Working…", "处理中…"), Modifier.testTag("chat-operation-status"), style = MaterialTheme.typography.bodySmall)
+                    is FeatureOperationState.Succeeded -> Text(operation.message ?: localizedText("Done", "完成"), Modifier.testTag("chat-operation-status"), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
                     is FeatureOperationState.Failed -> Text(operation.message, Modifier.testTag("chat-operation-status"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -2688,8 +2756,8 @@ fun ChatContextSummary(messages: List<ChatMessage>, truncated: Boolean) {
 private fun voiceControls(label: String, onStop: (() -> Unit)?, onCancel: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-        onStop?.let { IconButton(onClick = it) { Icon(Icons.Default.Stop, contentDescription = "Stop voice note") } }
-        IconButton(onClick = onCancel) { Icon(Icons.Default.Close, contentDescription = "Cancel voice note") }
+        onStop?.let { IconButton(onClick = it) { Icon(Icons.Default.Stop, contentDescription = localizedText("Stop voice note", "停止语音消息")) } }
+        IconButton(onClick = onCancel) { Icon(Icons.Default.Close, contentDescription = localizedText("Cancel voice note", "取消语音消息")) }
     }
 }
 
@@ -2739,7 +2807,7 @@ private fun MessageBubble(
             ) {
                 Column(Modifier.padding(horizontal = 15.dp, vertical = 12.dp)) {
                     message.replyToMessageId?.let { reply ->
-                        Text("Replying to $reply", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(localizedText("Replying to $reply", "正在回复 $reply"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     message.displayBody?.let { body ->
                         MarkdownMessage(
@@ -2784,8 +2852,8 @@ private fun MessageBubble(
                     if (message.isMine) {
                         val status = when (message.delivery) {
                             com.openteam.android.data.Delivery.SENDING -> "Sending…"
-                            com.openteam.android.data.Delivery.SENT -> "Sent"
-                            com.openteam.android.data.Delivery.FAILED -> "Not sent"
+                    com.openteam.android.data.Delivery.SENT -> localizedText("Sent", "已发送")
+                    com.openteam.android.data.Delivery.FAILED -> localizedText("Not sent", "未发送")
                         }
                         Text(
                             status,
@@ -2804,7 +2872,7 @@ private fun MessageBubble(
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("Retry", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary)
+                                Text(localizedText("Retry", "重试"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary)
                             }
                         }
                     }
@@ -2831,22 +2899,24 @@ private fun AttachmentGalleryDialog(
             Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(current.name, Modifier.weight(1f), color = Color.White, maxLines = 1)
-                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, localizedText("Close", "关闭"), tint = Color.White) }
                 }
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     if (bitmap != null) {
                         Image(bitmap, current.alt ?: current.name, Modifier.fillMaxWidth())
                     } else {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(current.mimeType.ifBlank { "Document" }, color = Color.White)
-                            TextButton(onClick = { onOpenDocument(current) }) { Text("Open with Android", color = Color.White) }
+                            Text(current.mimeType.ifBlank { localizedText("Document", "文档") }, color = Color.White)
+                            TextButton(onClick = { onOpenDocument(current) }) {
+                                Text(localizedText("Open with Android", "使用 Android 打开"), color = Color.White)
+                            }
                         }
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(onClick = { index = (index - 1).coerceAtLeast(0) }, enabled = index > 0) { Text("Previous", color = Color.White) }
+                    TextButton(onClick = { index = (index - 1).coerceAtLeast(0) }, enabled = index > 0) { Text(localizedText("Previous", "上一项"), color = Color.White) }
                     Text("${index + 1} / ${attachments.size}", color = Color.White)
-                    TextButton(onClick = { index = (index + 1).coerceAtMost(attachments.lastIndex) }, enabled = index < attachments.lastIndex) { Text("Next", color = Color.White) }
+                    TextButton(onClick = { index = (index + 1).coerceAtMost(attachments.lastIndex) }, enabled = index < attachments.lastIndex) { Text(localizedText("Next", "下一项"), color = Color.White) }
                 }
             }
         }

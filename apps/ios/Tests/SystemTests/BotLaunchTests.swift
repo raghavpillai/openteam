@@ -29,6 +29,21 @@ final class BotLaunchTests: SystemIntentFixture {
     try await assertNoDelivery()
   }
 
+  func testNewestValidChatURLSurvivesRestoringASavedSession() async throws {
+    let store = try await connectedStore()
+    store.flushPersistence()
+    let first = try XCTUnwrap(store.bots.first)
+    let latest = try XCTUnwrap(store.bots.last)
+    let cold = AppStore()
+    await cold.deepLink(try XCTUnwrap(URL(string: "openteam-swift://chat/" + first.dmChannelId)))
+    await cold.deepLink(try XCTUnwrap(URL(string: "openteam-swift://chat/" + latest.dmChannelId)))
+    await cold.deepLink(try XCTUnwrap(URL(string: "openteam-swift://unsupported/value")))
+    await cold.start()
+    XCTAssertEqual(cold.navigation, [latest.dmChannelId])
+    cold.setForeground(false)
+    try await assertNoDelivery()
+  }
+
   func testVoiceShortcutQueuesOnlyTheChosenBotUntilItsComposerIsVisible() async throws {
     let client = try await SystemIntentClient.connect()
     let bot = try XCTUnwrap(client.bootstrap.bots.last)
@@ -206,6 +221,10 @@ final class BotLaunchTests: SystemIntentFixture {
       body: .object(["offline": .bool(true)]))
     let resolved = try await TeamBotQuery().entities(for: [entity.id])
     XCTAssertEqual(resolved.map(\.id), [entity.id])
+    let suggestions = try await TeamBotQuery().suggestedEntities()
+    XCTAssertEqual(Set(suggestions.map(\.id)), Set(store.bots.map { TeamBotEntity($0, scope: scope).id }))
+    let searched = try await TeamBotQuery().entities(matching: "  \(bot.name.lowercased()) \n")
+    XCTAssertEqual(searched.map(\.id), [entity.id])
     XCTAssertEqual(resolved.first?.name, bot.name)
     try await assertNoDelivery()
   }
@@ -232,12 +251,89 @@ final class BotLaunchTests: SystemIntentFixture {
     let entity = TeamBotEntity(try XCTUnwrap(client.bootstrap.bots.first), scope: scope)
     let uncached = try await TeamBotQuery().entities(for: [entity.id])
     XCTAssertEqual(uncached.map(\.id), [entity.id])
+    let suggestions = try await TeamBotQuery().suggestedEntities()
+    XCTAssertTrue(suggestions.contains { $0.id == entity.id })
     let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       .appendingPathComponent("OpenTeam")
     let disk = try DiskStore(directory: root, scope: scope)
     try Data("invalid-cache".utf8).write(to: disk.url)
     let recovered = try await TeamBotQuery().entities(for: [entity.id])
     XCTAssertEqual(recovered.map(\.id), [entity.id])
+    let recoveredSuggestions = try await TeamBotQuery().suggestedEntities()
+    XCTAssertTrue(recoveredSuggestions.contains { $0.id == entity.id })
+  }
+
+  func testBotPickerDoesNotDecodeUnrelatedServerOrCacheFields() async throws {
+    let store = try await connectedStore()
+    store.flushPersistence()
+    let bot = try XCTUnwrap(store.bots.first)
+    let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("OpenTeam")
+    let disk = try DiskStore(directory: root, scope: scope)
+    var cache = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: disk.url))
+    cache["bootstrap"]["runtime"] = .string("new-runtime-format")
+    cache["bootstrap"]["latestMessages"] = .string("new-message-format")
+    try JSONEncoder().encode(cache).write(to: disk.url)
+    // A reachable server with an incompatible response produced the screenshot's error.
+    _ = try await API(server: server).request("/__qa/control", method: "POST", body: .object([
+      "failures": .object(["GET /api/v0/client-bootstrap": .object(["status": .number(200), "count": .number(10)])])]))
+    let suggestions = try await TeamBotQuery().suggestedEntities()
+    XCTAssertTrue(suggestions.contains { $0.name == bot.name })
+    let searched = try await TeamBotQuery().entities(matching: bot.name)
+    XCTAssertEqual(searched.map(\.name), [bot.name])
+    if #available(iOS 27.0, *) {
+      let people = try await TeamSiriPersonQuery().suggestedEntities()
+      XCTAssertEqual(Set(people.map(\.id)), Set(suggestions.map(\.id)))
+      let matched = try await TeamSiriPersonQuery().entities(matching: bot.name)
+      XCTAssertEqual(matched.map(\.name), [bot.name])
+      let resolved = try await TeamSiriPersonQuery().entities(for: [try XCTUnwrap(matched.first).id])
+      XCTAssertEqual(resolved.map(\.name), [bot.name])
+    }
+    try await assertNoDelivery()
+  }
+
+  func testCachedPickerExcludesArchivedAndInvalidBotDestinations() async throws {
+    let store = try await connectedStore()
+    store.flushPersistence()
+    var state = store.state
+    state.bootstrap?.bots[0].status = "archived"
+    let invalidChannel = try XCTUnwrap(state.bootstrap?.bots[1].dmChannelId)
+    if let index = state.bootstrap?.channels.firstIndex(where: { $0.id == invalidChannel }) {
+      state.bootstrap?.channels[index].members = []
+    }
+    let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("OpenTeam")
+    try DiskStore(directory: root, scope: scope).save(state)
+    let suggestions = try await TeamBotQuery().suggestedEntities()
+    XCTAssertEqual(suggestions.map(\.name), [try XCTUnwrap(state.bootstrap?.bots.last).name])
+    let unmatched = try await TeamBotQuery().entities(matching: "no matching Bot")
+    XCTAssertTrue(unmatched.isEmpty)
+  }
+
+  func testUncachedBotPickerDecodesOnlyTheDirectoryProjection() async throws {
+    let client = try await SystemIntentClient.connect()
+    let bot = try XCTUnwrap(client.bootstrap.bots.first)
+    let channel = try XCTUnwrap(client.bootstrap.channels.first { $0.id == bot.dmChannelId })
+    let directory: JSON = .object([
+      "bots": .array([.object(["id": .string(bot.id), "name": .string(bot.name),
+        "title": .string(bot.title), "status": .string(bot.status), "dmChannelId": .string(bot.dmChannelId)])]),
+      "channels": .array([.object(["id": .string(channel.id), "kind": .string(channel.kind),
+        "members": try .encode(channel.members)])]),
+      "latestMessages": .string("unrelated incompatible history"),
+    ])
+    _ = try await client.api.request("/__qa/control", method: "POST", body: .object([
+      "failures": .object(["GET /api/v0/client-bootstrap": .object([
+        "status": .number(200), "count": .number(10), "body": directory])])]))
+    let suggestions = try await TeamBotQuery().suggestedEntities()
+    let entity = TeamBotEntity(bot, scope: scope)
+    XCTAssertEqual(suggestions.map(\.id), [entity.id])
+    let resolved = try await TeamBotQuery().entities(for: [entity.id])
+    XCTAssertEqual(resolved.map(\.name), [bot.name])
+    if #available(iOS 27.0, *) {
+      let people = try await TeamSiriPersonQuery().entities(for: [entity.id])
+      XCTAssertEqual(people.map(\.name), [bot.name])
+    }
+    try await assertNoDelivery()
   }
 
   func testCachedBotCannotResolveAfterAccountChangeOrLocalReset() async throws {

@@ -31,17 +31,18 @@ struct TeamBotEntity: IndexedEntity {
 struct TeamBotQuery: EntityStringQuery {
   @MainActor func entities(for identifiers: [String]) async throws -> [TeamBotEntity] {
     if let cached = try SavedBotDirectory.entities(for: identifiers) { return cached }
-    let client = try await SystemIntentClient.connect()
-    return try identifiers.compactMap { value in
-      try client.destination(value, kind: .bot).bot.map { TeamBotEntity($0, scope: client.scope) }
+    let directory = try await SavedBotDirectory.liveEntities(matching: "")
+    return try identifiers.map { value in
+      guard let entity = directory.first(where: { $0.id == value }) else {
+        throw APIError("This conversation is no longer available in OpenTeam.")
+      }
+      return entity
     }
   }
   @MainActor func suggestedEntities() async throws -> [TeamBotEntity] { try await entities(matching: "") }
   @MainActor func entities(matching string: String) async throws -> [TeamBotEntity] {
-    let client = try await SystemIntentClient.connect()
-    return client.destinations.filter {
-      string.isEmpty || $0.name.localizedStandardContains(string)
-    }.compactMap { $0.bot.map { TeamBotEntity($0, scope: client.scope) } }
+    if let cached = try SavedBotDirectory.entities(matching: string) { return cached }
+    return try await SavedBotDirectory.liveEntities(matching: string)
   }
 }
 

@@ -455,6 +455,10 @@ import XCTest
     try await Task.sleep(for: .seconds(1.2))
     XCUIDevice.shared.press(.home)
     try await Task.sleep(for: .seconds(1))
+    guard app.state != .runningForeground else {
+      capture("background-unavailable", app)
+      throw XCTSkip("This simulator kept the app in the foreground after Home. Repeat this background-recording check on an iPhone that backgrounds the app.")
+    }
     app.activate()
     XCTAssertTrue(app.buttons["Send voice note"].waitForExistence(timeout: 5))
     XCTAssertEqual(app.descendants(matching: .any)["voice-clock"].label, "Voice note ready")

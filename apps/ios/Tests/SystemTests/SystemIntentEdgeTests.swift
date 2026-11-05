@@ -60,9 +60,9 @@ final class SystemIntentEdgeTests: SystemIntentFixture {
     do { _ = try await intent.perform(); XCTFail("Accepted an empty task") }
     catch { XCTAssertTrue(error.localizedDescription.contains("Add instructions")) }
     intent.instructions = "Too many attachments"
-    intent.attachments = (0..<7).map { IntentFile(data: Data([1]), filename: "\($0).txt", type: .plainText) }
-    do { _ = try await intent.perform(); XCTFail("Accepted seven attachments") }
-    catch { XCTAssertTrue(error.localizedDescription.contains("six")) }
+    intent.attachments = (0...Draft.maxAttachments).map { IntentFile(data: Data([1]), filename: "\($0).txt", type: .plainText) }
+    do { _ = try await intent.perform(); XCTFail("Accepted more than the attachment limit") }
+    catch { XCTAssertTrue(error.localizedDescription.contains("\(Draft.maxAttachments) attachments")) }
     try await assertNoSubmission()
   }
 
@@ -144,7 +144,7 @@ final class SystemIntentEdgeTests: SystemIntentFixture {
 
     let asset = Asset(assetId: "fixture", fileName: "file.txt", mimeType: "text/plain", byteSize: 1, kind: "file")
     var existing = Draft(); existing.text = "Keep this text"
-    existing.attachments = Array(repeating: asset, count: 6)
+    existing.attachments = Array(repeating: asset, count: Draft.maxAttachments)
     appStore.saveDraft(existing, channel: bot.dmChannelId)
     let target = TeamBotEntity(bot, scope: scope)
     do {

@@ -62,7 +62,9 @@ import XCTest
   }
 
   func testMicrophoneEdgesAndCornersStartHandsFreeWithAndWithoutKeyboard() async throws {
-    let app = try await launch(appearance: "light")
+    // This audit measures stationary bounds. Hold/drag tests and MP4 captures
+    // separately cover normal motion; avoid XCTest waiting on cosmetic springs.
+    let app = try await launch(appearance: "light", arguments: ["--qa-reduce-motion"])
     let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
     for keyboard in [false, true] {
       for (dx, dy) in [(-13.0, 0.0), (13, 0), (-24, 0), (24, 0), (0, -24), (0, 24),

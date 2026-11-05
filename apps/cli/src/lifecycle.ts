@@ -55,12 +55,18 @@ import {
   acquireUpdateLock,
   assertUpdatePreflight,
   createDatabaseBackup,
-  pruneUpdateBackups,
   readUpdateState,
   restoreDatabaseBackup,
   writeUpdateState,
   type PersistedUpdateState,
 } from "./update-safety";
+import {
+  captureStackImages,
+  retainStackImages,
+  retainDatabaseBackups,
+  registerDatabaseBackup,
+  maintenanceWarning,
+} from "./disk-maintenance";
 import { assertNoAgentWorking, UpdateBusyError, updateWaitsForIdle } from "./update-gate";
 
 export const UPDATE_PROGRESS_PREFIX = "@@OPENTEAM_UPDATE@@";
@@ -204,7 +210,11 @@ export const installCommand = async (
         allowUnsigned: options.allowUnsigned,
       });
       writeFileAtomic(paths.compose, release.compose, 0o600);
-      writeManifest(paths, { ...existing, composeUrl: release.composeUrl, updatedAt: new Date().toISOString() });
+      writeManifest(paths, {
+        ...existing,
+        composeUrl: release.composeUrl,
+        updatedAt: new Date().toISOString(),
+      });
     }
     if (!existing.ownerUsername && !options.noSetup) {
       console.log(
@@ -488,21 +498,33 @@ const updateCommandUnlocked = async (
   let newStackStarted = false;
   let manifestUpdated = false;
   let backupPath: string | null = null;
+  let previousImages: string[] | null = null;
   try {
     writeFileAtomic(nextCompose, release.compose, 0o600);
     assertUpdatePreflight(paths, runner, project, nextCompose);
+    maintenanceWarning("capture pre-update images", () => {
+      previousImages = captureStackImages(paths, project, runner);
+    });
     report("pulling", `Pulling OpenTeam ${target} container images`, target);
     project.runOrThrow(["pull"], { inherit: true, composeFile: nextCompose });
     // Work may have started during the download; this is the last moment nothing has stopped.
     if (whenIdle) await assertNoAgentWorking(paths);
     maintenanceStarted = true;
-    project.runOrThrow([
-      "stop", "server", "worker",
-      ...(/^  computer-memory-init:/m.test(readFileSync(paths.compose, "utf8")) ? ["computer-memory-init"] : []),
-      "computer",
-    ], { inherit: true });
+    project.runOrThrow(
+      [
+        "stop",
+        "server",
+        "worker",
+        ...(/^  computer-memory-init:/m.test(readFileSync(paths.compose, "utf8"))
+          ? ["computer-memory-init"]
+          : []),
+        "computer",
+      ],
+      { inherit: true }
+    );
     report("backing-up", `Backing up the OpenTeam database before ${target}`, target);
     backupPath = createDatabaseBackup(paths, project, manifest.version, target);
+    maintenanceWarning("record database backup", () => registerDatabaseBackup(paths, backupPath!));
     persisted = writeUpdateState(paths, { ...persisted, backupPath });
     writeFileAtomic(paths.environment, nextEnvironment, 0o600);
     writeFileAtomic(paths.compose, release.compose, 0o600);
@@ -542,11 +564,18 @@ const updateCommandUnlocked = async (
     let databaseRecoveryError: string | null = null;
     if (newStackStarted && backupPath) {
       try {
-        project.runOrThrow([
-          "stop", "server", "worker",
-          ...(/^  computer-memory-init:/m.test(readFileSync(paths.compose, "utf8")) ? ["computer-memory-init"] : []),
-          "computer",
-        ], { inherit: true });
+        project.runOrThrow(
+          [
+            "stop",
+            "server",
+            "worker",
+            ...(/^  computer-memory-init:/m.test(readFileSync(paths.compose, "utf8"))
+              ? ["computer-memory-init"]
+              : []),
+            "computer",
+          ],
+          { inherit: true }
+        );
         restoreDatabaseBackup(project, backupPath);
       } catch (restoreError) {
         databaseRecoveryError =
@@ -572,17 +601,18 @@ const updateCommandUnlocked = async (
       `Update failed and the previous Compose configuration was restored${recoveryDetail}${databaseRecoveryError ? `; database restore also failed: ${databaseRecoveryError}` : ""}: ${cause}`
     );
   }
-  try {
-    const removed = pruneUpdateBackups(paths, backupPath);
-    if (removed.length)
-      console.log(
-        `Removed ${removed.length} older update backup${removed.length === 1 ? "" : "s"} from ${paths.backups}: ${removed.join(", ")}`
-      );
-  } catch (error) {
-    console.warn(
-      `Could not remove older update backups: ${error instanceof Error ? error.message : error}`
+  if (previousImages) {
+    maintenanceWarning("retain stack images", () =>
+      retainStackImages(
+        paths,
+        project,
+        runner,
+        previousImages!,
+        captureStackImages(paths, project, runner)
+      )
     );
   }
+  maintenanceWarning("retain database backups", () => retainDatabaseBackups(paths, backupPath));
   const completion = cliPromotion
     ? `OpenTeam and its command-line tools are now running ${target}`
     : `OpenTeam is now running ${target}`;

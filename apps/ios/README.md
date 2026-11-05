@@ -166,8 +166,9 @@ repository `output/`; they are not bundled with the app.
 
 Increment `release.json`'s build number before each TestFlight upload, keep its
 version in sync with this workspace's `package.json`, then regenerate the project.
-The v0.0.13 release candidate reserves build 63; source metadata does not establish
-a TestFlight upload or availability. Release archives and exports are built locally
+The v0.0.14 release candidate uses build 64 after a read-only App Store Connect
+check of builds and build uploads on November 5, 2026. Recheck before uploading:
+source metadata does not reserve a build number or establish TestFlight availability. Release archives and exports are built locally
 with Xcode on macOS. Follow [Releasing OpenTeam](../../.github/RELEASING.md) for
 release preparation and publication boundaries; tag pushes do not build releases.
 `ci-testflight.sh` is for an ephemeral CI runner, not a developer's personal keychain.
@@ -189,7 +190,7 @@ After confirming a build is available to the **public TestFlight group**, update
 ```json
 {
   "release": {
-    "version": "0.0.11",
+    "version": "0.0.12",
     "buildNumber": "62",
     "bundleIdentifier": "dev.openbot.mobile"
   }

@@ -12,6 +12,12 @@ Download the desktop app from [openteam.so/download](https://openteam.so/downloa
 
 The desktop app does everything: chat, watching bots' screens, plugins, routines, and all settings. It's also how bots [work on your own computer](../usage/computer.md#use-your-own-computer), so keep it open when they do.
 
+When the desktop app is hidden or you switch conversations, it pauses optional
+animations and polling and releases inactive previews after a short delay. Drafts
+and chat position remain available. Recording, message delivery, notifications,
+server-update monitoring and connected-computer heartbeats continue while the app
+is running. A hidden computer viewer reconnects when you open it again.
+
 ## iPhone
 
 The iPhone app is in public beta on TestFlight. It needs iOS 18 or later.
@@ -30,7 +36,29 @@ Enter your server URL and sign in. If the server has no model or bots yet, the a
 - Set up plugins and private skills
 - Connect or change the model in **Settings → Model**, and set up voice notes in **Settings → Voice notes**
 
-On iPhone, ChatGPT sign-in shows a code to enter on the sign-in page. Remote access and computer settings are on desktop.
+On iPhone, ChatGPT sign-in shows a code to enter on the sign-in page. **Settings → Server** manages connected computers and their network priority; connection sharing is enabled on the provider desktop.
+
+### Shortcuts, Siri, and Spotlight
+
+On iOS 18 and later, OpenTeam provides Shortcuts to open a Bot, record a voice note,
+send a task, open a conversation, run a saved routine, and find messages. Choose a
+fixed Bot in a saved shortcut to use it with Back Tap or the Action button. Known
+Bots can open from the connected account's cache while the server is unavailable;
+sending, searching, and running routines still need the server. Actions require an
+unlocked, authenticated device. A voice shortcut opens the composer for a voice
+note; you decide when to send it.
+
+**Settings → Siri and Spotlight** controls on-device discovery and visible-message
+context. The bounded index excludes drafts and pending sends, and is cleared when
+you turn discovery off or sign out. Conversation previews use committed messages.
+
+New custom Siri tools and three Apple app skills support delegation, conversation
+review and running an existing routine once in Apple's iOS 27.3 Siri AI developer
+preview. That preview requires supported Apple Intelligence hardware, preview access,
+and a development-signed or internal TestFlight build. Public external TestFlight
+does not enable preview testing. Live Siri reasoning and skill selection still need
+physical-device validation; existing Shortcuts remain available on iOS 18+. See the
+[iOS integration requirements](../../apps/ios/README.md#siri-ai-preview-and-app-skills).
 
 ## Connect from another device
 

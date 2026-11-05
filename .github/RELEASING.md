@@ -5,28 +5,51 @@ workflow. GitHub Releases remains the download host used by `openteam.so/downloa
 and the install scripts; uploading locally built artifacts does not require GitHub
 Actions. The CLI installer workflow runs tests only.
 
-## v0.0.13 release candidate
+## v0.0.14 release preparation
 
-Prepare v0.0.13 from `eb8ae082c4a7c0cf30bafb140045a6e615a1b81b`, with
-v0.0.12 as the previous release. Keep the root and all workspace package versions,
-`bun.lock` workspace versions, and `apps/ios/release.json` at `0.0.13`. Reserve iOS
-build `63` and regenerate the checked-in Xcode project with
-`python3 apps/ios/scripts/generate-project.py`.
+Prepare v0.0.14 from `f0ee131fdb460fae38b113bf768c7cb4cfd83d3b`, with
+v0.0.13 (`30d3c67c`) as the previous release baseline. Keep the root and all
+workspace package versions, `bun.lock` workspace versions, and
+`apps/ios/release.json` at `0.0.14`. Dependency resolutions stay unchanged.
 
-This candidate includes PRs #223–#228: desktop settings controls and copy; removal
-of bot hiding and duplication; voice composer visuals; the doctor workspace probe's
-bot identity; sidebar account controls; and contextual send failures and pending
-attachment previews. Previously hidden bots and group chats become visible again
-after the server update. Review the draft notes in ignored
-`output/release-v0.0.13/release-notes.md` before publication.
+This candidate includes all 11 merged PRs since that baseline: #230, #231, #232,
+#233, #234, #235, #237, #238, #240, #241, and #242. They cover the approved iOS
+update notice, loading indicators, computer-wide network routing, iOS connection
+warnings and microphone controls, message delivery feedback, scoped disk retention,
+desktop background resource handling, and Shortcuts/Siri integration. Review the
+draft notes in ignored `output/release-v0.0.14/release-notes.md` before publication.
 
-Record focused metadata/configuration checks separately from the full repository
-gate, desktop interaction QA, and native iPhone/iPad QA. Those broader checks must
-be reviewed before promoting the candidate. A version bump and passing source
-checks do not establish installer quality, device behavior, or TestFlight availability.
-Candidate preparation does not publish a tag, GitHub release, installer, container,
-or TestFlight build. Keep public update feeds at their last verified releases until
-the new artifacts are available and verified.
+The read-only App Store Connect check on November 5, 2026 at 23:45 UTC found build
+`64` unused in both builds and build uploads for `dev.openbot.mobile` (app
+`6807991964`); this candidate uses it. Build `0.0.13 (63)` is now valid, unexpired,
+approved and in external beta testing in the public TestFlight group. The checked-in
+and live update feeds still advertise the previously verified `0.0.12 (62)`.
+Candidate metadata does not establish an upload or availability of build 64.
+
+## Preparation checks
+
+Before every iOS upload, query App Store Connect builds **and build uploads**
+read-only, including unfinished uploads, and choose an unused build number. Recheck
+immediately before uploading because source metadata does not reserve it on Apple.
+Update `apps/ios/release.json`, then regenerate the checked-in Xcode project with
+`python3 apps/ios/scripts/generate-project.py`. Keep signing credentials outside Git
+and logs. For a public iOS update notice, verify the exact version/build is valid,
+unexpired, approved and available in the public TestFlight group before updating
+`apps/landing/public/ios-update.json` and deploying the site.
+
+Record the tested SHA, worktree, tool versions and focused metadata, generated
+configuration, documentation rendering/link checks and tests. Keep these results
+separate from the full repository gate, desktop interaction QA, native device QA,
+and installed-artifact verification. Review those broader checks before promotion.
+Siri AI preview reasoning and app-skill selection require supported physical hardware,
+preview access, and a development-signed or internal TestFlight build; simulator
+checks and external public TestFlight do not establish that behavior. See the
+[iOS build and preview requirements](../apps/ios/README.md#siri-ai-preview-and-app-skills).
+
+A version bump and passing source checks do not establish installer quality,
+device behavior, or TestFlight availability. Candidate preparation does not publish
+a tag, GitHub release, installer, container, or TestFlight build. Keep public update
+feeds at verified releases until new artifacts are available and verified.
 
 ## macOS desktop
 

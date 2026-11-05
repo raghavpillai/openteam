@@ -3,9 +3,16 @@ name: openteam
 x-openteam-labels: &openteam-labels
   com.openteam.environment: production
 
+x-openteam-logging: &openteam-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
     environment:
       POSTGRES_DB: openteam
@@ -22,6 +29,7 @@ services:
 
   migrate:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-migrate:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
     environment:
       DATABASE_URL: postgresql://openteam:${OPENTEAM_POSTGRES_PASSWORD}@postgres:5432/openteam
@@ -32,6 +40,7 @@ services:
 
   agent-data-init:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /sand-data && chmod 0700 /sand-data"]
     restart: "no"
@@ -40,6 +49,7 @@ services:
 
   asset-store-init:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command:
       - sh
@@ -62,6 +72,7 @@ services:
 
   computer-home-init:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command:
       - sh
@@ -81,6 +92,7 @@ services:
 
   box-store-init:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /box-store && chmod 0700 /box-store"]
     restart: "no"
@@ -89,6 +101,7 @@ services:
 
   workspace-init:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /workspace && chmod 0755 /workspace"]
     restart: "no"
@@ -97,6 +110,7 @@ services:
 
   computer:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-computer:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
     hostname: openteam
     environment:
@@ -144,6 +158,7 @@ services:
 
   server:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-server:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
     environment:
       OPENTEAM_VERSION: ${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
@@ -186,6 +201,7 @@ services:
 
   caddy:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     profiles: ["https"]
     command:
@@ -219,6 +235,7 @@ services:
 
   worker:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-worker:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
     environment:
       DATABASE_URL: postgresql://openteam:${OPENTEAM_POSTGRES_PASSWORD}@postgres:5432/openteam

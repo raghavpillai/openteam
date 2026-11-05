@@ -1,6 +1,14 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as filesystem from "node:fs";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArguments } from "../src/arguments";
@@ -28,6 +36,7 @@ import { readUpdateState } from "../src/update-safety";
 
 class HealthyDockerRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
+  imageTags = new Map<string, Set<string>>();
   running = ["postgres", "server", "worker", "computer"];
   publishedBy: Record<string, string> = {};
   tailscale = "{}";
@@ -46,6 +55,33 @@ class HealthyDockerRunner implements CommandRunner {
 
   run(command: string, args: readonly string[], options?: RunOptions): RunResult {
     this.calls.push({ command, args, options });
+    if (args.includes("config") && args.includes("--format")) {
+      const version = parseEnvironment(readFileSync(join(options!.cwd!, ".env"), "utf8")).get(
+        "OPENTEAM_VERSION"
+      );
+      return {
+        status: 0,
+        stdout: JSON.stringify({ services: { server: { image: `fixture:${version}` } } }),
+        stderr: "",
+      };
+    }
+    if (args[0] === "container" && args[1] === "ls") return { status: 0, stdout: "", stderr: "" };
+    if (args[0] === "image" && args[1] === "inspect") {
+      const ref = args[2]!;
+      const id = ref.startsWith("fixture:")
+        ? `sha256:${Buffer.from(ref).toString("hex").padEnd(64, "0")}`
+        : [...this.imageTags].find(([, tags]) => tags.has(ref))?.[0];
+      return {
+        status: 0,
+        stdout: JSON.stringify([{ Id: id, RepoTags: [...(this.imageTags.get(id!) ?? [])] }]),
+        stderr: "",
+      };
+    }
+    if (args[0] === "image" && args[1] === "tag") {
+      const tags = this.imageTags.get(args[2]!) ?? new Set<string>();
+      tags.add(args[3]!);
+      this.imageTags.set(args[2]!, tags);
+    }
     if (command === "tailscale") return { status: 0, stdout: this.tailscale, stderr: "" };
     if (args.includes("exec") && args.includes("-e")) {
       return { status: 0, stdout: this.internalHealth, stderr: "" };
@@ -108,9 +144,18 @@ class HealthyDockerRunner implements CommandRunner {
 }
 
 const temporaryDirectories: string[] = [];
+let diskSpace: ReturnType<typeof spyOn>;
+beforeEach(() => {
+  const real = filesystem.statfsSync(tmpdir());
+  diskSpace = spyOn(filesystem, "statfsSync").mockReturnValue({
+    ...real,
+    bavail: (8 * 1024 ** 3) / Number(real.bsize),
+  } as ReturnType<typeof filesystem.statfsSync>);
+});
 const servers: Array<{ stop(force?: boolean): void }> = [];
 
 afterEach(() => {
+  diskSpace.mockRestore();
   for (const server of servers.splice(0)) server.stop(true);
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
@@ -118,7 +163,7 @@ afterEach(() => {
 });
 
 const fixture = (inference = "missing") => {
-  const directory = mkdtempSync(join(tmpdir(), "openteam-cli-lifecycle-"));
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "openteam-cli-lifecycle-")));
   temporaryDirectories.push(directory);
   const paths = installationPaths(directory);
   const server = Bun.serve({
@@ -191,7 +236,11 @@ describe("installed lifecycle", () => {
     const environment = readFileSync(paths.environment, "utf8");
     writeFileAtomic(paths.compose, "old local image configuration");
     writeManifest(paths, { ...manifest, uninstalledAt: new Date().toISOString() });
-    await installCommand(paths, parseArguments(["install", ...releaseFixture()]), new HealthyDockerRunner());
+    await installCommand(
+      paths,
+      parseArguments(["install", ...releaseFixture()]),
+      new HealthyDockerRunner()
+    );
     expect(readFileSync(paths.compose, "utf8")).toContain("example/openteam-server");
     expect(readFileSync(paths.environment, "utf8")).toBe(environment);
     expect(readManifest(paths)?.ownerUsername).toBe(manifest.ownerUsername);
@@ -528,6 +577,7 @@ describe("installed lifecycle", () => {
       log.mockRestore();
     }
 
+    expect(existsSync(join(paths.directory, "image-retention.json"))).toBe(true);
     expect(readManifest(paths)?.version).toBe("1.3.0");
     expect(readFileSync(paths.environment, "utf8")).toContain("OPENTEAM_VERSION=1.3.0");
     expect(readUpdateState(paths)).toMatchObject({
@@ -551,6 +601,24 @@ describe("installed lifecycle", () => {
       "verifying",
       "complete",
     ]);
+  });
+
+  test("disk maintenance failures warn without undoing a successful update", async () => {
+    const { paths } = fixture();
+    writeFileSync(join(paths.directory, "backup-retention.json"), "malformed");
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+        new HealthyDockerRunner()
+      );
+      expect(readManifest(paths)?.version).toBe("1.3.0");
+      expect(readUpdateState(paths)?.status).toBe("complete");
+      expect(warning).toHaveBeenCalled();
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   test("restores configuration and reports rollback when an update fails", async () => {
@@ -615,6 +683,11 @@ describe("installed lifecycle", () => {
       )
     ).rejects.toThrow("previous Compose configuration was restored and restarted");
 
+    expect(runner.calls.some((call) => call.args[0] === "image" && call.args[1] === "rm")).toBe(
+      false
+    );
+    expect(existsSync(join(paths.directory, "image-retention.json"))).toBe(false);
+    expect(existsSync(readUpdateState(paths)?.backupPath ?? "")).toBe(true);
     expect(runner.calls.some((call) => call.args.includes("dropdb"))).toBe(true);
     expect(runner.calls.some((call) => call.args.includes("createdb"))).toBe(true);
     expect(runner.calls.some((call) => Boolean(call.options?.inputFile))).toBe(true);

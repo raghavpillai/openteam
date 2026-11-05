@@ -375,3 +375,51 @@ bootstrap, normal releases require only `openteam update`.
 
 `uninstall` removes the containers but preserves the installation configuration and Docker volumes.
 Use `openteam uninstall --purge` to permanently delete the installation data.
+
+### Disk maintenance
+
+Successful updates run best-effort retention after readiness checks and CLI promotion. Maintenance
+errors warn and leave the updated stack running; failed updates never run retention.
+The 4 GiB free-space preflight still applies: retention does not make a nearly full disk safe to update.
+
+- **Images:** `image-retention.json` records exact image IDs for this installation, including all
+  Compose services/profiles and its actual containers before mutable tags are pulled. Current and
+  immediately prior good stacks receive durable `openteam-retention-<installation UUID>:<image ID>`
+  tags. On later successful updates, an older image can be removed only if its recorded retention
+  tag is its sole tag and no running **or stopped** container on the host references it. Other
+  installations' retention tags, manually tagged images, and untracked images are preserved.
+  Custom image prefixes work without a repository-name allowlist. Missing/malformed history or
+  incomplete Docker inventory skips cleanup. Optional profiles with images never pulled have
+  nothing local to retain. First adoption cannot reclaim untracked legacy images. Version-tagged
+  or manually retained rollback/network-test images require operator review; the updater deliberately
+  does not delete their tags. Retention tags protect recovery IDs across restarts but do not rewrite
+  mutable Compose references for manual rollback. No volumes, networks, build cache, or arbitrary
+  Docker state are pruned.
+- **Database dumps:** keep the newest **3** registered updater dumps, plus the current update's
+  rollback dump if outside those three. `backup-retention.json` records ownership in creation order;
+  only new UUID-suffixed dumps explicitly registered by the updater are eligible. Existing/manual
+  dumps, matching but unregistered filenames, and backup directories remain untouched. Failed-update
+  dumps stay until a later successful update applies retention. Traversal, symlinked paths, and
+  multiply linked files are refused or preserved. Do not edit retention ledgers to adopt manual files.
+- **Browser:** Chromium gets a **128 MiB HTTP disk-cache target** (not a cap on total profile size).
+  Before relaunch or after an owned browser stops, only `Cache`, `Code Cache`, and `GPUCache` directly
+  under the user-data root or `Default`/`Profile N` can be removed. Cleanup requires confirmed normal
+  exit and no singleton markers; live browsers, forced/unknown exits, symlinked paths, and cache
+  trees containing links are skipped. Dormant profiles from a previous computer process are left
+  alone until an owned browser has exited normally. Cookies (including partitioned cookies), saved
+  logins/passwords, `Local State`/keys, session/local storage, IndexedDB, service-worker site storage,
+  extensions, sessions/tabs, downloads, and profile directories are preserved. This does not change
+  box-store snapshot exclusions or the 24-hour blob-GC grace period.
+- **Container logs:** every release Compose service uses Docker `json-file` rotation with **10 MiB ×
+  3 files per container** (about 30 MiB). The release renderer preserves these source settings. They
+  take effect when containers are recreated; host journals and application data are unaffected.
+
+Build cache usually comes from local builds/experiments, not normal updates pulling prebuilt images.
+Inspect `docker system df -v` before manual maintenance. See the
+[Docker buildx prune reference](https://docs.docker.com/reference/cli/docker/buildx/prune/).
+On a shared host, select the builder used for those experiments with `docker buildx ls`, then run, for example,
+`docker buildx prune --builder <experiment-builder> --filter 'until=168h' --max-used-space 4gb`.
+This interactively removes eligible old unused cache only from that selected builder toward a
+4 GB cache target; shared layers still used by images may remain. The builder may serve other projects,
+so coordinate with its owners. Avoid global `docker system prune`/volume pruning as routine OpenTeam
+maintenance. Review legacy images by exact ID and all container references before removing any.

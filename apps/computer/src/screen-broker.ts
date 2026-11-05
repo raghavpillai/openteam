@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { ComputerUseActionInput, ScreenActionInput, ScreenClipboardInput, ScreenClipboardView } from "@openteam/contracts";
 import { performClipboardOperation } from "./screen/clipboard";
 import { spawnAgentProcess as spawn, agentProcessIdentity, assignAgentOwnership } from "./agent-process";
+import { clearStoppedBrowserCaches } from "./browser/cache-maintenance";
 import { BrowserBroker } from "./browser/broker";
 import { BrowserProfileAuthority } from "./browser/profile-authority";
 import { prepareDownloadPreferences } from "./browser/download-preferences";
@@ -59,6 +60,7 @@ export class ScreenBroker {
   private readonly stateRoot: string;
   private readonly mappingPath: string;
   private readonly browserBroker: BrowserBroker;
+  private readonly exitedBrowsers = new WeakMap<ScreenSession, ChildProcess>();
   private readonly profileAuthority: BrowserProfileAuthority;
   private loaded = false;
   private loading: Promise<void> | null = null;
@@ -336,7 +338,9 @@ export class ScreenBroker {
       await this.interruptAgentInput(session);
       await this.inputQueues.get(session);
       await this.browserBroker.detach(botId);
+      const browser = session.browserProcess ?? this.exitedBrowsers.get(session);
       await stopProcesses(session);
+      clearStoppedBrowserCaches(session.profileDirectory, browser);
       await this.profileAuthority.publish(session.profileDirectory);
       await session.startPromise?.catch(() => undefined);
       this.sessions.delete(botId);
@@ -434,11 +438,13 @@ export class ScreenBroker {
     session.state = "starting";
     session.error = null;
     this.assertNotDestroyed(session);
+    const browser = session.browserProcess ?? this.exitedBrowsers.get(session);
     const stoppedOwnedBrowser = Boolean(
       session.browserProcess && session.browserProcess.exitCode === null
     );
     await this.browserBroker.detach(session.botId);
     await stopProcesses(session);
+    clearStoppedBrowserCaches(session.profileDirectory, browser);
     try {
       await this.prepareAgentDirectory(session.profileDirectory, 0o770);
       if (stoppedOwnedBrowser) await this.profileAuthority.publish(session.profileDirectory);
@@ -610,12 +616,15 @@ export class ScreenBroker {
       if (session.browserProcess && session.browserProcess.exitCode === null) {
         return session.browserProcess;
       }
+      clearStoppedBrowserCaches(session.profileDirectory, this.exitedBrowsers.get(session));
+      this.exitedBrowsers.delete(session);
       const child = this.spawnLongLived(
         "google-chrome",
         [
           "--no-sandbox",
           "--test-type",
           "--disable-dev-shm-usage",
+          "--disk-cache-size=134217728",
           "--no-first-run",
           "--disable-default-apps",
           "--password-store=basic",
@@ -633,7 +642,10 @@ export class ScreenBroker {
       );
       session.browserProcess = child;
       child.once("exit", () => {
-        if (session.browserProcess === child) session.browserProcess = null;
+        if (session.browserProcess === child) {
+          this.exitedBrowsers.set(session, child);
+          session.browserProcess = null;
+        }
         void this.browserBroker
           .detach(session.botId)
           .then(() => this.profileAuthority.publish(session.profileDirectory));

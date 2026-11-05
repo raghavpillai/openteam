@@ -59,6 +59,13 @@ import {
   writeUpdateState,
   type PersistedUpdateState,
 } from "./update-safety";
+import {
+  captureStackImages,
+  retainStackImages,
+  retainDatabaseBackups,
+  registerDatabaseBackup,
+  maintenanceWarning,
+} from "./disk-maintenance";
 import { refreshPluginHostComponents } from "./plugin-host";
 
 export const UPDATE_PROGRESS_PREFIX = "@@OPENTEAM_UPDATE@@";
@@ -202,7 +209,11 @@ export const installCommand = async (
         allowUnsigned: options.allowUnsigned,
       });
       writeFileAtomic(paths.compose, release.compose, 0o600);
-      writeManifest(paths, { ...existing, composeUrl: release.composeUrl, updatedAt: new Date().toISOString() });
+      writeManifest(paths, {
+        ...existing,
+        composeUrl: release.composeUrl,
+        updatedAt: new Date().toISOString(),
+      });
     }
     if (!existing.ownerUsername && !options.noSetup) {
       console.log(
@@ -457,15 +468,20 @@ const updateCommandUnlocked = async (
   let newStackStarted = false;
   let manifestUpdated = false;
   let backupPath: string | null = null;
+  let previousImages: string[] | null = null;
   try {
     writeFileAtomic(nextCompose, release.compose, 0o600);
     assertUpdatePreflight(paths, runner, project, nextCompose);
+    maintenanceWarning("capture pre-update images", () => {
+      previousImages = captureStackImages(paths, project, runner);
+    });
     report("pulling", `Pulling OpenTeam ${target} container images`, target);
     project.runOrThrow(["pull"], { inherit: true, composeFile: nextCompose });
     maintenanceStarted = true;
     project.runOrThrow(["stop", "server", "worker", "computer"], { inherit: true });
     report("backing-up", `Backing up the OpenTeam database before ${target}`, target);
     backupPath = createDatabaseBackup(paths, project, manifest.version, target);
+    maintenanceWarning("record database backup", () => registerDatabaseBackup(paths, backupPath!));
     persisted = writeUpdateState(paths, { ...persisted, backupPath });
     writeFileAtomic(paths.environment, nextEnvironment, 0o600);
     writeFileAtomic(paths.compose, release.compose, 0o600);
@@ -527,6 +543,18 @@ const updateCommandUnlocked = async (
       `Update failed and the previous Compose configuration was restored${recoveryDetail}${databaseRecoveryError ? `; database restore also failed: ${databaseRecoveryError}` : ""}: ${cause}`
     );
   }
+  if (previousImages) {
+    maintenanceWarning("retain stack images", () =>
+      retainStackImages(
+        paths,
+        project,
+        runner,
+        previousImages!,
+        captureStackImages(paths, project, runner)
+      )
+    );
+  }
+  maintenanceWarning("retain database backups", () => retainDatabaseBackups(paths, backupPath));
   // Plugin parts installed on this machine, outside the containers, follow the release they shipped with.
   const refreshed = await refreshPluginHostComponents(paths, project, runner, {
     onRefresh: (name) => report("verifying", `Refreshing ${name} on this machine`, target),
@@ -538,7 +566,9 @@ const updateCommandUnlocked = async (
         `OpenTeam updated, but ${result.name} could not be refreshed on this machine (${result.detail}). Run openteam update --force to retry.`
       );
   }
-  const stale = refreshed.filter((result) => result.outcome === "failed").map((result) => result.name);
+  const stale = refreshed
+    .filter((result) => result.outcome === "failed")
+    .map((result) => result.name);
   const completion = `${
     cliPromotion
       ? `OpenTeam and its command-line tools are now running ${target}`

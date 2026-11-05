@@ -33,7 +33,14 @@ jobs:
       - name: Installer rendering and terminal behavior
         run: bun test ./apps/cli/test/setup-countdown.test.ts ./apps/landing/lib/install-script.test.ts
       - name: Full CLI and browser-state preservation regressions
+        if: runner.os != 'Windows'
         run: bun test ./apps/cli ./apps/computer/test/browser-cache-maintenance.test.ts
+      - name: Windows disk retention and browser-state preservation regressions
+        if: runner.os == 'Windows'
+        run: |
+          bun test ./apps/cli/test/disk-maintenance.test.ts ./apps/cli/test/update-safety.test.ts ./apps/cli/test/lifecycle.test.ts ./apps/computer/test/browser-cache-maintenance.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bun test ./apps/cli/test/release-compose.test.ts --test-name-pattern 'replaces every OpenTeam tag'
       - name: Disk retention against real Docker
         if: runner.os == 'Linux'
         env:

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installationPaths } from "../src/config";
+import { createEnvironment, installationPaths } from "../src/config";
 import { ComposeProject } from "../src/docker";
 import { captureStackImages, retainStackImages } from "../src/disk-maintenance";
 import { SystemCommandRunner } from "../src/process";
@@ -129,8 +129,64 @@ try {
   assert.deepEqual(ledger.current, [final]);
   assert.deepEqual(ledger.rollback, [next]);
   assert.equal(exists(digest), true, "pre-existing/pulled base images must remain untouched");
+  const rendered = makeInstallation("release-config");
+  writeFileSync(
+    rendered.paths.compose,
+    readFileSync(new URL("../../../deploy/compose.yaml", import.meta.url), "utf8")
+  );
+  writeFileSync(
+    rendered.paths.environment,
+    createEnvironment({ version: "0.0.13", imagePrefix: "fixture/openteam" })
+  );
+  const compose = () => {
+    const result = rendered.project.run(["--profile", "*", "config", "--format", "json"]);
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout) as { services: Record<string, { logging: unknown }> };
+  };
+  for (const service of Object.values(compose().services))
+    assert.deepEqual(service.logging, {
+      driver: "json-file",
+      options: { "max-size": "10m", "max-file": "3" },
+    });
+  writeFileSync(
+    rendered.paths.environment,
+    `${readFileSync(rendered.paths.environment, "utf8")}\nOPENTEAM_LOG_MAX_SIZE=-1\nOPENTEAM_LOG_MAX_FILES=5\n`
+  );
+  for (const service of Object.values(compose().services))
+    assert.deepEqual(service.logging, {
+      driver: "json-file",
+      options: { "max-size": "-1", "max-file": "5" },
+    });
+  const logged = run([
+    "run",
+    "--detach",
+    "--name",
+    `${prefix}-logging`,
+    "--log-driver",
+    "json-file",
+    "--log-opt",
+    "max-size=64k",
+    "--log-opt",
+    "max-file=2",
+    live,
+    "sh",
+    "-c",
+    "yes retention-fixture | head -c 524288",
+  ]);
+  containers.push(logged);
+  assert.equal(run(["wait", logged]), "0");
+  const logConfig = JSON.parse(run(["container", "inspect", logged]))[0].HostConfig.LogConfig;
+  assert.deepEqual(logConfig, {
+    Type: "json-file",
+    Config: { "max-size": "64k", "max-file": "2" },
+  });
+  const logBytes = run(["logs", logged]);
+  assert(
+    logBytes.length > 0 && logBytes.length < 524288,
+    "Docker did not rotate the fixture's log history"
+  );
   console.log(
-    "PASS: real Docker deletion; digest capture; current/rollback, live/stopped, manual, unknown and other-install protection; restart ledger"
+    "PASS: real Docker deletion; digest capture; force-update rollback, live/stopped, manual, unknown and other-install protection; Compose log defaults/overrides; actual log rotation"
   );
 } finally {
   // Remove only exact resources created above, never daemon-wide prune or production resources.

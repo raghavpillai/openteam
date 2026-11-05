@@ -68,6 +68,41 @@ failed Instruments connections as completed traces.
 
 ## Build and release gates
 
+### Background activity and foreground parity
+
+Run `bun run --cwd apps/desktop test:window-activity` and repeat with
+`WINDOW_ACTIVITY_REDUCED=1` to cover normal/reduced motion, 100 activity cycles,
+stale preload replies, idle/update polling, observer/listener cleanup, and actual
+MediaRecorder encoding across background transitions. The source audio is a
+synthetic tone; the test does not request microphone permission or upload audio.
+
+`bun run --cwd apps/desktop test:window-sync` mounts the actual desktop state hook
+and exercises event reconnect, overdue runtime refresh, offline delivery, and
+notification projection through the production preload. APIs/event transport and
+the OS notification adapter are fixture-controlled; this does not post OS banners.
+
+For a foreground comparison, prepare a separate checkout of the PR's base with
+the same dependencies, then run:
+
+```sh
+bun run --cwd apps/desktop test:window-foreground /absolute/path/to/base-checkout
+```
+
+The same fixture is served against each checkout without editing the base. It
+compares 16 foreground screenshots (light/dark, 600/900 px widths, idle/active
+chat, recording/processing), visible canvas pixels, layout geometry, and draft
+preservation. Animation clocks and CSS poses are fixed only in the fixture.
+
+Use `bun apps/desktop/scripts/test-window-activity.ts --native` for a separate
+native QA window. Exercise Cover, Hide, native minimize/restore, and Finish with
+CUA; `output/window-activity/native-events.jsonl` records the real native events
+and renderer state. This runs the same native activity binder as the app, with
+an isolated profile. Automated signal tests do not replace this OS-level check.
+
+Results are retained under `output/window-activity` and `output/window-foreground`.
+These tests establish lifecycle/visual behavior; they do not establish RAM savings
+or substitute for a long-duration memory profile.
+
 `bun desktop:performance` performs a clean renderer/main/preload/utility build, reads the generated Vite manifest, and enforces startup, CSS, complete-renderer, and lazy-feature closure budgets.
 
 `bun desktop:performance:release` additionally removes electron-builder's generated `release` tree, rebuilds and packages the app, and requires current ASAR/ZIP/DMG artifacts. The gate compares every `dist` and `dist-electron` file byte-for-byte with `app.asar`, so a missing, mixed-generation, or stale package cannot pass.

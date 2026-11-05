@@ -59,6 +59,7 @@ import {
   type ComputerSettingsStore,
 } from "./computer-settings";
 import { readManagedInstallation } from "./local-installation";
+import { bindWindowActivity, windowIsActive, windowIsVisible } from "./window-activity";
 import {
   classifyDesktopUpdateError,
   type DesktopUpdateSnapshot,
@@ -67,14 +68,14 @@ import {
 } from "./update-status";
 
 let mainWindow: BrowserWindow | null = null;
-const isMainWindowVisible = () => Boolean(mainWindow && mainWindow.isVisible() && !mainWindow.isMinimized());
+const isMainWindowVisible = () => Boolean(mainWindow && windowIsVisible(mainWindow));
 ipcMain.handle("openteam:window-visibility", (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Window is unavailable");
   return isMainWindowVisible();
 });
 ipcMain.handle("openteam:window-activity", (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Window is unavailable");
-  return isMainWindowVisible() && mainWindow.isFocused();
+  return windowIsActive(mainWindow);
 });
 let authTokenStore: DesktopAuthTokenStore | null = null;
 let computerSettings: ComputerSettingsStore | null = null;
@@ -1037,22 +1038,7 @@ const createWindow = async () => {
   });
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
-  const publishVisibility = () => mainWindow?.webContents.send("openteam:window-visibility-changed", isMainWindowVisible());
-  const publishActivity = () => mainWindow?.webContents.send(
-    "openteam:window-activity-changed", isMainWindowVisible() && mainWindow.isFocused()
-  );
-  mainWindow.on("show", publishActivity);
-  mainWindow.on("hide", publishActivity);
-  mainWindow.on("minimize", publishActivity);
-  mainWindow.on("restore", publishActivity);
-  mainWindow.on("focus", publishActivity);
-  mainWindow.on("blur", publishActivity);
-  mainWindow.webContents.on("did-finish-load", publishActivity);
-  mainWindow.on("show", publishVisibility);
-  mainWindow.on("hide", publishVisibility);
-  mainWindow.on("minimize", publishVisibility);
-  mainWindow.on("restore", publishVisibility);
-  mainWindow.webContents.on("did-finish-load", publishVisibility);
+  const disposeWindowActivity = bindWindowActivity(mainWindow);
   mainWindow.on("close", (event) => {
     if (process.platform === "darwin" && !isQuitting) {
       event.preventDefault();
@@ -1060,6 +1046,7 @@ const createWindow = async () => {
     }
   });
   mainWindow.once("closed", () => {
+    disposeWindowActivity();
     pluginOAuth.closeAll();
     mainWindow = null;
   });

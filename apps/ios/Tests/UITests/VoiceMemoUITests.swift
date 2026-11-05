@@ -61,6 +61,29 @@ import XCTest
     element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
   }
 
+  private func settledEditingFrame(_ field: XCUIElement, app: XCUIApplication) async throws -> CGRect {
+    // Existence precedes the keyboard's final inset, especially on a cold launch.
+    // Compare complete layouts, not a baseline sampled mid-transition.
+    var previous = field.frame
+    var keyboard = app.keyboards.firstMatch.frame
+    var stableSince = Date()
+    let deadline = Date().addingTimeInterval(5)
+    while Date() < deadline {
+      try await Task.sleep(for: .milliseconds(100))
+      let frame = field.frame
+      let keyboardFrame = app.keyboards.firstMatch.frame
+      if frame == previous, keyboardFrame == keyboard {
+        if Date().timeIntervalSince(stableSince) >= 0.5 { return frame }
+      } else {
+        stableSince = Date()
+        previous = frame
+        keyboard = keyboardFrame
+      }
+    }
+    XCTFail("Keyboard/composer geometry did not settle: \(field.frame)")
+    return field.frame
+  }
+
   func testMicrophoneEdgesAndCornersStartHandsFreeWithKeyboardClosed() async throws {
     try await verifyMicrophoneBounds(keyboard: false)
   }
@@ -318,7 +341,7 @@ import XCTest
       for cycle in 0..<2 {
         field.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        let frame = field.frame
+        let frame = try await settledEditingFrame(field, app: app)
         if let open {
           XCTAssertEqual(frame.minX, open.minX, accuracy: 1)
           XCTAssertEqual(frame.width, open.width, accuracy: 1)
@@ -344,6 +367,7 @@ import XCTest
         // Match the existing return-to-editing behavior: a draft that had the
         // keyboard before recording resumes editing after discard.
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        print("Voice draft geometry \(appearance) cycle \(cycle): expected \(editing), restored \(field.frame)")
         let restored = expectation(for: NSPredicate { _, _ in
           let frame = field.frame
           return abs(frame.minX - editing.minX) < 1 && abs(frame.minY - editing.minY) < 1

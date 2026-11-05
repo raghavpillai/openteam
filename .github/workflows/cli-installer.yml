@@ -29,7 +29,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
-      - run: bun install --frozen-lockfile --ignore-scripts --filter @openteam/cli
+      # The full CLI suite also imports the server's update-agent implementation.
+      - run: bun install --frozen-lockfile --ignore-scripts --filter @openteam/cli --filter @openteam/server
       - name: Installer rendering and terminal behavior
         run: bun test ./apps/cli/test/setup-countdown.test.ts ./apps/landing/lib/install-script.test.ts
       - name: Full CLI and browser-state preservation regressions

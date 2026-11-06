@@ -2647,6 +2647,20 @@ private fun ChatScreen(
         }
         lastMessageId = newestMessageId
     }
+    // Jumping to a quoted original is local to this screen. Routing it through targetMessageId
+    // would keep the list pinned to that message and drag it back after every new message.
+    var jumpToMessageId by remember(conversationId) { mutableStateOf<String?>(null) }
+    var highlightedMessageId by remember(conversationId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(jumpToMessageId, messages) {
+        val id = jumpToMessageId ?: return@LaunchedEffect
+        val index = messages.indexOfFirst { it.id == id }
+        if (index < 0) return@LaunchedEffect
+        listState.animateScrollToItem(index + if (contextRows.isNotEmpty()) 1 else 0)
+        jumpToMessageId = null
+        highlightedMessageId = id
+        delay(1500)
+        if (highlightedMessageId == id) highlightedMessageId = null
+    }
     forwardingAttachment?.let { attachment ->
         AlertDialog(
             onDismissRequest = { forwardingAttachment = null },
@@ -2778,7 +2792,7 @@ private fun ChatScreen(
                 MessageBubble(
                     message,
                     onRetry,
-                    isTarget = message.id == targetMessageId,
+                    isTarget = message.id == targetMessageId || message.id == highlightedMessageId,
                     operation = operation,
                     onDownload = onDownload,
                     onSaveAttachment = onSaveAttachment,
@@ -2790,6 +2804,12 @@ private fun ChatScreen(
                     onContext = onContext,
                     onReply = onReply,
                     onOpenRoutine = onOpenRoutine,
+                    replyOriginal = message.replyToMessageId?.let { id -> messages.firstOrNull { it.id == id } },
+                    onOpenOriginal = { id ->
+                        // Load the surrounding history only when the original is not already in the list.
+                        if (messages.none { it.id == id }) onContext(id)
+                        jumpToMessageId = id
+                    },
                 )
             }
             item { Spacer(Modifier.height(4.dp)) }
@@ -2850,6 +2870,8 @@ private fun MessageBubble(
     onContext: (String) -> Unit,
     onReply: (String) -> Unit,
     onOpenRoutine: () -> Unit,
+    replyOriginal: ChatMessage?,
+    onOpenOriginal: (String) -> Unit,
 ) {
     message.routineEvent?.let { event ->
         RoutineEventRow(message.id, event, onOpenRoutine)
@@ -2939,7 +2961,11 @@ private fun MessageBubble(
             ) {
                 Column(Modifier.padding(horizontal = 15.dp, vertical = 12.dp)) {
                     message.replyToMessageId?.let { reply ->
-                        Text(localizedText("Replying to $reply", "正在回复 $reply"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        ReplyQuote(
+                            original = replyOriginal,
+                            ownMessage = message.isMine,
+                            onOpen = { onOpenOriginal(reply) },
+                        )
                     }
                     // A question card already shows its prompt, so the body text would repeat it.
                     message.displayBody?.takeUnless { message.richMessage?.isQuestion == true }?.let { body ->
@@ -2976,7 +3002,8 @@ private fun MessageBubble(
                             onAction = { action -> onMessageAction(message.id, action) },
                         )
                     }
-                    if (message.replyToMessageId != null || message.contextMessageId != null || message.threadId != null) {
+                    // A plain reply already has a tappable quote that jumps to the original.
+                    if (message.replyToMessageId == null && (message.contextMessageId != null || message.threadId != null)) {
                         TextButton(onClick = { onContext(message.id) }) { Text(stringResource(com.openteam.android.R.string.chat_show_context)) }
                     }
                     if (message.isMine) {
@@ -3040,6 +3067,46 @@ private fun RoutineEventRow(messageId: String, event: RoutineEvent, onOpen: () -
         )
         Spacer(Modifier.width(6.dp))
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/**
+ * One-line preview of the message being replied to, shown above a reply's text.
+ * Tapping it scrolls to the original, loading surrounding history first when it is not on screen.
+ */
+@Composable
+private fun ReplyQuote(original: ChatMessage?, ownMessage: Boolean, onOpen: () -> Unit) {
+    val preview = original?.let { message ->
+        val text = (message.displayBody ?: "").replace(Regex("\\s+"), " ").trim()
+        text.ifEmpty {
+            if (message.attachments.isNotEmpty()) localizedText("Attachment", "附件") else ""
+        }
+    }.orEmpty().ifEmpty { localizedText("View original message", "查看原消息") }
+    val tint = if (ownMessage) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        Modifier
+            .padding(bottom = 8.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(tint.copy(alpha = 0.14f))
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+            .testTag("reply-quote"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.Reply,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = tint,
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            preview,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.labelMedium,
+            color = tint,
+        )
     }
 }
 

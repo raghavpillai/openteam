@@ -1747,7 +1747,7 @@ private fun PinnedBotCard(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box {
-            BotAvatar(conversation, size = 80.dp)
+            BotAvatar(conversation, size = 80.dp, showWorking = true)
             if (unread) {
                 Box(
                     Modifier.align(Alignment.BottomEnd).size(13.dp).clip(CircleShape)
@@ -1799,7 +1799,7 @@ private fun DirectoryConversationRow(
                 .padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BotAvatar(row, size = 46.dp)
+            BotAvatar(row, size = 46.dp, showWorking = true)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1906,19 +1906,35 @@ private fun conversationTimestampLabel(iso: String?, yesterday: String): String?
 
 
 @Composable
-private fun BotAvatar(conversation: Conversation, size: androidx.compose.ui.unit.Dp) {
+private fun BotAvatar(
+    conversation: Conversation,
+    size: androidx.compose.ui.unit.Dp,
+    showWorking: Boolean = false,
+    ringColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+) {
     val fill = conversation.avatarColor.toComposeColor()
         ?: MaterialTheme.colorScheme.secondaryContainer
     val avatar = rememberDecodedBitmap(conversation.avatarPath, maxSizePx = (size.value * 4).toInt())
-    if (avatar != null) {
-        Image(
-            bitmap = avatar,
-            contentDescription = conversation.title,
-            modifier = Modifier.size(size).clip(CircleShape),
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-        )
-    } else {
-        ServerBotAvatar(conversation.botIcon, fill, size)
+    Box {
+        if (avatar != null) {
+            Image(
+                bitmap = avatar,
+                contentDescription = conversation.title,
+                modifier = Modifier.size(size).clip(CircleShape),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+        } else {
+            ServerBotAvatar(conversation.botIcon, fill, size)
+        }
+        if (showWorking && conversation.working) {
+            val dot = (size.value * .26f).coerceIn(10f, 18f).dp
+            Box(
+                Modifier.align(Alignment.BottomEnd).size(dot).clip(CircleShape)
+                    .background(Color(0xFF5BC67A))
+                    .border(2.dp, ringColor, CircleShape)
+                    .semantics { contentDescription = "Working" },
+            )
+        }
     }
 }
 

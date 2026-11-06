@@ -23,6 +23,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -296,10 +297,16 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
 
     // Navigation Compose owns the back callback here so Android predictive-back gestures
     // can seek through the same slide transition used by normal navigation.
+    if (state.restoringSession) {
+        // Hold the first frame until the saved session is known. The NavHost start
+        // destination is fixed at first composition, so it must not be built earlier.
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+        return
+    }
     CompositionLocalProvider(LocalAppLanguage provides state.features.settings.language) {
         NavHost(
             navController = navController,
-            startDestination = LOGIN,
+            startDestination = if (state.session != null) DIRECTORY else LOGIN,
             enterTransition = {
             slideIntoContainer(
                 AnimatedContentTransitionScope.SlideDirection.Left,
@@ -350,7 +357,10 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                     appViewModel.openConversation(conversation.id)
                     navController.navigate("chat/${conversation.id}")
                 },
-                onShareTarget = appViewModel::selectShareTarget,
+                onShareTarget = { conversationId ->
+                    appViewModel.selectShareTarget(conversationId)
+                    navController.navigate("chat/$conversationId")
+                },
                 onRoutines = { navController.navigate(CREATE) },
                 onOutbox = { navController.navigate(OUTBOX) },
                 onSettings = { navController.navigate(SETTINGS) },
@@ -1814,15 +1824,51 @@ private fun conversationTimestampLabel(iso: String?, yesterday: String): String?
 private fun BotAvatar(conversation: Conversation, size: androidx.compose.ui.unit.Dp) {
     val fill = conversation.avatarColor.toComposeColor()
         ?: MaterialTheme.colorScheme.secondaryContainer
-    Box(
-        Modifier.size(size).clip(CircleShape).background(fill),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            conversation.title.take(1).uppercase().ifBlank { "O" },
-            color = if (fill.luminance() < .45f) Color.White else Color.Black,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Medium,
+    val avatar = rememberDecodedBitmap(conversation.avatarPath, maxSizePx = (size.value * 4).toInt())
+    if (avatar != null) {
+        Image(
+            bitmap = avatar,
+            contentDescription = conversation.title,
+            modifier = Modifier.size(size).clip(CircleShape),
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        )
+    } else {
+        ServerBotAvatar(conversation.botIcon, fill, size)
+    }
+}
+
+@Composable
+private fun ServerBotAvatar(icon: String, fill: Color, size: androidx.compose.ui.unit.Dp) {
+    Canvas(Modifier.size(size).clip(CircleShape)) {
+        drawCircle(fill)
+        val edge = this.size.minDimension
+        val face = if (fill.luminance() < .45f) Color.White else Color.Black
+        val left = edge * .2f
+        val top = edge * .2f
+        val width = edge * .6f
+        val height = edge * .57f
+        when (icon.trim().lowercase()) {
+            "tv-head", "dual-screen" -> drawRect(face, androidx.compose.ui.geometry.Offset(left, top), androidx.compose.ui.geometry.Size(width, height))
+            "pod", "owl" -> drawOval(face, androidx.compose.ui.geometry.Offset(left, top), androidx.compose.ui.geometry.Size(width, height))
+            else -> drawRoundRect(
+                face,
+                androidx.compose.ui.geometry.Offset(left, top),
+                androidx.compose.ui.geometry.Size(width, height),
+                androidx.compose.ui.geometry.CornerRadius(edge * .14f),
+            )
+        }
+        if (icon.trim().lowercase() in setOf("terminal", "periscope", "helmet")) {
+            drawLine(face, androidx.compose.ui.geometry.Offset(edge * .5f, top), androidx.compose.ui.geometry.Offset(edge * .5f, edge * .08f), strokeWidth = edge * .05f)
+            drawCircle(face, radius = edge * .06f, center = androidx.compose.ui.geometry.Offset(edge * .5f, edge * .06f))
+        }
+        val eyeY = edge * .42f
+        drawCircle(fill, radius = edge * .07f, center = androidx.compose.ui.geometry.Offset(edge * .38f, eyeY))
+        drawCircle(fill, radius = edge * .07f, center = androidx.compose.ui.geometry.Offset(edge * .62f, eyeY))
+        drawRoundRect(
+            fill,
+            androidx.compose.ui.geometry.Offset(edge * .38f, edge * .58f),
+            androidx.compose.ui.geometry.Size(edge * .24f, edge * .06f),
+            androidx.compose.ui.geometry.CornerRadius(edge * .03f),
         )
     }
 }
@@ -2788,6 +2834,9 @@ private fun MessageBubble(
                     previewAttachment = null
                 }
             },
+            onSave = { onSaveAttachment(message.id, it) },
+            onShare = onShareAttachment,
+            onForward = onForwardAttachment,
         )
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.isMine) Arrangement.End else Arrangement.Start) {
@@ -2830,13 +2879,10 @@ private fun MessageBubble(
                         ChatAttachmentStrip(
                             attachments = message.attachments,
                             onPreview = { attachment, _ ->
-                                if (attachment.localUri != null) previewAttachment = attachment
-                                else onDownload(message.id, attachment)
+                                previewAttachment = attachment
+                                if (!attachment.isImage && attachment.localUri == null) onDownload(message.id, attachment)
                             },
                             onDownload = { attachment, _ -> onDownload(message.id, attachment) },
-                            onSave = { attachment -> onSaveAttachment(message.id, attachment) },
-                            onShare = onShareAttachment,
-                            onForward = onForwardAttachment,
                         )
                     }
                     if (message.reactions.isNotEmpty() || message.richMessage != null) {
@@ -2888,6 +2934,9 @@ private fun AttachmentGalleryDialog(
     initialId: String,
     onDismiss: () -> Unit,
     onOpenDocument: (Attachment) -> Unit,
+    onSave: (Attachment) -> Unit,
+    onShare: (Attachment) -> Unit,
+    onForward: (Attachment) -> Unit,
 ) {
     var index by remember(initialId) {
         mutableStateOf(attachments.indexOfFirst { it.id == initialId }.coerceAtLeast(0))
@@ -2911,6 +2960,20 @@ private fun AttachmentGalleryDialog(
                                 Text(localizedText("Open with Android", "使用 Android 打开"), color = Color.White)
                             }
                         }
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    TextButton(onClick = { onSave(current) }) {
+                        Text(localizedText("Save", "保存"), color = Color.White)
+                    }
+                    TextButton(onClick = { onShare(current) }) {
+                        Text(localizedText("Share", "分享"), color = Color.White)
+                    }
+                    TextButton(onClick = { onForward(current) }) {
+                        Text(localizedText("Forward", "转发"), color = Color.White)
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

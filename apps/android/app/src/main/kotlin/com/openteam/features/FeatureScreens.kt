@@ -3,6 +3,8 @@
 package com.openteam.features
 
 import android.graphics.BitmapFactory
+import android.net.Uri
+import java.io.FileInputStream
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -58,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -352,15 +356,18 @@ fun AttachmentGalleryScreen(
  */
 @Composable
 fun rememberDecodedBitmap(path: String?, maxSizePx: Int): ImageBitmap? {
+    val context = LocalContext.current
     val bitmap by produceState<ImageBitmap?>(null, path, maxSizePx) {
         value = path?.let { file ->
             withContext(Dispatchers.IO) {
                 runCatching {
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(file, bounds)
+                    openBitmapStream(context, file).use { BitmapFactory.decodeStream(it, null, bounds) }
                     var sample = 1
                     while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSizePx) sample *= 2
-                    BitmapFactory.decodeFile(file, BitmapFactory.Options().apply { inSampleSize = sample })
+                    openBitmapStream(context, file).use {
+                        BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+                    }
                         ?.asImageBitmap()
                 }.getOrNull()
             }
@@ -369,35 +376,56 @@ fun rememberDecodedBitmap(path: String?, maxSizePx: Int): ImageBitmap? {
     return bitmap
 }
 
+private fun openBitmapStream(context: android.content.Context, path: String) =
+    Uri.parse(path).let { uri ->
+        if (uri.scheme == "content") {
+            context.contentResolver.openInputStream(uri)
+                ?: error("The image could not be opened.")
+        } else {
+            FileInputStream(if (uri.scheme == "file") uri.path ?: path else path)
+        }
+    }
+
 @Composable
 fun ChatAttachmentStrip(
     attachments: List<Attachment>,
     onPreview: (Attachment, AttachmentAction) -> Unit,
     onDownload: (Attachment, AttachmentAction) -> Unit,
-    onSave: (Attachment) -> Unit = {},
-    onShare: (Attachment) -> Unit = {},
-    onForward: (Attachment) -> Unit = {},
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         attachments.forEach { attachment ->
-            Card(Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    val localPath = attachment.localUri
-                    val bitmap = rememberDecodedBitmap(localPath, maxSizePx = 256)
-                    if (bitmap != null) {
-                        Image(bitmap, contentDescription = attachment.alt ?: attachment.name, modifier = Modifier.size(52.dp))
-                    }
-                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                        Text(attachment.name, fontWeight = FontWeight.Medium)
-                        Text("${attachment.mimeType} · ${formatBytes(attachment.sizeBytes)}", style = MaterialTheme.typography.bodySmall)
-                    }
-                    TextButton(onClick = { onPreview(attachment, AttachmentAction.Preview) }) { Text(if (localPath == null) localizedText("Preview", "预览") else localizedText("Open", "打开")) }
-                    if (localPath == null) TextButton(onClick = { onDownload(attachment, AttachmentAction.Download) }) { Text(localizedText("Download", "下载")) }
+            val localPath = attachment.localUri
+            if (attachment.isImage) {
+                LaunchedEffect(attachment.id, localPath) {
+                    if (localPath == null) onDownload(attachment, AttachmentAction.Download)
                 }
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    TextButton(onClick = { onSave(attachment) }) { Text(localizedText("Save", "保存")) }
-                    TextButton(onClick = { onShare(attachment) }) { Text(localizedText("Share", "分享")) }
-                    TextButton(onClick = { onForward(attachment) }) { Text(localizedText("Forward", "转发")) }
+                val bitmap = rememberDecodedBitmap(localPath, maxSizePx = 1024)
+                Card(
+                    Modifier.fillMaxWidth().clickable { onPreview(attachment, AttachmentAction.Preview) },
+                ) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap,
+                            contentDescription = attachment.alt ?: attachment.name,
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                        )
+                    } else {
+                        Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.size(24.dp))
+                        }
+                    }
+                }
+            } else {
+                Card(Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(attachment.name, fontWeight = FontWeight.Medium)
+                            Text("${attachment.mimeType} · ${formatBytes(attachment.sizeBytes)}", style = MaterialTheme.typography.bodySmall)
+                        }
+                        TextButton(onClick = { onPreview(attachment, AttachmentAction.Preview) }) { Text(if (localPath == null) localizedText("Preview", "预览") else localizedText("Open", "打开")) }
+                        if (localPath == null) TextButton(onClick = { onDownload(attachment, AttachmentAction.Download) }) { Text(localizedText("Download", "下载")) }
+                    }
                 }
             }
         }

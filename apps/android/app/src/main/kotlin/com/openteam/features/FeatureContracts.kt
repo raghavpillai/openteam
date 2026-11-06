@@ -80,7 +80,10 @@ data class Attachment(
     val width: Int? = null,
     val height: Int? = null,
     val alt: String? = null,
-)
+) {
+    val isImage: Boolean
+        get() = mimeType.startsWith("image/", ignoreCase = true)
+}
 
 enum class AttachmentState { Queued, Uploading, Available, Downloading, Failed }
 

@@ -74,6 +74,8 @@ import java.net.URLDecoder
 
 data class AppState(
     val session: MobileSession? = null,
+    /** True until the saved session has been read, so the UI does not flash the sign-in screen. */
+    val restoringSession: Boolean = true,
     val conversations: List<Conversation> = emptyList(),
     val hiddenConversations: List<Conversation> = emptyList(),
     val searchResults: List<SearchResult> = emptyList(),
@@ -152,17 +154,24 @@ class AppViewModel @JvmOverloads constructor(
 
     init {
         viewModelScope.launch {
-            runCatching { gateway.restoreSession() }.getOrNull()?.let { session ->
-                activeGateway = gateway
-                indexedAccount = accountScope(session)
-                mutableState.update {
-                    it.copy(session = session, outbox = outboxStore.read(accountScope(session)))
-                }
-                loadDirectory()
-                loadFeatureData()
-                startLiveSync()
-                flushOutbox()
+            val restored = runCatching { gateway.restoreSession() }.getOrNull()
+            if (restored == null) {
+                mutableState.update { it.copy(restoringSession = false) }
+                return@launch
             }
+            activeGateway = gateway
+            indexedAccount = accountScope(restored)
+            mutableState.update {
+                it.copy(
+                    session = restored,
+                    restoringSession = false,
+                    outbox = outboxStore.read(accountScope(restored)),
+                )
+            }
+            loadDirectory()
+            loadFeatureData()
+            startLiveSync()
+            flushOutbox()
         }
     }
 
@@ -696,7 +705,9 @@ class AppViewModel @JvmOverloads constructor(
                     } else {
                         message
                     }
-                },
+                    // The optimistic row and the echoed server row share a client id. Both map to
+                    // the accepted message, and LazyColumn crashes on duplicate keys.
+                }.distinctBy(ChatMessage::id),
             )
         }
         persistOutbox()

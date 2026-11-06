@@ -48,6 +48,15 @@ JAVA_HOME_SELECTED=$(pick_java_home) || {
 export JAVA_HOME="$JAVA_HOME_SELECTED"
 export PATH="$JAVA_HOME/bin:$PATH"
 
+# Gradle needs an SDK location. Use ANDROID_HOME, local.properties, or the default macOS SDK path.
+if [[ -z "${ANDROID_HOME:-}" && -z "${ANDROID_SDK_ROOT:-}" && ! -f "$ROOT_DIR/local.properties" ]]; then
+  [[ -d "$HOME/Library/Android/sdk" ]] || {
+    echo "Android SDK not found. Set ANDROID_HOME or create local.properties with sdk.dir." >&2
+    exit 1
+  }
+  export ANDROID_HOME="$HOME/Library/Android/sdk"
+fi
+
 echo "Repository: $ROOT_DIR"
 echo "Gradle JDK: $JAVA_HOME"
 echo "Building :mobile:androidApp:assembleDebug"

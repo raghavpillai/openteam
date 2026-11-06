@@ -55,4 +55,10 @@ class FeatureContractsTest {
         assertTrue(provider.secretSaved)
         assertFalse(provider.toString().contains("apiKey="))
     }
+
+    @Test
+    fun attachmentImageClassificationUsesMimeType() {
+        assertTrue(Attachment("image", "photo.png", "IMAGE/PNG", 1).isImage)
+        assertFalse(Attachment("file", "photo.png", "application/octet-stream", 1).isImage)
+    }
 }

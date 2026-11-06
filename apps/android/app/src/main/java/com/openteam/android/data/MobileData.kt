@@ -13,6 +13,7 @@ data class Conversation(
     val subtitle: String,
     val unread: Int = 0,
     val avatarColor: String = "",
+    /** Kept for source compatibility with older directory fixtures. */
     val avatarUrl: String? = null,
     val botId: String? = null,
     val isBot: Boolean = false,
@@ -26,6 +27,8 @@ data class Conversation(
     val latestPreview: String? = null,
     /** ISO timestamp of the channel's newest activity, used for ordering and labels. */
     val updatedAt: String? = null,
+    /** Local cache path for the server-provided avatar image, when configured. */
+    val avatarPath: String? = null,
 ) {
     /** Text shown under the title: the latest message, else the bot/channel description. */
     val preview: String?

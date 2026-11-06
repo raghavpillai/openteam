@@ -171,7 +171,7 @@ class HttpMobileGateway(context: Context) :
             }
 
             val bootstrap = jsonRequest(normalizedServer, "/api/v0/client-bootstrap", token = nextToken).body
-            applyBootstrap(bootstrap)
+            applyBootstrap(normalizedServer, nextToken, bootstrap)
             val activeSession = nextToken?.let {
                 Session(normalizedServer, it, userId, Instant.now().toString())
             }
@@ -216,7 +216,7 @@ class HttpMobileGateway(context: Context) :
                     title = bot.botDisplayName().ifBlank { "Conversation" },
                     subtitle = bot.string("description"),
                     avatarColor = bot.string("color"),
-                    avatarUrl = bot.string("avatarUrl", "avatar").ifBlank { null },
+                    avatarPath = cacheBotAvatar(ensureConnected(), token, bot),
                     botId = bot.string("id").ifBlank { null },
                     isBot = true,
                     notificationsEnabled = bot.boolean("notificationsEnabled", true),
@@ -455,12 +455,13 @@ class HttpMobileGateway(context: Context) :
 
     private suspend fun reloadBootstrap() {
         val server = ensureConnected()
-        applyBootstrap(jsonRequest(server, "/api/v0/client-bootstrap", token = token).body)
+        applyBootstrap(server, token, jsonRequest(server, "/api/v0/client-bootstrap", token = token).body)
     }
 
-    private fun applyBootstrap(bootstrap: JsonObject) {
+    private suspend fun applyBootstrap(activeServer: String, activeToken: String?, bootstrap: JsonObject) {
         bots = bootstrap.arrayAt("bots").mapNotNull { it.jsonObjectOrNull() }.associateBy { it.string("id") }
         channels = bootstrap.arrayAt("channels").mapNotNull { it.jsonObjectOrNull() }.associateBy { it.string("id") }
+        val avatarPaths = bots.mapValues { (_, bot) -> cacheBotAvatar(activeServer, activeToken, bot) }
         // Bootstrap carries each channel's newest message so the list can show a preview
         // without downloading full histories.
         val latestByChannel = bootstrap.arrayAt("latestMessages")
@@ -483,7 +484,7 @@ class HttpMobileGateway(context: Context) :
                     subtitle = if (kind == "bot_dm") bot?.string("description").orEmpty() else channel.string("description"),
                     unread = channel.int("unreadCount").coerceAtLeast(0),
                     avatarColor = bot?.string("color").orEmpty(),
-                    avatarUrl = bot?.string("avatarUrl", "avatar")?.ifBlank { null },
+                    avatarPath = bot?.let { avatarPaths[it.string("id")] },
                     botId = botId.ifBlank { null },
                     isBot = kind == "bot_dm",
                     isGroup = kind == "group",
@@ -497,6 +498,29 @@ class HttpMobileGateway(context: Context) :
                 )
             }
             .sortedBy { it.title.lowercase() }
+    }
+
+    private suspend fun cacheBotAvatar(activeServer: String, activeToken: String?, bot: JsonObject): String? {
+        if (!bot.boolean("hasAvatar") || bot.string("id").isBlank()) return null
+        val botId = bot.string("id")
+        val revision = bot.string("updatedAt").ifBlank { "current" }
+        val key = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("$botId:$revision".toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        val file = java.io.File(appContext.cacheDir, "avatars/$key.avatar")
+        if (file.isFile && file.length() > 0) return file.absolutePath
+        return runCatching {
+            val response = transport.download(
+                activeServer,
+                activeToken,
+                "/api/v0/bots/${pathSegment(botId)}/avatar",
+            ).requireSuccess()
+            file.parentFile?.mkdirs()
+            val temporary = java.io.File(file.parentFile, "$key.tmp")
+            temporary.writeBytes(response.bodyBytes)
+            check(temporary.renameTo(file)) { "Could not cache bot avatar." }
+            file.absolutePath
+        }.getOrNull()
     }
 
     override suspend fun sidebarPreferences(): SidebarPreferences {

@@ -136,7 +136,9 @@ class AndroidPlatformRuntime(
 
     fun markRead(channelId: String, throughSequence: String?, throughNotificationSequence: String?) {
         reads?.let { controller ->
-            scope.launch { controller.markRead(channelId, throughSequence, throughNotificationSequence) }
+            // Read receipts are best effort. An uncaught network or HTTP error here would
+            // crash the process, because this scope has no exception handler.
+            scope.launch { runCatching { controller.markRead(channelId, throughSequence, throughNotificationSequence) } }
         }
     }
 

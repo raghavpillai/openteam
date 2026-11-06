@@ -48,10 +48,15 @@ fun groupConversations(rows: List<Conversation>, sidebar: SidebarPreferences): D
         )
     }
 
+    val unassigned = members(null)
+    val sections = sidebar.sections.mapNotNull { section ->
+        members(section.id).takeIf { it.isNotEmpty() }?.let { SectionGroup(section, it) }
+    }
+
     return DirectoryGrouping(
         pinned = sidebar.pinnedIds.mapNotNull(rowsById::get),
-        sections = sidebar.sections.map { SectionGroup(it, members(it.id)) },
-        unassigned = members(null),
-        showUnassignedHeading = sidebar.sections.isNotEmpty(),
+        sections = sections,
+        unassigned = unassigned,
+        showUnassignedHeading = sidebar.sections.isNotEmpty() && unassigned.isNotEmpty(),
     )
 }

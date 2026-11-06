@@ -33,6 +33,22 @@ class DirectoryGroupingTest {
     }
 
     @Test
+    fun sectionsWithOnlyPinnedConversationsAreHidden() {
+        val rows = listOf(conversation("duoduo"))
+        val sidebar = SidebarPreferences(
+            pinnedIds = listOf("duoduo"),
+            sections = listOf(SidebarSection("supervisor", "Supervisor Group")),
+            sectionByChannel = mapOf("duoduo" to "supervisor"),
+        )
+
+        val grouped = groupConversations(rows, sidebar)
+
+        assertEquals(listOf("duoduo"), grouped.pinned.map(Conversation::id))
+        assertTrue(grouped.sections.isEmpty())
+        assertFalse(grouped.showUnassignedHeading)
+    }
+
+    @Test
     fun unassignedHoldsRowsWithNoExistingSectionAndHeadingsShowOnlyWithSections() {
         val rows = listOf(conversation("a"), conversation("b"))
         val legacyAssignment = SidebarPreferences(

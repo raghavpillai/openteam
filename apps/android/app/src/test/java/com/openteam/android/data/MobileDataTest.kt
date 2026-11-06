@@ -3,7 +3,10 @@ package com.openteam.android.data
 import com.openteam.mobile.core.mobileJson
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -33,6 +36,45 @@ class MobileDataTest {
 
         val legacy = """{"id":"c-2","channelId":"channel-1","content":"hi"}"""
         assertNull(mobileJson.decodeFromString<PendingSend>(legacy).replyToMessageId)
+    }
+
+    @Test
+    fun automationChangedEventBecomesARoutineEvent() {
+        val message = ChatMessage(
+            "event-1", "System", "",
+            metadata = buildJsonObject {
+                put("type", "event")
+                put("event", buildJsonObject {
+                    put("type", "automation-changed")
+                    put("action", "created")
+                    put("automationId", "routine-1")
+                    put("automationName", "Daily backup")
+                })
+            },
+        )
+
+        assertEquals(RoutineEvent("routine-1", "Daily backup", "created"), message.routineEvent)
+        assertEquals("New routine “Daily backup”", message.displayBody)
+        assertTrue(message.routineEvent!!.canOpen)
+    }
+
+    @Test
+    fun deletedRoutineEventCannotBeOpenedAndUnknownActionsAreIgnored() {
+        fun event(action: String) = ChatMessage(
+            "event-2", "System", "",
+            metadata = buildJsonObject {
+                put("type", "event")
+                put("event", buildJsonObject {
+                    put("type", "automation-changed")
+                    put("action", action)
+                    put("automationId", "routine-1")
+                    put("automationName", "Daily backup")
+                })
+            },
+        )
+
+        assertEquals(false, event("deleted").routineEvent!!.canOpen)
+        assertNull(event("exploded").routineEvent)
     }
 
     @Test

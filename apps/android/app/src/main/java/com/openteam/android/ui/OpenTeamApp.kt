@@ -118,6 +118,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.draw.alpha
+import com.openteam.android.data.RoutineEvent
 import androidx.compose.ui.text.style.TextOverflow
 import kotlin.math.roundToInt
 import androidx.compose.ui.draw.rotate
@@ -487,6 +488,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 replyingTo = state.replyingTo,
                 onReply = appViewModel::startReply,
                 onCancelReply = appViewModel::cancelReply,
+                onOpenRoutine = { navController.navigate(ROUTINES) },
                 error = state.error,
                 onBack = { navController.popBackStack() },
                 onBotDetails = { navController.navigate("bot/$id/details") },
@@ -2593,6 +2595,7 @@ private fun ChatScreen(
     replyingTo: ChatMessage?,
     onReply: (String) -> Unit,
     onCancelReply: () -> Unit,
+    onOpenRoutine: () -> Unit,
     error: String?,
     onBack: () -> Unit,
     onBotDetails: () -> Unit,
@@ -2785,6 +2788,7 @@ private fun ChatScreen(
                     onMessageAction = onMessageAction,
                     onContext = onContext,
                     onReply = onReply,
+                    onOpenRoutine = onOpenRoutine,
                 )
             }
             item { Spacer(Modifier.height(4.dp)) }
@@ -2844,7 +2848,12 @@ private fun MessageBubble(
     onMessageAction: (String, MessageAction) -> Unit,
     onContext: (String) -> Unit,
     onReply: (String) -> Unit,
+    onOpenRoutine: () -> Unit,
 ) {
+    message.routineEvent?.let { event ->
+        RoutineEventRow(message.id, event, onOpenRoutine)
+        return
+    }
     var previewAttachment by remember(message.id) { mutableStateOf<Attachment?>(null) }
     val context = LocalContext.current
     previewAttachment?.let { attachment ->
@@ -2999,6 +3008,36 @@ private fun MessageBubble(
             }
         }
     }
+    }
+}
+
+@Composable
+private fun RoutineEventRow(messageId: String, event: RoutineEvent, onOpen: () -> Unit) {
+    val label = when (event.action) {
+        "created" -> localizedText("New routine “${event.name}”", "新建例程“${event.name}”")
+        "updated" -> localizedText("Updated routine “${event.name}”", "已更新例程“${event.name}”")
+        "enabled" -> localizedText("Enabled routine “${event.name}”", "已启用例程“${event.name}”")
+        "disabled" -> localizedText("Disabled routine “${event.name}”", "已停用例程“${event.name}”")
+        else -> localizedText("Deleted routine “${event.name}”", "已删除例程“${event.name}”")
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(enabled = event.canOpen, onClick = onOpen)
+            .padding(vertical = 8.dp)
+            .testTag("routine-event-$messageId"),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Default.AccessTime,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -3,7 +3,10 @@ package com.openteam.android.data
 import com.openteam.features.Attachment
 import com.openteam.features.Reaction
 import com.openteam.features.RichMessage
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
@@ -133,10 +136,39 @@ data class ChatMessage(
     val threadId: String? = null,
     val contextMessageId: String? = null,
 ) {
+    /** Set for server timeline events that report a routine being created, changed or deleted. */
+    val routineEvent: RoutineEvent?
+        get() {
+            if (metadata["type"].text() != "event") return null
+            val event = metadata["event"] as? JsonObject ?: return null
+            if (event["type"].text() != "automation-changed") return null
+            val action = event["action"].text().orEmpty()
+            val id = event["automationId"].text().orEmpty()
+            val name = event["automationName"].text().orEmpty()
+            if (action !in RoutineEvent.ACTIONS || id.isEmpty() || name.isEmpty()) return null
+            return RoutineEvent(id, name, action)
+        }
+
     /** A safe label for malformed or metadata-only messages. */
     val displayBody: String?
-        get() = body.ifBlank { if (richMessage == null && metadata.isNotEmpty()) "Unsupported message content" else null }
+        get() = body.ifBlank {
+            routineEvent?.label
+                ?: if (richMessage == null && metadata.isNotEmpty()) "Unsupported message content" else null
+        }
 }
+
+/** A routine change reported inline in the conversation, shown as a single tappable line. */
+data class RoutineEvent(val id: String, val name: String, val action: String) {
+    val canOpen: Boolean get() = action != "deleted"
+    val label: String
+        get() = "${if (action == "created") "New" else action.replaceFirstChar(Char::uppercase)} routine “$name”"
+
+    companion object {
+        val ACTIONS = setOf("created", "updated", "enabled", "disabled", "deleted")
+    }
+}
+
+private fun JsonElement?.text(): String? = (this as? JsonPrimitive)?.contentOrNull
 
 enum class Delivery { SENDING, SENT, FAILED }
 

@@ -239,6 +239,26 @@ private const val NAVIGATION_TRANSITION_DURATION_MILLIS = 280
 
 private enum class SignInStep { WELCOME, ENDPOINT, CREDENTIALS }
 
+private val NavigationSpec = tween<androidx.compose.ui.unit.IntOffset>(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing)
+
+/** Settings is a left-edge panel: it opens from the left and closes back to the left. */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.isSettingsOpening() =
+    initialState.destination.route == DIRECTORY && targetState.destination.route == SETTINGS
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.isSettingsClosing() =
+    initialState.destination.route == SETTINGS && targetState.destination.route == DIRECTORY
+
+/** [forward] means content travels right-to-left (the normal push direction). */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.slideNav(forward: Boolean) = slideIntoContainer(
+    if (forward) AnimatedContentTransitionScope.SlideDirection.Left else AnimatedContentTransitionScope.SlideDirection.Right,
+    animationSpec = NavigationSpec,
+)
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.slideNavOut(forward: Boolean) = slideOutOfContainer(
+    if (forward) AnimatedContentTransitionScope.SlideDirection.Left else AnimatedContentTransitionScope.SlideDirection.Right,
+    animationSpec = NavigationSpec,
+)
+
 @Composable
 fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
     val state by appViewModel.state.collectAsStateWithLifecycle()
@@ -344,30 +364,10 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
         NavHost(
             navController = navController,
             startDestination = if (state.session != null) DIRECTORY else LOGIN,
-            enterTransition = {
-            slideIntoContainer(
-                AnimatedContentTransitionScope.SlideDirection.Left,
-                animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
-            )
-            },
-            exitTransition = {
-            slideOutOfContainer(
-                AnimatedContentTransitionScope.SlideDirection.Left,
-                animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
-            )
-            },
-            popEnterTransition = {
-            slideIntoContainer(
-                AnimatedContentTransitionScope.SlideDirection.Right,
-                animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
-            )
-            },
-            popExitTransition = {
-            slideOutOfContainer(
-                AnimatedContentTransitionScope.SlideDirection.Right,
-                animationSpec = tween(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing),
-            )
-            },
+            enterTransition = { slideNav(forward = !isSettingsOpening()) },
+            exitTransition = { slideNavOut(forward = !isSettingsOpening()) },
+            popEnterTransition = { slideNav(forward = isSettingsClosing()) },
+            popExitTransition = { slideNavOut(forward = isSettingsClosing()) },
         ) {
         composable(LOGIN) {
             SignInScreen(
@@ -400,7 +400,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 },
                 onRoutines = { navController.navigate(CREATE) },
                 onOutbox = { navController.navigate(OUTBOX) },
-                onSettings = { navController.navigate(SETTINGS) },
+                onSettings = { navController.navigate(SETTINGS) { launchSingleTop = true } },
                 onSearch = appViewModel::search,
                 onClearSearch = appViewModel::clearSearch,
                 onOpenSearchResult = { result ->
@@ -910,7 +910,18 @@ private fun SignInScreen(
             .verticalScroll(scrollState)
             .padding(horizontal = 22.dp, vertical = 18.dp),
     ) {
-        when (step) {
+        AnimatedContent(
+            targetState = step,
+            transitionSpec = {
+                val forward = targetState.ordinal > initialState.ordinal
+                val spec = tween<androidx.compose.ui.unit.IntOffset>(NAVIGATION_TRANSITION_DURATION_MILLIS, easing = FastOutSlowInEasing)
+                (slideInHorizontally(spec) { if (forward) it / 3 else -it / 3 } + fadeIn()) togetherWith
+                    (slideOutHorizontally(spec) { if (forward) -it / 3 else it / 3 } + fadeOut())
+            },
+            label = "sign-in-step",
+        ) { currentStep ->
+        Column {
+        when (currentStep) {
             SignInStep.WELCOME -> {
                 IosWizardHero(stage = "server")
                 Spacer(Modifier.height(12.dp))
@@ -1135,6 +1146,8 @@ private fun SignInScreen(
                     busy = loading,
                 )
             }
+        }
+        }
         }
     }
 }
@@ -1419,6 +1432,17 @@ private fun DirectoryScreen(
             } else FloatingSearchBar(onClick = { searchVisible = true })
         },
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.pointerInput(searchVisible) {
+            if (searchVisible) return@pointerInput
+            // Settings lives off the left edge: dragging the list to the right pulls it in.
+            val trigger = 72.dp.toPx()
+            var total = 0f
+            var fired = false
+            detectHorizontalDragGestures(onDragStart = { total = 0f; fired = false }) { _, delta ->
+                total += delta
+                if (!fired && total >= trigger) { fired = true; onSettings() }
+            }
+        },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)) {
             if (searchVisible) {

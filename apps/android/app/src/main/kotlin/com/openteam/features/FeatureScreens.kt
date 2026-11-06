@@ -823,7 +823,18 @@ fun SettingsScreen(
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
     ) { padding ->
         LazyColumn(
-            Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            Modifier.fillMaxSize()
+                .pointerInput(Unit) {
+                    // Mirror the way settings opens: dragging it back to the left closes it.
+                    val trigger = 72.dp.toPx()
+                    var total = 0f
+                    var fired = false
+                    detectHorizontalDragGestures(onDragStart = { total = 0f; fired = false }) { _, delta ->
+                        total += delta
+                        if (!fired && total <= -trigger) { fired = true; onBack() }
+                    }
+                }
+                .padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 14.dp, bottom = 28.dp),
         ) {

@@ -2840,7 +2840,12 @@ private fun MessageBubble(
         )
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.isMine) Arrangement.End else Arrangement.Start) {
-        Column(Modifier.fillMaxWidth(.86f)) {
+        // The column is 86% wide, so its children need their own alignment. Without it
+        // the author and bubble sit at the column's left edge even for the user's own messages.
+        Column(
+            Modifier.fillMaxWidth(.86f),
+            horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start,
+        ) {
             Text(
                 message.author,
                 Modifier.padding(horizontal = 8.dp),

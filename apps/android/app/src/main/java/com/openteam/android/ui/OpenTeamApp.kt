@@ -3154,12 +3154,12 @@ private fun MessageBubble(
                             } else {
                                 MaterialTheme.colorScheme.onSurface
                             },
-                        )
                             containerColor = if (message.isMine) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.surface
                             },
+                        )
                     }
                     message.richMessage?.let { rich ->
                         RichMessageCardScreen(

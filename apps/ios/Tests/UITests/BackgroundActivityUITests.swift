@@ -16,7 +16,7 @@ import XCTest
     ["id": "background-attempt", "subagentId": "background-session", "parentBotId": bot,
       "parentRunId": "parent-run", "parentChannelId": channel, "parentToolCallId": "task-call",
       "currentRunId": "background-run", "description": "Check the shipping receipt",
-      "subagentType": "executor", "runInBackground": true, "status": status,
+      "subagentType": "executor", "status": status,
       "summary": NSNull(), "errorMessage": NSNull(), "startedAt": NSNull(),
       "completedAt": NSNull(), "stoppedAt": NSNull(),
       "createdAt": "2026-10-29T12:00:00Z", "updatedAt": "2026-10-29T12:00:00Z"]
@@ -31,6 +31,115 @@ import XCTest
   }
   func testBackgroundTaskLifecycleInDarkMode() async throws {
     try await checkBackgroundTaskLifecycle(appearance: "dark")
+  }
+  func testPullToRefreshWithTasksPreservesAuthenticatedSessionAndDraft() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "background-activity"])
+    try await control("__qa/control", ["authRequired": true])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--show-login", "--server", base.absoluteString]
+    app.launch()
+    defer { app.terminate() }
+    addUIInterruptionMonitor(withDescription: "Password autofill") { alert in
+      guard alert.buttons["Not Now"].exists else { return false }
+      alert.buttons["Not Now"].tap()
+      return true
+    }
+    XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 10))
+    app.buttons["get-started"].tap()
+    let endpoint = app.textFields["server-field"]
+    await fulfillment(of: [expectation(for: NSPredicate(format: "hittable == true"),
+      evaluatedWith: endpoint)], timeout: 10)
+    app.buttons["connect-button"].tap()
+    let username = app.textFields["username-field"]
+    XCTAssertTrue(username.waitForExistence(timeout: 10))
+    await fulfillment(of: [expectation(for: NSPredicate(format: "hittable == true"),
+      evaluatedWith: username)], timeout: 10)
+    username.tap()
+    username.typeText("fixture\n")
+    let password = app.secureTextFields["password-field"]
+    await fulfillment(of: [expectation(for: NSPredicate { element, _ in
+      (element as? XCUIElement)?.value(forKey: "hasKeyboardFocus") as? Bool == true
+    }, evaluatedWith: password)], timeout: 10)
+    password.typeText("fixture-only\n")
+    let conversation = app.buttons["channel-visual-chat"]
+    XCTAssertTrue(conversation.waitForExistence(timeout: 15))
+    let passwordPrompt = app.buttons["Not Now"]
+    if passwordPrompt.waitForExistence(timeout: 2) {
+      passwordPrompt.tap()
+      XCTAssertTrue(passwordPrompt.waitForNonExistence(timeout: 5))
+    }
+    await fulfillment(of: [expectation(for: NSPredicate(format: "hittable == true"),
+      evaluatedWith: conversation)], timeout: 10)
+    // The password sheet can disappear before its dismissal animation finishes.
+    try await Task.sleep(for: .milliseconds(500))
+    conversation.tap()
+    let composer = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(composer.waitForExistence(timeout: 10))
+    let draft = "Draft survives refresh with background tasks"
+    composer.tap()
+    composer.typeText(draft)
+    app.buttons["chat-back"].tap()
+    try await control("__qa/control", ["subagents": [task("running")]])
+
+    // Confirm reconciliation has consumed the task before measuring each swipe.
+    conversation.tap()
+    let activity = app.descendants(matching: .any).matching(identifier: "bot-activity").firstMatch
+    await waitForActivity(activity, visible: true)
+    XCTAssertEqual(activity.label, "Working in the background")
+    app.buttons["chat-back"].tap()
+    await fulfillment(of: [expectation(for: NSPredicate(format: "hittable == true"),
+      evaluatedWith: conversation)], timeout: 10)
+    try await Task.sleep(for: .milliseconds(500))
+    for _ in 0..<3 {
+      let before = try await settingsReadCount()
+      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.25))
+      let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.8))
+      start.press(forDuration: 0.1, thenDragTo: end)
+      var after = before
+      for _ in 0..<30 {
+        after = try await settingsReadCount()
+        if after > before || app.alerts.firstMatch.exists { break }
+        try await Task.sleep(for: .milliseconds(100))
+      }
+      if after == before {
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+      }
+      XCTAssertGreaterThan(after, before, "A swipe must finish bootstrap decoding and fetch settings")
+      XCTAssertFalse(app.alerts.firstMatch.exists, "Refreshing current task data must not present an error")
+      XCTAssertTrue(conversation.exists)
+      XCTAssertFalse(app.textFields["username-field"].exists)
+    }
+    conversation.tap()
+    XCTAssertTrue(composer.waitForExistence(timeout: 10))
+    XCTAssertEqual(composer.value as? String, draft)
+    app.buttons["send-button"].tap()
+    var delivered = false
+    for _ in 0..<30 {
+      let state = try await fixtureState()
+      delivered = (state["messages"] as? [[String: Any]])?.contains {
+        $0["content"] as? String == draft && $0["sender"] as? String == "user"
+      } == true
+      if delivered { break }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    XCTAssertTrue(delivered, "The same authenticated session must still send after refreshing")
+    try await control("__qa/control", ["authExpired": true])
+    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 12),
+      "A genuinely expired session must still require sign-in")
+  }
+  private func fixtureState() async throws -> [String: Any] {
+    let (data, response) = try await URLSession.shared.data(from: base.appendingPathComponent("__qa/state"))
+    XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  }
+  private func settingsReadCount() async throws -> Int {
+    let state = try await fixtureState()
+    return (state["requests"] as? [[String: Any]])?.filter {
+      $0["method"] as? String == "GET" && $0["path"] as? String == "/api/v0/settings"
+    }.count ?? 0
   }
   func testParkedRequestsAndChildrenHaveNoIndicatorUntilActualWake() async throws {
     continueAfterFailure = false

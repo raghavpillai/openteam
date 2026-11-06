@@ -12,7 +12,7 @@ public enum ConversationActivity: Equatable, Sendable {
     guard channel.kind == "bot_dm", let botId else { return nil }
     return subagents.contains {
       $0.parentChannelId == channel.id && $0.parentBotId == botId
-        && $0.runInBackground && $0.isActive
+        && $0.isActive
     } ? .background : nil
   }
 }

@@ -1,0 +1,265 @@
+{
+  "version": 1,
+  "source": "apps/ios/OpenTeamNative.xcodeproj/xcshareddata/xcschemes",
+  "latestValidation": {
+    "date": "2026-10-31",
+    "runner": "Android-capable core runner on V1916A",
+    "assembleDebug": "passed",
+    "testDebugUnitTest": "pre-fix evidence: 21/22 passed, 1 failed, 0 errors, 0 skipped; current-source rerun pending because no local JDK is available",
+    "connectedDebugAndroidTest": "second round passed: 7/7 on V1916A; RichMessageRendererTest 3/3, AndroidParitySmokeTest 2/2, PrimaryWorkflowTest 2/2",
+    "secondRoundAssemble": "passed with :mobile:androidApp:assembleDebug",
+    "secondRoundJvm": "pre-fix evidence: 21 passed, 1 failed, 0 errors, 0 skipped; ChatProjectionTest.chatMessageRetainsRichMetadataAssetsReactionsAndContext failed at ChatProjectionTest.kt:38 with expected null but received Choose a path; current-source rerun unavailable because Gradle cannot locate a Java Runtime",
+    "secondRoundConnected": "7 passed, 0 failed, 0 errors, 0 skipped; XML timestamp 2026-10-31T11:13:05",
+    "shellHarness": "resolved in current-source verification",
+    "localGradle": "not runnable: host has no Java runtime",
+    "staticChecks": "parity report, JSON parsing, Python compilation, shell syntax, and whitespace checks passed",
+    "task8Evidence": "Completed; shared synchronization and delivery paths compile in the second-round assembleDebug run; JVM ran 22 tests with 21 passing and connected tests passed 7/7. Live SSE/long-poll/reconnect behavior still needs an isolated server run.",
+    "task9Evidence": "Completed; live feature gateway and navigation additions compile in the second-round assembleDebug run; JVM ran 22 tests with 21 passing and connected tests passed 7/7.",
+    "task10Evidence": "Completed; platform runtime additions compile in the second-round assembleDebug run; JVM ran 22 tests with 21 passing and connected tests passed 7/7.",
+    "task12Evidence": "Board-completed implementation checkpoint; rich chat, reactions, widgets/forms, attachment handling, and message-context additions are landed. Second-round connected checks passed 7/7; ChatProjectionTest is the one JVM failure, and live/device feature acceptance remains open.",
+    "task13Evidence": "Board-completed implementation checkpoint; OAuth, voice/file entry points, search/indexing fallback, and runtime wiring are landed. Second-round connected checks passed 7/7; FCM/VNC/assetlinks and live credentials remain open.",
+    "secondRoundTasks": "Tasks 14-17 completed; pre-fix Android-capable assembly/JVM evidence was 21/22 with one ChatProjection assertion failure, current-source JVM rerun is pending, and the last valid connected result is 7/7.",
+    "releaseGateCredentialFree": "passed: parity report, assetlinks template, live-parity contract (11 checks), and FCM payload tests (4/4)",
+    "releaseGateManifest": "pending: manifest enables cleartext traffic for development; App Links autoVerify declaration passed",
+    "releaseGateDependencies": "passed: no dynamic or SNAPSHOT dependency declarations",
+    "releaseGateArtifacts": "pending: ANDROID_APK and ANDROID_AAB were not provided; no digests recorded",
+    "releaseGateSigning": "pending: ANDROID_APK/AAB and signing verification tools were not provided",
+    "releaseGateDevicePerformance": "pending: ANDROID_SERIAL and ANDROID_PERFORMANCE_BASELINE were not provided",
+    "releaseGatePlay": "pending: PLAY_SERVICE_ACCOUNT_JSON was not provided",
+    "releaseGateStrict": "expected failure: strict mode exits 1 on unavailable external evidence"
+  },
+  "compileNotes": {
+    "latest": "Current ChatProjection expectation is fixed, but no post-fix JVM count is available: Gradle exits before launch because no Java Runtime is installed. The last valid connected result remains 7/7 on V1916A.",
+    "historical": "QA source-set, fixture-scope, UI-label, and delivery-tag mismatches were fixed during acceptance; each was rechecked in the shared checkout.",
+    "additivePaths": "Tasks 8-17 add shared data, live feature, rich-content, and platform paths that overlap Android test/build surfaces. Current assembly and connected tests are green, but the second-round JVM assertion failure blocks parity acceptance; any future additive-source compile failure also blocks acceptance."
+  },
+  "followUpEvidence": [
+    {
+      "task": "task-8",
+      "status": "completed",
+      "evidence": "assembleDebug passed; testDebugUnitTest passed 17/17; connectedDebugAndroidTest passed 6/6.",
+      "remaining": "Live synchronization, reconnect, pagination, unauthorized recovery, and delivery reconciliation need isolated server evidence."
+    },
+    {
+      "task": "task-9",
+      "status": "completed",
+      "evidence": "assembleDebug and the 17/17 JVM suite include the live feature gateway additions; connectedDebugAndroidTest passed 6/6.",
+      "remaining": "Task-12 implementation checkpoint is complete; fresh rich-content, attachment, and live/device acceptance evidence remains required."
+    },
+    {
+      "task": "task-10",
+      "status": "completed",
+      "evidence": "assembleDebug and the 17/17 JVM suite include platform adapter/runtime additions; connectedDebugAndroidTest passed 6/6.",
+      "remaining": "Task-13 implementation checkpoint is complete and current compile/connected checks pass; FCM/VNC/assetlinks, live credential, and external-service acceptance remains required."
+    },
+    {
+      "task": "task-12",
+      "status": "completed",
+      "evidence": "Board-completed implementation checkpoint for rich chat content and attachments; focused coverage is part of the landed change.",
+      "remaining": "Connected checks pass, but ChatProjectionTest fails at line 38; fix that JVM regression, then complete live/device attachment, widget/form, reaction, and message-context evidence."
+    },
+    {
+      "task": "task-13",
+      "status": "completed",
+      "evidence": "Board-completed implementation checkpoint for OAuth and voice/file entry points, search/indexing fallback, and runtime wiring.",
+      "remaining": "Connected checks pass; complete FCM, VNC, assetlinks, live credential, and external-service evidence."
+    },
+    {
+      "task": "task-14",
+      "status": "completed",
+      "evidence": "Pre-fix second-round assembly completed; connected suite passed 7/7 on V1916A.",
+      "remaining": "Run post-fix assemble/JVM verification when a JDK runner is available; live-server synchronization, reconnect, pagination, unauthorized recovery, and delivery reconciliation evidence remains open."
+    },
+    {
+      "task": "task-15",
+      "status": "completed",
+      "evidence": "Pre-fix second-round assembly completed and the JVM suite ran 22 tests with 21 passing.",
+      "remaining": "Run the post-fix JVM suite when a JDK runner is available and complete live-server settings/plugin evidence."
+    },
+    {
+      "task": "task-16",
+      "status": "completed",
+      "evidence": "RichMessageRendererTest passed 3/3 in the connected suite; pre-fix second-round assembly completed.",
+      "remaining": "Post-fix ChatProjection JVM verification is pending a JDK runner; complete live/device rich-content, attachment, reaction, widget/form, and context evidence."
+    },
+    {
+      "task": "task-17",
+      "status": "completed",
+      "evidence": "Second-round connected suite passed 7/7, including AndroidParitySmokeTest 2/2 and PrimaryWorkflowTest 2/2.",
+      "remaining": "FCM, VNC, assetlinks, live credentials, and external-service platform evidence remain open."
+    }
+  ],
+  "releaseBlockers": [
+    {
+      "id": "task-12-acceptance-evidence",
+      "status": "planned",
+      "owner": "qa-release",
+      "reason": "Task-12 implementation is board-completed and connected rich-renderer checks pass, but the pre-fix ChatProjectionTest failure requires a post-fix JVM rerun; live/device attachment, widget/form, reaction, and message-context evidence is also not recorded.",
+      "impact": "Full message-feature parity is not accepted."
+    },
+    {
+      "id": "task-13-acceptance-evidence",
+      "status": "blocked",
+      "owner": "qa-release",
+      "reason": "Task-13 implementation is board-completed and current-source compile/connected verification passes, but external FCM, VNC, assetlinks, live credential, and search-entry validation are not recorded.",
+      "impact": "Full platform-entry-point parity and release acceptance are not accepted."
+    },
+    {
+      "id": "second-round-jvm-regression",
+      "status": "blocked",
+      "owner": "chat-parity",
+      "reason": "Pre-fix second-round JVM evidence has one failure: ChatProjectionTest.chatMessageRetainsRichMetadataAssetsReactionsAndContext at ChatProjectionTest.kt:38, expected null but received Choose a path. The expectation is fixed, but a post-fix rerun is blocked by the missing Java Runtime.",
+      "impact": "The second-round JVM acceptance gate is not green."
+    },
+    {
+      "id": "live-server-validation",
+      "status": "blocked",
+      "owner": "qa-release",
+      "reason": "No isolated live-server credentials and fixture run were available for this acceptance pass.",
+      "impact": "Live authentication, transport, server error recovery, and end-to-end delivery remain unverified."
+    },
+    {
+      "id": "release-performance-security",
+      "status": "planned",
+      "owner": "qa-release",
+      "reason": "No release-device performance trace, dependency/APK scan, signed artifact verification, or Play internal-track installation evidence is recorded.",
+      "impact": "A release candidate cannot pass the performance/security gate."
+    },
+    {
+      "id": "additive-feature-platform-compile-gate",
+      "status": "planned",
+      "owner": "qa-release",
+      "reason": "Tasks 12 and 13 will add more code across the shared Android data/UI/platform and test source sets; compile regressions must be caught before acceptance is reopened.",
+      "impact": "Any unresolved additive-source compile failure blocks full parity acceptance."
+    },
+    {
+      "id": "release-artifact-signing-play-evidence",
+      "status": "blocked",
+      "owner": "qa-release",
+      "reason": "No APK/AAB, signing inputs, Android device profile, performance baseline, or Play service-account access was available for the release gate.",
+      "impact": "Artifact digest/signature, staged install, performance, and Play internal-track evidence remain unavailable."
+    }
+  ],
+  "cases": [
+    {
+      "id": "auth-sign-in-surface",
+      "area": "Authentication",
+      "iosSchemes": ["QAAudit", "MessageParity"],
+      "androidChecks": ["AndroidParitySmokeTest.signInSurfaceExposesAccessibleControls"],
+      "status": "covered",
+      "owner": "qa-release",
+      "risk": "high",
+      "notes": "V1916A connected run passed the sign-in controls. Live authentication still requires an isolated server fixture."
+    },
+    {
+      "id": "directory-and-message-send",
+      "area": "Messaging",
+      "iosSchemes": ["MessageParity", "Acceptance"],
+      "androidChecks": ["AndroidParitySmokeTest.primaryConversationFlow"],
+      "status": "covered",
+      "owner": "qa-release",
+      "risk": "high",
+      "notes": "V1916A AndroidParitySmokeTest passed directory navigation, history, draft entry, optimistic send, exact message/status tags, and sent state."
+    },
+    {
+      "id": "deep-link-routing",
+      "area": "Navigation",
+      "iosSchemes": ["Acceptance", "RealServer"],
+      "androidChecks": ["DeepLinkRouterTest"],
+      "status": "scaffolded",
+      "owner": "android-ui",
+      "risk": "high",
+      "notes": "The parser contract is covered; signed-in and cold-launch Activity acceptance remains required."
+    },
+    {
+      "id": "draft-isolation-and-encryption",
+      "area": "Persistence and security",
+      "iosSchemes": ["MessageParity", "QAAudit"],
+      "androidChecks": ["DraftStoreTest (platform)"],
+      "status": "scaffolded",
+      "owner": "platform",
+      "risk": "critical",
+      "notes": "Connected draft persistence passed. Account isolation, encryption-at-rest, restart recovery, and clear-on-sign-out evidence remain required."
+    },
+    {
+      "id": "rich-content-and-attachments",
+      "area": "Message features",
+      "iosSchemes": ["MessageParity", "QAAudit"],
+      "androidChecks": ["com.openteam.features message tests"],
+      "status": "scaffolded",
+      "owner": "features",
+      "risk": "high",
+      "notes": "Task-12 implementation checkpoint is board-completed. Fresh compile, connected, live/device attachment, widget/form, reaction, and message-context evidence remains required."
+    },
+    {
+      "id": "history-performance",
+      "area": "Performance",
+      "iosSchemes": ["MessagePerformance", "MotionPerformance"],
+      "androidChecks": ["Android macrobenchmark module (release follow-up)"],
+      "status": "planned",
+      "owner": "qa-release",
+      "risk": "high",
+      "notes": "No release-device trace is recorded. Measure cold start, 1k-message scroll, keyboard/composer latency, CPU, memory, and frame stability on a fixed device profile."
+    },
+    {
+      "id": "transport-and-credential-safety",
+      "area": "Security",
+      "iosSchemes": ["LiveHTTP", "RealServer", "QAAudit"],
+      "androidChecks": ["Android security checklist and release gate"],
+      "status": "blocked",
+      "owner": "qa-release",
+      "risk": "critical",
+      "notes": "Require HTTPS, safe redirect handling, redacted logs, no secrets in APK resources, verified release signing, and a live-server run. The current manifest still permits cleartext for development and must be resolved or scoped before release."
+    },
+    {
+      "id": "platform-entry-points",
+      "area": "Platform parity",
+      "iosSchemes": ["NativePush", "SystemIntents", "RealServer", "VNCValidation"],
+      "androidChecks": ["task-13 OAuth/voice/file/AppSearch follow-up", "FCM/VNC acceptance"],
+      "status": "blocked",
+      "owner": "platform",
+      "risk": "critical",
+      "notes": "Task-13 implementation checkpoint is board-completed. FCM worker/runtime, VNC/noVNC, OAuth callback cancellation, voice/file entry points, search/indexing, assetlinks, and external-service acceptance remain open."
+    },
+    {
+      "id": "second-round-live-sync",
+      "area": "Live messaging",
+      "iosSchemes": ["MessageParity", "LiveHTTP", "RealServer"],
+      "androidChecks": ["LiveMessagingApiContractTest", "task-14 sync tests"],
+      "status": "scaffolded",
+      "owner": "core",
+      "risk": "high",
+      "notes": "Maps task-14 history pagination, event sync, reconnect/dedupe, delivery reconciliation, unauthorized recovery, and account-scoped offline state. Second-round assembly and connected checks completed; the JVM run had one independent ChatProjection failure. Isolated live-server evidence remains open."
+    },
+    {
+      "id": "second-round-rich-chat",
+      "area": "Rich chat",
+      "iosSchemes": ["MessageParity", "QAAudit"],
+      "androidChecks": ["ChatProjectionTest", "RichMessageRendererTest"],
+      "status": "scaffolded",
+      "owner": "chat-parity",
+      "risk": "high",
+      "notes": "Maps task-16 rich metadata, attachments, reactions, forms, context, and malformed-content rendering. RichMessageRendererTest passed 3/3 connected; ChatProjectionTest failed at line 38 in the JVM suite. Live/device interaction evidence remains open."
+    },
+    {
+      "id": "second-round-feature-settings",
+      "area": "Feature settings and plugins",
+      "iosSchemes": ["RoutineSchedule", "ModelSettings", "SettingsPluginAudit"],
+      "androidChecks": ["FeatureContractsTest", "LiveFeatureGatewayTest"],
+      "status": "scaffolded",
+      "owner": "features-live",
+      "risk": "high",
+      "notes": "Maps task-15 routine, account/memory, provider/model, web-provider, plugin, OAuth state, and destructive-action coverage. Second-round assembly completed and connected tests passed 7/7; live-server validation remains open."
+    },
+    {
+      "id": "second-round-platform-entry-points",
+      "area": "Platform entry points and isolation",
+      "iosSchemes": ["NativePush", "SystemIntents", "Acceptance", "VNCValidation"],
+      "androidChecks": ["PlatformAdaptersTest", "DeepLinkRouterTest", "AndroidParitySmokeTest"],
+      "status": "scaffolded",
+      "owner": "entry-points",
+      "risk": "critical",
+      "notes": "Maps task-17 deep links, notification routing, voice/share entry points, search fallback, VNC boundary, and account isolation. Second-round connected tests passed 7/7; FCM/VNC/assetlinks remain external blockers."
+    }
+  ]
+}

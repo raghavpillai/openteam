@@ -9,6 +9,7 @@ import {
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { ApnsClient } from "./apns";
+import { FcmClient } from "./fcm";
 
 const MAX_ATTEMPTS = 5;
 const PUSH_DELIVERY_TRANSACTION_TIMEOUT_MS = 20_000;
@@ -102,7 +103,8 @@ export class PushNotificationDispatcher {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly authMode = pushAuthenticationModeFromEnvironment(),
-    private readonly apns = new ApnsClient(async () => (await new ApnsSettingsStore(prisma).load()).config)
+    private readonly apns = new ApnsClient(async () => (await new ApnsSettingsStore(prisma).load()).config),
+    private readonly fcm = new FcmClient()
   ) {}
 
   async configurationStatus() {
@@ -240,15 +242,20 @@ export class PushNotificationDispatcher {
   private async deliver(tx: Prisma.TransactionClient, attempted: PushAttempt[], badgeCount: number) {
     await Promise.all(attempted.map(async item => {
       try {
-        const result = await this.apns.send(item.device, item.payload, badgeCount, item.delivery.deliveryKey);
-        const retired = result.status === 410 || (result.status === 400 && ["BadDeviceToken", "DeviceTokenNotForTopic"].includes(result.reason ?? ""));
+        const result = item.device.platform === "android"
+          ? await this.fcm.send(item.device, item.payload, badgeCount, item.delivery.deliveryKey)
+          : await this.apns.send(item.device, item.payload, badgeCount, item.delivery.deliveryKey);
+        const retired = item.device.platform === "android"
+          ? result.status === 404 || result.reason === "UNREGISTERED"
+          : result.status === 410 || (result.status === 400 && ["BadDeviceToken", "DeviceTokenNotForTopic"].includes(result.reason ?? ""));
+        const accepted = result.status === 200 || retired;
         if (retired) await tx.pushDevice.updateMany({ where: { id: item.device.id }, data: { enabled: false } });
         await tx.outboxDelivery.update({ where: { id: item.delivery.id }, data: {
-          status: result.status === 200 || retired ? "delivered" : "failed",
-          deliveredAt: result.status === 200 || retired ? new Date() : null,
+          status: accepted ? "delivered" : "failed",
+          deliveredAt: accepted ? new Date() : null,
           attempts: retired ? MAX_ATTEMPTS : item.delivery.attempts,
           availableAt: retryAt(item.delivery.attempts),
-          error: result.status === 200 ? Prisma.DbNull : json({ message: `APNs rejected notification (${result.status})`, reason: result.reason ?? "Unknown" }),
+          error: accepted ? Prisma.DbNull : json({ message: `${item.device.platform === "android" ? "FCM" : "APNs"} rejected notification (${result.status})`, reason: result.reason ?? "Unknown" }),
         } });
       } catch (error) {
         await tx.outboxDelivery.update({ where: { id: item.delivery.id }, data: {

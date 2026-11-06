@@ -263,4 +263,35 @@ describe("native push registration", () => {
       await expect(Effect.runPromise(service.register(invalid as typeof input,{mode:"disabled"}))).rejects.toThrow("push token and delivery settings");
     }
   });
+  test("accepts Android FCM registration while retaining APNs fields as null", async () => {
+    let persisted: any;
+    const android = {
+      installationId: "android-installation",
+      platform: "android" as const,
+      provider: "fcm" as const,
+      pushToken: "fcm-token_" + "A".repeat(40),
+      notificationScope: "ab".repeat(32),
+      timeZone: "UTC",
+      locale: "en-US",
+    };
+    const prisma = {
+      pushDevice: {
+        findUnique: async () => null,
+        upsert: async ({ create }: any) => {
+          persisted = create;
+          return { ...create, enabled: true, lastSeenAt: create.lastSeenAt };
+        },
+      },
+    } as unknown as PrismaClient;
+    await Effect.runPromise(new NotificationService(prisma, "disabled").register(android, { mode: "disabled" }));
+    expect(persisted).toMatchObject({
+      platform: "android",
+      provider: "fcm",
+      apnsEnvironment: null,
+      apnsTopic: null,
+      authRequired: false,
+      notificationScope: android.notificationScope,
+      pushToken: android.pushToken,
+    });
+  });
 });

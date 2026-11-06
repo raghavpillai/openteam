@@ -1,0 +1,41 @@
+package com.openteam.features
+
+import kotlinx.serialization.json.JsonObject
+
+/** Explicit fallback for preview or unauthenticated sessions. */
+object UnsupportedFeatureGateway : FeatureGateway {
+    private fun <T> unavailable(): Result<T> = Result.failure(UnsupportedOperationException("Feature API is not available for this session."))
+    override suspend fun submitRichAction(messageId: String, actionId: String, values: Map<String, String>) = unavailable<Unit>()
+    override suspend fun uploadAttachment(uri: String) = unavailable<Attachment>()
+    override suspend fun downloadAttachment(attachmentId: String) = unavailable<String>()
+    override suspend fun saveAttachment(attachmentId: String) = unavailable<String>()
+    override suspend fun forwardAttachment(attachmentId: String, destinationId: String) = unavailable<Unit>()
+    override suspend fun mutateReaction(messageId: String, emoji: String) = unavailable<List<Reaction>>()
+    override suspend fun mutateMessageAction(messageId: String, action: MessageAction) = unavailable<Unit>()
+    override suspend fun listRoutines(ownerId: String) = unavailable<List<Routine>>()
+    override suspend fun saveRoutine(ownerId: String, routine: Routine) = unavailable<Routine>()
+    override suspend fun setRoutineEnabled(routineId: String, enabled: Boolean, expectedRevision: Int) = unavailable<Routine>()
+    override suspend fun runRoutine(routineId: String) = unavailable<Unit>()
+    override suspend fun deleteRoutine(routineId: String, expectedRevision: Int) = unavailable<Unit>()
+    override suspend fun loadAccountMemory() = unavailable<AccountMemoryState>()
+    override suspend fun loadSettings() = unavailable<AppSettings>()
+    override suspend fun clearMemory() = unavailable<Unit>()
+    override suspend fun resetLocalData() = Result.success(Unit)
+    override suspend fun signOut() = Result.success(Unit)
+    override suspend fun saveSettings(settings: AppSettings) = unavailable<AppSettings>()
+    override suspend fun listProviderConnections() = unavailable<List<ProviderConnection>>()
+    override suspend fun saveProvider(provider: ProviderConnection, apiKey: String?) = unavailable<ProviderConnection>()
+    override suspend fun disconnectProvider(providerId: String) = unavailable<Unit>()
+    override suspend fun loadWebProviders() = unavailable<WebProvidersState>()
+    override suspend fun saveWebProvider(tool: String, providerId: String, apiKey: String?, selected: Boolean) = unavailable<WebProvidersState>()
+    override suspend fun checkWebProvider(tool: String, providerId: String) = unavailable<WebProviderCheck>()
+    override suspend fun listPlugins() = unavailable<List<Plugin>>()
+    override suspend fun installPlugin(pluginId: String) = unavailable<Plugin>()
+    override suspend fun updatePlugin(pluginId: String) = unavailable<Plugin>()
+    override suspend fun rollbackPlugin(pluginId: String) = unavailable<Plugin>()
+    override suspend fun authorizePlugin(pluginId: String) = unavailable<Plugin>()
+    override suspend fun cancelPluginAuthorization(pluginId: String, state: String, redirectUrl: String?) = unavailable<Unit>()
+    override suspend fun completePluginAuthorization(pluginId: String, callbackUrl: String) = unavailable<Unit>()
+    override suspend fun testPluginTool(pluginId: String, toolName: String, input: String) = unavailable<String>()
+    override suspend fun configurePlugin(pluginId: String, configuration: JsonObject) = unavailable<Plugin>()
+}

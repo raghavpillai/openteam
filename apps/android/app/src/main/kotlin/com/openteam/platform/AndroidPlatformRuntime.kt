@@ -1,0 +1,222 @@
+package com.openteam.platform
+
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+data class AndroidPlatformIntent(
+    val appLink: AppLinkTarget? = null,
+    val share: SharePayload? = null,
+    val shortcut: ShortcutTarget? = null,
+)
+
+/** Binds platform lifecycle and entry points without making the shell own transport details. */
+class AndroidPlatformRuntime(
+    private val context: Context,
+    private val activityClass: Class<*>,
+    private val onOpenDeepLink: (String) -> Unit,
+    private val onShare: (SharePayload) -> Unit,
+    private val onVoiceShortcut: (String) -> Unit,
+    private val appLinkHost: String? = AndroidAppLinkConfiguration.host(context),
+) : DefaultLifecycleObserver, FcmPlatformRuntime.Callbacks {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var presence: NotificationPresenceController? = null
+    private var reads: NotificationReadController? = null
+    private var registrationJob: Job? = null
+    private var session: PlatformSession? = null
+    private var activeChannelId: String? = null
+    private var token: String? = context.getSharedPreferences(
+        AndroidNotificationStorage.PREFERENCES,
+        Context.MODE_PRIVATE,
+    ).getString(AndroidNotificationStorage.TOKEN, null)
+    private var active = false
+
+    init {
+        NotificationChannels(context).create()
+        FcmPlatformRuntime.callbacks = this
+        refreshToken()
+    }
+
+    fun bindSession(server: String, bearerToken: String?, notificationScope: String) {
+        if (session?.server == server && session?.bearerToken == bearerToken && session?.notificationScope == notificationScope) return
+        registrationJob?.cancel()
+        presence?.close()
+        session = PlatformSession(server, bearerToken, notificationScope)
+        context.getSharedPreferences(AndroidNotificationStorage.PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(AndroidNotificationStorage.SCOPE, notificationScope)
+            .apply()
+        val current = session ?: return
+        val presenceTransport = HttpNotificationPresenceTransport(current.server, current.bearerToken)
+        presence = NotificationPresenceController(presenceTransport)
+        reads = NotificationReadController(
+            NotificationReadLedger(current.notificationScope),
+            HttpNotificationReadTransport(current.server, current.bearerToken),
+        )
+        if (active) presence?.setActive(true)
+        registerTokenIfAvailable()
+    }
+
+    fun clearSession() {
+        registrationJob?.cancel()
+        registrationJob = null
+        presence?.close()
+        presence = null
+        reads = null
+        session = null
+        activeChannelId = null
+        context.getSharedPreferences(AndroidNotificationStorage.PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .remove(AndroidNotificationStorage.SCOPE)
+            .apply()
+    }
+
+    fun close() {
+        if (FcmPlatformRuntime.callbacks === this) FcmPlatformRuntime.callbacks = null
+        clearSession()
+        scope.cancel()
+    }
+
+    fun handle(intent: Intent?): AndroidPlatformIntent {
+        val value = intent ?: return AndroidPlatformIntent()
+        val share = AndroidSharesheet.read(value)
+        if (share != null) onShare(share)
+        val shortcut = AndroidShortcuts.target(value)
+        shortcut?.let {
+            if (it.recordVoice) {
+                it.botId?.let { botId ->
+                    onVoiceShortcut(botId)
+                    onOpenDeepLink("openteam://chat/${Uri.encode(botId)}")
+                }
+            }
+            when (it.action) {
+                AndroidShortcuts.ACTION_OPEN_CONVERSATION -> it.conversationId?.let { id ->
+                    onOpenDeepLink("openteam://chat/${Uri.encode(id)}")
+                }
+                AndroidShortcuts.ACTION_SEND_BOT_TASK -> it.botId?.let { id ->
+                    val text = value.getStringExtra(Intent.EXTRA_TEXT)?.let { "&text=${Uri.encode(it)}" }.orEmpty()
+                    onOpenDeepLink("openteam://action/send-bot-task?id=${Uri.encode(id)}$text")
+                }
+                AndroidShortcuts.ACTION_OPEN_BOT -> it.botId?.let { id ->
+                    onOpenDeepLink("openteam://action/open-bot?id=${Uri.encode(id)}")
+                }
+                AndroidShortcuts.ACTION_FIND_MESSAGES -> onOpenDeepLink("openteam://action/find-messages")
+                AndroidShortcuts.ACTION_RUN_ROUTINE -> it.routineId?.let { id ->
+                    onOpenDeepLink("openteam://action/run-routine?id=${Uri.encode(id)}")
+                }
+            }
+        }
+        val appLink = value.data?.let { AndroidAppLinks.parse(it, appLinkHost) }
+        if (appLink != null) {
+            if (appLink.action != null) {
+                val identifier = appLink.identifier?.let { "?id=${Uri.encode(it)}" }.orEmpty()
+                onOpenDeepLink("openteam://action/${Uri.encode(appLink.action)}$identifier")
+                return AndroidPlatformIntent(appLink, share, shortcut)
+            }
+            val channel = appLink.channelId ?: appLink.botId
+            if (channel != null) {
+                val message = appLink.messageId?.let { "?message=${Uri.encode(it)}" }.orEmpty()
+                onOpenDeepLink("openteam://chat/${Uri.encode(channel)}$message")
+            }
+        }
+        return AndroidPlatformIntent(appLink, share, shortcut)
+    }
+
+    fun markRead(channelId: String, throughSequence: String?, throughNotificationSequence: String?) {
+        reads?.let { controller ->
+            // Read receipts are best effort. An uncaught network or HTTP error here would
+            // crash the process, because this scope has no exception handler.
+            scope.launch { runCatching { controller.markRead(channelId, throughSequence, throughNotificationSequence) } }
+        }
+    }
+
+    fun setActiveChannel(channelId: String?) {
+        activeChannelId = channelId
+    }
+
+    fun showLocalNotification(channelId: String, title: String, body: String) {
+        if (session == null || token != null) return
+        NotificationChannels(context).create()
+        AndroidNotificationPresenter(context).showLocal(
+            channelId = channelId,
+            title = title,
+            body = body,
+            tapIntent = AndroidNotificationTapIntent.createForChannel(context, activityClass, channelId),
+        )
+    }
+
+    override fun onStart(owner: LifecycleOwner) {
+        active = true
+        presence?.setActive(true)
+    }
+
+    override fun onStop(owner: LifecycleOwner) {
+        active = false
+        presence?.setActive(false)
+    }
+
+    override fun onMessage(data: Map<String, String>) {
+        val current = session ?: return
+        val ledger = reads?.ledger ?: NotificationReadLedger(current.notificationScope)
+        val handler = FcmMessageHandler(
+            AndroidNotificationPresenter(context), ledger, current.notificationScope, ::tapIntent,
+        )
+        handler.handle(data, foregroundChannelId = if (active) activeChannelId else null)
+    }
+
+    override fun onToken(token: String) {
+        this.token = token
+        context.getSharedPreferences(AndroidNotificationStorage.PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(AndroidNotificationStorage.TOKEN, token)
+            .apply()
+        registerTokenIfAvailable()
+    }
+
+    private fun registerTokenIfAvailable() {
+        registrationJob?.cancel()
+        val current = session ?: return
+        val token = token ?: return
+        registrationJob = scope.launch {
+            val registration = FcmRegistration(
+                HttpPushDeviceRegistrar(current.server, current.bearerToken),
+                AndroidInstallationIdStore(context).installationId,
+            )
+            var retryDelayMs = 5_000L
+            while (isActive) {
+                val registered = runCatching {
+                    registration.register(token, current.notificationScope)
+                }.getOrDefault(false)
+                if (registered) return@launch
+                delay(retryDelayMs)
+                retryDelayMs = (retryDelayMs * 2).coerceAtMost(5 * 60_000L)
+            }
+        }
+    }
+
+    private fun refreshToken() {
+        runCatching {
+            FirebaseMessaging.getInstance().token
+                .addOnSuccessListener(::onToken)
+        }
+    }
+
+    private fun tapIntent(notification: FcmNotification): PendingIntent {
+        return AndroidNotificationTapIntent.create(context, activityClass, notification)
+    }
+
+    private data class PlatformSession(val server: String, val bearerToken: String?, val notificationScope: String)
+
+}

@@ -2,10 +2,14 @@ import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { randomBytes } from "node:crypto";
 import { ApiError } from "@openteam/contracts";
 
-// Packaged Electron omits Origin on some fetches (or uses "null"), but sends
-// "file://" for WebSocket. These are opaque/native origins. HTTP origins stay
-// exact; every connection still requires its one-use authenticated ticket.
-const viewerOrigin = (origin: string | null) => origin === "file://" || origin === "null" ? null : origin;
+// Packaged Electron omits Origin on some fetches (or uses "null"), sends
+// "file://" for WebSocket, and Android uses the synthetic local viewer origin.
+// These are opaque/native origins. HTTP origins stay exact; every connection
+// still requires its one-use authenticated ticket.
+const viewerOrigin = (origin: string | null) =>
+  origin === "file://" || origin === "null" || origin === "http://openteam-vnc.invalid"
+    ? null
+    : origin;
 
 export interface VncIdentity { botId: string; sessionId: string | null }
 interface Ticket extends VncIdentity {

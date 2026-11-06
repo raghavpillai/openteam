@@ -3155,6 +3155,11 @@ private fun MessageBubble(
                 Column(Modifier.padding(horizontal = 15.dp, vertical = 12.dp)) {
                     message.replyToMessageId?.let { reply ->
                         ReplyQuote(
+                            containerColor = if (message.isMine) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
                             original = replyOriginal,
                             ownMessage = message.isMine,
                             onOpen = { onOpenOriginal(reply) },

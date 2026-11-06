@@ -1,126 +1,87 @@
 package com.openteam.features
 
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Renders the Markdown commonly emitted by bots without requiring a WebView or a third-party
- * parser. Block parsing keeps code and lists readable, while inline parsing handles emphasis,
- * links, and inline code.
+ * parser. The look follows the desktop client's `markdown.css`: blue links without underline,
+ * red inline code and paths, borderless tables, rounded code blocks with syntax colors, and a
+ * hidden horizontal rule.
+ *
+ * [containerColor] is the bubble the text sits on. It picks the light or dark palette and lets
+ * links fall back to [contentColor] when the link blue would not be readable on the bubble.
  */
 @Composable
 fun MarkdownMessage(
     markdown: String,
     modifier: Modifier = Modifier,
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
 ) {
     val blocks = remember(markdown) { parseMarkdownBlocks(markdown) }
+    val style = rememberInlineStyle(contentColor, containerColor)
     SelectionContainer {
-        Column(
-            modifier = modifier,
-            verticalArrangement = Arrangement.spacedBy(9.dp),
-        ) {
-            blocks.forEach { block ->
-                when (block) {
-                    is MarkdownBlock.Heading -> Text(
-                        text = inlineMarkdown(block.text, contentColor),
-                        color = contentColor,
-                        fontWeight = FontWeight.SemiBold,
-                        style = when (block.level) {
-                            1 -> MaterialTheme.typography.headlineSmall
-                            2 -> MaterialTheme.typography.titleLarge
-                            3 -> MaterialTheme.typography.titleMedium
-                            else -> MaterialTheme.typography.titleSmall
-                        },
-                    )
-                    is MarkdownBlock.Paragraph -> Text(
-                        text = inlineMarkdown(block.text, contentColor),
-                        color = contentColor,
-                        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 25.sp),
-                    )
-                    is MarkdownBlock.UnorderedList -> MarkdownList(
-                        items = block.items,
-                        ordered = false,
-                        contentColor = contentColor,
-                    )
-                    is MarkdownBlock.OrderedList -> MarkdownList(
-                        items = block.items,
-                        ordered = true,
-                        contentColor = contentColor,
-                    )
-                    is MarkdownBlock.Table -> MarkdownTable(block, contentColor)
-                    is MarkdownBlock.Quote -> Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        VerticalDivider(
-                            thickness = 3.dp,
-                            color = MaterialTheme.colorScheme.secondary,
-                        )
-                        Text(
-                            text = inlineMarkdown(block.text, contentColor),
-                            modifier = Modifier.weight(1f),
-                            color = contentColor.copy(alpha = .82f),
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                fontStyle = FontStyle.Italic,
-                                lineHeight = 24.sp,
-                            ),
-                        )
-                    }
-                    is MarkdownBlock.Code -> Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .82f),
-                                MaterialTheme.shapes.small,
-                            )
-                            .padding(horizontal = 14.dp, vertical = 11.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp),
-                    ) {
-                        block.language?.let {
-                            Text(
-                                text = it,
-                                color = MaterialTheme.colorScheme.secondary,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Medium,
-                            )
-                        }
-                        Text(
-                            text = block.code,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
-                        )
-                    }
-                    MarkdownBlock.Divider -> HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        Column(modifier = modifier) {
+            blocks.forEachIndexed { index, block ->
+                Box(Modifier.padding(bottom = if (index == blocks.lastIndex) 0.dp else block.gapAfter)) {
+                    MarkdownBlockView(block, style)
                 }
             }
         }
@@ -128,107 +89,166 @@ fun MarkdownMessage(
 }
 
 @Composable
-private fun MarkdownTable(table: MarkdownBlock.Table, contentColor: Color) {
-    val horizontalScroll = rememberScrollState()
-    val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = .55f)
-    val columnWidths = remember(table) {
-        List(table.columns) { index ->
-            val longestCell = table.rows
-                .mapNotNull { it.getOrNull(index) }
-                .plus(table.headers.getOrNull(index).orEmpty())
-                .maxOfOrNull { it.trim().length }
-                ?: 0
-            (longestCell * 8 + 32).coerceIn(104, 240).dp
-        }
-    }
-    val tableWidth = columnWidths.sumOf { it.value.toDouble() }.toFloat().dp
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(horizontalScroll),
-    ) {
-        Column(Modifier.width(maxOf(tableWidth, 320.dp))) {
-            TableRow(
-                cells = table.headers,
-                widths = columnWidths,
-                header = true,
-                alignments = table.alignments,
-                contentColor = contentColor,
-                borderColor = borderColor,
+private fun MarkdownBlockView(block: MarkdownBlock, style: InlineStyle) {
+    val contentColor = style.contentColor
+    val palette = style.palette
+    when (block) {
+        is MarkdownBlock.Heading -> {
+            val (size, lineHeight) = when (block.level) {
+                1 -> 24 to 28
+                2 -> 18 to 24
+                3 -> 16 to 22
+                else -> 15 to 21
+            }
+            Text(
+                text = remember(block.text, style) { inlineMarkdown(block.text, style) },
+                color = contentColor,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = size.sp,
+                    lineHeight = lineHeight.sp,
+                    fontWeight = FontWeight(650),
+                    letterSpacing = (-0.012).em,
+                ),
             )
-            table.rows.forEachIndexed { index, row ->
-                TableRow(
-                    cells = row,
-                    widths = columnWidths,
-                    header = false,
-                    alternate = index % 2 == 1,
-                    alignments = table.alignments,
-                    contentColor = contentColor,
-                    borderColor = borderColor,
-                )
+        }
+        is MarkdownBlock.Paragraph -> Text(
+            text = remember(block.text, style) { inlineMarkdown(block.text, style) },
+            color = contentColor,
+            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 25.sp),
+        )
+        is MarkdownBlock.ListBlock -> MarkdownList(block.items, style)
+        is MarkdownBlock.Table -> MarkdownTable(block, style)
+        is MarkdownBlock.Quote -> Row(
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                Modifier
+                    .width(2.dp)
+                    .fillMaxHeight()
+                    .background(palette.quoteBar),
+            )
+            Text(
+                text = remember(block.text, style) { inlineMarkdown(block.text, style) },
+                modifier = Modifier.weight(1f),
+                color = palette.quoteText,
+                style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
+            )
+        }
+        is MarkdownBlock.Code -> MarkdownCodeBlock(block, palette)
+    }
+}
+
+@Composable
+private fun MarkdownCodeBlock(block: MarkdownBlock.Code, palette: MarkdownPalette) {
+    // A fenced block with a language is highlighted; a bare fence is a muted plain block.
+    val highlighted = block.language != null
+    val shape = RoundedCornerShape(13.dp)
+    val text = remember(block, palette) {
+        if (highlighted) highlightCode(block.code, block.language, palette) else AnnotatedString(block.code)
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .background(if (highlighted) palette.codeBackground else palette.plainCodeBackground, shape)
+            .then(if (highlighted) Modifier.border(1.dp, palette.codeBorder, shape) else Modifier)
+            .clip(shape),
+    ) {
+        Text(
+            text = text,
+            color = if (highlighted) palette.codeText else palette.plainCodeText,
+            fontFamily = FontFamily.Monospace,
+            softWrap = false,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
+            modifier = Modifier
+                .heightIn(max = 400.dp)
+                .verticalScroll(rememberScrollState())
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 11.dp, vertical = if (highlighted) 6.dp else 8.dp),
+        )
+    }
+}
+
+@Composable
+private fun MarkdownTable(table: MarkdownBlock.Table, style: InlineStyle) {
+    // Columns size to their widest cell and the table scrolls sideways, like the desktop's
+    // nowrap cells. Only a thin rule separates rows.
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+        Row(Modifier.widthIn(min = 220.dp)) {
+            repeat(table.columns) { column ->
+                val alignment = table.alignments.getOrNull(column) ?: TableAlignment.Start
+                Column(Modifier.width(IntrinsicSize.Max)) {
+                    TableCell(table.headers[column], header = true, last = table.rows.isEmpty(), alignment, style)
+                    table.rows.forEachIndexed { index, row ->
+                        TableCell(
+                            row.getOrElse(column) { "" },
+                            header = false,
+                            last = index == table.rows.lastIndex,
+                            alignment = alignment,
+                            style = style,
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun TableRow(
-    cells: List<String>,
-    widths: List<androidx.compose.ui.unit.Dp>,
+private fun TableCell(
+    text: String,
     header: Boolean,
-    alternate: Boolean = false,
-    alignments: List<TableAlignment>,
-    contentColor: Color,
-    borderColor: Color,
+    last: Boolean,
+    alignment: TableAlignment,
+    style: InlineStyle,
 ) {
-    Row(Modifier.fillMaxWidth()) {
-        widths.forEachIndexed { index, width ->
-            val cell = cells.getOrNull(index).orEmpty()
-            val alignment = alignments.getOrNull(index) ?: TableAlignment.Start
-            Text(
-                text = inlineMarkdown(cell, contentColor),
-                modifier = Modifier
-                    .width(width)
-                    .background(
-                        when {
-                            header -> MaterialTheme.colorScheme.secondaryContainer
-                            alternate -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .42f)
-                            else -> Color.Transparent
-                        },
-                    )
-                    .border(1.dp, borderColor)
-                    .padding(horizontal = 10.dp, vertical = 9.dp),
-                color = contentColor,
-                fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal,
-                textAlign = alignment.textAlign,
-                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
-            )
-        }
-    }
+    val rule = style.palette.tableRule
+    Text(
+        text = remember(text, style) { inlineMarkdown(text, style) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                if (!last) {
+                    val y = size.height - 0.5.dp.toPx()
+                    drawLine(rule, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                }
+            }
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        color = style.contentColor,
+        fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal,
+        textAlign = alignment.textAlign,
+        softWrap = false,
+        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 18.sp),
+    )
 }
 
 @Composable
-private fun MarkdownList(
-    items: List<String>,
-    ordered: Boolean,
-    contentColor: Color,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        items.forEachIndexed { index, item ->
+private fun MarkdownList(items: List<MarkdownListItem>, style: InlineStyle) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.5.dp)) {
+        items.forEach { item ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = (20 * item.depth).dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                val markerWidth = if (item.ordered) 24.dp else 16.dp
+                if (item.checked != null) {
+                    Box(Modifier.width(markerWidth).padding(top = 5.dp)) {
+                        TaskCheckbox(item.checked, style.palette)
+                    }
+                } else {
+                    Text(
+                        text = item.marker,
+                        modifier = Modifier.width(markerWidth),
+                        color = style.palette.marker,
+                        textAlign = TextAlign.End,
+                        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
+                    )
+                }
                 Text(
-                    text = if (ordered) "${index + 1}." else "•",
-                    color = MaterialTheme.colorScheme.secondary,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 1.dp),
-                )
-                Text(
-                    text = inlineMarkdown(item, contentColor),
-                    color = contentColor,
+                    text = remember(item.text, style) { inlineMarkdown(item.text, style) },
+                    color = style.contentColor,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
                 )
@@ -237,11 +257,109 @@ private fun MarkdownList(
     }
 }
 
-private sealed interface MarkdownBlock {
+@Composable
+private fun TaskCheckbox(checked: Boolean, palette: MarkdownPalette) {
+    val shape = RoundedCornerShape(4.dp)
+    Box(
+        Modifier
+            .size(15.dp)
+            .background(if (checked) palette.checkboxCheckedFill else palette.checkboxFill, shape)
+            .border(1.dp, if (checked) palette.checkboxCheckedBorder else palette.checkboxBorder, shape),
+    ) {
+        if (checked) {
+            Canvas(Modifier.matchParentSize()) {
+                val path = Path().apply {
+                    moveTo(size.width * .21f, size.height * .52f)
+                    lineTo(size.width * .38f, size.height * .69f)
+                    lineTo(size.width * .79f, size.height * .27f)
+                }
+                drawPath(
+                    path,
+                    Color.White,
+                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+                )
+            }
+        }
+    }
+}
+
+/** Colors from the desktop's `markdown.css` and `code-theme.ts`, in light and dark variants. */
+internal class MarkdownPalette(val dark: Boolean) {
+    val link = if (dark) Color(0xFF7AA2FF) else Color(0xFF3062BF)
+    val chipText = if (dark) Color(0xFF9AB7FF) else Color(0xFF3062BF)
+    val chipBackground = link.copy(alpha = if (dark) .12f else .08f)
+    val inlineCodeText = if (dark) Color(0xFFFF5B63) else Color(0xFFC21D2F)
+    val inlineCodeBackground = if (dark) Color(0xFF343434) else Color(0xFFE3E3E3)
+    val quoteBar = if (dark) Color(0xFF555555) else Color(0xFFA8A8A8)
+    val quoteText = if (dark) Color(0xFFB6B6B6) else Color(0xFF6B6B6B)
+    val marker = if (dark) Color(0xFFA8A8A8) else Color(0xFF696969)
+    val tableRule = if (dark) Color(0xFF484848) else Color(0xFFD4D4D4)
+    val codeBackground = if (dark) Color(0xFF000000) else Color(0xFFFCFCFC)
+    val codeBorder = if (dark) Color(0xFF000000) else Color(0xFFD9D9D9)
+    val codeText = if (dark) Color(0xFFD6D6DD) else Color(0xFF333333)
+    val plainCodeBackground = if (dark) Color(0xFF181818) else Color(0xFFE7E7E7)
+    val plainCodeText = if (dark) Color(0xFFB6B6B6) else Color(0xFF666666)
+    val checkboxFill = if (dark) Color(0xFF181818) else Color(0xFFFBFBFB)
+    val checkboxBorder = if (dark) Color(0xFF555555) else Color(0xFFBCBCBC)
+    val checkboxCheckedFill = Color(0xFF111111)
+    val checkboxCheckedBorder = if (dark) Color(0xFF555555) else Color(0xFF111111)
+    val syntaxComment = if (dark) Color(0xFF8B949E) else Color(0xFF686868)
+    val syntaxKeyword = if (dark) Color(0xFFFF7B72) else Color(0xFFAE1D42)
+    val syntaxFunction = if (dark) Color(0xFFD2A8FF) else Color(0xFFD67551)
+    val syntaxType = if (dark) Color(0xFF79C0FF) else Color(0xFF306493)
+    val syntaxString = if (dark) Color(0xFFA5D6FF) else Color(0xFFA194D4)
+}
+
+/** Everything inline rendering needs, resolved once per bubble. */
+internal class InlineStyle(
+    val palette: MarkdownPalette,
+    val contentColor: Color,
+    val linkColor: Color,
+    val linkUnderline: Boolean,
+    val chipColor: Color,
+    val openLink: (String) -> Unit,
+)
+
+@Composable
+private fun rememberInlineStyle(contentColor: Color, containerColor: Color): InlineStyle {
+    val context = LocalContext.current
+    val dark = containerColor.luminance() < .5f
+    val palette = remember(dark) { MarkdownPalette(dark) }
+    return remember(palette, contentColor, containerColor, context) {
+        // The link blue can vanish on an accent-colored bubble; use the text color then.
+        val linkReadable = contrastRatio(palette.link, containerColor) >= 3f
+        val chipReadable = contrastRatio(palette.chipText, containerColor) >= 3f
+        InlineStyle(
+            palette = palette,
+            contentColor = contentColor,
+            linkColor = if (linkReadable) palette.link else contentColor,
+            linkUnderline = !linkReadable,
+            chipColor = if (chipReadable) palette.chipText else contentColor,
+            openLink = { url -> openMarkdownLink(context, url) },
+        )
+    }
+}
+
+private fun contrastRatio(a: Color, b: Color): Float {
+    val first = a.luminance()
+    val second = b.luminance()
+    return (max(first, second) + .05f) / (min(first, second) + .05f)
+}
+
+private val linkSchemes = setOf("http", "https", "mailto", "tel")
+
+private fun openMarkdownLink(context: Context, url: String) {
+    runCatching {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    }
+}
+
+internal sealed interface MarkdownBlock {
     data class Heading(val level: Int, val text: String) : MarkdownBlock
     data class Paragraph(val text: String) : MarkdownBlock
-    data class UnorderedList(val items: List<String>) : MarkdownBlock
-    data class OrderedList(val items: List<String>) : MarkdownBlock
+    data class ListBlock(val items: List<MarkdownListItem>) : MarkdownBlock
     data class Quote(val text: String) : MarkdownBlock
     data class Code(val language: String?, val code: String) : MarkdownBlock
     data class Table(
@@ -251,16 +369,39 @@ private sealed interface MarkdownBlock {
     ) : MarkdownBlock {
         val columns: Int get() = headers.size
     }
-    data object Divider : MarkdownBlock
 }
 
-private enum class TableAlignment(val textAlign: androidx.compose.ui.text.style.TextAlign) {
-    Start(androidx.compose.ui.text.style.TextAlign.Start),
-    Center(androidx.compose.ui.text.style.TextAlign.Center),
-    End(androidx.compose.ui.text.style.TextAlign.End),
+internal data class MarkdownListItem(
+    val depth: Int,
+    val ordered: Boolean,
+    /** The bullet, or the running number with a trailing dot. */
+    val marker: String,
+    val text: String,
+    /** Null for a normal item; set for a `- [ ]` / `- [x]` task item. */
+    val checked: Boolean?,
+)
+
+/** Space below each block, taken from the margins in the desktop's `markdown.css`. */
+private val MarkdownBlock.gapAfter: Dp
+    get() = when (this) {
+        is MarkdownBlock.Heading -> when (level) {
+            1 -> 15.dp
+            2, 3 -> 14.dp
+            else -> 10.dp
+        }
+        is MarkdownBlock.Quote -> 13.dp
+        is MarkdownBlock.Table -> 11.dp
+        is MarkdownBlock.Code -> 8.dp
+        else -> 10.dp
+    }
+
+internal enum class TableAlignment(val textAlign: TextAlign) {
+    Start(TextAlign.Start),
+    Center(TextAlign.Center),
+    End(TextAlign.End),
 }
 
-private fun parseMarkdownBlocks(markdown: String): List<MarkdownBlock> {
+internal fun parseMarkdownBlocks(markdown: String): List<MarkdownBlock> {
     val lines = markdown.replace("\r\n", "\n").split('\n')
     val blocks = mutableListOf<MarkdownBlock>()
     val paragraph = mutableListOf<String>()
@@ -303,9 +444,9 @@ private fun parseMarkdownBlocks(markdown: String): List<MarkdownBlock> {
                 )
                 index++
             }
+            // The desktop client hides horizontal rules, so they only end the paragraph.
             dividerRegex.matches(line) -> {
                 flushParagraph()
-                blocks += MarkdownBlock.Divider
                 index++
             }
             index + 1 < lines.size && isTableHeader(line) && isTableSeparator(lines[index + 1]) -> {
@@ -321,25 +462,11 @@ private fun parseMarkdownBlocks(markdown: String): List<MarkdownBlock> {
                 }
                 blocks += MarkdownBlock.Table(headers, rows, alignments)
             }
-            unorderedRegex.matches(line) -> {
+            isListStart(line) -> {
                 flushParagraph()
-                val items = mutableListOf<String>()
-                while (index < lines.size) {
-                    val match = unorderedRegex.matchEntire(lines[index]) ?: break
-                    items += match.groupValues[1].trim()
-                    index++
-                }
-                blocks += MarkdownBlock.UnorderedList(items)
-            }
-            orderedRegex.matches(line) -> {
-                flushParagraph()
-                val items = mutableListOf<String>()
-                while (index < lines.size) {
-                    val match = orderedRegex.matchEntire(lines[index]) ?: break
-                    items += match.groupValues[2].trim()
-                    index++
-                }
-                blocks += MarkdownBlock.OrderedList(items)
+                val (items, next) = parseListItems(lines, index)
+                blocks += MarkdownBlock.ListBlock(items)
+                index = next
             }
             quoteRegex.matches(line) -> {
                 flushParagraph()
@@ -361,54 +488,209 @@ private fun parseMarkdownBlocks(markdown: String): List<MarkdownBlock> {
     return blocks
 }
 
-@Composable
-private fun inlineMarkdown(text: String, contentColor: Color): AnnotatedString {
-    val inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .8f)
-    return buildAnnotatedString {
-        var cursor = 0
-        inlineRegex.findAll(text).forEach { match ->
-            append(text.substring(cursor, match.range.first))
-            val token = match.value
-            when {
-                token.startsWith("**") || token.startsWith("__") -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                    append(token.substring(2, token.length - 2))
-                }
-                token.startsWith("~~") -> withStyle(
-                    SpanStyle(textDecoration = TextDecoration.LineThrough),
-                ) {
-                    append(token.substring(2, token.length - 2))
-                }
-                token.startsWith("*") || token.startsWith("_") -> withStyle(
-                    SpanStyle(fontStyle = FontStyle.Italic),
-                ) {
-                    append(token.substring(1, token.length - 1))
-                }
-                token.startsWith("`") -> withStyle(
-                    SpanStyle(
-                        fontFamily = FontFamily.Monospace,
-                        background = inlineCodeBackground,
-                    ),
-                ) {
-                    append(" ${token.substring(1, token.length - 1)} ")
-                }
-                token.startsWith("[") -> {
-                    val label = token.substringAfter('[').substringBefore(']')
-                    withStyle(
-                        SpanStyle(
-                            color = contentColor.copy(alpha = .9f),
-                            textDecoration = TextDecoration.Underline,
-                        ),
-                    ) {
-                        append(label)
-                    }
-                }
-                else -> append(token)
+private fun indentWidth(indent: String): Int = indent.replace("\t", "    ").length
+
+/** A list may only start at an indent of 0-3 spaces; deeper lines are continuation text. */
+private fun isListStart(line: String): Boolean =
+    listItemRegex.matchEntire(line)?.let { indentWidth(it.groupValues[1]) <= 3 } == true
+
+/** Reads consecutive list lines, including nested items, and returns the index after the list. */
+private fun parseListItems(lines: List<String>, start: Int): Pair<List<MarkdownListItem>, Int> {
+    val items = mutableListOf<MarkdownListItem>()
+    val indents = ArrayDeque<Int>()
+    val counters = mutableMapOf<Int, Int>()
+    var index = start
+    while (index < lines.size) {
+        val line = lines[index]
+        if (line.isBlank()) {
+            // One blank line between items is still the same list.
+            val next = lines.getOrNull(index + 1)
+            if (next != null && listItemRegex.matches(next) && !dividerRegex.matches(next)) {
+                index++
+                continue
             }
-            cursor = match.range.last + 1
+            break
         }
-        append(text.substring(cursor))
+        if (dividerRegex.matches(line)) break
+        val match = listItemRegex.matchEntire(line) ?: break
+        val indent = indentWidth(match.groupValues[1])
+        val markerText = match.groupValues[2]
+        while (indents.isNotEmpty() && indent < indents.last()) indents.removeLast()
+        if (indents.isEmpty() || indent > indents.last()) indents.addLast(indent)
+        val depth = indents.size - 1
+        counters.keys.removeAll { it > depth }
+
+        val ordered = markerText.first().isDigit()
+        val marker = if (ordered) {
+            val number = counters[depth]?.plus(1) ?: markerText.takeWhile(Char::isDigit).toIntOrNull() ?: 1
+            counters[depth] = number
+            "$number."
+        } else {
+            counters.remove(depth)
+            when (depth) {
+                0 -> "•"
+                1 -> "◦"
+                else -> "▪"
+            }
+        }
+        var text = match.groupValues[3].trim()
+        var checked: Boolean? = null
+        taskRegex.matchEntire(text)?.let { task ->
+            checked = task.groupValues[1] != " "
+            text = task.groupValues[2]
+        }
+        items += MarkdownListItem(depth, ordered, marker, text, checked)
+        index++
+    }
+    return items to index
+}
+
+internal fun inlineMarkdown(text: String, style: InlineStyle): AnnotatedString =
+    buildAnnotatedString { appendInline(text, style) }
+
+private fun AnnotatedString.Builder.appendInline(text: String, style: InlineStyle) {
+    var cursor = 0
+    for (match in inlineRegex.findAll(text)) {
+        if (match.range.first < cursor) continue
+        append(text, cursor, match.range.first)
+        cursor = appendToken(match, style)
+    }
+    append(text, cursor, text.length)
+}
+
+/** Appends one inline token and returns the index in the source where plain text resumes. */
+private fun AnnotatedString.Builder.appendToken(match: MatchResult, style: InlineStyle): Int {
+    val groups = match.groups
+    val end = match.range.last + 1
+    val token = match.value
+    when {
+        groups[1] != null -> appendLink(groups[2]!!.value, groups[1]!!.value, style)
+        groups[3] != null -> appendLink(groups[3]!!.value, groups[3]!!.value, style)
+        groups[4] != null -> {
+            // Trailing punctuation belongs to the sentence, not the address.
+            val url = token.trimEnd('.', ',', ';', ':', '!', '?')
+            appendLink(url, url, style)
+            return match.range.first + url.length
+        }
+        groups[5] != null -> withStyle(
+            SpanStyle(
+                fontFamily = FontFamily.Monospace,
+                fontSize = .93.em,
+                color = style.palette.inlineCodeText,
+                background = style.palette.inlineCodeBackground,
+            ),
+        ) {
+            append(" ${token.substring(1, token.length - 1)} ")
+        }
+        groups[6] != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+            appendInline(token.substring(2, token.length - 2), style)
+        }
+        groups[7] != null -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
+            appendInline(token.substring(2, token.length - 2), style)
+        }
+        else -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+            appendInline(token.substring(1, token.length - 1), style)
+        }
+    }
+    return end
+}
+
+private fun AnnotatedString.Builder.appendLink(href: String, label: String, style: InlineStyle) {
+    val scheme = href.substringBefore(':', "").lowercase()
+    val chip = SpanStyle(
+        color = style.chipColor,
+        background = style.palette.chipBackground,
+        fontWeight = FontWeight.Medium,
+    )
+    when {
+        // A reference to an earlier message: shown as the desktop's jump chip.
+        scheme == "sand-msg" -> withStyle(chip) { append("↪ $label") }
+        scheme == "openteam" -> withLink(
+            LinkAnnotation.Clickable(
+                tag = href,
+                styles = TextLinkStyles(style = chip),
+                linkInteractionListener = { style.openLink(href) },
+            ),
+        ) { append(label) }
+        scheme in linkSchemes -> withLink(
+            LinkAnnotation.Clickable(
+                tag = href,
+                styles = TextLinkStyles(
+                    style = SpanStyle(
+                        color = style.linkColor,
+                        textDecoration = if (style.linkUnderline) TextDecoration.Underline else null,
+                    ),
+                ),
+                linkInteractionListener = { style.openLink(href) },
+            ),
+        ) { append(label) }
+        // Unknown schemes (javascript:, file:, relative paths) are not made tappable.
+        else -> append(label)
     }
 }
+
+private val hashCommentLanguages = setOf(
+    "python", "py", "bash", "sh", "shell", "zsh", "yaml", "yml", "toml", "ruby", "rb",
+    "dockerfile", "makefile", "ini", "conf", "r", "perl", "powershell", "ps1", "properties",
+)
+private val dashCommentLanguages = setOf("sql", "lua", "haskell", "hs")
+
+/** A small language-agnostic highlighter; it colors comments, strings, numbers, keywords and calls. */
+internal fun highlightCode(code: String, language: String?, palette: MarkdownPalette): AnnotatedString {
+    val name = language?.trim()?.substringBefore(' ')?.lowercase().orEmpty()
+    val json = name == "json" || name == "jsonc"
+    val commentRegex = when (name) {
+        in hashCommentLanguages -> hashCommentRegex
+        in dashCommentLanguages -> dashCommentRegex
+        else -> slashCommentRegex
+    }
+    return buildAnnotatedString {
+        var cursor = 0
+        val tokens = if (json) jsonTokenRegex else codeTokenRegex(commentRegex)
+        for (match in tokens.findAll(code)) {
+            if (match.range.first < cursor) continue
+            append(code, cursor, match.range.first)
+            val color = when {
+                match.groups[1] != null -> palette.syntaxComment
+                match.groups[2] != null -> if (json) null else palette.syntaxString
+                match.groups[3] != null -> palette.syntaxType
+                match.groups[4] != null -> palette.syntaxKeyword
+                else -> palette.syntaxFunction
+            }
+            val text = if (match.groups[5] != null) match.groups[5]!!.value else match.value
+            if (color == null) append(text) else withStyle(SpanStyle(color = color)) { append(text) }
+            cursor = match.range.first + text.length
+        }
+        append(code, cursor, code.length)
+    }
+}
+
+private const val stringPattern = """"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`"""
+private const val numberPattern = """\b\d+(?:\.\d+)?\b"""
+private const val keywordPattern =
+    """\b(?:if|else|elif|for|while|do|return|break|continue|switch|case|default|function|fun|val|var|let|""" +
+        """const|class|interface|object|import|from|export|package|fn|def|lambda|async|await|try|catch|""" +
+        """finally|throw|throws|new|in|is|as|when|enum|struct|impl|trait|pub|use|mod|type|static|public|""" +
+        """private|protected|void|int|string|bool|true|false|null|nil|None|True|False|self|this|super|""" +
+        """extends|implements|with|yield|not|and|or|echo|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|CREATE|""" +
+        """TABLE|JOIN|ON|AND|OR|NOT|NULL)\b"""
+private const val callPattern = """\b[A-Za-z_]\w*(?=\()"""
+
+private val slashCommentRegex = """//[^\n]*|/\*[\s\S]*?\*/"""
+private val hashCommentRegex = """(?<![^\s])#[^\n]*"""
+private val dashCommentRegex = """--[^\n]*|/\*[\s\S]*?\*/"""
+
+private val codeTokenCache = HashMap<String, Regex>()
+
+/** Groups: 1 comment, 2 string, 3 number, 4 keyword, 5 function name (call). */
+private fun codeTokenRegex(comment: String): Regex = synchronized(codeTokenCache) {
+    codeTokenCache.getOrPut(comment) {
+        Regex("($comment)|($stringPattern)|($numberPattern)|($keywordPattern)|($callPattern)")
+    }
+}
+
+/** JSON keeps strings in the text color; only numbers and literals are tinted. */
+private val jsonTokenRegex = Regex("($slashCommentRegex)|($stringPattern)|($numberPattern)|(\\b(?:true|false|null)\\b)|($callPattern)")
 
 private fun isTableHeader(line: String): Boolean =
     line.contains('|') && splitTableRow(line).size >= 2
@@ -461,11 +743,25 @@ private fun List<String>.padTo(size: Int): List<String> =
     take(size).let { values -> values + List(max(0, size - values.size)) { "" } }
 
 private val headingRegex = Regex("""^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$""")
-private val unorderedRegex = Regex("""^\s{0,3}[-+*]\s+(.+)$""")
-private val orderedRegex = Regex("""^\s{0,3}(\d+)[.)]\s+(.+)$""")
+private val listItemRegex = Regex("""^([ \t]*)([-+*]|\d{1,9}[.)])\s+(.+)$""")
+private val taskRegex = Regex("""^\[([ xX])]\s+(.*)$""")
 private val quoteRegex = Regex("""^\s{0,3}>\s?(.*)$""")
 private val dividerRegex = Regex("""^\s{0,3}([-*_])(?:\s*\1){2,}\s*$""")
 private val tableSeparatorRegex = Regex("""^:?-{3,}:?$""")
+
+/**
+ * Inline tokens, one capture group each so [appendToken] can tell them apart:
+ * 1/2 `[label](href)`, 3 `<autolink>`, 4 bare URL, 5 `code`, 6 bold, 7 strike, 8 italic.
+ * Underscore emphasis needs a word boundary so `file_name_v2` and CJK text are left alone.
+ */
 private val inlineRegex = Regex(
-    """(\*\*[^*\n]+?\*\*|__[^_\n]+?__|~~[^~\n]+?~~|\*[^*\n]+?\*|_[^_\n]+?_|`[^`\n]+?`|\[[^\]\n]+]\([^)\n]+\))""",
+    listOf(
+        """\[([^\]\n]+)]\(\s*([^)\s]+)(?:\s+"[^"\n]*")?\s*\)""",
+        """<([a-zA-Z][a-zA-Z0-9+.\-]*:[^>\s]+)>""",
+        """(https?://[^\s<>"'()\[\]⺀-鿿＀-￯]+)""",
+        """(`[^`\n]+?`)""",
+        """(\*\*(?!\s)[^*\n]+?(?<!\s)\*\*|(?<![\p{L}\p{N}])__[^_\n]+?__(?![\p{L}\p{N}]))""",
+        """(~~[^~\n]+?~~)""",
+        """(\*(?![\s*])[^*\n]+?(?<!\s)\*|(?<![\p{L}\p{N}_])_[^_\n]+?_(?![\p{L}\p{N}_]))""",
+    ).joinToString("|"),
 )

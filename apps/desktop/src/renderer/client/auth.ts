@@ -57,6 +57,7 @@ let token: string | null = null;
 let desktopMachineId: string | undefined;
 export const getDesktopMachineId = () => desktopMachineId;
 let credentialGeneration = 0;
+export const getAuthCredentialGeneration = () => credentialGeneration;
 let tokenReadRequest: Promise<string | null> | null = null;
 let refreshRequest: Promise<OpenTeamAuthSnapshot> | null = null;
 

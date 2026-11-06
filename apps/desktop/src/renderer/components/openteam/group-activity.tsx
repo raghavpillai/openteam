@@ -1,5 +1,6 @@
 import type { BotView } from "@openteam/contracts";
 import { useEffect, useState } from "react";
+import { useWindowActive } from "../../hooks/use-window-active";
 import type { GroupActivity } from "../../lib/group-chat-presentation";
 import { BotAvatar } from "./avatar";
 import { ThinkingCaption } from "./thinking-caption";
@@ -70,6 +71,7 @@ function GroupReaders({ readers }: { readers: BotView[] }) {
 }
 
 export function GroupActivityContent({ activity }: { activity: GroupActivity }) {
+  const windowActive = useWindowActive();
   const { workers, readers, typing, text } = activity;
   const [cycle, setCycle] = useState(0);
   const [presence, setPresence] = useState({ workers, arriving: false, departing: false });
@@ -84,10 +86,10 @@ export function GroupActivityContent({ activity }: { activity: GroupActivity }) 
     setPresence({ ...presence, departing: true });
   }
   useEffect(() => {
-    if (workers.length < 2) return;
+    if (!windowActive || workers.length < 2) return;
     const timer = window.setInterval(() => setCycle((value) => value + 1), 2_000);
     return () => window.clearInterval(timer);
-  }, [workers.length]);
+  }, [windowActive, workers.length]);
   useEffect(() => {
     if (!presence.departing) return;
     const timer = window.setTimeout(

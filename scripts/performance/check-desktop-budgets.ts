@@ -114,7 +114,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // tool definitions and Effect runtime out: that regression measures 1,700,685.
 // v0.0.13: contextual send failures, account controls and settings styling measure
 // 1,248,419 bytes. The settings Select stays outside pages that do not use it.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_249_000);
+// v0.0.14: delivery/loading UI and shared resource ownership measure 1,258,168.
+// Automatic lifecycle chunking avoids a React initialization cycle in built entries.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_259_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -122,7 +124,8 @@ const startupCssBytes = result.renderer.startup.files
 // stylesheet to 177,306 bytes. Retain narrow headroom while keeping established
 // navigation available at startup.
 // v0.0.13 adds sidebar, pending-message and settings styles: 181,253 bytes.
-atMost("startup CSS bytes", startupCssBytes, 181_800);
+// v0.0.14 delivery/loading styles and background animation controls: 183,131.
+atMost("startup CSS bytes", startupCssBytes, 183_700);
 // September 16: worker isolation and the complete memory/plugin/settings UI
 // measure 15.90 MB / 3.887 MB gzip. Account for the worker's separate runtime;
 // retain the existing entry, CSS and grammar-total ceilings.
@@ -150,7 +153,8 @@ atMost("startup CSS bytes", startupCssBytes, 181_800);
 // November 3: update progress/recovery, device networking, saved-key controls and
 // attachment previews measure 16,523,942 after the capabilities import fix.
 // v0.0.13 measures 16,529,321 bytes after isolating SettingsSelectContent.
-atMost("renderer bytes", result.renderer.bytes, 16_531_000);
+// v0.0.14 resource/cache ownership and delivery UI: 16,542,075 after safe chunking.
+atMost("renderer bytes", result.renderer.bytes, 16_544_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -163,7 +167,10 @@ atMost("renderer bytes", result.renderer.bytes, 16_531_000);
 // Settings → Timezone, 4,096,699; Messages and the Settings cleanup, 4,101,637.
 // The same November feature baseline measures 4,113,699 gzip bytes.
 // The same v0.0.13 build measures 4,116,499 gzip bytes.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_117_500);
+// Resource ownership and background lifecycle controls measure 4,118,074 gzip
+// bytes. Allow 2 KB for worker retirement, blob leases and shared activity hooks.
+// The same v0.0.14 build measures 4,121,192 gzip bytes, including chunk metadata.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_122_500);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun

@@ -3,6 +3,7 @@ import { GOOGLE_PLUGIN_KEYS, pluginAuthorization } from "@openteam/product-core/
 import { api } from "../../../client/openteam-api";
 import { useEffect, useState } from "react";
 import { OpenTeamClientError } from "@openteam/client-core/http";
+import { useVisibleNow } from "../../../hooks/use-visible-now";
 
 /** Manual sign-in stays in OpenTeam until the user has read the copy/paste steps. */
 export function openAutomaticPluginSignIn(callbackMode: string | undefined, url: string) {
@@ -25,12 +26,7 @@ export function PluginAuthorization({
   const [feedback, setFeedback] = useState("");
   const [openedBrowser, setOpenedBrowser] = useState(false);
   useEffect(() => { setCallbackUrl(""); setFeedback(""); setOpenedBrowser(false); }, [connection.id, connection.authorizationUrl]);
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    if (!connection.authorizationUrl) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [connection.authorizationUrl]);
+  const now = useVisibleNow(1_000, Boolean(connection.authorizationUrl));
   const session = pluginAuthorization(connection, now);
   useEffect(() => { if (session?.expired) setCallbackUrl(""); }, [session?.expired]);
   if (!session) return null;

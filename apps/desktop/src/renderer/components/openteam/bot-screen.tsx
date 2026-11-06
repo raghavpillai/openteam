@@ -15,6 +15,8 @@ import { createPortal } from "react-dom";
 import { API_BASE } from "../../client/http";
 import { api } from "../../client/openteam-api";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
+import { useWindowVisible } from "../../hooks/use-window-active";
+import { useResourceActive } from "../../hooks/resource-activity";
 import { measureUntilNextPaint, recordPerformance } from "../../lib/performance";
 import {
   shouldLoadScreenStatus,
@@ -50,6 +52,8 @@ export function BotScreen({
   onHandoffFinished?: () => void;
   onRetry?: () => Promise<void>;
 }) {
+  const visible = useWindowVisible();
+  const resourcesActive = useResourceActive();
   const [screen, setScreen] = useState<ScreenStatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frameRevision, setFrameRevision] = useState(Date.now());
@@ -91,10 +95,10 @@ export function BotScreen({
   }, [bot.id]);
 
   useEffect(() => {
-    if (shouldLoadScreenStatus(enabled, active) && !screen) void refreshStatus();
-  }, [active, enabled, refreshStatus, screen]);
+    if (visible && shouldLoadScreenStatus(enabled, active) && !screen) void refreshStatus();
+  }, [active, enabled, refreshStatus, screen, visible]);
   useEffect(() => {
-    if (!shouldPollScreenStatus(enabled, active, screen?.state)) return;
+    if (!visible || !shouldPollScreenStatus(enabled, active, screen?.state)) return;
     const poller = createSerialPoller({
       intervalMs: SCREEN_STATUS_POLL_MS,
       immediate: false,
@@ -109,9 +113,9 @@ export function BotScreen({
       poller.stop();
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, pollStatus);
     };
-  }, [active, enabled, refreshStatus, screen?.state]);
+  }, [active, enabled, refreshStatus, screen?.state, visible]);
   useEffect(() => {
-    if (open) return;
+    if (open || !visible) return;
     const refreshFrame = () => {
       if (
         shouldRefreshScreenFrame({
@@ -133,7 +137,7 @@ export function BotScreen({
       window.clearInterval(timer);
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, refreshFrame);
     };
-  }, [active, enabled, open, screen?.state]);
+  }, [active, enabled, open, screen?.state, visible]);
   const finishHandoff = useCallback(
     async (action: "complete" | "skip" | "dismiss") => {
       if (!handoff || handoffPending || !handoffRelease.beginFinish()) return;
@@ -228,8 +232,8 @@ export function BotScreen({
   }, [bot.id, handoff, open]);
   const viewerReady = screen?.state === "ready";
   const frameSource = useAuthenticatedResource(
-    enabled && screen?.state === "ready" && !open ? api.screenFrameUrl(bot.id, frameRevision) : null,
-    { retainPreviousFor: bot.id }
+    enabled && active && screen?.state === "ready" && !open ? api.screenFrameUrl(bot.id, frameRevision) : null,
+    { enabled: resourcesActive, retainPreviousFor: bot.id }
   );
   const retryConnection = () => {
     setError(null);
@@ -340,7 +344,7 @@ export function BotScreen({
               className="relative aspect-[16/10] overflow-hidden rounded-[6px] bg-[#1b1d1f]"
               style={{ width: "min(100cqw, 160cqh)" }}
             >
-              {viewerReady ? (
+              {viewerReady && visible ? (
                 <VncComputer key={bot.id} botId={bot.id} name={bot.name}
                   serverUrl={API_BASE} createSession={api.screenVncSession}
                   clipboard={(input, signal) => api.screenClipboard(bot.id, input, signal)}

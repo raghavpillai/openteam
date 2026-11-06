@@ -98,6 +98,8 @@ export default defineConfig({
   build: {
     manifest: "manifest.json",
     outDir: "dist",
+    // Let lifecycle/resource modules follow automatic chunking. Fixed groups can
+    // import React from their importing entry and create an initialization cycle.
     // Shared plugin primitives must not pull their parent screens into a detail
     // chunk. These modules declare components/functions without startup effects.
     rolldownOptions: { output: { codeSplitting: { groups: [{

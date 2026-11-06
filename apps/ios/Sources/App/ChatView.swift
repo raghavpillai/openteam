@@ -92,6 +92,7 @@ struct ChatView: View {
           .offset(y: -20)
       }
     }
+    .modifier(SystemConversationContext(channel: channel))
     .task(id: awaitingNewerPage) {
       guard awaitingNewerPage else { return }
       // A slow network still shows the saved transcript.

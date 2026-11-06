@@ -116,6 +116,25 @@ final class VoiceLifecycleTests: XCTestCase {
     XCTAssertNil(memo.recorder.pendingURL)
   }
 
+  func testHandsFreeStopPreservesAudioForExplicitSend() async throws {
+    let memo = memo()
+    defer { memo.tearDown() }
+    var deliveries = 0
+    memo.deliver = { _ in deliveries += 1 }
+    try await start(memo)
+    memo.stopForReview()
+    XCTAssertEqual(memo.phase, .review)
+    XCTAssertFalse(memo.recorder.recording)
+    let url = try XCTUnwrap(memo.recorder.pendingURL)
+    XCTAssertGreaterThan(try AVAudioFile(forReading: url).length, 0)
+    XCTAssertEqual(deliveries, 0)
+    memo.transcribe = { _ in "Reviewed voice note" }
+    memo.send()
+    try await waitUntil { memo.phase == .idle }
+    XCTAssertEqual(deliveries, 1)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+  }
+
   func testPermissionDeniedReturnsToIdleAndCanRetry() async throws {
     let recorder = VoiceRecorder(permission: { false })
     let memo = VoiceMemoController(recorder: recorder)

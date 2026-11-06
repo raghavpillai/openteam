@@ -1,6 +1,7 @@
 import type { BotView, SubagentActivityView } from "@openteam/contracts";
 import { Bot, Clock3, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useVisibleNow } from "../../hooks/use-visible-now";
 import { asyncTaskElapsed } from "../../lib/async-tasks";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/button";
@@ -39,17 +40,13 @@ export function AsyncTasksPanel({
   onClose: () => void;
 }) {
   const [position, setPosition] = useState(initialPosition);
-  const [nowMs, setNowMs] = useState(Date.now);
+  const nowMs = useVisibleNow(1_000);
   const dragRef = useRef<{
     pointerId: number;
     origin: Point;
     start: Point;
   } | null>(null);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;

@@ -1,5 +1,6 @@
 import type { TokensResult } from "shiki/core";
 import type { ThemeInput } from "streamdown";
+import { isWindowActive, subscribeWindowActivity } from "../../../lib/window-visibility";
 
 // The renderer owns the bounded token cache; the worker owns grammar instances.
 // Never fall back to synchronous tokenization on the renderer after a worker error.
@@ -7,6 +8,9 @@ let worker: Worker | undefined;
 let nextId = 0;
 let stats = { activeCreations: 0, creationQueue: 0, highlighterEntries: 0 };
 let localEngine: typeof import("./code-engine") | undefined;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let unsubscribeActivity: (() => void) | undefined;
+const BACKGROUND_IDLE_MS = 30_000;
 const pending = new Map<number, {
   resolve: (result: TokensResult) => void;
   reject: (error: Error) => void;
@@ -14,6 +18,15 @@ const pending = new Map<number, {
 }>();
 
 const resetWorker = (error: Error) => {
+  clearTimeout(idleTimer);
+  idleTimer = undefined;
+  unsubscribeActivity?.();
+  unsubscribeActivity = undefined;
+  if (worker) {
+    worker.onmessage = null;
+    worker.onerror = null;
+    worker.onmessageerror = null;
+  }
   worker?.terminate();
   worker = undefined;
   stats = { activeCreations: 0, creationQueue: 0, highlighterEntries: 0 };
@@ -22,6 +35,17 @@ const resetWorker = (error: Error) => {
     request.reject(error);
   }
   pending.clear();
+};
+
+const scheduleIdleRelease = () => {
+  clearTimeout(idleTimer);
+  idleTimer = undefined;
+  if (!worker || pending.size > 0 || isWindowActive()) return;
+  idleTimer = setTimeout(() => {
+    if (pending.size === 0 && !isWindowActive()) {
+      resetWorker(new Error("Idle code highlighting worker released"));
+    }
+  }, BACKGROUND_IDLE_MS);
 };
 
 export const highlightAsync = async (
@@ -35,9 +59,14 @@ export const highlightAsync = async (
     localEngine ??= await import(/* @vite-ignore */ enginePath);
     return localEngine!.highlightAsync(source, language, themes);
   }
+  clearTimeout(idleTimer);
+  idleTimer = undefined;
   if (!worker) {
-    worker = new Worker(new URL("./code.worker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = ({ data }) => {
+    const current = new Worker(new URL("./code.worker.ts", import.meta.url), { type: "module" });
+    worker = current;
+    unsubscribeActivity = subscribeWindowActivity(scheduleIdleRelease);
+    current.onmessage = ({ data }) => {
+      if (worker !== current) return;
       const request = pending.get(data.id);
       if (!request) return;
       pending.delete(data.id);
@@ -45,9 +74,14 @@ export const highlightAsync = async (
       if (data.stats) stats = data.stats;
       if (data.error) request.reject(new Error(data.error));
       else request.resolve(data.result);
+      scheduleIdleRelease();
     };
-    worker.onerror = () => resetWorker(new Error("Code highlighting worker failed"));
-    worker.onmessageerror = () => resetWorker(new Error("Invalid code highlighting response"));
+    current.onerror = () => {
+      if (worker === current) resetWorker(new Error("Code highlighting worker failed"));
+    };
+    current.onmessageerror = () => {
+      if (worker === current) resetWorker(new Error("Invalid code highlighting response"));
+    };
   }
   const id = ++nextId;
   return new Promise((resolve, reject) => {

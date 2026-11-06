@@ -12,7 +12,7 @@ signing team are configured in `release.json`.
 
 ## Build and run
 
-Use macOS with Xcode 27+ and Swift 6; the deployment target is iOS 18. Open
+Use macOS with Xcode 27.3 beta or later and Swift 6; the deployment target is iOS 18. Open
 `OpenTeamNative.xcodeproj`, select the `OpenTeamNative` scheme and an iOS simulator,
 and Run. Connect to your OpenTeam server using its reachable HTTP or HTTPS address.
 The native target has no Expo, React Native or CocoaPods runtime dependency. Its only
@@ -36,6 +36,55 @@ swift test --package-path apps/ios -c release
 notification avatar artwork, offline Markdown/KaTeX/Mermaid documents, and noVNC
 viewer. Its JavaScript dependencies are pinned in this workspace's `package.json`.
 Ordinary messages, chat navigation, composer and state are native Swift views.
+
+## Siri AI preview and app skills
+
+Build with Xcode 27.3 beta or later. Existing Shortcuts (including a saved Bot
+assigned to Back Tap) still use the same intent identifiers and support iOS 18+.
+The new custom Siri tools become available on iOS 27.3; the Messages domain
+schemas are available on iOS 27. `ToolIntent` conformances are availability-scoped
+extensions so introducing Siri tools does not remove older saved actions.
+
+`Resources/Skills.skillsbundle` contains three Apple app skills: delegate a task,
+review a conversation, and run an existing routine once. Xcode compiles them to
+`Metadata.appintents/Skills.skillsc`; these are instructions for Siri's reasoning,
+not executable workflows or guarantees about its choice of actions. Send and run
+actions acknowledge asynchronous server work, not a completed Bot answer.
+
+The user's Siri and Spotlight setting gates on-screen message/conversation
+annotations and the bounded on-device index. Live entity queries and transfers
+check the connected account; entity and intent metadata require authentication.
+Conversation previews use committed messages only and refresh after edits, and
+message read state uses the channel's read cursor. Message search reaches beyond
+the recent index. Named groups use explicit conversation send/draft tools because
+the 27.3 SDK currently rejects conversation destinations in the Messages schema,
+even though the preview documentation lists them. Recipient-based schema actions
+require a unique existing group and never choose between duplicate groups.
+
+Apple's Siri AI developer preview requires an Apple Intelligence-capable device
+on iOS 27.3 with preview access and a development-signed app or internal TestFlight
+build. External TestFlight/App Store builds do not enable preview testing. The
+Simulator can verify actions and indexing, but cannot validate Siri's live
+reasoning or app-skill selection. See Apple's [preview requirements](https://developer.apple.com/documentation/appintents/siri-ai-developer-preview)
+and [app skills guide](https://developer.apple.com/documentation/appintents/orchestrating-complex-actions-with-app-skills).
+
+After building, verify compiler output with:
+
+```sh
+python3 apps/ios/scripts/check-siri-skills.py <path-to-OpenTeamNative.app>
+```
+
+The opt-in `SiriSkills` scheme compiles device-only `SiriEvaluations` tests for
+server search, named-group drafting and a conversational follow-up. Use an
+isolated QA account with a group named `Release review`. Enable
+`OPENTEAM_LIVE_SIRI_TESTS=1` in the test runner's environment and provide
+`OPENTEAM_SIRI_QA_CONVERSATION_ID` with that group's full account-scoped entity ID
+(the `TeamConversationEntity` ID, not the raw server channel ID). Without opt-in,
+the tests skip. These cases open drafts; review and clear the QA drafts between
+runs. Also verify on device that "this conversation" follows the visible chat,
+a draft is never sent without a send request, ambiguous recipients ask for a
+choice, and locking/signing out prevents access. A successful simulator suite
+alone does not establish that Siri's natural-language reasoning passes.
 
 ## QA
 
@@ -117,8 +166,9 @@ repository `output/`; they are not bundled with the app.
 
 Increment `release.json`'s build number before each TestFlight upload, keep its
 version in sync with this workspace's `package.json`, then regenerate the project.
-The v0.0.13 release candidate reserves build 63; source metadata does not establish
-a TestFlight upload or availability. Release archives and exports are built locally
+The v0.0.14 release candidate uses build 64 after a read-only App Store Connect
+check of builds and build uploads on November 5, 2026. Recheck before uploading:
+source metadata does not reserve a build number or establish TestFlight availability. Release archives and exports are built locally
 with Xcode on macOS. Follow [Releasing OpenTeam](../../.github/RELEASING.md) for
 release preparation and publication boundaries; tag pushes do not build releases.
 `ci-testflight.sh` is for an ephemeral CI runner, not a developer's personal keychain.
@@ -140,7 +190,7 @@ After confirming a build is available to the **public TestFlight group**, update
 ```json
 {
   "release": {
-    "version": "0.0.11",
+    "version": "0.0.12",
     "buildNumber": "62",
     "bundleIdentifier": "dev.openbot.mobile"
   }
@@ -197,13 +247,19 @@ requests expire after 30 seconds and are cleared on account changes, sign-out,
 or entering the background. The saved session is checked again immediately
 before a visible composer consumes the recording request. Newer shortcut
 destinations supersede older context lookups and queued cold-launch requests.
-Saved Bot parameters resolve from the connected account's existing local cache.
+Bot suggestions, name searches, and saved Bot parameters resolve from the
+connected account's existing local cache, including the iOS 27 Siri Bot picker.
 Known Bots open without waiting for server bootstrap, and a configured voice
 composer can start recording once visible. Normal foreground sync refreshes the
 directory and transcription configuration independently. Missing or corrupt
-caches fall back to live resolution; sending and exporting still validate against
+caches fall back to a live directory projection that decodes only Bot identity,
+name, role, status, and chat membership. Unrelated history or runtime response
+fields cannot break the Bot picker. Sending and exporting still validate against
 the server. Device unlock, Shortcuts dispatch, app startup, and microphone
 permission can still add delay.
+
+The `openteam://chat/<channel-id>` URL scheme (`openteam-swift://` in Debug)
+also resumes a link received before the saved account finishes restoring.
 
 On iOS 27, the Messages App Schemas additionally expose drafting and sending
 messages through Siri AI. A Bot is a message person, a chat is a conversation,
@@ -246,6 +302,65 @@ xcodebuild -project apps/ios/OpenTeamNative.xcodeproj -scheme SystemIntents \
   -destination 'platform=iOS Simulator,id=<simulator-udid>' \
   -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- test
 ```
+
+For manual Shortcuts UI checks, the simulator app additionally needs a code
+signature with a TeamIdentifier. Ad-hoc signing permits the hosted tests to use
+Keychain, but `linkd` can refuse to find the App Shortcuts provider because the
+signature has no team identity. Use a separately signed simulator app for this
+check; do not infer a shipping-app registration failure from that simulator error.
+
+The iOS 27.1 Duo simulator can keep the app in the foreground after Home. The
+voice background UI check verifies the actual application state and skips when
+that runtime never backgrounds the app; run the check on a regular iPhone
+simulator or device to verify stopping for review on background entry.
+
+#### Integration audit on November 5, 2026
+
+The audit used current `origin/main` at `134d5a42f`, with fixes on
+`fix/ios-shortcuts-audit`, rather than the older root checkout. The picker failure
+was reproduced with an incompatible bootstrap fixture. The exact response from
+the photographed iPhone was not available, so its failing server field is unknown.
+
+- **Bot selection and opening:** fixed both the App Shortcut and iOS 27 Siri
+  picker to use the account cache, with a minimal live directory fallback.
+  The real iOS 26 Shortcuts app displayed Research, Ops, and Build. Choosing
+  Build opened its chat while the fixture server was offline; an uncached
+  transcript still requires the server. A saved shortcut with Build fixed as its
+  parameter also reopened its cached conversation from a fully closed app while
+  offline. Saved entity identifiers are unchanged.
+- **Voice shortcut:** verified chosen-recipient handoff, cold and warm starts,
+  repeated invocations, existing-draft preservation, account changes, permission
+  denial, background cancellation, audio interruptions, and recording limits.
+  Audio lifecycle tests use synthetic recordings rather than physical microphones.
+- **Sending, routines, search, and file transfers:** exercised the production
+  intent handlers against synthetic accounts, including actual uploaded/exported
+  bytes, accepted message results, routine execution, older-message context,
+  invalid recipients, oversized attachment counts, offline errors, and revocation.
+- **Siri and Spotlight:** verified the iOS 27 messaging schemas, draft preservation,
+  unsupported scheduling rejection, actual Spotlight indexing/editing/removal,
+  opt-out, sign-out cleanup, and discovery settings across cold launches.
+- **Chat URLs:** fixed queued chat links being lost when restoring an existing
+  session. Invalid routes cannot replace the latest queued valid chat link.
+- **Share extension:** opened OpenTeam from Safari's actual system share sheet,
+  selected Research, sent a URL, and verified exactly one matching message in
+  Research's fixture conversation. Per-conversation system suggestions still
+  require the separately documented device/coreduet checks.
+- **Notifications:** exercised foreground suppression, thread opening, read and
+  badge cleanup, foreground reconciliation, registration retry, preferences, and
+  retirement. The cold-launch read assertion now waits for transcript positioning
+  before checking the actual receipt. Eight notification cases passed across the
+  suite and focused reruns; the background-wake case skipped on this simulator.
+
+Validation also passed 200 core tests, all 112 iOS 27 hosted system tests,
+40 iOS 26 Bot/voice tests, 72 client-core tests, two discovery UI tests, four
+voice UI flows, seven renderer tests, Debug test builds, an arm64 simulator
+Release build, and native signing/transport/extension configuration checks.
+The background voice UI flow passed on a regular iPhone running iOS 27.0;
+its Duo runtime precondition is described above. Fixture-based tests do not
+certify production APNs background delivery,
+physical Back Tap or Action button gestures, spoken Siri service behavior, real
+camera/photo permissions, or physical microphone interruptions. The audit does
+not publish an iOS build; installed iPhones need a subsequent release of the fix.
 
 `SystemIntegrationUITests` verifies the discovery setting through the real
 signed-in UI, persistence across cold launches, and sending a chat message with

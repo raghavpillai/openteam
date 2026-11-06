@@ -268,8 +268,17 @@ import XCTest
     add(before)
     notification.tap()
     XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 12))
-    let state = try await request("/__push/state")
-    let receipts = state["receipts"] as? [[String: Any]] ?? []
+    // Chat chrome appears before the transcript finishes positioning and marks itself read.
+    var receipts: [[String: Any]] = []
+    for _ in 0..<40 {
+      let state = try await request("/__push/state")
+      receipts = state["receipts"] as? [[String: Any]] ?? []
+      if receipts.contains(where: {
+        $0["path"] as? String == "/api/v0/channels/" + channel + "/read"
+          && $0["throughNotificationSequence"] as? String == "123"
+      }) { break }
+      try await Task.sleep(for: .milliseconds(100))
+    }
     XCTAssertTrue(
       receipts.contains {
         ($0["path"] as? String) == "/api/v0/channels/" + channel + "/read"

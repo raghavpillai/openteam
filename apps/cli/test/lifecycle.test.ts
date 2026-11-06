@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -35,10 +36,12 @@ import {
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import type { SetupPrompter } from "../src/setup";
 import { updateBusyMessage } from "@openteam/contracts/server-updates";
+import { registerDatabaseBackup } from "../src/disk-maintenance";
 import { readUpdateState } from "../src/update-safety";
 
 class HealthyDockerRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
+  imageTags = new Map<string, Set<string>>();
   running = ["postgres", "server", "worker", "computer"];
   publishedBy: Record<string, string> = {};
   tailscale = "{}";
@@ -57,6 +60,33 @@ class HealthyDockerRunner implements CommandRunner {
 
   run(command: string, args: readonly string[], options?: RunOptions): RunResult {
     this.calls.push({ command, args, options });
+    if (args.includes("config") && args.includes("--format")) {
+      const version = parseEnvironment(readFileSync(join(options!.cwd!, ".env"), "utf8")).get(
+        "OPENTEAM_VERSION"
+      );
+      return {
+        status: 0,
+        stdout: JSON.stringify({ services: { server: { image: `fixture:${version}` } } }),
+        stderr: "",
+      };
+    }
+    if (args[0] === "container" && args[1] === "ls") return { status: 0, stdout: "", stderr: "" };
+    if (args[0] === "image" && args[1] === "inspect") {
+      const ref = args[2]!;
+      const id = ref.startsWith("fixture:")
+        ? `sha256:${Buffer.from(ref).toString("hex").padEnd(64, "0")}`
+        : [...this.imageTags].find(([, tags]) => tags.has(ref))?.[0];
+      return {
+        status: 0,
+        stdout: JSON.stringify([{ Id: id, RepoTags: [...(this.imageTags.get(id!) ?? [])] }]),
+        stderr: "",
+      };
+    }
+    if (args[0] === "image" && args[1] === "tag") {
+      const tags = this.imageTags.get(args[2]!) ?? new Set<string>();
+      tags.add(args[3]!);
+      this.imageTags.set(args[2]!, tags);
+    }
     if (command === "tailscale") return { status: 0, stdout: this.tailscale, stderr: "" };
     if (args.includes("exec") && args.includes("-e")) {
       return { status: 0, stdout: this.internalHealth, stderr: "" };
@@ -129,7 +159,7 @@ afterEach(() => {
 });
 
 const fixture = (inference = "missing", activity?: (request: Request) => Response) => {
-  const directory = mkdtempSync(join(tmpdir(), "openteam-cli-lifecycle-"));
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "openteam-cli-lifecycle-")));
   temporaryDirectories.push(directory);
   const paths = installationPaths(directory);
   const server = Bun.serve({
@@ -695,7 +725,25 @@ describe("installed lifecycle", () => {
     ]);
   });
 
-  test("a successful update keeps the newest three update backups and logs what it removed", async () => {
+  test("disk maintenance failures warn without undoing a successful update", async () => {
+    const { paths } = fixture();
+    writeFileSync(join(paths.directory, "backup-retention.json"), "malformed");
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+        new HealthyDockerRunner()
+      );
+      expect(readManifest(paths)?.version).toBe("1.3.0");
+      expect(readUpdateState(paths)?.status).toBe("complete");
+      expect(warning).toHaveBeenCalled();
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  test("a successful update preserves legacy unregistered backup files", async () => {
     const { paths } = fixture();
     const old = [
       "postgres-1.1.0-before-1.2.0-2026-01-01T00-00-00-000Z.sql",
@@ -719,12 +767,36 @@ describe("installed lifecycle", () => {
       log.mockRestore();
     }
     const current = readUpdateState(paths)!.backupPath!;
-    expect(readdirSync(paths.backups).sort()).toEqual(
-      [old[2]!, old[3]!, basename(current)].sort()
-    );
-    expect(messages).toContain(
-      `Removed 2 older update backups from ${paths.backups}: ${old[1]}, ${old[0]}`
-    );
+    expect(readdirSync(paths.backups).sort()).toEqual([...old, basename(current)].sort());
+    expect(messages.some((message) => message.startsWith("Removed "))).toBe(false);
+  });
+
+  test("forcing the installed release preserves the last distinct rollback stack", async () => {
+    const { paths } = fixture();
+    const runner = new HealthyDockerRunner();
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+        runner
+      );
+      const ledgerPath = join(paths.directory, "image-retention.json");
+      const first = JSON.parse(readFileSync(ledgerPath, "utf8"));
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", "--force", ...releaseFixture()]),
+        runner
+      );
+      const second = JSON.parse(readFileSync(ledgerPath, "utf8"));
+      expect(second.rollback).toEqual(first.rollback);
+      expect(second.current).toEqual(first.current);
+      expect(runner.calls.some((call) => call.args[0] === "image" && call.args[1] === "rm")).toBe(
+        false
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 
   test("a failed update deletes no backups", async () => {
@@ -769,7 +841,9 @@ describe("installed lifecycle", () => {
     } finally {
       log.mockRestore();
     }
-    const token = parseEnvironment(readFileSync(paths.environment, "utf8")).get("OPENTEAM_CONTROL_TOKEN");
+    const token = parseEnvironment(readFileSync(paths.environment, "utf8")).get(
+      "OPENTEAM_CONTROL_TOKEN"
+    );
     expect(String(authorization)).toBe(`Bearer ${token}`);
     expect(runner.calls.some((call) => call.args.includes("pull"))).toBe(false);
     expect(runner.calls.some((call) => call.args.includes("stop"))).toBe(false);
@@ -792,7 +866,14 @@ describe("installed lifecycle", () => {
       await expect(
         updateCommand(
           paths,
-          parseArguments(["update", "--version", "1.3.0", "--when-idle", "--json-progress", ...releaseFixture()]),
+          parseArguments([
+            "update",
+            "--version",
+            "1.3.0",
+            "--when-idle",
+            "--json-progress",
+            ...releaseFixture(),
+          ]),
           runner
         )
       ).rejects.toThrow(updateBusyMessage(["Scout"]));

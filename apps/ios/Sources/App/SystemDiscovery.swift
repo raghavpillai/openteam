@@ -129,21 +129,31 @@ final class SystemDiscovery {
     })
     let conversationSignatures = Dictionary(uniqueKeysWithValues: snapshot.destinations.map {
       (TeamConversationEntity($0, scope: scope).id,
-        signature([$0.name, $0.channel.updatedAt, String($0.channel.unreadCount ?? 0)] + $0.members.map(\.name)))
+        signature([$0.name, $0.channel.updatedAt, String($0.channel.unreadCount ?? 0),
+          SystemConversationProjection.preview(snapshot.latestMessages[$0.id]),
+          snapshot.latestMessages[$0.id]?.createdAt ?? ""] + $0.members.flatMap { [$0.id, $0.name] }))
     })
-    let messageSignatures = Dictionary(uniqueKeysWithValues: snapshot.messages.map {
-      (SystemEntityID(scope: scope, kind: .message, channelID: $0.channelId, localID: $0.id).value,
-        signature([$0.content, $0.createdAt, $0.senderBotId ?? "", targets[$0.channelId]?.name ?? ""]
-          + $0.attachments.flatMap { [$0.assetId, $0.fileName, $0.mimeType] }))
+    let messageSignatures = Dictionary(uniqueKeysWithValues: snapshot.messages.map { message in
+      let target = targets[message.channelId]
+      let conversationID = SystemEntityID(scope: scope, kind: .conversation,
+        channelID: message.channelId, localID: message.channelId).value
+      return (SystemEntityID(scope: scope, kind: .message, channelID: message.channelId, localID: message.id).value,
+        signature([message.content, message.createdAt, message.sequence, message.sender, message.senderBotId ?? "",
+          conversationSignatures[conversationID] ?? "", session.displayName,
+          target?.channel.notificationState?["lastReadSequence"].string ?? ""]
+          + message.attachments.flatMap { [$0.assetId, $0.fileName, $0.mimeType] }))
     })
     if #available(iOS 27.0, *) {
       try await reconcile(bots.map { TeamSiriPerson($0, scope: scope) }, signatures: botSignatures,
         session: session, epoch: epoch)
-      try await reconcile(snapshot.destinations.map { TeamSiriConversation($0, scope: scope) },
+      try await reconcile(snapshot.destinations.map {
+        TeamSiriConversation($0, scope: scope, latestMessage: snapshot.latestMessages[$0.id])
+      },
         signatures: conversationSignatures, session: session, epoch: epoch)
       let messages = snapshot.messages.compactMap { message -> TeamSiriMessage? in
         guard let target = targets[message.channelId] else { return nil }
-        return TeamSiriMessage(message, target: target, scope: scope, owner: session.displayName)
+        return TeamSiriMessage(message, target: target, scope: scope, owner: session.displayName,
+          latestMessage: snapshot.latestMessages[message.channelId])
       }
       try await reconcile(messages, signatures: messageSignatures, session: session, epoch: epoch)
     } else {
@@ -224,6 +234,21 @@ struct SystemDraftPicker: View {
       }.navigationTitle("Choose a conversation")
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
     }
+  }
+}
+
+struct SystemConversationContext: ViewModifier {
+  @Environment(AppStore.self) private var store
+  let channel: Channel
+  @ViewBuilder func body(content: Content) -> some View {
+    if let scope = store.systemScope, store.systemDiscoveryEnabled {
+      let id = SystemEntityID(scope: scope, kind: .conversation, channelID: channel.id, localID: channel.id).value
+      if #available(iOS 27.0, *) {
+        content.appEntityIdentifier(EntityIdentifier(for: TeamSiriConversation.self, identifier: id))
+      } else if #available(iOS 18.4, *) {
+        content.appEntityIdentifier(EntityIdentifier(for: TeamConversationEntity.self, identifier: id))
+      } else { content }
+    } else { content }
   }
 }
 

@@ -52,6 +52,16 @@ describe("release Compose rendering", () => {
     expect(rendered).not.toMatch(
       /^\s*image:.*-(?:server|worker|migrate|computer):\$\{OPENTEAM_VERSION/m
     );
+    const yaml = Bun.YAML.parse(rendered) as { services: Record<string, { logging: unknown }> };
+    for (const service of Object.values(yaml.services)) {
+      expect(service.logging).toEqual({
+        driver: "json-file",
+        options: {
+          "max-size": "${OPENTEAM_LOG_MAX_SIZE:-10m}",
+          "max-file": "${OPENTEAM_LOG_MAX_FILES:-3}",
+        },
+      });
+    }
     expect(rendered).toContain('profiles: ["https"]');
     expect(rendered).toContain("caddy:2.11.4-alpine@sha256:");
     expect(rendered).toContain("${OPENTEAM_VIEWER_BIND_HOST:-127.0.0.1}:6200-6299");

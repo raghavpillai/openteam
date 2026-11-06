@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { getAudioContext } from "voice-glow";
+import { useWindowActive } from "../../../hooks/use-window-active";
+import { useResourceActive } from "../../../hooks/resource-activity";
 import {
   downwardReach,
   mobileVoiceLevel,
@@ -89,6 +91,9 @@ export function VoiceBackdropGlow({
   dark: boolean;
   reducedMotion: boolean;
 }) {
+  const windowActive = useWindowActive();
+  const resourcesActive = useResourceActive();
+  const active = windowActive && resourcesActive;
   const canvas = useRef<HTMLCanvasElement>(null);
   const analyser = useRef<AnalyserNode | null>(null);
   const state = useRef({ processing, exiting, radius, dark, reducedMotion });
@@ -97,7 +102,7 @@ export function VoiceBackdropGlow({
   }, [processing, exiting, radius, dark, reducedMotion]);
 
   useEffect(() => {
-    if (!stream) return;
+    if (!stream || !active) return;
     let source: MediaStreamAudioSourceNode | undefined;
     let tap: MediaStream | undefined;
     let meter: AnalyserNode | undefined;
@@ -121,9 +126,10 @@ export function VoiceBackdropGlow({
       meter?.disconnect();
       for (const track of tap?.getTracks() ?? []) track.stop();
     };
-  }, [stream]);
+  }, [stream, active]);
 
   useEffect(() => {
+    if (!active) return;
     const element = canvas.current;
     const context = element?.getContext("2d");
     if (!element || !context) return;
@@ -330,7 +336,7 @@ export function VoiceBackdropGlow({
       resize.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, []);
+  }, [active]);
 
   return (
     <canvas

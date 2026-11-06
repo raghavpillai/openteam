@@ -232,6 +232,7 @@ private const val PROVIDERS = "providers"
 private const val WEB_PROVIDERS = "web-providers"
 private const val PLUGINS = "plugins"
 private const val OUTBOX = "outbox"
+private const val SHARE = "share"
 private const val ACCOUNT = "account"
 private const val SIDEBAR = "sidebar"
 private const val MESSAGE_SEARCH = "message-search"
@@ -316,6 +317,12 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
             navController.navigate(DIRECTORY) { popUpTo(LOGIN) { inclusive = true } }
         }
     }
+    LaunchedEffect(state.pendingShare != null, state.session, state.restoringSession) {
+        if (state.session == null || state.restoringSession || state.pendingShare == null) return@LaunchedEffect
+        if (navController.currentDestination?.route != SHARE) {
+            navController.navigate(SHARE) { launchSingleTop = true }
+        }
+    }
     LaunchedEffect(state.pendingSystemAction, state.pendingSystemIdentifier, state.session) {
         val action = state.pendingSystemAction ?: return@LaunchedEffect
         if (state.session == null) return@LaunchedEffect
@@ -389,14 +396,9 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 searchLoading = state.searchLoading,
                 searchError = state.searchError,
                 sidebar = state.sidebar,
-                share = state.pendingShare,
                 onOpen = { conversation ->
                     appViewModel.openConversation(conversation.id)
                     navController.navigate("chat/${conversation.id}")
-                },
-                onShareTarget = { conversationId ->
-                    appViewModel.selectShareTarget(conversationId)
-                    navController.navigate("chat/$conversationId")
                 },
                 onRoutines = { navController.navigate(CREATE) },
                 onOutbox = { navController.navigate(OUTBOX) },
@@ -684,6 +686,28 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onBack = { navController.popBackStack() },
             )
         }
+        composable(SHARE) {
+            val activity = LocalContext.current as? ComponentActivity
+            ShareTargetScreen(
+                share = state.pendingShare,
+                rows = state.conversations,
+                sidebar = state.sidebar,
+                error = state.error,
+                onSelect = appViewModel::selectShareTarget,
+                onStay = { conversation ->
+                    navController.navigate("chat/${conversation.id}") { popUpTo(SHARE) { inclusive = true } }
+                },
+                onReturn = { conversation ->
+                    // Land on the chat first, so reopening OpenTeam later shows where the share went.
+                    navController.navigate("chat/${conversation.id}") { popUpTo(SHARE) { inclusive = true } }
+                    activity?.moveTaskToBack(true)
+                },
+                onCancel = {
+                    appViewModel.cancelShare()
+                    navController.popBackStack()
+                },
+            )
+        }
         composable(MARKETPLACE) {
             MarketplaceScreen(
                 state = state.features.plugins,
@@ -694,6 +718,155 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
         }
     }
 }
+
+@Composable
+private fun ShareTargetScreen(
+    share: SharePayload?,
+    rows: List<Conversation>,
+    sidebar: SidebarPreferences,
+    error: String?,
+    onSelect: (String) -> Boolean,
+    onStay: (Conversation) -> Unit,
+    onReturn: (Conversation) -> Unit,
+    onCancel: () -> Unit,
+) {
+    // Choosing a bot clears the pending share, so keep showing what was received.
+    var received by remember { mutableStateOf(share) }
+    LaunchedEffect(share) { if (share != null) received = share }
+    var sentTo by remember { mutableStateOf<Conversation?>(null) }
+    val grouped = remember(rows, sidebar) { groupConversations(rows, sidebar) }
+    val ordered = remember(grouped) {
+        grouped.pinned + grouped.sections.flatMap { it.conversations } + grouped.unassigned
+    }
+    BackHandler(enabled = sentTo == null, onBack = onCancel)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.Default.Close, contentDescription = localizedText("Cancel", "取消"))
+                    }
+                },
+                title = { Text(localizedText("Share to OpenTeam", "分享到 OpenTeam")) },
+                colors = featureTopBarColors(),
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+    ) { padding ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding).testTag("share-target-list"),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            item(key = "received") {
+                received?.let { ShareReceivedCard(it) }
+            }
+            if (error != null) {
+                item(key = "error") {
+                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            item(key = "choose") {
+                Text(
+                    localizedText("Send to", "发送给"),
+                    Modifier.padding(start = 4.dp, top = 16.dp, bottom = 6.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            items(ordered, key = { "share-${it.id}" }) { row ->
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .testTag("share-target-${row.id}")
+                        .clickable { if (onSelect(row.id)) sentTo = row }
+                        .padding(horizontal = 4.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BotAvatar(row, size = 46.dp, showWorking = true)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(row.title, fontWeight = FontWeight.Medium, maxLines = 1)
+                        if (row.subtitle.isNotBlank()) {
+                            Text(
+                                row.subtitle,
+                                maxLines = 1,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    sentTo?.let { target ->
+        AlertDialog(
+            onDismissRequest = { onStay(target) },
+            title = { Text(localizedText("Shared to ${target.title}", "已分享给 ${target.title}")) },
+            text = {
+                Text(
+                    localizedText(
+                        "Stay in OpenTeam to see the conversation, or go back to the app you shared from?",
+                        "要留在 OpenTeam 查看对话,还是回到分享来源的上一个应用?",
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { onStay(target) }, modifier = Modifier.testTag("share-stay")) {
+                    Text(localizedText("Stay in OpenTeam", "留在 OpenTeam"))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { onReturn(target) }, modifier = Modifier.testTag("share-return")) {
+                    Text(localizedText("Back to previous app", "回到上一个应用"))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ShareReceivedCard(share: SharePayload) {
+    val context = LocalContext.current
+    val streams = share.streams.ifEmpty { listOfNotNull(share.stream) }
+    val names = remember(streams) { streams.map { shareStreamLabel(context, it) } }
+    Card(
+        Modifier.fillMaxWidth().testTag("share-received"),
+        colors = featureCardColors(),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                localizedText("Received content", "收到的内容"),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            share.text?.takeIf(String::isNotBlank)?.let {
+                Text(it.trim(), maxLines = 6, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+            names.take(5).forEach { name ->
+                Text("📎 $name", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+            if (names.size > 5) {
+                Text(
+                    localizedText("and ${names.size - 5} more", "另外 ${names.size - 5} 个"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+private fun shareStreamLabel(context: android.content.Context, uri: Uri): String =
+    runCatching {
+        context.contentResolver
+            .query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+    }.getOrNull()?.takeIf(String::isNotBlank) ?: uri.lastPathSegment ?: uri.toString()
 
 @Composable
 private fun OutboxScreen(
@@ -1313,9 +1486,7 @@ private fun DirectoryScreen(
     searchLoading: Boolean,
     searchError: String?,
     sidebar: SidebarPreferences,
-    share: SharePayload?,
     onOpen: (Conversation) -> Unit,
-    onShareTarget: (String) -> Unit,
     onRoutines: () -> Unit,
     onOutbox: () -> Unit,
     onSettings: () -> Unit,
@@ -1473,26 +1644,8 @@ private fun DirectoryScreen(
                         PinnedBotCard(
                             conversation = row,
                             unread = row.unread > 0 || sidebar.isUnread(row.id),
-                            onClick = { if (share == null) onOpen(row) else onShareTarget(row.id) },
-                            onLongClick = {
-                                if (share == null) onTogglePin(row.id) else onShareTarget(row.id)
-                            },
-                        )
-                    }
-                }
-            }
-            if (share != null) {
-                Spacer(Modifier.height(8.dp))
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text(localizedText("Share with a conversation", "选择一个对话进行分享"), fontWeight = FontWeight.SemiBold)
-                        Text(
-                            share.text?.takeIf { it.isNotBlank() }
-                                ?: if (share.streams.size > 1) "${share.streams.size} attachments" else share.stream?.toString().orEmpty(),
-                            style = MaterialTheme.typography.bodySmall,
+                            onClick = { onOpen(row) },
+                            onLongClick = { onTogglePin(row.id) },
                         )
                     }
                 }
@@ -1521,10 +1674,8 @@ private fun DirectoryScreen(
                                 unread = row.unread > 0 || sidebar.isUnread(row.id),
                                 pinned = false,
                                 sections = sidebar.sections,
-                                shareActive = share != null,
                                 menuExpanded = rowMenuId == row.id,
                                 onOpen = { onOpen(row) },
-                                onShareTarget = { onShareTarget(row.id) },
                                 onBotDetails = { onBotDetails(row) },
                                 onTogglePin = { onTogglePin(row.id) },
                                 onMoveToSection = { sectionId -> onMoveToSection(row.id, sectionId) },
@@ -1551,10 +1702,8 @@ private fun DirectoryScreen(
                             unread = row.unread > 0 || sidebar.isUnread(row.id),
                             pinned = false,
                             sections = sidebar.sections,
-                            shareActive = share != null,
                             menuExpanded = rowMenuId == row.id,
                             onOpen = { onOpen(row) },
-                            onShareTarget = { onShareTarget(row.id) },
                             onBotDetails = { onBotDetails(row) },
                             onTogglePin = { onTogglePin(row.id) },
                             onMoveToSection = { sectionId -> onMoveToSection(row.id, sectionId) },
@@ -1760,10 +1909,8 @@ private fun DirectoryConversationRow(
     unread: Boolean,
     pinned: Boolean,
     sections: List<SidebarSection>,
-    shareActive: Boolean,
     menuExpanded: Boolean,
     onOpen: () -> Unit,
-    onShareTarget: () -> Unit,
     onBotDetails: () -> Unit,
     onTogglePin: () -> Unit,
     onMoveToSection: (String?) -> Unit,
@@ -1780,8 +1927,8 @@ private fun DirectoryConversationRow(
                 .clip(RoundedCornerShape(18.dp))
                 .testTag("conversation-${row.id}")
                 .combinedClickable(
-                    onClick = { if (shareActive) onShareTarget() else onOpen() },
-                    onLongClick = { if (shareActive) onShareTarget() else onOpenMenu() },
+                    onClick = onOpen,
+                    onLongClick = onOpenMenu,
                 )
                 .padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,

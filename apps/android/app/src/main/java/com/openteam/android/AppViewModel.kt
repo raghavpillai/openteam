@@ -227,13 +227,18 @@ class AppViewModel @JvmOverloads constructor(
         mutableState.update { it.copy(pendingShare = payload, error = null) }
     }
 
-    fun selectShareTarget(conversationId: String) {
-        val share = mutableState.value.pendingShare ?: return
+    fun cancelShare() {
+        mutableState.update { it.copy(pendingShare = null) }
+    }
+
+    /** Returns true when the share was accepted for [conversationId]. */
+    fun selectShareTarget(conversationId: String): Boolean {
+        val share = mutableState.value.pendingShare ?: return false
         val text = share.text?.trim().orEmpty()
         val streams = share.streams.ifEmpty { listOfNotNull(share.stream) }
         if (streams.isNotEmpty() && activeFeatureGateway === UnsupportedFeatureGateway) {
             mutableState.update { it.copy(error = "File sharing requires a connected server that supports attachments.") }
-            return
+            return false
         }
         val session = mutableState.value.session
         mutableState.update {
@@ -289,6 +294,7 @@ class AppViewModel @JvmOverloads constructor(
                 }
             }
         }
+        return true
     }
 
     fun signIn(server: String, username: String, credential: String) {

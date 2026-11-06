@@ -2865,7 +2865,7 @@ private fun ChatScreen(
                 when (operation) {
                     FeatureOperationState.Idle -> Unit
                     FeatureOperationState.Pending -> Text(localizedText("Working…", "处理中…"), Modifier.testTag("chat-operation-status"), style = MaterialTheme.typography.bodySmall)
-                    is FeatureOperationState.Succeeded -> Text(operation.message ?: localizedText("Done", "完成"), Modifier.testTag("chat-operation-status"), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+                    is FeatureOperationState.Succeeded -> Unit
                     is FeatureOperationState.Failed -> Text(operation.message, Modifier.testTag("chat-operation-status"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }

@@ -19,7 +19,27 @@ The updater:
 
 Bots pause briefly while the server restarts. Accounts that run on the bot computer, such as Gmail, Google Calendar and Google Drive, start again the next time a bot uses them; you don't need to reconnect them. You need at least 4 GB free on the drive that holds your install directory. Closing the terminal doesn't stop an update; run `openteam update` again to check on it.
 
-If the new version doesn't start, the updater rolls back to the previous version and restores the database. That backup covers the database only, not workspace files, browser sign-ins, or attachments. The updater keeps the three newest [update backups](backups.md#update-backups) and deletes older ones. Keep your own [backups](backups.md).
+If the new version doesn't start, the updater rolls back to the previous version and restores the database. That backup covers the database only, not workspace files, browser sign-ins, or attachments. After success, the updater normally keeps the three newest registered [update backups](backups.md#update-backups), plus the current rollback dump if needed, and deletes older registered dumps. Keep your own [backups](backups.md).
+
+## Disk use after updates
+
+Successful updates remove eligible older images owned by this installation while
+protecting the current and previous good stacks. Images used by any running or
+stopped container, manual tags, and untracked legacy images stay in place. This
+cleanup does not prune Docker volumes, networks or build caches.
+
+Release containers rotate their logs at 10 MiB per file with three files per
+container when recreated. Older diagnostic history is discarded. In your install
+directory's `.env`, set `OPENTEAM_LOG_MAX_SIZE` and `OPENTEAM_LOG_MAX_FILES` to change
+these limits, or `OPENTEAM_LOG_MAX_SIZE=-1` to disable rotation. Export logs before
+updating if you need to retain them. Backup deletion has separate
+[preservation controls](backups.md#update-backups).
+
+Browsers use a 128 MiB HTTP disk-cache target. Only selected disposable caches are
+cleared after a confirmed normal browser exit. Sign-ins, passwords, history,
+bookmarks, extensions, site storage and Downloads are preserved. Neither this target
+nor update retention caps the whole installation's disk use; the free-space check
+still applies.
 
 ## Update from the desktop app
 

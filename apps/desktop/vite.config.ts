@@ -98,20 +98,13 @@ export default defineConfig({
   build: {
     manifest: "manifest.json",
     outDir: "dist",
+    // Let lifecycle/resource modules follow automatic chunking. Fixed groups can
+    // import React from their importing entry and create an initialization cycle.
     // Shared plugin primitives must not pull their parent screens into a detail
     // chunk. These modules declare components/functions without startup effects.
     rolldownOptions: { output: { codeSplitting: { groups: [{
       name: "plugin-common",
       test: /(?:plugins\/(?:plugin-ui|plugin-mark|plugin-authorization)|product-core\/src\/plugin-authorization|renderer\/lib\/plugin-settings-scale)\.(?:ts|tsx)$/,
-      includeDependenciesRecursively: false,
-    }, {
-      // Share one lifecycle dependency across visual and settings entry points.
-      name: "activity",
-      test: /src\/renderer\/(?:hooks\/(?:use-window-active|resource-activity|use-visible-now)|lib\/window-visibility)\.(?:ts|tsx)$/,
-      includeDependenciesRecursively: false,
-    }, {
-      name: "resources",
-      test: /src\/renderer\/(?:hooks\/use-authenticated-resource|lib\/blob-resource-cache)\.ts$/,
       includeDependenciesRecursively: false,
     }] } } },
   },

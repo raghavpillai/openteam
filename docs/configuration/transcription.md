@@ -9,6 +9,10 @@ Select the microphone in the message box and speak. Then either:
 - Stop recording to put the text in your message box, where you can edit it before sending. On iPhone, tap the arrow to transcribe it.
 - On desktop, choose **Transcribe and send** to send it right away.
 
+On iPhone, the microphone has a larger touch target around its compact icon. A
+hands-free recording can be stopped for review before sending. Returning to an
+existing draft preserves its text and restores its keyboard when it was focused.
+
 On desktop, press **⌘D** on macOS or **Ctrl+D** on Windows and Linux while you're typing a message to start dictating. Or hold the shortcut while you talk and release it to stop.
 
 Recordings can be up to five minutes long. The audio isn't saved or attached to the conversation.

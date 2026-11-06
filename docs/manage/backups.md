@@ -23,10 +23,10 @@ The database backup that `openteam update` makes is for rolling back a failed up
 
 ## Update backups
 
-Before each update, `openteam update` saves a copy of the database in the `backups` folder of your install directory, named `postgres-<old version>-before-<new version>-<time>.sql`. If the new version doesn't start, the updater restores the copy it just made and restarts the previous version.
+Before each update, `openteam update` saves a copy of the database in the `backups` folder of your install directory, named `postgres-<old version>-before-<new version>-<time>-<UUID>.sql`. If the new version doesn't start, the updater restores the copy it just made and restarts the previous version.
 
 - **Database only.** Update backups don't include the Docker volumes (workspace files, browser sign-ins, attachments, software bots installed) and don't roll them back. The updater restores the previous `.env` and `compose.yaml` itself, from copies it holds during the update. Use [Make a backup](#make-a-backup) for everything else.
-- **The three newest are kept.** After each successful update, the updater deletes older update backups and lists the deleted files in `update.log` in your install directory. A failed update deletes nothing. Other files in the `backups` folder are left alone. To keep an update backup for longer, copy it somewhere else.
+- **The three newest registered dumps are kept by default**, plus the current rollback dump if outside those three. After a successful update, only older dumps explicitly registered by the updater are eligible for deletion; missing or empty dumps do not count as retained restore points. A failed update deletes nothing. Manual and unregistered legacy dumps and subdirectories stay untouched. Set `OPENTEAM_BACKUP_RETENTION_COUNT=0` in the install directory's `.env` before updating to disable deletion, or use a larger positive count to retain more. To keep a particular dump indefinitely, copy it to private off-host storage or a manual subdirectory under `backups/` before the next successful update. Its registered top-level copy remains eligible for deletion.
 - **Private.** The copies include plugin sign-ins and saved keys. Only your user can read them.
 
 ## Make a backup

@@ -1,10 +1,30 @@
 package com.openteam.android.data
 
+import com.openteam.mobile.core.mobileJson
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class MobileDataTest {
+    @Test
+    fun pendingSendRoundTripsThroughOutboxJson() {
+        val sends = listOf(
+            PendingSend(
+                id = "client-1",
+                channelId = "channel-1",
+                content = "hello",
+                attachments = listOf(MessageAttachment("asset-1", "a.png", "image/png", 3L, "image")),
+                failure = null,
+            ),
+        )
+
+        val encoded = mobileJson.encodeToString(sends)
+
+        assertEquals(sends, mobileJson.decodeFromString<List<PendingSend>>(encoded))
+    }
+
     @Test
     fun deletingSectionMovesConversationsToUnassigned() {
         val preferences = SidebarPreferences(

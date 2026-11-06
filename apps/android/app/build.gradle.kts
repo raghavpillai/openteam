@@ -2,6 +2,9 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    // PendingSend and MessageAttachment are @Serializable in this module. Without the
+    // compiler plugin no serializer is generated and writing the outbox crashes on send.
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {

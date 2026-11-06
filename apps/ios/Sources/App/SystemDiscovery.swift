@@ -277,6 +277,7 @@ struct SystemDiscoverySettings: View {
     Section {
       Toggle("Siri and Spotlight", isOn: Binding(get: { store.systemDiscoveryEnabled },
         set: { store.setSystemDiscoveryEnabled($0) }))
+        .tint(NativePalette.toggle)
         .accessibilityIdentifier("system-discovery-toggle")
       if let failure = SystemDiscovery.shared.failure {
         Text(failure).font(.footnote).foregroundStyle(.secondary)

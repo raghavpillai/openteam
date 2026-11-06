@@ -4,7 +4,9 @@ import XCTest
 /// reads the same Keychain session and per-account settings as a user install.
 @MainActor
 final class SystemIntegrationUITests: XCTestCase {
-  private let base = "http://127.0.0.1:20085"
+  private var base: String {
+    ProcessInfo.processInfo.environment["SYSTEM_INTEGRATION_SERVER"] ?? "http://127.0.0.1:20085"
+  }
 
   private func launch() async throws -> XCUIApplication {
     continueAfterFailure = false
@@ -20,7 +22,7 @@ final class SystemIntegrationUITests: XCTestCase {
       return false
     }
     let app = XCUIApplication()
-    app.launchArguments = ["--server", base]
+    app.launchArguments = ["--server", base, "-appearance", "dark"]
     app.launch()
     if app.buttons["get-started"].waitForExistence(timeout: 5) {
       app.buttons["get-started"].tap()

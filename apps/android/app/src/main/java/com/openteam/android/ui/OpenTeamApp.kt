@@ -162,6 +162,7 @@ import com.openteam.features.Plugin
 import com.openteam.features.ReactionState
 import com.openteam.features.ReactionsAndActionsRow
 import com.openteam.features.RichMessageCardScreen
+import com.openteam.features.isQuestion
 import com.openteam.features.ChatAttachmentStrip
 import com.openteam.features.rememberDecodedBitmap
 import com.openteam.features.MarkdownMessage
@@ -2940,7 +2941,8 @@ private fun MessageBubble(
                     message.replyToMessageId?.let { reply ->
                         Text(localizedText("Replying to $reply", "正在回复 $reply"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    message.displayBody?.let { body ->
+                    // A question card already shows its prompt, so the body text would repeat it.
+                    message.displayBody?.takeUnless { message.richMessage?.isQuestion == true }?.let { body ->
                         MarkdownMessage(
                             markdown = body,
                             contentColor = if (message.isMine) {
@@ -2967,7 +2969,7 @@ private fun MessageBubble(
                             onDownload = { attachment, _ -> onDownload(message.id, attachment) },
                         )
                     }
-                    if (message.reactions.isNotEmpty() || message.richMessage != null) {
+                    if (message.reactions.isNotEmpty() || (message.richMessage != null && message.richMessage?.isQuestion != true)) {
                         ReactionsAndActionsRow(
                             state = ReactionState(message.reactions, operation),
                             onReaction = { emoji -> onReaction(message.id, emoji) },

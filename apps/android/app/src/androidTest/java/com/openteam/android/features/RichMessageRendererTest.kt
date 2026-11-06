@@ -52,11 +52,38 @@ class RichMessageRendererTest {
             )
         }
 
+        // A single choice is submitted by tapping it; there is no Submit button.
         compose.onNodeWithText("One").performClick()
-        compose.onNodeWithText("Submit").performClick()
 
         assertEquals(1, submitted.size)
         assertEquals("one", submitted.last()["value"])
+    }
+
+    @Test
+    fun multiSelectWidgetSubmitsAllSelectedValuesTogether() {
+        val submitted = mutableListOf<Map<String, String>>()
+        compose.setContent {
+            com.openteam.features.RichMessageCardScreen(
+                message = RichMessage(
+                    id = "message-3",
+                    blocks = listOf(
+                        RichMessageBlock.Widget(
+                            "Choose",
+                            listOf(com.openteam.features.RichWidgetOption("One", "one"), com.openteam.features.RichWidgetOption("Two", "two")),
+                            multiSelect = true,
+                        ),
+                    ),
+                ),
+                onAction = { _, values -> submitted += values },
+            )
+        }
+
+        compose.onNodeWithText("One").performClick()
+        compose.onNodeWithText("Two").performClick()
+        compose.onNodeWithText("Submit").performClick()
+
+        assertEquals(1, submitted.size)
+        assertEquals("one\ntwo", submitted.last()["value"])
     }
 
     @Test

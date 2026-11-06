@@ -24,6 +24,10 @@ data class RichMessage(
     val metadata: Map<String, String> = emptyMap(),
 )
 
+/** A message that is only a question card. Its prompt is the whole content, with no extra body or actions. */
+val RichMessage.isQuestion: Boolean
+    get() = blocks.isNotEmpty() && actions.isEmpty() && blocks.all { it is RichMessageBlock.Widget }
+
 sealed interface RichMessageBlock {
     data class Markdown(val text: String) : RichMessageBlock
     data class Code(val language: String?, val code: String) : RichMessageBlock
@@ -40,6 +44,7 @@ sealed interface RichMessageBlock {
         val multiSelect: Boolean = false,
         val allowCustom: Boolean = false,
         val dismissOnMoveOn: Boolean = false,
+        val helpText: String? = null,
     ) : RichMessageBlock
 }
 

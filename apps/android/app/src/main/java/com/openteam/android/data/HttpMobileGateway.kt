@@ -752,7 +752,12 @@ class HttpMobileGateway(context: Context) :
         }
         val actions = arrayAt("actions").mapNotNull { it.toAction() }
         if (blocks.isEmpty() && actions.isEmpty()) return null
-        return RichMessage(id, blocks, actions)
+        // Card state the server writes back after the user answers or dismisses a question.
+        val state = buildMap {
+            this@toRichMessage["respondedValue"]?.jsonPrimitive?.contentOrNull?.let { put("respondedValue", it) }
+            if (boolean("widgetDismissed")) put("widgetDismissed", "true")
+        }
+        return RichMessage(id, blocks, actions, state)
     }
 
     private fun JsonElement.toRichBlock(): RichMessageBlock? {
@@ -809,7 +814,14 @@ class HttpMobileGateway(context: Context) :
                 style = option.string("style").ifBlank { null },
             )
         }
-        return RichMessageBlock.Widget(string("prompt", "title", "question"), options, boolean("multiSelect"), boolean("allowCustom"), boolean("dismissOnMoveOn"))
+        return RichMessageBlock.Widget(
+            string("prompt", "title", "question"),
+            options,
+            boolean("multiSelect"),
+            boolean("allowCustom"),
+            boolean("dismissOnMoveOn"),
+            string("helpText").ifBlank { null },
+        )
     }
 
     private fun JsonElement.toAction(defaultId: String = "action"): RichMessageAction? {

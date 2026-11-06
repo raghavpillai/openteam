@@ -6,6 +6,12 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import java.io.FileInputStream
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Image
@@ -191,8 +197,13 @@ fun RichMessageCardScreen(
     onAction: (RichMessageAction, Map<String, String>) -> Unit,
 ) {
     val values = remember(message.id) { mutableStateMapOf<String, String>() }
-    Card(Modifier.fillMaxWidth().padding(12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // A question card is the whole message, so it renders directly in the bubble.
+    val questionOnly = message.isQuestion
+    Card(
+        Modifier.fillMaxWidth().then(if (questionOnly) Modifier else Modifier.padding(12.dp)),
+        colors = CardDefaults.cardColors(containerColor = if (questionOnly) androidx.compose.ui.graphics.Color.Transparent else MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(if (questionOnly) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             message.blocks.forEach { block ->
                 when (block) {
                     is RichMessageBlock.Markdown -> MarkdownMessage(block.text)
@@ -251,32 +262,141 @@ fun RichMessageCardScreen(
                             ActionButton(block.reject) { onAction(block.reject, emptyMap()) }
                         }
                     }
-                    is RichMessageBlock.Widget -> {
-                        Text(block.prompt, fontWeight = FontWeight.Bold)
-                        var selected by remember(message.id, block.prompt) { mutableStateOf(emptySet<String>()) }
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            block.options.forEach { option ->
-                                FilterChip(
-                                    selected = option.value in selected,
-                                    onClick = { selected = if (block.multiSelect) if (option.value in selected) selected - option.value else selected + option.value else setOf(option.value) },
-                                    label = { Text(option.label) },
-                                )
-                            }
-                        }
-                        val submitLabel = localizedText("Submit", "提交")
-                        ActionButton(
-                            RichMessageAction("widget-response", submitLabel),
-                        ) {
-                            onAction(
-                                RichMessageAction("widget-response", submitLabel, route = "widget-response"),
-                                mapOf("value" to selected.joinToString("\n"), "_richType" to "widget-response"),
-                            )
-                        }
-                    }
+                    is RichMessageBlock.Widget -> WidgetQuestion(message, block, operation, onAction)
                 }
             }
             message.actions.forEach { action -> ActionButton(action) { onAction(action, emptyMap()) } }
             OperationStatus(operation)
+        }
+    }
+}
+
+/**
+ * Question card shared with the iOS client: a prompt, a dismiss control, and a bordered option list.
+ * A single choice is submitted by tapping it. Only multi-select needs a Submit button.
+ */
+@Composable
+private fun WidgetQuestion(
+    message: RichMessage,
+    block: RichMessageBlock.Widget,
+    operation: FeatureOperationState,
+    onAction: (RichMessageAction, Map<String, String>) -> Unit,
+) {
+    val responded = message.metadata["respondedValue"]
+    val dismissed = message.metadata["widgetDismissed"] == "true"
+    val busy = operation is FeatureOperationState.Pending
+    var selected by remember(message.id, block.prompt) { mutableStateOf(emptySet<String>()) }
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+
+    fun respond(value: String) = onAction(
+        RichMessageAction("widget-response", value, route = "widget-response"),
+        mapOf("value" to value, "_richType" to "widget-response"),
+    )
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.Top) {
+            Text(block.prompt, Modifier.weight(1f), fontWeight = FontWeight.Medium)
+            if (responded == null && !dismissed) {
+                IconButton(
+                    onClick = {
+                        onAction(
+                            RichMessageAction("widget-dismiss", "Dismiss", route = "widget-dismiss"),
+                            mapOf("_richType" to "widget-dismiss"),
+                        )
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = localizedText("Dismiss", "忽略"),
+                        modifier = Modifier.size(16.dp),
+                        tint = muted,
+                    )
+                }
+            }
+        }
+        block.helpText?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = muted) }
+        val frame = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.background)
+            .border(0.5.dp, outline, RoundedCornerShape(12.dp))
+        if (responded != null) {
+            val answers = responded.split("\n").filter { it.isNotBlank() }
+                .map { value -> block.options.firstOrNull { it.value == value }?.label ?: value }
+            Column(frame) {
+                answers.forEachIndexed { index, answer ->
+                    if (index > 0) HorizontalDivider(color = outline, thickness = 0.5.dp)
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = 10.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(answer, Modifier.weight(1f))
+                        Icon(Icons.Default.Check, contentDescription = localizedText("Selected", "已选择"), modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        } else {
+            Column(frame.then(if (dismissed) Modifier.alpha(0.35f) else Modifier)) {
+                block.options.forEachIndexed { index, option ->
+                    if (index > 0) HorizontalDivider(color = outline.copy(alpha = 0.5f), thickness = 0.5.dp)
+                    val isSelected = option.value in selected
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 40.dp)
+                            .clickable(enabled = !dismissed && !busy) {
+                                if (block.multiSelect) {
+                                    selected = if (isSelected) selected - option.value else selected + option.value
+                                } else {
+                                    respond(option.value)
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Box(
+                            Modifier.size(20.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (index < 26) ('A' + index).toString() else (index + 1).toString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = muted,
+                            )
+                        }
+                        Spacer(Modifier.width(9.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                option.label,
+                                color = if (option.style == "danger") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                            )
+                            option.description?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = muted) }
+                        }
+                        if (isSelected) {
+                            Icon(Icons.Default.Check, contentDescription = localizedText("Selected", "已选择"), modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+            if (dismissed) {
+                Text(localizedText("dismissed", "已忽略"), style = MaterialTheme.typography.labelSmall, color = muted)
+            } else {
+                if (block.allowCustom) {
+                    Text(localizedText("Or answer in the chat below", "也可以在下方输入框中回答"), style = MaterialTheme.typography.bodySmall, color = muted)
+                }
+                if (block.multiSelect) {
+                    Button(
+                        onClick = {
+                            respond(block.options.map { it.value }.filter { it in selected }.joinToString("\n"))
+                        },
+                        enabled = selected.isNotEmpty() && !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(localizedText("Submit", "提交")) }
+                }
+            }
         }
     }
 }

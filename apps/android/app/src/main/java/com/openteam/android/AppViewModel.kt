@@ -90,6 +90,8 @@ data class AppState(
     val historyBeforeSequence: String? = null,
     val hasMoreHistory: Boolean = false,
     val historyLoading: Boolean = false,
+    /** What the bot is doing in the open conversation; null when it is idle. */
+    val activity: com.openteam.android.data.ChannelActivity? = null,
     val pendingAttachments: List<Attachment> = emptyList(),
     val draft: String = "",
     /** Message the composer is replying to; cleared when the conversation changes or the reply is sent. */
@@ -140,6 +142,12 @@ class AppViewModel @JvmOverloads constructor(
         ?: UnsupportedFeatureGateway
     private var searchGeneration = 0L
     private var syncJob: Job? = null
+    private var directoryRefreshJob: Job? = null
+    private var activityJob: Job? = null
+    private var activityQueued = false
+    private var directoryRefreshQueued = false
+    private var conversationRefreshJob: Job? = null
+    private var conversationRefreshQueued: String? = null
     private var outboxJob: Job? = null
     private var indexedAccount: String? = null
     private val mutableState = MutableStateFlow(AppState())
@@ -355,7 +363,74 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     fun loadDirectory() {
-        viewModelScope.launch {
+        viewModelScope.launch { loadDirectoryNow() }
+    }
+
+    /**
+     * Event bursts (a bot streaming several updates) collapse into one request in flight plus
+     * at most one queued re-run, so the list stays current without a request per event.
+     */
+    private fun scheduleDirectoryRefresh() {
+        if (directoryRefreshJob?.isActive == true) {
+            directoryRefreshQueued = true
+            return
+        }
+        directoryRefreshJob = viewModelScope.launch {
+            do {
+                directoryRefreshQueued = false
+                loadDirectoryNow()
+                if (directoryRefreshQueued) delay(250)
+            } while (directoryRefreshQueued && isActive)
+        }
+    }
+
+    private fun scheduleConversationRefresh(conversationId: String) {
+        if (conversationRefreshJob?.isActive == true) {
+            conversationRefreshQueued = conversationId
+            return
+        }
+        conversationRefreshJob = viewModelScope.launch {
+            var next: String? = conversationId
+            while (next != null && isActive) {
+                conversationRefreshQueued = null
+                if (next == mutableState.value.activeConversationId) refreshConversationNow(next)
+                next = conversationRefreshQueued
+            }
+        }
+    }
+
+    /** Re-reads the open chat's run state; bursts of run events share one request in flight. */
+    private fun scheduleActivityRefresh() {
+        if (activityJob?.isActive == true) {
+            activityQueued = true
+            return
+        }
+        activityJob = viewModelScope.launch {
+            do {
+                activityQueued = false
+                val id = mutableState.value.activeConversationId ?: break
+                val live = activeGateway as? LiveMessagingApi ?: break
+                runCatching { live.channelActivity(id) }.onSuccess { activity ->
+                    if (mutableState.value.activeConversationId == id) {
+                        mutableState.update { it.copy(activity = activity) }
+                    }
+                }
+                if (activityQueued) delay(150)
+            } while (activityQueued && isActive)
+        }
+    }
+
+    /** Called when the app returns to the foreground: catch up on anything missed while away. */
+    fun onForeground() {
+        if (mutableState.value.session == null) return
+        if (syncJob?.isActive != true) startLiveSync()
+        scheduleDirectoryRefresh()
+        scheduleActivityRefresh()
+        mutableState.value.activeConversationId?.let(::scheduleConversationRefresh)
+    }
+
+    private suspend fun loadDirectoryNow() {
+        run {
             runCatching { activeGateway.conversations() }
                 .onSuccess { rows ->
                     mutableState.update { it.copy(conversations = rows) }
@@ -481,9 +556,11 @@ class AppViewModel @JvmOverloads constructor(
                 historyBeforeSequence = null,
                 hasMoreHistory = false,
                 historyLoading = false,
+                activity = null,
                 error = null,
             )
         }
+        scheduleActivityRefresh()
         viewModelScope.launch {
             runCatching { activeGateway.historyPage(id) }
                 .onSuccess { page ->
@@ -767,7 +844,34 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     private fun handleProductEvent(event: ProductEvent) {
-        if (!event.topic.startsWith("channel.")) return
+        if (!shouldRefreshForEvent(event)) return
+        if (event.topic == "snapshot.required") {
+            // The server dropped events we had not seen; the cursor jumps to its latest, so
+            // re-read everything the events would have told us.
+            scheduleDirectoryRefresh()
+            scheduleActivityRefresh()
+            mutableState.value.activeConversationId?.let(::scheduleConversationRefresh)
+            return
+        }
+        if (!event.topic.startsWith("channel.")) {
+            scheduleDirectoryRefresh()
+            if (event.topic.startsWith("run.") || event.topic.startsWith("run_item.") || event.topic.startsWith("subagent.")) {
+                scheduleActivityRefresh()
+            }
+            // A bot reply is announced as notification.created (entityId = channel id), not as
+            // a channel.* event, so the open chat must be refreshed from it as well.
+            val notified = eventChannelId(event)
+            if (event.topic == "notification.created" && notified != null &&
+                notified == mutableState.value.activeConversationId
+            ) {
+                scheduleConversationRefresh(notified)
+            }
+            // A finished run has posted its final message; its event carries no channel id.
+            if (event.topic == "run.completed") {
+                mutableState.value.activeConversationId?.let(::scheduleConversationRefresh)
+            }
+            return
+        }
         val eventMessage = event.payload["message"]?.let { element ->
             runCatching { mobileJson.decodeFromJsonElement(MobileMessage.serializer(), element) }.getOrNull()
         }
@@ -775,9 +879,11 @@ class AppViewModel @JvmOverloads constructor(
             ?.takeIf(String::isNotBlank)
             ?: eventMessage?.channelId?.takeIf(String::isNotBlank)
             ?: event.entityId?.takeIf { event.topic !in setOf("channel.message.created", "channel.message.accepted", "channel.message.updated", "channel.message.user_reaction") }
-        loadDirectory()
+        scheduleDirectoryRefresh()
         if (channelId != null && channelId == mutableState.value.activeConversationId) {
-            mutableState.value.activeConversationId?.let(::refreshConversation)
+            scheduleConversationRefresh(channelId)
+            // A just-accepted message queues a run before any run event arrives.
+            scheduleActivityRefresh()
         }
         if (event.topic == "channel.message.accepted") {
             val clientId = event.payload["clientId"]?.jsonPrimitive?.contentOrNull
@@ -792,9 +898,15 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     private fun refreshConversation(conversationId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch { refreshConversationNow(conversationId) }
+    }
+
+    private suspend fun refreshConversationNow(conversationId: String) {
+        run {
             runCatching { activeGateway.historyPage(conversationId) }
                 .onSuccess { page ->
+                    // The user may have switched chats while this request was in flight.
+                    if (mutableState.value.activeConversationId != conversationId) return@onSuccess
                     mutableState.update {
                         it.copy(
                             messages = page.messages,
@@ -1499,3 +1611,24 @@ private fun Attachment.messageRef() = MessageAttachment(
     byteSize = sizeBytes,
     kind = kind,
 )
+
+private val STREAMING_ITEM_TYPES = setOf("agentMessage", "reasoning", "plan")
+
+/**
+ * Mirrors the desktop client: streaming deltas, attach notices and the high-frequency
+ * model-output run items do not change list or run state, so they must not each trigger
+ * a bootstrap read. Run start/finish and every other topic do.
+ */
+internal fun shouldRefreshForEvent(event: ProductEvent): Boolean {
+    if (event.topic == "message.delta" || event.topic == "conversation.attached") return false
+    if (event.topic == "run_item.started" || event.topic == "run_item.completed") {
+        val type = (event.payload["item"] as? JsonObject)?.get("type")?.jsonPrimitive?.contentOrNull
+        return type.isNullOrEmpty() || type !in STREAMING_ITEM_TYPES
+    }
+    return true
+}
+
+/** The channel an event is about: an explicit payload field wins, then the entity id for channel-scoped topics. */
+internal fun eventChannelId(event: ProductEvent): String? =
+    event.payload["channelId"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
+        ?: event.entityId?.takeIf { event.topic == "notification.created" && it.isNotBlank() }

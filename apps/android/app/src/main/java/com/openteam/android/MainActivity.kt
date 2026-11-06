@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
         platform.handle(intent)
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                viewModel.onForeground()
                 launch {
                     viewModel.state.collect { state ->
                         platform.setActiveChannel(state.activeConversationId)

@@ -78,6 +78,9 @@ interface LiveMessagingApi {
     ): ChatHistoryPage
 
     suspend fun pollEvents(waitMs: Int = 25_000): EventBatch
+
+    /** The bot's current activity in [channelId], or null when nothing is running there. */
+    suspend fun channelActivity(channelId: String): ChannelActivity? = null
     suspend fun deliveryStatus(channelId: String, clientId: String): DeliveryLookup
     fun toChatMessage(message: MobileMessage): ChatMessage
     suspend fun syncEvents(applyEvent: suspend (ProductEvent) -> Unit): Int
@@ -199,7 +202,9 @@ class HttpMobileGateway(context: Context) :
 
     override suspend fun conversations(): List<Conversation> {
         ensureConnected()
-        if (directory.isEmpty()) reloadBootstrap()
+        // Always re-read bootstrap: unread counts, previews, ordering and run activity only
+        // change server-side. A failed background refresh keeps showing the last known list.
+        runCatching { reloadBootstrap() }.onFailure { if (directory.isEmpty()) throw it }
         return directory
     }
 
@@ -363,6 +368,16 @@ class HttpMobileGateway(context: Context) :
         }
     }
 
+    override suspend fun channelActivity(channelId: String): ChannelActivity? {
+        val activeServer = ensureConnected()
+        val state = jsonRequest(
+            activeServer,
+            "/api/v0/channels/${pathSegment(channelId)}/client-state",
+            token = token,
+        ).body
+        return channelActivityFrom(channelId, state)
+    }
+
     override suspend fun deliveryStatus(channelId: String, clientId: String): DeliveryLookup {
         val activeSession = session ?: throw IllegalStateException("Sign in to a server first.")
         return try {
@@ -474,6 +489,7 @@ class HttpMobileGateway(context: Context) :
         val latestByChannel = bootstrap.arrayAt("latestMessages")
             .mapNotNull { it.jsonObjectOrNull() }
             .associateBy { it.string("channelId") }
+        val working = workingChannelIds(bootstrap)
         directory = channels.values
             .filterNot { it.boolean("hiddenFromSidebar") }
             .map { channel ->
@@ -502,6 +518,7 @@ class HttpMobileGateway(context: Context) :
                     updatedLabel = channel.string("updatedLabel", "lastUpdatedLabel").ifBlank { null },
                     latestPreview = latest?.let(::messagePreviewText),
                     updatedAt = channel.string("updatedAt").ifBlank { latest?.string("createdAt").orEmpty() }.takeIf { it.isNotBlank() },
+                    working = channelId in working,
                 )
             }
             .sortedBy { it.title.lowercase() }
@@ -856,6 +873,69 @@ class HttpMobileGateway(context: Context) :
 
     private companion object {
         const val PASSWORD_FIELD = "pass" + "word"
+    }
+}
+
+private val ACTIVE_RUN_STATUSES = setOf("queued", "running")
+private val EXECUTING_TASK_STATUSES = setOf("provisioning", "queued", "running")
+
+/**
+ * Channels with work in progress, matching the desktop sidebar: a queued or running run,
+ * or an executing async subagent task whose parent is the channel.
+ */
+internal fun workingChannelIds(bootstrap: JsonObject): Set<String> {
+    fun JsonObject.field(name: String) = this[name]?.jsonPrimitive?.contentOrNull.orEmpty()
+    fun rows(name: String) = (bootstrap[name] as? kotlinx.serialization.json.JsonArray).orEmpty()
+        .mapNotNull { it as? JsonObject }
+    val runs = rows("activeRuns").filter { it.field("status") in ACTIVE_RUN_STATUSES }.map { it.field("channelId") }
+    val tasks = rows("subagents").filter { it.field("status") in EXECUTING_TASK_STATUSES }.map { it.field("parentChannelId") }
+    return (runs + tasks).filter(String::isNotBlank).toSet()
+}
+
+/**
+ * Mirrors the desktop's thinking indicator: the channel's active run (running beats queued)
+ * decides whether to show it, and that run's newest unfinished item decides the caption.
+ * Without a run, an executing background task still counts.
+ */
+internal fun channelActivityFrom(channelId: String, state: JsonObject): ChannelActivity? {
+    fun JsonObject.text(name: String) = this[name]?.jsonPrimitive?.contentOrNull.orEmpty()
+    fun rows(name: String) = (state[name] as? kotlinx.serialization.json.JsonArray).orEmpty()
+        .mapNotNull { it as? JsonObject }
+    val activeRuns = rows("runs").filter { it.text("channelId") == channelId && it.text("status") in ACTIVE_RUN_STATUSES }
+    val run = activeRuns.lastOrNull { it.text("status") == "running" } ?: activeRuns.lastOrNull()
+    if (run == null) {
+        val background = rows("subagents").any {
+            it.text("parentChannelId") == channelId && it.text("status") in EXECUTING_TASK_STATUSES
+        }
+        return if (background) ChannelActivity.Background else null
+    }
+    val latest = rows("runItems")
+        .filter { it.text("runId") == run.text("id") && it.text("status") in setOf("running", "pending") }
+        .maxWithOrNull(compareBy({ it.text("createdAt") }, { it.text("updatedAt") }))
+        ?: return ChannelActivity.Thinking
+    return when (latest.text("kind")) {
+        "reasoning" -> ChannelActivity.Thinking
+        "command" -> ChannelActivity.RunningCommands
+        "file_change" -> ChannelActivity.DraftingFile
+        "compaction" -> ChannelActivity.OrganizingContext
+        else -> {
+            val tool = (latest["content"] as? JsonObject)?.text("tool")?.takeIf(String::isNotEmpty)
+                ?: latest.text("title")
+            when (tool) {
+                "SendToUser" -> ChannelActivity.Typing
+                "read", "Read", "ReadFile", "BoxRead" -> ChannelActivity.ReadingFile
+                "WebSearch", "web_search" -> ChannelActivity.SearchingWeb
+                "WebFetch", "web_fetch" -> ChannelActivity.ReadingWeb
+                "write", "edit", "Write", "Edit" -> ChannelActivity.DraftingFile
+                "Shell", "ExternalShell", "bash", "BoxShell" -> ChannelActivity.RunningCommands
+                "Await", "AwaitProcess" -> ChannelActivity.WaitingOnCommand
+                "Computer", "Screenshot" -> ChannelActivity.OnComputer
+                "SendToAgent", "UpdateAgent" -> ChannelActivity.MessagingAssistant
+                "Task", "CheckSubagent" -> ChannelActivity.WaitingOnBot
+                "GenerateImage" -> ChannelActivity.GeneratingImage
+                else -> if (latest.text("kind") == "agent_message") ChannelActivity.Thinking else ChannelActivity.Working
+            }
+        }
     }
 }
 

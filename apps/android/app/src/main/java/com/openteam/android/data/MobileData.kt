@@ -32,10 +32,19 @@ data class Conversation(
     val updatedAt: String? = null,
     /** Local cache path for the server-provided avatar image, when configured. */
     val avatarPath: String? = null,
+    /** True while a run or async task is executing in this channel (the desktop's green dot). */
+    val working: Boolean = false,
 ) {
     /** Text shown under the title: the latest message, else the bot/channel description. */
     val preview: String?
         get() = latestPreview?.takeIf { it.isNotBlank() } ?: subtitle.takeIf { it.isNotBlank() }
+}
+
+/** What a bot is doing in a channel right now; drives the "typing" indicator in the chat. */
+enum class ChannelActivity {
+    Thinking, Typing, ReadingFile, SearchingWeb, ReadingWeb, DraftingFile, RunningCommands,
+    WaitingOnCommand, OnComputer, MessagingAssistant, WaitingOnBot, GeneratingImage,
+    OrganizingContext, Working, Background,
 }
 
 data class SearchResult(

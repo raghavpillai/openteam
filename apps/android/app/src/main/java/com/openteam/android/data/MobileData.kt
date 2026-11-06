@@ -169,6 +169,8 @@ data class PendingSend(
     val content: String,
     val attachments: List<MessageAttachment> = emptyList(),
     val failure: String? = null,
+    /** Message this send replies to. Older persisted outbox entries decode with null. */
+    val replyToMessageId: String? = null,
 )
 
 data class ChatHistoryPage(
@@ -239,6 +241,7 @@ interface MobileGateway {
         text: String,
         clientId: String,
         attachments: List<MessageAttachment> = emptyList(),
+        replyToMessageId: String? = null,
     ): Result<ChatMessage>
     suspend fun sendWithAttachments(
         conversationId: String,
@@ -277,8 +280,13 @@ class PreviewMobileGateway : MobileGateway {
         ChatMessage("reply-1", "Orbit", "Great. I can help turn the goals into a clear sequence."),
     )
 
-    override suspend fun send(conversationId: String, text: String, clientId: String, attachments: List<MessageAttachment>) =
-        Result.success(ChatMessage(clientId, "You", text, isMine = true))
+    override suspend fun send(
+        conversationId: String,
+        text: String,
+        clientId: String,
+        attachments: List<MessageAttachment>,
+        replyToMessageId: String?,
+    ) = Result.success(ChatMessage(clientId, "You", text, isMine = true, replyToMessageId = replyToMessageId))
 
     override suspend fun sidebarPreferences(): SidebarPreferences = SidebarPreferences()
 

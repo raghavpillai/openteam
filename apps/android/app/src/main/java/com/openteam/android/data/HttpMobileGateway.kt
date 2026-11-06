@@ -425,7 +425,13 @@ class HttpMobileGateway(context: Context) :
         return response.toChatHistoryPage()
     }
 
-    override suspend fun send(conversationId: String, text: String, clientId: String, attachments: List<MessageAttachment>): Result<ChatMessage> = runCatching {
+    override suspend fun send(
+        conversationId: String,
+        text: String,
+        clientId: String,
+        attachments: List<MessageAttachment>,
+        replyToMessageId: String?,
+    ): Result<ChatMessage> = runCatching {
         val server = ensureConnected()
         val channel = channels[conversationId] ?: throw IllegalArgumentException("Conversation is no longer available.")
         val botId = channel.botIdFromDirectKey()
@@ -436,6 +442,7 @@ class HttpMobileGateway(context: Context) :
         val body = buildJsonObject {
             put("content", text)
             put("clientId", clientId)
+            replyToMessageId?.takeIf(String::isNotBlank)?.let { put("replyToMessageId", it) }
             put("attachments", kotlinx.serialization.json.buildJsonArray {
                 attachments.forEach { attachment ->
                     add(buildJsonObject {

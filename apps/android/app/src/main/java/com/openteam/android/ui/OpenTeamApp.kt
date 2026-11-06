@@ -58,6 +58,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccessTime
@@ -108,6 +109,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.style.TextOverflow
+import kotlin.math.roundToInt
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -472,6 +484,9 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 messages = state.messages,
                 targetMessageId = state.activeMessageId,
                 draft = state.draft,
+                replyingTo = state.replyingTo,
+                onReply = appViewModel::startReply,
+                onCancelReply = appViewModel::cancelReply,
                 error = state.error,
                 onBack = { navController.popBackStack() },
                 onBotDetails = { navController.navigate("bot/$id/details") },
@@ -2575,6 +2590,9 @@ private fun ChatScreen(
     messages: List<ChatMessage>,
     targetMessageId: String?,
     draft: String,
+    replyingTo: ChatMessage?,
+    onReply: (String) -> Unit,
+    onCancelReply: () -> Unit,
     error: String?,
     onBack: () -> Unit,
     onBotDetails: () -> Unit,
@@ -2696,6 +2714,9 @@ private fun ChatScreen(
                         TextButton(onClick = onCancelVoice) { Text(localizedText("Dismiss", "关闭")) }
                     }
                 }
+                replyingTo?.let { target ->
+                    ReplyPreviewBar(target, onCancelReply)
+                }
                 Row(verticalAlignment = Alignment.Bottom) {
                     IconButton(onClick = { attachmentPicker.launch(arrayOf("*/*")) }) { Icon(Icons.Default.Add, contentDescription = stringResource(com.openteam.android.R.string.chat_add_attachment)) }
                     OutlinedTextField(
@@ -2763,6 +2784,7 @@ private fun ChatScreen(
                     onReaction = onReaction,
                     onMessageAction = onMessageAction,
                     onContext = onContext,
+                    onReply = onReply,
                 )
             }
             item { Spacer(Modifier.height(4.dp)) }
@@ -2821,6 +2843,7 @@ private fun MessageBubble(
     onReaction: (String, String) -> Unit,
     onMessageAction: (String, MessageAction) -> Unit,
     onContext: (String) -> Unit,
+    onReply: (String) -> Unit,
 ) {
     var previewAttachment by remember(message.id) { mutableStateOf<Attachment?>(null) }
     val context = LocalContext.current
@@ -2839,7 +2862,52 @@ private fun MessageBubble(
             onForward = onForwardAttachment,
         )
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.isMine) Arrangement.End else Arrangement.Start) {
+    val swipeScope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val replyThresholdPx = with(density) { 56.dp.toPx() }
+    val maxSwipePx = with(density) { 84.dp.toPx() }
+    val swipe = remember(message.id) { Animatable(0f) }
+    // Only the other side's messages can be replied to by swiping. Unsent rows have no server id.
+    val canSwipeReply = !message.isMine && message.delivery == com.openteam.android.data.Delivery.SENT
+    Box(Modifier.fillMaxWidth()) {
+        Icon(
+            Icons.AutoMirrored.Filled.Reply,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 8.dp)
+                .size(22.dp)
+                .alpha((-swipe.value / replyThresholdPx).coerceIn(0f, 1f)),
+        )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .offset { IntOffset(swipe.value.roundToInt(), 0) }
+            .then(
+                if (!canSwipeReply) Modifier else Modifier.pointerInput(message.id) {
+                    var crossed = false
+                    detectHorizontalDragGestures(
+                        onDragStart = { crossed = false },
+                        onDragEnd = {
+                            if (crossed) onReply(message.id)
+                            swipeScope.launch { swipe.animateTo(0f) }
+                        },
+                        onDragCancel = { swipeScope.launch { swipe.animateTo(0f) } },
+                    ) { change, delta ->
+                        change.consume()
+                        // Leftward only, with resistance past the trigger distance.
+                        val next = (swipe.value + delta).coerceIn(-maxSwipePx, 0f)
+                        swipeScope.launch { swipe.snapTo(next) }
+                        val nowCrossed = -next >= replyThresholdPx
+                        if (nowCrossed && !crossed) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        crossed = nowCrossed
+                    }
+                },
+            ),
+        horizontalArrangement = if (message.isMine) Arrangement.End else Arrangement.Start,
+    ) {
         // The column is 86% wide, so its children need their own alignment. Without it
         // the author and bubble sit at the column's left edge even for the user's own messages.
         Column(
@@ -2929,6 +2997,44 @@ private fun MessageBubble(
                     }
                 }
             }
+        }
+    }
+    }
+}
+
+@Composable
+private fun ReplyPreviewBar(target: ChatMessage, onCancel: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(start = 12.dp)
+            .testTag("reply-preview"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.Reply,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            (target.displayBody ?: "").replace(Regex("\\s+"), " ").trim(),
+            Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        IconButton(onClick = onCancel, modifier = Modifier.size(36.dp).testTag("cancel-reply")) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = localizedText("Cancel reply", "取消回复"),
+                modifier = Modifier.size(16.dp),
+            )
         }
     }
 }

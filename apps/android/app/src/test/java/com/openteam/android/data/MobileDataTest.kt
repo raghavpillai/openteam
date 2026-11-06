@@ -3,6 +3,7 @@ package com.openteam.android.data
 import com.openteam.mobile.core.mobileJson
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -23,6 +24,15 @@ class MobileDataTest {
         val encoded = mobileJson.encodeToString(sends)
 
         assertEquals(sends, mobileJson.decodeFromString<List<PendingSend>>(encoded))
+    }
+
+    @Test
+    fun pendingSendKeepsReplyTargetAndDecodesOldEntriesWithoutOne() {
+        val reply = PendingSend("c-1", "channel-1", "hi", replyToMessageId = "message-9")
+        assertEquals(reply, mobileJson.decodeFromString<PendingSend>(mobileJson.encodeToString(reply)))
+
+        val legacy = """{"id":"c-2","channelId":"channel-1","content":"hi"}"""
+        assertNull(mobileJson.decodeFromString<PendingSend>(legacy).replyToMessageId)
     }
 
     @Test

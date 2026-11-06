@@ -92,6 +92,8 @@ data class AppState(
     val historyLoading: Boolean = false,
     val pendingAttachments: List<Attachment> = emptyList(),
     val draft: String = "",
+    /** Message the composer is replying to; cleared when the conversation changes or the reply is sent. */
+    val replyingTo: ChatMessage? = null,
     val error: String? = null,
     val loading: Boolean = false,
     val authChecking: Boolean = false,
@@ -474,6 +476,7 @@ class AppViewModel @JvmOverloads constructor(
                 activeConversationId = id,
                 activeMessageId = messageId,
                 draft = session?.let { drafts.get(accountScope(it), id) }.orEmpty(),
+                replyingTo = null,
                 messages = emptyList(),
                 historyBeforeSequence = null,
                 hasMoreHistory = false,
@@ -542,6 +545,18 @@ class AppViewModel @JvmOverloads constructor(
         mutableState.update { it.copy(draft = value) }
     }
 
+    fun startReply(messageId: String) {
+        mutableState.update { state ->
+            val target = state.messages.firstOrNull { it.id == messageId } ?: return@update state
+            // Unsent rows have no server id yet, so the server could not resolve the reply target.
+            if (target.delivery != Delivery.SENT) state else state.copy(replyingTo = target)
+        }
+    }
+
+    fun cancelReply() {
+        mutableState.update { it.copy(replyingTo = null) }
+    }
+
     fun sendDraft() {
         val current = mutableState.value
         val conversationId = current.activeConversationId ?: return
@@ -549,17 +564,23 @@ class AppViewModel @JvmOverloads constructor(
         val attachments = current.pendingAttachments
         if (text.isEmpty() && attachments.isEmpty()) return
         val id = newClientId()
-        val optimistic = ChatMessage(id, "You", text, isMine = true, delivery = Delivery.SENDING, attachments = attachments)
+        val replyToId = current.replyingTo?.id
+        val optimistic = ChatMessage(
+            id, "You", text, isMine = true, delivery = Delivery.SENDING,
+            attachments = attachments, replyToMessageId = replyToId,
+        )
         val pending = PendingSend(
             id = id,
             channelId = conversationId,
             content = text,
             attachments = attachments.map(Attachment::messageRef),
+            replyToMessageId = replyToId,
         )
         mutableState.update {
             it.copy(
                 messages = it.messages + optimistic,
                 draft = "",
+                replyingTo = null,
                 pendingAttachments = emptyList(),
                 outbox = it.outbox + pending,
                 error = null,
@@ -631,7 +652,7 @@ class AppViewModel @JvmOverloads constructor(
         attachments: List<MessageAttachment> = message.attachments.map { it.messageRef() },
     ) {
         viewModelScope.launch {
-            activeGateway.send(conversationId, text, message.id, attachments).fold(
+            activeGateway.send(conversationId, text, message.id, attachments, message.replyToMessageId).fold(
                 onSuccess = { accepted ->
                     mutableState.update { state ->
                         state.copy(messages = state.messages.map { if (it.id == message.id) accepted.copy(delivery = Delivery.SENT) else it })
@@ -679,6 +700,7 @@ class AppViewModel @JvmOverloads constructor(
                             pending.content,
                             pending.id,
                             pending.attachments,
+                            pending.replyToMessageId,
                         ).fold(
                             onSuccess = { acceptQueuedMessage(pending.id, it) },
                             onFailure = {

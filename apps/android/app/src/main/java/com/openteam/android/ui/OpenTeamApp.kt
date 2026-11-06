@@ -1462,37 +1462,22 @@ private fun DirectoryScreen(
                 }
             } else {
             if (pinnedRows.isNotEmpty()) {
-                if (pinnedRows.size == 1) {
-                    // A single pinned chat sits centered; more than one scrolls from the left.
-                    val pinned = pinnedRows.first()
-                    Box(
-                        Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
+                // The pinned bots form one group centered in the row. Once they no longer fit,
+                // the row starts at the left edge and scrolls.
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp, bottom = 10.dp),
+                ) {
+                    items(pinnedRows, key = { "pinned-${it.id}" }) { row ->
                         PinnedBotCard(
-                            conversation = pinned,
-                            unread = pinned.unread > 0 || sidebar.isUnread(pinned.id),
-                            onClick = { if (share == null) onOpen(pinned) else onShareTarget(pinned.id) },
+                            conversation = row,
+                            unread = row.unread > 0 || sidebar.isUnread(row.id),
+                            onClick = { if (share == null) onOpen(row) else onShareTarget(row.id) },
                             onLongClick = {
-                                if (share == null) onTogglePin(pinned.id) else onShareTarget(pinned.id)
+                                if (share == null) onTogglePin(row.id) else onShareTarget(row.id)
                             },
                         )
-                    }
-                } else {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp, bottom = 10.dp),
-                    ) {
-                        items(pinnedRows, key = { "pinned-${it.id}" }) { row ->
-                            PinnedBotCard(
-                                conversation = row,
-                                unread = row.unread > 0 || sidebar.isUnread(row.id),
-                                onClick = { if (share == null) onOpen(row) else onShareTarget(row.id) },
-                                onLongClick = {
-                                    if (share == null) onTogglePin(row.id) else onShareTarget(row.id)
-                                },
-                            )
-                        }
                     }
                 }
             }
@@ -3155,11 +3140,6 @@ private fun MessageBubble(
                 Column(Modifier.padding(horizontal = 15.dp, vertical = 12.dp)) {
                     message.replyToMessageId?.let { reply ->
                         ReplyQuote(
-                            containerColor = if (message.isMine) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            },
                             original = replyOriginal,
                             ownMessage = message.isMine,
                             onOpen = { onOpenOriginal(reply) },
@@ -3175,6 +3155,11 @@ private fun MessageBubble(
                                 MaterialTheme.colorScheme.onSurface
                             },
                         )
+                            containerColor = if (message.isMine) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
                     }
                     message.richMessage?.let { rich ->
                         RichMessageCardScreen(

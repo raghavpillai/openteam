@@ -541,6 +541,8 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onContext = appViewModel::loadMessageContext,
                 threadContext = state.threadContext,
                 threadContextTruncated = state.threadContextTruncated,
+                activity = state.activity,
+                bot = conversation,
             )
         }
         composable(ROUTINES) {
@@ -2708,27 +2710,63 @@ private fun ChatScreen(
     onContext: (String) -> Unit,
     threadContext: List<ChatMessage>,
     threadContextTruncated: Boolean,
+    activity: ChannelActivity? = null,
+    bot: Conversation? = null,
 ) {
     val listState = rememberLazyListState()
     var forwardingAttachment by remember { mutableStateOf<Attachment?>(null) }
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { onUpload(it.toString()) } }
     val contextRows = threadContext.take(com.openteam.android.data.ChatHistoryPage.DEFAULT_CONTEXT_LIMIT)
     var hasPositionedInitialMessages by remember(conversationId) { mutableStateOf(false) }
-    var lastMessageId by remember(conversationId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(messages, targetMessageId, threadContext, historyLoading) {
-        if (historyLoading || messages.isEmpty()) return@LaunchedEffect
-        val index = targetMessageId?.let { id -> messages.indexOfFirst { it.id == id } }
-            ?.takeIf { it >= 0 }?.let { it + if (contextRows.isNotEmpty()) 1 else 0 }
-            ?: (messages.lastIndex + if (contextRows.isNotEmpty()) 1 else 0)
-        if (index < 0) return@LaunchedEffect
-        val newestMessageId = messages.lastOrNull()?.id
-        if (!hasPositionedInitialMessages || targetMessageId != null) {
-            listState.scrollToItem(index)
-            hasPositionedInitialMessages = true
-        } else if (newestMessageId != lastMessageId) {
-            listState.animateScrollToItem(index)
+    // The list ends with the bot-activity row and a 4dp spacer. Scrolling to that last item can only
+    // stop at the end of the list, so the newest message is always shown in full, however tall.
+    val lastItemIndex = (if (hasMoreHistory) 1 else 0) + (if (contextRows.isNotEmpty()) 1 else 0) + messages.size + 1
+    val currentLastItemIndex by rememberUpdatedState(lastItemIndex)
+    val currentTargetMessageId by rememberUpdatedState(targetMessageId)
+    val bottomThresholdPx = with(LocalDensity.current) { 48.dp.toPx() }
+    // True while the reader is at (or within a thumb's width of) the newest message. It is only
+    // re-evaluated when a scroll settles, so list growth between two scrolls cannot flip it.
+    var followBottom by remember(conversationId) { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) followBottom = listState.isNearBottom(bottomThresholdPx)
         }
-        lastMessageId = newestMessageId
+    }
+    var lastScrolledId by remember(conversationId) { mutableStateOf<String?>(null) }
+    val newest = messages.lastOrNull()
+    // Keyed on the whole newest message so edits, reactions, attachments and delivery changes that
+    // alter its height also re-run this, not only a new message id.
+    LaunchedEffect(conversationId, historyLoading, targetMessageId, messages.size, newest, activity) {
+        if (historyLoading || messages.isEmpty()) return@LaunchedEffect
+        val targetIndex = targetMessageId?.let { id -> messages.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
+        if (targetIndex != null) {
+            listState.scrollToItem(targetIndex + if (contextRows.isNotEmpty()) 1 else 0)
+            hasPositionedInitialMessages = true
+            return@LaunchedEffect
+        }
+        val isNewMessage = newest?.id != lastScrolledId
+        lastScrolledId = newest?.id
+        when {
+            !hasPositionedInitialMessages -> {
+                listState.scrollToItem(lastItemIndex)
+                hasPositionedInitialMessages = true
+                followBottom = true
+            }
+            // Your own message always jumps to the bottom, even if you had scrolled up.
+            followBottom || (isNewMessage && newest?.isMine == true) -> {
+                if (isNewMessage || activity != null) listState.animateScrollToItem(lastItemIndex)
+                else listState.scrollToItem(lastItemIndex)
+                followBottom = true
+            }
+        }
+    }
+    // The viewport shrinks when the keyboard opens or the composer grows; stay on the newest message.
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.viewportSize.height }.drop(1).collect {
+            if (followBottom && hasPositionedInitialMessages && currentTargetMessageId == null) {
+                listState.scrollToItem(currentLastItemIndex)
+            }
+        }
     }
     // Jumping to a quoted original is local to this screen. Routing it through targetMessageId
     // would keep the list pinned to that message and drag it back after every new message.
@@ -2895,7 +2933,79 @@ private fun ChatScreen(
                     },
                 )
             }
+            item(key = "bot-activity") { BotActivityRow(activity, bot) }
             item { Spacer(Modifier.height(4.dp)) }
+        }
+    }
+}
+
+private fun LazyListState.isNearBottom(thresholdPx: Float): Boolean {
+    val info = layoutInfo
+    val last = info.visibleItemsInfo.lastOrNull() ?: return true
+    return last.index >= info.totalItemsCount - 1 &&
+        last.offset + last.size - info.viewportEndOffset <= thresholdPx
+}
+
+@Composable
+private fun ChannelActivity.label(): String = when (this) {
+    ChannelActivity.Thinking -> localizedText("Thinking", "思考中")
+    ChannelActivity.Typing -> localizedText("Typing", "正在输入")
+    ChannelActivity.ReadingFile -> localizedText("Reading file", "正在读取文件")
+    ChannelActivity.SearchingWeb -> localizedText("Searching the web", "正在搜索网页")
+    ChannelActivity.ReadingWeb -> localizedText("Reading the web", "正在阅读网页")
+    ChannelActivity.DraftingFile -> localizedText("Drafting the file", "正在撰写文件")
+    ChannelActivity.RunningCommands -> localizedText("Running commands", "正在运行命令")
+    ChannelActivity.WaitingOnCommand -> localizedText("Waiting on a command", "正在等待命令")
+    ChannelActivity.OnComputer -> localizedText("On its computer", "正在操作电脑")
+    ChannelActivity.MessagingAssistant -> localizedText("Messaging another assistant", "正在联系其他助手")
+    ChannelActivity.WaitingOnBot -> localizedText("Waiting on another Bot", "正在等待其他 Bot")
+    ChannelActivity.GeneratingImage -> localizedText("Generating a photo", "正在生成图片")
+    ChannelActivity.OrganizingContext -> localizedText("Organizing context", "正在整理上下文")
+    ChannelActivity.Working -> localizedText("Working", "处理中")
+    ChannelActivity.Background -> localizedText("Working in the background", "正在后台处理")
+}
+
+/**
+ * The desktop's "bot is working" row: a small avatar with a soft pulse and a caption of what the
+ * bot is doing. It scales and fades in and out (180ms / 140ms) so the transcript does not jump.
+ */
+@Composable
+private fun BotActivityRow(activity: ChannelActivity?, bot: Conversation?) {
+    // Keep the last caption while the row animates out.
+    var shown by remember { mutableStateOf(activity) }
+    if (activity != null) shown = activity
+    AnimatedVisibility(
+        visible = activity != null,
+        enter = fadeIn(tween(180, easing = FastOutSlowInEasing)) + scaleIn(tween(180, easing = FastOutSlowInEasing), initialScale = .92f, transformOrigin = TransformOrigin(0f, .5f)),
+        exit = fadeOut(tween(140, easing = FastOutSlowInEasing)) + scaleOut(tween(140, easing = FastOutSlowInEasing), targetScale = .92f, transformOrigin = TransformOrigin(0f, .5f)),
+    ) {
+        val label = shown?.label().orEmpty()
+        val pulse = rememberInfiniteTransition(label = "activity-pulse").animateFloat(
+            initialValue = .45f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "activity-alpha",
+        )
+        Row(
+            Modifier.fillMaxWidth().height(36.dp).testTag("bot-activity")
+                .semantics { contentDescription = label },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (bot != null) BotAvatar(bot, size = 22.dp, ringColor = MaterialTheme.colorScheme.background)
+            AnimatedContent(
+                targetState = label,
+                transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                label = "activity-caption",
+            ) { text ->
+                Text(
+                    text,
+                    Modifier.alpha(pulse.value),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }

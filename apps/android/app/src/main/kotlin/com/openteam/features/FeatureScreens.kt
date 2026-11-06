@@ -65,6 +65,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -80,7 +84,16 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
 @Composable
-private fun FeaturePage(title: String, onBack: (() -> Unit)? = null, content: @Composable () -> Unit) {
+internal fun featureTopBarColors() = TopAppBarDefaults.topAppBarColors(
+    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+    scrolledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+)
+
+@Composable
+internal fun featureCardColors() = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+
+@Composable
+internal fun FeaturePage(title: String, onBack: (() -> Unit)? = null, content: @Composable () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -92,8 +105,10 @@ private fun FeaturePage(title: String, onBack: (() -> Unit)? = null, content: @C
                     }
                 },
                 title = { Text(title) },
+                colors = featureTopBarColors(),
             )
         },
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) { content() }
     }
@@ -437,13 +452,14 @@ fun AttachmentGalleryScreen(
     onRetry: () -> Unit,
     onAttachmentAction: (Attachment, AttachmentAction) -> Unit,
     onUpload: () -> Unit = {},
+    onBack: (() -> Unit)? = null,
 ) {
-    FeaturePage(localizedText("Attachments", "附件")) {
+    FeaturePage(localizedText("Attachments", "附件"), onBack = onBack) {
         LoadStateContent(state, onRetry) { attachments ->
             LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item { Button(onClick = onUpload) { Text(localizedText("Add attachment", "添加附件")) } }
                 items(attachments, key = { it.id }) { attachment ->
-                    Card(Modifier.fillMaxWidth()) {
+                    Card(Modifier.fillMaxWidth(), colors = featureCardColors()) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(attachment.name, Modifier.weight(1f), fontWeight = FontWeight.Medium)
@@ -537,7 +553,7 @@ fun ChatAttachmentStrip(
                     }
                 }
             } else {
-                Card(Modifier.fillMaxWidth()) {
+                Card(Modifier.fillMaxWidth(), colors = featureCardColors()) {
                     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(attachment.name, fontWeight = FontWeight.Medium)
@@ -600,23 +616,34 @@ fun RoutinesScreen(
     onEdit: (Routine) -> Unit,
     onToggle: (Routine) -> Unit,
     onRun: (Routine) -> Unit,
+    onBack: () -> Unit,
 ) {
-    FeaturePage(localizedText("Routines", "例行任务")) {
-        LoadStateContent(state, onRetry, emptyAction = { OutlinedButton(onClick = onAdd) { Text(localizedText("Add routine", "添加例行任务")) } }) { routines ->
-            LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item { Button(onClick = onAdd) { Text(localizedText("Add routine", "添加例行任务")) } }
+    FeaturePage(localizedText("Routines", "例行任务"), onBack = onBack) {
+        LoadStateContent(state, onRetry, emptyAction = { FilledTonalButton(onClick = onAdd) { Text(localizedText("Add routine", "添加例行任务")) } }) { routines ->
+            LazyColumn(
+                Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 14.dp, bottom = 28.dp),
+            ) {
+                item {
+                    FilledTonalButton(onClick = onAdd, modifier = Modifier.fillMaxWidth()) {
+                        Text(localizedText("Add routine", "添加例行任务"))
+                    }
+                }
                 items(routines, key = { it.id }) { routine ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Card(Modifier.fillMaxWidth(), colors = featureCardColors(), shape = MaterialTheme.shapes.medium) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(routine.name, Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                                Text(routine.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 Switch(checked = routine.enabled, onCheckedChange = { onToggle(routine) })
                             }
-                            Text(routine.schedule.localizedSummary(), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(routine.prompt, maxLines = 3, style = MaterialTheme.typography.bodySmall)
-                            routine.nextRunAt?.let { Text(localizedText("Next: $it", "下次运行：$it"), style = MaterialTheme.typography.labelSmall) }
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(onClick = { onEdit(routine) }) { Text(localizedText("Edit", "编辑")) }
+                            Text(routine.schedule.localizedSummary(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(routine.prompt, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                            routine.nextRunAt?.let {
+                                Text(localizedText("Next: $it", "下次运行：$it"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilledTonalButton(onClick = { onEdit(routine) }) { Text(localizedText("Edit", "编辑")) }
                                 TextButton(onClick = { onRun(routine) }) { Text(localizedText("Run now", "立即运行")) }
                             }
                             if (routine.executions.isNotEmpty()) {
@@ -637,11 +664,12 @@ fun RoutineEditorScreen(
     routine: Routine,
     onChange: (Routine) -> Unit,
     onSave: () -> Unit,
+    onBack: () -> Unit,
     onDelete: (() -> Unit)? = null,
     operation: FeatureOperationState = FeatureOperationState.Idle,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
-    FeaturePage(if (routine.id.isBlank()) localizedText("New routine", "新建例行任务") else localizedText("Edit routine", "编辑例行任务")) {
+    FeaturePage(if (routine.id.isBlank()) localizedText("New routine", "新建例行任务") else localizedText("Edit routine", "编辑例行任务"), onBack = onBack) {
         LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 OutlinedTextField(routine.name, { onChange(routine.copy(name = it)) }, label = { Text(localizedText("Routine name", "例行任务名称")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -701,9 +729,10 @@ fun AccountMemoryScreen(
     onClearMemory: () -> Unit,
     onReset: () -> Unit,
     onSignOut: () -> Unit,
+    onBack: () -> Unit,
 ) {
     var pendingAction by remember { mutableStateOf<String?>(null) }
-    FeaturePage(localizedText("Account and memory", "账户与记忆")) {
+    FeaturePage(localizedText("Account and memory", "账户与记忆"), onBack = onBack) {
         LoadStateContent(state, onRetry) { account ->
             LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
@@ -715,7 +744,7 @@ fun AccountMemoryScreen(
                 item { Text(localizedText("Memory", "记忆"), style = MaterialTheme.typography.titleMedium) }
                 if (account.memories.isEmpty()) item { Text(localizedText("No saved memories yet.", "还没有保存的记忆。"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(account.memories, key = { it.id }) { memory ->
-                    Card(Modifier.fillMaxWidth().clickable { onEditMemory(memory) }) {
+                    Card(Modifier.fillMaxWidth().clickable { onEditMemory(memory) }, colors = featureCardColors()) {
                         Column(Modifier.padding(12.dp)) { Text(memory.title, fontWeight = FontWeight.Medium); Text(memory.content, maxLines = 3); Text(memory.updatedAt, style = MaterialTheme.typography.labelSmall) }
                     }
                 }
@@ -773,6 +802,7 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = featureTopBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = text("Back", "返回"))
@@ -1194,8 +1224,9 @@ fun PluginsScreen(
     onCancelAuthorization: (Plugin) -> Unit,
     onConfigure: (Plugin, JsonObject) -> Unit,
     onTestTool: (Plugin) -> Unit,
+    onBack: () -> Unit,
 ) {
-    FeaturePage(localizedText("Plugins", "插件")) {
+    FeaturePage(localizedText("Plugins", "插件"), onBack = onBack) {
         LoadStateContent(state, onRetry, emptyAction = { Text(localizedText("No plugins available.", "没有可用插件。")) }) { plugins ->
             var filter by remember { mutableStateOf("") }
             val authorizationPending = plugins.any { it.authorizationUrl != null }
@@ -1213,7 +1244,7 @@ fun PluginsScreen(
                         var confirmRollback by remember(plugin.id, plugin.connectionId) { mutableStateOf(false) }
                         var configure by remember(plugin.id, plugin.connectionId) { mutableStateOf(false) }
                         var configuration by remember(plugin.id, plugin.connectionId) { mutableStateOf("{}") }
-                        Card(Modifier.fillMaxWidth()) {
+                        Card(Modifier.fillMaxWidth(), colors = featureCardColors()) {
                             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) { Text(plugin.name, Modifier.weight(1f), fontWeight = FontWeight.Bold); Text(plugin.installedVersion ?: "Not installed", style = MaterialTheme.typography.labelSmall) }
                                 Text(plugin.description)

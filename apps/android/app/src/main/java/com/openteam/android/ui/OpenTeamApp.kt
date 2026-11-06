@@ -49,7 +49,26 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.animateFloat
+import com.openteam.android.data.ChannelActivity
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.navigation.NavBackStackEntry
+import com.openteam.features.featureCardColors
+import com.openteam.features.featureTopBarColors
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Brush
@@ -102,6 +121,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.drop
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -528,14 +551,26 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onEdit = { appViewModel.startRoutineEditor(it); navController.navigate(ROUTINE_EDITOR) },
                 onToggle = appViewModel::toggleRoutine,
                 onRun = appViewModel::runRoutine,
+                onBack = { navController.popBackStack() },
             )
         }
         composable(ROUTINE_EDITOR) {
-            state.features.routineDraft?.let { routine ->
+            val draft = state.features.routineDraft
+            // Keep the last draft on screen while the pop animation plays; the ViewModel
+            // clears it after a successful save or delete.
+            var shown by remember { mutableStateOf(draft) }
+            if (draft != null) shown = draft
+            LaunchedEffect(draft == null) {
+                if (draft == null && navController.currentDestination?.route == ROUTINE_EDITOR) {
+                    navController.popBackStack()
+                }
+            }
+            shown?.let { routine ->
                 RoutineEditorScreen(
                     routine = routine,
                     onChange = appViewModel::updateRoutineDraft,
                     onSave = appViewModel::saveRoutine,
+                    onBack = { navController.popBackStack() },
                     onDelete = routine.id.takeIf(String::isNotBlank)?.let { { appViewModel.deleteRoutine() } },
                     operation = state.features.operation,
                 )
@@ -579,6 +614,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                     appViewModel.signOut()
                     navController.navigate(LOGIN) { popUpTo(navController.graph.id) { inclusive = true } }
                 },
+                onBack = { navController.popBackStack() },
             )
         }
         composable(SIDEBAR) {
@@ -643,6 +679,7 @@ fun OpenTeamApp(appViewModel: AppViewModel = viewModel()) {
                 onCancelAuthorization = appViewModel::cancelPluginAuthorization,
                 onConfigure = appViewModel::configurePlugin,
                 onTestTool = appViewModel::testPluginTool,
+                onBack = { navController.popBackStack() },
             )
         }
         composable(MARKETPLACE) {
@@ -672,8 +709,10 @@ private fun OutboxScreen(
                     }
                 },
                 title = { Text(localizedText("Outbox", "发件箱")) },
+                colors = featureTopBarColors(),
             )
         },
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
     ) { padding ->
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
@@ -686,7 +725,7 @@ private fun OutboxScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp),
             ) {
                 items(items, key = PendingSend::id) { item ->
-                    Card(Modifier.fillMaxWidth()) {
+                    Card(Modifier.fillMaxWidth(), colors = featureCardColors()) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(item.content.ifBlank { "Attachment-only message" }, fontWeight = FontWeight.Medium)
                             Text(localizedText("Conversation: ${item.channelId}", "对话：${item.channelId}"), style = MaterialTheme.typography.labelSmall)
@@ -732,8 +771,10 @@ private fun SidebarManagementScreen(
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, localizedText("Back", "返回")) } },
                 title = { Text(localizedText("Organize conversations", "整理对话")) },
+                colors = featureTopBarColors(),
             )
         },
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
@@ -746,7 +787,7 @@ private fun SidebarManagementScreen(
             }
             items(sidebar.sections, key = { "section:${it.id}" }) { section ->
                 var name by remember(section.id, section.name) { mutableStateOf(section.name) }
-                Card(Modifier.fillMaxWidth()) {
+                Card(Modifier.fillMaxWidth(), colors = featureCardColors()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(name, { name = it }, label = { Text(localizedText("Section name", "分区名称")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -766,7 +807,7 @@ private fun SidebarManagementScreen(
                 item { Text(localizedText("No hidden conversations.", "没有隐藏的对话。"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             items(hidden, key = { "hidden:${it.id}" }) { conversation ->
-                Card(Modifier.fillMaxWidth()) {
+                Card(Modifier.fillMaxWidth(), colors = featureCardColors()) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(conversation.title, fontWeight = FontWeight.Medium)
@@ -800,8 +841,10 @@ private fun MessageSearchScreen(
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, localizedText("Back", "返回")) } },
                 title = { Text(localizedText("Find messages", "查找消息")) },
+                colors = featureTopBarColors(),
             )
         },
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
             OutlinedTextField(

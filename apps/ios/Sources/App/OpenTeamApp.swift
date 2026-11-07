@@ -115,12 +115,13 @@ struct ChannelAvatar: View {
   var artworkScale: CGFloat = 1
   var groupStyle: GroupAvatarLayout.Style = .cluster
   var showsActivity = true
+  var animatesWhenInactive = false
   @State private var photo: UIImage?
   var body: some View {
     let bot = store.bot(for: channel)
     let runs = store.activeRuns(channel.id)
     func motion(_ botID: String?) -> RobotAvatarMode {
-      guard showsActivity, store.activeChannel == channel.id, let botID,
+      guard showsActivity, store.activeChannel == channel.id || animatesWhenInactive, let botID,
         channel.members.contains(where: { $0.botId == botID })
       else { return .still }
       return runs.contains { $0.botId == botID && ["running", "queued"].contains($0.status) }

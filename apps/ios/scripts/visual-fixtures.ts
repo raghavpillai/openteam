@@ -14,7 +14,25 @@ export function visualFixture(base: any, scene: string) {
     const row={id:`visual-message-${channel}-${index}`,clientId:null,sequence:String(index),channelId:channel,sender,senderBotId:sender==="agent"?"bot-"+channel:null,sourceRunId:null,content,metadata:{type:"text",...metadata},createdAt:new Date(date.getTime()+index*1000).toISOString()};
     snapshot.channelMessages.push(row); return row;
   }
-  if (scene === "navigation-layout") {
+  if (scene === "duo-sidebar") {
+    const rows = [
+      ["#FA2AA4", "pod", "What should I draft for you?"],
+      ["#777777", "hex-visor", "Browser connection is ready."],
+      ["#00C875", "pod", "Test"],
+      ["#9254FF", "classic", "Couldn't finish the lookup."],
+      ["#9254FF", "owl", "Five upcoming events."],
+      ["#FF2545", "classic", "Browser navigation audit."],
+      ["#A47952", "chip", "Ready when you are."],
+      ["#1683FF", "terminal", "The weekly summary is ready."],
+    ];
+    rows.forEach(([color, icon, preview], index) => {
+      const { channel } = bot(`duo-${index}`, "New Bot", color!, icon!);
+      message(channel.id, "agent", preview!, index + 1).createdAt =
+        new Date(date.getTime() - (index + 2) * 86400000).toISOString();
+    });
+    sidebar.channelOrderByGroup.unassigned = snapshot.channels.map((c: any) => c.id);
+    sidebar.unreadIds = ["duo-6", "duo-7"];
+  } else if (scene === "navigation-layout") {
     for (const [id, name] of [["visual-chat", "Main chat"], ["visual-other", "Other chat"]]) {
       const {channel} = bot(id!, name!, "#00B8A9", "owl");
       for (let i = 1; i <= 60; i++) message(channel.id, "agent",

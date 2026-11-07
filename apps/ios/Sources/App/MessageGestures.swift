@@ -1,6 +1,77 @@
 import SwiftUI
 import UIKit
 
+/// Observe down/up alongside the row's button, swipe and context menu. This
+/// recognizer never succeeds, delays touches or cancels another interaction.
+struct SidebarTouchObservation: UIGestureRecognizerRepresentable {
+  var isEnabled = true
+  var onChanged: (Bool) -> Void
+  func makeCoordinator(converter: CoordinateSpaceConverter) -> SidebarTouchDelegate {
+    SidebarTouchDelegate()
+  }
+  func makeUIGestureRecognizer(context: Context) -> SidebarTouchRecognizer {
+    let recognizer = SidebarTouchRecognizer()
+    recognizer.cancelsTouchesInView = false
+    recognizer.delaysTouchesBegan = false
+    recognizer.delaysTouchesEnded = false
+    recognizer.delegate = context.coordinator
+    recognizer.onChanged = onChanged
+    recognizer.isEnabled = isEnabled
+    return recognizer
+  }
+  func updateUIGestureRecognizer(_ recognizer: SidebarTouchRecognizer, context: Context) {
+    recognizer.onChanged = onChanged
+    recognizer.isEnabled = isEnabled
+  }
+  func handleUIGestureRecognizerAction(_ recognizer: SidebarTouchRecognizer, context: Context) {}
+}
+
+@MainActor final class SidebarTouchDelegate: NSObject, UIGestureRecognizerDelegate {
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+}
+
+@MainActor final class SidebarTouchRecognizer: UIGestureRecognizer {
+  var onChanged: (Bool) -> Void = { _ in }
+  private var origin: CGPoint?
+  private var pressed = false
+  private func setPressed(_ value: Bool) {
+    guard pressed != value else { return }
+    pressed = value
+    onChanged(value)
+  }
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard origin == nil, touches.count == 1, let touch = touches.first else {
+      setPressed(false)
+      state = .failed
+      return
+    }
+    origin = touch.location(in: view?.window)
+    setPressed(true)
+  }
+  override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard let origin, let touch = touches.first else { return }
+    let point = touch.location(in: view?.window)
+    if hypot(point.x - origin.x, point.y - origin.y) > 12 {
+      setPressed(false)
+      state = .failed
+    }
+  }
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+    setPressed(false)
+    state = .failed
+  }
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+    setPressed(false)
+    state = .failed
+  }
+  override func reset() {
+    super.reset()
+    origin = nil
+    setPressed(false)
+  }
+}
+
 /// Native recognizers include attachments and WebKit content without covering
 /// their controls with an overlay. A quick tap still opens the attachment/link.
 struct MessageReplyGesture: UIGestureRecognizerRepresentable {

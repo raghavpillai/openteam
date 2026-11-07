@@ -13,6 +13,20 @@ enum SidebarMetrics {
   static let pluginPadding: CGFloat = 13
   static let capsuleHeight: CGFloat = 38
   static let rowHeight: CGFloat = 86
+  static let rowLeading: CGFloat = 20
+  static let rowTrailing: CGFloat = 20
+  static let avatarSize: CGFloat = 46
+  /// Shared robot vectors include empty space around their silhouette. Keep
+  /// the 46-point layout slot while matching its visible artwork to that slot.
+  static let avatarArtworkScale: CGFloat = 4 / 3
+  static let avatarGap: CGFloat = 16
+  static let selectionInset: CGFloat = 12
+  static let selectionVerticalInset: CGFloat = 3
+  static let selectionRadius: CGFloat = 12
+  /// The inner display has no top toolbar in landscape. Keep the first
+  /// selection card inside the physical display's rounded corner.
+  static let landscapeTopClearance: CGFloat = 16
+  static let pressedScale: CGFloat = 0.965
   static let searchGlyph: CGFloat = 18
   static let addGlyph: CGFloat = 16
   static let toolbarTrailing: CGFloat = 19
@@ -146,7 +160,14 @@ private struct MarketplaceGlass: ViewModifier {
       // A fixed neutral fill and rim keep this small capsule consistent across
       // iOS versions; system glass adds a much brighter outline on iOS 27.
       content
-        .background(NativePalette.color("FFFFFF", "3B3B3B"), in: Capsule())
+        .background {
+          Capsule().fill(
+            LinearGradient(
+              colors: scheme == .dark
+                ? [Color(hex: "3B3B3B"), Color(hex: "303030")]
+                : [.white, Color(hex: "F7F7F7")],
+              startPoint: .top, endPoint: .bottom))
+        }
         .overlay {
           if scheme == .light {
             Capsule().strokeBorder(.black.opacity(0.14), lineWidth: 0.5).allowsHitTesting(false)
@@ -202,7 +223,7 @@ private struct UnreadGlass: ViewModifier {
 /// The footer blurs the live list through a transparent material. Its mask affects
 /// the backdrop, leaving the rows available for the glass controls to refract.
 struct SidebarFooterFade: View {
-  static let canvas = NativePalette.color("F7F7F7", "1E1E1E")
+  static let canvas = NativePalette.color("F7F7F7", "1C1C1C")
   var body: some View {
     SidebarBackdropBlur()
       .overlay {

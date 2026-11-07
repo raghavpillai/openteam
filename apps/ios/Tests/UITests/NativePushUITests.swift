@@ -71,6 +71,22 @@ import XCTest
       throw XCTSkip("This simulator keeps OpenTeam active after Home. Background lifecycle coverage requires a runtime that actually backgrounds the app.")
     }
   }
+  private func openNotification(_ notification: XCUIElement, in app: XCUIApplication) {
+    let body = notification.label
+    // A collapsed Notification Center group expands on its first tap. Confirm
+    // activation before asserting routing, resolving the alert again after
+    // each group expansion instead of retaining a stale accessibility element.
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    for _ in 0..<3 {
+      let alert = springboard.buttons.matching(identifier: "ShortLook.Platter.Content.Seamless")
+        .containing(.staticText, identifier: body).firstMatch
+      XCTAssertTrue(alert.waitForExistence(timeout: 5))
+      alert.tap()
+      if app.wait(for: .runningForeground, timeout: 4) { return }
+      print("Notification Center is still visible; resolving its selected alert again")
+    }
+    XCTFail("Selecting the notification did not activate OpenTeam. " + springboard.debugDescription)
+  }
   func testSmartNotificationPresenceAndPreferenceFollowNativeLifecycle() async throws {
     let app = try await launch()
     _ = try await waitRegistered()
@@ -312,6 +328,19 @@ import XCTest
     let state = try await request("/__push/state")
     XCTAssertEqual((state["reads"] as? [String: [String: Any]])?[channel]?["lastReadNotificationSequence"] as? String, "500")
   }
+  func testForegroundReactionIsReadWithoutScrolling() async throws {
+    let (app, channel, sequence) = try await notifiedBot()
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+    let observations = try await request("/__push/state")["observations"] as? [[String: Any]] ?? []
+    _ = try await request("/__push/deliver", [
+      "qaID": "foreground-reaction", "kind": "reaction", "channelId": channel,
+      "messageSequence": sequence, "notificationSequence": "500",
+    ])
+    try await observe("delivered", expected: ["other-chat"], badge: 1, after: observations.count)
+    let state = try await request("/__push/state")
+    XCTAssertEqual((state["reads"] as? [String: [String: Any]])?[channel]?["lastReadNotificationSequence"] as? String, "500")
+  }
   func testKnownReadNotificationsClearDuringAnOfflineResume() async throws {
     let (app, channel, sequence) = try await notifiedBot()
     app.buttons["channel-" + channel].tap()
@@ -519,7 +548,7 @@ import XCTest
     before.name = "native-notification-before-tap"
     before.lifetime = .keepAlways
     add(before)
-    notification.tap()
+    openNotification(notification, in: app)
     XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 12))
     // Chat chrome appears before the transcript finishes positioning and marks itself read.
     var receipts: [[String: Any]] = []
@@ -573,8 +602,8 @@ import XCTest
       thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.8)))
     let notification = springboard.staticTexts["Tap to open the thread reply"]
     XCTAssertTrue(notification.waitForExistence(timeout: 8))
-    notification.tap()
-    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 12))
+    openNotification(notification, in: app)
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 12), app.debugDescription)
     XCTAssertTrue(app.staticTexts["Threaded push reply"].waitForExistence(timeout: 5))
     let opened = XCTAttachment(screenshot: app.screenshot())
     opened.name = "native-notification-opened-thread"

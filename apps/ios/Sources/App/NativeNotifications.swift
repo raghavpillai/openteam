@@ -402,6 +402,7 @@ final class NativeNotifications {
     store?.noteNotified(push.channelId, sequence: push.data["messageSequence"].string)
     pendingTap = push
     await routePendingTap()
+    await reportForQA(push, stage: "routed")
   }
   func routePendingTap() async {
     guard let push = pendingTap, let store, store.phase == .ready else { return }
@@ -426,7 +427,7 @@ final class NativeNotifications {
       } ?? .null
     return NativePush(value)
   }
-  private func reportForQA(_ push: NativePush?) async {
+  fileprivate func reportForQA(_ push: NativePush?, stage: String = "snapshot") async {
     #if DEBUG && targetEnvironment(simulator)
       guard ProcessInfo.processInfo.arguments.contains("--qa-native-push"), let api,
         ["127.0.0.1", "localhost"].contains(api.baseURL.host ?? "")
@@ -437,6 +438,10 @@ final class NativeNotifications {
         "/__push/observation", method: "POST",
         body: .object([
           "probe": .string(push?.data["probe"].string ?? "foreground"),
+          "stage": .string(stage),
+          "kind": .string(push?.data["kind"].string ?? ""),
+          "threadMessageId": .string(push?.data["threadMessageId"].string ?? ""),
+          "navigation": .array((store?.navigation ?? []).map { .string($0) }),
           "trigger": .string(push?.data["qaID"].string ?? ""),
           "delivered": .array(
             delivered.map { .string(Self.payload($0.request.content.userInfo).data["qaID"].string) }
@@ -500,9 +505,13 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate,
   nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
   ) async {
+    let push = NativeNotifications.payload(response.notification.request.content.userInfo)
+    #if DEBUG && targetEnvironment(simulator)
+      let action = response.actionIdentifier
+      Task { await NativeNotifications.shared.reportForQA(push, stage: action) }
+    #endif
     guard response.actionIdentifier != UNNotificationDismissActionIdentifier else { return }
-    await NativeNotifications.shared.tapped(
-      NativeNotifications.payload(response.notification.request.content.userInfo))
+    await NativeNotifications.shared.tapped(push)
   }
 }
 

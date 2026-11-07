@@ -690,6 +690,10 @@ struct MessageRow: View {
           }
         }
       }.contentShape(Rectangle())
+        .overlay {
+          MessageJumpFlash(messageID: message.id, isUser: message.isUser)
+            .allowsHitTesting(false)
+        }
         .accessibilityAction(named: "Message actions") { openActions() }
         .accessibilityAction(named: "Reply") {
           NativeHaptics.play(.light, source: "message.reply-action")

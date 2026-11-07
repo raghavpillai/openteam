@@ -80,7 +80,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var pageTrigger = HistoryPageTrigger()
   private var highlightTarget: String?
   private weak var highlightedCell: UITableViewCell?
-  private var highlightExpiry: DispatchWorkItem?
+  private weak var highlightedMessage: MessageJumpFlashView?
+  private var lastHighlightedMessageID: String?
+  private var presentationFinished = false
   private var measuredHeights: [String: CGFloat] = [:]
   private var lastRequest: UUID?
   private var pendingRequest: HistoryScrollRequest?
@@ -241,6 +243,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
         var value: [String: Any] = ["rows": rows, "mounted": self.displayedIDs.count,
           "offset": self.table.contentOffset.y, "following": self.following,
           "viewportTop": viewport.minY, "viewportBottom": viewport.maxY,
+          "lastHighlightedMessage": self.lastHighlightedMessageID ?? "",
           "moving": self.table.isDragging || self.table.isDecelerating || self.positioning || self.updating || self.scrollingToTarget]
         if self.tracesFrames { value["motion"] = Array(self.frameTrace.suffix(240)) }
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
@@ -250,6 +253,19 @@ struct NativeMessageList: UIViewControllerRepresentable {
     #endif
   }
 
+  override func viewDidAppear(_ animated: Bool) {
+    super.viewDidAppear(animated)
+    // A short flash would otherwise be spent behind the incoming push. Wait
+    // for the navigation transition as well as the table's positioning barrier.
+    if let transition = transitionCoordinator,
+      transition.animate(alongsideTransition: nil, completion: { [weak self] _ in
+        guard let self, self.view.window != nil else { return }
+        self.presentationFinished = true
+        self.showTargetHighlight()
+      }) { return }
+    presentationFinished = true
+    showTargetHighlight()
+  }
   func update(_ values: [NativeHistoryItem], request: HistoryScrollRequest?) {
     loadViewIfNeeded()
     let ids = values.map(\.id)
@@ -1170,43 +1186,30 @@ struct NativeMessageList: UIViewControllerRepresentable {
     }
   }
   private func clearHighlight() {
-    highlightExpiry?.cancel()
-    highlightExpiry = nil
-    highlightedCell?.backgroundView = nil
-    highlightedCell?.accessibilityIdentifier = nil
+    highlightedMessage?.stop()
+    highlightedMessage = nil
     highlightedCell = nil
   }
-  /// Tint the actual destination cell after positioning, without changing its
-  /// height or rebuilding rich message content. Reuse clears the old tint.
+  /// Flash only the message content, after positioning. Its overlay never
+  /// participates in row sizing and becomes transparent again in 650 ms.
   private func showTargetHighlight() {
-    guard let target = highlightTarget,
+    func surface(in view: UIView, target: String) -> MessageJumpFlashView? {
+      if let flash = view as? MessageJumpFlashView, flash.messageID == target { return flash }
+      for child in view.subviews {
+        if let flash = surface(in: child, target: target) { return flash }
+      }
+      return nil
+    }
+    guard presentationFinished, let target = highlightTarget,
       let item = items.values.first(where: { $0.scrollID == target }),
-      let path = source.indexPath(for: item.id), let cell = table.cellForRow(at: path) else { return }
+      let path = source.indexPath(for: item.id), let cell = table.cellForRow(at: path),
+      let flash = surface(in: cell.contentView, target: target) else { return }
     highlightTarget = nil
     clearHighlight()
-    let background = UIView(frame: cell.bounds)
-    let tint = UIView(frame: cell.bounds.insetBy(dx: 8, dy: 2))
-    tint.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    tint.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.22)
-    tint.layer.cornerRadius = 14
-    tint.layer.borderWidth = 1
-    tint.layer.borderColor = UIColor.systemOrange.withAlphaComponent(0.5).cgColor
-    background.addSubview(tint)
-    cell.backgroundView = background
-    cell.accessibilityIdentifier = "highlighted-message-" + target
     highlightedCell = cell
-    let expiry = DispatchWorkItem { [weak self, weak cell, weak background] in
-      guard let self, let cell, self.highlightedCell === cell else { return }
-      UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.4) {
-        background?.alpha = 0
-      } completion: { [weak self, weak cell] _ in
-        guard let self, let cell, self.highlightedCell === cell,
-          cell.backgroundView === background else { return }
-        self.clearHighlight()
-      }
-    }
-    highlightExpiry = expiry
-    DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: expiry)
+    highlightedMessage = flash
+    lastHighlightedMessageID = target
+    flash.flash()
   }
   private func reportScroll() {
     guard positioned else { return }
@@ -1335,6 +1338,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
   #endif
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    presentationFinished = false
+    clearHighlight()
     followingResize = false
     resizePinnedOffset = nil
     table.layer.removeAnimation(forKey: "widget-bottom-follow")

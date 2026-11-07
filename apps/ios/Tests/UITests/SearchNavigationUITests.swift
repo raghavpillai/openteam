@@ -17,11 +17,11 @@ import XCTest
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
 
-  func launch() async throws -> XCUIApplication {
+  func launch(appearance: String = "light") async throws -> XCUIApplication {
     continueAfterFailure = false
     try await control("__qa/scene", ["scene": "history-pages"])
     let app = XCUIApplication()
-    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--appearance", "light",
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--appearance", appearance,
       "--ui-testing-scroll-geometry"]
     app.launch()
     XCTAssertTrue(app.buttons["search-button"].waitForExistence(timeout: 20))
@@ -30,12 +30,14 @@ import XCTest
     return app
   }
 
-  func openResult(_ app: XCUIApplication) {
-    app.textFields["search-input"].typeText("Page message 90")
-    let result = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Page message 90")).firstMatch
+  func openResult(_ app: XCUIApplication, number: Int = 90) {
+    let text = "Page message \(number)"
+    app.textFields["search-input"].typeText(text)
+    let result = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     XCTAssertTrue(result.waitForExistence(timeout: 8))
+    print("FLASH_JUMP \(number) \(Date().timeIntervalSince1970)")
     result.tap()
-    XCTAssertTrue(app.staticTexts["Page message 90"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.staticTexts[text].waitForExistence(timeout: 8))
   }
 
   func drag(_ app: XCUIApplication, older: Bool) {
@@ -76,7 +78,8 @@ import XCTest
       "GET /api/v0/channels/visual-chat/history": ["delayMs": 5000, "count": 20]
     ]])
     openResult(app)
-    XCTAssertTrue(app.cells["highlighted-message-visual-message-visual-chat-90"].exists)
+    let frame = try historyFrame(app)
+    XCTAssertEqual(frame["lastHighlightedMessage"] as? String, "visual-message-visual-chat-90")
     // Also cover the event poll's reconciliation after the result has opened.
     try await Task.sleep(for: .seconds(3))
     let history = try await requests().filter { ($0["path"] as? String)?.hasSuffix("/history") == true }
@@ -163,11 +166,13 @@ import XCTest
     XCTAssertTrue(result.waitForExistence(timeout: 1), "A repeated query should use the sheet's cache immediately")
   }
 
-  func geometry(_ app: XCUIApplication) throws -> [[String: Any]] {
+  func historyFrame(_ app: XCUIApplication) throws -> [String: Any] {
     let value = try XCTUnwrap(app.tables["chat-history"].value as? String)
     let data = try XCTUnwrap(value.data(using: .utf8))
-    let frame = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    return try XCTUnwrap(frame["rows"] as? [[String: Any]])
+    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  }
+  func geometry(_ app: XCUIApplication) throws -> [[String: Any]] {
+    try XCTUnwrap(historyFrame(app)["rows"] as? [[String: Any]])
   }
 
   func testPrependingPagePreservesReadingPosition() async throws {
@@ -194,6 +199,24 @@ import XCTest
     let after = try XCTUnwrap(try geometry(app).first { $0["id"] as? String == id })
     XCTAssertEqual(try XCTUnwrap(after["y"] as? Double), y, accuracy: 2,
       "Loading older messages must preserve the visible message's pixel position")
+  }
+
+  func testRecordMessageFlashesOnBothSides() async throws {
+    // The fixture alternates received (even) and sent (odd) messages.
+    for appearance in ["light", "dark"] {
+      for number in [90, 91] {
+        let app = try await launch(appearance: appearance)
+        print("FLASH_APPEARANCE \(appearance)")
+        openResult(app, number: number)
+        let frame = try historyFrame(app)
+        XCTAssertEqual(frame["lastHighlightedMessage"] as? String,
+          "visual-message-visual-chat-\(number)")
+        XCTAssertTrue(app.staticTexts["Page message \(number)"].isHittable)
+        try await Task.sleep(for: .seconds(1))
+        capture("\(appearance)-\(number == 91 ? "sent" : "received")-settled", app)
+        app.terminate()
+      }
+    }
   }
 
 }

@@ -38,6 +38,7 @@ import { recover } from "./services/startup-recovery";
 import { SubagentService } from "./services/subagent/service";
 import { TodoService } from "./services/todo-service";
 import { DurableStateService } from "./update-state";
+import { VoiceService } from "./services/voice-service";
 
 const COMPUTER_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -70,6 +71,7 @@ export class AppService {
   readonly machines: MachineService;
   readonly richMessages: RichMessageService;
   readonly runs: RunService;
+  readonly voice: VoiceService;
   readonly screens: ScreenService;
   readonly searchIndex: SearchService;
   readonly snapshots: SnapshotService;
@@ -186,6 +188,7 @@ export class AppService {
       this.prisma,
       (path, init) => this.computerFetch(path, init)
     );
+    this.voice = new VoiceService(this.prisma, this.channels, this.runs);
     this.todos = new TodoService(this.prisma);
     this.administration = new AdministrationService(
       this.prisma,
@@ -228,7 +231,8 @@ export class AppService {
       this.subagents,
       this.administration,
       this.plugins,
-      this.richMessages
+      this.richMessages,
+      (runId, messageId) => this.voice.onVisibleMessage(runId, messageId)
     );
     this.boss.on("error", (error) => console.error("pg-boss", error));
 
@@ -240,6 +244,7 @@ export class AppService {
   boot = () =>
     serviceEffect(async () => {
       await this.prisma.$queryRaw`SELECT 1`;
+      await this.voice.settings.load();
       await this.eventWakeup.start();
       await this.snapshots.pruneEvents();
       this.eventPruneTimer = setInterval(() => {

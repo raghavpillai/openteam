@@ -49,7 +49,8 @@ export class InternalToolService {
     private readonly subagents: SubagentService,
     private readonly administration: AdministrationService,
     private readonly plugins: PluginService,
-    private readonly richMessages?: RichMessageService
+    private readonly richMessages?: RichMessageService,
+    private readonly onVisibleMessage?: (runId: string, messageId: string) => Promise<void>
   ) {}
 
   execute = (request: DynamicToolCallRequest, transfer: {upload?:import("@openteam/plugin-sdk/file-spool").StagedFile;stream?:boolean} = {}) =>
@@ -378,6 +379,8 @@ export class InternalToolService {
         }
         if (!input.channel) {
           result = await this.messaging.sendVisible(context, input);
+          const messageId = result && typeof result === "object" && "acknowledgement" in result && result.acknowledgement && typeof result.acknowledgement === "object" && "message_id" in result.acknowledgement && typeof result.acknowledgement.message_id === "string" ? result.acknowledgement.message_id : null;
+          if (messageId && this.onVisibleMessage) await this.onVisibleMessage(request.runId, messageId).catch(() => undefined);
         } else {
           const content = input.type === "text" ? input.content ?? "" : input.alt ?? "";
           const sources = input.type === "text" ? input.images ?? [] : input.type === "attachment" ? [{url:input.url!,alt:input.alt}] : [];

@@ -99,6 +99,12 @@ struct HomeView: View {
     .ignoresSafeArea(.container, edges: splitAvailable && barRegions.hasHinge
       ? (portraitLayout ? [.top, .trailing] : [.top]) : [])
     .background { NativePalette.sidebar.ignoresSafeArea() }
+    .overlay {
+      if store.openingNotification != nil {
+        LoadingOrb(label: "Opening message")
+          .accessibilityIdentifier("notification-opening").allowsHitTesting(false)
+      }
+    }
     .readingBarRegions { barRegions = $0 }
     .onChange(of: store.navigation) { _, path in
       // Once the zoomed chat has closed (and zoomed back into its row), later

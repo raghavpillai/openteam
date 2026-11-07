@@ -59,11 +59,14 @@ final class AppStore {
   var navigation: [String] = [] {
     didSet {
       navigationGeneration = UUID()
+      openingNotification = nil
       botVoiceLaunch.cancelPending(unless: navigation.last)
     }
   }
   var focusedRoutine: String?
   var focusedMessage: String?
+  var focusedNotification: String?
+  private(set) var openingNotification: UUID?
   var activeChannel: String?
   var histories: [String: History] = [:]
   private(set) var historyLoadFailures: Set<String> = []
@@ -465,6 +468,8 @@ final class AppStore {
     lifecycle?.cancel()
     stopBackgroundHistories()
     notifiedLatest = [:]
+    focusedNotification = nil
+    openingNotification = nil
     needsIdentityRefresh = false
     stateSyncs.removeAll()
     awaitingInitialSync = !launchComplete
@@ -995,9 +1000,12 @@ final class AppStore {
     guard epoch == generation, !Task.isCancelled else { return }
     historyLoadFailures.remove(id)
     confirmDelivery(page.threadContext + page.messages)
-    // The latest page is authoritative for what a notification announced.
+    // A page can have been captured before a newer notification arrived.
     if before == nil {
-      notifiedLatest[id] = nil
+      if let announced = notifiedLatest[id],
+        let newest = page.messages.last?.sequence, !MessageMerge.less(newest, announced) {
+        notifiedLatest[id] = nil
+      }
       state.incompleteHistoryChannels?.remove(id)
     }
     if before != nil {
@@ -1038,13 +1046,15 @@ final class AppStore {
     state.messages[page.channelId] = MessageMerge.merge(page.threadContext, page.messages)
   }
   @discardableResult
-  func loadContext(_ channelID: String, messageID: String, preservingTimeline: Bool = false) async -> Bool {
+  func loadContext(_ channelID: String, messageID: String, preservingTimeline: Bool = false,
+    opening: UUID? = nil) async -> Bool {
     guard let api else { return false }
     let epoch = generation
     do {
       let page = try await api.get(
         "/api/v0/channel-messages/\(API.segment(messageID))/context", as: MessageContext.self)
-      guard epoch == generation else { return false }
+      guard epoch == generation, !Task.isCancelled,
+        opening == nil || navigationGeneration == opening else { return false }
       guard page.channelId == channelID else {
         throw APIError("This message belongs to another conversation.")
       }
@@ -1064,7 +1074,7 @@ final class AppStore {
       persist()
       return true
     } catch {
-      if epoch == generation { handle(error) }
+      if epoch == generation, opening == nil || navigationGeneration == opening { handle(error) }
       return false
     }
   }
@@ -1088,29 +1098,33 @@ final class AppStore {
     } catch { if epoch == generation { handle(error) } }
   }
   @discardableResult
-  func loadLatest(_ channelID: String) async -> Bool {
+  func loadLatest(_ channelID: String, opening: UUID? = nil) async -> Bool {
     guard let api else { return false }
     let epoch = generation
     do {
       let page = try await api.get(
         "/api/v0/channels/\(API.segment(channelID))/history", as: History.self, query: ["limit": "60"])
-      guard epoch == generation else { return false }
+      guard epoch == generation, !Task.isCancelled,
+        opening == nil || navigationGeneration == opening else { return false }
       install(page)
       persist()
       return true
     } catch {
-      if epoch == generation { handle(error) }
+      if epoch == generation, opening == nil || navigationGeneration == opening { handle(error) }
       return false
     }
   }
-  func markRead(_ id: String, through sequence: String? = nil) async {
+  @discardableResult
+  func markRead(_ id: String, through sequence: String? = nil,
+    throughNotificationSequence: String? = nil) async -> Bool {
     guard foreground, activeChannel == id, let api,
       channel(id) != nil
-    else { return }
+    else { return false }
     let through =
       sequence ?? messages(id).last(where: { !$0.metadata["branched"].bool })?.sequence ?? "0"
     let notificationCursor =
-      NotificationReads.sequence(channel(id)?.notificationState?["notificationCursor"].string ?? "")
+      NotificationReads.sequence(throughNotificationSequence
+        ?? channel(id)?.notificationState?["notificationCursor"].string ?? "")
       ?? "0"
     let previousActivity =
       NotificationReads.sequence(
@@ -1120,7 +1134,7 @@ final class AppStore {
       !MessageMerge.less(previousActivity, notificationCursor), channel(id)?.unreadCount == 0,
       !sidebar["unreadIds"].array.contains(.string(id))
     {
-      return
+      return true
     }
     let epoch = generation
     do {
@@ -1132,14 +1146,24 @@ final class AppStore {
         ]))
       guard epoch == generation,
         let index = state.bootstrap?.channels.firstIndex(where: { $0.id == id })
-      else { return }
-      state.bootstrap?.channels[index].unreadCount = value["unreadCount"].int
+      else { return false }
       var notification = state.bootstrap?.channels[index].notificationState ?? .object([:])
-      notification["lastReadSequence"] =
-        value["lastReadSequence"] == .null ? .string(through) : value["lastReadSequence"]
-      notification["lastReadNotificationSequence"] =
-        value["lastReadNotificationSequence"] == .null
-        ? .string(notificationCursor) : value["lastReadNotificationSequence"]
+      let acknowledgedMessage = value["lastReadSequence"] == .null
+        ? through : value["lastReadSequence"].string
+      let acknowledgedActivity = value["lastReadNotificationSequence"] == .null
+        ? notificationCursor : value["lastReadNotificationSequence"].string
+      let currentMessage = notification["lastReadSequence"].string
+      let currentActivity = notification["lastReadNotificationSequence"].string
+      // A cancelled older request can finish after a newer chat/read update.
+      // Its response must not restore an older read cursor or unread count.
+      if !MessageMerge.less(acknowledgedMessage, currentMessage),
+        !MessageMerge.less(acknowledgedActivity, currentActivity) {
+        state.bootstrap?.channels[index].unreadCount = value["unreadCount"].int
+      }
+      notification["lastReadSequence"] = .string(
+        MessageMerge.less(currentMessage, acknowledgedMessage) ? acknowledgedMessage : currentMessage)
+      notification["lastReadNotificationSequence"] = .string(
+        MessageMerge.less(currentActivity, acknowledgedActivity) ? acknowledgedActivity : currentActivity)
       state.bootstrap?.channels[index].notificationState = notification
       #if canImport(UIKit)
         NativeNotifications.shared.apply(channels: channels)
@@ -1154,7 +1178,11 @@ final class AppStore {
         }
       }
       persist()
-    } catch { if epoch == generation { handle(error, quiet: true) } }
+      return true
+    } catch {
+      if epoch == generation { handle(error, quiet: true) }
+      return false
+    }
   }
   func enqueue(_ channel: Channel, draftKey: String? = nil, threadRootID: String? = nil,
     replyRootID: String? = nil) async {
@@ -1589,6 +1617,7 @@ final class AppStore {
     }
   }
   func open(_ channelID: String, messageID: String? = nil) async {
+    focusedNotification = nil
     let epoch = generation
     let opening = UUID()
     navigationGeneration = opening
@@ -1597,6 +1626,61 @@ final class AppStore {
     }
     guard epoch == generation, navigationGeneration == opening, !Task.isCancelled else { return }
     focusedMessage = messageID
+    navigation = [channelID]
+  }
+  /// A notification opens its message even when this chat is already showing
+  /// an older search window. Cached visible messages need no network round trip.
+  func openNotification(_ channelID: String, messageID: String?, sequence: String?) async {
+    let epoch = generation
+    let opening = UUID()
+    navigationGeneration = opening
+    openingNotification = opening
+    defer { if openingNotification == opening { openingNotification = nil } }
+    noteNotified(channelID, sequence: sequence)
+    let cached = messages(channelID).first {
+      messageID == nil ? $0.sequence == sequence : $0.id == messageID
+    }
+    let cachedVisible = cached.map {
+      hasCachedHistory(channelID) && historyWindows[channelID]?.contains($0) == true
+        && !$0.metadata["branched"].bool
+    } == true
+    var resolvedID = messageID ?? cached?.id
+    if resolvedID == nil, let preview = latestMessage(channelID), preview.sequence == sequence {
+      resolvedID = preview.id
+    }
+    if !cachedVisible {
+      if resolvedID == nil, let value = NotificationReads.sequence(sequence ?? ""),
+        let number = UInt64(value), number < UInt64.max, let api {
+        do {
+          // Legacy pushes carry a sequence instead of an ID. Resolve that row
+          // directly, even when hundreds of newer messages now follow it.
+          let page = try await api.get(
+            "/api/v0/channels/\(API.segment(channelID))/history", as: History.self,
+            query: ["before": String(number + 1), "limit": "1"])
+          guard epoch == generation, navigationGeneration == opening, !Task.isCancelled else { return }
+          guard page.channelId == channelID,
+            let target = page.messages.first(where: { $0.sequence == value }) else {
+            throw APIError("This message is no longer available.", status: 404)
+          }
+          resolvedID = target.id
+        } catch {
+          if epoch == generation, navigationGeneration == opening { handle(error) }
+          return
+        }
+      }
+      if let resolvedID {
+        guard await loadContext(channelID, messageID: resolvedID, opening: opening) else { return }
+      } else {
+        // An alert without a usable message identity still opens the chat.
+        guard await loadLatest(channelID, opening: opening) else { return }
+      }
+    }
+    guard epoch == generation, navigationGeneration == opening, !Task.isCancelled else { return }
+    let target = messages(channelID).first {
+      resolvedID == nil ? $0.sequence == sequence : $0.id == resolvedID
+    }
+    focusedNotification = target?.id
+    focusedMessage = target?.id
     navigation = [channelID]
   }
   func deepLink(_ url: URL) async {

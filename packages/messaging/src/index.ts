@@ -2548,6 +2548,7 @@ export class AgentMessaging {
         await publishChannelNotification(tx, `${notificationKey}:${context.callId}`, {
           schemaVersion: 1, kind: "reaction", botId: context.botId, channelId: message.channelId,
           runId: context.runId, messageSequence: message.sequence.toString(),
+          messageId: message.id,
           title: bot.name, body: reactionNotificationBody(input.emoji, message.content),
         });
       }

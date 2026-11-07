@@ -4,9 +4,48 @@ import {
   type DesktopNotificationEvent,
   DesktopNotificationManager,
   type DesktopNotificationSnapshot,
+  parseNotificationTarget,
 } from "../src/main/notifications";
 
 type Channel = DesktopNotificationSnapshot["channels"][number];
+
+describe("notification click targets", () => {
+  test("preserves exact message routing and removes presentation fields", () => {
+    expect(
+      parseNotificationTarget({
+        channelId: "chat",
+        messageId: "message",
+        messageSequence: "27",
+        threadMessageId: "reply",
+        title: "Private title",
+        body: "Private content",
+      })
+    ).toEqual({
+      channelId: "chat",
+      messageId: "message",
+      messageSequence: "27",
+      threadMessageId: "reply",
+    });
+    expect(parseNotificationTarget({ channelId: "chat" })).toEqual({ channelId: "chat" });
+  });
+
+  test("rejects malformed targets at the IPC boundary", () => {
+    for (const value of [
+      null,
+      [],
+      {},
+      { channelId: "" },
+      { channelId: "x".repeat(129) },
+      { channelId: "chat", messageId: "" },
+      { channelId: "chat", threadMessageId: 5 },
+      { channelId: "chat", messageSequence: "-1" },
+      { channelId: "chat", messageSequence: 25 },
+      { channelId: "chat", messageSequence: "1".repeat(21) },
+    ]) {
+      expect(parseNotificationTarget(value)).toBeNull();
+    }
+  });
+});
 
 const alert = (
   sequence: number,

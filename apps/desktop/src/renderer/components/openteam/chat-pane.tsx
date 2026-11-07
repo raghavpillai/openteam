@@ -1096,16 +1096,18 @@ export const ChatPane = memo(function ChatPane({
     }
     return null;
   }, [focusMessage, messagesById, threads]);
-  const openedThreadFocus = useRef<number | null>(null);
-  useEffect(() => {
+  const openedThreadFocus = useRef<{ messageId: string; nonce: number } | null>(null);
+  useLayoutEffect(() => {
     const nonce = focusMessage?.nonce;
     // Open once per focus request (search result or alert click): a thread the
     // user closed must stay closed when later messages arrive.
-    if (!focusedThreadRootId || nonce === undefined || openedThreadFocus.current === nonce) return;
+    if (!focusedThreadRootId || nonce === undefined || !focusMessage) return;
+    if (openedThreadFocus.current?.nonce === nonce &&
+      openedThreadFocus.current.messageId === focusMessage.messageId) return;
     if (threadCloseTimer.current) window.clearTimeout(threadCloseTimer.current);
     const root = messagesById.get(focusedThreadRootId);
     if (!root) return;
-    openedThreadFocus.current = nonce;
+    openedThreadFocus.current = { messageId: focusMessage.messageId, nonce };
     setThreadState({
       open: true,
       pin: mergeThreadTrayPin({

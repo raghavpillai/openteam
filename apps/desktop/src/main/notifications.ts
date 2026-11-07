@@ -6,7 +6,26 @@ import {
   type ChannelNotificationView,
   type NotificationSender,
   isAgentNotificationKind,
+  type DesktopNotificationTarget,
 } from "@openteam/contracts/notification-content";
+
+export const parseNotificationTarget = (value: unknown): DesktopNotificationTarget | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const target = value as Record<string, unknown>;
+  const validId = (id: unknown) => typeof id === "string" && id.length > 0 && id.length <= 128;
+  if (!validId(target.channelId)) return null;
+  for (const key of ["messageId", "threadMessageId"] as const) {
+    if (target[key] !== undefined && !validId(target[key])) return null;
+  }
+  if (target.messageSequence !== undefined &&
+    (typeof target.messageSequence !== "string" || !/^\d{1,20}$/.test(target.messageSequence))) return null;
+  return {
+    channelId: target.channelId as string,
+    ...(typeof target.messageId === "string" ? { messageId: target.messageId } : {}),
+    ...(typeof target.messageSequence === "string" ? { messageSequence: target.messageSequence } : {}),
+    ...(typeof target.threadMessageId === "string" ? { threadMessageId: target.threadMessageId } : {}),
+  };
+};
 
 export type DesktopNotificationKind = AgentNotificationKind;
 
@@ -43,6 +62,8 @@ export const parseNotificationChannels = (
         !isAgentNotificationKind(notification.kind) ||
         !numeric(notification.notificationSequence) ||
         !numeric(notification.messageSequence) ||
+        (notification.messageId !== undefined &&
+          (typeof notification.messageId !== "string" || notification.messageId.length > 128 || !notification.messageId)) ||
         (notification.threadMessageId !== undefined &&
           (typeof notification.threadMessageId !== "string" ||
             notification.threadMessageId.length > 64)) ||
@@ -72,12 +93,10 @@ export const parseNotificationChannels = (
   return value;
 };
 
-export interface DesktopNotificationEvent {
+export interface DesktopNotificationEvent extends DesktopNotificationTarget {
   notificationId: string;
   sender?: NotificationSender;
   botId: string;
-  channelId: string;
-  threadMessageId?: string;
   kind: DesktopNotificationKind;
   title: string;
   body: string;

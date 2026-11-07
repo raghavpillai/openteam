@@ -220,6 +220,8 @@ export interface AgentNotificationPayload {
   badgeCount: number;
   notificationSequence: string;
   messageSequence: string;
+  /** Stable message identity for opening an alert outside the latest history page. */
+  messageId?: string;
   /** Set when the message is a reply inside a thread, so opening the alert opens that thread. */
   threadMessageId?: string;
   sender?: import("./notification-content").NotificationSender;

@@ -43,7 +43,7 @@ function Fixture() {
       </ConversationContent>
     </Conversation>
   ) : (
-    <div>Connecting</div>
+    <div>{state.error ?? "Connecting"}</div>
   );
 }
 async function run(name: string, test: () => Promise<void>) {
@@ -67,7 +67,7 @@ if (new URLSearchParams(location.search).has("reducedMotion")) {
     );
   });
 }
-await run("cold legacy snapshot opens without a permanent loading indicator", async () => {
+await run("unsupported bootstrap reports its error and finishes loading", async () => {
   Object.assign(api, {
     bootstrap: async () => {
       throw new ClientError("missing", "not_found", 404);
@@ -80,11 +80,8 @@ await run("cold legacy snapshot opens without a permanent loading indicator", as
     </StrictMode>
   );
   await pause(1000);
-  check(state.snapshot, "snapshot did not load");
-  check(
-    document.querySelector('[data-chat-layout-ready="true"]'),
-    "loaded legacy snapshot remained hidden"
-  );
+  check(state.error, "unsupported bootstrap did not report its error");
+  check(!state.refreshing, "failed bootstrap remained loading");
 });
 await run("cold bootstrap recovers after a temporary startup failure in StrictMode", async () => {
   let attempts = 0;

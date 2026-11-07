@@ -13,6 +13,7 @@ import type {
   UpdateBotInput,
 } from "@openteam/contracts";
 import { createReadReceiptController } from "@openteam/product-core/read-receipts";
+import type { DesktopNotificationTarget } from "@openteam/contracts/notification-content";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./client/openteam-api";
@@ -64,7 +65,7 @@ import {
   COMPUTER_HANDOFF_OPEN_EVENT,
   type ComputerHandoffOpenDetail,
 } from "./lib/computer-handoff";
-import { deriveUnreadChannelIds, syncDesktopNotificationSnapshot } from "./lib/notifications";
+import { deriveUnreadChannelIds, resolveNotificationMessage, syncDesktopNotificationSnapshot } from "./lib/notifications";
 import {
   COMPACT_SIDEBAR_WIDTH,
   canShowInspector,
@@ -230,6 +231,10 @@ export default function App() {
     anchor: SettingsAnchor;
     nonce: number;
   } | null>(null);
+  const [notificationOpening, setNotificationOpening] = useState<{
+    target: DesktopNotificationTarget;
+    error?: string;
+  } | null>(null);
   const [pluginTarget, setPluginTarget] = useState<{ pluginId: string; nonce: number } | null>(
     null
   );
@@ -238,6 +243,7 @@ export default function App() {
     channelId: string;
     messageId: string;
     nonce: number;
+    readThroughSequence?: string;
   } | null>(null);
   const [routineOpenTarget, setRoutineOpenTarget] = useState<{
     channelId: string;
@@ -323,11 +329,12 @@ export default function App() {
   }, []);
   const searchLoadNonce = useRef(0);
   const invalidateSearchNavigation = useCallback(
-    (...channelIds: Array<string | null | undefined>) => {
+    (channelIds: Array<string | null | undefined>, preserveChannelId?: string) => {
       searchLoadNonce.current += 1;
       setSearchMessageTarget(null);
+      setNotificationOpening(null);
       for (const channelId of new Set(channelIds.filter((id): id is string => Boolean(id)))) {
-        clearSearchContext(channelId);
+        clearSearchContext(channelId, { preserveWindow: channelId === preserveChannelId });
       }
     },
     [clearSearchContext]
@@ -343,19 +350,32 @@ export default function App() {
 
   const markChannelRead = useCallback(
     (channelId: string) => {
+      if (notificationOpening?.target.channelId === channelId) return;
       sidebarPreferences.markRead(channelId);
       const channel = index.channelById.get(channelId);
-      if (channel?.unreadCount === 0) return;
-      const latestSequence = index.latestMessageByChannel.get(channelId)?.sequence;
+      if (channel?.unreadCount === 0 && !channel.notificationState?.activityUnreadCount) return;
+      const transcript = transcriptMessagesByChannel.get(channelId);
+      const notifiedSequence = searchMessageTarget?.channelId === channelId
+        ? transcript?.find((message) => message.id === searchMessageTarget.messageId)?.sequence
+          ?? searchMessageTarget.readThroughSequence
+        : undefined;
+      const latestSequence = notifiedSequence ?? transcript?.at(-1)?.sequence;
       const throughSequence =
         latestSequence && /^\d+$/.test(latestSequence) ? latestSequence : undefined;
+      if (!throughSequence) return;
+      const newestKnown = index.latestMessageByChannel.get(channelId)?.sequence;
+      const viewingOlder = notifiedSequence && newestKnown && /^\d+$/.test(newestKnown)
+        && BigInt(notifiedSequence) < BigInt(newestKnown);
       void readReceipts.current.request(channelId, throughSequence, {
-        throughNotificationSequence: channel?.notificationState?.notificationCursor,
+        throughNotificationSequence: viewingOlder
+          ? channel?.notificationState?.lastReadNotificationSequence ?? "0"
+          : channel?.notificationState?.notificationCursor,
         send: (id, sequence, activity) => api.markChannelRead(id, sequence, activity),
         onAcknowledged: () => refresh(true),
       });
     },
-    [index.channelById, index.latestMessageByChannel, refresh, sidebarPreferences.markRead]
+    [index.channelById, index.latestMessageByChannel, notificationOpening, refresh,
+      searchMessageTarget, sidebarPreferences.markRead, transcriptMessagesByChannel]
   );
 
   useEffect(() => () => readReceipts.current.clear(), []);
@@ -419,39 +439,58 @@ export default function App() {
     window.addEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink);
     return () => window.removeEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink);
   }, []);
-  useEffect(() => {
-    const unsubscribe = window.openteam?.onNotificationClick(({ channelId, threadMessageId }) => {
-      invalidateSearchNavigation(selectedId, searchMessageTarget?.channelId);
-      setA2AExchange(null);
-      a2aExchangeTrigger.current = null;
-      restoreA2AFocusAfterClose.current = false;
-      setNewBotPicker(false);
-      setSelectedId(channelId);
-      setInspectorMode("summary");
-      markChannelRead(channelId);
-      setDetailsOpen(false);
-      if (!threadMessageId) return;
-      // A reply inside a thread opens that thread at the reply, like a search result.
-      const nonce = ++searchLoadNonce.current;
-      void ensureMessageLoaded(channelId, threadMessageId)
-        .then((found) => {
-          if (found && searchLoadNonce.current === nonce)
-            setSearchMessageTarget({ channelId, messageId: threadMessageId, nonce });
-        })
-        .catch(() => undefined);
-    });
-    return unsubscribe;
+  const openDesktopNotification = useCallback((target: DesktopNotificationTarget) => {
+    const { channelId } = target;
+    invalidateSearchNavigation([selectedId, searchMessageTarget?.channelId, channelId], channelId);
+    const nonce = ++searchLoadNonce.current;
+    setNotificationOpening({ target });
+    setA2AExchange(null);
+    a2aExchangeTrigger.current = null;
+    restoreA2AFocusAfterClose.current = false;
+    setNewBotPicker(false);
+    setSelectedId(channelId);
+    setInspectorMode("summary");
+    setDetailsOpen(false);
+    void (async () => {
+      try {
+        const message = await resolveNotificationMessage(
+          target,
+          snapshot?.channelMessages ?? [],
+          api.channelHistory
+        );
+        if (searchLoadNonce.current !== nonce) return;
+        const found = await ensureMessageLoaded(channelId, message.messageId);
+        if (searchLoadNonce.current !== nonce) return;
+        if (!found) throw new Error("This message could not be loaded.");
+        setSearchMessageTarget({
+          channelId,
+          messageId: message.messageId,
+          nonce,
+          readThroughSequence: message.sequence,
+        });
+        setNotificationOpening(null);
+      } catch (cause) {
+        if (searchLoadNonce.current === nonce) {
+          setNotificationOpening({
+            target,
+            error: requestErrorMessage(cause, "Couldn’t open this message."),
+          });
+        }
+      }
+    })();
   }, [
     ensureMessageLoaded,
     invalidateSearchNavigation,
-    markChannelRead,
     searchMessageTarget?.channelId,
     selectedId,
     setSelectedId,
+    snapshot,
   ]);
+  useEffect(() => window.openteam?.onNotificationClick(openDesktopNotification), [openDesktopNotification]);
   useEffect(() => {
-    if (selectedId) void loadChannel(selectedId).catch(() => undefined);
-  }, [loadChannel, selectedId]);
+    if (selectedId && notificationOpening?.target.channelId !== selectedId
+      && searchMessageTarget?.channelId !== selectedId) void loadChannel(selectedId).catch(() => undefined);
+  }, [loadChannel, notificationOpening, searchMessageTarget?.channelId, selectedId]);
   useEffect(() => {
     syncDesktopNotificationSnapshot(window.openteam?.notifications, snapshot);
   }, [snapshot]);
@@ -789,7 +828,7 @@ export default function App() {
       setComposerFocus((previous) =>
         focusComposer ? { channelId: id, nonce: (previous?.nonce ?? 0) + 1 } : null
       );
-      invalidateSearchNavigation(selectedId, searchMessageTarget?.channelId);
+      invalidateSearchNavigation([selectedId, searchMessageTarget?.channelId]);
       setA2AExchange(null);
       a2aExchangeTrigger.current = null;
       restoreA2AFocusAfterClose.current = false;
@@ -892,6 +931,8 @@ export default function App() {
             async () => {
               const historyStatus = historyByChannelRef.current.get(channelId);
               searchLoadNonce.current += 1;
+              setNotificationOpening(null);
+              clearSearchContext(channelId, { preserveWindow: true });
               setSearchMessageTarget((current) =>
                 current?.channelId === channelId ? null : current
               );
@@ -902,7 +943,7 @@ export default function App() {
           ] as const;
         })
       ),
-    [jumpToLatest, warmIds]
+    [clearSearchContext, jumpToLatest, warmIds]
   );
   const viewportBottomHandlers = useMemo(
     () =>
@@ -1249,7 +1290,16 @@ export default function App() {
       runsByChannel={index.runsByChannel}
     >
       <TooltipProvider>
-        <main className="flex h-screen overflow-hidden bg-background text-foreground">
+        <main className="relative flex h-screen overflow-hidden bg-background text-foreground">
+          {notificationOpening && (
+            <div role={notificationOpening.error ? "alert" : "status"} data-notification-opening
+              className="absolute bottom-28 left-1/2 z-50 flex max-w-md -translate-x-1/2 items-center gap-3 rounded-xl border bg-background px-4 py-3 shadow-lg">
+              {notificationOpening.error ? <>
+                <span>{notificationOpening.error}</span>
+                <Button onClick={() => openDesktopNotification(notificationOpening.target)}>Retry</Button>
+              </> : <><LoadingOrb size={24} label="Opening message" /><span>Opening message</span></>}
+            </div>
+          )}
           <div aria-hidden="true" className="electron-window-drag-strip" />
           <Sidebar
             itemsByRun={index.itemsByRun}

@@ -134,6 +134,7 @@
     "test:image-attachment-layout": "bun scripts/test-image-attachment-layout.ts",
     "test:initial-conversation-layout": "bun scripts/test-image-attachment-layout.ts --conversation",
     "test:navigation-startup": "bun scripts/test-image-attachment-layout.ts --navigation",
+    "test:notification-opening": "bun scripts/test-notification-opening.ts",
     "test:parity-edges": "bun scripts/test-desktop-parity-edges.ts",
     "test:widget-group-parity": "bun scripts/test-widget-group-parity.ts",
     "test:background-activity": "bun scripts/test-background-activity.ts",

@@ -143,6 +143,12 @@ describe("native APNs delivery", () => {
     expect((threaded.data as Record<string, unknown>).threadMessageId).toBe("reply-1");
     expect((plain.data as Record<string, unknown>).threadMessageId).toBeUndefined();
   });
+  test("keeps the exact message identity for alerts outside the newest history page", () => {
+    const value = apnsPayload(device, { ...alert, messageId: "older-message" }, 2);
+    expect((value.data as Record<string, unknown>).messageId).toBe("older-message");
+    expect((value.data as Record<string, unknown>).messageSequence).toBe(alert.messageSequence);
+    expect((apnsPayload(device, alert, 2).data as Record<string, unknown>).messageId).toBeUndefined();
+  });
   test("rejects a mismatched app, invalid environment, token or signing key without sending", async () => {
     let requests = 0;
     const transport: ApnsTransport = async () => {

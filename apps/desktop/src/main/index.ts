@@ -52,6 +52,7 @@ import {
   DesktopNotificationManager,
   type DesktopNotificationSnapshot,
   parseNotificationChannels,
+  parseNotificationTarget,
 } from "./notifications";
 import {
   createComputerSettingsStore,
@@ -1203,10 +1204,7 @@ if (!hasSingleInstanceLock) {
           });
           notification.on("click", () => {
             focusMainWindow();
-            mainWindow?.webContents.send("openteam:notification-click", {
-              channelId: notificationEvent.channelId,
-              threadMessageId: notificationEvent.threadMessageId,
-            });
+            mainWindow?.webContents.send("openteam:notification-click", parseNotificationTarget(notificationEvent));
           });
           notification.show();
         },

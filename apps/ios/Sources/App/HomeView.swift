@@ -974,15 +974,35 @@ private struct ConversationLink<Label: View>: View {
   }
 }
 
-/// A short dim on touch, followed by a gentle release. The highlight fades at
-/// its own row so rapid selections never slide a card through unrelated bots.
+/// Contract the entire row on touch, then spring just past its resting size.
+/// Scale is visual only: the layout and other rows stay in place.
 private struct ConversationSelectionButtonStyle: ButtonStyle {
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var isSidebar: Bool
   func makeBody(configuration: Configuration) -> some View {
+    ConversationSelectionTouch(configuration: configuration, isSidebar: isSidebar)
+  }
+}
+
+private struct ConversationSelectionTouch: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  var configuration: ButtonStyleConfiguration
+  var isSidebar: Bool
+  @State private var touching = false
+  private var pressed: Bool { configuration.isPressed || touching }
+  var body: some View {
     configuration.label
-      .opacity(configuration.isPressed ? 0.65 : 1)
-      .animation(reduceMotion || !isSidebar ? nil : .easeOut(duration: 0.18), value: configuration.isPressed)
+      .opacity(pressed ? 0.65 : 1)
+      .animation(reduceMotion || !isSidebar ? nil : .easeOut(duration: 0.18), value: pressed)
+      .scaleEffect(isSidebar && !reduceMotion && pressed ? SidebarMetrics.pressedScale : 1)
+      .animation(
+        reduceMotion || !isSidebar ? nil : pressed
+          ? .easeOut(duration: 0.04)
+          : .spring(response: 0.23, dampingFraction: 0.5),
+        value: pressed)
+      // Context-menu/swipe recognizers can delay the Button's pressed state.
+      // Observe the initial touch without recognizing an action or consuming a
+      // scroll; movement cancels the feedback and releasing resets the state.
+      .gesture(SidebarTouchObservation(isEnabled: isSidebar) { touching = $0 })
   }
 }
 

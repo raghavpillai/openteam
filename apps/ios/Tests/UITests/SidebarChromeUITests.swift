@@ -34,9 +34,14 @@ import XCTest
     let originalFrame = first.frame
     XCTAssertTrue(first.isSelected)
     capture("duo-first-row-clearance", app)
+    // Touch feedback must also work when the bot is already selected, without
+    // reopening the conversation or shifting the roster.
+    first.press(forDuration: 0.12)
+    XCTAssertTrue(first.isSelected)
+    XCTAssertEqual(first.frame.minY, originalFrame.minY, accuracy: 0.5)
     for index in [2, 4, 1, 0] {
       let row = app.buttons["channel-duo-\(index)"]
-      row.tap()
+      row.press(forDuration: 0.12)
       let selected = expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: row)
       await fulfillment(of: [selected], timeout: 5)
       XCTAssertEqual(first.frame.minY, originalFrame.minY, accuracy: 0.5,
@@ -47,6 +52,10 @@ import XCTest
     XCTAssertGreaterThanOrEqual(first.frame.minY - list.frame.minY, 16,
       "The first row must clear the inner display's rounded top corner")
     capture("duo-selection-returned-to-first", app)
+    first.press(forDuration: 0.7)
+    let markUnread = app.buttons["Mark unread"]
+    XCTAssertTrue(markUnread.waitForExistence(timeout: 5), "Touch feedback must preserve the context menu")
+    markUnread.tap()
     let apps = app.buttons["marketplace-button"]
     let loaded = expectation(for: NSPredicate(format: "value == %@", "3 apps installed"), evaluatedWith: apps)
     await fulfillment(of: [loaded], timeout: 10)

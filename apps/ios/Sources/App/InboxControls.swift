@@ -26,6 +26,7 @@ enum SidebarMetrics {
   /// The inner display has no top toolbar in landscape. Keep the first
   /// selection card inside the physical display's rounded corner.
   static let landscapeTopClearance: CGFloat = 16
+  static let pressedScale: CGFloat = 0.965
   static let searchGlyph: CGFloat = 18
   static let addGlyph: CGFloat = 16
   static let toolbarTrailing: CGFloat = 19

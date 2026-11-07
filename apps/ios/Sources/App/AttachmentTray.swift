@@ -9,14 +9,13 @@ import UniformTypeIdentifiers
 struct AttachmentTrayActions {
   /// How many more attachments the draft can take.
   var remaining: Int
-  /// Shown while drafting, when the mic has become Send.
-  var voice: (() -> Void)?
   var photos: ([PHPickerResult]) -> Void
   var camera: (Data) -> Void
   var files: () -> Void
-  var allPhotos: () -> Void
   /// Where added attachments land, in window coordinates.
   var composerFrame: () -> CGRect?
+  /// The chat column's edge, including a sidebar or the Duo's fold division.
+  var contentLeading: () -> CGFloat = { 0 }
 }
 
 /// The + menu and the photo and camera panels it grows into. One card morphs
@@ -37,7 +36,7 @@ struct AttachmentTrayActions {
     window.backgroundColor = .clear
     window.overrideUserInterfaceStyle = button.traitCollection.userInterfaceStyle
     let controller = AttachmentTrayController(
-      source: button.convert(button.bounds, to: nil), actions: actions
+      source: button, actions: actions
     ) { [weak self] in self?.dismissed() }
     window.rootViewController = controller
     // Not key while the menu shows: the composer's text field keeps first responder.
@@ -48,6 +47,15 @@ struct AttachmentTrayActions {
     controller.open()
   }
   func close() { controller?.collapse() }
+  func layoutChanged() {
+    if let window, let chatWindow, window.bounds.size != chatWindow.bounds.size {
+      window.frame = chatWindow.frame
+    }
+    controller?.viewIfLoaded?.setNeedsLayout()
+  }
+  func update(from button: UIView, actions: AttachmentTrayActions) {
+    controller?.update(from: button, actions: actions)
+  }
 
   /// The system photo picker runs in another process that takes seconds to start
   /// the first time (3 s on a simulator), then stays up for a while. Start it once
@@ -100,11 +108,16 @@ struct AttachmentTrayActions {
 
 private final class AttachmentTrayController: UIViewController, PHPickerViewControllerDelegate {
   private enum Stage { case menu, photos, camera }
-  private let source: CGRect
-  private let actions: AttachmentTrayActions
+  private weak var sourceButton: UIView?
+  private var source: CGRect
+  private var viewport: CGRect = .zero
+  private var safeInsets = UIEdgeInsets.zero
+  private var columnLeading: CGFloat = 0
+  private var actions: AttachmentTrayActions
   private let finished: () -> Void
   private var stage = Stage.menu
   private var closing = false
+  private var transition: UIViewPropertyAnimator?
   /// iOS draws the keyboard above every app window, so the panels can't cover it:
   /// the field typing went to gives it up as a panel opens, and takes it back if
   /// the panel is closed without adding anything.
@@ -123,6 +136,8 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   /// taps for a while after it moves on screen, so it must not travel with the card.
   private let panel = UIView()
   private let panelMask = UIView()
+  private let morphBlur = UIVisualEffectView()
+  private var morphSnapshot: UIView?
   private var picker: PHPickerViewController?
   /// Covers the picker's own "Loading…" until its grid arrives.
   private var pickerCover: UIView?
@@ -135,14 +150,15 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   static let rowHeight: CGFloat = 68
   static let menuInset: CGFloat = 13
   static let menuRadius: CGFloat = 38
-  static let panelRadius: CGFloat = 34
+  static let panelRadius: CGFloat = 24
   static let panelInset: CGFloat = 12
-  static let panelMaxWidth: CGFloat = 417
-  static let control: CGFloat = 48
-  static let controlInset: CGFloat = 22
+  static let panelMaxWidth: CGFloat = 370
+  static let control: CGFloat = 44
+  static let controlInset: CGFloat = 24
 
-  init(source: CGRect, actions: AttachmentTrayActions, finished: @escaping () -> Void) {
-    self.source = source
+  init(source: UIView, actions: AttachmentTrayActions, finished: @escaping () -> Void) {
+    sourceButton = source
+    self.source = source.convert(source.bounds, to: nil)
     self.actions = actions
     self.finished = finished
     super.init(nibName: nil, bundle: nil)
@@ -155,6 +171,9 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     backdrop.frame = view.bounds
     backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     backdrop.accessibilityLabel = "Close"
+    backdrop.accessibilityIdentifier = "attachment-tray-dismiss"
+    backdrop.isAccessibilityElement = true
+    backdrop.accessibilityTraits = .button
     backdrop.addAction(UIAction { [weak self] _ in self?.collapse() }, for: .touchUpInside)
     view.addSubview(backdrop)
 
@@ -180,11 +199,6 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
       guard let self else { return }
       self.collapse { self.actions.files() }
     }
-    if let voice = actions.voice {
-      addRow("Record voice note", symbol: "mic", identifier: "attach-voice", enabled: true) { [weak self] in
-        self?.collapse(then: voice)
-      }
-    }
     material.contentView.addSubview(menu)
 
     // Barely visible rather than hidden: the embedded picker only loads its grid
@@ -202,7 +216,7 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     // a picker created before it, even one already removed, left it ignoring taps.
     if enabled { preparePicker() }
     back.accessibilityIdentifier = "attach-back"
-    back.addAction(UIAction { [weak self] _ in self?.collapse() }, for: .touchUpInside)
+    back.addAction(UIAction { [weak self] _ in self?.returnToMenu() }, for: .touchUpInside)
     add.addAction(UIAction { [weak self] _ in self?.addSelection() }, for: .touchUpInside)
   }
 
@@ -231,31 +245,84 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
 
   // MARK: Geometry
 
+  func update(from button: UIView, actions: AttachmentTrayActions) {
+    guard sourceButton === button else { return }
+    self.actions = actions
+    viewIfLoaded?.setNeedsLayout()
+  }
+
+  override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+    super.viewWillTransition(to: size, with: coordinator)
+    coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+      self?.view.setNeedsLayout()
+      self?.view.layoutIfNeeded()
+    }
+  }
+
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    guard !closing, let button = sourceButton, button.window != nil else { return }
+    let current = button.convert(button.bounds, to: view)
+    let resized = viewport != view.bounds || safeInsets != view.safeAreaInsets
+    let movedColumn = abs(current.minX - source.minX) > 0.5 || current.width != source.width
+      || columnLeading != actions.contentLeading()
+    guard resized || movedColumn else { return }
+    viewport = view.bounds
+    safeInsets = view.safeAreaInsets
+    columnLeading = actions.contentLeading()
+    // Folding, rotating, and resizing the sidebar all move the composer. Keep
+    // its original keyboard height during a panel's round trip, but refresh it
+    // when the actual display changes.
+    source = CGRect(x: current.minX, y: resized ? current.minY : source.minY,
+      width: current.width, height: current.height)
+    if let transition {
+      transition.stopAnimation(false)
+      transition.finishAnimation(at: .end)
+    }
+    card.transform = .identity
+    panel.transform = .identity
+    panel.frame = panelFrame
+    picker?.view.frame = panel.bounds
+    pickerCover?.frame = panel.bounds
+    if let orb = pickerCover?.subviews.first { orb.center = CGPoint(x: panel.bounds.midX, y: panel.bounds.midY) }
+    camera?.frame = panel.bounds
+    if stage == .menu {
+      card.frame = menuFrame
+      panelMask.frame = menuFrame.offsetBy(dx: -panel.frame.minX, dy: -panel.frame.minY)
+    } else {
+      card.frame = panel.frame
+      panelMask.frame = panel.bounds
+      if stage == .photos {
+        place(back, at: CGPoint(x: Self.controlInset, y: panel.bounds.height - Self.controlInset - Self.control))
+        updateAdd(animated: false)
+      }
+    }
+  }
+
   private var anchor: CGPoint { CGPoint(x: source.midX, y: source.midY) }
   private var menuFrame: CGRect {
     let height = CGFloat(menu.arrangedSubviews.count) * Self.rowHeight + Self.menuInset * 2
     // The card's lower-leading corner sits just outside the + button, which it covers.
-    let x = max(view.safeAreaInsets.left + 4, anchor.x - 31)
+    let x = min(max(view.safeAreaInsets.left + 4, actions.contentLeading() + 4, anchor.x - 31),
+      view.bounds.width - view.safeAreaInsets.right - Self.menuWidth - 4)
     let maxY = min(anchor.y + 31, view.bounds.height - 6)
     return CGRect(x: x, y: maxY - height, width: Self.menuWidth, height: height)
   }
-  /// A 3:4 card, as wide as the phone allows and at most 417 points on a large
-  /// display, centred on the chat column and 12 points above the bottom edge.
+  /// Both panels expand from the menu's leading edge, including beside a sidebar.
   private var panelFrame: CGRect {
     let bounds = view.bounds
     let inset = Self.panelInset
     // Clear of side regions such as the folded Duo's status strip.
-    let leading = view.safeAreaInsets.left + inset
+    let leading = max(view.safeAreaInsets.left, actions.contentLeading()) + inset
     let trailing = bounds.width - view.safeAreaInsets.right - inset
     let width = min(trailing - leading, Self.panelMaxWidth)
     let height = min((width * 4 / 3).rounded(), bounds.height - inset - view.safeAreaInsets.top - 60)
-    let column = actions.composerFrame()?.midX ?? bounds.midX
-    let x = min(max(leading, column - width / 2), trailing - width)
+    let x = min(max(leading, menuFrame.minX + 8), trailing - width)
     return CGRect(x: x.rounded(), y: bounds.height - inset - height, width: width, height: height)
   }
   /// Collapsing into a point: the card's centre moves to `point` as it shrinks.
-  private func collapsed(into point: CGPoint, scale: CGFloat) -> CGAffineTransform {
-    let center = CGPoint(x: card.frame.midX, y: card.frame.midY)
+  private func collapsed(_ surface: UIView, into point: CGPoint, scale: CGFloat) -> CGAffineTransform {
+    let center = CGPoint(x: surface.frame.midX, y: surface.frame.midY)
     return CGAffineTransform(translationX: point.x - center.x, y: point.y - center.y)
       .scaledBy(x: scale, y: scale)
   }
@@ -276,17 +343,17 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     menu.frame = CGRect(x: 0, y: Self.menuInset, width: Self.menuWidth,
       height: card.bounds.height - Self.menuInset * 2)
     guard !UIAccessibility.isReduceMotionEnabled else { return }
-    card.transform = collapsed(into: anchor, scale: 0.16)
+    card.transform = collapsed(card, into: anchor, scale: 0.16)
     card.alpha = 0
-    let spring = UIViewPropertyAnimator(duration: 0.42, dampingRatio: 0.78) {
+    menu.isUserInteractionEnabled = false
+    animate(duration: 0.32, damping: 0.86, animations: {
       self.card.transform = .identity
-    }
-    spring.startAnimation()
-    UIView.animate(withDuration: 0.12) { self.card.alpha = 1 }
+      self.card.alpha = 1
+    }, completion: { self.menu.isUserInteractionEnabled = true })
   }
 
   private func show(_ next: Stage) {
-    guard stage == .menu, !closing else { return }
+    guard stage == .menu, !closing, transition == nil else { return }
     stage = next
     let target = panelFrame
     panel.transform = .identity
@@ -300,30 +367,121 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     case .camera: buildCamera(in: content)
     case .menu: break
     }
-    backdrop.isEnabled = false
+    menu.accessibilityElementsHidden = true
     view.bringSubviewToFront(panel)
-    panel.isUserInteractionEnabled = true
+    panel.isUserInteractionEnabled = false
+    prepareMorph(from: card, radius: Self.menuRadius)
+    if morphSnapshot != nil { menu.alpha = 0 }
     typing?.resignFirstResponder()
     // The embedded picker only takes touches in the key window.
     view.window?.makeKey()
-    let reduce = UIAccessibility.isReduceMotionEnabled
-    let grow = UIViewPropertyAnimator(duration: reduce ? 0.2 : 0.46, dampingRatio: 0.86) {
+    animate(duration: 0.30, damping: 0.86, animations: {
       self.card.frame = target
       self.round(Self.panelRadius)
+      self.morphSnapshot?.frame = target
+      self.morphSnapshot?.layer.cornerRadius = Self.panelRadius
+      self.morphSnapshot?.alpha = 0
+      self.morphBlur.effect = UIBlurEffect(style: .systemUltraThinMaterial)
       self.panelMask.frame = content
       self.panelMask.layer.cornerRadius = Self.panelRadius
-    }
-    grow.startAnimation()
-    UIView.animate(withDuration: 0.12, delay: 0, options: [.curveEaseOut]) { self.menu.alpha = 0 }
-    UIView.animate(withDuration: 0.26, delay: reduce ? 0 : 0.1, options: [.curveEaseOut]) {
+      self.menu.alpha = 0
       self.panel.alpha = 1
-    }
+    }, completion: {
+      self.clearMorph()
+      self.panel.isUserInteractionEnabled = true
+    })
   }
 
-  /// Back, outside taps, Files and All Photos: shrink into the + button.
+  /// Back retraces the expansion and preserves the photo selection and grid.
+  private func returnToMenu() {
+    guard stage != .menu, !closing, transition == nil else { return }
+    prepareMorph(from: panel, radius: Self.panelRadius)
+    stage = .menu
+    camera?.stop()
+    panel.isUserInteractionEnabled = false
+    menu.isUserInteractionEnabled = false
+    menu.accessibilityElementsHidden = false
+    if morphSnapshot != nil { panel.alpha = 0 }
+    if let typing {
+      (typing as? UIView)?.window?.makeKey()
+      typing.becomeFirstResponder()
+    }
+    let target = menuFrame
+    animate(duration: 0.30, damping: 0.86, animations: {
+      self.card.frame = target
+      self.round(Self.menuRadius)
+      self.morphSnapshot?.frame = target
+      self.morphSnapshot?.layer.cornerRadius = Self.menuRadius
+      self.morphSnapshot?.alpha = 0
+      self.morphBlur.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+      self.panelMask.frame = target.offsetBy(dx: -self.panel.frame.minX, dy: -self.panel.frame.minY)
+      self.panelMask.layer.cornerRadius = Self.menuRadius
+      self.panel.alpha = 0
+      self.menu.alpha = 1
+    }, completion: {
+      self.camera?.removeFromSuperview()
+      self.camera = nil
+      self.picker?.view.isHidden = true
+      self.pickerCover?.removeFromSuperview()
+      self.pickerCover = nil
+      self.clearMorph()
+      self.view.insertSubview(self.panel, belowSubview: self.card)
+      self.menu.isUserInteractionEnabled = true
+      UIAccessibility.post(notification: .screenChanged, argument: self.menu.arrangedSubviews.first)
+    })
+  }
+
+  /// Stretch the outgoing contents with the glass outline. The live picker stays
+  /// at its settled frame so its remote touch coordinates remain valid.
+  private func prepareMorph(from surface: UIView, radius: CGFloat) {
+    clearMorph()
+    guard !UIAccessibility.isReduceMotionEnabled,
+      let snapshot = surface.resizableSnapshotView(from: surface.bounds,
+        afterScreenUpdates: false, withCapInsets: .zero) else { return }
+    snapshot.frame = surface.frame
+    snapshot.clipsToBounds = true
+    snapshot.layer.cornerCurve = .continuous
+    snapshot.layer.cornerRadius = radius
+    snapshot.isUserInteractionEnabled = false
+    morphBlur.frame = snapshot.bounds
+    morphBlur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    morphBlur.isUserInteractionEnabled = false
+    snapshot.addSubview(morphBlur)
+    view.addSubview(snapshot)
+    morphSnapshot = snapshot
+  }
+
+  private func clearMorph() {
+    morphSnapshot?.removeFromSuperview()
+    morphSnapshot = nil
+    morphBlur.removeFromSuperview()
+    morphBlur.effect = nil
+  }
+
+  private func animate(duration: TimeInterval, damping: CGFloat, animations: @escaping () -> Void,
+    completion: @escaping () -> Void = {}) {
+    transition?.stopAnimation(true)
+    transition = nil
+    guard !UIAccessibility.isReduceMotionEnabled else { animations(); completion(); return }
+    let animation = UIViewPropertyAnimator(duration: duration, dampingRatio: damping, animations: animations)
+    transition = animation
+    animation.addCompletion { [weak self, weak animation] _ in
+      guard let self, self.transition === animation else { return }
+      self.transition = nil
+      completion()
+    }
+    animation.startAnimation()
+  }
+
+  /// Outside taps and Files dismiss the entire attachment flow into the + button.
   func collapse(then action: (() -> Void)? = nil) {
     guard !closing else { return }
     closing = true
+    if let animation = transition {
+      transition = nil
+      animation.stopAnimation(false)
+      animation.finishAnimation(at: .current)
+    }
     view.isUserInteractionEnabled = false
     camera?.stop()
     if stage != .menu && action == nil, let typing {
@@ -331,19 +489,19 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
       (typing as? UIView)?.window?.makeKey()
       typing.becomeFirstResponder()
     }
-    let target = collapsed(into: anchor, scale: 0.14)
+    let target = collapsed(card, into: anchor, scale: 0.14)
+    let panelTarget = collapsed(panel, into: anchor, scale: 0.14)
+    let snapshotTarget = morphSnapshot.map { collapsed($0, into: anchor, scale: 0.14) }
     guard !UIAccessibility.isReduceMotionEnabled else { finish(action); return }
-    // At the panel stage the panel and the card share a frame, so one transform moves both.
-    let shrink = UIViewPropertyAnimator(duration: 0.34, dampingRatio: 1) {
+    // Freeze an interrupted expansion before shrinking both surfaces toward +.
+    animate(duration: 0.28, damping: 1, animations: {
       self.card.transform = target
-      if self.stage != .menu { self.panel.transform = target }
-    }
-    shrink.startAnimation()
-    UIView.animate(withDuration: 0.2, delay: 0.1, options: [.curveEaseIn]) {
+      if let snapshotTarget { self.morphSnapshot?.transform = snapshotTarget }
+      self.morphSnapshot?.alpha = 0
+      if self.stage != .menu { self.panel.transform = panelTarget }
       self.card.alpha = 0
       self.panel.alpha = 0
-    }
-    shrink.addCompletion { _ in self.finish(action) }
+    }, completion: { self.finish(action) })
     // Presentations wait for the tray's window to leave.
   }
 
@@ -357,16 +515,14 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     let frame = actions.composerFrame() ?? source
     guard !UIAccessibility.isReduceMotionEnabled else { finish(nil); return }
     let radius = min(frame.height / 2, 28)
-    let shrink = UIViewPropertyAnimator(duration: 0.32, dampingRatio: 1) {
+    animate(duration: 0.32, damping: 1, animations: {
       self.card.frame = frame
       self.round(radius)
       self.panelMask.frame = frame.offsetBy(dx: -self.panel.frame.minX, dy: -self.panel.frame.minY)
       self.panelMask.layer.cornerRadius = radius
       self.panel.alpha = 0
-    }
-    shrink.startAnimation()
-    UIView.animate(withDuration: 0.18, delay: 0.1, options: [.curveEaseIn]) { self.card.alpha = 0 }
-    shrink.addCompletion { _ in self.finish(nil) }
+      self.card.alpha = 0
+    }, completion: { self.finish(nil) })
   }
 
   private func removePicker() {
@@ -377,6 +533,9 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   }
 
   private func finish(_ action: (() -> Void)?) {
+    transition?.stopAnimation(true)
+    transition = nil
+    clearMorph()
     removePicker()
     finished()
     action?()
@@ -396,6 +555,7 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
 
   private func buildPhotos(in bounds: CGRect) {
     if picker == nil { preparePicker() }
+    picker?.view.isHidden = false
     picker?.view.frame = bounds
     coverPicker(in: bounds)
     place(back, at: CGPoint(x: Self.controlInset, y: bounds.height - Self.controlInset - Self.control))
@@ -408,6 +568,8 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   /// attaches, which takes a couple of seconds on a cold start. Show the app's
   /// connecting orb over it instead, and fade it out once the grid's host view lands.
   private func coverPicker(in bounds: CGRect) {
+    pickerCover?.removeFromSuperview()
+    pickerCover = nil
     guard let picker, !pickerLoaded(picker) else { return }
     let cover = UIView(frame: bounds)
     cover.backgroundColor = .systemBackground
@@ -455,8 +617,15 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   }
 
   private func addSelection() {
+    guard stage == .photos, !closing, transition == nil, presentedViewController == nil else { return }
     if selection.isEmpty {
-      collapse { self.actions.allPhotos() }
+      var configuration = PHPickerConfiguration()
+      configuration.filter = .any(of: [.images, .videos])
+      configuration.selectionLimit = max(1, actions.remaining)
+      configuration.selection = .ordered
+      let fullPicker = PHPickerViewController(configuration: configuration)
+      fullPicker.delegate = self
+      present(fullPicker, animated: true)
       return
     }
     NativeHaptics.play(.light, source: "composer.attach")
@@ -465,6 +634,14 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   }
 
   func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+    guard !closing else { return }
+    guard picker === self.picker else {
+      picker.dismiss(animated: true) { [weak self] in
+        guard let self, !self.closing, !results.isEmpty else { return }
+        self.settle { self.actions.photos(results) }
+      }
+      return
+    }
     let grew = results.count > selection.count
     selection = results
     if grew { NativeHaptics.play(.selection, source: "composer.attach-option") }
@@ -474,10 +651,12 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   // MARK: Camera
 
   private func buildCamera(in bounds: CGRect) {
-    removePicker()
+    picker?.view.isHidden = true
+    back.removeFromSuperview()
+    add.removeFromSuperview()
     let camera = TrayCamera(frame: bounds)
     camera.back.accessibilityIdentifier = "attach-back"
-    camera.back.addAction(UIAction { [weak self] _ in self?.collapse() }, for: .touchUpInside)
+    camera.back.addAction(UIAction { [weak self] _ in self?.returnToMenu() }, for: .touchUpInside)
     camera.captured = { [weak self] data in
       guard let self else { return }
       NativeHaptics.play(.light, source: "composer.attach")
@@ -492,7 +671,10 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     button.frame = CGRect(origin: origin, size: CGSize(width: Self.control, height: Self.control))
   }
 
-  override func accessibilityPerformEscape() -> Bool { collapse(); return true }
+  override func accessibilityPerformEscape() -> Bool {
+    if stage == .menu { collapse() } else { returnToMenu() }
+    return true
+  }
 }
 
 // MARK: - Controls
@@ -624,6 +806,7 @@ private final class TrayCamera: UIView, AVCapturePhotoCaptureDelegate {
   private var flashMode = AVCaptureDevice.FlashMode.off
   private var expanded = false
   private var capturing = false
+  private var active = false
   var captured: ((Data) -> Void)?
 
   override init(frame: CGRect) {
@@ -653,13 +836,21 @@ private final class TrayCamera: UIView, AVCapturePhotoCaptureDelegate {
     more.addAction(UIAction { [weak self] _ in self?.toggleMore() }, for: .touchUpInside)
     addSubview(more)
 
-    let shutterSize: CGFloat = 60
+    let shutterSize: CGFloat = 64
     shutter.frame = CGRect(x: (bounds.width - shutterSize) / 2, y: bottom + (control - shutterSize) / 2,
       width: shutterSize, height: shutterSize)
-    shutter.backgroundColor = .white
+    shutter.backgroundColor = UIColor.white.withAlphaComponent(0.2)
     shutter.layer.cornerRadius = shutterSize / 2
+    shutter.layer.borderColor = UIColor.white.withAlphaComponent(0.4).cgColor
+    shutter.layer.borderWidth = 1
+    let shutterFill = UIView(frame: CGRect(x: 6, y: 6, width: 52, height: 52))
+    shutterFill.backgroundColor = .white
+    shutterFill.layer.cornerRadius = 26
+    shutterFill.isUserInteractionEnabled = false
+    shutter.addSubview(shutterFill)
     shutter.accessibilityLabel = "Take photo"
     shutter.accessibilityIdentifier = "attach-shutter"
+    shutter.isEnabled = false
     shutter.addAction(UIAction { [weak self] _ in self?.capture() }, for: .touchUpInside)
     shutter.addAction(UIAction { [weak self] _ in
       UIView.animate(withDuration: 0.12) { self?.shutter.transform = CGAffineTransform(scaleX: 0.88, y: 0.88) }
@@ -685,11 +876,13 @@ private final class TrayCamera: UIView, AVCapturePhotoCaptureDelegate {
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
   func start() {
+    active = true
     #if DEBUG
     if let path = UserDefaults.standard.string(forKey: "ui-testing-camera-fixture"),
       AVCaptureDevice.default(for: .video) == nil, let image = UIImage(contentsOfFile: path) {
       still.image = image
       still.isHidden = false
+      shutter.isEnabled = true
       return
     }
     #endif
@@ -697,12 +890,16 @@ private final class TrayCamera: UIView, AVCapturePhotoCaptureDelegate {
     case .authorized: configure()
     case .notDetermined:
       AVCaptureDevice.requestAccess(for: .video) { granted in
-        Task { @MainActor in granted ? self.configure() : self.show("Allow camera access in Settings to take a photo.") }
+        Task { @MainActor in
+          guard self.active else { return }
+          granted ? self.configure() : self.show("Allow camera access in Settings to take a photo.")
+        }
       }
     default: show("Allow camera access in Settings to take a photo.")
     }
   }
   func stop() {
+    active = false
     let session = session
     queue.async { if session.isRunning { session.stopRunning() } }
   }
@@ -732,12 +929,25 @@ private final class TrayCamera: UIView, AVCapturePhotoCaptureDelegate {
       session.commitConfiguration()
       session.startRunning()
       DispatchQueue.main.async {
+        guard self.active else { return }
+        self.shutter.isEnabled = true
         UIView.animate(withDuration: 0.25) { self.preview.alpha = 1 }
       }
     }
   }
   override func layoutSubviews() {
     super.layoutSubviews()
+    still.frame = bounds
+    message.frame = bounds.insetBy(dx: 32, dy: 0)
+    let control = AttachmentTrayController.control
+    let inset = AttachmentTrayController.controlInset
+    let bottom = bounds.height - inset - control
+    back.frame = CGRect(x: inset, y: bottom, width: control, height: control)
+    more.frame = CGRect(x: bounds.width - inset - control, y: bottom, width: control, height: control)
+    shutter.center = CGPoint(x: bounds.midX, y: bottom + control / 2)
+    for (index, button) in [flip, flash].enumerated() {
+      button.frame = more.frame.offsetBy(dx: 0, dy: expanded ? -58 * CGFloat(index + 1) : 0)
+    }
     previewLayer?.frame = preview.bounds
   }
 
@@ -803,6 +1013,7 @@ private final class TrayCamera: UIView, AVCapturePhotoCaptureDelegate {
     let data = photo.fileDataRepresentation()
     Task { @MainActor in
       self.capturing = false
+      guard self.active else { return }
       if let data { self.captured?(data) }
     }
   }

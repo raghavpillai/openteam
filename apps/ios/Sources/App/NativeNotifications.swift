@@ -503,15 +503,21 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate,
     }
   }
   nonisolated func userNotificationCenter(
-    _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
-  ) async {
+    _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+  ) {
     let push = NativeNotifications.payload(response.notification.request.content.userInfo)
-    #if DEBUG && targetEnvironment(simulator)
-      let action = response.actionIdentifier
-      Task { await NativeNotifications.shared.reportForQA(push, stage: action) }
-    #endif
-    guard response.actionIdentifier != UNNotificationDismissActionIdentifier else { return }
-    await NativeNotifications.shared.tapped(push)
+    let action = response.actionIdentifier
+    Task { @MainActor in
+      // UIKit's notification completion updates scene snapshots and must run
+      // on the main thread, including when routing suspends for a network read.
+      defer { completionHandler() }
+      #if DEBUG && targetEnvironment(simulator)
+        Task { await NativeNotifications.shared.reportForQA(push, stage: action) }
+      #endif
+      guard action != UNNotificationDismissActionIdentifier else { return }
+      await NativeNotifications.shared.tapped(push)
+    }
   }
 }
 

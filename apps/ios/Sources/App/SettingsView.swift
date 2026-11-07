@@ -345,6 +345,7 @@ struct ConversationDetails: View {
   @FocusState private var focusedProfile: ProfileField?
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.sideChrome) private var sideChrome
   let channelID: String
   @State private var name = ""
   @State private var description = ""
@@ -478,7 +479,7 @@ struct ConversationDetails: View {
         .listCardMargins(24)
         .environment(\.defaultMinListRowHeight, 50)
         .navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        .toolbar(sideChrome == nil ? .visible : .hidden, for: .navigationBar)
         .navigationBarBackButtonHidden()
         .background(NativeBackGesture(shouldBegin: mayLeaveProfile).frame(width: 0, height: 0))
         .scrollContentBackground(.hidden).nativeCanvas()
@@ -513,23 +514,12 @@ struct ConversationDetails: View {
           }
           if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
           ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-              if let bot {
-                if bot.status == "failed" {
-                  Button("Retry setup") {
-                    Task { await store.mutate("/api/v0/bots/\(API.segment(bot.id))/retry") }
-                  }
-                }
-              }
-              Button(channel?.isGroup == true ? "Delete group" : "Delete bot", role: .destructive) {
-                deleting = true
-              }
-            } label: {
-              Image(systemName: "ellipsis").foregroundStyle(NativePalette.text)
-            }
-            .disabled(saving).accessibilityLabel("Bot options").accessibilityIdentifier("profile-options")
+            profileOptions
           }
         }
+        .padding(.trailing, sideChrome?.contentInset ?? 0)
+        .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
+        .preference(key: ContextualSideControlsKey.self, value: sideChrome != nil)
         .sheet(
           isPresented: Binding(get: { templateFile != nil }, set: { if !$0 { templateFile = nil } })
         ) {
@@ -591,6 +581,46 @@ struct ConversationDetails: View {
           Text("This removes the conversation and its history. This cannot be undone.")
         }
     }
+  }
+  private var sideControls: some View {
+    VStack(spacing: 12) {
+      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular) {
+        if mayLeaveProfile() { dismiss() }
+      }.disabled(saving).accessibilityIdentifier("profile-back")
+      if profileChanged {
+        ChatChromeButton(title: saving ? "Saving…" : "Save", symbol: "checkmark") {
+          Task { await save() }
+        }.disabled(!canSaveProfile).accessibilityIdentifier("profile-save")
+      }
+      Spacer(minLength: 12)
+      if bot != nil {
+        ChatChromeButton(title: "Share as template", symbol: "square.and.arrow.up") {
+          Task { await exportTemplate() }
+        }.disabled(exportingTemplate || saving)
+      }
+      profileOptions
+    }
+  }
+  private var profileOptions: some View {
+    Menu {
+      if let bot, bot.status == "failed" {
+        Button("Retry setup") {
+          Task { await store.mutate("/api/v0/bots/\(API.segment(bot.id))/retry") }
+        }
+      }
+      Button(channel?.isGroup == true ? "Delete group" : "Delete bot", role: .destructive) {
+        deleting = true
+      }
+    } label: {
+      if sideChrome != nil {
+        Image(systemName: "ellipsis").font(.system(size: 17))
+          .foregroundStyle(NativePalette.text).frame(width: 44, height: 44)
+          .modifier(RailControlGlass())
+      } else {
+        Image(systemName: "ellipsis").foregroundStyle(NativePalette.text)
+      }
+    }
+    .disabled(saving).accessibilityLabel("Bot options").accessibilityIdentifier("profile-options")
   }
   private var profileChanged: Bool {
     initialized

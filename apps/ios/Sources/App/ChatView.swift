@@ -386,9 +386,13 @@ struct ChatView: View {
   }
   private var sideControls: some View {
     VStack(spacing: 12) {
-      Spacer(minLength: 12)
+      if leadingControl?.external == true {
+        Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+      } else if sideChrome?.holdsAllControls == true || leadingControl != nil {
+        leadingButton
+      }
       computerButton
-      if leadingControl?.external != true, sideChrome?.holdsAllControls == true || leadingControl != nil { leadingButton }
+      Spacer(minLength: 12)
     }.foregroundStyle(NativePalette.text)
   }
   @ViewBuilder private var computerButton: some View {
@@ -1119,9 +1123,11 @@ struct ThreadPage: View {
       dismiss()
     }.accessibilityIdentifier("thread-back").foregroundStyle(NativePalette.text)
   }
-  /// Folded, Back moves into the side region, as in the conversation.
-  @ViewBuilder private var sideControls: some View {
-    if sideChrome?.holdsAllControls == true { backButton }
+  private var sideControls: some View {
+    VStack {
+      backButton
+      Spacer(minLength: 12)
+    }
   }
   var body: some View {
     ZStack {
@@ -1144,7 +1150,7 @@ struct ThreadPage: View {
       .chatFloatingBars(top: {
         VStack(spacing: 0) {
           HStack {
-            if sideChrome?.holdsAllControls != true { backButton }
+            if sideChrome == nil { backButton }
             Spacer()
           }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
           MessageRefreshStatus(channelID: channel.id).padding(.horizontal, 20)
@@ -1158,6 +1164,7 @@ struct ThreadPage: View {
       })
       .padding(.trailing, sideChrome?.contentInset ?? 0)
       .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
+      .preference(key: ContextualSideControlsKey.self, value: sideChrome != nil)
       .navigationDestination(item: $exchange) { BotExchangeView(channel: channel, peer: $0) }
       .navigationDestination(isPresented: $details) { ConversationDetails(channelID: channel.id) }
       .background(NativeBackGesture().frame(width: 0, height: 0))

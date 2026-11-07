@@ -34,12 +34,14 @@ struct BotExchangeView: View {
           .accessibilityIdentifier("exchange-read-only")
           .frame(maxWidth: .infinity).padding(.top, 4)
       })
+      .padding(.trailing, sideChrome?.contentInset ?? 0)
       .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
+      .preference(key: ContextualSideControlsKey.self, value: sideChrome != nil)
       .background(NativeBackGesture().frame(width: 0, height: 0))
   }
   private var header: some View {
     HStack(spacing: 8) {
-      if sideChrome?.holdsAllControls != true { backButton }
+      if sideChrome == nil { backButton }
       HStack(spacing: -9) {
         if let source { MessageBotMark(bot: source, size: 29) }
         if let peerBot {
@@ -56,9 +58,11 @@ struct BotExchangeView: View {
       regularInLightMode: true) { dismiss() }
       .accessibilityIdentifier("exchange-back").foregroundStyle(NativePalette.text)
   }
-  /// Folded, Back moves into the side region, as in the conversation.
-  @ViewBuilder private var sideControls: some View {
-    if sideChrome?.holdsAllControls == true { backButton }
+  private var sideControls: some View {
+    VStack {
+      backButton
+      Spacer(minLength: 12)
+    }
   }
   private var rows: [NativeHistoryItem] {
     var result: [NativeHistoryItem] = []

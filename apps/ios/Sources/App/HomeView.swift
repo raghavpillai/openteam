@@ -35,9 +35,11 @@ struct HomeView: View {
   @State private var renamingSection: String?
   @State private var sectionName = ""
   @State private var deletingSection: JSON?
+  @State private var deletingBot: Bot?
   @State private var listHidden = false
   @State private var portraitLayout = false
   @State private var barRegions = BarRegions.none
+  @State private var contextualSideControls = false
   /// The conversation list's width beside a chat, as last dragged; 0 until then.
   @AppStorage("sidebarWidth") private var draggedSidebarWidth: Double = 0
   @State private var dragStartWidth: CGFloat?
@@ -82,6 +84,7 @@ struct HomeView: View {
         }
       }
       .modifier(SideChromeBar(top: EmptyView?.none, side: sideActions))
+      .onPreferenceChange(ContextualSideControlsKey.self) { contextualSideControls = $0 }
       .environment(\.sideChrome, chrome)
       // Use the space beside Duo's status cluster instead of its full top band.
       .environment(\.topBarClearance, split && barRegions.hasHinge
@@ -142,6 +145,25 @@ struct HomeView: View {
       }
     } message: {
       Text("Its conversations will stay in your list.")
+    }
+    .alert(
+      "Delete \(deletingBot?.name ?? "bot")?",
+      isPresented: Binding(
+        get: { deletingBot != nil }, set: { if !$0 { deletingBot = nil } }
+      ), presenting: deletingBot
+    ) { bot in
+      Button("Delete bot", role: .destructive) {
+        Task {
+          if await store.mutate("/api/v0/bots/\(API.segment(bot.id))", method: "DELETE") != nil,
+            let index = store.navigation.firstIndex(of: bot.dmChannelId)
+          {
+            store.navigation.removeSubrange(index...)
+          }
+        }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: { _ in
+      Text("This removes the bot and its chat history. This cannot be undone.")
     }
     .sheet(item: $creation, onDismiss: openSelectedConversation) { kind in
       CreateConversationView(group: kind == .group) { id in
@@ -290,6 +312,7 @@ struct HomeView: View {
                             .lineLimit(1)
                         }.frame(width: 100).contentShape(Rectangle())
                       }.accessibilityIdentifier("pinned-" + channel.id)
+                        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 22))
                         .contextMenu {
                           conversationActions(channel)
                         } preview: {
@@ -508,17 +531,20 @@ struct HomeView: View {
       .padding(.bottom, 10)
   }
   /// Shared by the list and chat so Duo's sidebar toggle stays on the right.
-  private var sideActions: some View {
-    VStack(spacing: 12) {
-      if splitAvailable { sidebarToggle }
-      creationMenu().frame(width: 44, height: 44).nativeInboxGlass()
-      searchControl
-      Spacer(minLength: 12)
-      if !expandedReferenceSidebar, store.navigation.isEmpty {
-        MarketplaceShortcut { marketplace = true }
-        accountControl
+  @ViewBuilder private var sideActions: some View {
+    if !contextualSideControls {
+      VStack(spacing: 12) {
+        if splitAvailable { sidebarToggle }
+        Spacer(minLength: 12)
+        creationMenu().frame(width: 44, height: 44).nativeInboxGlass()
+        searchControl
+        if !expandedReferenceSidebar, store.navigation.isEmpty {
+          MarketplaceShortcut { marketplace = true }
+          accountControl
+        }
       }
-    }.foregroundStyle(NativePalette.text)
+      .foregroundStyle(NativePalette.text)
+    }
   }
   private func creationMenu(pointSize: CGFloat = 20) -> some View {
     NativeActionMenu(symbol: "plus", pointSize: pointSize, title: "New conversation",
@@ -579,6 +605,7 @@ struct HomeView: View {
               ChannelRow(channel: channel, isSidebar: isSidebar).modifier(ZoomSource(id: channel.id, namespace: zoom))
             }
               .accessibilityIdentifier("channel-" + channel.id)
+              .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 22))
               .contextMenu {
                 conversationActions(channel)
               } preview: {
@@ -615,7 +642,7 @@ struct HomeView: View {
     }
     Button(store.pins.contains(channel.id) ? "Unpin" : "Pin", systemImage: "pin") {
       Task { await store.togglePin(channel.id) }
-    }
+    }.accessibilityIdentifier("conversation-context-pin")
     Menu("Move to", systemImage: "folder") {
       Button("Unassigned") { Task { await move(channel.id, to: "") } }
       ForEach(sections, id: \.self) { section in
@@ -624,13 +651,15 @@ struct HomeView: View {
         }
       }
     }
+    if let bot = store.bot(for: channel) {
+      Button("Delete bot", systemImage: "trash", role: .destructive) {
+        deletingBot = bot
+      }
+    }
   }
   private func conversationPreview(_ channel: Channel) -> some View {
-    ChannelRow(channel: channel).padding(.horizontal, 18)
-      .frame(width: max(100, contentWidth - 40))
-      .background(NativePalette.background, in: RoundedRectangle(cornerRadius: 12))
+    ConversationPreview(channel: channel, width: min(300, max(100, contentWidth - 40)))
       .environment(store)
-      .onAppear { NativeHaptics.play(.medium, source: "conversation.long-press") }
   }
   func saveSidebar(_ next: JSON) async {
     if let value = await store.mutate("/api/v0/settings/sidebar", method: "PATCH", body: next) {
@@ -680,6 +709,69 @@ struct HomeView: View {
     next["unreadIds"] = .array(
       Array(Set(next["unreadIds"].array.map(\.string) + [id])).map(JSON.string))
     await saveSidebar(next)
+  }
+}
+
+private struct ConversationPreview: View {
+  @Environment(AppStore.self) private var store
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  let channel: Channel
+  let width: CGFloat
+  @State private var revealed = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 8) {
+        ChannelAvatar(channel: channel, size: 24, animatesWhenInactive: true)
+        Text(channel.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+      }.padding(14)
+      Divider()
+      Text(store.latestMessage(channel.id)?.previewText
+        ?? store.bot(for: channel)?.description ?? channel.description)
+        .font(.subheadline).lineLimit(12).padding(12)
+        .background(NativePalette.assistant, in: RoundedRectangle(cornerRadius: 14))
+        .padding(12)
+    }
+      .foregroundStyle(NativePalette.text)
+      .frame(width: width, alignment: .leading)
+      .background(NativePalette.background, in: RoundedRectangle(cornerRadius: 12))
+      .mask(alignment: .top) {
+        GeometryReader { geometry in
+          RoundedRectangle(cornerRadius: 12)
+            .frame(height: reduceMotion || revealed ? geometry.size.height : 52)
+        }
+      }
+      .scaleEffect(reduceMotion || revealed ? 1 : 0.94, anchor: .topLeading)
+      .background {
+        PreviewPresentationObserver {
+          guard !revealed else { return }
+          NativeHaptics.play(.medium, source: "conversation.long-press")
+          withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.82)) {
+            revealed = true
+          }
+        }.frame(width: 0, height: 0)
+      }
+      .onDisappear { revealed = false }
+  }
+}
+
+/// Previews are measured offscreen. Start their motion when UIKit attaches them to a window.
+private struct PreviewPresentationObserver: UIViewRepresentable {
+  var presented: () -> Void
+
+  func makeUIView(context: Context) -> PresentationView { PresentationView() }
+  func updateUIView(_ view: PresentationView, context: Context) { view.presented = presented }
+
+  final class PresentationView: UIView {
+    var presented: (() -> Void)?
+    override func didMoveToWindow() {
+      super.didMoveToWindow()
+      guard window != nil else { return }
+      DispatchQueue.main.async { [weak self] in
+        guard let self, self.window != nil else { return }
+        self.presented?()
+      }
+    }
   }
 }
 
@@ -890,6 +982,13 @@ struct SideChromeBar<Top: View, Side: View>: ViewModifier {
     } else {
       content
     }
+  }
+}
+
+struct ContextualSideControlsKey: PreferenceKey {
+  static let defaultValue = false
+  static func reduce(value: inout Bool, nextValue: () -> Bool) {
+    value = value || nextValue()
   }
 }
 

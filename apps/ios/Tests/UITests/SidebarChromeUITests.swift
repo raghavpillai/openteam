@@ -136,4 +136,39 @@ import XCTest
     attachment.lifetime = .keepAlways
     add(attachment)
   }
+
+  func testProfileRailUsesContextualActionsAndPreservesUnsavedChanges() async throws {
+    continueAfterFailure = false
+    try await configure("/__qa/reset", [:])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "dark",
+      "--open-channel", "channel-research"]
+    app.launch()
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 20))
+    app.buttons["conversation-details"].tap()
+    let back = app.buttons["profile-back"]
+    let options = app.buttons["profile-options"]
+    XCTAssertTrue(back.waitForExistence(timeout: 8))
+    XCTAssertTrue(back.isHittable)
+    XCTAssertTrue(options.isHittable)
+    XCTAssertGreaterThan(back.frame.minX, app.textFields["profile-name"].frame.maxX)
+    XCTAssertLessThan(back.frame.minY, options.frame.minY)
+    XCTAssertEqual(back.frame.width, 44, accuracy: 1)
+    XCTAssertFalse(app.buttons["new-button"].exists)
+    XCTAssertFalse(app.buttons["search-button"].exists)
+    let name = app.textFields["profile-name"]
+    name.tap()
+    name.typeText(" updated")
+    XCTAssertTrue(app.buttons["profile-save"].waitForExistence(timeout: 5))
+    back.tap()
+    XCTAssertTrue(app.alerts["Save changes?"].waitForExistence(timeout: 5))
+    app.alerts.buttons["Keep editing"].tap()
+    XCTAssertEqual(name.value as? String, "Research updated")
+    capture("contextual-profile-rail", app)
+    app.buttons["profile-save"].tap()
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["new-button"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["search-button"].exists)
+    XCTAssertFalse(back.exists)
+  }
 }

@@ -142,6 +142,10 @@ public struct Message: Codable, Identifiable, Sendable, Hashable {
   public var isInterruptedNotice: Bool {
     sender == "system" && metadata["event"]["type"].string == "turn-interrupted"
   }
+  /// The realtime voice session that produced this message, or nil for ordinary messages.
+  public var voiceSessionID: String? {
+    metadata["voice"] == .null ? nil : metadata["voice"]["sessionId"].string
+  }
   public var replyTo: String? {
     let s = metadata["replyTo"].string
     return s.isEmpty ? nil : s

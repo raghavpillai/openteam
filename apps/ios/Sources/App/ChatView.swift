@@ -237,6 +237,7 @@ struct ChatView: View {
       case .confirmed(let entry):
         animatesResize = entry.message.metadata["type"].string == "widget"
         hash.combine(entry.message)
+        hash.combine(entry.voiceRun)
         hash.combine(entry.showsReplyContext)
       case .pending(let pending):
         hash.combine(pending.failure)
@@ -293,7 +294,9 @@ struct ChatView: View {
           }.padding(.vertical, 6).accessibilityLabel("New messages")
             .accessibilityIdentifier("unread-boundary-" + message.id)
         }
-        if message.metadata["event"]["type"].string == "name-changed" {
+        if !entry.voiceRun.isEmpty {
+          VoiceConversationCard(messages: entry.voiceRun)
+        } else if message.metadata["event"]["type"].string == "name-changed" {
           Label("Renamed to " + message.metadata["event"]["to"].string, systemImage: "pencil")
             .font(.system(size: 12)).foregroundStyle(NativePalette.muted).frame(maxWidth: .infinity)
         } else if message.isInterruptedNotice {

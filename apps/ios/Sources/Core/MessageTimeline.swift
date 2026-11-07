@@ -7,6 +7,9 @@ public struct MessageTimeline: Sendable {
     public let message: Message
     public let timestamp: Date?
     public let showsReplyContext: Bool
+    /// Set on the first entry of a realtime voice run: every message of the run, which the
+    /// chat shows as one collapsed card. Later messages of the run have no entry of their own.
+    public var voiceRun: [Message] = []
     public var id: String { message.id }
   }
   public let entries: [Entry]
@@ -36,7 +39,28 @@ public struct MessageTimeline: Sendable {
       return Entry(message: message, timestamp: showsTimestamp ? date : nil,
         showsReplyContext: showsReplyContext)
     }
-    self.entries = entries
+    self.entries = Self.foldingVoiceRuns(entries)
     replyCounts = ThreadProjection.replyCounts(in: messages)
+  }
+  /// Consecutive messages of one voice session become a single entry that keeps the run.
+  private static func foldingVoiceRuns(_ entries: [Entry]) -> [Entry] {
+    var result: [Entry] = []
+    var session: String?
+    for entry in entries {
+      guard let id = entry.message.voiceSessionID else {
+        session = nil
+        result.append(entry)
+        continue
+      }
+      if session == id, !result.isEmpty {
+        result[result.count - 1].voiceRun.append(entry.message)
+      } else {
+        session = id
+        var first = entry
+        first.voiceRun = [entry.message]
+        result.append(first)
+      }
+    }
+    return result
   }
 }

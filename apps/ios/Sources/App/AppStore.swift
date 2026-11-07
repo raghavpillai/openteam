@@ -31,6 +31,8 @@ final class AppStore {
   var accountDisplayName: String { record?.displayName ?? "OpenTeam owner" }
   var accountServer: String { record?.server ?? server }
   var state = SavedState()
+  private(set) var sidebarPluginsVerified = false
+  @ObservationIgnored private var sidebarPluginsRefresh: (id: UUID, epoch: UUID, task: Task<Void, Never>)?
   private var drafts: [String: Draft] = [:]
   private var persistenceTask: Task<Void, Never>?
   private var writer: StateWriter?
@@ -497,6 +499,7 @@ final class AppStore {
     disk = nextDisk
     writer = StateWriter(disk: nextDisk)
     state = nextState
+    sidebarPluginsVerified = false
     drafts = nextState.drafts
     onboarding =
       UserDefaults.standard.bool(forKey: OnboardingDecision.key(server: next.server))
@@ -659,6 +662,8 @@ final class AppStore {
   func refresh(quiet: Bool = false, flushPending: Bool = true) async -> Bool {
     guard let api, phase == .ready else { return false }
     let epoch = generation
+    // Independent of bootstrap/settings latency; keep saved icons on screen.
+    Task { if epoch == generation { await refreshSidebarPlugins() } }
     let sync = beginStateSync()
     defer { stateSyncs.remove(sync) }
     do {
@@ -681,6 +686,31 @@ final class AppStore {
       if epoch == generation { handle(error, quiet: quiet) }
       return false
     }
+  }
+  /// Shared by every footer instance. A recreated view reads SavedState
+  /// synchronously and joins an in-flight refresh instead of resetting its icons.
+  func refreshSidebarPlugins() async {
+    guard phase == .ready else { return }
+    let epoch = generation
+    if let pending = sidebarPluginsRefresh, pending.epoch == epoch {
+      await pending.task.value
+      return
+    }
+    let id = UUID()
+    sidebarPluginsVerified = false
+    let task = Task { [weak self] in
+      guard let self, generation == epoch else { return }
+      guard let response = try? await request("/api/v0/plugins"),
+        generation == epoch, phase == .ready, !Task.isCancelled,
+        let plugins = SidebarPlugin.snapshot(response)
+      else { return }
+      state.sidebarPlugins = plugins
+      sidebarPluginsVerified = true
+      persist()
+    }
+    sidebarPluginsRefresh = (id, epoch, task)
+    await task.value
+    if sidebarPluginsRefresh?.id == id { sidebarPluginsRefresh = nil }
   }
   /// UI tests and QA opt in with `--qa-onboarding`; other UI-test fixtures never see it.
   private var onboardingForcedForQA: Bool {
@@ -821,6 +851,7 @@ final class AppStore {
             guard epoch == generation else { return }
             apply(bootstrap)
             if reconnectSync != nil {
+              Task { if epoch == generation { await refreshSidebarPlugins() } }
               let root = try await api.request("/api/v0/settings")
               try Task.checkCancellation()
               guard epoch == generation else { return }

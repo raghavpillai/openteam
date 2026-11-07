@@ -239,6 +239,7 @@ struct PluginCatalogMark: View {
   let plugin: JSON
   let fallback: JSON?
   let size: CGFloat
+  var allowsRemoteArtwork = true
   private var key: String {
     [plugin["pluginKey"].string, plugin["key"].string, fallback?["key"].string ?? "", plugin["name"].string]
       .first { !$0.isEmpty }?.lowercased().replacingOccurrences(of: " (managed)", with: "")
@@ -299,7 +300,7 @@ struct PluginCatalogMark: View {
         let encoded = source.components(separatedBy: ";base64,").last, encoded.count <= 350_000,
         let data = Data(base64Encoded: encoded), let image = UIImage(data: data) {
         artwork(Image(uiImage: image))
-      } else if let url = URL(string: source), ["https", "http"].contains(url.scheme ?? "") {
+      } else if allowsRemoteArtwork, let url = URL(string: source), ["https", "http"].contains(url.scheme ?? "") {
         AsyncImage(url: url) { image in artwork(image) } placeholder: { placeholder }
       } else { placeholder }
     }

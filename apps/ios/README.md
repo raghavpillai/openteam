@@ -34,7 +34,10 @@ swift test --package-path apps/ios -c release
 
 `generate` regenerates the checked-in project, shared robot artwork, the
 notification avatar artwork, offline Markdown/KaTeX/Mermaid documents, and noVNC
-viewer. Its JavaScript dependencies are pinned in this workspace's `package.json`.
+viewer. For a version/build-only release change, run just
+`python3 apps/ios/scripts/generate-project.py` and verify that the diff contains only
+the intended metadata; preserve the committed renderer and viewer bytes. Its
+JavaScript dependencies are pinned in this workspace's `package.json`.
 Ordinary messages, chat navigation, composer and state are native Swift views.
 
 ## Siri AI preview and app skills
@@ -173,9 +176,13 @@ repository `output/`; they are not bundled with the app.
 
 Increment `release.json`'s build number before each TestFlight upload, keep its
 version in sync with this workspace's `package.json`, then regenerate the project.
-The v0.0.14 release candidate uses build 64 after a read-only App Store Connect
-check of builds and build uploads on November 5, 2026. Recheck before uploading:
-source metadata does not reserve a build number or establish TestFlight availability. Release archives and exports are built locally
+The v0.0.15 release candidate selects build 65 after the parent's read-only App Store
+Connect check of builds and build uploads on November 7, 2026 at 23:19 UTC.
+The separate public-group verification at 23:20:54 UTC confirmed 0.0.14 (64) is valid,
+unexpired, approved and in external beta testing in the public TestFlight group;
+the update feed targets that build. Build 65 is not advertised. Recheck before
+uploading: source metadata does not reserve a build number or establish TestFlight
+availability. Release archives and exports are built locally
 with Xcode on macOS. Follow [Releasing OpenTeam](../../.github/RELEASING.md) for
 release preparation and publication boundaries; tag pushes do not build releases.
 `ci-testflight.sh` is for an ephemeral CI runner, not a developer's personal keychain.

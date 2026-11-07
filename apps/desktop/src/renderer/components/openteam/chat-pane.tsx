@@ -50,6 +50,7 @@ import {
   Ellipsis,
   File,
   LockKeyhole,
+  Mic,
   MessageCircle,
   Reply,
   Smile,
@@ -74,6 +75,11 @@ import type { StickToBottomContext } from "use-stick-to-bottom";
 import { api } from "../../client/openteam-api";
 import { conversationLayoutIsWarm, VirtualizedTimeline } from "./virtualized-timeline";
 import { a2aProjectionFor, collapseA2ATimeline } from "../../lib/a2a-events";
+import {
+  type A2AActivityEntry,
+  collapseVoiceTimeline,
+  type VoiceConversationEntry,
+} from "@openteam/product-core/messages";
 import {
   channelNameChangedEventFor,
   routineChangedActionLabel,
@@ -909,6 +915,49 @@ const A2AActivityRow = memo(function A2AActivityRow({
   );
 });
 
+const VoiceConversationCard = memo(function VoiceConversationCard({
+  botName,
+  messages,
+}: {
+  botName: string;
+  messages: ChannelMessageView[];
+}) {
+  const [open, setOpen] = useState(false);
+  const first = messages[0];
+  const last = messages[messages.length - 1];
+  const minutes = first && last
+    ? Math.max(1, Math.round((new Date(last.createdAt).getTime() - new Date(first.createdAt).getTime()) / 60_000))
+    : 1;
+  return (
+    <div className="mx-auto my-1 w-full max-w-[640px] px-1" data-voice-conversation="">
+      <button
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        <Mic aria-hidden className="size-4 shrink-0" />
+        <span className="flex-1 truncate">
+          Voice conversation · {messages.length} {messages.length === 1 ? "message" : "messages"} · {minutes} min
+        </span>
+        <ChevronDown aria-hidden className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <ol className="mt-1 space-y-1.5 rounded-xl border border-border px-3 py-2 text-sm" data-voice-transcript="">
+          {messages.map((message) => (
+            <li key={message.id}>
+              <span className="mr-2 text-xs text-muted-foreground">
+                {message.sender === "user" ? "You" : botName}
+              </span>
+              <span className="whitespace-pre-wrap break-words">{message.content}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+});
+
 export const ChatPane = memo(function ChatPane({
   composerFocusRequest,
   incomingDraft,
@@ -1190,7 +1239,20 @@ export const ChatPane = memo(function ChatPane({
       );
     const collapsed =
       channel.kind === "bot_dm" ? collapseA2ATimeline(ordered, (entry) => entry.message) : ordered;
-    const messageTimeline = addContextGaps(collapsed, (entry) =>
+    // Only plain message entries are ever wrapped, so the folded entries keep their message shape.
+    const withVoice: Array<
+      MessageTimelineEntry | A2AActivityEntry<MessageTimelineEntry> | VoiceConversationEntry<MessageTimelineEntry>
+    > =
+      channel.kind === "bot_dm"
+        ? (collapseVoiceTimeline(collapsed, (entry) =>
+            entry.type === "message" ? entry.message : null
+          ) as Array<
+            | MessageTimelineEntry
+            | A2AActivityEntry<MessageTimelineEntry>
+            | VoiceConversationEntry<MessageTimelineEntry>
+          >)
+        : collapsed;
+    const messageTimeline = addContextGaps(withVoice, (entry) =>
       entry.type === "message"
         ? visibleContextMessageIds.has(entry.message.id)
         : entry.entries.some((candidate) => visibleContextMessageIds.has(candidate.message.id))
@@ -1444,13 +1506,18 @@ export const ChatPane = memo(function ChatPane({
   }, [activeRun, botById, channel.createdAt, selectedBot, thinkingPhase, timeline]);
   const timelineMessageIds = useCallback((entry: (typeof renderedTimeline)[number]) => {
     if (entry.type === "message") return [entry.message.id];
-    if (entry.type === "a2a") return entry.entries.map((candidate) => candidate.message.id);
+    if (entry.type === "a2a" || entry.type === "voice")
+      return entry.entries.map((candidate) => candidate.message.id);
     return [];
   }, []);
   const focusedRenderedTimelineEntry = useMemo(() => {
     if (!focusMessage || !messagesById.has(focusMessage.messageId)) return null;
     const index = renderedTimeline.findIndex(
-      (entry) => entry.type === "message" && entry.message.id === focusMessage.messageId
+      (entry) =>
+        entry.type === "message"
+          ? entry.message.id === focusMessage.messageId
+          : entry.type === "voice" &&
+            entry.entries.some((candidate) => candidate.message.id === focusMessage.messageId)
     );
     return index < 0
       ? null
@@ -1560,6 +1627,11 @@ export const ChatPane = memo(function ChatPane({
                       >
                       {entry.type === "thinking" ? (
                         <BotThinkingSlot bot={entry.bot} phase={entry.phase} activity={lastThinkingText.current.text} persistent={hasBackgroundTask && !activeRun} group={channel.kind === "group"} groupStart={channel.kind === "group" && mainMessages.length > 0 && mainMessages.at(-1)?.sender !== "agent"} groupActivity={groupActivity ? { ...groupActivity, text: lastThinkingText.current.text } : undefined} />
+                      ) : entry.type === "voice" ? (
+                        <VoiceConversationCard
+                          botName={selectedBot?.name ?? "Assistant"}
+                          messages={entry.entries.map((candidate) => candidate.message)}
+                        />
                       ) : entry.type === "a2a" ? (
                         <A2AActivityRow
                           count={entry.entries.length}

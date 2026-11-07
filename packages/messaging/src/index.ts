@@ -2722,6 +2722,12 @@ export class AgentMessaging {
         }
       }
       const address = await nextMessageAddress(tx, channel.id, "agent");
+      // Replies to a realtime voice turn carry the same marker as the spoken input
+      // so clients can fold the whole exchange into one voice conversation card.
+      // Interactive cards stay visible because the user must be able to answer them.
+      const voiceTurn = input.type === "text"
+        ? await tx.voiceTurn.findUnique({ where: { runId: context.runId }, select: { id: true, sessionId: true } })
+        : null;
       const message = await tx.channelMessage.create({
         data: {
           channelId: channel.id,
@@ -2732,6 +2738,7 @@ export class AgentMessaging {
           content,
           metadata: json({
             ...visibleInput,
+            ...(voiceTurn ? { voice: { sessionId: voiceTurn.sessionId, turnId: voiceTurn.id } } : {}),
             ...(channel.kind === "group" ? { content } : {}),
             ...(routineRootMessageId ? { routineRootMessageId } : {}),
             address,

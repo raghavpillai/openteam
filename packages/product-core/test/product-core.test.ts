@@ -3,6 +3,7 @@ import type { ChannelMessageView, ClientSnapshot } from "@openteam/contracts";
 import {
   a2aProjectionFor,
   collapseA2ATimeline,
+  collapseVoiceTimeline,
   createSnapshotIndex,
   deriveThreads,
   selectChannelRows,
@@ -116,6 +117,16 @@ describe("portable product projections", () => {
     expect(
       a2aProjectionFor(message("message-2", { fromAgent: { id: "peer-1", name: "Peer" } }))
     ).toEqual({ direction: "incoming", peerId: "peer-1", peerName: "Peer" });
+  });
+
+  test("folds consecutive voice messages into one entry and splits on ordinary messages", () => {
+    const voice = (id: string, sessionId: string) => message(id, { voice: { sessionId } });
+    const collapsed = collapseVoiceTimeline(
+      [voice("m-1", "s1"), voice("m-2", "s1"), message("m-3"), voice("m-4", "s1"), voice("m-5", "s2")],
+      (candidate) => candidate
+    );
+    expect(collapsed.map(({ id }) => id)).toEqual(["voice:m-1", "m-3", "voice:m-4", "voice:m-5"]);
+    expect(collapsed[0] && "entries" in collapsed[0] ? collapsed[0].entries.length : 0).toBe(2);
   });
 
   test("keeps same-peer A2A runs on their original sides of an ordinary message", () => {

@@ -1,14 +1,75 @@
 import { createSocket } from "node:dgram";
-import { createServer, type Socket } from "node:net";
+import { createConnection, createServer, type Socket } from "node:net";
+import { networkInterfaces } from "node:os";
 import { Agent, request } from "node:https";
 import { connect } from "node:tls";
 import type { Duplex } from "node:stream";
+
+/** A global IPv6 address on a real interface; link-local and unique-local are not routable. */
+export function globalIpv6Address(): string | undefined {
+  for (const entries of Object.values(networkInterfaces()))
+    for (const entry of entries ?? [])
+      if (entry.family === "IPv6" && !entry.internal && !/^(?:f[cd]|fe[89ab])/i.test(entry.address))
+        return entry.address;
+  return undefined;
+}
+
+/** Holding an address is not evidence of a working path; prove one hop before advertising AAAA. */
+export async function probeIpv6Route(
+  host = "2606:4700:4700::1111",
+  port = 443,
+  timeoutMs = 2000
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host, port, family: 6, timeout: timeoutMs });
+    const finish = (reachable: boolean) => {
+      socket.destroy();
+      resolve(reachable);
+    };
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+  });
+}
+
+/** QTYPE of the single question, as an offset-free answer to "is this an AAAA lookup?". */
+export function questionType(query: Buffer): number | undefined {
+  let offset = 12;
+  while (offset < query.length) {
+    const length = query[offset]!;
+    if (!length) return offset + 5 <= query.length ? query.readUInt16BE(offset + 1) : undefined;
+    // Compression is invalid in a question; refuse rather than guess.
+    if (length > 63) return undefined;
+    offset += length + 1;
+  }
+  return undefined;
+}
+
+/** NOERROR/NODATA. Used instead of an unroutable AAAA set the computer cannot connect to. */
+export function dnsNodata(query: Buffer): Buffer {
+  let offset = 12;
+  while (offset < query.length && query[offset]) {
+    if (query[offset]! > 63) throw new Error("Invalid DNS query");
+    offset += query[offset]! + 1;
+  }
+  const end = offset + 5;
+  if (end > query.length) throw new Error("Invalid DNS query");
+  const reply = Buffer.alloc(end);
+  query.copy(reply, 0, 0, end);
+  reply[2] = (query[2]! & 0x79) | 0x80; // QR; preserve opcode and RD
+  reply[3] = 0x80; // RA; NOERROR
+  reply.writeUInt16BE(1, 4);
+  reply.writeUInt16BE(0, 6);
+  reply.writeUInt16BE(0, 8);
+  reply.writeUInt16BE(0, 10);
+  return reply;
+}
 
 /** DNS wire messages travel over HTTPS through the same leased exit as TCP.
  * No system lookup or direct fallback is performed, including on timeout. */
 export function createDnsExchange(
   client: { open(host: string, port: number, signal?: AbortSignal): Promise<Duplex> },
-  options: { routeKey?: () => string | null; timeoutMs?: number } = {}
+  options: { routeKey?: () => string | null; timeoutMs?: number; ipv6?: () => boolean } = {}
 ) {
   type Job = {
     query: Buffer;
@@ -26,6 +87,9 @@ export function createDnsExchange(
   let pool: Pool | undefined,
     closed = false;
   const routeKey = options.routeKey ?? (() => "selected-route");
+  // Advertising AAAA the current exit cannot route makes every dual-stack name
+  // fail. Only unresolved IPv6 lookups are withheld; A, HTTPS and CNAME pass through.
+  const ipv6 = options.ipv6 ?? (() => true);
   const timeoutMs = options.timeoutMs ?? 5000;
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000)
     throw new Error("Invalid DNS deadline");
@@ -188,6 +252,7 @@ export function createDnsExchange(
   const exchange = (query: Buffer): Promise<Buffer> => {
     if (query.length < 12 || query.length > 4096 || query[2]! & 0x80 || query.readUInt16BE(4) !== 1)
       return Promise.reject(new Error("Invalid DNS query"));
+    if (questionType(query) === 28 && !ipv6()) return Promise.resolve(dnsNodata(query));
     syncRoute();
     const key = routeKey();
     if (closed || !key) return Promise.reject(new Error("DNS route unavailable"));

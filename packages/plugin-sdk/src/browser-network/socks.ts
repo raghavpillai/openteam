@@ -3,27 +3,38 @@ import type { Duplex } from "node:stream";
 import ipaddr from "ipaddr.js";
 
 /** Loopback-only SOCKS5 CONNECT gateway. It never chooses or falls back to a route. */
-export function createBrowserProxy(open: (host: string, port: number) => Promise<Duplex>) {
+export function createBrowserProxy(
+  open: (host: string, port: number) => Promise<Duplex>,
+  limit = 80
+) {
   const clients = new Set<Socket>();
   const server = createServer({ allowHalfOpen: true }, (client) => {
     client.setNoDelay(true);
-    clients.add(client);
-    if (clients.size > 80) {
-      client.destroy();
-      return;
-    }
-    let stage = 0,
-      bytes = Buffer.alloc(0),
-      busy = false,
+    let timer: ReturnType<typeof setTimeout> | undefined,
       upstream: Duplex | undefined;
-    const timer = setTimeout(() => client.destroy(), 30_000);
-    timer.unref();
-    client.on("error", () => {});
+    // Release capacity before admission: a rejected connection must not stay in the
+    // set, because this set is the only capacity measure and, under computer-wide
+    // routing, every container connection fails once it is exhausted.
     client.once("close", () => {
       clearTimeout(timer);
       clients.delete(client);
       upstream?.destroy();
     });
+    client.on("error", () => {});
+    clients.add(client);
+    if (clients.size > limit) {
+      client.destroy();
+      return;
+    }
+    let stage = 0,
+      bytes = Buffer.alloc(0),
+      busy = false;
+    // An abandoned half-open request must not hold a slot for the full idle window.
+    client.once("end", () => {
+      if (!upstream) client.destroy();
+    });
+    timer = setTimeout(() => client.destroy(), 30_000);
+    timer.unref();
     const reject = (code = 1) => {
       client.end(Buffer.from([5, code, 0, 1, 0, 0, 0, 0, 0, 0]));
     };

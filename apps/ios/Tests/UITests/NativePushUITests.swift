@@ -2,7 +2,7 @@ import XCTest
 
 /// Optional suite: real UNUserNotificationCenter + simctl push, inert loopback server.
 @MainActor final class NativePushUITests: XCTestCase {
-  let base = "http://127.0.0.1:20016"
+  let base = ProcessInfo.processInfo.environment["NATIVE_PUSH_SERVER"] ?? "http://127.0.0.1:20016"
   func request(_ path: String, _ body: [String: Any]? = nil) async throws -> [String: Any] {
     var request = URLRequest(url: URL(string: base + path)!)
     if let body {
@@ -12,14 +12,29 @@ import XCTest
     }
     let (data, response) = try await URLSession.shared.data(for: request)
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
-    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let value = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    if value["simulatorUnsupported"] as? Bool == true {
+      throw XCTSkip("This simulator rejects silent notification pushes. Device APNs delivery requires a signed-device check.")
+    }
+    return value
   }
-  func launch(failRegistration: Int = 0, coldSession: Bool = false) async throws -> XCUIApplication
+  func launch(failRegistration: Int = 0, coldSession: Bool = false,
+    backgroundTask: Bool = false) async throws -> XCUIApplication
   {
     continueAfterFailure = false
+    let app = XCUIApplication()
+    app.terminate()
     _ = try await request("/__push/reset", [:])
     _ = try await request("/__push/control", ["failRegistration": failRegistration])
-    let app = XCUIApplication()
+    if backgroundTask {
+      let bootstrap = try await request("/api/v0/client-bootstrap")
+      let bots = try XCTUnwrap(bootstrap["bots"] as? [[String: Any]])
+      let bot = try XCTUnwrap(bots.first)
+      _ = try await request("/__qa/control", ["subagents": [[
+        "id": "current-server-task", "parentBotId": try XCTUnwrap(bot["id"] as? String),
+        "parentChannelId": try XCTUnwrap(bot["dmChannelId"] as? String), "status": "running",
+      ]]])
+    }
     app.launchArguments = [
       "--ui-testing", "--server", base, "--appearance", "dark", "--qa-native-push",
       "--qa-push-reset", "--qa-push-token", String(repeating: "ab", count: 32),
@@ -50,11 +65,33 @@ import XCTest
     XCTFail("Native presence did not become \(active)")
     return [:]
   }
+  private func background(_ app: XCUIApplication) throws {
+    XCUIDevice.shared.press(.home)
+    guard app.wait(for: .runningBackground, timeout: 4) || app.state == .runningBackgroundSuspended else {
+      throw XCTSkip("This simulator keeps OpenTeam active after Home. Background lifecycle coverage requires a runtime that actually backgrounds the app.")
+    }
+  }
+  private func openNotification(_ notification: XCUIElement, in app: XCUIApplication) {
+    let body = notification.label
+    // A collapsed Notification Center group expands on its first tap. Confirm
+    // activation before asserting routing, resolving the alert again after
+    // each group expansion instead of retaining a stale accessibility element.
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    for _ in 0..<3 {
+      let alert = springboard.buttons.matching(identifier: "ShortLook.Platter.Content.Seamless")
+        .containing(.staticText, identifier: body).firstMatch
+      XCTAssertTrue(alert.waitForExistence(timeout: 5))
+      alert.tap()
+      if app.wait(for: .runningForeground, timeout: 4) { return }
+      print("Notification Center is still visible; resolving its selected alert again")
+    }
+    XCTFail("Selecting the notification did not activate OpenTeam. " + springboard.debugDescription)
+  }
   func testSmartNotificationPresenceAndPreferenceFollowNativeLifecycle() async throws {
     let app = try await launch()
     _ = try await waitRegistered()
     let first = try await waitPresence(true)
-    XCUIDevice.shared.press(.home)
+    try background(app)
     let background = try await waitPresence(false)
     XCTAssertEqual(first["clientId"] as? String, background["clientId"] as? String)
     XCTAssertGreaterThan(background["sequence"] as? Int ?? 0, first["sequence"] as? Int ?? 0)
@@ -84,13 +121,16 @@ import XCTest
     ["channelId": channel, "lastReadSequence": message, "lastReadNotificationSequence": activity]
   }
   func observe(
-    _ probe: String, expected: Set<String>, badge: Int? = nil, backgroundCapability: Bool = false
+    _ probe: String, expected: Set<String>, badge: Int? = nil, backgroundCapability: Bool = false,
+    after observationCount: Int = 0
   ) async throws {
-    for attempt in 0..<24 {
-      if attempt % 6 == 0 { _ = try await request("/__push/probe", ["probe": probe]) }
+    for attempt in 0..<50 {
+      if probe != "delivered", attempt % 6 == 0 {
+        _ = try await request("/__push/probe", ["probe": probe])
+      }
       let state = try await request("/__push/state")
       let observations = state["observations"] as? [[String: Any]] ?? []
-      if let observation = observations.last(where: {
+      if let observation = observations.dropFirst(observationCount).last(where: {
         $0["probe"] as? String == probe || probe == "delivered"
       }),
         Set(observation["delivered"] as? [String] ?? []) == expected,
@@ -100,8 +140,9 @@ import XCTest
       }
       try await Task.sleep(for: .milliseconds(300))
     }
+    let state = try await request("/__push/state")
     let evidence = try JSONSerialization.data(
-      withJSONObject: try await request("/__push/state"), options: [.prettyPrinted, .sortedKeys])
+      withJSONObject: state, options: [.prettyPrinted, .sortedKeys])
     let attachment = XCTAttachment(data: evidence, uniformTypeIdentifier: "public.json")
     attachment.name = "push-" + probe
     attachment.lifetime = .keepAlways
@@ -111,8 +152,10 @@ import XCTest
         "This simulator did not execute the background callback. A signed-device APNs test remains required; see attached delivery evidence."
       )
     }
+    let lastObservation = (state["observations"] as? [[String: Any]])?.last
     XCTFail(
-      "Real notification center did not reach \(expected), badge \(String(describing: badge)) for \(probe)"
+      "Real notification center did not reach \(expected), badge \(String(describing: badge)) for \(probe). "
+        + "Last observation \(String(describing: lastObservation)), reads \(String(describing: state["reads"]))"
     )
   }
   func testDesktopReadsClearOnlyAcknowledgedNotificationsInBackground() async throws {
@@ -126,7 +169,7 @@ import XCTest
     let c1 = try XCTUnwrap(channels.first?["id"] as? String)
     let c2 = try XCTUnwrap(channels.last?["id"] as? String)
     XCTAssertNotEqual(c1, c2)
-    XCUIDevice.shared.press(.home)
+    try background(app)
     for (id, kind, channel, message, activity) in [
       ("old-message", "message", c1, "10", "100"), ("new-message", "message", c1, "11", "101"),
       ("new-reaction", "reaction", c1, "1", "102"), ("other-chat", "message", c2, "50", "200"),
@@ -172,7 +215,7 @@ import XCTest
     let channels = try XCTUnwrap(bootstrap["channels"] as? [[String: Any]])
     let c1 = try XCTUnwrap(channels.first?["id"] as? String)
     let c2 = try XCTUnwrap(channels.last?["id"] as? String)
-    XCUIDevice.shared.press(.home)
+    try background(app)
     for (id, kind, channel, message, activity) in [
       ("old-message", "message", c1, "10", "100"), ("new-message", "message", c1, "11", "101"),
       ("new-reaction", "reaction", c1, "1", "102"), ("other-chat", "message", c2, "50", "200"),
@@ -189,7 +232,7 @@ import XCTest
       "delivered", expected: ["old-message", "new-message", "new-reaction", "other-chat"], badge: 4)
     _ = try await request(
       "/__push/read", ["readStates": [read(c1, "10", "100")], "badgeCount": 3, "notify": false])
-    XCUIDevice.shared.press(.home)
+    try background(app)
     app.activate()
     try await observe(
       "delivered", expected: ["new-message", "new-reaction", "other-chat"], badge: 3)
@@ -199,7 +242,7 @@ import XCTest
         "readStates": [read(c1, "11", "102"), read(c2, "50", "200")], "badgeCount": 0,
         "notify": false,
       ])
-    XCUIDevice.shared.press(.home)
+    try background(app)
     app.activate()
     try await observe("delivered", expected: [], badge: 0)
     let evidence = try JSONSerialization.data(
@@ -209,13 +252,252 @@ import XCTest
     attachment.lifetime = .keepAlways
     add(attachment)
   }
+  func testOpeningBotClearsItsNotificationsAndPreservesOtherChats() async throws {
+    let (app, channel, sequence) = try await notifiedBot()
+    app.buttons["channel-" + channel].tap()
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 10))
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+    let receipts = try await request("/__push/state")["receipts"] as? [[String: Any]] ?? []
+    XCTAssertTrue(receipts.contains {
+      $0["path"] as? String == "/api/v0/channels/" + channel + "/read"
+        && $0["throughSequence"] as? String == sequence
+        && $0["throughNotificationSequence"] as? String == "123"
+    })
+  }
+  private func notifiedBot(backgroundTask: Bool = false) async throws -> (XCUIApplication, String, String) {
+    let app = try await launch(backgroundTask: backgroundTask)
+    _ = try await waitRegistered()
+    let bootstrap = try await request("/api/v0/client-bootstrap")
+    let channels = try XCTUnwrap(bootstrap["channels"] as? [[String: Any]])
+    let bot = try XCTUnwrap(channels.first { $0["kind"] as? String == "bot_dm" })
+    let channel = try XCTUnwrap(bot["id"] as? String)
+    let other = try XCTUnwrap(channels.first { $0["id"] as? String != channel }?["id"] as? String)
+    let messages = try XCTUnwrap(bootstrap["latestMessages"] as? [[String: Any]])
+    let message = try XCTUnwrap(messages.last { $0["channelId"] as? String == channel })
+    let sequence = try XCTUnwrap(message["sequence"] as? String)
+    let otherSequence = try XCTUnwrap(messages.last { $0["channelId"] as? String == other }?["sequence"] as? String)
+    XCUIDevice.shared.press(.home)
+    for (id, kind, target, messageSequence, activity) in [
+      ("bot-message", "message", channel, sequence, "100"),
+      ("bot-reaction", "reaction", channel, sequence, "102"),
+      ("other-chat", "message", other, otherSequence, "200"),
+    ] {
+      _ = try await request("/__push/deliver", [
+        "qaID": id, "kind": kind, "channelId": target,
+        "messageSequence": messageSequence, "notificationSequence": activity,
+      ])
+    }
+    app.activate()
+    try await observe("delivered", expected: ["bot-message", "bot-reaction", "other-chat"], badge: 3)
+    let conversation = app.buttons["channel-" + channel]
+    XCTAssertTrue(conversation.waitForExistence(timeout: 10))
+    return (app, channel, sequence)
+  }
+  func testReadFailuresRecoverWithoutLeavingTheBot() async throws {
+    let (app, channel, _) = try await notifiedBot()
+    _ = try await request("/__push/control", ["readFailures": 3])
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+    let receipts = try await request("/__push/state")["receipts"] as? [[String: Any]] ?? []
+    XCTAssertGreaterThanOrEqual(receipts.filter { $0["path"] as? String == "/api/v0/channels/" + channel + "/read" }.count, 4)
+  }
+  func testCurrentServerTasksDoNotBlockNotificationReadRecovery() async throws {
+    let (app, channel, _) = try await notifiedBot(backgroundTask: true)
+    _ = try await request("/__push/control", ["readFailures": 1])
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+  }
+  func testLostReadAcknowledgementRecoversWithoutLeavingTheBot() async throws {
+    let (app, channel, _) = try await notifiedBot()
+    _ = try await request("/__push/control", ["lostReadResponses": 1])
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+  }
+  func testReturningToAlreadyOpenBotAcknowledgesNewReaction() async throws {
+    let (app, channel, sequence) = try await notifiedBot()
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+    try background(app)
+    _ = try await request("/__push/deliver", [
+      "qaID": "new-reaction", "kind": "reaction", "channelId": channel,
+      "messageSequence": sequence, "notificationSequence": "500",
+    ])
+    let observations = try await request("/__push/state")["observations"] as? [[String: Any]] ?? []
+    app.activate()
+    try await observe("delivered", expected: ["other-chat"], badge: 1, after: observations.count)
+    let state = try await request("/__push/state")
+    XCTAssertEqual((state["reads"] as? [String: [String: Any]])?[channel]?["lastReadNotificationSequence"] as? String, "500")
+  }
+  func testForegroundReactionIsReadWithoutScrolling() async throws {
+    let (app, channel, sequence) = try await notifiedBot()
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+    let observations = try await request("/__push/state")["observations"] as? [[String: Any]] ?? []
+    _ = try await request("/__push/deliver", [
+      "qaID": "foreground-reaction", "kind": "reaction", "channelId": channel,
+      "messageSequence": sequence, "notificationSequence": "500",
+    ])
+    try await observe("delivered", expected: ["other-chat"], badge: 1, after: observations.count)
+    let state = try await request("/__push/state")
+    XCTAssertEqual((state["reads"] as? [String: [String: Any]])?[channel]?["lastReadNotificationSequence"] as? String, "500")
+  }
+  func testKnownReadNotificationsClearDuringAnOfflineResume() async throws {
+    let (app, channel, sequence) = try await notifiedBot()
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+    try background(app)
+    _ = try await request("/__push/deliver", [
+      "qaID": "late-read-message", "kind": "message", "channelId": channel,
+      "messageSequence": sequence, "notificationSequence": "100",
+    ])
+    _ = try await request("/__push/control", ["offline": true])
+    let observations = try await request("/__push/state")["observations"] as? [[String: Any]] ?? []
+    app.activate()
+    // A read marker already saved on this device must retire a late alert even
+    // when the notification snapshot and chat bootstrap are unreachable.
+    try await observe("delivered", expected: ["other-chat"], after: observations.count)
+  }
+  func testReadCleanupSurvivesNotificationSnapshotFailure() async throws {
+    let (app, channel, _) = try await notifiedBot()
+    _ = try await request("/__push/control", ["unavailable": true])
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"])
+    _ = try await request("/__push/control", ["unavailable": false])
+    try background(app)
+    let observations = try await request("/__push/state")["observations"] as? [[String: Any]] ?? []
+    app.activate()
+    try await observe("delivered", expected: ["other-chat"], badge: 1, after: observations.count)
+  }
+  func testDelayedReadAndSnapshotResponsesRecover() async throws {
+    let (app, channel, _) = try await notifiedBot()
+    _ = try await request("/__push/control", ["readDelayMs": 1500, "snapshotDelayMs": 2000])
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+  }
+  func testOfflineConnectionRecoveryClearsTheOpenBotsAlerts() async throws {
+    let (app, channel, sequence) = try await notifiedBot()
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+    try background(app)
+    _ = try await request("/__push/control", ["offline": true])
+    _ = try await request("/__push/deliver", [
+      "qaID": "offline-reaction", "kind": "reaction", "channelId": channel,
+      "messageSequence": sequence, "notificationSequence": "500",
+    ])
+    let observations = try await request("/__push/state")["observations"] as? [[String: Any]] ?? []
+    app.activate()
+    try await observe("delivered", expected: ["other-chat", "offline-reaction"], after: observations.count)
+    _ = try await request("/__push/control", ["offline": false])
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+  }
+  func testSwitchingBotsStopsRetriesAndPreservesUnreadAlerts() async throws {
+    let (app, channel, _) = try await notifiedBot()
+    let bootstrap = try await request("/api/v0/client-bootstrap")
+    let channels = try XCTUnwrap(bootstrap["channels"] as? [[String: Any]])
+    let other = try XCTUnwrap(channels.first { $0["id"] as? String != channel }?["id"] as? String)
+    _ = try await request("/__push/control", ["readFailures": 100])
+    app.buttons["channel-" + channel].tap()
+    let back = app.buttons["chat-back"]
+    if back.exists { back.tap() }
+    let otherBot = app.buttons["channel-" + other]
+    if !otherBot.isHittable { app.buttons["chat-sidebar"].tap() }
+    otherBot.tap()
+    let before = try await request("/__push/state")["receipts"] as? [[String: Any]] ?? []
+    _ = try await request("/__push/control", ["readFailures": 0])
+    try await Task.sleep(for: .seconds(3))
+    let after = try await request("/__push/state")["receipts"] as? [[String: Any]] ?? []
+    let readPath = "/api/v0/channels/" + channel + "/read"
+    XCTAssertEqual(before.filter { $0["path"] as? String == readPath }.count,
+      after.filter { $0["path"] as? String == readPath }.count,
+      "Leaving a bot must cancel its read retries")
+    if back.exists { back.tap() }
+    let original = app.buttons["channel-" + channel]
+    if !original.isHittable { app.buttons["chat-sidebar"].tap() }
+    original.tap()
+    // Both conversations have now actually been opened and read.
+    try await observe("delivered", expected: [], badge: 0)
+  }
+  func testReadLedgerSurvivesRelaunchAndLateDuplicate() async throws {
+    let (app, channel, sequence) = try await notifiedBot()
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+    app.terminate()
+    _ = try await request("/__push/deliver", [
+      "qaID": "late-duplicate", "kind": "message", "channelId": channel,
+      "messageSequence": sequence, "notificationSequence": "100", "badgeOverride": 9,
+    ])
+    let observations = try await request("/__push/state")["observations"] as? [[String: Any]] ?? []
+    app.launchArguments.removeAll { $0 == "--qa-push-reset" }
+    app.launch()
+    try await observe("delivered", expected: ["other-chat"], badge: 1, after: observations.count)
+  }
+  func testRepeatedResumeRecoversFromChangingFailuresAndDuplicateDelivery() async throws {
+    let (app, channel, sequence) = try await notifiedBot()
+    app.buttons["channel-" + channel].tap()
+    try await observe("delivered", expected: ["other-chat"], badge: 1)
+    for cycle in 0..<4 {
+      try background(app)
+      _ = try await request("/__push/control", [
+        "readFailures": cycle % 3, "readDelayMs": cycle * 150,
+        "lostReadResponses": cycle % 2,
+      ])
+      _ = try await request("/__push/deliver", [
+        "qaID": "reaction-\(cycle)", "kind": "reaction", "channelId": channel,
+        "messageSequence": sequence, "notificationSequence": String(500 + cycle),
+      ])
+      _ = try await request("/__push/deliver", [
+        "qaID": "duplicate-\(cycle)", "kind": "message", "channelId": channel,
+        "messageSequence": sequence, "notificationSequence": "100",
+      ])
+      let observations = try await request("/__push/state")["observations"] as? [[String: Any]] ?? []
+      app.activate()
+      try await observe("delivered", expected: ["other-chat"], badge: 1, after: observations.count)
+    }
+  }
+  func testNewReactionDuringDelayedReadRemainsUnreadAfterLeavingTheBot() async throws {
+    let (app, channel, sequence) = try await notifiedBot()
+    let bootstrap = try await request("/api/v0/client-bootstrap")
+    let channels = try XCTUnwrap(bootstrap["channels"] as? [[String: Any]])
+    let third = try XCTUnwrap(channels.last?["id"] as? String)
+    _ = try await request("/__push/control", ["readDelayMs": 5000])
+    app.buttons["channel-" + channel].tap()
+    let readPath = "/api/v0/channels/" + channel + "/read"
+    var requested = false
+    for _ in 0..<40 {
+      let receipts = try await request("/__push/state")["receipts"] as? [[String: Any]] ?? []
+      requested = receipts.contains { $0["path"] as? String == readPath }
+      if requested { break }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    XCTAssertTrue(requested)
+    let back = app.buttons["chat-back"]
+    if back.exists { back.tap() }
+    let thirdBot = app.buttons["channel-" + third]
+    if !thirdBot.isHittable { app.buttons["chat-sidebar"].tap() }
+    thirdBot.tap()
+    _ = try await request("/__push/deliver", [
+      "qaID": "newer-reaction", "kind": "reaction", "channelId": channel,
+      "messageSequence": sequence, "notificationSequence": "500",
+    ])
+    var acknowledged: String?
+    for _ in 0..<100 {
+      let state = try await request("/__push/state")
+      acknowledged = (state["reads"] as? [String: [String: Any]])?[channel]?["lastReadNotificationSequence"] as? String
+      if acknowledged != nil { break }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    XCTAssertEqual(acknowledged, "123")
+    // The read event reconciles the old acknowledgement while another bot is
+    // selected, preserving the newer reaction in the bot we already left.
+    try await observe("delivered", expected: ["other-chat", "newer-reaction"], badge: 2)
+  }
   func testMissedBackgroundReadReconcilesOnForeground() async throws {
     let app = try await launch()
     _ = try await waitRegistered()
     let bootstrap = try await request("/api/v0/client-bootstrap")
     let channels = try XCTUnwrap(bootstrap["channels"] as? [[String: Any]])
     let channel = try XCTUnwrap(channels.first?["id"] as? String)
-    XCUIDevice.shared.press(.home)
+    try background(app)
     _ = try await request(
       "/__push/deliver",
       [
@@ -224,7 +506,7 @@ import XCTest
       ])
     app.activate()
     try await observe("delivered", expected: ["offline-message"], badge: 1)
-    XCUIDevice.shared.press(.home)
+    try background(app)
     _ = try await request(
       "/__push/read",
       ["readStates": [read(channel, "10", "100")], "badgeCount": 0, "notify": false])
@@ -248,7 +530,7 @@ import XCTest
     let bootstrap = try await request("/api/v0/client-bootstrap")
     let channels = try XCTUnwrap(bootstrap["channels"] as? [[String: Any]])
     let channel = try XCTUnwrap(channels.first?["id"] as? String)
-    XCUIDevice.shared.press(.home)
+    try background(app)
     _ = try await request(
       "/__push/deliver",
       [
@@ -266,7 +548,7 @@ import XCTest
     before.name = "native-notification-before-tap"
     before.lifetime = .keepAlways
     add(before)
-    notification.tap()
+    openNotification(notification, in: app)
     XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 12))
     // Chat chrome appears before the transcript finishes positioning and marks itself read.
     var receipts: [[String: Any]] = []
@@ -306,7 +588,7 @@ import XCTest
         "replyToMessageId": rootID, "isFork": true,
       ])
     let reply = try XCTUnwrap(threaded["message"] as? [String: Any])
-    XCUIDevice.shared.press(.home)
+    try background(app)
     _ = try await request(
       "/__push/deliver",
       [
@@ -320,8 +602,8 @@ import XCTest
       thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.8)))
     let notification = springboard.staticTexts["Tap to open the thread reply"]
     XCTAssertTrue(notification.waitForExistence(timeout: 8))
-    notification.tap()
-    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 12))
+    openNotification(notification, in: app)
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 12), app.debugDescription)
     XCTAssertTrue(app.staticTexts["Threaded push reply"].waitForExistence(timeout: 5))
     let opened = XCTAttachment(screenshot: app.screenshot())
     opened.name = "native-notification-opened-thread"

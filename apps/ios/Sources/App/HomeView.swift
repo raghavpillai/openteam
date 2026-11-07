@@ -111,6 +111,8 @@ struct HomeView: View {
     }
     .sheet(item: $settings) { sheet in
       SettingsView(initialRoute: sheet.route).referenceSheet()
+        .presentationDetents([.large])
+        .presentationBackground(SettingsStyle.background)
     }
     .alert(
       "Rename section",

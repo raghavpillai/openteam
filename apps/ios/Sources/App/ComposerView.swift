@@ -19,8 +19,6 @@ struct ComposerView: View {
   var dismissFocusRequest: UUID? = nil
   private var focusedReply: Bool { threadRootID != nil || replyRootID != nil }
   private var key: String { draftKey ?? channel.id }
-  @State private var photos: [PhotosPickerItem] = []
-  @State private var photoLibrary = false
   @State private var files = false
   @State private var uploading = false
   /// The message capsule in window coordinates, where the tray settles after adding.
@@ -104,10 +102,6 @@ struct ComposerView: View {
         if focusOnAppear && !hasAppeared { focused = true }
         hasAppeared = true
       }.frame(width: 0, height: 0))
-      .photosPicker(
-        isPresented: $photoLibrary, selection: $photos,
-        maxSelectionCount: max(1, Draft.maxAttachments - attachmentCount), matching: .images
-      )
       .fileImporter(
         isPresented: $files, allowedContentTypes: [.item], allowsMultipleSelection: true
       ) { result in
@@ -140,25 +134,6 @@ struct ComposerView: View {
         case .failure(let error):
           NativeHaptics.failure(error, source: "composer.error")
           store.handle(error)
-        }
-      }
-      .onChange(of: photos) { _, items in
-        Task {
-          for item in items.prefix(max(0, Draft.maxAttachments - attachmentCount)) {
-            do {
-              if let data = try await item.loadTransferable(type: Data.self) {
-                let type = item.supportedContentTypes.first ?? .jpeg
-                try await upload(
-                  data, name: "Photo.\(type.preferredFilenameExtension ?? "jpg")",
-                  mime: type.preferredMIMEType ?? "image/jpeg")
-              }
-            } catch {
-              NativeHaptics.failure(error, source: "composer.error")
-              store.handle(error)
-              break
-            }
-          }
-          photos = []
         }
       }
       .fullScreenCover(item: $viewing, onDismiss: { focused = true }) { gallery in
@@ -327,7 +302,10 @@ struct ComposerView: View {
       .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
         if !memo.showsBar { pillHeight = height }
       }
-      .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { composerFrame = $0 }
+      .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+        composerFrame = $0
+        AttachmentTray.shared.layoutChanged()
+      }
       .clipShape(VoiceComposerShape(progress: bar ? 1 : 0, pillHeight: Double(pillHeight), contentInset: 54))
       .frame(height: bar ? VoiceBar.height : nil, alignment: .bottom)
       .foregroundStyle(NativePalette.text)
@@ -448,7 +426,7 @@ struct ComposerView: View {
     }
     // Otherwise the mic: VoiceKnob, overlaid at this spot, owns the hold-to-record gesture.
   }
-  /// The + menu path (there is a draft): straight to the hands-free bar.
+  /// Start hands-free recording when opening a Bot from a recording shortcut.
   func startLockedRecording() {
     guard memo.phase == .idle else { return }
     resumeEditingAfterVoice = focused
@@ -505,8 +483,6 @@ struct ComposerView: View {
     let remaining = max(0, Draft.maxAttachments - attachmentCount)
     return AttachmentTrayActions(
       remaining: remaining,
-      voice: (!draft.text.isEmpty || attachmentCount > 0) && transcriptionConfigured
-        ? { startLockedRecording() } : nil,
       photos: { results in addPhotos(results) },
       camera: { data in
         focused = true
@@ -518,8 +494,8 @@ struct ComposerView: View {
         }
       },
       files: { files = true },
-      allPhotos: { photoLibrary = true },
-      composerFrame: { composerFrame == .zero ? nil : composerFrame })
+      composerFrame: { composerFrame == .zero ? nil : composerFrame },
+      contentLeading: { columnLeading })
   }
   private func addPhotos(_ results: [PHPickerResult]) {
     focused = true
@@ -605,11 +581,12 @@ private struct AttachmentTrayButton: UIViewRepresentable {
   func updateUIView(_ button: UIButton, context: Context) {
     button.isEnabled = enabled && environmentEnabled
     context.coordinator.actions = actions
+    AttachmentTray.shared.update(from: button, actions: actions())
   }
   static func dismantleUIView(_ button: UIButton, coordinator: Coordinator) { AttachmentTray.shared.close() }
   @MainActor final class Coordinator {
     var actions: () -> AttachmentTrayActions = {
-      AttachmentTrayActions(remaining: 0, photos: { _ in }, camera: { _ in }, files: {}, allPhotos: {},
+      AttachmentTrayActions(remaining: 0, photos: { _ in }, camera: { _ in }, files: {},
         composerFrame: { nil })
     }
   }

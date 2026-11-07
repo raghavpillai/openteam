@@ -157,7 +157,7 @@ fixture's `scroll-mixed` and `scroll-mixed-pages` scenes combine every row
 renderer, and `POST /__qa/update-message` edits an existing row in place.
 
 For real transcription, the `RealServer` scheme's
-`RealServerUITests/testLiveVoiceTranscriptionAndDraftPreservation` uses
+`RealServerUITests/testLiveVoiceTranscriptionThroughMicrophone` uses
 `scripts/real-server-qa.ts`.
 
 ```sh

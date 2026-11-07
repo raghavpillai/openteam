@@ -61,29 +61,6 @@ import XCTest
     element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
   }
 
-  private func settledEditingFrame(_ field: XCUIElement, app: XCUIApplication) async throws -> CGRect {
-    // Existence precedes the keyboard's final inset, especially on a cold launch.
-    // Compare complete layouts, not a baseline sampled mid-transition.
-    var previous = field.frame
-    var keyboard = app.keyboards.firstMatch.frame
-    var stableSince = Date()
-    let deadline = Date().addingTimeInterval(5)
-    while Date() < deadline {
-      try await Task.sleep(for: .milliseconds(100))
-      let frame = field.frame
-      let keyboardFrame = app.keyboards.firstMatch.frame
-      if frame == previous, keyboardFrame == keyboard {
-        if Date().timeIntervalSince(stableSince) >= 0.5 { return frame }
-      } else {
-        stableSince = Date()
-        previous = frame
-        keyboard = keyboardFrame
-      }
-    }
-    XCTFail("Keyboard/composer geometry did not settle: \(field.frame)")
-    return field.frame
-  }
-
   func testMicrophoneEdgesAndCornersStartHandsFreeWithKeyboardClosed() async throws {
     try await verifyMicrophoneBounds(keyboard: false)
   }
@@ -271,27 +248,22 @@ import XCTest
     XCTAssertEqual(count, 1, "Only the sent recording was uploaded")
   }
 
-  func testDraftMenuRecordsHandsFreeAndSendsDraftWithTranscript() async throws {
-    let app = try await launch()
+  func testAttachmentMenuOnlyOffersAttachmentsWithAnExistingDraft() async throws {
+    let draft = "Keep this draft."
+    let app = try await launch(arguments: ["--visual-draft-base64", Data(draft.utf8).base64EncodedString()])
+    defer { app.terminate() }
+    app.buttons["attach-button"].tap()
+    XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["attach-photos"].exists)
+    XCTAssertTrue(app.buttons["attach-files"].exists)
+    XCTAssertFalse(app.buttons["attach-voice"].exists)
+    let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
+    XCTAssertEqual(tray.frame.height, 230, accuracy: 1)
+    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 5))
     let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
-    field.tap()
-    field.typeText("Draft intro.")
-    XCTAssertTrue(mic(app).waitForNonExistence(timeout: 3), "Send replaces the mic while drafting")
-    app.buttons["attach-button"].tap()
-    XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 5))
-    app.buttons["Record voice note"].tap()
-    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
-    // Trash restores the draft untouched.
-    app.buttons["Discard recording"].tap()
-    XCTAssertTrue(app.buttons["send-button"].waitForExistence(timeout: 5))
-    XCTAssertEqual(field.value as? String, "Draft intro.")
-    app.buttons["attach-button"].tap()
-    XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 5))
-    app.buttons["Record voice note"].tap()
-    XCTAssertTrue(app.buttons["Send voice note"].waitForExistence(timeout: 5))
-    try await Task.sleep(for: .seconds(1.2))
-    app.buttons["Send voice note"].tap()
-    try await waitForMessage(app, "Draft intro. " + transcript)
+    XCTAssertEqual(field.value as? String, draft)
+    XCTAssertTrue(app.buttons["send-button"].exists)
   }
 
   func testReducedMotionRecordingSendsAndRestoresComposer() async throws {
@@ -304,90 +276,6 @@ import XCTest
     app.buttons["Send voice note"].tap()
     try await waitForMessage(app, transcript)
     XCTAssertTrue(mic(app).waitForExistence(timeout: 5))
-  }
-
-  func testMultilineDraftSurvivesRecordingAndDiscard() async throws {
-    let value = "Keep the first line.\nAnd the second line.\nAnd the third line."
-    // Seed the existing draft so this tests recording/discard independently of
-    // XCTest's multiline keyboard injection and keyboard reconfiguration.
-    let app = try await launch(appearance: "light",
-      arguments: ["--visual-draft-base64", Data(value.utf8).base64EncodedString()])
-    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
-    XCTAssertEqual(field.value as? String, value)
-    field.tap()
-    app.buttons["attach-button"].tap()
-    XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 5))
-    app.buttons["Record voice note"].tap()
-    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
-    let bars = app.descendants(matching: .any).matching(identifier: "voice-memo-bar")
-    XCTAssertEqual(bars.count, 1)
-    XCTAssertEqual(bars.firstMatch.frame.height, 64, accuracy: 1)
-    app.buttons["Discard recording"].tap()
-    XCTAssertTrue(app.buttons["send-button"].waitForExistence(timeout: 5))
-    XCTAssertEqual(field.value as? String, value, "The complete multiline draft must survive")
-    XCTAssertTrue(field.isHittable, "The restored draft must be visible and usable")
-    let count = try await uploads()
-    XCTAssertEqual(count, 0)
-  }
-
-  func testKeyboardToVoiceAndBackPreservesMultilineGeometryInBothAppearances() async throws {
-    let draft = "Keep the first line.\nAnd the second line.\nAnd the third line."
-    var marks: [[String: Any]] = []
-    for appearance in ["light", "dark"] {
-      let app = try await launch(appearance: appearance,
-        arguments: ["--visual-draft-base64", Data(draft.utf8).base64EncodedString()])
-      let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
-      var open: CGRect?
-      for cycle in 0..<2 {
-        field.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        let frame = try await settledEditingFrame(field, app: app)
-        if let open {
-          XCTAssertEqual(frame.minX, open.minX, accuracy: 1)
-          XCTAssertEqual(frame.width, open.width, accuracy: 1)
-          XCTAssertEqual(frame.height, open.height, accuracy: 1)
-        } else { open = frame }
-        let editing = try XCTUnwrap(open)
-        marks.append(["phase": "\(appearance)-\(cycle)-keyboard", "time": Date().timeIntervalSince1970])
-        app.buttons["attach-button"].tap()
-        XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 5))
-        app.buttons["Record voice note"].tap()
-        XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5),
-          "Recording must dismiss the draft keyboard")
-        let bars = app.descendants(matching: .any).matching(identifier: "voice-memo-bar")
-        XCTAssertEqual(bars.count, 1)
-        XCTAssertEqual(bars.firstMatch.frame.height, 64, accuracy: 1)
-        XCTAssertEqual(app.buttons["Send voice note"].frame.midY,
-          app.buttons["Discard recording"].frame.midY, accuracy: 1)
-        capture("\(appearance)-keyboard-to-recording-\(cycle)", app)
-        marks.append(["phase": "\(appearance)-\(cycle)-recording", "time": Date().timeIntervalSince1970])
-        app.buttons["Discard recording"].tap()
-        XCTAssertTrue(app.buttons["send-button"].waitForExistence(timeout: 5))
-        // Match the existing return-to-editing behavior: a draft that had the
-        // keyboard before recording resumes editing after discard.
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        print("Voice draft geometry \(appearance) cycle \(cycle): expected \(editing), restored \(field.frame)")
-        let restored = expectation(for: NSPredicate { _, _ in
-          let frame = field.frame
-          return abs(frame.minX - editing.minX) < 1 && abs(frame.minY - editing.minY) < 1
-            && abs(frame.width - editing.width) < 1 && abs(frame.height - editing.height) < 1
-        }, evaluatedWith: field)
-        await fulfillment(of: [restored], timeout: 5)
-        XCTAssertEqual(field.value as? String, draft)
-        XCTAssertTrue(field.isHittable)
-        capture("\(appearance)-restored-draft-\(cycle)", app)
-        marks.append(["phase": "\(appearance)-\(cycle)-restored", "time": Date().timeIntervalSince1970])
-      }
-      let count = try await uploads()
-      XCTAssertEqual(count, 0, "Discarding must keep the draft local")
-      app.terminate()
-    }
-    let evidence = XCTAttachment(data: try JSONSerialization.data(withJSONObject: marks, options: .prettyPrinted),
-      uniformTypeIdentifier: "public.json")
-    evidence.name = "voice-keyboard-transitions"
-    evidence.lifetime = .keepAlways
-    add(evidence)
   }
 
   func testScrolledUpVoiceCancellationRestoresComposerAndReadingPosition() async throws {
@@ -469,28 +357,6 @@ import XCTest
     try await waitForMessage(app, transcript)
     let after = try await uploads()
     XCTAssertEqual(after, 1)
-  }
-
-  func testBackgroundedRecordingCanBeDiscardedWithoutChangingMultilineDraft() async throws {
-    let draft = "Keep my instructions.\nKeep this second line.\nAnd the third."
-    let app = try await launch(appearance: "light",
-      arguments: ["--visual-draft-base64", Data(draft.utf8).base64EncodedString()])
-    app.buttons["attach-button"].tap()
-    XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 5))
-    app.buttons["Record voice note"].tap()
-    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
-    try await Task.sleep(for: .seconds(1))
-    XCUIDevice.shared.press(.home)
-    try await Task.sleep(for: .seconds(1))
-    app.activate()
-    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
-    XCTAssertEqual(app.descendants(matching: .any)["voice-clock"].label, "Voice note ready")
-    app.buttons["Discard recording"].tap()
-    XCTAssertTrue(app.buttons["send-button"].waitForExistence(timeout: 5))
-    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
-    XCTAssertEqual(field.value as? String, draft)
-    let count = try await uploads()
-    XCTAssertEqual(count, 0)
   }
 
   func testFailedTranscriptionKeepsTheRecordingForRetry() async throws {

@@ -215,6 +215,26 @@ enum PluginInvocationStatus {
   failed
 }
 
+enum VoiceSessionStatus {
+  created
+  active
+  closing
+  ended
+  failed
+}
+
+enum VoiceTurnStatus {
+  listening
+  processing
+  speaking
+  output_paused
+  completed
+  superseded
+  interrupted
+  cancelled
+  failed
+}
+
 model Computer {
   id           String         @id @default(uuid()) @db.Uuid
   name         String         @default("OpenTeam computer")
@@ -231,6 +251,7 @@ model Bot {
   title            String       @default("")
   description      String       @default("")
   instructions     String       @default("")
+  voice            String       @default("")
   templateRecipe   Json?
   icon             String       @default("●")
   color            String       @default("#4f7cff")
@@ -274,6 +295,7 @@ model Bot {
   subagentIdentity Subagent?            @relation("ChildSubagent")
   pluginActivities PluginActivity[]
   pluginInvocations PluginInvocation[]
+  voiceSessions VoiceSession[]
   contextSessions ContextSession[]
   processSecrets ProcessSecret[]
   createdAt        DateTime     @default(now())
@@ -533,6 +555,7 @@ model Channel {
   notifications ChannelNotification[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+  voiceSessions VoiceSession[]
 
   @@index([kind, updatedAt])
 }
@@ -646,6 +669,7 @@ model Conversation {
   compactionEpoch Int                   @default(0)
   messages       Message[]
   runs           Run[]
+  voiceSessions  VoiceSession[]
   inboxEvents    InboxEvent[]
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
@@ -788,6 +812,7 @@ model Run {
   pluginInvocations PluginInvocation[]
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+  voiceTurn      VoiceTurn?   @relation("VoiceTurnRun")
 
   @@index([botId, status])
   @@index([conversationId, createdAt])
@@ -804,6 +829,75 @@ model AutomationResult {
   createdAt      DateTime @default(now())
 
   @@index([acknowledgedAt, createdAt])
+}
+
+model VoiceSession {
+  id               String             @id @default(uuid()) @db.Uuid
+  botId            String             @db.Uuid
+  bot              Bot                @relation(fields: [botId], references: [id], onDelete: Cascade)
+  conversationId   String             @db.Uuid
+  conversation     Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  channelId        String             @db.Uuid
+  channel          Channel             @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  ownerSessionId   String?
+  ownerSession     Session?           @relation(fields: [ownerSessionId], references: [id], onDelete: Cascade)
+  clientPlatform   String
+  clientInstanceId String
+  provider         String
+  voice            String
+  status           VoiceSessionStatus @default(created)
+  expiresAt        DateTime
+  endedAt          DateTime?
+  closeReason      String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  turns            VoiceTurn[]
+
+  @@index([ownerSessionId, status, expiresAt])
+  @@index([botId, status, expiresAt])
+  @@index([channelId, createdAt])
+}
+
+model VoiceTurn {
+  id                  String          @id @default(uuid()) @db.Uuid
+  sessionId           String          @db.Uuid
+  session             VoiceSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  runId               String?         @unique @db.Uuid
+  run                 Run?            @relation("VoiceTurnRun", fields: [runId], references: [id], onDelete: SetNull)
+  userMessageId       String?
+  status              VoiceTurnStatus @default(listening)
+  transcript          String?
+  durationMs          Int             @default(0)
+  language            String?
+  providerMetadata    Json?
+  assistantMessageIds String[]        @default([])
+  generation          Int             @default(0)
+  createdAt           DateTime        @default(now())
+  completedAt         DateTime?
+  updatedAt           DateTime        @updatedAt
+
+  @@index([sessionId, createdAt])
+  @@index([sessionId, status])
+}
+
+model VoiceSettings {
+  id                       String   @id @default("global")
+  enabled                  Boolean  @default(false)
+  provider                 String   @default("volcengine")
+  encryptedVolcengineApiKey String?
+  volcengineBaseUrl        String   @default("https://openspeech.bytedance.com")
+  volcengineSttUrl         String?
+  volcengineTtsUrl         String?
+  volcengineSttResourceId  String   @default("volc.seedasr.sauc.duration")
+  volcengineTtsResourceId  String   @default("seed-tts-2.0")
+  encryptedDeepgramApiKey  String?
+  deepgramBaseUrl          String   @default("https://api.deepgram.com")
+  sttModel                 String   @default("nova-3")
+  ttsModel                 String   @default("aura-2-thalia-en")
+  voice                    String   @default("alloy")
+  language                 String   @default("en-US")
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 }
 
 model InboxEvent {
@@ -1103,6 +1197,7 @@ model Session {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   pushDevices PushDevice[]
   notificationPresence NotificationPresence[]
+  voiceSessions VoiceSession[]
 
   @@index([userId])
   @@map("session")

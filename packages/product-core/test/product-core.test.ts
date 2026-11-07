@@ -34,6 +34,7 @@ const snapshot = (): ClientSnapshot => ({
       title: "",
       description: "",
       instructions: "",
+      voice: "",
       icon: "helmet",
       color: "blue",
       hasAvatar: false,

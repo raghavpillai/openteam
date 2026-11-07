@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { parseNotificationTarget } from "../main/notifications";
+import type { DesktopNotificationTarget } from "@openteam/contracts/notification-content";
 import type { ApplicationMenuAction } from "../main/application-menu";
 
 const appVersionArgument = process.argv.find((argument) =>
@@ -271,15 +273,11 @@ contextBridge.exposeInMainWorld("openteam", {
   },
   getProcessMetrics: () => ipcRenderer.invoke("openteam:performance-snapshot"),
   onNotificationClick: (
-    listener: (target: { channelId: string; threadMessageId?: string }) => void
+    listener: (target: DesktopNotificationTarget) => void
   ) => {
     const handler = (_event: Electron.IpcRendererEvent, target: unknown) => {
-      const { channelId, threadMessageId } = (target ?? {}) as Record<string, unknown>;
-      if (typeof channelId !== "string") return;
-      listener({
-        channelId,
-        ...(typeof threadMessageId === "string" ? { threadMessageId } : {}),
-      });
+      const parsed = parseNotificationTarget(target);
+      if (parsed) listener(parsed);
     };
     ipcRenderer.on("openteam:notification-click", handler);
     return () => ipcRenderer.removeListener("openteam:notification-click", handler);

@@ -644,11 +644,6 @@ export function useOpenTeam() {
 
   const ensureMessageLoaded = useCallback(
     async (channelId: string, messageId: string): Promise<boolean> => {
-      const snapshotHasTarget = Boolean(
-        snapshotRef.current?.channelMessages.some(
-          (message) => message.channelId === channelId && message.id === messageId
-        )
-      );
       const cached = histories.current.get(channelId);
       const targetIsPrimary = Boolean(cached?.messages.some((message) => message.id === messageId));
       if (targetIsPrimary) {
@@ -664,45 +659,25 @@ export function useOpenTeam() {
         }
         return true;
       }
-      const targetIsBootstrapLatest = Boolean(
-        bootstrapRef.current?.latestMessages.some((message) => message.id === messageId)
-      );
-      if (targetIsBootstrapLatest) {
-        const window = historyWindows.current.get(channelId);
-        if (cached && window && (window.context || window.primaryHasNewerGap)) {
-          const tailHasTarget = window.latestTail?.messages.some(
-            (message) => message.id === messageId
-          );
-          const reset = tailHasTarget ? resetToLatestTail(cached, window) : null;
-          if (reset) {
-            histories.current.set(channelId, reset.history);
-            historyWindows.current.set(channelId, reset.window);
-            setHistoryRevision((value) => value + 1);
-            publishBootstrap(false);
-          } else {
-            touchHistory(channelId);
-            await fetchChannel(channelId, true, true);
-          }
-        } else if (cached && cached.loadedAt > 0) {
-          // A newest message the transcript does not contain yet is withheld
-          // from it until a history read places it after its predecessors.
-          touchHistory(channelId);
-          await fetchChannel(channelId, false, true);
-        }
+      if (cached?.searchContext.some((message) => message.id === messageId)) return true;
+      const window = historyWindows.current.get(channelId);
+      const tailHasTarget = window?.latestTail?.messages.some((message) => message.id === messageId);
+      const reset = cached && window && tailHasTarget ? resetToLatestTail(cached, window) : null;
+      if (reset) {
+        histories.current.set(channelId, reset.history);
+        historyWindows.current.set(channelId, reset.window);
+        setHistoryRevision((value) => value + 1);
+        publishBootstrap(false);
         return true;
       }
-      if (cached?.searchContext.some((message) => message.id === messageId)) return true;
-      await loadChannel(channelId);
-      const loaded = histories.current.get(channelId);
-      if (loaded?.messages.some((message) => message.id === messageId)) return true;
-
+      touchHistory(channelId);
+      const contextLease = searchContextRequests.current.supersede(channelId);
       try {
-        const contextLease = searchContextRequests.current.supersede(channelId);
         const context = await api.messageContext(messageId);
-        if (context.channelId !== channelId) return false;
+        if (context.channelId !== channelId || !context.messages.some((message) => message.id === messageId)) return false;
         if (!searchContextRequests.current.isCurrent(contextLease)) return false;
-        const current = histories.current.get(channelId);
-        if (!current || !historyLru.current.includes(channelId)) return false;
+        if (!historyLru.current.includes(channelId)) return false;
+        const current = histories.current.get(channelId) ?? loadingChannelHistory();
         const transition = enterMessageContext(
           current,
           historyWindows.current.get(channelId) ?? emptyChannelMessageWindow(),
@@ -712,18 +687,23 @@ export function useOpenTeam() {
         historyWindows.current.set(channelId, transition.window);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(true);
+        // Activity hydration runs independently of revealing the target. The
+        // context window keeps a latest-page refresh from replacing this page.
+        void fetchChannel(channelId, false, true).catch(() => undefined);
         return context.messages.some((message) => message.id === messageId);
       } catch (cause) {
+        if (!searchContextRequests.current.isCurrent(contextLease)) return false;
         setError(clientErrorMessage(cause, "Could not load message context"));
         throw cause;
       }
     },
-    [fetchChannel, loadChannel, publishBootstrap, touchHistory]
+    [fetchChannel, publishBootstrap, touchHistory]
   );
 
   const clearSearchContext = useCallback(
-    (channelId: string) => {
+    (channelId: string, options: { preserveWindow?: boolean } = {}) => {
       searchContextRequests.current.invalidate(channelId);
+      if (options.preserveWindow) return;
       const current = histories.current.get(channelId);
       const window = historyWindows.current.get(channelId);
       if (

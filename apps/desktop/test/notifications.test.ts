@@ -1,10 +1,101 @@
 import { describe, expect, test } from "bun:test";
-import type { ClientSnapshot } from "@openteam/contracts";
+import type { ChannelHistoryPage, ChannelMessageView, ClientSnapshot } from "@openteam/contracts";
 import {
   deriveUnreadChannelIds,
   desktopNotificationSnapshot,
   syncDesktopNotificationSnapshot,
+  resolveNotificationMessage,
 } from "../src/renderer/lib/notifications";
+
+describe("desktop notification message resolution", () => {
+  const message = (id: string, sequence: string, channelId = "chat") =>
+    ({ id, sequence, channelId }) as ChannelMessageView;
+  const page = (messages: ChannelMessageView[], channelId = "chat") =>
+    ({ channelId, messages }) as ChannelHistoryPage;
+  const unexpectedHistory = async (): Promise<ChannelHistoryPage> => {
+    throw new Error("An identified or cached notification should not fetch history");
+  };
+
+  test("uses identified and channel-scoped cached targets without history", async () => {
+    expect(
+      await resolveNotificationMessage(
+        { channelId: "chat", messageId: "new", messageSequence: "25" },
+        [],
+        unexpectedHistory
+      )
+    ).toEqual({ messageId: "new", sequence: "25" });
+    expect(
+      await resolveNotificationMessage(
+        { channelId: "chat", messageSequence: "25" },
+        [message("wrong", "25", "other"), message("right", "25")],
+        unexpectedHistory
+      )
+    ).toEqual({ messageId: "right", sequence: "25" });
+    expect(
+      await resolveNotificationMessage(
+        { channelId: "chat", messageId: "root", threadMessageId: "reply" },
+        [message("reply", "26")],
+        unexpectedHistory
+      )
+    ).toEqual({ messageId: "reply", sequence: "26" });
+  });
+
+  test("resolves legacy targets with a single bounded history request", async () => {
+    const requests: unknown[] = [];
+    const target = await resolveNotificationMessage(
+      { channelId: "chat", messageSequence: "25" },
+      [],
+      async (id, options) => {
+        requests.push({ id, ...options });
+        return page([message("old", "25")]);
+      }
+    );
+    expect(target).toEqual({ messageId: "old", sequence: "25" });
+    expect(requests).toEqual([{ id: "chat", beforeSequence: "26", limit: 1 }]);
+  });
+
+  test("supports channel-only clicks and the largest database sequence", async () => {
+    const latest = message("latest", "9223372036854775807");
+    const history = async (_id: string, options: unknown) => {
+      expect(options).toEqual({ beforeSequence: undefined, limit: 1 });
+      return page([latest]);
+    };
+    expect(await resolveNotificationMessage({ channelId: "chat" }, [], history)).toEqual({
+      messageId: "latest",
+      sequence: latest.sequence,
+    });
+    expect(
+      await resolveNotificationMessage(
+        { channelId: "chat", messageSequence: latest.sequence },
+        [],
+        history
+      )
+    ).toEqual({ messageId: "latest", sequence: latest.sequence });
+  });
+
+  test("rejects unavailable, out-of-range, and cross-channel legacy targets", async () => {
+    for (const result of [
+      page([]),
+      page([message("wrong", "24")]),
+      page([message("wrong-channel", "25")], "other"),
+    ]) {
+      await expect(
+        resolveNotificationMessage(
+          { channelId: "chat", messageSequence: "25" },
+          [],
+          async () => result
+        )
+      ).rejects.toThrow("no longer available");
+    }
+    await expect(
+      resolveNotificationMessage(
+        { channelId: "chat", messageSequence: "9223372036854775808" },
+        [],
+        unexpectedHistory
+      )
+    ).rejects.toThrow("no longer available");
+  });
+});
 
 const base = {
   bots: [{ id: "bot", name: "Probe", notificationsEnabled: true }],

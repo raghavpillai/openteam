@@ -115,7 +115,7 @@ interface Window {
       gpu: Electron.GPUFeatureStatus;
     }>;
     onNotificationClick: (
-      listener: (target: { channelId: string; threadMessageId?: string }) => void
+      listener: (target: import("@openteam/contracts/notification-content").DesktopNotificationTarget) => void
     ) => () => void;
     versions: Readonly<{ app: string; electron: string; chrome: string }>;
   };

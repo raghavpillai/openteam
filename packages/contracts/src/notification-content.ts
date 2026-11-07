@@ -97,6 +97,14 @@ export interface ChannelNotificationView {
   sender?: NotificationSender;
 }
 
+/** Message identity carried from a native desktop banner to its renderer. */
+export interface DesktopNotificationTarget {
+  channelId: string;
+  messageId?: string;
+  messageSequence?: string;
+  threadMessageId?: string;
+}
+
 /** Self-contained identity: extensions can draw the avatar without a network request. */
 export interface NotificationSender {
   name: string;

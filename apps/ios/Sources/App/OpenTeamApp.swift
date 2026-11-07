@@ -112,6 +112,7 @@ struct ChannelAvatar: View {
   @Environment(AppStore.self) private var store
   let channel: Channel
   var size: CGFloat = 48
+  var artworkScale: CGFloat = 1
   var groupStyle: GroupAvatarLayout.Style = .cluster
   var showsActivity = true
   @State private var photo: UIImage?
@@ -136,6 +137,7 @@ struct ChannelAvatar: View {
         BotGlyph(
           color: Color(hex: bot?.color ?? "7C5CFC"), kind: bot?.icon ?? "chip", size: size,
           mode: motion(bot?.id))
+          .scaleEffect(artworkScale)
       }
     }.overlay(alignment: .bottomTrailing) {
       if showsActivity, size <= 30, !runs.isEmpty, !channel.isGroup {

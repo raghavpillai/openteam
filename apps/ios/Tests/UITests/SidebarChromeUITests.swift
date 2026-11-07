@@ -13,6 +13,54 @@ import XCTest
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
   }
 
+  func testDuoFirstRowClearanceAndSelection() async throws {
+    continueAfterFailure = false
+    try await configure("/__qa/reset", [:])
+    try await configure("/__qa/scene", ["scene": "duo-sidebar"])
+    let plugins: [[String: Any]] = ["slack", "google-calendar", "notion"].map { key in
+      ["key": key, "pluginKey": key, "name": key, "installed": true,
+       "status": "installed", "connections": []]
+    }
+    try await configure("/__qa/control", ["pluginCatalog": plugins, "pluginInstalls": plugins])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "dark",
+      "--open-channel", "duo-0", "--qa-session", UUID().uuidString]
+    app.launch()
+    let first = app.buttons["channel-duo-0"]
+    XCTAssertTrue(first.waitForExistence(timeout: 20))
+    XCTAssertTrue(app.staticTexts["sidebar-account-name"].waitForExistence(timeout: 10))
+    let list = app.scrollViews.firstMatch
+    XCTAssertEqual(list.frame.width, 280, accuracy: 1)
+    let originalFrame = first.frame
+    XCTAssertTrue(first.isSelected)
+    capture("duo-first-row-clearance", app)
+    for index in [2, 4, 1, 0] {
+      let row = app.buttons["channel-duo-\(index)"]
+      row.tap()
+      let selected = expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: row)
+      await fulfillment(of: [selected], timeout: 5)
+      XCTAssertEqual(first.frame.minY, originalFrame.minY, accuracy: 0.5,
+        "Selection must not move or scroll the roster")
+      XCTAssertEqual(first.frame.height, 86, accuracy: 0.5)
+      capture("duo-selected-\(index)", app)
+    }
+    XCTAssertGreaterThanOrEqual(first.frame.minY - list.frame.minY, 16,
+      "The first row must clear the inner display's rounded top corner")
+    capture("duo-selection-returned-to-first", app)
+    let apps = app.buttons["marketplace-button"]
+    let loaded = expectation(for: NSPredicate(format: "value == %@", "3 installed plugins"), evaluatedWith: apps)
+    await fulfillment(of: [loaded], timeout: 10)
+    XCTAssertEqual(apps.frame.width, 78, accuracy: 1)
+    apps.tap()
+    XCTAssertTrue(app.buttons["installed-plugins"].waitForExistence(timeout: 10))
+    app.buttons["marketplace-back"].tap()
+    XCTAssertTrue(first.waitForExistence(timeout: 5))
+    list.swipeUp()
+    XCTAssertTrue(app.buttons["settings-button"].isHittable)
+    XCTAssertTrue(apps.isHittable)
+    capture("duo-scrolled-footer", app)
+  }
+
   func testFooterAndCompleteCircularControls() async throws {
     continueAfterFailure = false
     try await configure("/__qa/reset", [:])

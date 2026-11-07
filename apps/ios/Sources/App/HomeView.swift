@@ -329,7 +329,12 @@ struct HomeView: View {
                   .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
                   .accessibilityIdentifier("empty-conversations")
               }
-            }.padding(.horizontal, 20).padding(.bottom, isSidebar ? 94 : 30)
+            }
+            .padding(.leading, isSidebar ? SidebarMetrics.rowLeading : 20)
+            .padding(.trailing, isSidebar ? SidebarMetrics.rowTrailing : 20)
+            .padding(.top, isSidebar && barRegions.hasHinge && !portraitLayout
+              ? SidebarMetrics.landscapeTopClearance : 0)
+            .padding(.bottom, isSidebar ? 94 : 30)
           }.background(isSidebar ? SidebarFooterFade.canvas : NativePalette.background)
             .scrollIndicators(.hidden)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
@@ -571,7 +576,7 @@ struct HomeView: View {
             pinned: store.pins.contains(channel.id),
             pin: { Task { await store.togglePin(channel.id) } }
           ) {
-            ConversationLink(id: channel.id) {
+            ConversationLink(id: channel.id, isSidebar: isSidebar) {
               ChannelRow(channel: channel, isSidebar: isSidebar).modifier(ZoomSource(id: channel.id, namespace: zoom))
             }
               .accessibilityIdentifier("channel-" + channel.id)
@@ -939,9 +944,12 @@ extension EnvironmentValues {
 private struct ConversationLink<Label: View>: View {
   @Environment(AppStore.self) private var store
   @Environment(\.opensConversationsInPlace) private var inPlace
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let id: String
+  var isSidebar = false
   var highlightsSelection = true
   @ViewBuilder var label: Label
+  private var selected: Bool { highlightsSelection && store.navigation.last == id }
   var body: some View {
     if inPlace {
       Button {
@@ -950,11 +958,15 @@ private struct ConversationLink<Label: View>: View {
         Task { await store.open(id) }
       } label: {
         label.background {
-          if highlightsSelection, store.navigation.last == id {
-            RoundedRectangle(cornerRadius: 18).fill(NativePalette.sidebarSelection).padding(.horizontal, -10)
-          }
+          RoundedRectangle(cornerRadius: isSidebar ? SidebarMetrics.selectionRadius : 18)
+            .fill(NativePalette.sidebarSelection)
+            .padding(.horizontal, isSidebar
+              ? SidebarMetrics.selectionInset - SidebarMetrics.rowLeading : -10)
+            .padding(.vertical, isSidebar ? SidebarMetrics.selectionVerticalInset : 0)
+            .opacity(selected ? 1 : 0)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: selected)
         }
-      }.buttonStyle(.borderless)
+      }.buttonStyle(ConversationSelectionButtonStyle(isSidebar: isSidebar))
         .accessibilityAddTraits(store.navigation.last == id ? .isSelected : [])
     } else {
       NavigationLink(value: id) { label }.buttonStyle(.borderless)
@@ -965,6 +977,18 @@ private struct ConversationLink<Label: View>: View {
   }
 }
 
+/// A short dim on touch, followed by a gentle release. The highlight fades at
+/// its own row so rapid selections never slide a card through unrelated bots.
+private struct ConversationSelectionButtonStyle: ButtonStyle {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  var isSidebar: Bool
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .opacity(configuration.isPressed ? 0.65 : 1)
+      .animation(reduceMotion || !isSidebar ? nil : .easeOut(duration: 0.18), value: configuration.isPressed)
+  }
+}
+
 struct ChannelRow: View {
   @Environment(AppStore.self) private var store
   let channel: Channel
@@ -972,8 +996,10 @@ struct ChannelRow: View {
   private var last: Message? { store.latestMessage(channel.id) }
   private var unread: Bool { store.isUnread(channel) }
   var body: some View {
-    HStack(spacing: 16) {
-      ChannelAvatar(channel: channel, size: 46)
+    HStack(spacing: isSidebar ? SidebarMetrics.avatarGap : 16) {
+      ChannelAvatar(
+        channel: channel, size: isSidebar ? SidebarMetrics.avatarSize : 46,
+        artworkScale: isSidebar ? SidebarMetrics.avatarArtworkScale : 1)
       VStack(alignment: .leading, spacing: 3) {
         HStack(alignment: .firstTextBaseline) {
           Text(channel.name).font(isSidebar ? .system(size: 18, weight: .medium) : .body.weight(.medium)).foregroundStyle(NativePalette.text)

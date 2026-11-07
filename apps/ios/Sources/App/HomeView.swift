@@ -233,10 +233,7 @@ struct HomeView: View {
           .environment(\.conversationListVisible, showsList)
           .frame(maxWidth: .infinity)
       } else {
-        ContentUnavailableView(
-          "No conversation selected", systemImage: "bubble.left.and.bubble.right",
-          description: Text("Choose a conversation to start chatting.")
-        ).frame(maxWidth: .infinity, maxHeight: .infinity).nativeCanvas()
+        IdleConversationView()
       }
     }
     // Above both columns, so neither scroll view takes the drag.

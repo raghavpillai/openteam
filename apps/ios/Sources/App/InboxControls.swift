@@ -52,10 +52,11 @@ struct MarketplaceShortcut: View {
   var onExpansionChange: (Bool) -> Void = { _ in }
   var action: () -> Void
   @State private var hovered = false
-  @State private var installed: [JSON] = []
-  @State private var catalog: [JSON] = []
-  private func key(_ plugin: JSON) -> String {
-    plugin["pluginKey"].string.isEmpty ? plugin["key"].string : plugin["pluginKey"].string
+  private var installed: [SidebarPlugin] { store.state.sidebarPlugins ?? [] }
+  private var installationDescription: String {
+    guard store.state.sidebarPlugins != nil else { return "Checking installed apps" }
+    let count = "\(installed.count) " + (installed.count == 1 ? "app" : "apps")
+    return store.sidebarPluginsVerified ? count + " installed" : count + " saved; checking for updates"
   }
   var body: some View {
     Button(action: action) {
@@ -66,10 +67,10 @@ struct MarketplaceShortcut: View {
         }
         HStack(spacing: compact ? -SidebarMetrics.pluginOverlap : 0) {
           if compact {
-            ForEach(Array(installed.prefix(3).enumerated()), id: \.offset) { _, plugin in
+            ForEach(Array(installed.prefix(3))) { plugin in
               PluginCatalogMark(
-                plugin: plugin, fallback: catalog.first { key($0) == key(plugin) },
-                size: SidebarMetrics.pluginSize
+                plugin: plugin.artwork, fallback: nil,
+                size: SidebarMetrics.pluginSize, allowsRemoteArtwork: false
               )
               .overlay {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
@@ -112,13 +113,11 @@ struct MarketplaceShortcut: View {
       )
       .accessibilityIdentifier("marketplace-button")
       .accessibilityValue(
-        compact
-          ? "\(installed.count) installed " + (installed.count == 1 ? "plugin" : "plugins") : ""
+        compact ? installationDescription : ""
       )
       .task(id: revision) {
-        guard compact, let value = try? await store.request("/api/v0/plugins") else { return }
-        catalog = value["catalog"].array
-        installed = value["installs"].array
+        guard compact else { return }
+        await store.refreshSidebarPlugins()
       }
   }
 }

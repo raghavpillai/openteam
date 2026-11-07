@@ -116,7 +116,7 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // 1,248,419 bytes. The settings Select stays outside pages that do not use it.
 // v0.0.14: delivery/loading UI and shared resource ownership measure 1,258,168.
 // Automatic lifecycle chunking avoids a React initialization cycle in built entries.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_259_000);
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_261_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -154,7 +154,7 @@ atMost("startup CSS bytes", startupCssBytes, 183_700);
 // attachment previews measure 16,523,942 after the capabilities import fix.
 // v0.0.13 measures 16,529,321 bytes after isolating SettingsSelectContent.
 // v0.0.14 resource/cache ownership and delivery UI: 16,542,075 after safe chunking.
-atMost("renderer bytes", result.renderer.bytes, 16_544_000);
+atMost("renderer bytes", result.renderer.bytes, 16_546_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the

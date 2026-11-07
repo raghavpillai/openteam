@@ -3,7 +3,13 @@ import { createBrowserProxy } from "@openteam/plugin-sdk/browser-network/socks";
 import { createQualityProbe } from "./browser-network-quality";
 import { createEgressProbe } from "./browser-network-egress";
 import { createInterface } from "node:readline";
-import { startComputerDns, createDnsExchange } from "./computer-network-dns";
+import { isIP } from "node:net";
+import {
+  startComputerDns,
+  createDnsExchange,
+  globalIpv6Address,
+  probeIpv6Route,
+} from "./computer-network-dns";
 import { runOrdinaryProbe, probeComputerNetwork } from "./computer-network-probe";
 import { startManagementDiscovery } from "./computer-network-management";
 
@@ -38,6 +44,25 @@ const config = JSON.parse(input) as {
 const diagnostics = new Set<AbortController>();
 let diagnosticEpoch: string | undefined;
 let dnsExchange: ReturnType<typeof createDnsExchange> | undefined;
+// The computer can only serve the IPv6 destinations its own exit can route.
+// Device exits resolve and dial on the device, so they keep their own AAAA results.
+let ipv6Usable = false,
+  ipv6Probing: Promise<void> | undefined;
+const suppressIpv6 = () => !ipv6Usable && client.route?.mode !== "device";
+const refreshIpv6 = () => {
+  if (!globalIpv6Address()) {
+    ipv6Usable = false;
+    return Promise.resolve();
+  }
+  ipv6Probing ??= probeIpv6Route()
+    .then((usable) => {
+      ipv6Usable = usable;
+    })
+    .finally(() => {
+      ipv6Probing = undefined;
+    });
+  return ipv6Probing;
+};
 const url = new URL(
   `${config.serverUrl.replace(/\/$/, "")}/api/v0/internal/browser-network/channel`
 );
@@ -48,6 +73,7 @@ const client: BrowserNetworkClient = new BrowserNetworkClient({
   headers: { authorization: `Bearer ${config.token}` },
   changed: () => {
     dnsExchange?.syncRoute();
+    void refreshIpv6();
     const epoch = client.available() ? client.route?.epoch : undefined;
     if (epoch !== diagnosticEpoch) {
       diagnosticEpoch = epoch;
@@ -56,11 +82,18 @@ const client: BrowserNetworkClient = new BrowserNetworkClient({
     console.log(JSON.stringify(client.status()));
   },
 });
-const proxy = createBrowserProxy((host, port) => client.open(host, port));
+const proxy = createBrowserProxy((host, port) =>
+  // Fail a literal IPv6 destination at once instead of accepting then closing mid-TLS.
+  isIP(host) === 6 && suppressIpv6()
+    ? Promise.reject(new Error("ipv6_unavailable"))
+    : client.open(host, port)
+);
 const port = await proxy.listen(config.port);
+await refreshIpv6();
 dnsExchange = config.computerNetwork
   ? createDnsExchange(client, {
       routeKey: () => (client.available() ? (client.route?.epoch ?? null) : null),
+      ipv6: () => !suppressIpv6(),
     })
   : undefined;
 const dns = dnsExchange ? await startComputerDns(dnsExchange) : undefined;

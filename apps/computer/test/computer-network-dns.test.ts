@@ -1,9 +1,33 @@
 import { expect, test } from "bun:test";
 import { createSocket } from "node:dgram";
 import { createConnection } from "node:net";
-import { createDnsExchange, dnsFailure, startComputerDns } from "../src/computer-network-dns";
+import { createDnsExchange, dnsFailure, dnsNodata, startComputerDns } from "../src/computer-network-dns";
 
 const query = Buffer.from("007b01000001000000000000076578616d706c6503636f6d0000010001", "hex");
+const aaaa = Buffer.from("007b01000001000000000000076578616d706c6503636f6d00001c0001", "hex");
+
+test("AAAA is withheld only while the exit cannot route IPv6, and other types pass through", async () => {
+  let opened = 0;
+  const open = async () => {
+    opened++;
+    throw new Error("selected route unavailable");
+  };
+  const filtered = createDnsExchange({ open }, { ipv6: () => false });
+  const nodata = await filtered(aaaa);
+  expect(opened).toBe(0);
+  expect(nodata.readUInt16BE(0)).toBe(123);
+  expect(nodata[2]! & 0x80).toBe(0x80);
+  expect(nodata[3]! & 0x0f).toBe(0);
+  expect(nodata.readUInt16BE(6)).toBe(0);
+  expect(nodata.subarray(12)).toEqual(aaaa.subarray(12));
+  await expect(filtered(query)).rejects.toThrow("selected route unavailable");
+  expect(opened).toBe(1);
+  // A routable exit keeps its AAAA answers untouched.
+  const direct = createDnsExchange({ open }, { ipv6: () => true });
+  await expect(direct(aaaa)).rejects.toThrow("selected route unavailable");
+  expect(opened).toBe(2);
+  expect(dnsNodata(aaaa).length).toBe(aaaa.length);
+});
 
 test("computer DNS handles UDP, split and coalesced TCP, and route failure without another resolver", async () => {
   let failed = false,

@@ -925,6 +925,7 @@ const VoiceConversationCard = memo(function VoiceConversationCard({
   const [open, setOpen] = useState(false);
   const first = messages[0];
   const last = messages[messages.length - 1];
+  const preview = messages.find((message) => message.sender === "user")?.content.trim() ?? "";
   const minutes = first && last
     ? Math.max(1, Math.round((new Date(last.createdAt).getTime() - new Date(first.createdAt).getTime()) / 60_000))
     : 1;
@@ -937,8 +938,15 @@ const VoiceConversationCard = memo(function VoiceConversationCard({
         type="button"
       >
         <Mic aria-hidden className="size-4 shrink-0" />
-        <span className="flex-1 truncate">
+        <span className="shrink-0">
           Voice conversation · {messages.length} {messages.length === 1 ? "message" : "messages"} · {minutes} min
+        </span>
+        <span
+          className="min-w-0 flex-1 truncate text-right text-xs italic text-muted-foreground/70"
+          data-voice-preview=""
+          title={open ? undefined : preview}
+        >
+          {open ? "" : preview}
         </span>
         <ChevronDown aria-hidden className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
       </button>

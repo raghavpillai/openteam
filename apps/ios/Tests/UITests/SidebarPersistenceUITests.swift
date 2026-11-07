@@ -63,13 +63,29 @@ import XCTest
     app.buttons["channel-visual-0"].tap()
     XCTAssertEqual(app.buttons["marketplace-button"].frame.width, 78, accuracy: 1)
     app.buttons["sidebar-toggle"].tap()
-    app.buttons["chat-sidebar"].tap()
+    let showSidebar = app.buttons["chat-sidebar"]
+    if showSidebar.waitForExistence(timeout: 1) {
+      showSidebar.tap()
+    } else {
+      // Duo retains the action in its system rail when the list is hidden.
+      let railToggle = app.buttons["sidebar-toggle"]
+      XCTAssertEqual(railToggle.label, "Show sidebar")
+      railToggle.tap()
+    }
     XCTAssertEqual(app.buttons["marketplace-button"].frame.width, 78, accuracy: 1)
     await waitForValue("3 apps installed", in: app, timeout: 20)
 
     try await configure("/__qa/control", ["failures": ["GET /api/v0/plugins": ["status": 503, "count": 10]]])
-    XCUIDevice.shared.press(.home)
-    app.activate()
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      // Relaunch on Duo so this assertion addresses its active inner-display
+      // scene; XCTest activation after Home can address the cover scene.
+      app.terminate()
+      app.launch()
+      XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 10))
+    } else {
+      XCUIDevice.shared.press(.home)
+      app.activate()
+    }
     await waitForValue("3 apps saved; checking for updates", in: app)
     XCTAssertEqual(app.buttons["marketplace-button"].frame.width, 78, accuracy: 1)
     capture("failed-refresh-keeps-icons", app)

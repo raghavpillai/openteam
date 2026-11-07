@@ -19,12 +19,13 @@ import XCTest
     return value
   }
   func launch(failRegistration: Int = 0, coldSession: Bool = false,
-    backgroundTask: Bool = false) async throws -> XCUIApplication
+    backgroundTask: Bool = false, scene: String? = nil) async throws -> XCUIApplication
   {
     continueAfterFailure = false
     let app = XCUIApplication()
     app.terminate()
     _ = try await request("/__push/reset", [:])
+    if let scene { _ = try await request("/__qa/scene", ["scene": scene]) }
     _ = try await request("/__push/control", ["failRegistration": failRegistration])
     if backgroundTask {
       let bootstrap = try await request("/api/v0/client-bootstrap")
@@ -82,10 +83,33 @@ import XCTest
         .containing(.staticText, identifier: body).firstMatch
       XCTAssertTrue(alert.waitForExistence(timeout: 5))
       alert.tap()
-      if app.wait(for: .runningForeground, timeout: 4) { return }
+      if app.wait(for: .runningForeground, timeout: 4)
+        || app.buttons["conversation-details"].isHittable
+        || app.buttons["settings-button"].isHittable { return }
       print("Notification Center is still visible; resolving its selected alert again")
     }
     XCTFail("Selecting the notification did not activate OpenTeam. " + springboard.debugDescription)
+  }
+  private func selectNotification(_ body: String, in app: XCUIApplication) -> Date {
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.01)).press(
+      forDuration: 0.1,
+      thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.8)))
+    let notification = springboard.staticTexts[body]
+    XCTAssertTrue(notification.waitForExistence(timeout: 8))
+    let selected = Date()
+    openNotification(notification, in: app)
+    return selected
+  }
+  private func openSearchMessage(_ text: String, in app: XCUIApplication) {
+    app.buttons["search-button"].tap()
+    let search = app.textFields["search-input"]
+    XCTAssertTrue(search.waitForExistence(timeout: 5))
+    search.typeText(text)
+    let result = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+    XCTAssertTrue(result.waitForExistence(timeout: 8))
+    result.tap()
+    XCTAssertTrue(app.tables["chat-history"].staticTexts[text].waitForExistence(timeout: 8))
   }
   func testSmartNotificationPresenceAndPreferenceFollowNativeLifecycle() async throws {
     let app = try await launch()
@@ -531,11 +555,16 @@ import XCTest
     let channels = try XCTUnwrap(bootstrap["channels"] as? [[String: Any]])
     let channel = try XCTUnwrap(channels.first?["id"] as? String)
     try background(app)
+    let created = try await request("/api/v0/channels/" + channel + "/messages", [
+      "clientId": UUID().uuidString, "content": "Cold-launched notification reply",
+    ])
+    let message = try XCTUnwrap(created["message"] as? [String: Any])
     _ = try await request(
       "/__push/deliver",
       [
         "qaID": "Tap to open this conversation", "kind": "message", "channelId": channel,
-        "messageSequence": "99", "notificationSequence": "100",
+        "messageSequence": try XCTUnwrap(message["sequence"] as? String), "notificationSequence": "100",
+        "messageId": try XCTUnwrap(message["id"] as? String),
       ])
     app.terminate()
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -548,8 +577,12 @@ import XCTest
     before.name = "native-notification-before-tap"
     before.lifetime = .keepAlways
     add(before)
+    let selected = Date()
     openNotification(notification, in: app)
     XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 12))
+    XCTAssertTrue(app.staticTexts["Cold-launched notification reply"].waitForExistence(timeout: 12))
+    XCTAssertTrue(app.staticTexts["Cold-launched notification reply"].isHittable)
+    print("NOTIFICATION_MESSAGE_VISIBLE cold-launch \(Date().timeIntervalSince(selected))")
     // Chat chrome appears before the transcript finishes positioning and marks itself read.
     var receipts: [[String: Any]] = []
     for _ in 0..<40 {
@@ -570,6 +603,108 @@ import XCTest
     after.name = "native-notification-opened-chat"
     after.lifetime = .keepAlways
     add(after)
+  }
+  func testNotificationTapLeavesOlderSearchWindowAndShowsAnnouncedMessage() async throws {
+    let app = try await launch(scene: "history-pages")
+    _ = try await waitRegistered()
+    openSearchMessage("Page message 90", in: app)
+    try background(app)
+    _ = try await request("/__push/deliver", [
+      "qaID": "Open the latest announced reply", "kind": "message", "channelId": "visual-chat",
+      "messageSequence": "180", "notificationSequence": "500",
+    ])
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.01)).press(
+      forDuration: 0.1,
+      thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.8)))
+    let notification = springboard.staticTexts["Open the latest announced reply"]
+    XCTAssertTrue(notification.waitForExistence(timeout: 8))
+    let selected = Date()
+    openNotification(notification, in: app)
+    let target = app.staticTexts["Page message 180"]
+    XCTAssertTrue(target.waitForExistence(timeout: 8), "The notification's message must load without reopening the bot or pressing Latest")
+    XCTAssertTrue(target.isHittable)
+    print("NOTIFICATION_MESSAGE_VISIBLE older-window \(Date().timeIntervalSince(selected))")
+  }
+  func testCachedNotificationMessageIsRevealedWhileHistoryRefreshIsSlow() async throws {
+    let app = try await launch(scene: "history-pages")
+    _ = try await waitRegistered()
+    // Search loads the page without acknowledging its newest messages.
+    openSearchMessage("Page message 175", in: app)
+    let target = app.tables["chat-history"].staticTexts["Page message 180"]
+    XCTAssertTrue(target.waitForExistence(timeout: 10))
+    for _ in 0..<3 { app.tables["chat-history"].swipeDown() }
+    XCTAssertFalse(target.isHittable)
+    let before = try await request("/__qa/state")["requests"] as? [[String: Any]] ?? []
+    let contextsBefore = before.filter { ($0["path"] as? String)?.hasSuffix("/context") == true }.count
+    try background(app)
+    _ = try await request("/__push/control", ["historyDelayMs": 15000])
+    _ = try await request("/__push/deliver", [
+      "qaID": "Reveal the cached reply", "kind": "message", "channelId": "visual-chat",
+      "messageId": "visual-message-visual-chat-180", "messageSequence": "180", "notificationSequence": "500",
+    ])
+    let selected = selectNotification("Reveal the cached reply", in: app)
+    XCTAssertTrue(target.waitForExistence(timeout: 3))
+    XCTAssertTrue(target.isHittable)
+    print("NOTIFICATION_MESSAGE_VISIBLE cached \(Date().timeIntervalSince(selected))")
+    let state = try await request("/__qa/state")
+    let contextsAfter = (state["requests"] as? [[String: Any]] ?? []).filter {
+      ($0["path"] as? String)?.hasSuffix("/context") == true
+    }.count
+    XCTAssertEqual(contextsAfter, contextsBefore, "A cached visible window needs no context request")
+  }
+  func testNotificationMessageLoadsWithVisibleProgressDuringSlowResponses() async throws {
+    let app = try await launch(scene: "history-pages")
+    _ = try await waitRegistered()
+    app.buttons["channel-visual-chat"].tap()
+    XCTAssertTrue(app.tables["chat-history"].staticTexts["Page message 180"].waitForExistence(timeout: 10))
+    app.buttons["chat-back"].tap()
+    try background(app)
+    _ = try await request("/__push/control", ["historyDelayMs": 15000])
+    let created = try await request("/api/v0/channels/visual-chat/messages", [
+      "clientId": UUID().uuidString, "content": "Delayed notification reply",
+    ])
+    let message = try XCTUnwrap(created["message"] as? [String: Any])
+    let messageID = try XCTUnwrap(message["id"] as? String)
+    _ = try await request("/__qa/control", ["failures": [
+      "GET /api/v0/channel-messages/" + messageID + "/context": ["delayMs": 8000, "count": 1],
+    ]])
+    _ = try await request("/__push/deliver", [
+      "qaID": "Open a reply over a slow connection", "kind": "message", "channelId": "visual-chat",
+      "messageId": messageID, "messageSequence": try XCTUnwrap(message["sequence"] as? String),
+      "notificationSequence": "500",
+    ])
+    let selected = selectNotification("Open a reply over a slow connection", in: app)
+    let progress = app.descendants(matching: .any).matching(identifier: "notification-opening").firstMatch
+    XCTAssertTrue(progress.waitForExistence(timeout: 2))
+    let target = app.tables["chat-history"].staticTexts["Delayed notification reply"]
+    XCTAssertFalse(target.exists)
+    XCTAssertTrue(target.waitForExistence(timeout: 15))
+    XCTAssertTrue(target.isHittable)
+    XCTAssertFalse(progress.exists)
+    print("NOTIFICATION_MESSAGE_VISIBLE delayed-context \(Date().timeIntervalSince(selected))")
+  }
+  func testNotificationTapShowsAnOlderMessageOutsideTheLatestPage() async throws {
+    try await checkOlderNotification(hasMessageID: true)
+  }
+  func testLegacyNotificationTapShowsAnOlderMessageOutsideTheLatestPage() async throws {
+    try await checkOlderNotification(hasMessageID: false)
+  }
+  private func checkOlderNotification(hasMessageID: Bool) async throws {
+    let app = try await launch(scene: "history-pages")
+    _ = try await waitRegistered()
+    try background(app)
+    var alert: [String: Any] = [
+      "qaID": "Open this specific older reply", "kind": "message", "channelId": "visual-chat",
+      "messageSequence": "25", "notificationSequence": "500",
+    ]
+    if hasMessageID { alert["messageId"] = "visual-message-visual-chat-25" }
+    _ = try await request("/__push/deliver", alert)
+    let selected = selectNotification("Open this specific older reply", in: app)
+    let target = app.tables["chat-history"].staticTexts["Page message 25"]
+    XCTAssertTrue(target.waitForExistence(timeout: 8))
+    XCTAssertTrue(target.isHittable)
+    print("NOTIFICATION_MESSAGE_VISIBLE older-message-id-\(hasMessageID) \(Date().timeIntervalSince(selected))")
   }
   func testNotificationTapOpensTheThreadReply() async throws {
     let app = try await launch()

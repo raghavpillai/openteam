@@ -85,6 +85,8 @@ test.skipIf(!url)(
       await Effect.runPromise(service.updatePreferences(true));
       await presence(mac, 1, true);
       const first = await message();
+      const published = await db.channelNotification.findUniqueOrThrow({ where: { key: `message:${first.id}` } });
+      expect((published.payload as { messageId?: string }).messageId).toBe(first.id);
       await drain();
       expect(firstPhone).toEqual([]);
       expect(secondPhone).toEqual([]);

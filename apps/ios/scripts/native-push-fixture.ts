@@ -12,6 +12,7 @@ let cursor = 1, badgeCount = 0, unavailable = false;
 let failRegistration = 0, registrationDelay = 0, failUnregister = 0;
 let readFailures = 0, readDelayMs = 0, lostReadResponses = 0, offline = false;
 let snapshotDelayMs = 0;
+let historyDelayMs = 0;
 let fixtureEpoch = 0;
 let presence: any[] = [], smartEnabled = true;
 const routing = () => ({ smartEnabled, serverTime: Date.now(), iosActiveUntil: 0, macActiveUntil: 0 });
@@ -61,6 +62,7 @@ Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async fetch(request) {
     registration = null; receipts = []; alerts = []; observations = []; reads = {}; cursor++; badgeCount = 0; unavailable = false; failRegistration = 0; registrationDelay = 0; failUnregister = 0;
     readFailures = 0; readDelayMs = 0; lostReadResponses = 0; offline = false;
     snapshotDelayMs = 0;
+    historyDelayMs = 0;
     await fetch(upstream + "/__qa/reset", { method: "POST", body: "{}" });
     return reply({ ok: true });
   }
@@ -83,6 +85,7 @@ Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async fetch(request) {
     lostReadResponses = body.lostReadResponses ?? lostReadResponses;
     offline = body.offline ?? offline;
     snapshotDelayMs = body.snapshotDelayMs ?? snapshotDelayMs;
+    historyDelayMs = body.historyDelayMs ?? historyDelayMs;
     return reply({ok:true});
   }
   if (path === "/__push/deliver") {
@@ -136,6 +139,15 @@ Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async fetch(request) {
     if (epoch !== fixtureEpoch) return reply({message:"QA session reset"},503);
   }
   const response = await fetch(upstream + path + url.search, {method:request.method, headers:request.headers, body: text || undefined});
+  if (path.endsWith("/history") && historyDelayMs) {
+    // Hold an already-created response, so a notification can announce a newer
+    // message while this older page remains in flight.
+    const value = await response.json();
+    receipts.push({method:request.method,path,stage:"history-captured",at:Date.now()});
+    await Bun.sleep(historyDelayMs);
+    if (epoch !== fixtureEpoch) return reply({message:"QA session reset"},503);
+    return reply(value, response.status);
+  }
   if (epoch !== fixtureEpoch) return reply({message:"QA session reset"},503);
   if (path === "/api/v0/client-bootstrap" && response.ok) {
     const value: any = await response.json();

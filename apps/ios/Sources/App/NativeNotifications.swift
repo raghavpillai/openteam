@@ -415,10 +415,10 @@ final class NativeNotifications {
       store.error = "This conversation is no longer available."
       return
     }
-    // A reply inside a thread opens that thread; if it can't load, open the chat.
     let thread = push.data["threadMessageId"].string
-    if !thread.isEmpty { await store.open(push.channelId, messageID: thread) }
-    if store.navigation != [push.channelId] { await store.open(push.channelId) }
+    let message = thread.isEmpty ? push.data["messageId"].string : thread
+    await store.openNotification(push.channelId, messageID: message.isEmpty ? nil : message,
+      sequence: push.data["messageSequence"].string)
   }
   nonisolated static func payload(_ userInfo: [AnyHashable: Any]) -> NativePush {
     let value =

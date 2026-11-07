@@ -370,6 +370,8 @@ struct ChatView: View {
     scrollRequest = HistoryScrollRequest(id: "bottom")
   }
   private func focus(_ id: String) {
+    let fromNotification = store.focusedNotification == id
+    store.focusedNotification = nil
     followsLatest = false
     let message = store.messages(channel.id).first(where: { $0.id == id })
     if let message, var peer = BotExchangePeer(message.metadata) {
@@ -381,6 +383,10 @@ struct ChatView: View {
         branchesReplies = true
         thread = root
       } else { store.error = "The start of this thread is unavailable. Load earlier messages and try again." }
+    } else if fromNotification, !hasLater,
+      id == store.visibleMessages(channel.id).last(where: { !$0.metadata["branched"].bool })?.id {
+      followsLatest = true
+      scrollRequest = HistoryScrollRequest(id: "bottom", animated: false)
     } else { scrollRequest = HistoryScrollRequest(id: id, animated: false) }
     store.focusedMessage = nil
   }

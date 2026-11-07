@@ -1641,7 +1641,7 @@ final class AppStore {
       messageID == nil ? $0.sequence == sequence : $0.id == messageID
     }
     let cachedVisible = cached.map {
-      hasCachedHistory(channelID) && historyWindows[channelID]?.contains($0) != false
+      hasCachedHistory(channelID) && historyWindows[channelID]?.contains($0) == true
         && !$0.metadata["branched"].bool
     } == true
     var resolvedID = messageID ?? cached?.id

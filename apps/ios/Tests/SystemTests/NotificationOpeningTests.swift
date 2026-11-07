@@ -31,7 +31,9 @@ final class NotificationOpeningTests: SystemIntentFixture {
     defer { store.beginReauthentication() }
     await store.loadHistory("visual-chat")
     let target = try XCTUnwrap(store.messages("visual-chat").last)
-    let before = try await requests().count
+    let before = try await requests().filter {
+      $0["path"].string.hasSuffix("/history") || $0["path"].string.hasSuffix("/context")
+    }.count
     try await control(.object([
       "GET /api/v0/channels/visual-chat/history": .object(["status": .number(503), "count": .number(100)]),
       "GET /api/v0/channel-messages/*": .object(["status": .number(503), "count": .number(100)]),
@@ -41,7 +43,9 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertLessThan(started.duration(to: .now), .milliseconds(200))
     XCTAssertEqual(store.focusedMessage, target.id)
     XCTAssertEqual(store.navigation, ["visual-chat"])
-    let after = try await requests().count
+    let after = try await requests().filter {
+      $0["path"].string.hasSuffix("/history") || $0["path"].string.hasSuffix("/context")
+    }.count
     XCTAssertEqual(after, before)
     XCTAssertNil(store.error)
   }
@@ -56,6 +60,24 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-180")
     XCTAssertTrue(store.visibleMessages("visual-chat").contains { $0.sequence == "180" })
     XCTAssertFalse(store.historyWindows["visual-chat"]?.hasLater == true)
+  }
+  func testRestoredOlderCacheGetsItsContextBeforeLatestReconciliation() async throws {
+    let store = try await connectedStore()
+    defer { store.beginReauthentication() }
+    await store.loadHistory("visual-chat")
+    let target = "visual-message-visual-chat-25"
+    let loaded = await store.loadContext("visual-chat", messageID: target)
+    XCTAssertTrue(loaded)
+    // Restart restores saved rows and loaded-channel markers, without the
+    // in-memory context bounds. A latest-page install could otherwise drop 25.
+    store.histories = [:]
+    store.historyWindows = [:]
+    XCTAssertTrue(store.hasCachedHistory("visual-chat"))
+    await store.openNotification("visual-chat", messageID: target, sequence: "25")
+    XCTAssertEqual(store.focusedMessage, target)
+    XCTAssertTrue(store.historyWindows["visual-chat"]?.hasLater == true)
+    await store.loadHistory("visual-chat")
+    XCTAssertTrue(store.visibleMessages("visual-chat").contains { $0.id == target })
   }
   func testMessageIdentityOpensAnAlertOutsideTheLatestSixtyMessages() async throws {
     let store = try await connectedStore()

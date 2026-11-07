@@ -9,6 +9,7 @@ struct ChatView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.chatLeadingControl) private var leadingControl
   @Environment(\.sideChrome) private var sideChrome
   @Environment(\.leadingChatTitle) private var leadingChatTitle
@@ -48,6 +49,20 @@ struct ChatView: View {
   private var showsLatestButton: Bool {
     didPositionHistory && (hasLater || (!bottomVisible && !followsLatest))
   }
+  private var readTarget: NotificationReadMarker? {
+    guard scenePhase == .active, didPositionHistory, bottomVisible, followsLatest, !hasLater,
+      store.activeChannel == channel.id, thread == nil, exchange == nil,
+      store.focusedMessage == nil else { return nil }
+    return NotificationReadMarker(json: .object([
+      "channelId": .string(channel.id),
+      "lastReadSequence": .string(store.messages(channel.id).last(where: {
+        !$0.metadata["branched"].bool
+      })?.sequence ?? "0"),
+      "lastReadNotificationSequence": .string(
+        NotificationReads.sequence(
+          store.channel(channel.id)?.notificationState?["notificationCursor"].string ?? "") ?? "0"),
+    ]))
+  }
   var body: some View {
     let timeline = timelineCache.project(store.visibleMessages(channel.id), includeBranched: true)
     let rows = timelineCache.present(timeline, pending: pendingMessages, animateNew: didPositionHistory)
@@ -72,7 +87,6 @@ struct ChatView: View {
           onPositioned: {
             didPositionHistory = true
             if let id = store.focusedMessage { focus(id) }
-            else if !hasLater { Task { await store.markRead(channel.id) } }
           },
           onScroll: { bottom, following in
             bottomVisible = bottom
@@ -83,7 +97,6 @@ struct ChatView: View {
               // Adjacent history pages are already-known messages, not arrivals.
               seenThroughSequence = store.latestMessage(channel.id)?.sequence
             }
-            if bottom && following && !hasLater { Task { await store.markRead(channel.id) } }
           },
           onDismissKeyboard: { dismissFocusRequest = UUID() }
         )
@@ -99,6 +112,16 @@ struct ChatView: View {
       }
     }
     .modifier(SystemConversationContext(channel: channel))
+    .task(id: readTarget) {
+      guard let target = readTarget else { return }
+      var retryDelay = 1
+      while !Task.isCancelled {
+        if await store.markRead(target.channelId, through: target.lastReadSequence,
+          throughNotificationSequence: target.lastReadNotificationSequence) { return }
+        do { try await Task.sleep(for: .seconds(retryDelay)) } catch { return }
+        retryDelay = min(retryDelay * 2, 8)
+      }
+    }
     .task(id: awaitingNewerPage) {
       guard awaitingNewerPage else { return }
       // A slow network still shows the saved transcript.

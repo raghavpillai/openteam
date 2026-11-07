@@ -176,6 +176,7 @@ final class NativeNotifications {
     updatePresence()
     _ = await synchronize()
     await routePendingTap()
+    await reportForQA(nil)
   }
   func setEnabled(_ value: Bool) async {
     guard available, !changingPermission else { return }
@@ -345,6 +346,9 @@ final class NativeNotifications {
   @discardableResult func synchronize() async -> Bool {
     guard available, let api, !retiring else { return false }
     let current = epoch
+    // Saved read markers can retire a delayed alert while the network is down.
+    await removeReadNotifications()
+    guard current == epoch else { return false }
     snapshotRequest += 1
     let request = snapshotRequest
     do {
@@ -440,6 +444,8 @@ final class NativeNotifications {
           "badge": .number(Double(UIApplication.shared.applicationIconBadgeNumber)),
           "permission": .number(Double(permission.rawValue)),
           "registered": .bool(registered),
+          "activeChannel": .string(store?.activeChannel ?? ""),
+          "readStates": (try? .encode(reads)) ?? .null,
         ]))
     #endif
   }

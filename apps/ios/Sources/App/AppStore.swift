@@ -1103,14 +1103,17 @@ final class AppStore {
       return false
     }
   }
-  func markRead(_ id: String, through sequence: String? = nil) async {
+  @discardableResult
+  func markRead(_ id: String, through sequence: String? = nil,
+    throughNotificationSequence: String? = nil) async -> Bool {
     guard foreground, activeChannel == id, let api,
       channel(id) != nil
-    else { return }
+    else { return false }
     let through =
       sequence ?? messages(id).last(where: { !$0.metadata["branched"].bool })?.sequence ?? "0"
     let notificationCursor =
-      NotificationReads.sequence(channel(id)?.notificationState?["notificationCursor"].string ?? "")
+      NotificationReads.sequence(throughNotificationSequence
+        ?? channel(id)?.notificationState?["notificationCursor"].string ?? "")
       ?? "0"
     let previousActivity =
       NotificationReads.sequence(
@@ -1120,7 +1123,7 @@ final class AppStore {
       !MessageMerge.less(previousActivity, notificationCursor), channel(id)?.unreadCount == 0,
       !sidebar["unreadIds"].array.contains(.string(id))
     {
-      return
+      return true
     }
     let epoch = generation
     do {
@@ -1132,14 +1135,24 @@ final class AppStore {
         ]))
       guard epoch == generation,
         let index = state.bootstrap?.channels.firstIndex(where: { $0.id == id })
-      else { return }
-      state.bootstrap?.channels[index].unreadCount = value["unreadCount"].int
+      else { return false }
       var notification = state.bootstrap?.channels[index].notificationState ?? .object([:])
-      notification["lastReadSequence"] =
-        value["lastReadSequence"] == .null ? .string(through) : value["lastReadSequence"]
-      notification["lastReadNotificationSequence"] =
-        value["lastReadNotificationSequence"] == .null
-        ? .string(notificationCursor) : value["lastReadNotificationSequence"]
+      let acknowledgedMessage = value["lastReadSequence"] == .null
+        ? through : value["lastReadSequence"].string
+      let acknowledgedActivity = value["lastReadNotificationSequence"] == .null
+        ? notificationCursor : value["lastReadNotificationSequence"].string
+      let currentMessage = notification["lastReadSequence"].string
+      let currentActivity = notification["lastReadNotificationSequence"].string
+      // A cancelled older request can finish after a newer chat/read update.
+      // Its response must not restore an older read cursor or unread count.
+      if !MessageMerge.less(acknowledgedMessage, currentMessage),
+        !MessageMerge.less(acknowledgedActivity, currentActivity) {
+        state.bootstrap?.channels[index].unreadCount = value["unreadCount"].int
+      }
+      notification["lastReadSequence"] = .string(
+        MessageMerge.less(currentMessage, acknowledgedMessage) ? acknowledgedMessage : currentMessage)
+      notification["lastReadNotificationSequence"] = .string(
+        MessageMerge.less(currentActivity, acknowledgedActivity) ? acknowledgedActivity : currentActivity)
       state.bootstrap?.channels[index].notificationState = notification
       #if canImport(UIKit)
         NativeNotifications.shared.apply(channels: channels)
@@ -1154,7 +1167,11 @@ final class AppStore {
         }
       }
       persist()
-    } catch { if epoch == generation { handle(error, quiet: true) } }
+      return true
+    } catch {
+      if epoch == generation { handle(error, quiet: true) }
+      return false
+    }
   }
   func enqueue(_ channel: Channel, draftKey: String? = nil, threadRootID: String? = nil,
     replyRootID: String? = nil) async {

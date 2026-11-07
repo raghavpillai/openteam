@@ -8,7 +8,7 @@ final class ConversationActivityTests: XCTestCase {
     channel.kind = "bot_dm"
     let botId = bootstrap.bots[0].id
     var task = SubagentActivity(id: "task", parentBotId: botId,
-      parentChannelId: channel.id, runInBackground: true, status: "provisioning")
+      parentChannelId: channel.id, status: "provisioning")
     func activity(_ task: SubagentActivity) -> ConversationActivity? {
       .resolve(channel: channel, botId: botId, runs: [], subagents: [task])
     }
@@ -21,9 +21,6 @@ final class ConversationActivityTests: XCTestCase {
       XCTAssertNil(activity(task), status)
     }
     task.status = "running"
-    task.runInBackground = false
-    XCTAssertNil(activity(task))
-    task.runInBackground = true
     task.parentBotId = "another-bot"
     XCTAssertNil(activity(task))
     task.parentBotId = botId
@@ -54,7 +51,7 @@ final class ConversationActivityTests: XCTestCase {
       return try JSONDecoder().decode(Run.self, from: JSONSerialization.data(withJSONObject: payload))
     }
     let parked = SubagentActivity(id: "parked", parentBotId: botId,
-      parentChannelId: channel.id, runInBackground: true, status: "waiting")
+      parentChannelId: channel.id, status: "waiting")
     for check: Any in ["2099-11-04T08:00:00Z", "2020-01-01T00:00:00Z", "invalid", NSNull()] {
       let runs = try [run("old", "completed", "waiting", check),
         run("second-wait", "completed", "waiting", check),
@@ -81,11 +78,25 @@ final class ConversationActivityTests: XCTestCase {
     let original = try ProtocolTests().fixture()
     var payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as! [String: Any]
     payload["subagents"] = [["id": "task", "parentBotId": "bot", "parentChannelId": "chat",
-      "runInBackground": true, "status": "queued", "description": "Extra contract fields are allowed"]]
+      "status": "queued", "description": "Extra contract fields are allowed"]]
     let bootstrap = try JSONDecoder().decode(Bootstrap.self, from: JSONSerialization.data(withJSONObject: payload))
     let saved = try JSONDecoder().decode(Bootstrap.self, from: JSONEncoder().encode(bootstrap))
     XCTAssertEqual(saved.subagents?.first?.id, "task")
     XCTAssertEqual(saved.subagents?.first?.isActive, true)
+    let state = try JSONDecoder().decode(ChannelState.self, from: JSONSerialization.data(withJSONObject: [
+      "channelId": "chat", "revision": "1", "runs": [], "subagents": payload["subagents"]!,
+    ]))
+    XCTAssertEqual(state.subagents?.first?.id, "task")
+    XCTAssertEqual(state.subagents?.first?.isActive, true)
+    // Old caches may still carry the retired execution-mode flag. It must not
+    // prevent decoding or hide an active task from the current activity model.
+    for legacyFlag in [false, true] {
+      var task = (payload["subagents"] as! [[String: Any]])[0]
+      task["runInBackground"] = legacyFlag
+      let restored = try JSONDecoder().decode(SubagentActivity.self,
+        from: JSONSerialization.data(withJSONObject: task))
+      XCTAssertTrue(restored.isActive)
+    }
     payload.removeValue(forKey: "subagents")
     let legacy = try JSONDecoder().decode(Bootstrap.self, from: JSONSerialization.data(withJSONObject: payload))
     XCTAssertNil(legacy.subagents)

@@ -16,7 +16,7 @@ import XCTest
     ["id": "background-attempt", "subagentId": "background-session", "parentBotId": bot,
       "parentRunId": "parent-run", "parentChannelId": channel, "parentToolCallId": "task-call",
       "currentRunId": "background-run", "description": "Check the shipping receipt",
-      "subagentType": "executor", "runInBackground": true, "status": status,
+      "subagentType": "executor", "status": status,
       "summary": NSNull(), "errorMessage": NSNull(), "startedAt": NSNull(),
       "completedAt": NSNull(), "stoppedAt": NSNull(),
       "createdAt": "2026-10-29T12:00:00Z", "updatedAt": "2026-10-29T12:00:00Z"]

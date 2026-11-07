@@ -34,6 +34,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
   var initialTarget = "bottom"
   var initialLayout = InitialLayout.settled
   var request: HistoryScrollRequest?
+  var earlierPage: String?
+  var laterPage: String?
+  var onLoadEarlier: () -> Void = {}
+  var onLoadLater: () -> Void = {}
   var onPositioned: () -> Void = {}
   var onScroll: (_ atBottom: Bool, _ following: Bool) -> Void = { _, _ in }
   var onDismissKeyboard: () -> Void = {}
@@ -52,6 +56,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
     controller.onPositioned = onPositioned
     controller.onScroll = onScroll
     controller.onDismissKeyboard = onDismissKeyboard
+    controller.earlierPage = earlierPage
+    controller.laterPage = laterPage
+    controller.onLoadEarlier = onLoadEarlier
+    controller.onLoadLater = onLoadLater
     controller.update(items, request: request)
   }
 }
@@ -65,6 +73,14 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var bottomAnchoredIDs = Set<String>()
   private var windowStart = 0
   private let windowSize = 80
+  var earlierPage: String?
+  var laterPage: String?
+  var onLoadEarlier: () -> Void = {}
+  var onLoadLater: () -> Void = {}
+  private var pageTrigger = HistoryPageTrigger()
+  private var highlightTarget: String?
+  private weak var highlightedCell: UITableViewCell?
+  private var highlightExpiry: DispatchWorkItem?
   private var measuredHeights: [String: CGFloat] = [:]
   private var lastRequest: UUID?
   private var pendingRequest: HistoryScrollRequest?
@@ -183,6 +199,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
     source = UITableViewDiffableDataSource<Int, String>(tableView: table) { [weak self] table, path, id in
       guard let self, let item = self.items[id] else { return nil }
       let cell = table.dequeueReusableCell(withIdentifier: "message", for: path)
+      if self.highlightedCell === cell { self.clearHighlight() }
+      cell.backgroundView = nil
+      cell.accessibilityIdentifier = nil
       cell.backgroundColor = .clear
       cell.selectionStyle = .none
       cell.contentConfiguration = UIHostingConfiguration {
@@ -580,6 +599,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
         self.positioned = true
         self.following = self.initialTarget == "bottom"
         self.onPositioned()
+        self.highlightTarget = self.initialTarget == "bottom" ? nil : self.initialTarget
+        self.showTargetHighlight()
         self.reportScroll()
       }
       settle = work
@@ -748,7 +769,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
       source.indexPath(for: item.id) != nil, !updating else { return }
     pendingRequest = nil
     following = request.id == "bottom"
+    highlightTarget = request.id == "bottom" ? nil : request.id
+    if highlightTarget == nil { clearHighlight() }
     scroll(to: request.id, animated: request.animated && !UIAccessibility.isReduceMotionEnabled)
+    if !scrollingToTarget { showTargetHighlight() }
     revealRelocation()
     reportScroll()
   }
@@ -935,6 +959,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     if settled {
       stopGlide(settled: true)
       if !following { readingAnchor = captureAnchor() }
+      showTargetHighlight()
     }
     reportScroll()
   }
@@ -1032,6 +1057,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     table.layer.removeAnimation(forKey: "widget-bottom-follow")
     // onDrag dismissal can post keyboardWillHide before this callback, so the
     // dismissal flag is consumed when the scroll ends rather than reset here.
+    highlightTarget = nil
     followingAtDragStart = following
     following = false
     scrollingToTarget = false
@@ -1069,6 +1095,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
       NativeHaptics.play(.selection, source: "chat.latest-scroll")
     }
     advanceWindowIfNeeded()
+    loadAdjacentPageIfNeeded()
     reportScroll()
   }
   func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -1121,8 +1148,65 @@ struct NativeMessageList: UIViewControllerRepresentable {
     // rows during a fling lets UIKit apply offset corrections in its old
     // coordinate space, even after restoring the new window's anchor.
     advanceWindowIfNeeded()
+    loadAdjacentPageIfNeeded()
     dragDirection = 0
     reportScroll()
+  }
+  private func loadAdjacentPageIfNeeded() {
+    guard positioned, !updating, !positioning, !scrollingToTarget,
+      let paths = table.indexPathsForVisibleRows,
+      let first = paths.map(\.row).min(), let last = paths.map(\.row).max() else { return }
+    let direction = pageTrigger.update(firstVisible: windowStart + first,
+      lastVisible: windowStart + last, count: orderedIDs.count,
+      direction: Double(dragDirection), earlier: earlierPage, later: laterPage)
+    guard let direction else { return }
+    // Scroll callbacks can run inside a UIKit/SwiftUI layout pass.
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      switch direction {
+      case .earlier: self.onLoadEarlier()
+      case .later: self.onLoadLater()
+      }
+    }
+  }
+  private func clearHighlight() {
+    highlightExpiry?.cancel()
+    highlightExpiry = nil
+    highlightedCell?.backgroundView = nil
+    highlightedCell?.accessibilityIdentifier = nil
+    highlightedCell = nil
+  }
+  /// Tint the actual destination cell after positioning, without changing its
+  /// height or rebuilding rich message content. Reuse clears the old tint.
+  private func showTargetHighlight() {
+    guard let target = highlightTarget,
+      let item = items.values.first(where: { $0.scrollID == target }),
+      let path = source.indexPath(for: item.id), let cell = table.cellForRow(at: path) else { return }
+    highlightTarget = nil
+    clearHighlight()
+    let background = UIView(frame: cell.bounds)
+    let tint = UIView(frame: cell.bounds.insetBy(dx: 8, dy: 2))
+    tint.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    tint.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.22)
+    tint.layer.cornerRadius = 14
+    tint.layer.borderWidth = 1
+    tint.layer.borderColor = UIColor.systemOrange.withAlphaComponent(0.5).cgColor
+    background.addSubview(tint)
+    cell.backgroundView = background
+    cell.accessibilityIdentifier = "highlighted-message-" + target
+    highlightedCell = cell
+    let expiry = DispatchWorkItem { [weak self, weak cell, weak background] in
+      guard let self, let cell, self.highlightedCell === cell else { return }
+      UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.4) {
+        background?.alpha = 0
+      } completion: { [weak self, weak cell] _ in
+        guard let self, let cell, self.highlightedCell === cell,
+          cell.backgroundView === background else { return }
+        self.clearHighlight()
+      }
+    }
+    highlightExpiry = expiry
+    DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: expiry)
   }
   private func reportScroll() {
     guard positioned else { return }

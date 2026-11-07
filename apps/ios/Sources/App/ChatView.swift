@@ -64,6 +64,11 @@ struct ChatView: View {
           // page that just arrived still settles before it is shown.
           initialLayout: savedTranscriptAtOpen ? .nextLayout : .settled,
           request: scrollRequest,
+          earlierPage: store.histories[channel.id]?.hasMore == true
+            ? store.histories[channel.id]?.beforeSequence : nil,
+          laterPage: hasLater ? store.historyWindows[channel.id]?.lastSequence : nil,
+          onLoadEarlier: { Task { await store.loadHistory(channel.id, older: true) } },
+          onLoadLater: { Task { await store.loadLater(channel.id) } },
           onPositioned: {
             didPositionHistory = true
             if let id = store.focusedMessage { focus(id) }
@@ -128,13 +133,15 @@ struct ChatView: View {
         // A transcript missing the newest known reply, or opened while the app is
         // still catching up after the background, waits briefly for its page
         // rather than showing without the reply and animating it in.
-        if store.transcriptBehind(channel.id) || store.catchingUp {
+        if store.focusedMessage == nil && (store.transcriptBehind(channel.id) || store.catchingUp) {
           awaitingNewerPage = true
         } else {
           historyAvailable = true
         }
       }
-      await store.loadHistory(channel.id)
+      // open(_:messageID:) already fetched an authoritative context page.
+      // Showing that result must not wait for an unrelated latest-page request.
+      if store.focusedMessage == nil { await store.loadHistory(channel.id) }
       guard !Task.isCancelled else { return }
       requestedInitialHistory = true
       resolveOpeningBoundary()

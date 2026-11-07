@@ -11,7 +11,6 @@ struct SettingsView: View {
   @AppStorage("accent") private var accent = "black"
   @AppStorage("haptics") private var haptics = true
   @State private var signOut = false
-  @State private var verticalBar = false
   @State private var path: [SettingsRoute]
   init(initialRoute: SettingsRoute? = nil) {
     _path = State(initialValue: initialRoute.map { [$0] } ?? [])
@@ -27,12 +26,12 @@ struct SettingsView: View {
             AccountConnectionView()
           } label: {
             HStack(spacing: 10) {
-              AccountMark(name: store.accountDisplayName)
-              VStack(alignment: .leading, spacing: 2) {
+              AccountMark(name: store.accountDisplayName, size: 40, initialsScale: 0.42)
+              VStack(alignment: .leading, spacing: 3) {
                 Text(store.accountDisplayName).font(.body)
                 Text(store.server).font(.system(size: 13)).foregroundStyle(NativePalette.muted)
                   .lineLimit(1)
-                Text("Self-hosted").font(.system(size: 12)).foregroundStyle(NativePalette.muted)
+                Text("Self-hosted").font(.system(size: 13)).foregroundStyle(NativePalette.muted)
               }
             }.padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
               .contentShape(Rectangle())
@@ -46,7 +45,7 @@ struct SettingsView: View {
               Text("Plugins").font(.body)
               Text("Tools and skills for OpenTeam").font(.system(size: 13))
                 .foregroundStyle(NativePalette.muted)
-            }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(.vertical, 3).frame(maxWidth: .infinity, alignment: .leading)
               .contentShape(Rectangle())
           }.accessibilityIdentifier("plugins-settings")
         }
@@ -67,7 +66,7 @@ struct SettingsView: View {
               Text("Providers").font(.body)
               Text("Web search and page fetching").font(.system(size: 13))
                 .foregroundStyle(NativePalette.muted)
-            }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(.vertical, 3).frame(maxWidth: .infinity, alignment: .leading)
               .contentShape(Rectangle())
           }.accessibilityIdentifier("providers-settings")
           NavigationLink("Server", value: SettingsRoute.server)
@@ -113,11 +112,7 @@ struct SettingsView: View {
             signOut = true
           }.disabled(store.busy.contains("sign-out")).accessibilityIdentifier("sign-out")
         }
-      }.listStyle(.insetGrouped)
-        // The reference's cards begin 16 points inside the inset sheet, with
-        // less top/row padding than the system's default grouped list.
-        .listCardMargins(16)
-        .contentMargins(.top, 20, for: .scrollContent)
+      }.contentMargins(.top, 20, for: .scrollContent)
         .listSectionSpacing(28)
         // Rows scroll under Close; give the bar the soft edge other settings pages have.
         .softTopScrollEdge()
@@ -132,10 +127,8 @@ struct SettingsView: View {
           }
         }
         .toolbar {
-          // With Close in iPhone Duo's side bar, the title fills the top bar
-          // as on every settings page; elsewhere the sheet keeps it hidden.
-          if !verticalBar {
-            ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
+          ToolbarItem(placement: .principal) {
+            Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
           }
           ToolbarItem(placement: .cancellationAction) {
             Button { dismiss() } label: {
@@ -144,7 +137,6 @@ struct SettingsView: View {
               .accessibilityIdentifier("sheet-close")
           }
         }
-        .readingVerticalBar($verticalBar)
         .confirmationDialog(
           "Sign out of this server?", isPresented: $signOut, titleVisibility: .visible
         ) {
@@ -162,6 +154,8 @@ struct SettingsView: View {
           )
         }
     }
+    .environment(\.settingsStyle, true)
+    .environment(\.canvasColor, SettingsStyle.background)
     .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
   }
   /// The Model row's warning while bots can't reply.
@@ -189,7 +183,7 @@ struct SettingsView: View {
         Text(status.text).font(.subheadline)
           .foregroundStyle(status.warning ? NativePalette.warning : NativePalette.muted)
       }
-    }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
+    }.padding(.vertical, 3).frame(maxWidth: .infinity, alignment: .leading)
       .contentShape(Rectangle())
   }
   var notificationSettings: some View {

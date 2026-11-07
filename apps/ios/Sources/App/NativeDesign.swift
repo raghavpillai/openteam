@@ -79,10 +79,9 @@ struct NativeForm<Content: View>: View {
   @ViewBuilder var content: Content
   var body: some View {
     Form {
-      content.listRowBackground(NativePalette.surface)
+      NativeGroupedSections { content }
         .listRowInsets(rowInsets)
-        .listRowSeparatorTint(NativePalette.separator)
-    }.scrollContentBackground(.hidden).nativeCanvas()
+    }.modifier(NativeGroupedStyle()).scrollContentBackground(.hidden).nativeCanvas()
   }
 }
 
@@ -90,9 +89,94 @@ struct NativeList<Content: View>: View {
   @ViewBuilder var content: Content
   var body: some View {
     List {
+      NativeGroupedSections { content }
+    }.modifier(NativeGroupedStyle()).scrollContentBackground(.hidden).nativeCanvas()
+  }
+}
+
+/// Settings keep the reference's compact, outlined cards on both Duo displays.
+/// Rebuilding only the section backgrounds preserves native list interactions.
+enum SettingsStyle {
+  static let background = NativePalette.color("F2F2F7", "1C1C1C")
+  static let surface = NativePalette.color("FFFFFF", "272629")
+  static let border = NativePalette.color("E4E4E8", "333235")
+  static let separator = NativePalette.color("E4E4E8", "333235")
+}
+
+private struct NativeGroupedSections<Content: View>: View {
+  @Environment(\.settingsStyle) private var settingsStyle
+  @ViewBuilder var content: Content
+  var body: some View {
+    if settingsStyle {
+      ForEach(sections: content) { section in
+        Section {
+          ForEach(subviews: section.content) { row in
+            row.listRowBackground(SettingsRowBackground(
+              first: row.id == section.content.first?.id,
+              last: row.id == section.content.last?.id))
+              .listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
+              .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] + 18 }
+          }
+        } header: {
+          section.header.font(.system(size: 13)).textCase(nil)
+            .foregroundStyle(NativePalette.faint)
+        } footer: {
+          section.footer.foregroundStyle(NativePalette.muted)
+        }
+      }.listRowSeparatorTint(SettingsStyle.separator).listSectionSeparator(.hidden)
+    } else {
       content.listRowBackground(NativePalette.surface)
         .listRowSeparatorTint(NativePalette.separator)
-    }.scrollContentBackground(.hidden).nativeCanvas()
+    }
+  }
+}
+
+private struct NativeGroupedStyle: ViewModifier {
+  @Environment(\.settingsStyle) private var settingsStyle
+  func body(content: Content) -> some View {
+    if settingsStyle {
+      content.listStyle(.grouped).safeAreaPadding(.horizontal, 16).listSectionSpacing(28)
+        .environment(\.defaultMinListRowHeight, 51)
+    } else { content }
+  }
+}
+
+private struct SettingsRowBackground: View {
+  let first: Bool
+  let last: Bool
+  private let radius: CGFloat = 20
+  var body: some View {
+    UnevenRoundedRectangle(
+      topLeadingRadius: first ? radius : 0, bottomLeadingRadius: last ? radius : 0,
+      bottomTrailingRadius: last ? radius : 0, topTrailingRadius: first ? radius : 0
+    ).fill(SettingsStyle.surface).overlay {
+      // Draw only the outside of each section. List owns the inset separators.
+      GeometryReader { geometry in
+        Path { path in
+          let left: CGFloat = 0.5
+          let right = geometry.size.width - 0.5
+          let top: CGFloat = 0.5
+          let bottom = geometry.size.height - 0.5
+          path.move(to: CGPoint(x: left, y: last ? bottom - radius : geometry.size.height))
+          path.addLine(to: CGPoint(x: left, y: first ? top + radius : 0))
+          if first {
+            path.addArc(center: CGPoint(x: left + radius, y: top + radius), radius: radius,
+              startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+            path.addLine(to: CGPoint(x: right - radius, y: top))
+            path.addArc(center: CGPoint(x: right - radius, y: top + radius), radius: radius,
+              startAngle: .degrees(270), endAngle: .degrees(0), clockwise: false)
+          } else { path.move(to: CGPoint(x: right, y: 0)) }
+          path.addLine(to: CGPoint(x: right, y: last ? bottom - radius : geometry.size.height))
+          if last {
+            path.addArc(center: CGPoint(x: right - radius, y: bottom - radius), radius: radius,
+              startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+            path.addLine(to: CGPoint(x: left + radius, y: bottom))
+            path.addArc(center: CGPoint(x: left + radius, y: bottom - radius), radius: radius,
+              startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+          }
+        }.stroke(SettingsStyle.border, lineWidth: 1)
+      }
+    }
   }
 }
 
@@ -388,6 +472,7 @@ private struct NativeCanvas: ViewModifier {
 }
 extension EnvironmentValues {
   @Entry var canvasColor: Color = NativePalette.background
+  @Entry var settingsStyle = false
   /// Extra space above top bars when the status bar sits beside them, as on
   /// iPhone Duo, so their controls line up with the clock like system bars do.
   @Entry var topBarClearance: CGFloat = 0

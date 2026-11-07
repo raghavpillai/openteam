@@ -71,6 +71,7 @@ final class AppStore {
   var histories: [String: History] = [:]
   private(set) var historyLoadFailures: Set<String> = []
   var historyWindows: [String: HistoryWindow] = [:]
+  private var historyOpenings: [String: UUID] = [:]
   var sidebar: JSON {
     get {
       state.sidebar
@@ -488,6 +489,7 @@ final class AppStore {
     histories = [:]
     historyLoadFailures.removeAll()
     historyWindows = [:]
+    historyOpenings = [:]
     if let systemScope, systemScope != scope {
       systemDraft = nil
       pendingSystemItem = nil
@@ -982,6 +984,8 @@ final class AppStore {
     // Poll reconciliation also comes here. A search context already has its
     // own contiguous page; only explicit pagination should extend that window.
     guard before != nil || historyWindows[id]?.hasLater != true else { return }
+    let windowID = historyWindows[id]?.id
+    let opening = historyOpenings[id]
     var query = ["limit": "60"]
     if let before { query["before"] = before }
     let page: History
@@ -989,6 +993,9 @@ final class AppStore {
       page = try await api.get(
         "/api/v0/channels/\(API.segment(id))/history", as: History.self, query: query)
     } catch {
+      // Superseded reads must not reach the caller's error handling either.
+      guard epoch == generation, !Task.isCancelled,
+        historyWindows[id]?.id == windowID, historyOpenings[id] == opening else { return }
       // Pagination failures keep their cursor for an explicit retry; they must
       // not make event polling repeatedly fetch a disconnected latest page.
       if before == nil, historyWindows[id]?.hasLater != true,
@@ -997,7 +1004,8 @@ final class AppStore {
       }
       throw error
     }
-    guard epoch == generation, !Task.isCancelled else { return }
+    guard epoch == generation, !Task.isCancelled,
+      historyWindows[id]?.id == windowID, historyOpenings[id] == opening else { return }
     historyLoadFailures.remove(id)
     confirmDelivery(page.threadContext + page.messages)
     // A page can have been captured before a newer notification arrived.
@@ -1050,11 +1058,18 @@ final class AppStore {
     opening: UUID? = nil) async -> Bool {
     guard let api else { return false }
     let epoch = generation
+    let navigation = opening ?? navigationGeneration
+    let windowID = historyWindows[channelID]?.id
+    // Replacements supersede pending page/replacement reads as soon as they start.
+    // Importing a reply's thread context keeps the current timeline's ownership.
+    let request = preservingTimeline ? historyOpenings[channelID] : UUID()
+    if !preservingTimeline { historyOpenings[channelID] = request }
     do {
       let page = try await api.get(
         "/api/v0/channel-messages/\(API.segment(messageID))/context", as: MessageContext.self)
       guard epoch == generation, !Task.isCancelled,
-        opening == nil || navigationGeneration == opening else { return false }
+        navigationGeneration == navigation, historyOpenings[channelID] == request,
+        !preservingTimeline || historyWindows[channelID]?.id == windowID else { return false }
       guard page.channelId == channelID else {
         throw APIError("This message belongs to another conversation.")
       }
@@ -1074,7 +1089,9 @@ final class AppStore {
       persist()
       return true
     } catch {
-      if epoch == generation, opening == nil || navigationGeneration == opening { handle(error) }
+      if epoch == generation, !Task.isCancelled, navigationGeneration == navigation,
+        historyOpenings[channelID] == request,
+        !preservingTimeline || historyWindows[channelID]?.id == windowID { handle(error) }
       return false
     }
   }
@@ -1085,32 +1102,45 @@ final class AppStore {
     busy.insert(key)
     defer { busy.remove(key) }
     let epoch = generation
+    let windowID = historyWindows[channelID]?.id
+    let opening = historyOpenings[channelID]
     do {
       let page = try await api.get(
         "/api/v0/channel-messages/\(API.segment(last.id))/context", as: MessageContext.self,
         query: ["direction": "after", "limit": "60"])
-      guard epoch == generation else { return }
+      guard epoch == generation, !Task.isCancelled,
+        historyWindows[channelID]?.id == windowID,
+        historyOpenings[channelID] == opening else { return }
       guard page.channelId == channelID else { throw APIError("The conversation changed.") }
       confirmDelivery(page.threadContext + page.messages)
       state.messages[channelID] = MessageMerge.merge(messages(channelID), page.threadContext + page.messages)
       historyWindows[channelID]?.extend(page.messages, earlier: false, hasMore: page.hasMoreAfter)
       persist()
-    } catch { if epoch == generation { handle(error) } }
+    } catch {
+      if epoch == generation, !Task.isCancelled, historyWindows[channelID]?.id == windowID,
+        historyOpenings[channelID] == opening {
+        handle(error)
+      }
+    }
   }
   @discardableResult
   func loadLatest(_ channelID: String, opening: UUID? = nil) async -> Bool {
     guard let api else { return false }
     let epoch = generation
+    let navigation = opening ?? navigationGeneration
+    let request = UUID()
+    historyOpenings[channelID] = request
     do {
       let page = try await api.get(
         "/api/v0/channels/\(API.segment(channelID))/history", as: History.self, query: ["limit": "60"])
       guard epoch == generation, !Task.isCancelled,
-        opening == nil || navigationGeneration == opening else { return false }
+        navigationGeneration == navigation, historyOpenings[channelID] == request else { return false }
       install(page)
       persist()
       return true
     } catch {
-      if epoch == generation, opening == nil || navigationGeneration == opening { handle(error) }
+      if epoch == generation, !Task.isCancelled, navigationGeneration == navigation,
+        historyOpenings[channelID] == request { handle(error) }
       return false
     }
   }
@@ -1622,7 +1652,7 @@ final class AppStore {
     let opening = UUID()
     navigationGeneration = opening
     if let messageID {
-      guard await loadContext(channelID, messageID: messageID) else { return }
+      guard await loadContext(channelID, messageID: messageID, opening: opening) else { return }
     }
     guard epoch == generation, navigationGeneration == opening, !Task.isCancelled else { return }
     focusedMessage = messageID
@@ -1911,6 +1941,7 @@ final class AppStore {
     histories = [:]
     historyLoadFailures.removeAll()
     historyWindows = [:]
+    historyOpenings = [:]
     navigation = []
     landing = nil
     activeChannel = nil

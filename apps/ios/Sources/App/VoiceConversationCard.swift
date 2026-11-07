@@ -4,6 +4,9 @@ import SwiftUI
 struct VoiceConversationCard: View {
   let messages: [Message]
   @State private var expanded = false
+  private var preview: String {
+    messages.first(where: \.isUser)?.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  }
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Button {
@@ -12,7 +15,11 @@ struct VoiceConversationCard: View {
         HStack(spacing: 8) {
           Image(systemName: "mic.fill").font(.system(size: 13))
           Text("Voice conversation · \(messages.count) messages").font(.system(size: 14))
-          Spacer()
+            .lineLimit(1).fixedSize()
+          Text(expanded ? "" : preview).font(.system(size: 12)).italic()
+            .foregroundStyle(NativePalette.muted.opacity(0.7)).lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .accessibilityIdentifier("voice-conversation-preview")
           Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.system(size: 12))
         }.foregroundStyle(NativePalette.muted).contentShape(Rectangle())
       }.buttonStyle(.plain)

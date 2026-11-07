@@ -119,7 +119,9 @@ import XCTest
     XCTAssertTrue(retry.waitForExistence(timeout: 3))
     retry.tap()
     for _ in 0..<2 { drag(app, older: true) }
-    XCTAssertFalse(app.buttons["Load earlier messages"].exists)
+    let attempts = try await requests().filter { ($0["path"] as? String)?.hasSuffix("/history") == true }
+    XCTAssertEqual(attempts.count, count + 1)
+    XCTAssertFalse(app.alerts.firstMatch.exists)
   }
 
   func testChangingQueryRejectsDelayedResultsAndClearResetsSearch() async throws {
@@ -155,6 +157,39 @@ import XCTest
     ]])
     input.typeText("Page message 90")
     XCTAssertTrue(result.waitForExistence(timeout: 1), "A repeated query should use the sheet's cache immediately")
+  }
+
+  func geometry(_ app: XCUIApplication) throws -> [[String: Any]] {
+    let value = try XCTUnwrap(app.tables["chat-history"].value as? String)
+    let data = try XCTUnwrap(value.data(using: .utf8))
+    let frame = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    return try XCTUnwrap(frame["rows"] as? [[String: Any]])
+  }
+
+  func testPrependingPagePreservesReadingPosition() async throws {
+    let app = try await launch()
+    defer { app.terminate() }
+    openResult(app)
+    try await control("__qa/control", ["failures": [
+      "GET /api/v0/channels/visual-chat/history": ["delayMs": 5000, "count": 1]
+    ]])
+    var requested = false
+    for _ in 0..<5 {
+      drag(app, older: true)
+      requested = try await requests().contains { ($0["path"] as? String)?.hasSuffix("/history") == true }
+      if requested { break }
+    }
+    XCTAssertTrue(requested)
+    let before = try geometry(app)
+    let anchor = try XCTUnwrap(before.min {
+      abs(($0["y"] as? Double ?? 0) - 400) < abs(($1["y"] as? Double ?? 0) - 400)
+    })
+    let id = try XCTUnwrap(anchor["id"] as? String)
+    let y = try XCTUnwrap(anchor["y"] as? Double)
+    try await Task.sleep(for: .seconds(6))
+    let after = try XCTUnwrap(try geometry(app).first { $0["id"] as? String == id })
+    XCTAssertEqual(try XCTUnwrap(after["y"] as? Double), y, accuracy: 2,
+      "Loading older messages must preserve the visible message's pixel position")
   }
 
 }

@@ -1338,7 +1338,7 @@ struct SearchView: View {
           results = response.results
           loading = false
         } catch {
-          if !Task.isCancelled {
+          if !Task.isCancelled, key == searchKey {
             failure = "Search unavailable"
             loading = false
           }

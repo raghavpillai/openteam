@@ -935,7 +935,7 @@ final class AppStore {
       if epoch == generation, !Task.isCancelled,
         !(error is CancellationError), (error as? URLError)?.code != .cancelled
       {
-        historyLoadFailures.insert(id)
+        if !older { historyLoadFailures.insert(id) }
         // Loading errors belong to the transcript; cached messages stay readable.
         handle(error, quiet: true)
       }
@@ -949,7 +949,9 @@ final class AppStore {
       page = try await api.get(
         "/api/v0/channels/\(API.segment(id))/history", as: History.self, query: query)
     } catch {
-      if epoch == generation, !UserFacingError.isCancelled(error) {
+      // Pagination failures keep their cursor for an explicit retry; they must
+      // not make event polling repeatedly fetch a disconnected latest page.
+      if before == nil, epoch == generation, !UserFacingError.isCancelled(error) {
         historyLoadFailures.insert(id)
       }
       throw error

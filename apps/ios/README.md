@@ -88,6 +88,13 @@ alone does not establish that Siri's natural-language reasoning passes.
 
 ## QA
 
+Search and history navigation have a dedicated `SearchNavigation` simulator scheme.
+Start its isolated fixture with `SWIFT_PARITY_PORT=20124 bun apps/ios/scripts/parity-server.ts`.
+It checks search cancellation and caching, destination highlighting, automatic paging
+in both directions, failed-page retry, and reading-position preservation. Its
+`testRecordSearchNavigation` runs identical gestures for before/after recordings;
+record the simulator with `xcrun simctl io <udid> recordVideo --codec=h264 <path>.mp4`.
+
 The loopback parity server uses synthetic accounts and content, never a model or
 connected service. Start it with:
 

@@ -48,7 +48,7 @@ import XCTest
       "The first row must clear the inner display's rounded top corner")
     capture("duo-selection-returned-to-first", app)
     let apps = app.buttons["marketplace-button"]
-    let loaded = expectation(for: NSPredicate(format: "value == %@", "3 installed plugins"), evaluatedWith: apps)
+    let loaded = expectation(for: NSPredicate(format: "value == %@", "3 apps installed"), evaluatedWith: apps)
     await fulfillment(of: [loaded], timeout: 10)
     XCTAssertEqual(apps.frame.width, 78, accuracy: 1)
     apps.tap()

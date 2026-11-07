@@ -3,6 +3,19 @@ import XCTest
 /// Optional suite: real UNUserNotificationCenter + simctl push, inert loopback server.
 @MainActor final class NativePushUITests: XCTestCase {
   let base = ProcessInfo.processInfo.environment["NATIVE_PUSH_SERVER"] ?? "http://127.0.0.1:20016"
+  override func tearDown() async throws {
+    if (testRun?.failureCount ?? 0) > 0, let state = try? await request("/__push/state"),
+      let data = try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]) {
+      let evidence = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+      evidence.name = "native-push-failure-state"
+      evidence.lifetime = .keepAlways
+      add(evidence)
+      let actions = (state["observations"] as? [[String: Any]] ?? []).filter {
+        $0["stage"] as? String != "snapshot"
+      }
+      print("NOTIFICATION_FAILURE_ACTIONS \(actions)")
+    }
+  }
   func request(_ path: String, _ body: [String: Any]? = nil) async throws -> [String: Any] {
     var request = URLRequest(url: URL(string: base + path)!)
     if let body {
@@ -79,13 +92,10 @@ import XCTest
     // each group expansion instead of retaining a stale accessibility element.
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
     for _ in 0..<3 {
-      let alert = springboard.buttons.matching(identifier: "ShortLook.Platter.Content.Seamless")
-        .containing(.staticText, identifier: body).firstMatch
-      XCTAssertTrue(alert.waitForExistence(timeout: 5))
+      let alert = springboard.staticTexts[body]
+      XCTAssertTrue(alert.waitForExistence(timeout: 5), springboard.debugDescription)
       alert.tap()
-      if app.wait(for: .runningForeground, timeout: 4)
-        || app.buttons["conversation-details"].isHittable
-        || app.buttons["settings-button"].isHittable { return }
+      if app.wait(for: .runningForeground, timeout: 4) { return }
       print("Notification Center is still visible; resolving its selected alert again")
     }
     XCTFail("Selecting the notification did not activate OpenTeam. " + springboard.debugDescription)

@@ -79,7 +79,7 @@ import XCTest
     let apps = app.buttons["marketplace-button"]
     XCTAssertTrue(account.waitForExistence(timeout: 20))
     XCTAssertTrue(apps.waitForExistence(timeout: 10))
-    let loaded = expectation(for: NSPredicate(format: "value == %@", "3 installed plugins"), evaluatedWith: apps)
+    let loaded = expectation(for: NSPredicate(format: "value == %@", "3 apps installed"), evaluatedWith: apps)
     await fulfillment(of: [loaded], timeout: 10)
     XCTAssertTrue(app.staticTexts["sidebar-account-name"].exists)
     XCTAssertEqual(account.frame.minX, 20, accuracy: 1)

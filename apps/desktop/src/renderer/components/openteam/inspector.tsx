@@ -22,6 +22,7 @@ import { Textarea } from "../ui/textarea";
 import { api } from "../../client/openteam-api";
 import { botTemplateRecipe, downloadBotTemplate } from "../../lib/bot-template";
 import { BotAvatar } from "./avatar";
+import { VolcengineVoiceSelect } from "./settings/volcengine-voice-select";
 
 const AvatarPicker = lazy(() =>
   import("./avatar-picker").then((module) => ({ default: module.AvatarPicker }))
@@ -50,6 +51,7 @@ interface ProfileDraft {
   title: string;
   description: string;
   instructions: string;
+  voice: string;
   icon: string;
   color: string;
 }
@@ -59,6 +61,7 @@ const draftOf = (bot: BotView): ProfileDraft => ({
   title: bot.title,
   description: bot.description,
   instructions: bot.instructions,
+  voice: bot.voice,
   icon: bot.icon,
   color: bot.color,
 });
@@ -84,6 +87,23 @@ function BotSettings({
 }) {
   const [exporting, setExporting] = useState(false);
   const [exportFailed, setExportFailed] = useState(false);
+  // Voice IDs are provider-specific, so the picker follows the server's selected provider.
+  const [voiceProvider, setVoiceProvider] = useState<string | null>(null);
+  const [serverVoice, setServerVoice] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    api.voice
+      .settings()
+      .then((settings) => {
+        if (cancelled) return;
+        setVoiceProvider(settings.defaultProvider);
+        setServerVoice(settings.voice);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const shareTemplate = async () => {
     setExporting(true);
     setExportFailed(false);
@@ -113,6 +133,7 @@ function BotSettings({
           title: next.title,
           description: next.description,
           instructions: next.instructions,
+          voice: next.voice,
           ...(includeAvatar ? { icon: next.icon, color: next.color } : {}),
         });
         if (requestRevision === revision.current) setSaveState("saved");
@@ -160,6 +181,7 @@ function BotSettings({
           title: next.title,
           description: next.description,
           instructions: next.instructions,
+          voice: next.voice,
         })
         .catch(() => undefined);
     },
@@ -206,6 +228,37 @@ function BotSettings({
             placeholder="Bob"
             value={draft.name}
           />
+        </div>
+        <div className="grid gap-[2px]">
+          <Label
+            className="pl-2 text-[12px] font-normal leading-[18px] text-muted-foreground"
+            htmlFor={`settings-voice-${bot.id}`}
+          >
+            Realtime voice
+          </Label>
+          {voiceProvider === "volcengine" ? (
+            <VolcengineVoiceSelect
+              automaticLabel="Server default"
+              defaultVoiceId={serverVoice || "zh_female_vv_uranus_bigtts"}
+              onChange={(voice) => queue({ ...draft, voice }, true)}
+              triggerClassName="h-9 w-full rounded-[7px] border border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:border-ring dark:border-[#292929]"
+              value={draft.voice}
+            />
+          ) : (
+            <Input
+              aria-label="Realtime voice"
+              className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:border-ring dark:focus-visible:border-ring focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
+              id={`settings-voice-${bot.id}`}
+              maxLength={200}
+              onBlur={flush}
+              onChange={(event) => queue({ ...draft, voice: event.target.value })}
+              placeholder="Leave blank to use the server default"
+              value={draft.voice}
+            />
+          )}
+          <p className="px-2 text-[12px] leading-4 text-muted-foreground">
+            Overrides the server voice for this bot’s realtime replies. Applies from the next call.
+          </p>
         </div>
         <div className="grid gap-[2px]">
           <Label

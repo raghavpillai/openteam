@@ -33,6 +33,7 @@
     "electron-updater": "^6.8.9",
     "emojibase-data": "^17.0.0",
     "katex": "0.16.47",
+    "libopus-wasm": "0.4.1",
     "libphonenumber-js": "1.13.13",
     "lucide-react": "1.34.0",
     "mammoth": "1.12.0",
@@ -161,5 +162,6 @@
     "test:chat-transition-motion": "bun scripts/analyze-chat-transitions.ts",
     "test:browser-network": "bun scripts/test-browser-network.ts"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {}
 }

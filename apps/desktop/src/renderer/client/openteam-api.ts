@@ -1,6 +1,14 @@
 import { createOpenTeamClient } from "@openteam/client-core";
 import { authHeaders, getDesktopMachineId } from "./auth";
 import { API_BASE, desktopTransportOptions } from "./http";
+import { request } from "./http";
+import type {
+  VoiceSessionCreateInput,
+  VoiceSessionTicketView,
+  VoiceSessionView,
+  VoiceSettingsInput,
+  VoiceSettingsView,
+} from "@openteam/contracts/voice";
 
 const localTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
@@ -30,6 +38,18 @@ export const api = {
     return openTeamClient.cancelPluginAuthentication(connectionId, state, local ? redirect! : undefined);
   },
   sendMessage: openTeamClient.sendDirectMessage,
+  voice: {
+    createSession: (input: VoiceSessionCreateInput) => request<VoiceSessionTicketView>("/api/voice/sessions", { method: "POST", body: JSON.stringify(input) }),
+    getSession: (sessionId: string) => request<{ session: VoiceSessionView; turns: unknown[] }>(`/api/voice/sessions/${encodeURIComponent(sessionId)}`),
+    reconnectTicket: (sessionId: string) => request<VoiceSessionTicketView>(`/api/voice/sessions/${encodeURIComponent(sessionId)}/tickets`, { method: "POST" }),
+    endSession: (sessionId: string) => request<{ ok: true }>(`/api/voice/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }),
+    settings: () => request<VoiceSettingsView>("/api/server-settings/voice"),
+    updateSettings: (input: VoiceSettingsInput) =>
+      request<VoiceSettingsView>("/api/server-settings/voice", {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+  },
   screenTakeover: openTeamClient.setScreenTakeover,
   /** Best-effort unload path; keepalive is a browser lifecycle concern. */
   releaseScreenTakeover: (botId: string) => {

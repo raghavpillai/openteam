@@ -127,6 +127,9 @@ export class TranscriptFingerprintCache {
 export const transcriptEventsFingerprint = (events: unknown): string =>
   createHash("sha256").update(JSON.stringify(events)).digest("hex");
 
+export const voiceTurnPrompt =
+  "[SAND_HIDDEN_PROMPT]This is a realtime voice conversation. Send the user-visible result with SendToUser. Keep replies concise and natural to speak aloud. Prefer a short acknowledgement before lengthy work. Avoid tables, code blocks, and long lists. This instruction is internal and must not be shown as a chat message.";
+
 class BotRunLeaseContended extends Error {}
 
 interface WakeData {
@@ -1402,6 +1405,18 @@ export class WakeWorker {
         missedMessages.push({ id: `input:${payload.clientId}`, content: `[SAND_HIDDEN_PROMPT]Earlier user input whose delivery was interrupted:\n${payload.content}`, images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments), budget) });
       }
       const instructions = platformPrompt.instructions;
+      const triggeringMessage = claimed.channelId
+        ? await this.prisma.channelMessage.findUnique({
+            where: { channelId_clientId: { channelId: claimed.channelId, clientId: claimed.clientId } },
+            select: { metadata: true },
+          })
+        : null;
+      const triggeringMetadata = triggeringMessage?.metadata && typeof triggeringMessage.metadata === "object" && !Array.isArray(triggeringMessage.metadata)
+        ? triggeringMessage.metadata as Record<string, unknown>
+        : null;
+      const voicePrompt = triggeringMetadata?.voice && typeof triggeringMetadata.voice === "object" && !Array.isArray(triggeringMetadata.voice)
+        ? [{ id: `${claimed.clientId}:voice`, content: voiceTurnPrompt }]
+        : [];
       // Subagents run on the parent run's recorded model and reasoning, so a
       // settings change mid-run never switches models inside one task tree.
       const inferenceParent = claimed.inferenceParentRunId
@@ -1431,7 +1446,7 @@ export class WakeWorker {
           notes: [platformPrompt.automationStatus, platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
           unfinishedTasks: await this.supersededUnfinishedRun(claimed),
         }, claimed.content),
-        prependMessages: [...missedMessages, ...(platformPrompt.ambientContext ? [{
+        prependMessages: [...missedMessages, ...voicePrompt, ...(platformPrompt.ambientContext ? [{
           id: `${claimed.clientId}:ambient`,
           content: `[SAND_HIDDEN_PROMPT]${platformPrompt.ambientContext}`,
         }] : [])],

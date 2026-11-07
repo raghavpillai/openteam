@@ -80,7 +80,8 @@ struct ChatView: View {
             if following && bottom {
               seenThroughSequence = nil
             } else if seenThroughSequence == nil {
-              seenThroughSequence = store.messages(channel.id).last?.sequence
+              // Adjacent history pages are already-known messages, not arrivals.
+              seenThroughSequence = store.latestMessage(channel.id)?.sequence
             }
             if bottom && following && !hasLater { Task { await store.markRead(channel.id) } }
           },

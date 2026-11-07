@@ -924,7 +924,8 @@ final class AppStore {
     return transcriptBehind(id)
   }
   func loadHistory(_ id: String, older: Bool = false) async {
-    guard let api, !busy.contains("history-" + id) else { return }
+    guard let api, !busy.contains("history-" + id),
+      older || historyWindows[id]?.hasLater != true else { return }
     let epoch = generation
     busy.insert("history-" + id)
     defer { busy.remove("history-" + id) }
@@ -935,13 +936,16 @@ final class AppStore {
       if epoch == generation, !Task.isCancelled,
         !(error is CancellationError), (error as? URLError)?.code != .cancelled
       {
-        if !older { historyLoadFailures.insert(id) }
+        if !older, historyWindows[id]?.hasLater != true { historyLoadFailures.insert(id) }
         // Loading errors belong to the transcript; cached messages stay readable.
         handle(error, quiet: true)
       }
     }
   }
   private func fetchHistory(_ id: String, before: String?, api: API, epoch: UUID) async throws {
+    // Poll reconciliation also comes here. A search context already has its
+    // own contiguous page; only explicit pagination should extend that window.
+    guard before != nil || historyWindows[id]?.hasLater != true else { return }
     var query = ["limit": "60"]
     if let before { query["before"] = before }
     let page: History
@@ -951,7 +955,8 @@ final class AppStore {
     } catch {
       // Pagination failures keep their cursor for an explicit retry; they must
       // not make event polling repeatedly fetch a disconnected latest page.
-      if before == nil, epoch == generation, !UserFacingError.isCancelled(error) {
+      if before == nil, historyWindows[id]?.hasLater != true,
+        epoch == generation, !UserFacingError.isCancelled(error) {
         historyLoadFailures.insert(id)
       }
       throw error
@@ -1018,6 +1023,7 @@ final class AppStore {
         persist()
         return true
       }
+      historyLoadFailures.remove(channelID)
       state.messages[channelID] = MessageMerge.merge(page.threadContext, page.messages)
       historyWindows[channelID] = HistoryWindow(
         messages: page.messages, hasEarlier: page.hasMoreBefore, hasLater: page.hasMoreAfter)

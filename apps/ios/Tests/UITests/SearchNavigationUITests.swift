@@ -77,6 +77,8 @@ import XCTest
     ]])
     openResult(app)
     XCTAssertTrue(app.cells["highlighted-message-visual-message-visual-chat-90"].exists)
+    // Also cover the event poll's reconciliation after the result has opened.
+    try await Task.sleep(for: .seconds(3))
     let history = try await requests().filter { ($0["path"] as? String)?.hasSuffix("/history") == true }
     XCTAssertTrue(history.isEmpty, "A search context must open without requesting the latest page")
     XCTAssertTrue(app.buttons["Latest messages"].exists)
@@ -96,6 +98,8 @@ import XCTest
       return path.hasSuffix("/context") && !path.contains("visual-chat-90/")
     }
     XCTAssertFalse(later.isEmpty, "Scrolling down fetches newer context without a button tap")
+    XCTAssertEqual(app.buttons["Latest messages"].value as? String ?? "", "",
+      "Loading historical pages must not label them as new arrivals")
     capture("automatic-pagination", app)
   }
 

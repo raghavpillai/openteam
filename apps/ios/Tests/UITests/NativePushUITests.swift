@@ -580,8 +580,9 @@ import XCTest
     let selected = Date()
     openNotification(notification, in: app)
     XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 12))
-    XCTAssertTrue(app.staticTexts["Cold-launched notification reply"].waitForExistence(timeout: 12))
-    XCTAssertTrue(app.staticTexts["Cold-launched notification reply"].isHittable)
+    let target = app.tables["chat-history"].staticTexts["Cold-launched notification reply"]
+    XCTAssertTrue(target.waitForExistence(timeout: 12))
+    XCTAssertTrue(target.isHittable)
     print("NOTIFICATION_MESSAGE_VISIBLE cold-launch \(Date().timeIntervalSince(selected))")
     // Chat chrome appears before the transcript finishes positioning and marks itself read.
     var receipts: [[String: Any]] = []
@@ -621,7 +622,7 @@ import XCTest
     XCTAssertTrue(notification.waitForExistence(timeout: 8))
     let selected = Date()
     openNotification(notification, in: app)
-    let target = app.staticTexts["Page message 180"]
+    let target = app.tables["chat-history"].staticTexts["Page message 180"]
     XCTAssertTrue(target.waitForExistence(timeout: 8), "The notification's message must load without reopening the bot or pressing Latest")
     XCTAssertTrue(target.isHittable)
     print("NOTIFICATION_MESSAGE_VISIBLE older-window \(Date().timeIntervalSince(selected))")
@@ -658,7 +659,7 @@ import XCTest
     _ = try await waitRegistered()
     app.buttons["channel-visual-chat"].tap()
     XCTAssertTrue(app.tables["chat-history"].staticTexts["Page message 180"].waitForExistence(timeout: 10))
-    app.buttons["chat-back"].tap()
+    if app.buttons["chat-back"].exists { app.buttons["chat-back"].tap() }
     try background(app)
     _ = try await request("/__push/control", ["historyDelayMs": 15000])
     let created = try await request("/api/v0/channels/visual-chat/messages", [
@@ -739,7 +740,7 @@ import XCTest
     XCTAssertTrue(notification.waitForExistence(timeout: 8))
     openNotification(notification, in: app)
     XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 12), app.debugDescription)
-    XCTAssertTrue(app.staticTexts["Threaded push reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.tables["chat-history"].staticTexts["Threaded push reply"].waitForExistence(timeout: 5))
     let opened = XCTAttachment(screenshot: app.screenshot())
     opened.name = "native-notification-opened-thread"
     opened.lifetime = .keepAlways

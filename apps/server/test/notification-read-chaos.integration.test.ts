@@ -47,6 +47,8 @@ test.skipIf(!databaseUrl)("concurrent, duplicated and stale reads preserve newer
     expect(snapshot.badgeCount).toBe(26); // Seven unread in the first chat, nineteen in the second.
     const eventCount = await prisma.event.count({ where: { topic: "channel.read", entityId: channelIds[0] } });
     const outboxCount = await prisma.outboxDelivery.count({ where: { target: device.id } });
+    expect(eventCount).toBeGreaterThan(0);
+    expect(outboxCount).toBeGreaterThan(0);
     await Promise.all(Array.from({ length: 20 }, () => Effect.runPromise(service.markChannelRead(channelIds[0], targetMessage, targetActivity))));
     expect(await prisma.event.count({ where: { topic: "channel.read", entityId: channelIds[0] } })).toBe(eventCount);
     expect(await prisma.outboxDelivery.count({ where: { target: device.id } })).toBe(outboxCount);

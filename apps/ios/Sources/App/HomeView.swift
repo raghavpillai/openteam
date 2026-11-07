@@ -1233,11 +1233,16 @@ struct SearchView: View {
   @State private var query = ""
   @State private var category = "all"
   @State private var results: [SearchResult] = []
+  @State private var resultsKey = ""
   @State private var loading = false
   @State private var failure: String?
   @State private var retryID = 0
+  @State private var submittedSearch: String?
+  // Scoped to this sheet, so results cannot leak across servers or accounts.
+  @State private var cachedResults: [String: [SearchResult]] = [:]
   @FocusState private var focused: Bool
   private var searchQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+  private var searchKey: String { category + "\n" + searchQuery }
   var body: some View {
     ScrollView {
       LazyVStack(spacing: 0) {
@@ -1270,7 +1275,7 @@ struct SearchView: View {
             }.buttonStyle(.plain)
           }
         }
-        ForEach(results) { result in
+        ForEach(resultsKey == searchKey ? results : []) { result in
           Button {
             if result.kind == "link", let raw = result.url, let url = URL(string: raw),
               ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "")
@@ -1305,23 +1310,34 @@ struct SearchView: View {
       .floatingBar(edge: .top) { header }
       .nativeCanvas()
       .task { focused = true }
-      .task(id: query + "\n" + category + "\n" + String(retryID)) {
-        results = []
+      .task(id: searchKey + "\n" + String(retryID)) {
+        let key = searchKey
+        let text = searchQuery
+        let selectedCategory = category
+        let submitted = submittedSearch == key
+        submittedSearch = nil
+        results = cachedResults[key] ?? []
+        resultsKey = key
         failure = nil
         guard !searchQuery.isEmpty, store.api != nil else {
           loading = false
           return
         }
-        loading = true
+        loading = cachedResults[key] == nil
         do {
-          try await Task.sleep(for: .milliseconds(250))
+          // Coalesce keystrokes, but a submitted query runs immediately. Cached
+          // results appear at once when editing back to a previous query.
+          if !submitted { try await Task.sleep(for: .milliseconds(120)) }
           let response = try await store.fetch(
-            "/api/v0/search", as: SearchResponse.self, query: ["q": searchQuery, "category": category])
+            "/api/v0/search", as: SearchResponse.self, query: ["q": text, "category": selectedCategory])
           try Task.checkCancellation()
+          guard key == searchKey else { return }
+          if cachedResults.count >= 20 { cachedResults.removeAll() }
+          cachedResults[key] = response.results
           results = response.results
           loading = false
         } catch {
-          if !Task.isCancelled {
+          if !Task.isCancelled, key == searchKey {
             failure = "Search unavailable"
             loading = false
           }
@@ -1340,6 +1356,7 @@ struct SearchView: View {
         ).autocorrectionDisabled().focused($focused).submitLabel(
           .search
         ).tint(NativePalette.chatInsertion).accessibilityIdentifier("search-input")
+          .onSubmit { submittedSearch = searchKey; retryID += 1 }
         if !query.isEmpty {
           Button("Clear", systemImage: "xmark.circle.fill") { query = "" }.labelStyle(.iconOnly)
             .foregroundStyle(NativePalette.muted)

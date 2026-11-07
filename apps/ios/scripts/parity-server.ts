@@ -68,7 +68,7 @@ let webProviders: { selected: Record<WebTool, string | null>; rows: Record<WebTo
 const deliveries = new Map<string, ChannelMessageView>();
 const uploadedAssets = new Map<string, { data: Uint8Array; mimeType: string }>();
 const wakeups = new Set<() => void>();
-const requestLog: Array<{ method: string; path: string; clientId?: string }> = [];
+const requestLog: Array<{ method: string; path: string; query?: string; clientId?: string }> = [];
 function reset() {
   uploadedAssets.clear();
   snapshot = structuredClone(mobileFixture);
@@ -241,6 +241,9 @@ const server = Bun.serve({
     }
     if (path === "/health") return response({ status: "ready", purpose: "swift-parity-fixture" });
     if (offline) return response({ error: { message: "Fixture offline", code: "offline" } }, 503);
+    // Count attempts before injected latency/failures, including canceled searches.
+    if (path.startsWith("/api/v0/")) requestLog.push({ method, path, query: url.search,
+      ...(input.clientId ? { clientId: input.clientId } : {}) });
     const failure = failures[`${method} ${path}`] ?? Object.entries(failures).find(
       ([key]) => key.endsWith("/*") && `${method} ${path}`.startsWith(key.slice(0, -1))
     )?.[1];
@@ -259,7 +262,6 @@ const server = Bun.serve({
     if (path === "/api/auth/sign-out") return response({ success: true });
     if (path === "/api/auth/get-session") return response({ session: { id: "fixture" }, user: { id: "fixture-owner", name: "Fixture owner", username: "fixture", email: "fixture@example.invalid" } });
     const invalid = validateFixtureRequest(path,method,input); if(invalid)return response({message:invalid},400);
-    requestLog.push({ method, path, ...(input.clientId ? { clientId: input.clientId } : {}) });
     if (upload) {
       const assetId = new Bun.CryptoHasher("sha256").update(upload).digest("hex");
       const fileName = decodeURIComponent(request.headers.get("x-file-name") ?? "File");

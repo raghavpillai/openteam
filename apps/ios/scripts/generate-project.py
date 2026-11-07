@@ -194,3 +194,8 @@ for scheme in ['OpenTeamNative.xcscheme']:
 (schemes / 'Acceptance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', ''.join(f'<Test Identifier="{name}"/>' for name in ['RoutineScheduleUITests', 'EdgeBackUITests', 'LiveHTTPUITests'])))
 
 (schemes / 'MotionPerformance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', '<Test Identifier="ChatMotionUITests"/><Test Identifier="MessagePerformanceUITests"/>'))
+
+# Search/navigation fixtures run separately on port 20124.
+(schemes / 'SearchNavigation.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'SearchNavigationUITests'))
+path = schemes / 'OpenTeamNative.xcscheme'
+path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="SearchNavigationUITests"/></SkippedTests>'))

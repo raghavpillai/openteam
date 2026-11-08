@@ -351,4 +351,74 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertTrue(store.navigation.isEmpty)
   }
 
+  private func legacyLookupSupersededByReplacement(latest: Bool, status: Int? = nil) async throws {
+    let store = try await connectedStore()
+    defer { store.beginReauthentication() }
+    let loaded = await store.loadContext("visual-chat", messageID: "visual-message-visual-chat-90")
+    XCTAssertTrue(loaded)
+    store.navigation = ["visual-chat"]
+    store.focusedMessage = "visual-message-visual-chat-90"
+    let count = try await requests().count
+    try await delay(historyPath, status: status)
+    let legacy = Task { await store.openNotification("visual-chat", messageID: nil, sequence: "25") }
+    try await waitForRequest(historyPath, query: "before=26", after: count)
+    let lookup = try await requests().dropFirst(count).first { $0["path"].string == historyPath }
+    XCTAssertTrue(lookup?["query"].string.contains("limit=1") == true)
+    let replaced: Bool
+    if latest {
+      replaced = await store.loadLatest("visual-chat")
+    } else {
+      replaced = await store.loadContext("visual-chat", messageID: "visual-message-visual-chat-150")
+    }
+    XCTAssertTrue(replaced)
+    let window = store.historyWindows["visual-chat"]
+    let rows = store.messages("visual-chat")
+    let cursor = store.histories["visual-chat"]?.beforeSequence
+    let focus = store.focusedMessage
+    let notification = store.focusedNotification
+    XCTAssertNotNil(store.openingNotification, "The legacy lookup must still be delayed")
+    await legacy.value
+    assertPreserved(store, window: window, rows: rows, cursor: cursor)
+    XCTAssertEqual(store.navigation, ["visual-chat"])
+    XCTAssertEqual(store.focusedMessage, focus)
+    XCTAssertEqual(store.focusedNotification, notification)
+    XCTAssertNil(store.openingNotification)
+    XCTAssertFalse(store.visibleMessages("visual-chat").contains { $0.sequence == "25" })
+    let followOn = try await requests().dropFirst(count).filter { $0["path"].string == contextPath(25) }
+    XCTAssertTrue(followOn.isEmpty, "A superseded lookup must stop before requesting message context")
+    XCTAssertEqual(store.visibleMessages("visual-chat").last?.sequence, latest ? "180" : "170")
+  }
+  func testDelayedLegacyLookupCannotReplaceNewerLatest() async throws {
+    try await legacyLookupSupersededByReplacement(latest: true)
+  }
+  func testDelayedLegacyUnauthorizedErrorCannotSignOutNewerLatest() async throws {
+    try await legacyLookupSupersededByReplacement(latest: true, status: 401)
+  }
+  func testDelayedLegacyServerErrorDoesNotSurfaceOverNewerLatest() async throws {
+    try await legacyLookupSupersededByReplacement(latest: true, status: 503)
+  }
+  func testDelayedLegacyLookupCannotReplaceNewerDirectContext() async throws {
+    try await legacyLookupSupersededByReplacement(latest: false)
+  }
+  func testCachedNotificationKeepsSameWindowPagingInFlight() async throws {
+    let store = try await connectedStore()
+    defer { store.beginReauthentication() }
+    await store.loadHistory("visual-chat")
+    let count = try await requests().count
+    try await delay(historyPath)
+    let older = Task { await store.loadHistory("visual-chat", older: true) }
+    try await waitForRequest(historyPath, query: "before=121", after: count)
+    await store.openNotification("visual-chat", messageID: "visual-message-visual-chat-150", sequence: "150")
+    XCTAssertEqual(store.focusedMessage, "visual-message-visual-chat-150")
+    XCTAssertTrue(store.busy.contains("history-visual-chat"))
+    await older.value
+    XCTAssertEqual(store.visibleMessages("visual-chat").first?.sequence, "61")
+    XCTAssertEqual(store.visibleMessages("visual-chat").last?.sequence, "180")
+    XCTAssertEqual(store.histories["visual-chat"]?.beforeSequence, "61")
+    XCTAssertTrue(store.visibleMessages("visual-chat").contains { $0.sequence == "150" })
+    let contextRequests = try await requests().dropFirst(count).filter { $0["path"].string.hasSuffix("/context") }
+    XCTAssertTrue(contextRequests.isEmpty)
+    XCTAssertNil(store.error)
+  }
+
 }

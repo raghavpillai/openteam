@@ -1058,14 +1058,15 @@ final class AppStore {
   }
   @discardableResult
   func loadContext(_ channelID: String, messageID: String, preservingTimeline: Bool = false,
-    opening: UUID? = nil) async -> Bool {
-    guard let api else { return false }
+    opening: UUID? = nil, historyOpening: UUID? = nil) async -> Bool {
+    guard let api,
+      historyOpening == nil || historyOpenings[channelID] == historyOpening else { return false }
     let epoch = generation
     let navigation = opening ?? navigationGeneration
     let windowID = historyWindows[channelID]?.id
     // Replacements supersede pending page/replacement reads as soon as they start.
     // Importing a reply's thread context keeps the current timeline's ownership.
-    let request = preservingTimeline ? historyOpenings[channelID] : UUID()
+    let request = historyOpening ?? (preservingTimeline ? historyOpenings[channelID] : UUID())
     if !preservingTimeline { historyOpenings[channelID] = request }
     do {
       let page = try await api.get(
@@ -1127,11 +1128,12 @@ final class AppStore {
     }
   }
   @discardableResult
-  func loadLatest(_ channelID: String, opening: UUID? = nil) async -> Bool {
-    guard let api else { return false }
+  func loadLatest(_ channelID: String, opening: UUID? = nil, historyOpening: UUID? = nil) async -> Bool {
+    guard let api,
+      historyOpening == nil || historyOpenings[channelID] == historyOpening else { return false }
     let epoch = generation
     let navigation = opening ?? navigationGeneration
-    let request = UUID()
+    let request = historyOpening ?? UUID()
     historyOpenings[channelID] = request
     do {
       let page = try await api.get(
@@ -1792,7 +1794,11 @@ final class AppStore {
     if resolvedID == nil, let preview = latestMessage(channelID), preview.sequence == sequence {
       resolvedID = preview.id
     }
+    // Own the whole opening, including a legacy lookup and its follow-on fetch.
+    // Cached targets keep the current ownership so its adjacent pages can finish.
+    let request = cachedVisible ? historyOpenings[channelID] : UUID()
     if !cachedVisible {
+      historyOpenings[channelID] = request
       if resolvedID == nil, let value = NotificationReads.sequence(sequence ?? ""),
         let number = UInt64(value), number < UInt64.max, let api {
         do {
@@ -1801,25 +1807,29 @@ final class AppStore {
           let page = try await api.get(
             "/api/v0/channels/\(API.segment(channelID))/history", as: History.self,
             query: ["before": String(number + 1), "limit": "1"])
-          guard epoch == generation, navigationGeneration == opening, !Task.isCancelled else { return }
+          guard epoch == generation, navigationGeneration == opening, !Task.isCancelled,
+            historyOpenings[channelID] == request else { return }
           guard page.channelId == channelID,
             let target = page.messages.first(where: { $0.sequence == value }) else {
             throw APIError("This message is no longer available.", status: 404)
           }
           resolvedID = target.id
         } catch {
-          if epoch == generation, navigationGeneration == opening { handle(error) }
+          if epoch == generation, navigationGeneration == opening, !Task.isCancelled,
+            historyOpenings[channelID] == request { handle(error) }
           return
         }
       }
       if let resolvedID {
-        guard await loadContext(channelID, messageID: resolvedID, opening: opening) else { return }
+        guard await loadContext(channelID, messageID: resolvedID, opening: opening,
+          historyOpening: request) else { return }
       } else {
         // An alert without a usable message identity still opens the chat.
-        guard await loadLatest(channelID, opening: opening) else { return }
+        guard await loadLatest(channelID, opening: opening, historyOpening: request) else { return }
       }
     }
-    guard epoch == generation, navigationGeneration == opening, !Task.isCancelled else { return }
+    guard epoch == generation, navigationGeneration == opening, !Task.isCancelled,
+      historyOpenings[channelID] == request else { return }
     let target = messages(channelID).first {
       resolvedID == nil ? $0.sequence == sequence : $0.id == resolvedID
     }

@@ -27,6 +27,7 @@ import { VoiceProviderRegistry } from "./voice-provider-registry";
 import { NativeOpusCodec } from "./native-opus";
 import { PcmPreroll, VoiceVad } from "./voice-vad";
 import { isMeaningfulTranscript, normalizeVoiceText, unspokenRemainder } from "./voice-text";
+import { pickGreeting, pickOpening } from "./voice-opening";
 import { WarmTtsPool } from "./voice-tts-warm";
 import type { StreamingStt, StreamingTts } from "./voice-provider";
 
@@ -34,6 +35,9 @@ type Ticket = { sessionId: string; ownerSessionId: string | null; origin: string
 
 const nativeOrigin = (value: string | null) => value === "null" || value === "file://" || value === "http://openteam-vnc.invalid" ? null : value;
 const providerId = (value: string): VoiceProviderId => value === "deepgram" ? "deepgram" : "volcengine";
+
+/** Sessions that have already been greeted, so a reconnect does not greet again. */
+const greeted = new Set<string>();
 
 export class VoiceService {
   readonly settings: VoiceSettingsService;
@@ -143,6 +147,7 @@ export class VoiceService {
     let echoCancellation = true;
     const vad = new VoiceVad();
     const preroll = new PcmPreroll();
+    let lastOpening: string | null = null;
     const provider = this.providers.get(providerId(session.provider));
     const sessionProvider = providerId(session.provider);
     const language = this.settings.runtime(sessionProvider).language;
@@ -176,6 +181,11 @@ export class VoiceService {
         return;
       }
       connection.send({ type: "transcript.final", turnId: turn.id, text, isFinal: true });
+      // A fixed acknowledgement covers the wait while the agent starts. It is spoken like a queued
+      // narration, so the real answer replaces it if that arrives first.
+      const opening = pickOpening(text, lastOpening);
+      lastOpening = opening;
+      void speak(opening, connection.media.currentGeneration, "narration");
       await this.acceptTranscript({
         sessionId,
         turnId: turn.id,
@@ -261,6 +271,12 @@ export class VoiceService {
       },
       onControl: async message => {
         if (message.type === "ping") connection.send({ type: "pong" });
+        // The client is ready to play once it has answered `ready`, so the greeting waits for that.
+        // Greet first, so the user hears the call is live without having to speak. A reconnect stays silent.
+        if (message.type === "client_ready" && !greeted.has(sessionId)) {
+          greeted.add(sessionId);
+          void speak(pickGreeting(language), connection.media.currentGeneration, "narration");
+        }
         if (message.type === "playback.ack") {
           connection.acknowledgePlayback(message.generation, message.frameSequence);
         }
@@ -400,6 +416,7 @@ export class VoiceService {
   }
 
   private async closeSession(sessionId: string, reason: string) {
+    greeted.delete(sessionId);
     const connection = this.connections.get(sessionId);
     await connection?.close(1000, reason);
     for (const runId of this.sessionRuns.get(sessionId) ?? []) this.replies.unregister(runId);

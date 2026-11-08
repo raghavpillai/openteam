@@ -1094,6 +1094,11 @@ export class RuntimeTools {
     };
   }
 
+  /** Speaks one finished sentence of a SendToUser message that is still being written. */
+  async speakChunk(active: ActiveTurn, callId: string, text: string): Promise<void> {
+    await this.privateControl(active, `speak:${callId}:${crypto.randomUUID()}`, "VoiceSpeak", { callId, text }, AbortSignal.timeout(10_000));
+  }
+
   /** Persists one spoken progress line; the server queues it behind any answer already speaking. */
   async narrate(active: ActiveTurn, text: string): Promise<void> {
     await this.privateControl(active, `narration:${crypto.randomUUID()}`, "VoiceNarration", { text }, AbortSignal.timeout(10_000));
@@ -1320,6 +1325,8 @@ export class RuntimeTools {
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const cleanup: Array<() => Promise<void>> = [];
     try {
+      // Every sentence streamed to the speaker must reach the server before the saved message does.
+      if (tool === "SendToUser") await active.speech?.flush();
       if (tool === "SendToUser" && args && typeof args === "object") {
         const input = args as Record<string, any>;
         const stage = async (url: string) => {
@@ -1484,7 +1491,10 @@ export class RuntimeTools {
       const input = args as { end_turn?: boolean; type?: string };
       // What the user just heard, so the narrator neither repeats it nor talks over the answer.
       const spoken = (args as { content?: unknown }).content;
-      if (tool === SEND_TO_USER_TOOL.name && (input.type ?? "text") === "text" && typeof spoken === "string") active.narrator?.spoke("agent", spoken);
+      // Sentences already spoken while the model wrote the message were noted when they went out.
+      const noted = active.speech?.emittedChars(callId) ?? 0;
+      if (tool === SEND_TO_USER_TOOL.name && (input.type ?? "text") === "text" && typeof spoken === "string" && spoken.length > noted)
+        active.narrator?.spoke("agent", spoken.slice(noted));
       const question = tool === SEND_TO_USER_TOOL.name && isQuestionSend(input);
       // end_turn closes the turn only when no earlier send in this response failed.
       const closes = tool === SEND_TO_USER_TOOL.name && input.end_turn === true && !active.failedResponseSends?.size;

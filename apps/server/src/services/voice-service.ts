@@ -26,7 +26,7 @@ import { VoiceSettingsService } from "./voice-settings";
 import { VoiceProviderRegistry } from "./voice-provider-registry";
 import { NativeOpusCodec } from "./native-opus";
 import { PcmPreroll, VoiceVad } from "./voice-vad";
-import { isMeaningfulTranscript } from "./voice-text";
+import { isMeaningfulTranscript, normalizeVoiceText, unspokenRemainder } from "./voice-text";
 import { WarmTtsPool } from "./voice-tts-warm";
 import type { StreamingStt, StreamingTts } from "./voice-provider";
 
@@ -351,7 +351,20 @@ export class VoiceService {
 
   private replySink(sessionId: string, turnId: string, runId: string, onReply?: (text: string, generation: number, kind: "answer" | "narration") => Promise<void>) {
     let answered = false;
-    return { deliverReply: async ({ messageId, content, metadata }: { turnId: string; messageId: string; content: string; metadata: unknown }) => {
+    // Sentences of a SendToUser message already spoken while the model was still writing it.
+    const streamed = new Map<string, { raw: string; generation: number }>();
+    return { deliverChunk: async (callId: string, text: string) => {
+      const connection = this.connections.get(sessionId);
+      if (!connection || !onReply) return false;
+      const entry = streamed.get(callId) ?? { raw: "", generation: connection.media.currentGeneration };
+      // The user cut in after this message began: the rest of it is not to be spoken.
+      if (entry.generation !== connection.media.currentGeneration) return false;
+      answered = true;
+      streamed.set(callId, { raw: entry.raw + text, generation: entry.generation });
+      const speakable = normalizeVoiceText(text);
+      if (speakable) await onReply(speakable, entry.generation, "answer");
+      return true;
+    }, deliverReply: async ({ messageId, content, metadata, callId, raw }: { turnId: string; messageId: string; content: string; metadata: unknown; callId?: string; raw?: string }) => {
       const narration = (metadata as { type?: unknown } | null)?.type === "voice-narration";
       // Narration that arrives after the real answer is stale: it stays in the chat but is not spoken.
       if (narration && answered) return;
@@ -363,11 +376,21 @@ export class VoiceService {
       const connection = this.connections.get(sessionId);
       const outputGeneration = connection?.media.currentGeneration ?? turnGeneration;
       if (connection) connection.send({ type: "reply.message", turnId, messageId, text: content, generation: outputGeneration });
-      if (onReply) await onReply(content, outputGeneration, narration ? "narration" : "answer");
+      let spoken = content;
+      const early = callId ? streamed.get(callId) : undefined;
+      if (callId && early) {
+        streamed.delete(callId);
+        const rest = unspokenRemainder(raw ?? content, early.raw);
+        // A saved text that does not start with what was spoken is read in full rather than left silent.
+        spoken = early.generation !== outputGeneration ? "" : rest === null ? content : normalizeVoiceText(rest);
+      }
+      if (onReply && spoken) await onReply(spoken, outputGeneration, narration ? "narration" : "answer");
     }, reconcileRun: async () => this.replies.reconcileRun(runId) };
   }
 
   async onVisibleMessage(runId: string, messageId: string) { await this.replies.onVisibleMessage(runId, messageId); }
+
+  speakChunk(runId: string, callId: string, text: string) { return this.replies.speakChunk(runId, callId, text); }
 
   private async cancelTurn(sessionId: string, turnId: string) {
     const turn = await this.prisma.voiceTurn.findFirst({ where: { id: turnId, sessionId } });

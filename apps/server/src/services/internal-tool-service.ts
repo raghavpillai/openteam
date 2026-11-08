@@ -50,7 +50,8 @@ export class InternalToolService {
     private readonly administration: AdministrationService,
     private readonly plugins: PluginService,
     private readonly richMessages?: RichMessageService,
-    private readonly onVisibleMessage?: (runId: string, messageId: string) => Promise<void>
+    private readonly onVisibleMessage?: (runId: string, messageId: string) => Promise<void>,
+    private readonly onSpeechChunk?: (runId: string, callId: string, text: string) => Promise<boolean>
   ) {}
 
   execute = (request: DynamicToolCallRequest, transfer: {upload?:import("@openteam/plugin-sdk/file-spool").StagedFile;stream?:boolean} = {}) =>
@@ -133,6 +134,13 @@ export class InternalToolService {
       if (request.tool === "AcknowledgeCardOutcomes") {
         await this.messaging.acknowledgeCardOutcomes(request.botId, (request.arguments as { receipts: Array<{ messageId: string; outcomeId: string }> }).receipts);
         return { acknowledged: true };
+      }
+      // Private to the computer: a finished sentence of a SendToUser message still being written, spoken at once.
+      if (request.tool === "VoiceSpeak") {
+        if (childIdentity || run.origin === "routine") throw new ApiError(403, "speech_unavailable", "Only the user-facing parent may speak");
+        const input = (request.arguments ?? {}) as { callId?: unknown; text?: unknown };
+        if (typeof input.callId !== "string" || typeof input.text !== "string" || !input.text.trim()) throw new ApiError(400, "invalid_speech", "A call id and text are required");
+        return { spoken: this.onSpeechChunk ? await this.onSpeechChunk(request.runId, input.callId, input.text.slice(0, 2_000)) : false };
       }
       // Private to the computer's narrator, never registered in any model catalog.
       if (request.tool === "VoiceNarration") {

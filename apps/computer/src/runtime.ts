@@ -64,6 +64,7 @@ import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
 import { endTurnHoldExtension } from "./runtime/end-turn-hold";
 import { VoiceNarrator, voiceNarrationExtension } from "./runtime/voice-narration";
+import { SendToUserSpeech, sendToUserSpeechExtension } from "./runtime/voice-stream";
 import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
 import { DiskPressureMonitor, reminderStepPersisted } from "./runtime/disk-pressure";
 import { INSTALL_NOTICE_TYPE, InstallNotice } from "./runtime/install-notice";
@@ -326,6 +327,10 @@ export class ComputerRuntime {
         { model: request.voiceNarration.model, reasoning: request.voiceNarration.reasoning, userRequest: request.content },
         { infer: (narration) => this.infer(narration), deliver: (text) => this.tools.narrate(active, text) }
       );
+      active.speech = new SendToUserSpeech(async (callId, text) => {
+        await this.tools.speakChunk(active, callId, text);
+        active.narrator?.spoke("agent", text);
+      });
     }
     this.activeByRun.set(active.runId, active);
     this.activeByContext.set(active.contextSessionId, active);
@@ -753,6 +758,7 @@ export class ComputerRuntime {
         untrustedResultsExtension(),
         endTurnHoldExtension(active),
         ...(active.narrator ? [voiceNarrationExtension(active.narrator, active)] : []),
+        ...(active.speech ? [sendToUserSpeechExtension(active.speech)] : []),
         directDynamicToolsExtension({
           registered: () => active.session?.getActiveToolNames() ?? this.tools.directToolNames(active),
           cursor: () => this.tools.cursorToolNames(active),

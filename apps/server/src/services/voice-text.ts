@@ -35,4 +35,16 @@ export const isMeaningfulTranscript = (text: string): boolean => {
   return compact.length >= 2 || (ideographic && SHORT_REPLIES.has(compact));
 };
 
+/**
+ * The part of a saved message not yet spoken, given the chunks already sent to the speaker while
+ * the message was being written. Null means the saved text does not start with what was spoken,
+ * so the rest cannot be told apart from what was already said.
+ */
+export const unspokenRemainder = (content: string, spoken: string): string | null => {
+  if (!spoken) return content;
+  const full = content.trimStart();
+  const said = spoken.trimStart();
+  return full.startsWith(said) ? full.slice(said.length) : null;
+};
+
 export const splitVoiceSentences = (text: string): string[] => text.match(/[^.!?。！？]+[.!?。！？]?/g)?.map(value => value.trim()).filter(Boolean) ?? [];

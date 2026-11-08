@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isMeaningfulTranscript } from "../src/services/voice-text";
+import { isMeaningfulTranscript, unspokenRemainder } from "../src/services/voice-text";
 import { PcmPreroll, VoiceVad } from "../src/services/voice-vad";
 
 const frame = (level: number) => new Int16Array(320).fill(level); // 20 ms at 16 kHz
@@ -77,5 +77,20 @@ describe("transcript filter", () => {
     ["yes", true],
   ])("%j -> %p", (text, expected) => {
     expect(isMeaningfulTranscript(text)).toBe(expected);
+  });
+});
+
+describe("text left to speak after streamed sentences", () => {
+  test("returns only what was not already spoken", () => {
+    expect(unspokenRemainder("第一句。第二句。第三句。", "第一句。第二句。")).toBe("第三句。");
+  });
+  test("everything is unspoken when nothing was streamed", () => {
+    expect(unspokenRemainder("你好。", "")).toBe("你好。");
+  });
+  test("is null when the saved text does not start with what was spoken", () => {
+    expect(unspokenRemainder("完全不同的内容。", "第一句。")).toBeNull();
+  });
+  test("nothing remains when the whole message was streamed", () => {
+    expect(unspokenRemainder("第一句。", "第一句。")).toBe("");
   });
 });

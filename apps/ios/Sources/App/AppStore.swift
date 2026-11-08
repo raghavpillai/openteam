@@ -1691,9 +1691,11 @@ final class AppStore {
     if path == "/api/v0/settings/sidebar", method == "PATCH", let body, let api {
       guard !Task.isCancelled else { return nil }
       let base = sidebar
-      // Register at invocation, including a repeated Mark unread on an already
-      // unread chat, before waiting for an older read/sidebar request.
-      for id in body["unreadIds"].array.map(\.string) { unreadIntents[id] = UUID() }
+      // A carried-forward marker is not a new Mark unread action.
+      let previousUnread = Set(base["unreadIds"].array)
+      for id in body["unreadIds"].array where !previousUnread.contains(id) {
+        unreadIntents[id.string] = UUID()
+      }
       let saved = await writeSidebar(api: api, epoch: generation, refreshAfterWrite: true) {
         self.rebaseSidebar(body, from: base, onto: self.sidebar)
       }
@@ -1752,6 +1754,18 @@ final class AppStore {
     async throws -> T
   {
     try await request(path, query: query).decode(type)
+  }
+  func markUnread(_ id: String) async {
+    guard let api, !Task.isCancelled else { return }
+    // Record the targeted action even if this chat is already marked unread.
+    unreadIntents[id] = UUID()
+    _ = await writeSidebar(api: api, epoch: generation, refreshAfterWrite: true) {
+      var next = self.sidebar
+      var ids = next["unreadIds"].array
+      if !ids.contains(.string(id)) { ids.append(.string(id)) }
+      next["unreadIds"] = .array(ids)
+      return next
+    }
   }
   func togglePin(_ id: String) async {
     var next = sidebar

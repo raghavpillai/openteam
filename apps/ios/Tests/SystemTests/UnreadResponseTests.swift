@@ -72,13 +72,8 @@ final class UnreadResponseTests: SystemIntentFixture {
     XCTFail("Request barrier was not reached for \(method) \(path)")
     throw APIError("Missing fixture request")
   }
-  private func markUnread(_ store: AppStore) async {
-    // The HomeView/ChatView production action, also available on the pre-fix candidate.
-    var next = store.sidebar
-    next["unreadIds"] = .array([.string(channelID)])
-    if let saved = await store.mutate(sidebarPath, method: "PATCH", body: next) {
-      store.sidebar = saved
-    }
+  private func markUnread(_ store: AppStore, id: String? = nil) async {
+    await store.markUnread(id ?? channelID)
   }
   private func assertManualUnread(_ store: AppStore, file: StaticString = #filePath,
     line: UInt = #line) async throws {
@@ -429,5 +424,152 @@ final class UnreadResponseTests: SystemIntentFixture {
     let accepted = await read.value
     XCTAssertFalse(accepted)
     try await assertManualUnread(store)
+  }
+
+  private func assertReadClearsManualUnread(_ store: AppStore, after patches: Int) async throws {
+    XCTAssertFalse(store.sidebar["unreadIds"].array.contains(.string(channelID)))
+    let persisted = try await API(server: server).request("/__qa/state")["settings"]
+    XCTAssertFalse(persisted["unreadIds"].array.contains(.string(channelID)))
+    let after = try await requestCount(sidebarPath, method: "PATCH")
+    XCTAssertEqual(after, patches + 1, "The valid ACK must send a clear after the unrelated write")
+    XCTAssertEqual(store.channel(channelID)?.unreadCount, 0)
+    XCTAssertEqual(store.channel(channelID)?.notificationState?["lastReadSequence"].string, "180")
+    XCTAssertEqual(store.channel(channelID)?.notificationState?["lastReadNotificationSequence"].string, "500")
+  }
+
+  func testDelayedReadAckClearsManualUnreadAfterUnrelatedPin() async throws {
+    let store = try await connectedStore()
+    defer { store.beginReauthentication() }
+    await markUnread(store)
+    let count = try await requestCount(readPath, method: "POST")
+    try await control(["POST " + readPath: ack(delay: 3000)])
+    var completed = false
+    let read = Task {
+      let accepted = await store.markRead(channelID, through: "180", throughNotificationSequence: "500")
+      completed = true
+      return accepted
+    }
+    try await waitForRequest(readPath, method: "POST", after: count)
+    await store.togglePin("unrelated-pin")
+    let patches = try await requestCount(sidebarPath, method: "PATCH")
+    XCTAssertFalse(completed, "The unrelated pin must complete before the captured ACK")
+    let accepted = await read.value
+    XCTAssertTrue(accepted)
+    try await assertReadClearsManualUnread(store, after: patches)
+    XCTAssertEqual(store.pins, ["unrelated-pin"])
+    let persisted = try await API(server: server).request("/__qa/state")["settings"]
+    XCTAssertEqual(persisted["pinnedIds"].array, [.string("unrelated-pin")])
+  }
+
+  func testDelayedReadAckClearsManualUnreadAfterUnrelatedSectionRename() async throws {
+    let store = try await connectedStore()
+    defer { store.beginReauthentication() }
+    await markUnread(store)
+    var initial = store.sidebar
+    initial["sections"] = .array([.object([
+      "id": .string("unrelated-section"), "name": .string("Before"), "collapsed": .bool(false),
+    ])])
+    if let saved = await store.mutate(sidebarPath, method: "PATCH", body: initial) {
+      store.sidebar = saved
+    }
+    let count = try await requestCount(readPath, method: "POST")
+    try await control(["POST " + readPath: ack(delay: 3000)])
+    var completed = false
+    let read = Task {
+      let accepted = await store.markRead(channelID, through: "180", throughNotificationSequence: "500")
+      completed = true
+      return accepted
+    }
+    try await waitForRequest(readPath, method: "POST", after: count)
+    var renamed = store.sidebar
+    var sections = renamed["sections"].array
+    sections[0]["name"] = .string("After")
+    renamed["sections"] = .array(sections)
+    if let saved = await store.mutate(sidebarPath, method: "PATCH", body: renamed) {
+      store.sidebar = saved
+    }
+    let patches = try await requestCount(sidebarPath, method: "PATCH")
+    XCTAssertFalse(completed, "The unrelated rename must complete before the captured ACK")
+    let accepted = await read.value
+    XCTAssertTrue(accepted)
+    try await assertReadClearsManualUnread(store, after: patches)
+    let persisted = try await API(server: server).request("/__qa/state")["settings"]
+    for value in [store.sidebar, persisted] {
+      XCTAssertEqual(value["sections"].array.first?["name"].string, "After")
+    }
+  }
+
+  func testDelayedReadAckClearsManualUnreadAfterUnrelatedCollapse() async throws {
+    let store = try await connectedStore()
+    defer { store.beginReauthentication() }
+    await markUnread(store)
+    let count = try await requestCount(readPath, method: "POST")
+    try await control(["POST " + readPath: ack(delay: 3000)])
+    var completed = false
+    let read = Task {
+      let accepted = await store.markRead(channelID, through: "180", throughNotificationSequence: "500")
+      completed = true
+      return accepted
+    }
+    try await waitForRequest(readPath, method: "POST", after: count)
+    var collapsed = store.sidebar
+    collapsed["unassignedCollapsed"] = .bool(true)
+    if let saved = await store.mutate(sidebarPath, method: "PATCH", body: collapsed) {
+      store.sidebar = saved
+    }
+    let patches = try await requestCount(sidebarPath, method: "PATCH")
+    XCTAssertFalse(completed, "The unrelated collapse must complete before the captured ACK")
+    let accepted = await read.value
+    XCTAssertTrue(accepted)
+    try await assertReadClearsManualUnread(store, after: patches)
+    let persisted = try await API(server: server).request("/__qa/state")["settings"]
+    XCTAssertTrue(store.sidebar["unassignedCollapsed"].bool)
+    XCTAssertTrue(persisted["unassignedCollapsed"].bool)
+  }
+
+  func testDelayedReadAckPreservesRepeatedExplicitMarkUnread() async throws {
+    let store = try await connectedStore()
+    defer { store.beginReauthentication() }
+    await markUnread(store)
+    let count = try await requestCount(readPath, method: "POST")
+    try await control(["POST " + readPath: ack(delay: 3000)])
+    var completed = false
+    let read = Task {
+      let accepted = await store.markRead(channelID, through: "180", throughNotificationSequence: "500")
+      completed = true
+      return accepted
+    }
+    try await waitForRequest(readPath, method: "POST", after: count)
+    await markUnread(store)
+    XCTAssertFalse(completed)
+    let accepted = await read.value
+    XCTAssertTrue(accepted)
+    try await assertManualUnread(store)
+  }
+
+  func testRepeatedExplicitMarkUnreadInAnotherChatDoesNotFenceReadAck() async throws {
+    let store = try await connectedStore()
+    defer { store.beginReauthentication() }
+    await markUnread(store)
+    await markUnread(store, id: "other-manual-chat")
+    let count = try await requestCount(readPath, method: "POST")
+    try await control(["POST " + readPath: ack(delay: 3000)])
+    var completed = false
+    let read = Task {
+      let accepted = await store.markRead(channelID, through: "180", throughNotificationSequence: "500")
+      completed = true
+      return accepted
+    }
+    try await waitForRequest(readPath, method: "POST", after: count)
+    await markUnread(store, id: "other-manual-chat")
+    let patches = try await requestCount(sidebarPath, method: "PATCH")
+    XCTAssertFalse(completed)
+    let accepted = await read.value
+    XCTAssertTrue(accepted)
+    try await assertReadClearsManualUnread(store, after: patches)
+    let persisted = try await API(server: server).request("/__qa/state")["settings"]
+    for value in [store.sidebar, persisted] {
+      XCTAssertTrue(value["unreadIds"].array.contains(.string("other-manual-chat")))
+    }
   }
 }

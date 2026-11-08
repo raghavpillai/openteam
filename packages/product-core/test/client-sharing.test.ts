@@ -126,6 +126,13 @@ describe("shared desktop and iOS product policy", () => {
     ).toMatchObject({ displayContent: "", richMessage: true });
   });
 
+  test("shows spoken voice narration as ordinary bot text, not a card", () => {
+    const narration = message({ type: "voice-narration", voice: { sessionId: "s1", turnId: "t1" } });
+    expect(projectRichMessage(narration)).toBeNull();
+    expect(messageDisplayProjection(narration)).toMatchObject({ richMessage: false });
+    expect(messageDisplayProjection(narration).displayContent).toBe(narration.content);
+  });
+
   test("projects cloud-agent cards with a renderer-safe Bot snapshot", () => {
     const projection = projectRichMessage(
       message({

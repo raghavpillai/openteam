@@ -127,6 +127,11 @@ export class TranscriptFingerprintCache {
 export const transcriptEventsFingerprint = (events: unknown): string =>
   createHash("sha256").update(JSON.stringify(events)).digest("hex");
 
+/** Spoken progress lines are chat messages, but never the answer to the user's request. */
+export const isVoiceNarration = (metadata: unknown): boolean =>
+  Boolean(metadata) && typeof metadata === "object" && !Array.isArray(metadata) &&
+  (metadata as { type?: unknown }).type === "voice-narration";
+
 export const voiceTurnPrompt =
   "[SAND_HIDDEN_PROMPT]This is a realtime voice conversation. Send the user-visible result with SendToUser. Keep replies concise and natural to speak aloud. Prefer a short acknowledgement before lengthy work. Avoid tables, code blocks, and long lists. This instruction is internal and must not be shown as a chat message.";
 
@@ -1839,7 +1844,7 @@ export class WakeWorker {
             },
           }),
         ]);
-        const lastMessage = channel
+        const lastVisible = channel
           ? await tx.channelMessage.findFirst({
               where: {
                 channelId: channel.id,
@@ -1850,6 +1855,13 @@ export class WakeWorker {
               orderBy: { sequence: "desc" },
             })
           : null;
+        // Spoken progress narration is not the run's answer, so it never satisfies the delivery owed.
+        const lastMessage = lastVisible && isVoiceNarration(lastVisible.metadata)
+          ? ((await tx.channelMessage.findMany({
+              where: { channelId: channel!.id, sourceRunId: claimed.runId, sender: "agent", senderBotId: current.botId },
+              orderBy: { sequence: "desc" },
+            })).find((message) => !isVoiceNarration(message.metadata)) ?? null)
+          : lastVisible;
         if (
           channel &&
           !lastMessage &&
@@ -1962,10 +1974,10 @@ export class WakeWorker {
           sender: "agent",
           senderBotId: claimed.botId,
         },
-        select: { content: true },
+        select: { content: true, metadata: true },
         orderBy: { sequence: "asc" },
       }),
-    ]);
+    ]).then(([inbox, messages, visible]) => [inbox, messages, visible.filter((message) => !isVoiceNarration(message.metadata))] as const);
     const payload =
       inbox?.payload && typeof inbox.payload === "object" && !Array.isArray(inbox.payload)
         ? (inbox.payload as Record<string, unknown>)

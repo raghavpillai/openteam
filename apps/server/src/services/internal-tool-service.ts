@@ -134,6 +134,17 @@ export class InternalToolService {
         await this.messaging.acknowledgeCardOutcomes(request.botId, (request.arguments as { receipts: Array<{ messageId: string; outcomeId: string }> }).receipts);
         return { acknowledged: true };
       }
+      // Private to the computer's narrator, never registered in any model catalog.
+      if (request.tool === "VoiceNarration") {
+        if (childIdentity || run.origin === "routine") throw new ApiError(403, "narration_unavailable", "Only the user-facing parent may narrate");
+        const text = (request.arguments as { text?: unknown } | null)?.text;
+        if (typeof text !== "string") throw new ApiError(400, "invalid_narration", "Narration text is required");
+        const { acknowledgement } = await this.messaging.sendNarration(context, text);
+        const messageId = typeof acknowledgement === "object" ? acknowledgement.message_id : undefined;
+        // The persisted chat message is authoritative; the voice session speaks it through the same path as an answer.
+        if (typeof messageId === "string" && this.onVisibleMessage) await this.onVisibleMessage(request.runId, messageId).catch(() => undefined);
+        return typeof acknowledgement === "object" ? acknowledgement : { sent: true };
+      }
       if (request.tool === "RecordUserFormRemap" && !childIdentity && this.richMessages) {
         return this.richMessages.recordFormRemap(request.botId, request.arguments as import("@openteam/contracts").UserFormReceipt);
       }

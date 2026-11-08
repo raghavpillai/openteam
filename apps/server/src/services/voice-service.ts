@@ -135,6 +135,9 @@ export class VoiceService {
     let stt: StreamingStt | null = null;
     let activeTts: StreamingTts | null = null;
     let ttsChain = Promise.resolve();
+    // Narration waiting in the chain that has not begun speaking. A real answer drops these;
+    // a narration that already started is always read to the end.
+    const queuedNarrations = new Set<{ dropped: boolean }>();
     let currentTurn: { id: string; startedAt: number } | null = null;
     let finalSttText = "";
     let echoCancellation = true;
@@ -178,7 +181,7 @@ export class VoiceService {
         turnId: turn.id,
         text,
         durationMs: Date.now() - turn.startedAt,
-        onReply: (text) => speak(text, connection.media.currentGeneration),
+        onReply: (text, _generation, kind) => speak(text, connection.media.currentGeneration, kind),
       }, session.ownerSessionId);
     };
     const cancelTts = async () => {
@@ -186,8 +189,15 @@ export class VoiceService {
       activeTts = null;
       await stream?.cancel().catch(() => undefined);
     };
-    const speak = (text: string, generation: number) => {
+    const speak = (text: string, generation: number, kind: "answer" | "narration" = "answer") => {
+      const narration = kind === "narration" ? { dropped: false } : null;
+      if (narration) queuedNarrations.add(narration);
+      else for (const queued of queuedNarrations) queued.dropped = true;
       ttsChain = ttsChain.catch(() => undefined).then(async () => {
+        if (narration) {
+          queuedNarrations.delete(narration);
+          if (narration.dropped) return;
+        }
         if (!outputCodec || generation !== connection.media.currentGeneration) return;
         // A warmed connection may have gone stale while idle; if it fails before any audio, retry once on a fresh one.
         for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -313,7 +323,7 @@ export class VoiceService {
 
   websocket(): WebSocketHandler<VoiceConnectionData> { return VoiceSessionConnection.handler(); }
 
-  async acceptTranscript(input: { sessionId: string; turnId?: string; text: string; durationMs: number; language?: string; onReply?: (text: string, generation: number) => Promise<void> }, ownerSessionId: string | null) {
+  async acceptTranscript(input: { sessionId: string; turnId?: string; text: string; durationMs: number; language?: string; onReply?: (text: string, generation: number, kind: "answer" | "narration") => Promise<void> }, ownerSessionId: string | null) {
     const session = await this.authorizedSession(input.sessionId, ownerSessionId);
     const text = input.text.trim().slice(0, 20_000);
     if (!text) return { accepted: false, reason: "empty_transcript" };
@@ -339,8 +349,13 @@ export class VoiceService {
     }
   }
 
-  private replySink(sessionId: string, turnId: string, runId: string, onReply?: (text: string, generation: number) => Promise<void>) {
-    return { deliverReply: async ({ messageId, content }: { turnId: string; messageId: string; content: string; metadata: unknown }) => {
+  private replySink(sessionId: string, turnId: string, runId: string, onReply?: (text: string, generation: number, kind: "answer" | "narration") => Promise<void>) {
+    let answered = false;
+    return { deliverReply: async ({ messageId, content, metadata }: { turnId: string; messageId: string; content: string; metadata: unknown }) => {
+      const narration = (metadata as { type?: unknown } | null)?.type === "voice-narration";
+      // Narration that arrives after the real answer is stale: it stays in the chat but is not spoken.
+      if (narration && answered) return;
+      if (!narration) answered = true;
       const turn = await this.prisma.voiceTurn.findUnique({ where: { id: turnId } });
       if (!turn || turn.runId !== runId || turn.assistantMessageIds.includes(messageId)) return;
       const turnGeneration = (turn.generation + 1) >>> 0;
@@ -348,7 +363,7 @@ export class VoiceService {
       const connection = this.connections.get(sessionId);
       const outputGeneration = connection?.media.currentGeneration ?? turnGeneration;
       if (connection) connection.send({ type: "reply.message", turnId, messageId, text: content, generation: outputGeneration });
-      if (onReply) await onReply(content, outputGeneration);
+      if (onReply) await onReply(content, outputGeneration, narration ? "narration" : "answer");
     }, reconcileRun: async () => this.replies.reconcileRun(runId) };
   }
 

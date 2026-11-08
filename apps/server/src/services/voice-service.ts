@@ -27,6 +27,7 @@ import { VoiceProviderRegistry } from "./voice-provider-registry";
 import { NativeOpusCodec } from "./native-opus";
 import { PcmPreroll, VoiceVad } from "./voice-vad";
 import { isMeaningfulTranscript } from "./voice-text";
+import { WarmTtsPool } from "./voice-tts-warm";
 import type { StreamingStt, StreamingTts } from "./voice-provider";
 
 type Ticket = { sessionId: string; ownerSessionId: string | null; origin: string | null; expiresAt: number };
@@ -142,6 +143,8 @@ export class VoiceService {
     const provider = this.providers.get(providerId(session.provider));
     const sessionProvider = providerId(session.provider);
     const language = this.settings.runtime(sessionProvider).language;
+    // One synthesis connection is kept open ahead of time so the first spoken line skips the handshake.
+    const ttsPool = new WarmTtsPool(() => provider.tts({ language, voice: session.voice || this.settings.runtime(sessionProvider).voice }));
     const startStt = async () => {
       if (stt) return stt;
       stt = await provider.stt({ language });
@@ -186,13 +189,17 @@ export class VoiceService {
     const speak = (text: string, generation: number) => {
       ttsChain = ttsChain.catch(() => undefined).then(async () => {
         if (!outputCodec || generation !== connection.media.currentGeneration) return;
-        const stream = await provider.tts({ language, voice: session.voice || this.settings.runtime(sessionProvider).voice });
+        // A warmed connection may have gone stale while idle; if it fails before any audio, retry once on a fresh one.
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+        const { stream, warmed } = attempt === 0
+          ? await ttsPool.take()
+          : { stream: await provider.tts({ language, voice: session.voice || this.settings.runtime(sessionProvider).voice }), warmed: false };
         activeTts = stream;
+        let started = false;
         try {
           await stream.writeText(text);
           await stream.end();
           let pending: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
-          let started = false;
           for await (const chunk of stream.audio) {
             if (generation !== connection.media.currentGeneration) return;
             pending = concatBytes(pending, chunk);
@@ -212,11 +219,15 @@ export class VoiceService {
             padded.set(pending);
             await connection.queueAudio(await outputCodec.encode(new Int16Array(padded.buffer)), Date.now());
           }
+          return;
         } catch (error) {
+          if (warmed && !started && attempt === 0 && generation === connection.media.currentGeneration) continue;
           // A rejected synthesis request must reach the user instead of leaving a silent call.
           connection.send({ type: "error", code: "voice_tts_failed", message: error instanceof Error ? error.message : "Voice synthesis failed", retryable: true });
+          return;
         } finally {
           if (activeTts === stream) activeTts = null;
+        }
         }
       });
       return ttsChain;
@@ -234,6 +245,7 @@ export class VoiceService {
         }
         echoCancellation = echoCancellation !== false;
         this.echoes.set(sessionId, echoCancellation);
+        ttsPool.warm();
         await this.prisma.voiceSession.update({ where: { id: sessionId }, data: { status: "active" } });
         connection.send({ type: "ready", input: voiceInputConfig(), output: voiceOutputConfig(), echoCancellation });
       },
@@ -266,6 +278,8 @@ export class VoiceService {
             finalSttText = "";
             turnOpened = true;
             connection.send({ type: "turn.started", turnId: currentTurn.id });
+            // The user is speaking, so a reply is coming; make sure a connection is ready for it.
+            ttsPool.warm();
             await startStt();
           }
           if (event.type === "ended") await finishTurn();
@@ -281,6 +295,7 @@ export class VoiceService {
       },
       onClose: async () => {
         await stt?.cancel().catch(() => undefined);
+        ttsPool.close();
         await cancelTts();
         await inputCodec?.close();
         await outputCodec?.close();

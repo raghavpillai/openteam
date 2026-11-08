@@ -5,26 +5,35 @@ workflow. GitHub Releases remains the download host used by `openteam.so/downloa
 and the install scripts; uploading locally built artifacts does not require GitHub
 Actions. The CLI installer workflow runs tests only.
 
-## v0.0.14 release preparation
+## v0.0.15 release preparation
 
-Prepare v0.0.14 from `f0ee131fdb460fae38b113bf768c7cb4cfd83d3b`, with
-v0.0.13 (`30d3c67c`) as the previous release baseline. Keep the root and all
-workspace package versions, `bun.lock` workspace versions, and
-`apps/ios/release.json` at `0.0.14`. Dependency resolutions stay unchanged.
+Prepare v0.0.15 from `c2b9b6fcdcdad03fd079542425217b6a15b56e0a`, with
+v0.0.14 (`4194501779e7d593b55982399bd225d04e7f89a2`) as the published baseline.
+Keep the root and all workspace package versions, `bun.lock` workspace versions,
+and `apps/ios/release.json` at `0.0.15`. Dependency resolutions stay unchanged.
 
-This candidate includes all 11 merged PRs since that baseline: #230, #231, #232,
-#233, #234, #235, #237, #238, #240, #241, and #242. They cover the approved iOS
-update notice, loading indicators, computer-wide network routing, iOS connection
-warnings and microphone controls, message delivery feedback, scoped disk retention,
-desktop background resource handling, and Shortcuts/Siri integration. Review the
-draft notes in ignored `output/release-v0.0.14/release-notes.md` before publication.
+This candidate includes eight merged PRs since that baseline: #245, #246, #247,
+#248, #249, #252, #253, and #254. They improve iOS Siri/Spotlight switch contrast,
+Duo sidebar selection and contextual controls, persistent app shortcuts, the idle
+chat screen, search and history navigation, settings sheets, attachment tray motion,
+bot deletion, activity indicators, and notification opening on iOS and desktop.
+Review the draft notes in ignored `output/release-v0.0.15/release-notes.md` before
+publication. The existing CLI false `STARTING` status report is not established as
+fixed by this release.
 
-The read-only App Store Connect check on November 5, 2026 at 23:45 UTC found build
-`64` unused in both builds and build uploads for `dev.openbot.mobile` (app
-`6807991964`); this candidate uses it. Build `0.0.13 (63)` is now valid, unexpired,
-approved and in external beta testing in the public TestFlight group. This candidate advances the checked-in update notice to that verified public
-build; the production notice changes when the site is deployed.
-Candidate metadata does not establish an upload or availability of build 64.
+The parent's read-only App Store Connect inventory on November 7, 2026 at 23:19 UTC
+found build `65` unused in both builds and build uploads for `dev.openbot.mobile`
+(app `6807991964`); this candidate selects it. Source metadata does not reserve a
+build number or establish an upload or public availability.
+
+The separate typed public-build verification at 23:20:54 UTC confirmed version
+`0.0.14 (64)` is VALID, unexpired, APPROVED, externally IN_BETA_TESTING, and a member
+of the existing public TestFlight group. The checked-in update notice advances to
+that verified public build; the production notice changes when the site is deployed.
+Build 65 remains unadvertised. Preserve committed native renderer and noVNC bundle
+bytes for this metadata-only project regeneration; this candidate has no VNC source
+changes. Full QA, artifact builds and installed-artifact verification are separate
+release gates, including physical-device APNs and Siri checks.
 
 ## Preparation checks
 

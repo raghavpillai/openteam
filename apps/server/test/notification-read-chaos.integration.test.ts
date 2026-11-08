@@ -5,6 +5,12 @@ import { NotificationService } from "../src/services/notification-service";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
+const fixtureAt = <T>(values: readonly T[], index: number): T => {
+  const value = values[index];
+  if (value === undefined) throw new Error(`Missing notification fixture at index ${index}`);
+  return value;
+};
+
 test.skipIf(!databaseUrl)("concurrent, duplicated and stale reads preserve newer messages and reactions", async () => {
   const prisma = createPrismaClient(databaseUrl!);
   const bot = await prisma.bot.create({ data: { name: "Notification chaos QA", defaultDirectory: "/tmp/notification-chaos" } });
@@ -30,35 +36,37 @@ test.skipIf(!databaseUrl)("concurrent, duplicated and stale reads preserve newer
       })) });
     }
     const service = new NotificationService(prisma, "disabled");
-    const messages = await prisma.channelMessage.findMany({ where: { channelId: channelIds[0] }, orderBy: { sequence: "asc" } });
-    const reactions = await prisma.channelNotification.findMany({ where: { channelId: channelIds[0] }, orderBy: { sequence: "asc" } });
-    const targetMessage = messages[7].sequence.toString();
-    const targetActivity = reactions[3].sequence.toString();
+    const channelId = fixtureAt(channelIds, 0);
+    const otherChannelId = fixtureAt(channelIds, 1);
+    const messages = await prisma.channelMessage.findMany({ where: { channelId }, orderBy: { sequence: "asc" } });
+    const reactions = await prisma.channelNotification.findMany({ where: { channelId }, orderBy: { sequence: "asc" } });
+    const targetMessage = fixtureAt(messages, 7).sequence.toString();
+    const targetActivity = fixtureAt(reactions, 3).sequence.toString();
     // Reordered requests overlap and contain duplicates. None acknowledges the
     // newest four replies or three reactions in this chat.
     await Promise.all(Array.from({ length: 40 }, (_, index) => Effect.runPromise(service.markChannelRead(
-      channelIds[0], messages[index % 8].sequence.toString(), reactions[index % 4].sequence.toString(),
+      channelId, fixtureAt(messages, index % 8).sequence.toString(), fixtureAt(reactions, index % 4).sequence.toString(),
     ))));
-    const persisted = await prisma.channelReadState.findUniqueOrThrow({ where: { channelId: channelIds[0] } });
+    const persisted = await prisma.channelReadState.findUniqueOrThrow({ where: { channelId } });
     expect(persisted.lastReadSequence.toString()).toBe(targetMessage);
     expect(persisted.lastReadNotificationSequence.toString()).toBe(targetActivity);
-    expect(await prisma.channelReadState.findUnique({ where: { channelId: channelIds[1] } })).toBeNull();
+    expect(await prisma.channelReadState.findUnique({ where: { channelId: otherChannelId } })).toBeNull();
     const snapshot = await Effect.runPromise(service.snapshot());
     expect(snapshot.badgeCount).toBe(26); // Seven unread in the first chat, nineteen in the second.
-    const eventCount = await prisma.event.count({ where: { topic: "channel.read", entityId: channelIds[0] } });
+    const eventCount = await prisma.event.count({ where: { topic: "channel.read", entityId: channelId } });
     const outboxCount = await prisma.outboxDelivery.count({ where: { target: device.id } });
     expect(eventCount).toBeGreaterThan(0);
     expect(outboxCount).toBeGreaterThan(0);
-    await Promise.all(Array.from({ length: 20 }, () => Effect.runPromise(service.markChannelRead(channelIds[0], targetMessage, targetActivity))));
-    expect(await prisma.event.count({ where: { topic: "channel.read", entityId: channelIds[0] } })).toBe(eventCount);
+    await Promise.all(Array.from({ length: 20 }, () => Effect.runPromise(service.markChannelRead(channelId, targetMessage, targetActivity))));
+    expect(await prisma.event.count({ where: { topic: "channel.read", entityId: channelId } })).toBe(eventCount);
     expect(await prisma.outboxDelivery.count({ where: { target: device.id } })).toBe(outboxCount);
-    await expect(Effect.runPromise(service.markChannelRead(channelIds[0], "-1", "0"))).rejects.toThrow();
+    await expect(Effect.runPromise(service.markChannelRead(channelId, "-1", "0"))).rejects.toThrow();
     // An excessive cursor is bounded by stored content. A later reply remains unread.
-    await Effect.runPromise(service.markChannelRead(channelIds[0], "999999999999999999", "999999999999999999"));
+    await Effect.runPromise(service.markChannelRead(channelId, "999999999999999999", "999999999999999999"));
     const next = await prisma.channelMessage.create({ data: {
-      channelId: channelIds[0], sender: "agent", senderBotId: bot.id, content: "Arrived after the read",
+      channelId, sender: "agent", senderBotId: bot.id, content: "Arrived after the read",
     } });
-    const stale = await Effect.runPromise(service.markChannelRead(channelIds[0], targetMessage, targetActivity));
+    const stale = await Effect.runPromise(service.markChannelRead(channelId, targetMessage, targetActivity));
     expect(stale.lastReadSequence).toBe(messages.at(-1)!.sequence.toString());
     expect(stale.unreadCount).toBe(1);
     expect(BigInt(stale.lastReadSequence)).toBeLessThan(next.sequence);

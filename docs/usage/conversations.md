@@ -17,6 +17,25 @@ When a bot asks a question or needs information, it waits for your answer in the
 - **Dictate** instead of typing with [voice notes](../configuration/transcription.md).
 - **Search** messages, bots, groups, files, links, and routines. Press **⌘K** on macOS or **Ctrl+K** on Windows and Linux.
 
+### Find and navigate messages on iPhone and iPad
+
+Open **Search** from the conversation list. Returning to a query within the same
+search sheet shows its cached results while they refresh. Choose a message result
+to open it in context; the destination briefly highlights. Scroll toward either
+end of the loaded history to load adjacent messages automatically, keeping your
+reading position. Use **Latest messages** to return to the newest messages.
+
+When the conversation list appears beside a chat, the selected row stays
+highlighted. Installed app shortcuts remain visible while their list refreshes
+and after relaunching. With no chat selected, choose one from the list beside the
+**Select a chat** screen.
+
+### Delete a bot on iPhone and iPad
+
+Long-press the bot's conversation in the list and choose **Delete bot**. Confirm
+only if you want to remove the bot and its chat history; this cannot be undone.
+After deletion, an open conversation for that bot closes.
+
 ## If a message doesn't send
 
 Check the outgoing message in its conversation. Desktop shows **Retry** for a failed send; its **…** menu contains failure details and **Delete message**. iPhone and iPad show **Not delivered** with **Retry**. Automatic retries show a compact progress bar only after repeated failures. Once a send is accepted, its retry controls and reserved space disappear; tapping **Retry** on iOS keeps the keyboard open. **Delivery unconfirmed** means the app couldn't confirm whether the server accepted the message. Use the message's retry action to check or retry that send.
@@ -43,4 +62,4 @@ All bots share the `/workspace` folder, so one bot can pick up another's files. 
 
 Bots can also message each other and hand tasks to helpers on their own.
 
-On iPhone and iPad, **Working in the background** appears in a bot's conversation while its background helpers are queued or running. Helpers waiting for input don't keep the working indicator active.
+On iPhone and iPad, **Working in the background** appears in a bot's conversation while its helpers are queued or running, including helpers the bot is waiting on. Helpers waiting for input don't keep the working indicator active.

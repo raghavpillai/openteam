@@ -826,12 +826,7 @@ struct MessageRow: View {
     }
   }
   func markUnread() async {
-    var next = store.sidebar
-    next["unreadIds"] = .array(
-      Array(Set(next["unreadIds"].array.map(\.string) + [channel.id])).map(JSON.string))
-    if let result = await store.mutate("/api/v0/settings/sidebar", method: "PATCH", body: next) {
-      store.sidebar = result
-    }
+    await store.markUnread(channel.id)
   }
 }
 

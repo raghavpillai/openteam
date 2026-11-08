@@ -24,6 +24,10 @@ The iPhone app's **Settings → Model** lets you connect an AI provider and choo
 
 **Settings → Server** shows the shared computer network priority under **Browser network** and a connection test, the connected server's version, activity and services, with **Manage devices** for its connected computers and a **View updates** link. The phone can manage computer network priority but cannot share its own connection. **Settings → Updates** contains server updates and a link to TestFlight for iOS app updates.
 
+The iPhone settings sheet groups account, plugin, server and bot controls, with
+updated light and dark styling. The **Siri and Spotlight** switch keeps its enabled
+state visible in dark mode.
+
 ## Notifications
 
 To get notified when a bot messages you:
@@ -33,7 +37,13 @@ To get notified when a bot messages you:
 
 On desktop, banners appear only while OpenTeam isn't the window you're using. Each conversation shows at most one banner every 5 seconds, so a burst of replies produces a single banner; replies inside that window don't get one later. Banners are silent, show the message's first line as plain text, and disappear once you read the chat on your Mac or iPhone. Reactions don't notify. On iPhone, you get an alert for each message except in the conversation you have open.
 
-Group chats don't have their own setting; you're notified when a bot posts in a group if that bot's **Notifications** setting is on. On the Mac, a group's banner is titled with the group's name. Opening a notification for a reply inside a thread opens that thread.
+Group chats don't have their own setting; you're notified when a bot posts in a group if that bot's **Notifications** setting is on. On the Mac, a group's banner is titled with the group's name.
+
+On iPhone and desktop, opening a notification loads its message in context, even
+when you are already viewing older messages in that conversation. A notification
+for a reply inside a thread opens that thread. On iPhone, the destination message
+briefly highlights after opening. Opening an older notification leaves newer unseen
+messages unread. If loading fails, check the connection and try again.
 
 On iPhone, turn on **Notifications** in Settings, and choose which bots notify you under **Bot notifications**. Push notifications also need Apple push credentials on your server, which you can import with `openteam notifications configure`. Changes apply live without a restart. Follow the [mobile notification setup guide](mobile-notifications.md) for Apple credentials, CLI configuration, and delivery checks.
 

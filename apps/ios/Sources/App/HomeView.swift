@@ -711,10 +711,7 @@ struct HomeView: View {
     await saveSidebar(next)
   }
   func markUnread(_ id: String) async {
-    var next = store.sidebar
-    next["unreadIds"] = .array(
-      Array(Set(next["unreadIds"].array.map(\.string) + [id])).map(JSON.string))
-    await saveSidebar(next)
+    await store.markUnread(id)
   }
 }
 

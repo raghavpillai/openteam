@@ -49,7 +49,11 @@ class Docker implements CommandRunner {
     else if (args[0] === "image" && args[1] === "rm") {
       if (this.failRemove) return { status: 1, stdout: "", stderr: "fixture removal refused" };
       for (const [key, tags] of this.images) {
-        if (tags.delete(args[2]!) && tags.size === 0) this.images.delete(key);
+        const digests = this.digests.get(key) ?? [];
+        const removed = tags.delete(args[2]!) || digests.includes(args[2]!);
+        const remaining = digests.filter((ref) => ref !== args[2]);
+        this.digests.set(key, remaining);
+        if (removed && tags.size === 0 && remaining.length === 0) this.images.delete(key);
       }
     } else if (args[0] === "image" && args[1] === "inspect") {
       output = args.slice(2).map((ref) => {
@@ -175,6 +179,33 @@ test("removes retired containerd digest references and image layers before forge
   expect(JSON.parse(readFileSync(ledgerPath, "utf8")).owned).not.toContain(id(1));
 });
 
+test("removes classic image-store digest references absent from RepoTags", () => {
+  const { paths, runner, project } = fixture();
+  const digest = `registry.example:5000/team@${id(99)}`;
+  runner.digests.set(id(1), [digest]);
+  retainStackImages(paths, project, runner, [id(1)], [id(2)]);
+  const ledgerPath = join(paths.directory, "image-retention.json");
+  const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
+  const marker = `openteam-retention-${ledger.owner}:${id(1).slice(7)}`;
+  const run = runner.run.bind(runner);
+  runner.run = (command, args) => {
+    const result = run(command, args);
+    if (args[0] !== "image" || args[1] !== "inspect") return result;
+    const images = JSON.parse(result.stdout);
+    images[0].RepoDigests.push(`openteam-retention-${ledger.owner}@${id(1)}`);
+    return { ...result, stdout: JSON.stringify(images) };
+  };
+
+  retainStackImages(paths, project, runner, [id(2)], [id(3)]);
+
+  expect(runner.images.has(id(1))).toBe(false);
+  expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual([
+    ["image", "rm", digest],
+    ["image", "rm", marker],
+  ]);
+  expect(JSON.parse(readFileSync(ledgerPath, "utf8")).owned).not.toContain(id(1));
+});
+
 test("preserves references that Docker does not confirm as repository digests", () => {
   for (const ref of [`registry.example/team@${id(1)}`, "registry.example/team@sha256:invalid"]) {
     const { paths, runner, project } = fixture();
@@ -184,6 +215,51 @@ test("preserves references that Docker does not confirm as repository digests", 
     expect(runner.images.has(id(1))).toBe(true);
     expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual([]);
   }
+});
+
+test.each([
+  { Id: id(99) },
+  { RepoTags: null },
+  { RepoTags: [42] },
+])("refuses malformed owned image inventory %j before removing any reference", (inventory) => {
+  const { paths, runner, project } = fixture();
+  retainStackImages(paths, project, runner, [id(1)], [id(2)]);
+  const run = runner.run.bind(runner);
+  runner.run = (command, args) => {
+    const result = run(command, args);
+    if (args[0] !== "image" || args[1] !== "inspect") return result;
+    const images = JSON.parse(result.stdout);
+    Object.assign(images[0], inventory);
+    return { ...result, stdout: JSON.stringify(images) };
+  };
+  expect(() => retainStackImages(paths, project, runner, [id(2)], [id(3)])).toThrow(
+    "Invalid owned image inventory"
+  );
+  expect(runner.images.has(id(1))).toBe(true);
+  expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual([]);
+});
+
+test.each([
+  { confirmedDigests: undefined },
+  { confirmedDigests: null },
+  { confirmedDigests: "digest reference" },
+  { confirmedDigests: [] },
+  { confirmedDigests: [id(1)] },
+])("preserves digest references with incomplete RepoDigests %j", ({ confirmedDigests }) => {
+  const { paths, runner, project } = fixture();
+  retainStackImages(paths, project, runner, [id(1)], [id(2)]);
+  runner.images.get(id(1))!.add(`registry.example/team@${id(1)}`);
+  const run = runner.run.bind(runner);
+  runner.run = (command, args) => {
+    const result = run(command, args);
+    if (args[0] !== "image" || args[1] !== "inspect") return result;
+    const images = JSON.parse(result.stdout);
+    images[0].RepoDigests = confirmedDigests;
+    return { ...result, stdout: JSON.stringify(images) };
+  };
+  retainStackImages(paths, project, runner, [id(2)], [id(3)]);
+  expect(runner.images.has(id(1))).toBe(true);
+  expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual([]);
 });
 
 test("retries partially removed digest references using the retained ownership marker", () => {

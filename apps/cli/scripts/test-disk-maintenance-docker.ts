@@ -58,7 +58,7 @@ try {
   const tar = join(root, "rootfs.tar");
   const makeImage = (name: string) => {
     writeFileSync(join(root, "marker"), `${prefix}:${name}`);
-    const packed = system.run("tar", ["-cf", tar, "-C", root, "marker"]);
+    const packed = system.run("tar", ["--no-xattrs", "-cf", tar, "-C", root, "marker"]);
     assert.equal(packed.status, 0, packed.stderr);
     const id = run(["image", "import", tar]);
     assert.match(id, /^sha256:[a-f0-9]{64}$/);
@@ -93,6 +93,7 @@ try {
   const pulled = JSON.parse(run(["image", "inspect", pinned]))[0].Id as string;
   created.push(pulled);
   const stopped = makeImage("stopped");
+  const raced = makeImage("container-race");
   const manual = makeImage("manual");
   const shared = makeImage("other-install");
   const unknown = makeImage("unknown");
@@ -127,23 +128,65 @@ try {
     one.paths,
     one.project,
     runner,
-    [eligible, pulled, stopped, manual, shared, live],
+    [eligible, pulled, stopped, raced, manual, shared, live],
     [current]
   );
   retainStackImages(one.paths, one.project, runner, [current], [current]);
-  for (const id of [eligible, pulled, stopped, manual, shared, live])
+  for (const id of [eligible, pulled, stopped, raced, manual, shared, live])
     assert.equal(exists(id), true);
   const two = makeInstallation("two");
   retainStackImages(two.paths, two.project, runner, [shared], [shared]);
+  const initialLedger = JSON.parse(
+    readFileSync(join(one.paths.directory, "image-retention.json"), "utf8")
+  );
+  const pulledMarker = `openteam-retention-${initialLedger.owner}:${pulled.slice(7)}`;
+  const interrupted: CommandRunner = {
+    run(command, args, options) {
+      if (args[0] === "image" && args[1] === "rm" && args[2] === pulledMarker)
+        return { status: 1, stdout: "", stderr: "fixture interrupted cleanup" };
+      return runner.run(command, args, options);
+    },
+  };
+  assert.throws(
+    () => retainStackImages(one.paths, one.project, interrupted, [current], [next]),
+    /fixture interrupted cleanup/
+  );
+  assert.equal(exists(pulledMarker), true, "interrupted cleanup must retain the ownership marker");
+  assert.equal(
+    JSON.parse(
+      readFileSync(join(one.paths.directory, "image-retention.json"), "utf8")
+    ).owned.includes(pulled),
+    true
+  );
+  const racedMarker = `openteam-retention-${initialLedger.owner}:${raced.slice(7)}`;
+  let racedContainer = "";
+  const racing: CommandRunner = {
+    run(command, args, options) {
+      if (args[0] === "image" && args[1] === "rm" && args[2] === racedMarker) {
+        racedContainer = run(["container", "create", raced, "/missing"]);
+        containers.push(racedContainer);
+      }
+      return runner.run(command, args, options);
+    },
+  };
+  assert.throws(() => retainStackImages(one.paths, one.project, racing, [current], [next]));
+  assert.notEqual(racedContainer, "", "fixture must create a container after the inventory check");
+  assert.equal(
+    exists(racedMarker),
+    true,
+    "Docker must protect an image referenced by a new container"
+  );
   retainStackImages(one.paths, one.project, runner, [current], [next]);
   assert.equal(exists(eligible), false, "retired exclusively owned image must really disappear");
   assert.equal(exists(pulled), false, "retired digest-pulled image must really disappear");
   assert.equal(exists(pinned), false, "retired registry digest reference must really disappear");
-  for (const id of [stopped, manual, shared, live, unknown, current, next])
+  for (const id of [stopped, raced, manual, shared, live, unknown, current, next])
     assert.equal(exists(id), true, `protected image disappeared: ${id}`);
   assert.equal(JSON.parse(run(["container", "inspect", liveContainer]))[0].State.Running, true);
   run(["container", "rm", stoppedContainer]);
   containers.splice(containers.indexOf(stoppedContainer), 1);
+  run(["container", "rm", racedContainer]);
+  containers.splice(containers.indexOf(racedContainer), 1);
   retainStackImages(one.paths, one.project, runner, [next], [final]);
   assert.equal(
     exists(stopped),
@@ -151,6 +194,7 @@ try {
     "retired image becomes eligible after its stopped container is removed"
   );
   assert.equal(exists(current), false);
+  assert.equal(exists(raced), false, "cleanup must retry after the racing container is removed");
   for (const id of [manual, shared, live, unknown, next, final]) assert.equal(exists(id), true);
   const ledger = JSON.parse(
     readFileSync(join(one.paths.directory, "image-retention.json"), "utf8")
@@ -215,7 +259,7 @@ try {
     "Docker did not rotate the fixture's log history"
   );
   console.log(
-    "PASS: real Docker deletion including digest-pulled images; digest capture; force-update rollback, live/stopped, manual, unknown and other-install protection; Compose log defaults/overrides; actual log rotation"
+    "PASS: real Docker deletion including digest-pulled images; interrupted cleanup and container race recovery; digest capture; force-update rollback, live/stopped, manual, unknown and other-install protection; Compose log defaults/overrides; actual log rotation"
   );
 } finally {
   // Remove only exact resources created above, never daemon-wide prune or production resources.

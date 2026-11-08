@@ -896,6 +896,7 @@ model VoiceSettings {
   ttsModel                 String   @default("aura-2-thalia-en")
   voice                    String   @default("alloy")
   language                 String   @default("en-US")
+  narrationModel           String   @default("")
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }

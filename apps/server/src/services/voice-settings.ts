@@ -44,6 +44,7 @@ export interface VoiceRuntimeSettings {
   ttsModel: string;
   voice: string;
   language: string;
+  narrationModel: string;
 }
 
 const defaults = (): VoiceRuntimeSettings => ({
@@ -61,6 +62,7 @@ const defaults = (): VoiceRuntimeSettings => ({
   ttsModel: "",
   voice: "",
   language: "",
+  narrationModel: "",
 });
 
 const invalidString = (value: unknown, field: string, max: number): string => {
@@ -142,6 +144,11 @@ function parseInput(input: unknown): VoiceSettingsInput {
     voice: invalidString(value.voice ?? "", "TTS voice", 200),
     language: invalidString(value.language ?? "", "language", 40),
   };
+  const narrationModel = optionalString(value.narrationModel, "narration model", 200);
+  if (narrationModel !== undefined) {
+    if (narrationModel && narrationModel.indexOf("/") <= 0) throw invalid("Voice narration model must look like provider/model.");
+    parsed.narrationModel = narrationModel;
+  }
 
   for (const field of ["volcengineApiKey", "deepgramApiKey"] as const) {
     const key = optionalString(value[field], field, 20_000);
@@ -205,6 +212,7 @@ export class VoiceSettingsService {
       ttsModel: unlessLegacy(row.ttsModel, "ttsModel"),
       voice: unlessLegacy(row.voice, "voice"),
       language: unlessLegacy(row.language, "language"),
+      narrationModel: row.narrationModel,
     };
   }
 
@@ -259,6 +267,7 @@ export class VoiceSettingsService {
       ttsModel: settings.ttsModel,
       voice: settings.voice,
       language: settings.language,
+      narrationModel: settings.narrationModel,
     };
   }
 
@@ -282,6 +291,7 @@ export class VoiceSettingsService {
       ttsModel: parsed.ttsModel!,
       voice: parsed.voice!,
       language: parsed.language!,
+      narrationModel: parsed.narrationModel ?? previous.narrationModel,
     };
     if (next.enabled) {
       const key = next.defaultProvider === "volcengine" ? next.volcengineApiKey : next.deepgramApiKey;
@@ -304,6 +314,7 @@ export class VoiceSettingsService {
       ttsModel: next.ttsModel,
       voice: next.voice,
       language: next.language,
+      narrationModel: next.narrationModel,
     };
     await this.prisma.voiceSettings.upsert({
       where: { id: ID },

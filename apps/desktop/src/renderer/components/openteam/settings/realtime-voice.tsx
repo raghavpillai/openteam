@@ -37,6 +37,7 @@ type Draft = {
   ttsModel: string;
   voice: string;
   language: string;
+  narrationModel: string;
 };
 
 /** Display-only mirror of the server's per-provider defaults, shown as placeholders for blank fields. */
@@ -66,6 +67,7 @@ function draftFromView(view: VoiceSettingsView): Draft {
     ttsModel: view.ttsModel,
     voice: view.voice,
     language: view.language,
+    narrationModel: view.narrationModel,
   };
 }
 
@@ -126,6 +128,7 @@ export default function RealtimeVoiceSettings() {
     draft.ttsModel !== saved.ttsModel ||
     draft.voice !== saved.voice ||
     draft.language !== saved.language ||
+    draft.narrationModel !== saved.narrationModel ||
     Boolean(draft.volcengineApiKey.trim()) ||
     Boolean(draft.deepgramApiKey.trim()) ||
     removeVolcengineKey ||
@@ -149,6 +152,7 @@ export default function RealtimeVoiceSettings() {
         ttsModel: draft.ttsModel.trim(),
         voice: draft.voice.trim(),
         language: draft.language.trim(),
+        narrationModel: draft.narrationModel.trim(),
         ...(removeVolcengineKey ? { volcengineApiKey: null } : draft.volcengineApiKey.trim() ? { volcengineApiKey: draft.volcengineApiKey.trim() } : {}),
         ...(removeDeepgramKey ? { deepgramApiKey: null } : draft.deepgramApiKey.trim() ? { deepgramApiKey: draft.deepgramApiKey.trim() } : {}),
       };
@@ -332,6 +336,20 @@ export default function RealtimeVoiceSettings() {
                   }
                 />
               ))}
+              <SettingsRow
+                title="Narration model"
+                description="Speaks short progress updates while the agent works. Use a fast model as provider/model. Leave empty to use the bot's own model."
+                stackControl
+                control={
+                  <input
+                    className={`${settingsInput} w-[330px] max-w-full`}
+                    aria-label="Narration model"
+                    value={draft.narrationModel}
+                    placeholder="Same as the bot"
+                    onChange={(event) => set("narrationModel", event.target.value)}
+                  />
+                }
+              />
             </SettingsGroup>
           </div>
         </details>

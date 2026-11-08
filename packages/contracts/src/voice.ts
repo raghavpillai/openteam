@@ -47,6 +47,8 @@ export const VoiceSettingsInput = Schema.Struct({
   ttsModel: Schema.optional(Schema.String.pipe(Schema.maxLength(200))),
   voice: Schema.optional(Schema.String.pipe(Schema.maxLength(200))),
   language: Schema.optional(Schema.String.pipe(Schema.maxLength(40))),
+  /** `provider/model` used for spoken progress narration; blank reuses the bot's own model. Omitted keeps the saved value. */
+  narrationModel: Schema.optional(Schema.String.pipe(Schema.maxLength(200))),
 });
 export type VoiceSettingsInput = typeof VoiceSettingsInput.Type;
 
@@ -73,6 +75,7 @@ export interface VoiceSettingsView {
   ttsModel: string;
   voice: string;
   language: string;
+  narrationModel: string;
 }
 
 export type VoiceControlMessage =

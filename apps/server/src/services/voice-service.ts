@@ -25,7 +25,8 @@ import { VoiceSessionConnection, voiceInputConfig, voiceOutputConfig, type Voice
 import { VoiceSettingsService } from "./voice-settings";
 import { VoiceProviderRegistry } from "./voice-provider-registry";
 import { NativeOpusCodec } from "./native-opus";
-import { VoiceVad } from "./voice-vad";
+import { PcmPreroll, VoiceVad } from "./voice-vad";
+import { isMeaningfulTranscript } from "./voice-text";
 import type { StreamingStt, StreamingTts } from "./voice-provider";
 
 type Ticket = { sessionId: string; ownerSessionId: string | null; origin: string | null; expiresAt: number };
@@ -137,6 +138,7 @@ export class VoiceService {
     let finalSttText = "";
     let echoCancellation = true;
     const vad = new VoiceVad();
+    const preroll = new PcmPreroll();
     const provider = this.providers.get(providerId(session.provider));
     const sessionProvider = providerId(session.provider);
     const language = this.settings.runtime(sessionProvider).language;
@@ -161,7 +163,12 @@ export class VoiceService {
       const result = await currentStt?.finish().catch(() => null);
       const text = (finalSttText || result?.text || "").trim();
       finalSttText = "";
-      if (!text) return;
+      if (!text || !isMeaningfulTranscript(text)) {
+        // Noise or a stray sound: drop it and clear the partial text the client was showing.
+        if (text) console.info(JSON.stringify({ event: "voice.turn_discarded", sessionId, turnId: turn.id, reason: "not_meaningful", characters: text.length, durationMs: Date.now() - turn.startedAt }));
+        connection.send({ type: "transcript.partial", turnId: turn.id, text: "", isFinal: false });
+        return;
+      }
       connection.send({ type: "transcript.final", turnId: turn.id, text, isFinal: true });
       await this.acceptTranscript({
         sessionId,
@@ -244,6 +251,7 @@ export class VoiceService {
         const pcm = await inputCodec.decode(frame.payload);
         const sttPcm = resamplePcm16(pcm, VOICE_INPUT_SAMPLE_RATE, 16_000);
         const events = vad.observe(sttPcm, connection.media.bufferedMs > 0, echoCancellation);
+        let turnOpened = false;
         for (const event of events) {
           if (event.type === "barge_in") {
             const generation = connection.stopOutputGeneration();
@@ -256,6 +264,7 @@ export class VoiceService {
           if (event.type === "started") {
             currentTurn = { id: crypto.randomUUID(), startedAt: Date.now() };
             finalSttText = "";
+            turnOpened = true;
             connection.send({ type: "turn.started", turnId: currentTurn.id });
             await startStt();
           }
@@ -263,7 +272,11 @@ export class VoiceService {
         }
         if (currentTurn) {
           const currentStt = await startStt();
+          // The turn opens a few hundred ms after speech began; send that lead-in first.
+          if (turnOpened) for (const buffered of preroll.drain()) await currentStt.pushPcm(buffered);
           await currentStt.pushPcm(sttPcm);
+        } else {
+          preroll.push(sttPcm);
         }
       },
       onClose: async () => {

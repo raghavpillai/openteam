@@ -7,6 +7,7 @@ import type { ComposeProject } from "./docker";
 import type { CommandRunner } from "./process";
 
 const IMAGE_ID = /^sha256:[a-f0-9]{64}$/;
+const DIGEST_REFERENCE = /^[^@\s]+@sha256:[a-f0-9]{64}$/;
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const BACKUP_NAME =
   /^postgres-[0-9A-Za-z.+-]+-before-[0-9A-Za-z.+-]+-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-f0-9-]{36}\.sql$/;
@@ -182,7 +183,8 @@ export const retainStackImages = (
         : [...new Set([...(raw?.current ?? []), ...before])],
     owned: [...new Set([...(raw?.owned ?? []), ...before, ...after])],
   };
-  const tag = (id: string) => `openteam-retention-${ledger.owner}:${id.slice(7)}`;
+  const retentionRepository = `openteam-retention-${ledger.owner}`;
+  const tag = (id: string) => `${retentionRepository}:${id.slice(7)}`;
   const keep = new Set([...ledger.rollback, ...after]);
   for (const id of keep) {
     const result = runner.run("docker", ["image", "tag", id, tag(id)]);
@@ -209,13 +211,36 @@ export const retainStackImages = (
       !Array.isArray(images) ||
       images.length !== 1 ||
       images[0]?.Id !== id ||
-      !Array.isArray(images[0].RepoTags)
+      !Array.isArray(images[0].RepoTags) ||
+      !images[0].RepoTags.every((ref: unknown) => typeof ref === "string")
     )
       throw new Error("Invalid owned image inventory");
-    if (images[0].RepoTags.length !== 1 || images[0].RepoTags[0] !== tag(id)) continue;
-    const removal = runner.run("docker", ["image", "rm", tag(id)]);
-    if (removal.status !== 0)
-      throw new Error(`Could not remove retired image ${id}: ${removal.stderr.trim()}`);
+    // The containerd image store also reports pulled digest references in RepoTags.
+    // Require Docker to confirm each digest, and preserve every additional real tag.
+    const references: string[] = images[0].RepoTags;
+    const confirmedDigests: unknown = images[0].RepoDigests ?? [];
+    if (
+      !Array.isArray(confirmedDigests) ||
+      !confirmedDigests.every((ref) => typeof ref === "string" && DIGEST_REFERENCE.test(ref))
+    )
+      continue;
+    const digestTags = references.filter((ref) => DIGEST_REFERENCE.test(ref));
+    if (
+      !references.includes(tag(id)) ||
+      references.some((ref) => ref !== tag(id) && !digestTags.includes(ref)) ||
+      digestTags.some((ref) => !confirmedDigests.includes(ref))
+    )
+      continue;
+    // Keep the ownership marker until all digest references are gone, so a failed
+    // removal can be retried. Removing just the marker can leave image layers behind.
+    // Classic stores may list digest references only in RepoDigests. The marker's
+    // own repository digest disappears with its tag and must stay protected until then.
+    const digests = confirmedDigests.filter((ref) => !ref.startsWith(`${retentionRepository}@`));
+    for (const ref of [...digests, tag(id)]) {
+      const removal = runner.run("docker", ["image", "rm", ref]);
+      if (removal.status !== 0)
+        throw new Error(`Could not remove retired image ${id}: ${removal.stderr.trim()}`);
+    }
     ledger.owned = ledger.owned.filter((owned) => owned !== id);
   }
   writeFileAtomic(

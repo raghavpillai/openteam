@@ -725,6 +725,56 @@ describe("installed lifecycle", () => {
     ]);
   });
 
+  test.each([
+    "classic",
+    "containerd",
+  ])("successive updates retire digest-pulled images with the %s image store", async (store) => {
+    const { paths } = fixture();
+    const docker = new HealthyDockerRunner();
+    const runner: CommandRunner = {
+      run(command, args, options) {
+        const result = docker.run(command, args, options);
+        if (args[0] !== "image" || args[1] !== "inspect") return result;
+        const images = JSON.parse(result.stdout);
+        const digest = `registry.example:5000/runtime@${images[0].Id}`;
+        images[0].RepoDigests = [digest];
+        if (store === "containerd") images[0].RepoTags.push(digest);
+        return { ...result, stdout: JSON.stringify(images) };
+      },
+    };
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    const ledgerPath = join(paths.directory, "image-retention.json");
+    try {
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+        runner
+      );
+      const first = JSON.parse(readFileSync(ledgerPath, "utf8"));
+      const retired = first.rollback[0];
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.4.0", ...releaseFixture()]),
+        runner
+      );
+      expect(readManifest(paths)?.version).toBe("1.4.0");
+      expect(readUpdateState(paths)?.status).toBe("complete");
+      const second = JSON.parse(readFileSync(ledgerPath, "utf8"));
+      expect(second.rollback).toEqual(first.current);
+      expect(second.owned).not.toContain(retired);
+      expect(
+        docker.calls
+          .filter((call) => call.args[0] === "image" && call.args[1] === "rm")
+          .map((call) => call.args)
+      ).toEqual([
+        ["image", "rm", `registry.example:5000/runtime@${retired}`],
+        ["image", "rm", `openteam-retention-${first.owner}:${retired.slice(7)}`],
+      ]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   test("disk maintenance failures warn without undoing a successful update", async () => {
     const { paths } = fixture();
     writeFileSync(join(paths.directory, "backup-retention.json"), "malformed");

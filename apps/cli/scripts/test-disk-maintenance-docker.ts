@@ -58,7 +58,7 @@ try {
   const tar = join(root, "rootfs.tar");
   const makeImage = (name: string) => {
     writeFileSync(join(root, "marker"), `${prefix}:${name}`);
-    const packed = system.run("tar", ["-cf", tar, "-C", root, "marker"]);
+    const packed = system.run("tar", ["--no-xattrs", "-cf", tar, "-C", root, "marker"]);
     assert.equal(packed.status, 0, packed.stderr);
     const id = run(["image", "import", tar]);
     assert.match(id, /^sha256:[a-f0-9]{64}$/);
@@ -66,7 +66,34 @@ try {
     return id;
   };
   const eligible = makeImage("eligible");
+  const digestSeed = makeImage("digest-pulled");
+  // Pull a unique fixture by digest through a local registry, without a mutable
+  // tag. The containerd image store reports this digest reference in RepoTags.
+  const registry = run([
+    "run",
+    "--detach",
+    "--name",
+    `${prefix}-registry`,
+    "--publish",
+    "127.0.0.1::5000",
+    "--tmpfs",
+    "/var/lib/registry",
+    "registry:2",
+  ]);
+  containers.push(registry);
+  const registryPort = JSON.parse(run(["container", "inspect", registry]))[0].NetworkSettings.Ports[
+    "5000/tcp"
+  ][0].HostPort;
+  const pushed = `localhost:${registryPort}/${prefix}:retired`;
+  run(["image", "tag", digestSeed, pushed]);
+  run(["push", pushed]);
+  const pinned = JSON.parse(run(["image", "inspect", pushed]))[0].RepoDigests[0] as string;
+  run(["image", "rm", pushed]);
+  run(["pull", pinned]);
+  const pulled = JSON.parse(run(["image", "inspect", pinned]))[0].Id as string;
+  created.push(pulled);
   const stopped = makeImage("stopped");
+  const raced = makeImage("container-race");
   const manual = makeImage("manual");
   const shared = makeImage("other-install");
   const unknown = makeImage("unknown");
@@ -101,20 +128,65 @@ try {
     one.paths,
     one.project,
     runner,
-    [eligible, stopped, manual, shared, live],
+    [eligible, pulled, stopped, raced, manual, shared, live],
     [current]
   );
   retainStackImages(one.paths, one.project, runner, [current], [current]);
-  for (const id of [eligible, stopped, manual, shared, live]) assert.equal(exists(id), true);
+  for (const id of [eligible, pulled, stopped, raced, manual, shared, live])
+    assert.equal(exists(id), true);
   const two = makeInstallation("two");
   retainStackImages(two.paths, two.project, runner, [shared], [shared]);
+  const initialLedger = JSON.parse(
+    readFileSync(join(one.paths.directory, "image-retention.json"), "utf8")
+  );
+  const pulledMarker = `openteam-retention-${initialLedger.owner}:${pulled.slice(7)}`;
+  const interrupted: CommandRunner = {
+    run(command, args, options) {
+      if (args[0] === "image" && args[1] === "rm" && args[2] === pulledMarker)
+        return { status: 1, stdout: "", stderr: "fixture interrupted cleanup" };
+      return runner.run(command, args, options);
+    },
+  };
+  assert.throws(
+    () => retainStackImages(one.paths, one.project, interrupted, [current], [next]),
+    /fixture interrupted cleanup/
+  );
+  assert.equal(exists(pulledMarker), true, "interrupted cleanup must retain the ownership marker");
+  assert.equal(
+    JSON.parse(
+      readFileSync(join(one.paths.directory, "image-retention.json"), "utf8")
+    ).owned.includes(pulled),
+    true
+  );
+  const racedMarker = `openteam-retention-${initialLedger.owner}:${raced.slice(7)}`;
+  let racedContainer = "";
+  const racing: CommandRunner = {
+    run(command, args, options) {
+      if (args[0] === "image" && args[1] === "rm" && args[2] === racedMarker) {
+        racedContainer = run(["container", "create", raced, "/missing"]);
+        containers.push(racedContainer);
+      }
+      return runner.run(command, args, options);
+    },
+  };
+  assert.throws(() => retainStackImages(one.paths, one.project, racing, [current], [next]));
+  assert.notEqual(racedContainer, "", "fixture must create a container after the inventory check");
+  assert.equal(
+    exists(racedMarker),
+    true,
+    "Docker must protect an image referenced by a new container"
+  );
   retainStackImages(one.paths, one.project, runner, [current], [next]);
   assert.equal(exists(eligible), false, "retired exclusively owned image must really disappear");
-  for (const id of [stopped, manual, shared, live, unknown, current, next])
+  assert.equal(exists(pulled), false, "retired digest-pulled image must really disappear");
+  assert.equal(exists(pinned), false, "retired registry digest reference must really disappear");
+  for (const id of [stopped, raced, manual, shared, live, unknown, current, next])
     assert.equal(exists(id), true, `protected image disappeared: ${id}`);
   assert.equal(JSON.parse(run(["container", "inspect", liveContainer]))[0].State.Running, true);
   run(["container", "rm", stoppedContainer]);
   containers.splice(containers.indexOf(stoppedContainer), 1);
+  run(["container", "rm", racedContainer]);
+  containers.splice(containers.indexOf(racedContainer), 1);
   retainStackImages(one.paths, one.project, runner, [next], [final]);
   assert.equal(
     exists(stopped),
@@ -122,6 +194,7 @@ try {
     "retired image becomes eligible after its stopped container is removed"
   );
   assert.equal(exists(current), false);
+  assert.equal(exists(raced), false, "cleanup must retry after the racing container is removed");
   for (const id of [manual, shared, live, unknown, next, final]) assert.equal(exists(id), true);
   const ledger = JSON.parse(
     readFileSync(join(one.paths.directory, "image-retention.json"), "utf8")
@@ -186,7 +259,7 @@ try {
     "Docker did not rotate the fixture's log history"
   );
   console.log(
-    "PASS: real Docker deletion; digest capture; force-update rollback, live/stopped, manual, unknown and other-install protection; Compose log defaults/overrides; actual log rotation"
+    "PASS: real Docker deletion including digest-pulled images; interrupted cleanup and container race recovery; digest capture; force-update rollback, live/stopped, manual, unknown and other-install protection; Compose log defaults/overrides; actual log rotation"
   );
 } finally {
   // Remove only exact resources created above, never daemon-wide prune or production resources.

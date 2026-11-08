@@ -61,10 +61,16 @@ export class VoiceSessionConnection {
     for (const frame of this.media.takeSendable(this.media.playbackPositionMs)) this.sendAudio(frame);
   }
 
+  /**
+   * Ends the current output generation and returns the one that was stopped. Clients drop
+   * every frame at or below the reported value, so reporting the new generation would
+   * silence all audio that follows.
+   */
   stopOutputGeneration() {
-    const generation = this.media.stopGeneration();
+    const stopped = this.media.currentGeneration;
+    this.media.stopGeneration();
     this.wakeOutputWaiters();
-    return generation;
+    return stopped;
   }
 
   private wakeOutputWaiters() {

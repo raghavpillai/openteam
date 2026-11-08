@@ -199,9 +199,11 @@ function acknowledgedSinceTurnStart(messages: readonly BotMessage[]): boolean {
 /** The ack repeats every 2 silent calls until a text send or reaction; the progress note every 7 after that. */
 export function communicationReminder(
   messages: readonly BotMessage[],
-  active: Pick<ActiveTurn, "requestSource" | "subagentType">
+  active: Pick<ActiveTurn, "requestSource" | "subagentType"> & Partial<Pick<ActiveTurn, "narrator">>
 ) {
   if (active.subagentType || !["user", "turn"].includes(active.requestSource)) return null;
+  // On a voice call the narrator keeps the user informed while the agent works.
+  if (active.narrator) return null;
   const last = messages.at(-1);
   if (last && isCommunicationReminder(last)) return null;
   const calls = callsSinceLastSend(messages);

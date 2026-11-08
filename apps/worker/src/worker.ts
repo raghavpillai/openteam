@@ -133,7 +133,7 @@ export const isVoiceNarration = (metadata: unknown): boolean =>
   (metadata as { type?: unknown }).type === "voice-narration";
 
 export const voiceTurnPrompt =
-  "[SAND_HIDDEN_PROMPT]This is a realtime voice conversation. Send the user-visible result with SendToUser. Keep replies concise and natural to speak aloud. Prefer a short acknowledgement before lengthy work. Avoid tables, code blocks, and long lists. This instruction is internal and must not be shown as a chat message.";
+  "[SAND_HIDDEN_PROMPT]This is a realtime voice conversation. The user hears your SendToUser messages spoken aloud. Keep each one short, warm and natural, as if talking, with no tables, code blocks or long lists. A separate voice narrator tells the user what you are doing while you work, so do not announce routine tool use yourself. Call SendToUser when you have a result, a question, or something genuinely new to say, and never repeat what the user has already heard. Begin a message with a brief first-person sentence such as \"I'm checking that now\" only when the work will take a while and the narrator has not already said so. This instruction is internal and must not be shown as a chat message.";
 
 class BotRunLeaseContended extends Error {}
 
@@ -1419,9 +1419,13 @@ export class WakeWorker {
       const triggeringMetadata = triggeringMessage?.metadata && typeof triggeringMessage.metadata === "object" && !Array.isArray(triggeringMessage.metadata)
         ? triggeringMessage.metadata as Record<string, unknown>
         : null;
-      const voicePrompt = triggeringMetadata?.voice && typeof triggeringMetadata.voice === "object" && !Array.isArray(triggeringMetadata.voice)
-        ? [{ id: `${claimed.clientId}:voice`, content: voiceTurnPrompt }]
-        : [];
+      const voiceTurn = Boolean(triggeringMetadata?.voice && typeof triggeringMetadata.voice === "object" && !Array.isArray(triggeringMetadata.voice));
+      const voicePrompt = voiceTurn ? [{ id: `${claimed.clientId}:voice`, content: voiceTurnPrompt }] : [];
+      // Spoken progress uses the configured narration model, or the bot's own model, with reasoning off: at the lowest
+      // level some models still spend the whole token budget thinking and return no text.
+      const narrationSetting = voiceTurn && !claimed.subagentType && claimed.origin === "user"
+        ? (await this.prisma.voiceSettings.findUnique({ where: { id: "global" }, select: { narrationModel: true } }))?.narrationModel.trim() ?? ""
+        : null;
       // Subagents run on the parent run's recorded model and reasoning, so a
       // settings change mid-run never switches models inside one task tree.
       const inferenceParent = claimed.inferenceParentRunId
@@ -1475,6 +1479,9 @@ export class WakeWorker {
         timeZone: await this.messaging.userTimeZone(),
         model: formatPiModelRef(selectedInference),
         reasoning: selectedInference.reasoning,
+        ...(narrationSetting !== null
+          ? { voiceNarration: { model: narrationSetting || formatPiModelRef(selectedInference), reasoning: "off" as const } }
+          : {}),
         fileAttachments: claimed.fileAttachments,
         attachmentOwnerBotId: claimed.attachmentOwnerBotId,
         dynamicNamespaces: pluginContext.dynamicNamespaces,

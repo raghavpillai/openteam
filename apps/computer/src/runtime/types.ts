@@ -106,6 +106,8 @@ export interface ActiveTurn {
   processReminded?: boolean;
   /** A typed message superseded this run; calls it cut off say so. */
   interruptedByUserAt?: number;
+  /** Realtime voice turns only: speaks short progress lines while tools run. */
+  narrator?: import("./voice-narration").VoiceNarrator;
   /** Stopped through the cancel-run API (the user's stop or StopSubagent): the turn settles as cancelled. */
   stopped?: boolean;
 }

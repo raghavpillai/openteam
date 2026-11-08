@@ -1094,6 +1094,11 @@ export class RuntimeTools {
     };
   }
 
+  /** Persists one spoken progress line; the server queues it behind any answer already speaking. */
+  async narrate(active: ActiveTurn, text: string): Promise<void> {
+    await this.privateControl(active, `narration:${crypto.randomUUID()}`, "VoiceNarration", { text }, AbortSignal.timeout(10_000));
+  }
+
   private async privateControl(
     active: ActiveTurn,
     callId: string,
@@ -1477,6 +1482,9 @@ export class RuntimeTools {
     ) {
       markDelivered(active);
       const input = args as { end_turn?: boolean; type?: string };
+      // What the user just heard, so the narrator neither repeats it nor talks over the answer.
+      const spoken = (args as { content?: unknown }).content;
+      if (tool === SEND_TO_USER_TOOL.name && (input.type ?? "text") === "text" && typeof spoken === "string") active.narrator?.spoke("agent", spoken);
       const question = tool === SEND_TO_USER_TOOL.name && isQuestionSend(input);
       // end_turn closes the turn only when no earlier send in this response failed.
       const closes = tool === SEND_TO_USER_TOOL.name && input.end_turn === true && !active.failedResponseSends?.size;

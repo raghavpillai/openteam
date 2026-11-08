@@ -1341,6 +1341,10 @@ export const ComputerTurnRequest = Schema.Struct({
   images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(MAX_TURN_INLINE_IMAGES))),
   dynamicNamespaces: Schema.optional(Schema.Array(PluginDynamicNamespace)),
   pluginRuntimePackages: Schema.optional(Schema.Array(Schema.Unknown)),
+  /** Present only for realtime voice turns: the model that narrates slow tool work aloud. */
+  voiceNarration: Schema.optional(
+    Schema.Struct({ model: Schema.String, reasoning: Schema.Literal(...PI_REASONING_LEVELS) })
+  ),
 });
 export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
 

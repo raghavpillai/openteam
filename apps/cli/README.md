@@ -396,7 +396,8 @@ The 4 GiB free-space preflight still applies: retention does not make a nearly f
   Compose services/profiles and its actual containers before mutable tags are pulled. Current and
   immediately prior good stacks receive durable `openteam-retention-<installation UUID>:<image ID>`
   tags. On later successful updates, an older image can be removed only if its recorded retention
-  tag is its sole tag and no running **or stopped** container on the host references it. Other
+  tag is its sole non-digest tag and no running **or stopped** container on the host references it.
+  Containerd digest references confirmed by Docker are removed before the retention tag. Other
   installations' retention tags, manually tagged images, and untracked images are preserved.
   Custom image prefixes work without a repository-name allowlist. Missing/malformed history or
   incomplete Docker inventory skips cleanup. Optional profiles with images never pulled have

@@ -209,13 +209,28 @@ export const retainStackImages = (
       !Array.isArray(images) ||
       images.length !== 1 ||
       images[0]?.Id !== id ||
-      !Array.isArray(images[0].RepoTags)
+      !Array.isArray(images[0].RepoTags) ||
+      !images[0].RepoTags.every((ref: unknown) => typeof ref === "string")
     )
       throw new Error("Invalid owned image inventory");
-    if (images[0].RepoTags.length !== 1 || images[0].RepoTags[0] !== tag(id)) continue;
-    const removal = runner.run("docker", ["image", "rm", tag(id)]);
-    if (removal.status !== 0)
-      throw new Error(`Could not remove retired image ${id}: ${removal.stderr.trim()}`);
+    // The containerd image store also reports pulled digest references in RepoTags.
+    // Require Docker to confirm each digest, and preserve every additional real tag.
+    const references: string[] = images[0].RepoTags;
+    const confirmedDigests: unknown = images[0].RepoDigests;
+    const digests = references.filter((ref) => /^[^@\s]+@sha256:[a-f0-9]{64}$/.test(ref));
+    if (
+      !references.includes(tag(id)) ||
+      references.some((ref) => ref !== tag(id) && !digests.includes(ref)) ||
+      digests.some((ref) => !Array.isArray(confirmedDigests) || !confirmedDigests.includes(ref))
+    )
+      continue;
+    // Keep the ownership marker until all digest references are gone, so a failed
+    // removal can be retried. Removing just the marker can leave image layers behind.
+    for (const ref of [...digests, tag(id)]) {
+      const removal = runner.run("docker", ["image", "rm", ref]);
+      if (removal.status !== 0)
+        throw new Error(`Could not remove retired image ${id}: ${removal.stderr.trim()}`);
+    }
     ledger.owned = ledger.owned.filter((owned) => owned !== id);
   }
   writeFileAtomic(

@@ -66,6 +66,32 @@ try {
     return id;
   };
   const eligible = makeImage("eligible");
+  const digestSeed = makeImage("digest-pulled");
+  // Pull a unique fixture by digest through a local registry, without a mutable
+  // tag. The containerd image store reports this digest reference in RepoTags.
+  const registry = run([
+    "run",
+    "--detach",
+    "--name",
+    `${prefix}-registry`,
+    "--publish",
+    "127.0.0.1::5000",
+    "--tmpfs",
+    "/var/lib/registry",
+    "registry:2",
+  ]);
+  containers.push(registry);
+  const registryPort = JSON.parse(run(["container", "inspect", registry]))[0].NetworkSettings.Ports[
+    "5000/tcp"
+  ][0].HostPort;
+  const pushed = `localhost:${registryPort}/${prefix}:retired`;
+  run(["image", "tag", digestSeed, pushed]);
+  run(["push", pushed]);
+  const pinned = JSON.parse(run(["image", "inspect", pushed]))[0].RepoDigests[0] as string;
+  run(["image", "rm", pushed]);
+  run(["pull", pinned]);
+  const pulled = JSON.parse(run(["image", "inspect", pinned]))[0].Id as string;
+  created.push(pulled);
   const stopped = makeImage("stopped");
   const manual = makeImage("manual");
   const shared = makeImage("other-install");
@@ -101,15 +127,18 @@ try {
     one.paths,
     one.project,
     runner,
-    [eligible, stopped, manual, shared, live],
+    [eligible, pulled, stopped, manual, shared, live],
     [current]
   );
   retainStackImages(one.paths, one.project, runner, [current], [current]);
-  for (const id of [eligible, stopped, manual, shared, live]) assert.equal(exists(id), true);
+  for (const id of [eligible, pulled, stopped, manual, shared, live])
+    assert.equal(exists(id), true);
   const two = makeInstallation("two");
   retainStackImages(two.paths, two.project, runner, [shared], [shared]);
   retainStackImages(one.paths, one.project, runner, [current], [next]);
   assert.equal(exists(eligible), false, "retired exclusively owned image must really disappear");
+  assert.equal(exists(pulled), false, "retired digest-pulled image must really disappear");
+  assert.equal(exists(pinned), false, "retired registry digest reference must really disappear");
   for (const id of [stopped, manual, shared, live, unknown, current, next])
     assert.equal(exists(id), true, `protected image disappeared: ${id}`);
   assert.equal(JSON.parse(run(["container", "inspect", liveContainer]))[0].State.Running, true);
@@ -186,7 +215,7 @@ try {
     "Docker did not rotate the fixture's log history"
   );
   console.log(
-    "PASS: real Docker deletion; digest capture; force-update rollback, live/stopped, manual, unknown and other-install protection; Compose log defaults/overrides; actual log rotation"
+    "PASS: real Docker deletion including digest-pulled images; digest capture; force-update rollback, live/stopped, manual, unknown and other-install protection; Compose log defaults/overrides; actual log rotation"
   );
 } finally {
   // Remove only exact resources created above, never daemon-wide prune or production resources.

@@ -33,6 +33,7 @@ const id = (n: number) => `sha256:${n.toString(16).padStart(64, "0")}`;
 class Docker implements CommandRunner {
   calls: string[][] = [];
   images = new Map<string, Set<string>>();
+  digests = new Map<string, string[]>();
   containers: Array<{
     Image: string;
     Config: { Labels: Record<string, string> };
@@ -47,14 +48,20 @@ class Docker implements CommandRunner {
     if (args[0] === "image" && args[1] === "tag") this.images.get(args[2]!)!.add(args[3]!);
     else if (args[0] === "image" && args[1] === "rm") {
       if (this.failRemove) return { status: 1, stdout: "", stderr: "fixture removal refused" };
-      for (const [key, tags] of this.images) if (tags.has(args[2]!)) this.images.delete(key);
+      for (const [key, tags] of this.images) {
+        if (tags.delete(args[2]!) && tags.size === 0) this.images.delete(key);
+      }
     } else if (args[0] === "image" && args[1] === "inspect") {
       output = args.slice(2).map((ref) => {
         const entry = [...this.images].find(
           ([key, tags]) => key === ref || tags.has(ref) || key === this.refs[ref]
         );
         if (!entry) throw new Error(`unknown fixture image ${ref}`);
-        return { Id: entry[0], RepoTags: [...entry[1]] };
+        return {
+          Id: entry[0],
+          RepoTags: [...entry[1]],
+          RepoDigests: this.digests.get(entry[0]) ?? [],
+        };
       });
     } else if (args[0] === "container" && args[1] === "ls") {
       if (this.failInventory) return { status: 1, stdout: "", stderr: "inventory unavailable" };
@@ -127,6 +134,9 @@ test("preserves running/stopped container images, other installations, manual ta
   for (const protection of ["running", "stopped", "other-install", "manual", "unknown"]) {
     const { paths, runner, project } = fixture();
     if (protection !== "unknown") retainStackImages(paths, project, runner, [id(1)], [id(2)]);
+    const digest = `registry.example/team@${id(99)}`;
+    runner.images.get(id(1))!.add(digest);
+    runner.digests.set(id(1), [digest]);
     if (protection === "running" || protection === "stopped")
       runner.containers.push({
         Image: id(1),
@@ -141,6 +151,67 @@ test("preserves running/stopped container images, other installations, manual ta
     expect(runner.images.has(id(12))).toBe(true);
     expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toHaveLength(0);
   }
+});
+
+test("removes retired containerd digest references and image layers before forgetting ownership", () => {
+  const { paths, runner, project } = fixture();
+  const digests = [`ghcr.io/team/computer@${id(1)}`, `registry.example:5000/computer@${id(99)}`];
+  runner.images.get(id(1))!.add(digests[0]!);
+  runner.images.get(id(1))!.add(digests[1]!);
+  runner.digests.set(id(1), digests);
+  retainStackImages(paths, project, runner, [id(1)], [id(2)]);
+  const ledgerPath = join(paths.directory, "image-retention.json");
+  const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
+  const marker = `openteam-retention-${ledger.owner}:${id(1).slice(7)}`;
+
+  retainStackImages(paths, project, runner, [id(2)], [id(3)]);
+
+  expect(runner.images.has(id(1))).toBe(false);
+  expect(runner.images.has(id(2))).toBe(true);
+  expect(runner.images.has(id(3))).toBe(true);
+  expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual(
+    [...digests, marker].map((ref) => ["image", "rm", ref])
+  );
+  expect(JSON.parse(readFileSync(ledgerPath, "utf8")).owned).not.toContain(id(1));
+});
+
+test("preserves references that Docker does not confirm as repository digests", () => {
+  for (const ref of [`registry.example/team@${id(1)}`, "registry.example/team@sha256:invalid"]) {
+    const { paths, runner, project } = fixture();
+    retainStackImages(paths, project, runner, [id(1)], [id(2)]);
+    runner.images.get(id(1))!.add(ref);
+    retainStackImages(paths, project, runner, [id(2)], [id(3)]);
+    expect(runner.images.has(id(1))).toBe(true);
+    expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual([]);
+  }
+});
+
+test("retries partially removed digest references using the retained ownership marker", () => {
+  const { paths, runner, project } = fixture();
+  const digests = [`ghcr.io/team/computer@${id(1)}`, `registry.example/team@${id(99)}`];
+  for (const ref of digests) runner.images.get(id(1))!.add(ref);
+  runner.digests.set(id(1), digests);
+  retainStackImages(paths, project, runner, [id(1)], [id(2)]);
+  const run = runner.run.bind(runner);
+  runner.run = (command, args) => {
+    if (args[0] === "image" && args[1] === "rm" && args[2] === digests[1])
+      return { status: 1, stdout: "", stderr: "fixture interrupted removal" };
+    return run(command, args);
+  };
+  expect(() => retainStackImages(paths, project, runner, [id(2)], [id(3)])).toThrow(
+    "fixture interrupted removal"
+  );
+  const ledgerPath = join(paths.directory, "image-retention.json");
+  const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
+  expect(ledger.owned).toContain(id(1));
+  expect(runner.images.get(id(1))).toEqual(
+    new Set([digests[1]!, `openteam-retention-${ledger.owner}:${id(1).slice(7)}`])
+  );
+
+  runner.run = run;
+  retainStackImages(paths, project, runner, [id(2)], [id(3)]);
+  expect(runner.images.has(id(1))).toBe(false);
+  expect(JSON.parse(readFileSync(ledgerPath, "utf8")).owned).not.toContain(id(1));
 });
 
 test("forcing an unchanged release preserves the previous distinct rollback stack across restarts", () => {

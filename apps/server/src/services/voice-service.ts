@@ -147,7 +147,16 @@ export class VoiceService {
     let echoCancellation = true;
     const vad = new VoiceVad();
     const preroll = new PcmPreroll();
+    // Per-turn timestamps for one latency line: where the wait between speech and sound goes.
+    let timing: { turnId: string; endedAt: number; sttDoneAt?: number; acceptedAt?: number; firstTextAt?: number; openingAudioAt?: number; logged?: boolean } | null = null;
     let lastOpening: string | null = null;
+    const logLatency = (kind: string) => {
+      if (!timing || timing.logged) return;
+      timing.logged = true;
+      const at = Date.now();
+      const since = (value?: number) => (value === undefined ? null : value - timing!.endedAt);
+      console.info(JSON.stringify({ event: "voice.turn_latency", sessionId, turnId: timing.turnId, firstAudioKind: kind, sttFinalMs: since(timing.sttDoneAt), openingMs: since(timing.openingAudioAt), acceptedMs: since(timing.acceptedAt), firstTextMs: since(timing.firstTextAt), firstAudioMs: at - timing.endedAt }));
+    };
     const provider = this.providers.get(providerId(session.provider));
     const sessionProvider = providerId(session.provider);
     const language = this.settings.runtime(sessionProvider).language;
@@ -171,7 +180,9 @@ export class VoiceService {
       currentTurn = null;
       const currentStt = stt;
       stt = null;
+      timing = { turnId: turn.id, endedAt: Date.now() };
       const result = await currentStt?.finish().catch(() => null);
+      timing.sttDoneAt = Date.now();
       const text = (finalSttText || result?.text || "").trim();
       finalSttText = "";
       if (!text || !isMeaningfulTranscript(text)) {
@@ -191,8 +202,12 @@ export class VoiceService {
         turnId: turn.id,
         text,
         durationMs: Date.now() - turn.startedAt,
-        onReply: (text, _generation, kind) => speak(text, connection.media.currentGeneration, kind),
+        onReply: (text, _generation, kind) => {
+          if (timing && kind === "answer") timing.firstTextAt ??= Date.now();
+          return speak(text, connection.media.currentGeneration, kind);
+        },
       }, session.ownerSessionId);
+      if (timing?.turnId === turn.id) timing.acceptedAt = Date.now();
     };
     const cancelTts = async () => {
       const stream = activeTts;
@@ -230,6 +245,8 @@ export class VoiceService {
               if (!started) {
                 started = true;
                 connection.send({ type: "audio.started", turnId: "", generation });
+                if (kind === "answer") logLatency(kind);
+                else if (timing) timing.openingAudioAt ??= Date.now();
               }
               await connection.queueAudio(packet, Date.now());
             }

@@ -5,35 +5,21 @@ workflow. GitHub Releases remains the download host used by `openteam.so/downloa
 and the install scripts; uploading locally built artifacts does not require GitHub
 Actions. The CLI installer workflow runs tests only.
 
-## v0.0.15 release preparation
+## v0.0.16 release preparation
 
-Prepare v0.0.15 from `c2b9b6fcdcdad03fd079542425217b6a15b56e0a`, with
-v0.0.14 (`4194501779e7d593b55982399bd225d04e7f89a2`) as the published baseline.
-Keep the root and all workspace package versions, `bun.lock` workspace versions,
-and `apps/ios/release.json` at `0.0.15`. Dependency resolutions stay unchanged.
+Prepare v0.0.16 from `8750be2343569743f7338ff9569c739e31d3d0b3`, with
+v0.0.15 (`6af6444c6be3b31588180ccca8518e2a5aa35436`) as the published baseline.
+Advance the root and workspace package versions, lockfile workspace versions,
+and native release metadata together. PR #258 repairs retention cleanup of
+obsolete digest-pulled Docker images on classic and containerd image stores.
+Verify deletion and partial-failure recovery with the real Docker harness while
+checking current/rollback stacks, containers, manual tags and other installations.
 
-This candidate includes eight merged PRs since that baseline: #245, #246, #247,
-#248, #249, #252, #253, and #254. They improve iOS Siri/Spotlight switch contrast,
-Duo sidebar selection and contextual controls, persistent app shortcuts, the idle
-chat screen, search and history navigation, settings sheets, attachment tray motion,
-bot deletion, activity indicators, and notification opening on iOS and desktop.
-Review the draft notes in ignored `output/release-v0.0.15/release-notes.md` before
-publication. The existing CLI false `STARTING` status report is not established as
-fixed by this release.
-
-The parent's read-only App Store Connect inventory on November 7, 2026 at 23:19 UTC
-found build `65` unused in both builds and build uploads for `dev.openbot.mobile`
-(app `6807991964`); this candidate selects it. Source metadata does not reserve a
-build number or establish an upload or public availability.
-
-The separate typed public-build verification at 23:20:54 UTC confirmed version
-`0.0.14 (64)` is VALID, unexpired, APPROVED, externally IN_BETA_TESTING, and a member
-of the existing public TestFlight group. The checked-in update notice advances to
-that verified public build; the production notice changes when the site is deployed.
-Build 65 remains unadvertised. Preserve committed native renderer and noVNC bundle
-bytes for this metadata-only project regeneration; this candidate has no VNC source
-changes. Full QA, artifact builds and installed-artifact verification are separate
-release gates, including physical-device APNs and Siri checks.
+Build 66 was unused in both Apple builds and uploads at preparation. Public build
+0.0.14 (64) remains verified approved and externally available. Build 65 is valid
+and available internally, with external review pending. Keep the public feed at
+the verified public build. Preserve committed native resources when regenerating
+only the version/build metadata. Native application sources match v0.0.15.
 
 ## Preparation checks
 

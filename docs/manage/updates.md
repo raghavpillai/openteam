@@ -26,7 +26,10 @@ If the new version doesn't start, the updater rolls back to the previous version
 Successful updates remove eligible older images owned by this installation while
 protecting the current and previous good stacks. Images used by any running or
 stopped container, manual tags, and untracked legacy images stay in place. This
-cleanup does not prune Docker volumes, networks or build caches.
+cleanup also handles images pulled by digest on both Docker image stores. It
+removes Docker-confirmed digest references before the installation's retention
+tag, so interrupted cleanup can retry on a later successful update. Cleanup does
+not prune Docker volumes, networks or build caches.
 
 Release containers rotate their logs at 10 MiB per file with three files per
 container when recreated. Older diagnostic history is discarded. In your install

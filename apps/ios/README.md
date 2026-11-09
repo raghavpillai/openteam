@@ -176,18 +176,12 @@ repository `output/`; they are not bundled with the app.
 
 Increment `release.json`'s build number before each TestFlight upload, keep its
 version in sync with this workspace's `package.json`, then regenerate the project.
-The v0.0.15 release candidate selects build 65 after the parent's read-only App Store
-Connect check of builds and build uploads on November 7, 2026 at 23:19 UTC.
-The separate public-group verification at 23:20:54 UTC confirmed 0.0.14 (64) is valid,
-unexpired, approved and in external beta testing in the public TestFlight group;
-the update feed targets that build. Build 65 is not advertised. Recheck before
-uploading: source metadata does not reserve a build number or establish TestFlight
-availability. Release archives and exports are built locally
-with Xcode on macOS. Follow [Releasing OpenTeam](../../.github/RELEASING.md) for
-release preparation and publication boundaries; tag pushes do not build releases.
-`ci-testflight.sh` is for an ephemeral CI runner, not a developer's personal keychain.
-Besides the app and notification profiles, it needs `IOS_SHARE_PROFILE_BASE64`.
-Uploading an archive does not establish Apple processing or tester availability.
+The v0.0.16 release candidate selects build 66 after a read-only App Store
+Connect inventory on November 9, 2026 confirmed it unused in both builds and
+build uploads. Version 0.0.15 (65) is valid and available internally while waiting
+for external beta review. The latest verified approved public build is still
+0.0.14 (64), which the update feed advertises. Recheck both inventories immediately
+before upload and verify public approval before advancing the feed.
 
 ### In-app update notice
 

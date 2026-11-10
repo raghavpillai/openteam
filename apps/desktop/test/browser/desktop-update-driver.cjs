@@ -244,7 +244,17 @@ app
     );
     await win.loadURL(process.argv[2] + "?settings");
     await delay(600);
-    await js(`fixture.emit({status:'downloaded'})`);
+    await js(`fixture.emit({status:'error',failureKind:'feed-http-status',message:'The update service returned HTTP 504. Try again in a few minutes.'})`);
+    await assert(
+      `(()=>{const text=document.body.textContent;return text.includes('The update service returned HTTP 504. Try again in a few minutes.')&&!text.includes('signature verification')&&!text.includes('The update service could not complete the request.');})()`,
+      "Settings must show the concise timeout message without a misleading or duplicate summary"
+    );
+    await js(`fixture.emit({message:'HttpError: 504 '+ 'detail '.repeat(1000)+String.fromCharCode(10)+'XML: private release feed'})`);
+    await assert(
+      `(()=>{const error=document.querySelector('[data-settings-anchor~="update-status"] .line-clamp-2');return error.textContent.length<=180&&error.textContent.endsWith('…')&&!error.textContent.includes('XML:')&&error.clientHeight>0&&error.clientHeight<=32;})()`,
+      "Long update errors must be truncated to 180 characters and occupy at most two lines"
+    );
+    await js(`fixture.emit({status:'downloaded',message:null,failureKind:null})`);
     await delay(250);
     await click(button("Not now"));
     await click(button("Restart to update"));
@@ -285,6 +295,7 @@ app
             "restart error and retry",
             "duplicate restart protection",
             "Settings confirmation",
+            "concise update service error",
             "dark/light/narrow rendering",
             "missing version fallback",
           ],

@@ -58,4 +58,93 @@ describe("desktop update diagnostics", () => {
       classifyDesktopUpdateError("cannot apply on this platform", "installing").failureKind
     ).toBe("apply-unsupported");
   });
+
+  test("reports a wrapped GitHub timeout without exposing the release feed or response", () => {
+    const error = Object.assign(
+      new Error(
+        'Cannot parse releases feed: Error: Unable to find latest version on GitHub: HttpError: 504 "method: GET url: https://github.com/raghavpillai/openteam/releases/latest\\nData:\\n<html>504 Gateway Time-out</html>" Headers: {"set-cookie":["session=private"]}\n' +
+          '    at GitHubProvider.getLatestTagName (file:///Applications/OpenTeam.app/main.js:1:1)\n' +
+          'XML:\n<feed><entry><content>The binaries come with Sigstore signatures and SHA256SUMS checksums.</content></entry></feed>'
+      ),
+      { code: "ERR_UPDATER_INVALID_RELEASE_FEED" }
+    );
+    expect(classifyDesktopUpdateError(error, "checking")).toEqual({
+      failureKind: "feed-http-status",
+      message: "The update service returned HTTP 504. Try again in a few minutes.",
+    });
+    expect(classifyDesktopUpdateError(error, "error").failureKind).toBe("feed-http-status");
+  });
+
+  test("ignores signature references in malformed feed payloads", () => {
+    for (const payload of [
+      '\nXML:\n<feed>Code signature validation failed in an older release</feed>',
+      ' rawData: {"releaseNotes":"Fix signatures and SHA512 checksums"}',
+    ]) {
+      const failure = classifyDesktopUpdateError(`Cannot parse releases feed${payload}`, "checking");
+      expect(failure.failureKind).toBe("feed-malformed");
+      expect(failure.message).toBe(
+        "The update service returned invalid release information. Try again later."
+      );
+    }
+  });
+
+  test("recognizes structured HTTP, network and verification errors", () => {
+    expect(
+      classifyDesktopUpdateError(
+        Object.assign(new Error("Service unavailable"), { statusCode: 503 }),
+        "checking"
+      )
+    ).toEqual({
+      failureKind: "feed-http-status",
+      message: "The update service returned HTTP 503. Try again in a few minutes.",
+    });
+    expect(
+      classifyDesktopUpdateError(
+        Object.assign(new Error("Request failed"), { code: "ETIMEDOUT" }),
+        "checking"
+      ).failureKind
+    ).toBe("service-unavailable");
+    expect(
+      classifyDesktopUpdateError(
+        Object.assign(new Error("Verification failed"), { code: "ERR_UPDATER_INVALID_SIGNATURE" }),
+        "downloading"
+      ).failureKind
+    ).toBe("signature-invalid");
+    expect(classifyDesktopUpdateError("HTTP 502", "downloading").failureKind).toBe("download-failed");
+    expect(
+      classifyDesktopUpdateError(
+        "Update info doesn't contain a sha512 checksum",
+        "downloading"
+      ).failureKind
+    ).toBe("feed-malformed");
+  });
+
+  test("treats Electron network errors as an unreachable update service", () => {
+    // Messages electron-updater reported for a refused connection, an unknown host and a
+    // connection that never answered.
+    for (const message of [
+      "net::ERR_CONNECTION_REFUSED",
+      "net::ERR_NAME_NOT_RESOLVED",
+      "net::ERR_CONNECTION_TIMED_OUT",
+    ]) {
+      expect(classifyDesktopUpdateError(new Error(message), "checking")).toEqual({
+        failureKind: "service-unavailable",
+        message: "The update service is currently unreachable. Check your connection and try again.",
+      });
+      expect(classifyDesktopUpdateError(new Error(message), "downloading").failureKind).toBe(
+        "download-failed"
+      );
+    }
+  });
+
+  test("unknown updater errors use bounded public copy", () => {
+    const failure = classifyDesktopUpdateError(
+      `Unexpected error ${"private response ".repeat(1_000)}`,
+      "checking"
+    );
+    expect(failure).toEqual({
+      failureKind: "unknown",
+      message: "The desktop update failed. Try again.",
+    });
+  });
 });

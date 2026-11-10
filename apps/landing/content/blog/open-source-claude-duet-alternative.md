@@ -3,7 +3,7 @@ title: "OpenTeam vs Claude Duet: an open-source Claude Duet alternative you run 
 seoTitle: "Open-source Claude Duet alternative: OpenTeam vs Claude Duet"
 description: Claude Duet is US-only, waitlisted and runs in Anthropic's cloud. OpenTeam is an open-source, self-hosted alternative you can run today, with any model.
 date: 2026-10-21
-updated: 2026-10-28
+updated: 2026-11-10
 category: Comparisons
 image: /blog/images/claude-duet-scorecard.png
 imageAlt: A comparison table of Claude Duet and OpenTeam covering availability, source code, where each runs, models, agents, check frequency, browser takeover, texts and calls, local files and usage limits
@@ -31,12 +31,12 @@ Duet facts are from [Anthropic's announcement](https://claude.com/resources/arti
 | Computer | A cloud VM with a browser you can't watch | A Linux desktop per bot that you can watch and take over |
 | Morning brief | Built in | A routine you write in one sentence |
 | Checks your apps | "Every few hours"; interval not published | Exact times, intervals down to 5 minutes, or new mail within about a minute |
-| Approvals | Before every send, payment, signature or deletion | Email and Slack drafts wait for your Send; no approval step for other actions |
+| Approvals | Before every send, payment, signature or deletion | Email and Slack drafts and texts wait for your Send; no approval step for other actions |
 | Passwords | Typed into a separate form, kept out of Duet's chat | Typed into a secure form the model can't read back |
 | Texts and calls | Doesn't text other people or make calls | Texts from your Mac's Messages; calls through call4me |
 | Your own computer | Can't see your files | Reads and copies files through the desktop app |
 | Connectors | 6,000+ connectors and plugins in the Claude Marketplace | 16 bundled plugins plus any MCP server |
-| Usage limits | Counts toward your plan's five-hour and weekly limits | None from OpenTeam; your provider bills per token |
+| Usage limits | Counts toward your plan's five-hour and weekly limits | None from OpenTeam; your provider's plan limits or API billing apply |
 | Apps | iPhone and Android for invited users; web | macOS (Apple silicon), Linux x64; iPhone beta |
 | Your data | Anthropic's cloud; region not published | Your server; your model provider sees what bots send it |
 
@@ -107,7 +107,7 @@ You control what counts. Write "skip newsletters," "only clients at @northwind.e
 
 Duet checks "at set intervals, so something urgent can arrive between checks" ([help center](https://support.claude.com/en/articles/17631495-get-started-with-claude-duet)). You can tell it "what you want to hear about and how often," but Anthropic doesn't publish the interval, and every check counts toward your plan's limits.
 
-OpenTeam gives you the clock. A routine can have up to eight schedules, as exact times in your time zone or intervals as short as every five minutes. It can also start on an event instead: a GitHub issue, a Slack message, a Linear update, a Sentry or PagerDuty alert, a Microsoft Teams message, or any signed webhook.
+OpenTeam gives you the clock. A routine can have up to eight schedules, as exact times in your time zone or intervals as short as every five minutes. It can also start on an event instead: new mail in a mailbox you've connected.
 
 For email, the [Email plugin](/docs/integrations/email) checks each connected mailbox about once a minute. A routine can watch for chosen senders, and by default only mail that passes DMARC fires it, so forged senders are ignored. It connects over IMAP, so Gmail and Google Workspace accounts need an app password. Outlook and Microsoft 365 can't connect this way, since Microsoft doesn't allow app passwords.
 
@@ -141,7 +141,7 @@ By default, when a bot writes an email or a Slack message, it appears as a draft
 
 ![An OpenTeam Gmail reply card in a Chief of Staff chat, showing From, In reply to, To, Cc and Subject fields, a short reply to Lena Park, and Send and Discard buttons](/blog/images/openteam-email-draft-approval.png "A reply waits for Send. Bots can't send email themselves. Sample data. Image: OpenTeam.")
 
-For other actions, OpenTeam bots act directly. They don't stop before deleting a file, buying something on a site where a card is saved, or texting from your Mac. If you want a person in the loop for those, say so in the routine ("draft, don't send"), and don't save cards in bot browsers.
+For other actions, OpenTeam bots act directly. They're told to check with you before changing, deleting or sending anything, but nothing in code stops them deleting a file or buying something on a site where a card is saved. If you want a person in the loop for those, say so in the routine ("draft, don't send"), and don't save cards in bot browsers.
 
 ### Passwords and payments
 
@@ -153,8 +153,8 @@ Two caveats are worth knowing. Values a bot reads from 1Password, and two-factor
 
 Duet runs only on Opus 5.5 and decides how much effort a job needs. OpenTeam serves one model to all bots on a server, and you choose it ([models](/docs/configuration/models)):
 
-- **Claude, through an Anthropic API key.** OpenTeam loads the model list live from Anthropic. On the API, Opus 5.5 costs $4 per million input tokens and $20 per million output tokens ([Anthropic](https://platform.claude.com/docs/en/about-claude/models/overview)).
-- **OpenAI or OpenRouter**, through an API key.
+- **Claude, by signing in with your Pro or Max plan or through an Anthropic API key.** OpenTeam loads the model list live from Anthropic. On the API, Opus 5.5 costs $4 per million input tokens and $20 per million output tokens ([Anthropic](https://platform.claude.com/docs/en/about-claude/models/overview)).
+- **ChatGPT**, by signing in with your Plus or Pro plan, or **OpenAI or OpenRouter**, through an API key.
 - **A local model** through Ollama, LM Studio or vLLM, so prompts never leave your hardware.
 
 If you already pay for Claude Max, there's a detail worth knowing. Since October 7, Max includes monthly Claude Platform API credits: $100 on Max 5x and $200 on Max 20x. Anthropic says "the credits don't change your usage limits in Claude, Claude Code, or Claude Cowork" ([Anthropic](https://support.claude.com/en/articles/17154008-monthly-api-credits-for-max-and-team-plans)). An API key from the Console organization you link draws on that balance. The credits expire monthly, and past them the key bills normally.
@@ -184,7 +184,7 @@ OpenTeam is free. You pay for the machine, which can be one you already own, and
 You can have a working morning brief tonight, wherever you live.
 
 1. **Install the server** on a machine that stays on: a Mac mini, a home server or a small cloud VM. Run `curl -fsSL https://openteam.so/install | sh` on macOS or Linux, or `irm https://openteam.so/install.ps1 | iex` in Windows PowerShell, and follow the guided setup ([quickstart](/docs/getting-started/quickstart)).
-2. **Connect a model.** An Anthropic API key gets you Claude; any provider in the list works.
+2. **Connect a model.** Sign in with your Claude plan or paste an Anthropic API key to get Claude; any provider in the list works.
 3. **Connect your apps.** In the app's **Marketplace**, add Gmail, Google Calendar and Slack. Google's plugins use your own OAuth app in Google Cloud, a one-time setup that the [Google guide](/docs/integrations/google) walks through. The Slack plugin needs an HTTPS address for your server and your own internal Slack app ([plugins](/docs/usage/plugins)).
 4. **Ask for the brief.** Send a bot the routine above, then press **Test run** in its routine panel to see one now.
 5. **Add an urgent-mail watcher.** Connect the Email plugin and ask: "When an email arrives from @northwind.example, tell me if it needs a reply today, and draft one."
@@ -192,9 +192,9 @@ You can have a working morning brief tonight, wherever you live.
 
 ## Where Claude Duet is ahead today
 
-- **Zero setup.** You join a waitlist, install an app and connect accounts; Anthropic runs everything. OpenTeam needs Docker, a machine that stays on, a model key or local model, your own Google Cloud app for Google accounts, and some comfort with a terminal.
+- **Zero setup.** You join a waitlist, install an app and connect accounts; Anthropic runs everything. OpenTeam needs Docker, a machine that stays on, a model plan, key or local model, your own Google Cloud app for Google accounts, and some comfort with a terminal.
 - **Phone-first apps.** Duet has iPhone and Android apps with push notifications. OpenTeam's iPhone app is a TestFlight beta, and its push alerts need Apple credentials on your server that most people won't have. There's no Android or web app, and desktop apps exist only for macOS on Apple silicon and Linux x64.
-- **Approvals for everything consequential.** Duet stops before sends, payments, signatures and deletions, and its classifiers screen actions and sensitive data. Anthropic says red teams and an outside firm tested it. OpenTeam's approval step covers email and Slack drafts.
+- **Approvals for everything consequential.** Duet stops before sends, payments, signatures and deletions, and its classifiers screen actions and sensitive data. Anthropic says red teams and an outside firm tested it. OpenTeam's approval step covers email and Slack drafts and texts from your Mac.
 - **Payments and breadth.** Link payments with one-time cards, Shop Pay checkout, and over 6,000 connectors and plugins, including QuickBooks, HubSpot and Docusign. OpenTeam bundles 16 plugins plus any MCP server.
 - **Judgment out of the box.** Anthropic designed Duet around Opus 5.5 and built it "to decide what needs you, what can wait, and when to check with you first," with your Claude memory, skills and connectors carried over. In OpenTeam, results depend on the model you pick and the instructions you write, and one human account per server is the limit.
 
@@ -222,7 +222,7 @@ No. Claude Duet is a proprietary, hosted Anthropic service. The `claude-duet` pr
 
 ### Is there an open-source Claude Duet alternative?
 
-Yes. OpenTeam gives you a proactive morning brief, routines that watch your apps, email drafts that wait for Send, and bots with their own computers, all self-hosted. It runs with Claude through an Anthropic API key, or with OpenAI, OpenRouter or a local model.
+Yes. OpenTeam gives you a proactive morning brief, routines that watch your apps, email drafts that wait for Send, and bots with their own computers, all self-hosted. It runs with Claude through your Claude plan or an Anthropic API key, or with ChatGPT, OpenAI, OpenRouter or a local model.
 
 ### Is Claude Duet available in the UK, Canada, India or the EU?
 
@@ -238,7 +238,7 @@ No. Duet runs on Anthropic's cloud computers, and Anthropic offers no self-hoste
 
 ### Can I use Claude with OpenTeam?
 
-Yes, with an Anthropic API key, billed per token by Anthropic. Claude Max plans include monthly API credits that work with a key from the Console organization you link, separate from your plan's usage limits. One model serves every bot on a server.
+Yes. Sign in with your Claude Pro or Max plan, or use an Anthropic API key, billed per token by Anthropic. Claude Max plans also include monthly API credits that work with a key from the Console organization you link, separate from your plan's usage limits. One model serves every bot on a server.
 
 ## Try OpenTeam
 

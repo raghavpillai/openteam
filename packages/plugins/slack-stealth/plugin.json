@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "key": "slack-stealth",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "name": "Slack (stealth)",
   "description": "Search Slack, read channels and threads, send messages, and add reactions using your browser session.",
   "publisher": "OpenTeam",
@@ -68,6 +68,6 @@
     "Install Slack (stealth) from Marketplace.",
     "Open account settings and save your Slack browser token and session cookie in the secret fields.",
     "Connect the account and verify a read tool returns data from the intended workspace.",
-    "Configure tool access in Accounts and settings. Add another account for each additional Slack workspace."
+    "Every Bot can use the connected account. Use Add Another Account for each additional Slack workspace."
   ]
 }

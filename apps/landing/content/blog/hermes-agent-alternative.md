@@ -3,7 +3,7 @@ title: A Hermes Agent alternative that ships as a team, desktops included
 seoTitle: Hermes Agent alternative: an AI team with a desktop per bot
 description: Hermes Agent now has bots and group chats. OpenTeam, a self-hosted Hermes Agent alternative, runs them on a server with a desktop per bot. Where each wins.
 date: 2026-10-11
-updated: 2026-10-26
+updated: 2026-11-10
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam desktop app on macOS with three bots in the sidebar, a research chat, the bot's live screen preview and a weekday routine
@@ -63,7 +63,7 @@ Hermes facts come from its README, docs and release notes as of October 11, 2026
 | Multi-agent | Group chats of 2–6 bots, bot-to-bot messages, subagents | Group chats of up to 6 bots, bot-to-bot messages, subagents |
 | Group chat rounds run in | Hermes Desktop (gateway support pending) | The server |
 | People per install | You, plus allowlisted chat users | One account |
-| Approvals | Dangerous-command checks on by default | None |
+| Approvals | Dangerous-command checks on by default | None for commands; email, Slack messages and texts wait for your Send |
 | Channels | About 20, including Telegram, WhatsApp, Signal, email | OpenTeam's own apps |
 | Apps | Desktop on macOS, Windows, Linux; terminal UI; Android via Termux | Desktop on macOS (Apple silicon) and Linux x64; iPhone beta |
 | Data location | Your machine, or Hermes Cloud | Your server |
@@ -115,7 +115,7 @@ It's also young. We [introduced OpenTeam](/blog/introducing-openteam) with v0.0.
 - **It runs in more places.** Seven terminal backends include Modal and Daytona sandboxes that hibernate when idle, and bots on different machines can share a group chat. OpenTeam is one server and one container.
 - **Every bot can pick its own model.** Pin a model per bot, or switch per session with `/model`. OpenTeam uses one model for all bots on a server.
 - **It covers more platforms.** Hermes Desktop runs on Windows, and Android works through Termux. OpenTeam's desktop apps are macOS on Apple silicon and Linux x64 only, the iPhone app is a TestFlight beta, and there's no Android app.
-- **It checks risky commands.** Smart approval mode is on by default, and you can add deny rules ([security](https://hermes-agent.nousresearch.com/docs/user-guide/security)). OpenTeam has no approval step.
+- **It checks risky commands.** Smart approval mode is on by default, and you can add deny rules ([security](https://hermes-agent.nousresearch.com/docs/user-guide/security)). OpenTeam doesn't ask before commands; only outgoing email, Slack messages and texts wait for your Send.
 - **It has more people and money behind it.** MIT licensing, about 250,000 stars and $90 million in new funding. OpenTeam first shipped on October 6.
 
 If any of those is the job, Hermes Agent is the better tool today.
@@ -126,7 +126,7 @@ There's no one-command importer, but the pieces most worth keeping move over by 
 
 - **Skills.** Hermes keeps [skills](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills) as `SKILL.md` files under `~/.hermes/skills/`. In OpenTeam, open **Marketplace → Manage → Private skills** and choose **Import SKILL.md**. The name, description and instructions come across; Hermes-only frontmatter such as toolset conditions doesn't. Add supporting files as JSON, then choose which bots can use the skill ([skills](/docs/usage/skills)).
 - **MCP servers.** Hermes lists them under `mcp_servers` in `config.yaml` ([MCP](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp)). Add each one under **Marketplace → Manage → Add custom MCP**, as an HTTP endpoint or as a command that runs on the bots' computer ([plugins](/docs/usage/plugins)).
-- **Memory.** Tell your bots what they should know, for example "Remember for all bots: I'm in the Pacific time zone." Memory is Markdown you can edit later.
+- **Memory.** Tell your bots what they should know, for example "Remember for all bots: I'm in the Pacific time zone." Later, ask a bot what it remembers and tell it what to change.
 
 ## Other Hermes Agent alternatives
 
@@ -140,7 +140,7 @@ Prefer a hosted agent with a cloud computer? See [Grok Bot vs Meta Muse vs OpenA
 ## Which should you choose?
 
 - **Choose Hermes Agent if** you want to reach your agent from Telegram, WhatsApp or Signal, need a Windows app, want a different model per bot, or want checks before risky commands.
-- **Choose OpenTeam if** you want a team that keeps working on a server with every app closed, a desktop and browser for each bot without extra setup, and shared files and sign-ins. You accept one model per server, one account and no approval step.
+- **Choose OpenTeam if** you want a team that keeps working on a server with every app closed, a desktop and browser for each bot without extra setup, and shared files and sign-ins. You accept one model per server, one account and no approval step for commands.
 - **Choose OpenClaw if** chat-app coverage and native apps on every platform matter most.
 - **Choose Agent Zero if** one agent with its own desktop is all you need.
 
@@ -156,7 +156,7 @@ Yes. Since v0.21.0, Bot Mode turns Hermes profiles into bots that share group ch
 
 ### Does OpenTeam ask before running commands?
 
-No. OpenTeam bots act directly, with no approval prompts, while Hermes checks dangerous commands by default. OpenTeam relies on isolated execution instead: commands run in the bots' container, the Gmail plugin writes drafts instead of sending, and bots hand you any CAPTCHA, 2FA or payment step.
+No. OpenTeam bots run commands directly, while Hermes checks dangerous commands by default. OpenTeam relies on isolated execution instead: commands run in the bots' container, email waits in a draft card until you press Send, and bots hand you any CAPTCHA, 2FA or payment step.
 
 ### Can I use OpenTeam with a local model?
 

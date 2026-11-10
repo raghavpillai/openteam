@@ -3,6 +3,7 @@ title: "An AI agent app for iPhone Duo: a self-hosted team on both screens"
 seoTitle: "iPhone Duo AI agent app: self-hosted bots on both screens"
 description: OpenTeam's iPhone beta is built for iPhone Duo's two displays. A tour of folded and unfolded layouts, bot computers on the big screen, setup and limits.
 date: 2026-10-24
+updated: 2026-11-10
 category: Guides
 image: /blog/images/iphone-duo-openteam-unfolded.png
 imageAlt: OpenTeam on an unfolded iPhone Duo, with the conversation list beside a Researcher chat that compares three vendors in a table
@@ -96,7 +97,7 @@ One model serves every bot on a server. You can change it later in **Settings â†
 - **Push alerts are hard to get.** iPhone push needs Apple Push Notification service credentials on your server, from the Apple Developer team that signed the app ([mobile notifications](/docs/configuration/mobile-notifications)). For the TestFlight app, that's OpenTeam's team, and there's no relay. Most TestFlight users won't have such credentials, so they see new messages when they open the app. Desktop alerts don't need them, and if you build the iPhone app yourself in Xcode, you can use your own team's key.
 - **Some settings aren't on iPhone.** Remote access and computer settings are in the desktop app and the server's `openteam` command. The desktop app runs on macOS with Apple silicon and Linux x64. There's no Android app and no web app.
 - **One person, one model.** A server has one human account, and every bot uses the same model.
-- **Few stops before actions.** Email and Slack replies wait as drafts for your **Send**, and bots can't send email themselves. Other actions run without an approval step.
+- **Few stops before actions.** Email and Slack replies wait as drafts for your **Send**, texts from a Mac wait on a card, and bots can't send email themselves. Other actions run without an approval step.
 - **We haven't tested Split View.** iPhone Duo can show two apps side by side ([Apple](https://www.apple.com/newsroom/2026/09/apple-unveils-iphone-duo/)), and we haven't checked OpenTeam there.
 
 ## Frequently asked questions

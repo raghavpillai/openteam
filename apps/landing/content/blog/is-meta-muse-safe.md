@@ -3,7 +3,7 @@ title: "Is Meta Muse safe? What it can see, and what self-hosting changes"
 seoTitle: "Is Meta Muse safe? Privacy, permissions and self-hosting"
 description: Muse has strong guardrails, training on by default and a rocky first month. What it sees, what self-hosted AI agents like OpenTeam change, and a checklist.
 date: 2026-10-25
-updated: 2026-10-28
+updated: 2026-11-10
 category: Comparisons
 image: /blog/images/meta-muse-vs-self-hosted-data.png
 imageAlt: "Muse keeps your data in a VM in Meta's cloud with training on by default; a self-hosted OpenTeam server keeps it on your machine, but a hosted model still sees prompts"
@@ -24,7 +24,7 @@ Muse facts come from Meta's [launch post](https://about.fb.com/news/2026/09/intr
 | Who stores your data | Meta, in your VM, backed up continuously | Your server; backups are yours |
 | Who else can reach it | Meta, "when necessary to support, secure or operate the service" | Anyone who gets into your server |
 | Training on your data | On by default; opt out in Data controls | None by OpenTeam; your model provider's terms apply |
-| Approvals | Sentinel allows, denies or asks, per your settings | Email drafts wait for Send; no general approval step |
+| Approvals | Sentinel allows, denies or asks, per your settings | Email and Slack drafts and texts wait for Send; no general approval step |
 | Sign-ins | A store the agent can't read | Secure forms for passwords; 1Password values and 2FA codes appear in the conversation |
 | Prompt-injection defenses | Trained model, classifiers, Sentinel, egress checks | Untrusted-content labels and prompt rules |
 | Open source | No | Yes, GPL-3.0 |
@@ -92,7 +92,7 @@ Wardle told 404 Media that "having access to production environment literally on
 
 OpenTeam bots act directly, with no general approval step and nothing like Sentinel. What exists:
 
-- **Email waits for Send, enforced in code.** Bots draft emails as cards. The send tool is hidden from bots and runs on the server only after you press Send ([code](https://github.com/raghavpillai/openteam/blob/main/apps/server/src/services/plugin/transport.ts), [email](/docs/integrations/email)). You can let chosen recipients skip the card or turn drafts off for a bot. Slack replies get the same card, but by prompt rule: bots can see Slack's send tool.
+- **Email waits for Send, enforced in code.** Bots draft emails as cards. The send tool is hidden from bots and runs on the server only after you press Send ([code](https://github.com/raghavpillai/openteam/blob/main/apps/server/src/services/plugin/transport.ts), [email](/docs/integrations/email)). You can let chosen recipients skip the card or turn drafts off for a bot. Slack replies get the same card, but by prompt rule: bots can see Slack's send tool. Texts through Messages on your Mac wait on a card too, unless you've allowed that person.
 - **Secure forms.** You type a password or card into a form in the chat, OpenTeam fills the page, and the values never come back to the model.
 - **A handoff card** when a step needs you, such as a passkey, a 3-D Secure check or a CAPTCHA the bot couldn't pass ([computer](/docs/usage/computer)).
 - **Prompt rules for the rest.** Bots are told to show you messages to other people before sending, and the built-in purchases skill says "nothing is created or charged unless they approve that exact purchase." Tool results are fenced as untrusted data the model is told not to act on. None of these rules is enforced in code.
@@ -111,7 +111,7 @@ OpenTeam bots act directly, with no general approval step and nothing like Senti
 
 ## Where Muse is ahead
 
-- **Enforced approvals.** Sentinel checks every connector action and network request outside the model. OpenTeam enforces one approval: email.
+- **Enforced approvals.** Sentinel checks every connector action and network request outside the model. OpenTeam enforces approval only for email and texts from your Mac.
 - **Credential isolation.** Muse's agent never sees real tokens, and its email connector hides one-time codes. OpenTeam's bots can reach container credentials with sudo and read your codes.
 - **Defense in depth.** A VM per person, injection classifiers, red-teaming and a public bug bounty. OpenTeam is a young project with one shared container and no bounty.
 - **Safer payments.** Single-use cards with purchase protections. OpenTeam fills your real card into checkout.

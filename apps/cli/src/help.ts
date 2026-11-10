@@ -130,7 +130,7 @@ Advanced release/testing options:
 
   setup: `${heading(
     "openteam setup [options]",
-    "Check prerequisites, install the server if needed, and set up its connection and your account.\nRun this again to change the connection. Connect a model in the OpenTeam app under Settings → Server."
+    "Check prerequisites, install the server if needed, and set up its connection and your account.\nRun this again to change the connection. Connect a model in the OpenTeam app under Settings → Model."
   )}
 
 Options:

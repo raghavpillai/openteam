@@ -12,41 +12,23 @@ When a bot asks a question or needs information, it waits for your answer in the
 
 ## Reply, attach, and search
 
-- **Reply to a message** to tie your follow-up to it. Hover over the message and choose **Reply**.
+- **Reply to a message** to tie your follow-up to it. On desktop, hover over the message and choose **Reply**. On iPhone and iPad, swipe the message to the right, or long-press it and choose **Reply**.
+- **Start a thread** to follow up on one message without crowding the conversation. On iPhone and iPad, long-press the message and choose **Start a thread**. On desktop, a message with a thread shows its number of replies; select it to open the thread and reply there.
 - **Attach files or images** the bot should work from. See [files and results](files.md).
 - **Dictate** instead of typing with [voice notes](../configuration/transcription.md).
-- **Search** messages, bots, groups, files, links, and routines. Press **⌘K** on macOS or **Ctrl+K** on Windows and Linux.
+- **Search** messages, bots, groups, files, links, and routines. On desktop, press **⌘K** on macOS or **Ctrl+K** on Windows and Linux. On iPhone and iPad, tap **Search** in the conversation list. Choose a message result to open it in context.
 
-### Find and navigate messages on iPhone and iPad
-
-Open **Search** from the conversation list. Returning to a query within the same
-search sheet shows its cached results while they refresh. Choose a message result
-to open it in context; the destination briefly highlights. Scroll toward either
-end of the loaded history to load adjacent messages automatically, keeping your
-reading position. Use **Latest messages** to return to the newest messages.
-
-When the conversation list appears beside a chat, the selected row stays
-highlighted. Installed app shortcuts remain visible while their list refreshes
-and after relaunching. With no chat selected, choose one from the list beside the
-**Select a chat** screen.
-
-### Delete a bot on iPhone and iPad
-
-Long-press the bot's conversation in the list and choose **Delete bot**. Confirm
-only if you want to remove the bot and its chat history; this cannot be undone.
-After deletion, an open conversation for that bot closes.
+To delete a bot and its chat history, choose **Delete bot** in the bot's settings on desktop, or long-press its conversation on iPhone or iPad and choose **Delete bot**. This can't be undone.
 
 ## If a message doesn't send
 
-Check the outgoing message in its conversation. Desktop shows **Retry** for a failed send; its **…** menu contains failure details and **Delete message**. iPhone and iPad show **Not delivered** with **Retry**. Automatic retries show a compact progress bar only after repeated failures. Once a send is accepted, its retry controls and reserved space disappear; tapping **Retry** on iOS keeps the keyboard open. **Delivery unconfirmed** means the app couldn't confirm whether the server accepted the message. Use the message's retry action to check or retry that send.
-
-On iPhone and iPad, **Queued messages** also lists pending sends and lets you discard them. If a conversation is no longer available, choose **Recover to a draft** and select another conversation to recover the message without sending it.
-
-An iOS message refresh failure keeps the last loaded messages visible and offers **Retry** in the conversation. A failed action doesn't by itself mean the app has disconnected from the server. The connection warning appears only after repeated independent reachability checks fail; a reachable response clears it. Its **Retry** action checks the connection and restarts synchronization.
+A message that fails to send shows **Not delivered** with **Retry**. **Delivery unconfirmed** means the app couldn't tell whether the server accepted the message; **Retry** checks and sends it again if needed. On desktop, the message's **…** menu shows what went wrong and offers **Delete message**. On iPhone and iPad, long-press an unsent message and choose **Discard** to remove it.
 
 ## Create a group chat
 
-Choose **New chat**, then **Create group chat**. Pick the bots, then send your first message. A group can have up to six bots.
+On iPhone and iPad, tap **+**, then **New Group Chat**. Pick the bots, choose **Next**, name the group, and choose **Create**.
+
+The desktop app has no button for this. Ask a bot to start a group chat with the bots you name. Group chats work in both apps once they exist, and a group can have up to six bots.
 
 Give each bot a clear role so they can split the work:
 
@@ -60,6 +42,4 @@ All bots share the `/workspace` folder, so one bot can pick up another's files. 
 
 > Continue from /workspace/launch/brief.md. Verify the dates before you edit the recommendation.
 
-Bots can also message each other and hand tasks to helpers on their own.
-
-On iPhone and iPad, **Working in the background** appears in a bot's conversation while its helpers are queued or running, including helpers the bot is waiting on. Helpers waiting for input don't keep the working indicator active.
+Bots can also message each other and hand tasks to helpers on their own. While a bot's helpers are still working, its conversation shows **Working in the background**.

@@ -3,6 +3,7 @@ title: "Giving every AI agent its own computer: desktops, takeover and limits"
 seoTitle: "Giving AI agents their own computer: desktops, sign-ins and limits"
 description: How OpenTeam gives each self-hosted AI agent its own Linux desktop in one container, with live takeover, shared sign-ins, root access and memory limits.
 date: 2026-10-20
+updated: 2026-11-10
 category: Engineering
 image: /blog/images/bot-computer-overview.png
 imageAlt: A ladder of eight steps for an AI agent's computer, from a shell on your own machine to the design OpenTeam runs today, above a table comparing the first step with the final design
@@ -190,7 +191,7 @@ The [computer docs](/docs/usage/computer) say what that costs. Sudo "gives them 
 **Cons.**
 
 - Root reads everything in the container, including your model provider's key.
-- Packages installed with sudo survive restarts, but the docs say they "must be reinstalled after container recreation or upgrades".
+- Not every system change lasts. `/usr/local` and the apt, pip and npm packages bots install come back after restarts and updates, but manual changes under `/etc` and files in `/opt` start fresh.
 - Bigger jobs, one memory pool. A browser with 40 tabs or a large build fills the container, and the kernel's out-of-memory killer may pick another bot's browser.
 
 ## v7: a memory budget per desktop
@@ -239,7 +240,7 @@ A few lines of page code can replace a long loop of screenshots and clicks. Plug
 
 ### Your own computer, as an opt-in
 
-v0 comes back by choice. The desktop app can connect your Mac or Linux machine, over an outgoing connection with no open ports. Bots can then run commands, read files and copy files to and from `/workspace`. On a Mac they can also read your contacts, read and send Messages, and import your Chrome sign-ins. They never see your screen or control your mouse. To stop it, disable the computer from its **…** menu in **Settings → Computer → Manage devices** or quit the app.
+v0 comes back by choice. The desktop app can connect your Mac or Linux machine, over an outgoing connection with no open ports. Bots can then run commands, read files and copy files to and from `/workspace`. On a Mac they can also read your contacts, read and send Messages, and import your Chrome sign-ins. They never see your screen or control your mouse. To stop it, quit the app, or disable the computer under **Settings → Server → Manage devices** on another device.
 
 ### The numbers
 

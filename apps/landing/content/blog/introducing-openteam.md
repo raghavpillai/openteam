@@ -3,7 +3,7 @@ title: Introducing OpenTeam: AI agents that each get their own computer
 seoTitle: Introducing OpenTeam: an open-source Grok Bot alternative
 description: OpenTeam v0.0.0 is the first release of our open-source, self-hosted Grok Bot alternative. What each bot gets, how it works, and what it can't do yet.
 date: 2026-10-06
-updated: 2026-10-26
+updated: 2026-11-10
 category: Announcements
 image: /blog/images/openteam-desktop-mobile.png
 imageAlt: The OpenTeam desktop app and iPhone app showing the same chat with a Research bot that compared three vendors and set up a weekday pricing check
@@ -54,7 +54,7 @@ For passwords, a bot can show you a form in the chat instead of asking you to pa
 
 ### Memory you can read
 
-Bots keep their conversations across restarts. They also keep memory: short facts about their own role, about you, and about shared projects. It's stored on your server as Markdown, one dated fact per line, so you can read it, grep it and fix it. You can also ask a bot to forget something.
+Bots keep their conversations across restarts. They also keep memory: short facts about their own role and about you, stored on your server. Ask a bot what it remembers, and tell it what to correct or forget.
 
 ### Routines
 
@@ -91,7 +91,7 @@ When you send a message, the server stores it in PostgreSQL and queues a wake jo
 
 ![A bot's desktop with Chromium showing a sample date parser fix with a one-line diff and 24 passing tests](/screenshots/linux-code-review.png "A sample code review page opened from the shared /workspace folder, captured September 12, 2026. Image: OpenTeam.")
 
-One model serves every bot on the server, chosen in **Settings → Model**. Connect OpenAI, Anthropic or OpenRouter with an API key, or any OpenAI-compatible endpoint, including local servers such as Ollama, LM Studio and vLLM.
+One model serves every bot on the server, chosen in **Settings → Model**. Sign in with your ChatGPT or Claude plan, connect OpenAI, Anthropic or OpenRouter with an API key, or use any OpenAI-compatible endpoint, including local servers such as Ollama, LM Studio and vLLM.
 
 Three commands cover day-to-day operation. `openteam status` shows the version and the health of each service. `openteam doctor` checks your setup and sends a real request to your model. `openteam update` backs up the database first and rolls back if the new version doesn't start. [How hosting works](/docs/overview/architecture) explains what needs to stay on.
 
@@ -103,7 +103,7 @@ This is a first release from a young project with a small community. Check these
 - **One model for every bot.** You can't give bots different models.
 - **Desktop apps for two platforms.** The desktop app is for macOS on Apple silicon and Linux x64. The server runs on Windows and Intel Macs, but there's no desktop app for them.
 - **iPhone in beta, no Android.** The iPhone app is a public TestFlight beta and needs iOS 18. There's no Android app.
-- **No approval step.** Bots browse, run commands and call plugins without asking first. If you connect your own Mac or Linux computer through the desktop app, they run commands there directly too. The guardrails are isolated execution in a container, Gmail drafts that stay unsent, handoff cards, and password forms the model can't read.
+- **Approval only for outgoing messages.** Bots browse, run commands and call plugins without asking first. If you connect your own Mac or Linux computer through the desktop app, they run commands there directly too. Email and Slack messages wait in a draft card for your **Send**, and texts from your Mac wait on a card too. The other guardrails are isolated execution in a container, handoff cards, and password forms the model can't read.
 - **Bots aren't isolated from each other.** All desktops share one container and one Unix user, and bots can use passwordless `sudo` in it. Separate screens are a convention, not a security boundary. Every bot can use every installed plugin and connected account; only private skills can be limited to chosen bots.
 - **It needs a machine that stays on.** If the host sleeps, bots and routines stop until it wakes.
 - **Remote access is your job.** The default Private network mode serves the apps on your local network, and bot screen ports 6200–6299 are open there too. To connect from elsewhere, use a VPN such as [Tailscale](https://tailscale.com) instead of exposing the server without HTTPS. See [remote access](/docs/configuration/remote-access).
@@ -121,7 +121,6 @@ These are gaps the repository already points to. We aren't attaching dates.
 
 - **A Windows desktop app.** The desktop build has a Windows installer target, but v0.0.0 doesn't include Windows desktop packaging.
 - **More than one person per server.** The FAQ's current answer is that there's no way to add other people yet.
-- **Memory synthesis.** An experimental setting lets bots consolidate what they've learned. It ships turned off.
 
 ## Try OpenTeam
 

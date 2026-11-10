@@ -12,11 +12,16 @@ Guided setup covers most installations. This page shows where to change each set
 | Voice transcription | **Settings → Voice notes** on desktop or iPhone, or `openteam model` |
 | Connection mode, including Tailscale HTTPS | `openteam setup` |
 | Tailscale HTTPS enable, status, disable | `openteam tailscale` or desktop Settings → Server → Remote access |
-| API port, time zone, and tasks at once | `openteam setup --advanced` |
+| Time zone | **Settings → General → Timezone** on desktop, or **Settings → More preferences → Timezone** on iPhone |
+| API port and tasks at once | `openteam setup --advanced` |
 | Username and password | `openteam account update` |
-| Accounts your bots use | **Marketplace** in the desktop app |
+| Accounts your bots use | **Marketplace** in the desktop app, or **Settings → Plugins** on iPhone |
 
 Model changes apply to new messages; a task that's already running keeps its settings. Search, fetch, and transcription changes apply to the next search, fetch, or voice note. Changes made with `openteam setup --advanced` restart the services they affect, which interrupts running tasks.
+
+## Time zone
+
+Your time zone follows your device unless you pick one in **Settings → General → Timezone** on desktop or **Settings → More preferences → Timezone** on iPhone. The choice is saved on the server. Routines run in this time zone unless their schedule names another one, and your bots' computer sets its clock to it, so times and file dates there read in your local time.
 
 ## Change setup options
 
@@ -26,9 +31,7 @@ Run this on the server host:
 openteam setup --advanced
 ```
 
-Advanced setup lets you change the [connection mode](remote-access.md), **API port** (default `8787`), time zone, and tasks at once. Running setup again keeps your account, data, and model settings.
-
-**Time zone.** Setup uses the host's time zone. Routines you schedule in the app use the time zone of the device you schedule them on. Other routines use the server's time zone unless their schedule names one. Your bots' computer runs its clock in this time zone too, so times and file dates on it read in your local time.
+Advanced setup lets you change the [connection mode](remote-access.md), **API port** (default `8787`), and tasks at once. Running setup again keeps your account, data, and model settings.
 
 **Tasks at once.** This limits how many bot conversations the server works on at the same time, including helper tasks. Routine runs don't count toward it. The default is the number of CPU cores on the host, up to 8. Lower it if the host runs out of memory or your model provider rejects parallel requests. Each bot handles its chat messages one at a time; its routines can run alongside them.
 
@@ -40,87 +43,27 @@ The [install directory](../getting-started/installation.md#where-openteam-is-ins
 - `compose.yaml`: the Docker services for your version
 - `installation.json`: a record of how the server was installed
 
-Setup and updates maintain these files, so change settings with the CLI instead of editing them. Don't put model API keys in `.env`; connect providers in the app or with `openteam provider login`. Include this directory in your [backups](../manage/backups.md).
+Setup and updates maintain these files, so use the apps or the CLI for every setting they cover. A few settings have no command and go in `.env`: [log rotation](../manage/updates.md#disk-use-after-updates), [update backup retention](../manage/backups.md#update-backups), and [desktop memory limits](#desktop-memory-limits). Setup and updates keep the lines you add.
+
+Backup retention is read at the next update. For the other settings, run `openteam stop` and then `openteam start`, which recreates the containers whose settings changed and interrupts running tasks. `openteam start` alone does nothing while the server is running. The next update also applies them.
+
+Don't put model API keys in `.env`; connect providers in the app or with `openteam provider login`. Include this directory in your [backups](../manage/backups.md).
 
 ## Existing Messages SSH connections
 
-Previously installed **iMessage (SSH)** connections keep their private bridge
-configuration at `/home/box/.config/openteam/imessage-bridge.json` in the computer's
-persistent home. The file contains `endpoint` and `token` fields and must be a
-regular file with owner-only permissions, normally `0600`. Treat its token as a credential.
-
-With computer networking enabled, startup reserves direct TCP access to only that
-configured address and port. Numeric IPv4 and IPv6 addresses, custom ports, and
-addresses on a secondary Docker interface are supported. Use an HTTP or HTTPS URL
-with a numeric address. Hostnames, scoped IPv6 addresses, and URLs containing user
-credentials, queries, or fragments cannot reserve a direct route. IPv4 connections
-also work when the container has IPv6 disabled.
-
-The computer checks for configuration changes every two seconds. Replacing or
-removing the private file updates or revokes the reservation. The host bridge can
-start later without changing the reservation. A failed connector startup requires
-**Reconnect** after the bridge becomes available.
-
-Container recreation preserves the saved endpoint. If a Docker network change
-makes that address unavailable, reprovision both the host bridge's listener
-binding and the saved endpoint, then reconnect the plugin. Changing the default
-gateway alone does not migrate those settings.
-
+If you have an **iMessage (SSH)** connection, it keeps working across updates. Its bridge address and token are saved in `/home/box/.config/openteam/imessage-bridge.json` on the bots' computer, in `endpoint` and `token` fields. Keep the file readable only by its owner (`0600`) and treat the token like a password. The endpoint must be an `http://` or `https://` URL with a numeric IP address; hostnames don't work. If the host bridge was down when the connection started, reconnect the account on the plugin's page once the bridge is back.
 
 ## Desktop memory limits
 
-The Compose stack limits each agent desktop to **10 GiB** by default. This includes
-its headed Chrome, desktop services, native applications, and descendants of
-commands launched in that desktop. It does not evict tabs or windows during
-normal operation. Linux may kill an offending process when a hard limit is hit;
-unsaved work in that process can be lost.
+Each bot desktop can use up to **10 GiB** of memory by default, including its browser, apps, and the commands it runs. The whole computer has a combined ceiling: the smaller of **12 GiB** and **75% of the host's RAM** (the Docker VM's RAM on macOS). A desktop also can't use more than what's left of the combined ceiling. These are ceilings, not reservations, and the computer doesn't use swap.
 
-A separate ceiling protects against several desktops growing at once and includes
-the shared Bun runtime. It is the smaller of **12 GiB** and **75% of the Linux
-host's RAM** (Docker VM RAM on macOS). A ceiling is not a reservation. Swap is
-disabled for the computer to avoid unlimited swapping. Other services and host
-applications still need adequate RAM; these limits do not guarantee that an
-otherwise overloaded host cannot run out of memory. Hitting the combined limit
-may kill the shared runtime and restart the computer container.
+When a desktop hits its limit, Linux may kill one of its processes, and unsaved work in that process is lost. Hitting the combined ceiling may restart the computer.
 
-Compose overrides in the install environment:
+To change the limits, set these in the install directory's `.env`:
 
-- `OPENTEAM_DESKTOP_MEMORY_LIMIT=10g`: each desktop's ceiling.
-- `OPENTEAM_COMPUTER_MEMORY_LIMIT=12g`: the combined computer ceiling, also bounded
-  by the 75% host rule. Use a smaller value to leave more room for other services.
+- `OPENTEAM_DESKTOP_MEMORY_LIMIT` (default `10g`): each desktop.
+- `OPENTEAM_COMPUTER_MEMORY_LIMIT` (default `12g`): the whole computer, still capped at 75% of RAM. Use a smaller value to leave more room for other services.
 
-Sizes use binary units: `10g` is 10 × 1024³ bytes. Recreate the computer and its
-memory-init helper when changing these settings; this interrupts active work.
-The two settings are independent: a desktop cannot exceed the remaining combined
-budget even if it has not reached its own 10 GiB limit.
+Sizes use binary units: `10g` is 10 × 1024³ bytes. Apply a change with `openteam stop` and then `openteam start`; this recreates the computer and interrupts running work.
 
-Enforcement requires Linux cgroup v2 and the `computer-memory-init` Compose
-service. This small helper joins only the computer's PID/mount namespaces to make
-its private cgroup tree writable and lower the combined limit when necessary. It
-starts with `SYS_ADMIN`, `SYS_CHROOT`, and `SYS_PTRACE` and an unconfined AppArmor
-profile, then drops every effective, permitted and inheritable capability and
-sets `no_new_privs` before waiting for the computer to exit. It has no network,
-Docker socket, credentials or host filesystem mounts. The computer retains its
-administrator access and passwordless sudo support. The helper
-restarts with the computer's PID namespace. Setup fails closed if the memory
-controller cannot be initialized.
-
-Agent processes enter their desktop cgroup before `setpriv` initializes the
-desktop user's UID, GID, and supplementary groups. Children, including sudo
-commands and daemonized native applications, inherit the group. The statically
-linked launcher enters the group before executing the identity switch.
-Ordinary commands cannot write the cgroup controls, but administrator commands
-can explicitly change or bypass both the desktop and combined limits. These are
-default resource budgets, not an isolation boundary against administrator access.
-Destroying or restarting a failed desktop also clears its
-orphaned descendants. Shared inference, browser automation helpers, plugin/MCP infrastructure and jobs that
-are not attached to a desktop are covered by the combined limit.
-
-Direct native development runs do not enable cgroups unless configured. Provider
-login/import commands can still run as one-off containers without the helper.
-Inspect effective kernel limits inside the computer at
-`/sys/fs/cgroup/memory.max` and `/sys/fs/cgroup/desktops/*/memory.max`; Docker's
-configured memory value alone may be higher than the host-adjusted limit.
-
-References: [Docker memory limits](https://docs.docker.com/engine/containers/resource_constraints/)
-and [Linux cgroup v2](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html).
+The limits need Linux [cgroup v2](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html); if they can't be set up, the computer doesn't start. Administrator (`sudo`) commands on the bots' computer can change or bypass them, so treat them as default budgets, not a security boundary.

@@ -187,7 +187,7 @@ exports[`doctor UI scenario matrix provider-quota has a stable 80-column termina
 
   NEXT STEPS
   1. Check the model provider's quota or billing, or wait for its rate limit to
-     reset. To switch models, use Settings → Server in the OpenTeam app, or run
+     reset. To switch models, use Settings → Model in the OpenTeam app, or run
      openteam model.
   2. After completing these steps, run openteam doctor again.
 
@@ -227,7 +227,7 @@ exports[`doctor UI scenario matrix provider-quota has a stable 80-column termina
   1. Check the model provider's quota or
   billing, or wait for its rate limit to
   reset. To switch models, use Settings
-  → Server in the OpenTeam app, or run
+  → Model in the OpenTeam app, or run
   openteam model.
   2. After completing these steps, run
   openteam doctor again."

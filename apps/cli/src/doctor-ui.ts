@@ -99,20 +99,20 @@ const checkAction = (check: DoctorCheck): string | undefined => {
     case "AI connection":
       // Models are managed in the apps; the model command covers servers without one.
       if (/429|quota|billing|rate.?limit/i.test(check.detail))
-        return "Check the model provider's quota or billing, or wait for its rate limit to reset. To switch models, use Settings → Server in the OpenTeam app, or run openteam model.";
+        return "Check the model provider's quota or billing, or wait for its rate limit to reset. To switch models, use Settings → Model in the OpenTeam app, or run openteam model.";
       if (/401|403|invalid.*(?:key|token)|unauthorized|authentication/i.test(check.detail))
-        return "Reconnect the provider in the OpenTeam app under Settings → Server. On a server without the app, run openteam model.";
+        return "Reconnect the provider in the OpenTeam app under Settings → Model. On a server without the app, run openteam model.";
       if (/timed out|timeout|ECONNREFUSED|ENOTFOUND|network|connection refused/i.test(check.detail))
         return "Check network access from the server and computer services to the model provider, including proxy or VPN settings. Inspect openteam logs computer and retry openteam doctor.";
       if (/model.*(?:unavailable|not found|does not exist|not supported)/i.test(check.detail))
-        return "Choose an available model in the OpenTeam app under Settings → Server. On a server without the app, run openteam model list to see the models this account can use.";
+        return "Choose an available model in the OpenTeam app under Settings → Model. On a server without the app, run openteam model list to see the models this account can use.";
       if (/\bmissing\b/i.test(check.detail))
-        return "Connect a model in the OpenTeam app under Settings → Server. On a server without the app, run openteam model.";
-      return "Check the model connection in the OpenTeam app under Settings → Server. On a server without the app, run openteam provider list and openteam model list.";
+        return "Connect a model in the OpenTeam app under Settings → Model. On a server without the app, run openteam model.";
+      return "Check the model connection in the OpenTeam app under Settings → Model. On a server without the app, run openteam provider list and openteam model list.";
     case "Transcription":
       if (/server connection|installation credentials/i.test(check.detail))
         return "Run openteam status and check the server connection and installation control token. Inspect openteam logs server before testing transcription again.";
-      return "Open Settings → Server → Transcription, check the provider URL, model and key, then use Test connection.";
+      return "Open Settings → Voice notes in the OpenTeam app, check the provider URL, model and key, then use Test connection.";
     case "iOS push registration":
       return "Open the iPhone app connected to this server, sign in, and check Settings → Notifications. Retry notifications or turn them off and on to register again.";
     case "iOS push credentials":

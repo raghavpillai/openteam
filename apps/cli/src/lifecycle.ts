@@ -135,8 +135,8 @@ const printStartupReady = (
               {
                 text:
                   health.inference === "missing"
-                    ? `No model is connected yet. Connect one in the OpenTeam app under Settings → Server, or run ${installationCommand(paths, "model")} on this server.`
-                    : `AI is not ready (${health.inference}). Check the model connection in the OpenTeam app under Settings → Server, or run ${installationCommand(paths, "doctor")}.`,
+                    ? `No model is connected yet. Connect one in the OpenTeam app under Settings → Model, or run ${installationCommand(paths, "model")} on this server.`
+                    : `AI is not ready (${health.inference}). Check the model connection in the OpenTeam app under Settings → Model, or run ${installationCommand(paths, "doctor")}.`,
                 tone: "warning" as const,
               },
             ]

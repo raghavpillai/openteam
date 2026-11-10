@@ -3,7 +3,7 @@ title: The best self-hosted AI agents in 2026
 seoTitle: Best self-hosted AI agents in 2026, and who each one is for
 description: OpenClaw, Hermes Agent, goose, NanoClaw, Agent Zero, Eigent, MausBot and OpenTeam: eight self-hosted AI agents compared on license, models and setup.
 date: 2026-10-12
-updated: 2026-10-26
+updated: 2026-11-10
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam desktop app with a Research bot's chat, a live preview of its Linux screen, and a weekday routine
@@ -38,7 +38,7 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 | Agent Zero | One agent with a desktop | MIT | Web UI; launcher for macOS, Windows, Linux | One Linux desktop per instance | Many, local too | Subordinate agents | Not documented | ~19,400 |
 | Eigent | A Cowork-style desktop app | Apache-2.0 | Desktop for macOS, Windows, Linux | No; your computer | Many, local too | A Workforce of agents | Not documented | ~15,500 |
 | MausBot | Bots on your Claude or ChatGPT plan | Apache-2.0 core | Desktop for macOS, Windows, Ubuntu | Cloud desktop, local VM or your computer | Claude, Codex or Grok CLI, per bot | Rooms of bots | Allow/Deny cards | ~4,600 |
-| OpenTeam | An open-source Grok Bot alternative | GPL-3.0 | Desktop for macOS (Apple silicon), Linux; iPhone beta | A Linux desktop per bot | One model per server | Group chats of up to 6 bots | No | New (first release Oct 6) |
+| OpenTeam | An open-source Grok Bot alternative | GPL-3.0 | Desktop for macOS (Apple silicon), Linux; iPhone beta | A Linux desktop per bot | One model per server | Group chats of up to 6 bots | For email, Slack and texts | New (first release Oct 6) |
 
 ## 1. OpenClaw: best for reaching you in your chat apps
 
@@ -156,17 +156,17 @@ Stars were read from the GitHub API on October 12, 2026, and rounded. "Asks befo
 
 **What it is.** OpenTeam is an open-source, self-hosted Grok Bot alternative: software that runs a team of AI agents, called bots, on hardware you control, such as your computer, a home server or a cloud VM ([GitHub](https://github.com/raghavpillai/openteam)). Its agent tools and built-in skills are built for compatibility with Grok Bot's. The server runs in Docker on macOS, Windows or Linux hosts.
 
-**What it does well.** Each bot gets its own persistent Linux desktop with Chromium and a terminal, which you can watch live and take over. Bots share a `/workspace` folder and website sign-ins, so one sign-in covers all of them. They keep editable Markdown memory, run routines on schedules or events, and work together in group chats of up to six bots. Work continues on the server when the apps are closed.
+**What it does well.** Each bot gets its own persistent Linux desktop with Chromium and a terminal, which you can watch live and take over. Bots share a `/workspace` folder and website sign-ins, so one sign-in covers all of them. They remember facts about themselves and you, run routines on schedules or events, and work together in group chats of up to six bots. Work continues on the server when the apps are closed.
 
 ![The OpenTeam desktop app: a bot's chat, a live preview of its Linux screen, and a routine](/blog/images/openteam-desktop.png "The Research bot's own Linux screen sits at top right, its routine below. Sample data. Image: OpenTeam.")
 
-**Trade-offs.** It's young: v0.0.0 shipped on October 6, 2026, and the community is small. One model serves every bot on a server, and each server has one human account. Desktop apps cover only macOS on Apple silicon and Linux x64, the iPhone app is a TestFlight beta, and there's no Android app. Bots act without approval prompts; the guardrails are Gmail drafts instead of sends and a handoff for CAPTCHAs, 2FA and payments. Bots share one Docker container, with passwordless `sudo`, and one Unix user, so isolation between them is by convention.
+**Trade-offs.** It's young: v0.0.0 shipped on October 6, 2026, and the community is small. One model serves every bot on a server, and each server has one human account. Desktop apps cover only macOS on Apple silicon and Linux x64, the iPhone app is a TestFlight beta, and there's no Android app. Bots act without approval prompts except cards for outgoing email, Slack messages and texts; the other guardrail is a handoff for CAPTCHAs, 2FA and payments. Bots share one Docker container, with passwordless `sudo`, and one Unix user, so isolation between them is by convention.
 
 **License and cost.** GPL-3.0 and free. You pay for the machine, the model provider (OpenAI, Anthropic, OpenRouter or a local server) and any services you connect.
 
 **Versus the rest.** If you need chat-app channels, per-bot models or approval prompts, pick another project here. [Introducing OpenTeam](/blog/introducing-openteam) explains the design, and [our open-source Grok Bot alternative](/blog/open-source-grok-bot-alternative) compares it with Grok Bot side by side.
 
-[GitHub](https://github.com/raghavpillai/openteam) · [Docs](/docs/getting-started/quickstart) · Latest: v0.0.1, October 10, 2026.
+[GitHub](https://github.com/raghavpillai/openteam) · [Docs](/docs/getting-started/quickstart) · Latest: v0.0.16, November 8, 2026.
 
 ## Archived or retired projects
 
@@ -176,7 +176,7 @@ Bytebot, a self-hosted agent with its own containerized Linux desktop, is archiv
 
 - **Chat apps.** OpenClaw, Hermes Agent, NanoClaw and Agent Zero answer in WhatsApp and Telegram. OpenTeam has no WhatsApp, Telegram or Signal channel.
 - **A model per agent.** OpenClaw, Hermes Agent, NanoClaw and MausBot offer one; OpenTeam uses one model for every bot.
-- **Approval prompts.** Hermes Agent and MausBot ask before risky actions by default, NanoClaw gates installs, and goose offers approval modes. OpenTeam has none.
+- **Approval prompts.** Hermes Agent and MausBot ask before risky actions by default, NanoClaw gates installs, and goose offers approval modes. OpenTeam asks only before sending email, Slack messages and texts.
 - **Platforms.** OpenClaw, Hermes Agent, goose, Eigent and MausBot ship Windows apps, and OpenClaw has Android.
 - **People and track record.** OpenClaw supports shared team deployments, and every other project here is older, with a larger community.
 - **Permissive licenses.** The other seven use MIT or Apache-2.0 for their core; OpenTeam is copyleft GPL-3.0.
@@ -214,7 +214,7 @@ Yes. Hermes Agent's Bot Mode has group chats, NanoClaw spawns teammates into sha
 
 ### Is it safe to let a self-hosted AI agent run commands?
 
-It depends on where the commands run and whether the agent asks first. OpenClaw and goose run on your own computer and don't ask by default, NanoClaw and OpenTeam run agents in containers, and Hermes Agent and MausBot ask before risky actions. OpenTeam has no approval prompts, so connect only the accounts and data you're comfortable letting its bots use.
+It depends on where the commands run and whether the agent asks first. OpenClaw and goose run on your own computer and don't ask by default, NanoClaw and OpenTeam run agents in containers, and Hermes Agent and MausBot ask before risky actions. OpenTeam doesn't ask before running commands, so connect only the accounts and data you're comfortable letting its bots use.
 
 ## Try OpenTeam
 

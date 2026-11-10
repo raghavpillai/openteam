@@ -54,7 +54,7 @@ By default, nothing leaves the mailbox until you approve it. When a bot writes a
 
 The menu in the card's corner, **Needs approval**, sets how that bot's later emails are reviewed:
 
-- **Always allow** lets the bot email this card's recipients without asking. Their next drafts send on their own, and the card says **Auto-approved by your rule**. Choose **Needs approval** on any card to these recipients to take the permission back.
+- **Always allow** lets the bot email this card's recipients without asking. Their next drafts send on their own, and the card says **Auto-approved by your rule**. Choose **Needs approval** on any card to these recipients to take the permission back. Slack draft cards don't offer this option.
 - **Disable drafts for Bot** sends all of that bot's emails and Slack messages without a card. Choose **Needs approval** on any of its cards to turn review back on.
 
 These settings belong to the bot, not to the mailbox, so other bots using the same mailbox still ask first.

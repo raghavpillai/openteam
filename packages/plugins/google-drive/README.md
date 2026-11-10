@@ -4,9 +4,9 @@ This package uses Google's public API and a bundled MCP server on the Bot comput
 
 See [Google setup](../../../docs/integrations/google.md) for UI setup, multiple accounts, scopes, and troubleshooting. Provider scopes and OAuth endpoints are declared in `plugin.json`; tools are implemented in `connector/server.ts`. Shared protocol and HTTP code lives in `../_shared/google.ts` relative to the package root. Catalog generation bundles the executable as `connector/server.mjs`, including dependencies.
 
-Configure secrets only in the installed account's UI. The connector reads `GOOGLE_ACCESS_TOKEN`; the host handles client credentials, PKCE, refresh tokens, and account isolation. Read tools default to allow and mutations default to approval. Provider errors are returned as MCP tool errors.
+Configure secrets only in the installed account's UI. The connector reads `GOOGLE_ACCESS_TOKEN`; the host handles client credentials, PKCE, refresh tokens, and account isolation. Connected tools run directly. Provider errors are returned as MCP tool errors.
 
-Version 1.5.0 serves the Drive file tools pinned in `../_shared/reference/drive-files.json`, plus `read_result`:
+The connector serves the Drive file tools pinned in `../_shared/reference/drive-files.json`, plus `read_result`:
 
 - Find: `search` with typed filters (exact name, MIME type, folder by ID or name, owner, writer, starred, shared with me, visibility, created and modified dates) and optional text of the top three results; `list_folder`; `list_recent_files`.
 - Read: `read_file` returns Docs as Markdown, every Sheets tab as CSV, and Slides and stored text files as text, with a line range and a character cap. `download_file` returns stored bytes up to 10 MB. `export_file` renders Docs, Sheets, Slides and Drawings as PDF, Office, text, Markdown, HTML, CSV, PNG or SVG, up to Google's 10 MB export limit.

@@ -45,7 +45,7 @@ An own send does not necessarily echo to the same linked device. A temporary imp
 
 The phone sent the requested tagged Note to Self message, which the collector received and stored. The packaged MCP connector then returned that message through `list_messages`. An edit made on the phone synchronized correctly: the message ID and original timestamp stayed unchanged, the body updated, and the result reported `edited: true`. The linked collector was also restarted as the packaged MCP entry point between these checks, preserving the collected message. Sanitized evidence is in ignored `private/live-phone-evidence.json`.
 
-Real incoming attachment retrieval, remote deletion, disappearing-message behavior, phone revocation/relinking, rate limits and authenticated network recovery still require live validation. Synthetic tests do not establish these properties end to end.
+The live phone Delete for Everyone check has not passed: after the user deleted the edited Note to Self test message, its indexed copy remained visible. This is an unresolved release blocker; do not infer live deletion correctness from synthetic tests. Real incoming attachment retrieval, disappearing-message behavior, phone revocation/relinking, rate limits and authenticated network recovery also remain unvalidated.
 
 A real directory lookup exposed a contact listing larger than the host response limit. Contacts and groups now use stable-ID sorting and bounded pages (`offset`, `limit`, `nextOffset`), with optional recipient/group filters for targeted lookups. No directory snapshots are persisted. New regressions reconstruct all 240 synthetic contacts and 80 groups through the host result-bounding path, preserve escaped Unicode fields, reject invalid parameters, and check targeted account-scoped lookups. The real linked account’s collected chat labels were then resolved successfully through the packaged MCP tools. Chat names and unrelated message contents are not included in this report.
 
@@ -64,3 +64,7 @@ An older preinstalled macOS native signal-cli 0.14.5 crashed during shutdown. Th
 There is no old-message backfill, native inbox trigger, Signal draft-review workflow, attachment upload or binary streaming. Oversized results return an intact MCP error at 75,000 encoded characters. Unknown send outcomes never trigger automatic resend.
 
 The index excludes ephemeral content but signal-cli has independent downloaded files and protocol storage. Logical deletion does not erase SQLite free pages, WAL or external backups. Account removal deletes the entire private directory only after stopping account use, and reports failure if deletion cannot be confirmed. Remote linked-device revocation may still require the phone. Shared verified runtimes remain cached.
+
+## History import scope
+
+Signal’s official apps support an encrypted phone-to-linked-device history transfer: https://signal.org/blog/a-synchronized-start-for-linked-devices/. This integration uses the pinned signal-cli JSON-RPC receive interface and does not implement that history import. The maintainer also documents signal-cli’s lack of stored history/Android backup restore in https://github.com/AsamK/signal-cli/issues/1747. This is a limitation of the current integration and upstream interface, not a general prohibition on Signal history transfer.

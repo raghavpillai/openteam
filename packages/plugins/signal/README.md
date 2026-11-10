@@ -9,7 +9,7 @@ Connect an existing Signal mobile account as a linked device. OpenTeam installs 
 3. Wait for **Connected**. Reconnect after an expired or cancelled code to obtain a new one.
 4. Start with a Note to Self test. Connected accounts are available to all bots in this OpenTeam installation.
 
-The computer must remain running and connected to collect new messages. Signal does not provide this connector with old conversation history. Keep Signal on the phone active and remove unused linked devices there.
+The computer must remain running and connected to collect new messages. This signal-cli integration does not currently import old phone history. Signal’s official apps offer a separate encrypted history-transfer flow; that flow is not implemented here. Keep Signal on the phone active and remove unused linked devices there.
 
 ## Tools
 

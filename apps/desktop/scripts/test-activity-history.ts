@@ -30,7 +30,9 @@ try {
       });
       const results = [];
       try {
-        for (const query of ['runs', 'channelRounds', 'subagents', 'runItems&active=1', 'runs&thread=1']) {
+        for (const width of [1200, 520]) for (const theme of ['light', 'dark'])
+        for (const query of ['none', 'runs', 'channelRounds', 'subagents', 'runItems&active=1', 'all&active=1', 'runs&thread=1']) {
+          win.setContentSize(width, 800);
           const result = new Promise(resolve => {
             const listener = event => {
               if (event.message.startsWith('ACTIVITY_HISTORY_RESULT ')) {
@@ -40,10 +42,11 @@ try {
             };
             win.webContents.on('console-message', listener);
           });
-          await win.loadURL(${JSON.stringify(`${server.resolvedUrls!.local[0]}test/browser/activity-history.html?truncated=`)} + query);
+          await win.loadURL(${JSON.stringify(`${server.resolvedUrls!.local[0]}test/browser/activity-history.html?truncated=`)} + query + '&theme=' + theme);
           const report = await result;
+          if (report.width !== width || report.theme !== theme) throw new Error('Fixture viewport or theme mismatch');
           results.push(report);
-          if (query === 'runs') fs.writeFileSync(${JSON.stringify(join(output, process.argv.includes("--repro") ? "before.png" : "after.png"))}, (await win.webContents.capturePage()).toPNG());
+          if (query === 'runs' && width === 1200 && theme === 'light') fs.writeFileSync(${JSON.stringify(join(output, process.argv.includes("--repro") ? "before.png" : "after.png"))}, (await win.webContents.capturePage()).toPNG());
         }
         fs.writeFileSync(${JSON.stringify(join(directory, "results.json"))}, JSON.stringify(results));
       } catch (error) { console.error(error); process.exitCode = 1; }
@@ -61,12 +64,14 @@ try {
   clearTimeout(timeout);
   if (code) throw new Error(`Electron failed: ${stderr}`);
   const results = JSON.parse(await readFile(join(directory, "results.json"), "utf8"));
+  if (results.length !== 28)
+    throw new Error(`Expected 28 browser scenarios, got ${results.length}`);
   console.log(JSON.stringify(results, null, 2));
   for (const result of results) {
     if (
       !result.stateReads ||
       !result.messagesVisible ||
-      result.banner !== process.argv.includes("--repro") ||
+      result.banner !== (process.argv.includes("--repro") && result.field !== "none") ||
       result.thinkingVisible !== result.active ||
       result.threadNotice !== result.thread
     ) {

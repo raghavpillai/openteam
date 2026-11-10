@@ -4,6 +4,7 @@ import type { ChannelClientState, ChannelMessageView } from "@openteam/contracts
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import { emptySidebarPreferences } from "@openteam/contracts/client-preferences";
 import { api } from "../../src/renderer/client/openteam-api";
+import { setThemePreference } from "../../src/renderer/lib/theme";
 import App from "../../src/renderer/App";
 import { mobileFixture } from "../../../ios/scripts/fixtures/snapshot";
 import "../../src/renderer/styles.css";
@@ -16,6 +17,8 @@ window.fetch = async () => {
 const params = new URLSearchParams(location.search);
 const field = params.get("truncated") ?? "runs";
 const active = params.has("active");
+const theme = params.get("theme") === "dark" ? "dark" : "light";
+setThemePreference(theme);
 const bot = { ...mobileFixture.bots[0]!, name: "Finance Guy" };
 const channel = { ...mobileFixture.channels[0]!, name: bot.name, unreadCount: 0 };
 const messages: ChannelMessageView[] = [
@@ -55,11 +58,10 @@ const state: ChannelClientState = {
   ],
   runItems: [],
   truncated: {
-    channelRounds: false,
-    runs: false,
-    runItems: false,
-    subagents: false,
-    [field]: true,
+    channelRounds: field === "channelRounds" || field === "all",
+    runs: field === "runs" || field === "all",
+    runItems: field === "runItems" || field === "all",
+    subagents: field === "subagents" || field === "all",
   },
 };
 const snapshot = {
@@ -136,6 +138,8 @@ async function check() {
   const text = document.body.textContent ?? "";
   const result = {
     field,
+    theme: document.documentElement.dataset.theme,
+    width: window.innerWidth,
     active,
     stateReads,
     messagesVisible: messagesVisible(),

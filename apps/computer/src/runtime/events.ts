@@ -5,9 +5,10 @@ import { safeToolResult, textFromContent, thinkingFromContent, toolItem } from "
 import { observeGraphicalToolResult } from "./graphical-completion";
 import type { ActiveTurn } from "./types";
 
-/** A delivered send or closing reaction. */
-export function markDelivered(active: ActiveTurn): void {
+/** Any delivered send/tapback counts as output; only text or a tapback acknowledges the user. */
+export function markDelivered(active: ActiveTurn, acknowledgesUser: boolean): void {
   active.sentMessageCount += 1;
+  if (acknowledgesUser) active.userAcknowledged = true;
 }
 
 export function startAgentMessage(active: ActiveTurn, itemId: string): void {

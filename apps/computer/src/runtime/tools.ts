@@ -1456,7 +1456,7 @@ export class RuntimeTools {
       typeof body === "object" &&
       ((body as Record<string, unknown>).reacted === true || (body as Record<string, unknown>).removed === true)
     ) {
-      markDelivered(active);
+      markDelivered(active, true);
       if ((args as { end_turn?: unknown }).end_turn === true) {
         active.endTurnRequested = true;
         active.finishResponseCalls = true;
@@ -1477,8 +1477,8 @@ export class RuntimeTools {
       !Array.isArray(body) &&
       (body as Record<string, unknown>).sent === true
     ) {
-      markDelivered(active);
       const input = args as { end_turn?: boolean; type?: string };
+      markDelivered(active, tool === SEND_TO_USER_TOOL.name && (input.type ?? "text") === "text");
       const question = tool === SEND_TO_USER_TOOL.name && isQuestionSend(input);
       // end_turn closes the turn only when no earlier send in this response failed.
       const closes = tool === SEND_TO_USER_TOOL.name && input.end_turn === true && !active.failedResponseSends?.size;

@@ -169,11 +169,13 @@ const isTextSend = (call: ReturnType<typeof toolCalls>[number]) =>
 
 function callsSinceLastSend(messages: readonly BotMessage[]): number {
   let count = 0;
+  const failed = new Set<unknown>();
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
     if (isUserRole(message)) break;
+    if (message.role === "toolResult" && message.isError === true) failed.add(message.toolCallId);
     const calls = toolCalls(message);
-    if (calls.some((call) => call.name === "SendToUser")) break;
+    if (calls.some((call) => call.name === "SendToUser" && !failed.has(call.id))) break;
     count += calls.length;
   }
   return count;
@@ -188,7 +190,7 @@ function acknowledgedSinceTurnStart(messages: readonly BotMessage[]): boolean {
     if (isUserRole(message)) return false;
     if (message.role === "toolResult" && message.isError === true) failed.add(message.toolCallId);
     for (const call of toolCalls(message)) {
-      if (isTextSend(call)) return true;
+      if (isTextSend(call) && !failed.has(call.id)) return true;
       if (call.name === "ReactToMessage" && !failed.has(call.id) &&
           messages.slice(index + 1).some((result) => result.role === "toolResult" && result.toolCallId === call.id)) return true;
     }
@@ -199,13 +201,18 @@ function acknowledgedSinceTurnStart(messages: readonly BotMessage[]): boolean {
 /** The ack repeats every 2 silent calls until a text send or reaction; the progress note every 7 after that. */
 export function communicationReminder(
   messages: readonly BotMessage[],
-  active: Pick<ActiveTurn, "requestSource" | "subagentType">
+  active: Pick<ActiveTurn, "requestSource" | "subagentType"> & Partial<Pick<ActiveTurn, "userAcknowledged">>
 ) {
   if (active.subagentType || !["user", "turn"].includes(active.requestSource)) return null;
   const last = messages.at(-1);
   if (last && isCommunicationReminder(last)) return null;
   const calls = callsSinceLastSend(messages);
-  if (calls > ACK_THRESHOLD && !acknowledgedSinceTurnStart(messages)) return { kind: "ack", content: ACK_REMINDER };
+  // The active turn tracks actual delivery. A soft-failed reaction returns a
+  // normal tool result, so its mere presence in history is not an acknowledgement.
+  const acknowledged = active.userAcknowledged === undefined
+    ? acknowledgedSinceTurnStart(messages)
+    : active.userAcknowledged;
+  if (calls > ACK_THRESHOLD && !acknowledged) return { kind: "ack", content: ACK_REMINDER };
   if (calls > PROGRESS_THRESHOLD) return { kind: "progress", content: PROGRESS_REMINDER };
   return null;
 }

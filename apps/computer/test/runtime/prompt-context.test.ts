@@ -175,6 +175,15 @@ test("a newer real user message starts a new acknowledgement window", () => {
   expect(communicationReminder([user, call("SendToUser", { type: "text" }), hold, call("Read"), call("Read")], active)).toBeNull();
 });
 
+test("a failed text send does not reset the silent-call count or count as an acknowledgement", () => {
+  const messages: any[] = [user,
+    { role: "assistant", content: [{ type: "toolCall", id: "failed-send", name: "SendToUser", arguments: { type: "text", content: "Checking." } }] },
+    { role: "toolResult", toolCallId: "failed-send", isError: true, content: [{ type: "text", text: "Delivery failed." }] },
+    call("Read"),
+  ];
+  expect(communicationReminder(messages, { ...active, userAcknowledged: false })?.kind).toBe("ack");
+});
+
 test("a reply cut off at the output limit gets one reminder to continue in smaller pieces", async () => {
   const { OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } = await import("../../src/runtime/prompt-context");
   const cut = { role: "assistant", content: [{ type: "text", text: "Part one" }], stopReason: "length" };

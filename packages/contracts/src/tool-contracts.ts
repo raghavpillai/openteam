@@ -233,6 +233,9 @@ adaptArgument("CopyFromBox", "box_path", [["Any file type, up to 100 MiB;", "Any
 // "How a turn works", "Autonomy" and "Asking for decisions" prompt sections. Only the main agent has
 // SendToUser (workers and routine runs never do), so the long variant is not needed.
 const send = contracts.SendToUser!;
+// A short steering message about work already underway can be acknowledged with a tapback.
+// Preserve the captured contract; keep its new-task and result-delivery rules intact.
+contracts.ReactToMessage!.description += " A brief instruction update while requested work is already running can get a tapback instead of a text acknowledgement; continue the work and still deliver its result. Omit end_turn if you need to keep working. Respect a request for no emoji or reactions.";
 // There are no cloud agents, so the cursor-agent card is not offered.
 send.inputSchema.properties.type.enum = send.inputSchema.properties.type.enum.filter((type: string) => type !== "cursor-agent");
 delete send.inputSchema.properties.bcId;

@@ -199,8 +199,9 @@ const REQUEST_SOURCE_BY_ORIGIN = {
   broadcast: "broadcast",
 } as const satisfies Record<RunOrigin, RuntimeRequestSource>;
 
-export const runtimeRequestSourceForOrigin = (origin: RunOrigin): RuntimeRequestSource =>
-  REQUEST_SOURCE_BY_ORIGIN[origin];
+export const runtimeRequestSourceForOrigin = (origin: RunOrigin, inboxType?: string): RuntimeRequestSource =>
+  // Feedback keeps user queue priority, but does not require a new visible reply.
+  origin === "user" && inboxType === "user.reaction" ? "event" : REQUEST_SOURCE_BY_ORIGIN[origin];
 
 /** Interrupted wakes that run again, and how often: agent messages up to 3 times, the rest once. */
 export const WAKE_REDRIVE_LIMITS: Partial<Record<RunOrigin, number>> = {
@@ -318,6 +319,7 @@ const revivalBatchContent = <T extends RevivalWake>(claimed: T, pending: readonl
 export const turnContentWithNotes = (
   input: {
     origin: RunOrigin;
+    inboxType?: string;
     runtimeProfile: "agent" | "subagent";
     notes: ReadonlyArray<string | null | undefined>;
     unfinishedTasks?: boolean;
@@ -327,7 +329,7 @@ export const turnContentWithNotes = (
   withTurnSystemReminder(
     turnSystemReminder(input.notes, {
       unfinishedTasks: input.unfinishedTasks,
-      reply: input.runtimeProfile === "agent" && turnOwesReplyReminder(input.origin, content),
+      reply: input.runtimeProfile === "agent" && turnOwesReplyReminder(input.origin, content, input.inboxType),
     }),
     content
   );
@@ -1427,6 +1429,7 @@ export class WakeWorker {
         sessionPath: claimed.sessionPath,
         content: turnContentWithNotes({
           origin: claimed.origin,
+          inboxType: claimed.inboxType,
           runtimeProfile: claimed.runtimeProfile,
           notes: [platformPrompt.automationStatus, platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
           unfinishedTasks: await this.supersededUnfinishedRun(claimed),
@@ -1445,7 +1448,7 @@ export class WakeWorker {
         agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
         todoUpdate: platformPrompt.todoUpdate,
         resetSelfSummaryCount: wakeResetsSelfSummaryCount(claimed.inboxType),
-        requestSource: runtimeRequestSourceForOrigin(claimed.origin),
+        requestSource: runtimeRequestSourceForOrigin(claimed.origin, claimed.inboxType),
         channelId: claimed.channelId,
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,

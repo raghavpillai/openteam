@@ -1448,18 +1448,20 @@ export class RuntimeTools {
       const runs = (body as Record<string, unknown>).automation_run_ids;
       this.nativeToolExecutor.stopAutomationShells(Array.isArray(runs) ? runs.filter((id): id is string => typeof id === "string") : [active.runId]);
     }
-    // A reaction can be the whole reply: with end_turn, a successful one delivers and ends the turn.
+    // A tapback acknowledges a user even when work continues. Only end_turn closes the turn;
+    // a background acknowledgment must not trigger a redundant SendToUser delivery nudge.
     if (
       tool === REACT_TO_MESSAGE_TOOL.name &&
-      (args as { end_turn?: unknown }).end_turn === true &&
       body &&
       typeof body === "object" &&
       ((body as Record<string, unknown>).reacted === true || (body as Record<string, unknown>).removed === true)
     ) {
       markDelivered(active);
-      active.endTurnRequested = true;
-      active.finishResponseCalls = true;
-      active.endTurnCallId = callId;
+      if ((args as { end_turn?: unknown }).end_turn === true) {
+        active.endTurnRequested = true;
+        active.finishResponseCalls = true;
+        active.endTurnCallId = callId;
+      }
     }
     if (
       [

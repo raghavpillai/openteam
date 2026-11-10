@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "key": "whatsapp",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "name": "WhatsApp",
   "description": "Link your WhatsApp account to search conversations, read history, send messages and attachments, and manage chats.",
   "publisher": "OpenTeam",

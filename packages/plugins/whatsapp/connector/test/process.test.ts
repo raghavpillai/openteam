@@ -17,7 +17,7 @@ async function fixture() {
 }
 
 test("account stores are stable, isolated, and do not inherit provider secrets", () => {
-  const first = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "../../first", OTHER_API_KEY: "secret", WACLI_READONLY: "1", WACLI_DEVICE_LABEL: "Other client" }, "/home/box");
+  const first = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "../../first", OTHER_API_KEY: "secret", WACLI_READONLY: "1", WACLI_DEVICE_LABEL: "Other client", WACLI_DEVICE_PLATFORM: "MACOS" }, "/home/box");
   const same = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "../../first" }, "/home/box");
   const second = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "second" }, "/home/box");
   expect(first.store).toBe(same.store); expect(first.store).not.toBe(second.store);
@@ -25,6 +25,7 @@ test("account stores are stable, isolated, and do not inherit provider secrets",
   expect(first.store).not.toContain("..");
   expect(first.env.OTHER_API_KEY).toBeUndefined(); expect(first.env.WACLI_READONLY).toBeUndefined();
   expect(first.env.WACLI_DEVICE_LABEL).toBe("OpenTeam Plugin");
+  expect(first.env.WACLI_DEVICE_PLATFORM).toBe("CHROME");
   expect(() => settings({})).toThrow("account ID");
   expect(() => settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "a", WHATSAPP_MAX_MESSAGES: "0" })).toThrow("storage limit");
 });

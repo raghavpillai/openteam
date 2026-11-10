@@ -1,14 +1,16 @@
-import { READ_TRANSCRIPT_SUBAGENT_DESCRIPTION, READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
+import { REPORT_TASK_PROGRESS_TOOL, TaskProgressInput, REPORT_REQUEST_PROGRESS_TOOL, RequestProgressInput } from "@openteam/contracts/task-progress";
+import { READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
 import { READ_AGENT_ACTIVITY_TOOL, parseReadAgentActivityInput } from "@openteam/contracts/read-agent-activity";
-import { subagentHasHistoryTools } from "@openteam/contracts/task-configuration";
-import { READ_SIBLING_THREAD_TOOL, parseSiblingThreadInput } from "@openteam/contracts/sibling-threads";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
-import { withReferenceContract, taskToolContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
+import { withCanonicalSubagentType } from "@openteam/contracts/subagent-dispatch";
+import { withReferenceContract, taskToolContract, firstPartyNamespaceDescription } from "@openteam/contracts/tool-contracts";
 import pluginToolSchemas from "../plugin-tool-schemas.json";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
   AWAIT_SHELL_TOOL,
   AUTOMATION_PARENT_ONLY_TOOLS,
+  DISCONNECT_CHANNEL_TOOL,
+  DisconnectChannelToolInput,
   WAKE_PARENT_TOOL,
   WakeParentInput,
   AwaitShellInput,
@@ -18,10 +20,6 @@ import {
   CREATE_CHANNEL_TOOL,
   CreateAgentInput,
   CreateChannelInput,
-  LIST_AGENTS_TOOL,
-  LIST_GROUPS_TOOL,
-  ListAgentsInput,
-  ListGroupsInput,
   MESSAGE_SUBAGENT_TOOL,
   MessageSubagentInput,
   REQUEST_BOX_HELP_TOOL,
@@ -35,14 +33,21 @@ import {
   TODO_WRITE_TOOL,
   TodoWriteInput,
   UPDATE_AGENT_TOOL,
+  UPDATE_AVATAR_TOOL,
   UPDATE_CHANNEL_TOOL,
+  UPDATE_PROFILE_TOOL,
+  UPDATE_SKILL_TOOL,
   UpdateAgentInput,
+  UpdateAvatarToolInput,
   UpdateChannelInput,
+  UpdateProfileToolInput,
+  UpdateSkillToolInput,
 } from "@openteam/contracts";
 import { Schema } from "effect";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
 import type { DynamicNamespaceDefinition } from "../dynamic-tool-gateway";
 import { objectToolSchema } from "../tool-schema";
+import { connectorArguments } from "../mcp-argument-normalization";
 import type { ActiveTurn, RuntimeDynamicTool, RuntimeDynamicToolCaller } from "./types";
 
 export const PLUGIN_MANAGEMENT_TOOLS = [
@@ -141,6 +146,19 @@ export const PLUGIN_MANAGEMENT_TOOLS = [
   },
 ].map(tool => ({ ...tool, inputSchema: pluginToolSchemas[tool.name as keyof typeof pluginToolSchemas] }));
 
+const NEVER_POLL_SUBAGENT_BULLET =
+  "\n- NEVER USE THIS TO POLL OR WAIT VACUOUSLY FOR A SUBAGENT LAUNCHED WITH THE Task TOOL — rely on the end-of-turn completion notification instead (it is delivered as soon as the subagent finishes; guessing a wait time is inefficient).";
+const SHORT_WAIT_SLICES = "prefer slices of 60–270s, which keep the prompt cache warm.";
+/** As in the reference: only an agent with Task is told not to poll its subagents, and a worker whose
+ * single wait may run past 20 minutes is also offered long slices. */
+function awaitShellDescription(active: ActiveTurn): string {
+  let description = AWAIT_SHELL_TOOL.description;
+  if (active.runtimeProfile === "subagent") description = description.replace(NEVER_POLL_SUBAGENT_BULLET, "");
+  if (active.subagentType === "computerUse")
+    description = description.replace(SHORT_WAIT_SLICES, "prefer slices of 60–270s (keeps prompt cache warm) or 1200s+ (one cache miss buys a long wait).");
+  return description;
+}
+
 export function dynamicCatalog(
   callControlPlaneTool: RuntimeDynamicToolCaller,
   executeTodoWrite: RuntimeDynamicTool["execute"],
@@ -174,6 +192,8 @@ export function dynamicCatalog(
   }, execute: (turn, callId, args, signal) => callControlPlaneTool(turn, callId, "ReadAgentActivity", args, signal) };
   const cursorTools: RuntimeDynamicTool[] = [
     ...additionalTools,
+    ...(active.runtimeProfile !== "subagent" && active.requestSource !== "automation" ? [controlPlaneTool(REPORT_REQUEST_PROGRESS_TOOL, RequestProgressInput)] : []),
+    ...(active.runtimeProfile === "subagent" && ["computerUse", "executor", "knowledgeWork"].includes(active.subagentType ?? "") ? [controlPlaneTool(REPORT_TASK_PROGRESS_TOOL, TaskProgressInput)] : []),
     ...(active.requestSource === "automation" && active.runtimeProfile !== "subagent"
       ? [controlPlaneTool(WAKE_PARENT_TOOL, WakeParentInput)] : []),
     {
@@ -184,25 +204,20 @@ export function dynamicCatalog(
       decodeArguments: (args) => Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args)),
       execute: executeAwaitShell,
     },
-    {
+    // Workers report to their parent, which owns the todo list.
+    ...(active.runtimeProfile === "subagent" ? [] : [{
       name: TODO_WRITE_TOOL.name,
       description: TODO_WRITE_TOOL.description,
       inputSchema: TODO_WRITE_TOOL.inputSchema,
-      source: "first-party",
-      decodeArguments: (args) => Schema.decodeUnknownSync(TodoWriteInput)(args),
-      execute: (turn, callId, args, signal) => executeTodoWrite(turn, callId, args, signal),
-    },
+      source: "first-party" as const,
+      decodeArguments: (args: unknown) => Schema.decodeUnknownSync(TodoWriteInput)(args),
+      execute: executeTodoWrite,
+    }]),
     ...(active.runtimeProfile === "subagent"
-      ? subagentHasHistoryTools(active.subagentType)
-        ? [{ ...readTranscriptTool, description: READ_TRANSCRIPT_SUBAGENT_DESCRIPTION }, readAgentActivityTool]
-        : []
+      ? []
       : [
           readTranscriptTool,
           readAgentActivityTool,
-          { ...READ_SIBLING_THREAD_TOOL, source: "first-party" as const, decodeArguments: parseSiblingThreadInput,
-            execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) => callControlPlaneTool(turn, callId, "read_sibling_thread", args, signal) },
-          controlPlaneTool(LIST_AGENTS_TOOL, ListAgentsInput),
-          controlPlaneTool(LIST_GROUPS_TOOL, ListGroupsInput),
           controlPlaneTool(SEND_TO_AGENT_TOOL, SendToAgentInput),
           controlPlaneTool(REQUEST_BOX_HELP_TOOL, RequestBoxHelpInput),
           {
@@ -229,12 +244,12 @@ export function dynamicCatalog(
             inputSchema: pluginToolSchemas.GetPlugin,
             source: "first-party" as const,
             decodeArguments: (args: unknown) => {
-              const pluginKey =
-                args && typeof args === "object"
-                  ? ((args as Record<string, unknown>).plugin_id ?? (args as Record<string, unknown>).pluginKey)
-                  : undefined;
-              if (typeof pluginKey !== "string") throw new Error("pluginKey is required");
-              return { pluginKey: pluginKey.trim() };
+              const input = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+              // The reference accepts id and pluginId for plugin_id.
+              const spellings = [input.plugin_id, input.pluginKey, input.pluginId, input.id].filter((value) => value !== undefined);
+              if (new Set(spellings).size > 1) throw new Error("Pass the plugin's id once, as plugin_id (from SearchPlugins).");
+              if (typeof spellings[0] !== "string" || !spellings[0].trim()) throw new Error("plugin_id is required: the stable plugin id from SearchPlugins.");
+              return { pluginKey: spellings[0].trim() };
             },
             execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
               callControlPlaneTool(turn, callId, "GetPlugin", args, signal),
@@ -277,9 +292,9 @@ export function dynamicCatalog(
             description: TASK_TOOL.description,
             inputSchema: TASK_TOOL.inputSchema,
             source: "first-party" as const,
-            decodeArguments: (args: unknown) => Schema.decodeUnknownSync(TaskInput)(args),
+            decodeArguments: (args: unknown) => Schema.decodeUnknownSync(TaskInput)(withCanonicalSubagentType(args)),
             execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
-              executeReviewedTask(turn, callId, Schema.decodeUnknownSync(TaskInput)(args), signal),
+              executeReviewedTask(turn, callId, Schema.decodeUnknownSync(TaskInput)(withCanonicalSubagentType(args)), signal),
           },
           controlPlaneTool(CHECK_SUBAGENT_TOOL, CheckSubagentInput),
           controlPlaneTool(MESSAGE_SUBAGENT_TOOL, MessageSubagentInput),
@@ -288,6 +303,11 @@ export function dynamicCatalog(
           controlPlaneTool(UPDATE_AGENT_TOOL, UpdateAgentInput),
           controlPlaneTool(CREATE_CHANNEL_TOOL, CreateChannelInput),
           controlPlaneTool(UPDATE_CHANNEL_TOOL, UpdateChannelInput),
+          // Durable state beyond memory and routines: the parent agent and its routine runs only.
+          controlPlaneTool(UPDATE_SKILL_TOOL, UpdateSkillToolInput),
+          controlPlaneTool(UPDATE_PROFILE_TOOL, UpdateProfileToolInput),
+          controlPlaneTool(UPDATE_AVATAR_TOOL, UpdateAvatarToolInput),
+          controlPlaneTool(DISCONNECT_CHANNEL_TOOL, DisconnectChannelToolInput),
         ]),
   ];
   const pluginNamespaces: Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> =
@@ -302,7 +322,7 @@ export function dynamicCatalog(
         description: tool.description,
         inputSchema: tool.inputSchema,
         source: tool.source,
-        decodeArguments: (args: unknown) => args,
+        decodeArguments: (args: unknown) => connectorArguments(tool.name, args as Record<string, unknown>, tool.inputSchema),
         execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal,) =>
           callControlPlaneTool(
             turn,
@@ -318,23 +338,25 @@ export function dynamicCatalog(
           ),
       })),
     }));
+  const firstPartyTools = (active.requestSource === "automation"
+    ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
+    : cursorTools).map(withReferenceContract).flatMap(tool => {
+      if (tool.name === "Task") return [{ ...tool, ...taskToolContract(active.taskConfiguration) }];
+      if (tool.name === AWAIT_SHELL_TOOL.name) return [{ ...tool, description: awaitShellDescription(active) }];
+      if (tool.name !== "UploadFile" && tool.name !== "DownloadFile") return [tool];
+      // Offered only when a connected service can receive or serve files.
+      const operation = tool.name === "UploadFile" ? "upload" : "download";
+      const connections = active.pluginNamespaces.filter(namespace => namespace.fileTransfers?.[operation]);
+      if (!connections.length) return [];
+      return [{ ...tool, description: tool.description + "\n\nAvailable file connections this turn:\n" + connections.map(namespace => `- ${namespace.name}${namespace.namespaceStatus === "ready" ? "" : " (authentication or connection recovery required)"}`).join("\n") }];
+    });
   return [
     {
       name: "cursor",
-      description:
-        FIRST_PARTY_NAMESPACE_DESCRIPTION,
+      description: firstPartyNamespaceDescription(firstPartyTools.map((tool) => tool.name), { worker: active.runtimeProfile === "subagent" }),
       kind: "first-party",
       namespaceStatus: "ready",
-      tools: (active.requestSource === "automation"
-        ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
-        : cursorTools).map(withReferenceContract).map(tool => {
-          if (tool.name === "Task") return { ...tool, ...taskToolContract(active.taskConfiguration) };
-          if (tool.name !== "upload_file" && tool.name !== "download_file") return tool;
-          const operation = tool.name === "upload_file" ? "upload" : "download";
-          const connections = active.pluginNamespaces.filter(namespace => namespace.fileTransfers?.[operation]);
-          if (!connections.length) return tool;
-          return { ...tool, description: tool.description + "\n\nAvailable file connections this turn:\n" + connections.map(namespace => `- ${namespace.name}${namespace.namespaceStatus === "ready" ? "" : " (authentication or connection recovery required)"}`).join("\n") };
-        }),
+      tools: firstPartyTools,
     },
     ...pluginNamespaces,
   ];

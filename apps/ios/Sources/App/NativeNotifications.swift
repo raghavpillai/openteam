@@ -176,6 +176,7 @@ final class NativeNotifications {
     updatePresence()
     _ = await synchronize()
     await routePendingTap()
+    await reportForQA(nil)
   }
   func setEnabled(_ value: Bool) async {
     guard available, !changingPermission else { return }
@@ -345,6 +346,9 @@ final class NativeNotifications {
   @discardableResult func synchronize() async -> Bool {
     guard available, let api, !retiring else { return false }
     let current = epoch
+    // Saved read markers can retire a delayed alert while the network is down.
+    await removeReadNotifications()
+    guard current == epoch else { return false }
     snapshotRequest += 1
     let request = snapshotRequest
     do {
@@ -398,6 +402,7 @@ final class NativeNotifications {
     store?.noteNotified(push.channelId, sequence: push.data["messageSequence"].string)
     pendingTap = push
     await routePendingTap()
+    await reportForQA(push, stage: "routed")
   }
   func routePendingTap() async {
     guard let push = pendingTap, let store, store.phase == .ready else { return }
@@ -410,7 +415,10 @@ final class NativeNotifications {
       store.error = "This conversation is no longer available."
       return
     }
-    await store.open(push.channelId)
+    let thread = push.data["threadMessageId"].string
+    let message = thread.isEmpty ? push.data["messageId"].string : thread
+    await store.openNotification(push.channelId, messageID: message.isEmpty ? nil : message,
+      sequence: push.data["messageSequence"].string)
   }
   nonisolated static func payload(_ userInfo: [AnyHashable: Any]) -> NativePush {
     let value =
@@ -419,7 +427,7 @@ final class NativeNotifications {
       } ?? .null
     return NativePush(value)
   }
-  private func reportForQA(_ push: NativePush?) async {
+  fileprivate func reportForQA(_ push: NativePush?, stage: String = "snapshot") async {
     #if DEBUG && targetEnvironment(simulator)
       guard ProcessInfo.processInfo.arguments.contains("--qa-native-push"), let api,
         ["127.0.0.1", "localhost"].contains(api.baseURL.host ?? "")
@@ -430,6 +438,10 @@ final class NativeNotifications {
         "/__push/observation", method: "POST",
         body: .object([
           "probe": .string(push?.data["probe"].string ?? "foreground"),
+          "stage": .string(stage),
+          "kind": .string(push?.data["kind"].string ?? ""),
+          "threadMessageId": .string(push?.data["threadMessageId"].string ?? ""),
+          "navigation": .array((store?.navigation ?? []).map { .string($0) }),
           "trigger": .string(push?.data["qaID"].string ?? ""),
           "delivered": .array(
             delivered.map { .string(Self.payload($0.request.content.userInfo).data["qaID"].string) }
@@ -437,6 +449,8 @@ final class NativeNotifications {
           "badge": .number(Double(UIApplication.shared.applicationIconBadgeNumber)),
           "permission": .number(Double(permission.rawValue)),
           "registered": .bool(registered),
+          "activeChannel": .string(store?.activeChannel ?? ""),
+          "readStates": (try? .encode(reads)) ?? .null,
         ]))
     #endif
   }
@@ -484,16 +498,26 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate,
       let manager = NativeNotifications.shared
       Task { _ = await manager.receive(push) }
       guard manager.shouldPresent(push) else { return [] }
-      return ["message", "reaction", "agent-needs-input"].contains(push.data["kind"].string)
+      return ["message", "reaction"].contains(push.data["kind"].string)
         ? [.banner, .list, .sound] : [.banner, .list]
     }
   }
   nonisolated func userNotificationCenter(
-    _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
-  ) async {
-    guard response.actionIdentifier != UNNotificationDismissActionIdentifier else { return }
-    await NativeNotifications.shared.tapped(
-      NativeNotifications.payload(response.notification.request.content.userInfo))
+    _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+  ) {
+    let push = NativeNotifications.payload(response.notification.request.content.userInfo)
+    let action = response.actionIdentifier
+    Task { @MainActor in
+      // UIKit's notification completion updates scene snapshots and must run
+      // on the main thread, including when routing suspends for a network read.
+      defer { completionHandler() }
+      #if DEBUG && targetEnvironment(simulator)
+        Task { await NativeNotifications.shared.reportForQA(push, stage: action) }
+      #endif
+      guard action != UNNotificationDismissActionIdentifier else { return }
+      await NativeNotifications.shared.tapped(push)
+    }
   }
 }
 
@@ -502,18 +526,21 @@ struct PushNotificationSettings: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       if let smart = notifications.smartEnabled {
-        Toggle("Pause alerts on other devices while I’m active", isOn: Binding(
+        Toggle("Pause iPhone alerts while I’m using my Mac", isOn: Binding(
           get: { notifications.smartEnabled ?? smart },
           set: { value in Task { await notifications.setSmartEnabled(value) } }
         )).disabled(notifications.changingSmartPreference).tint(NativePalette.toggle)
           .accessibilityIdentifier("smart-notifications-toggle")
-        Text("Your iPhone takes priority while OpenTeam is open. Otherwise, phone alerts pause while you’re using your Mac and resume after five minutes of inactivity.")
+        Text("Alerts pause while you’re using your Mac, unless OpenTeam is open here. They resume after five minutes of Mac inactivity.")
           .font(.footnote).foregroundStyle(NativePalette.muted)
       }
       Toggle(
         "Notifications",
         isOn: Binding(
-          get: { notifications.enabled && notifications.permission != .denied },
+          get: {
+            notifications.enabled
+              && [.authorized, .provisional, .ephemeral].contains(notifications.permission)
+          },
           set: { value in Task { await notifications.setEnabled(value) } })
       )
       .accessibilityIdentifier("push-notifications-toggle").tint(NativePalette.toggle).disabled(
@@ -528,10 +555,6 @@ struct PushNotificationSettings: View {
           Task { await notifications.resume(requestPermission: true) }
         }
         .accessibilityIdentifier("push-notifications-retry")
-      } else if notifications.enabled && notifications.permission == .notDetermined {
-        Button("Enable notifications") {
-          Task { await notifications.resume(requestPermission: true) }
-        }
       }
     }.task { await notifications.resume() }
   }

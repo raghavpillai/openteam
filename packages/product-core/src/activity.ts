@@ -1,9 +1,15 @@
 import type { RunItemView, RunView, SubagentActivityView } from "@openteam/contracts";
 
-export const ACTIVE_ASYNC_TASK_STATUSES = new Set<SubagentActivityView["status"]>([
+/** Attempts that can currently execute; parked children still retain ownership. */
+export const EXECUTING_ASYNC_TASK_STATUSES = new Set<SubagentActivityView["status"]>([
   "provisioning",
   "queued",
   "running",
+]);
+
+export const ACTIVE_ASYNC_TASK_STATUSES = new Set<SubagentActivityView["status"]>([
+  ...EXECUTING_ASYNC_TASK_STATUSES,
+  "waiting",
 ]);
 
 const taskTimestamp = (task: SubagentActivityView): number =>
@@ -35,7 +41,7 @@ export const activeAsyncTaskChannelIds = (
 ): ReadonlySet<string> =>
   new Set(
     attempts
-      .filter((attempt) => ACTIVE_ASYNC_TASK_STATUSES.has(attempt.status))
+      .filter((attempt) => EXECUTING_ASYNC_TASK_STATUSES.has(attempt.status))
       .map((attempt) => attempt.parentChannelId)
   );
 

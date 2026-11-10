@@ -50,7 +50,6 @@ export interface PluginCommand {
 export interface PluginAgent extends PluginCommand {
   model?: string;
   readonly?: boolean;
-  background?: boolean;
 }
 export interface PluginRuntimeComponents {
   hooks: PluginHook[];
@@ -143,7 +142,6 @@ export function parsePluginRuntimeComponents(
               ? fields.model
               : undefined,
           readonly: fields.readonly === true,
-          background: fields.background === true,
         });
       } else result.commands.push(entry);
     }

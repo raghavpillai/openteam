@@ -3,32 +3,53 @@
 import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core";
 import type { AssetRef, ClientCapabilities } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
-import {
-  selectAttachments,
-  remainingAttachmentCapacity,
-} from "@openteam/product-core/attachments";
+import { remainingAttachmentCapacity, selectAttachments } from "@openteam/product-core/attachments";
 import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { File, Paperclip, X } from "lucide-react";
-import type { ClipboardEvent, FormEvent, DragEvent as ReactDragEvent, RefObject } from "react";
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { Paperclip, X } from "lucide-react";
+import type {
+  ClipboardEvent,
+  FormEvent,
+  DragEvent as ReactDragEvent,
+  MouseEvent as ReactMouseEvent,
+  RefObject,
+} from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
-import { cn } from "../../lib/cn";
 import { useVoiceNote } from "../../hooks/use-voice-note";
 import { useVoiceShortcuts } from "../../hooks/use-voice-shortcuts";
-import { insertVoiceTranscript, voiceInsertionRange } from "../../lib/voice-insertion";
+import { cn } from "../../lib/cn";
 import { fileDragContainsFiles } from "../../lib/file-drop";
 import type { MentionOption } from "../../lib/mentions";
+import { insertVoiceTranscript, voiceInsertionRange } from "../../lib/voice-insertion";
+import { FileGlyph, fileGlyphVariant, formatAttachmentSize } from "../openteam/attachment-visuals";
 import { ImageAttachment } from "../openteam/image-attachment";
 import { MentionEditor } from "../openteam/mention-editor";
-import { VoiceRecordingChip } from "../openteam/voice-recording-chip";
+import type { VoiceMemoMode } from "../openteam/voice-memo/voice-memo-layer";
 import { Button } from "../ui/button";
+import "./composer-motion.css";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import {
+  BotArrowUpIcon,
+  BotCloseIcon,
+  BotMicIcon,
+  BotPlusIcon,
+  BotReplyIcon,
+} from "./composer-icons";
 
 const MAX_TEXTAREA_HEIGHT = 120;
 const MULTILINE_THRESHOLD = 39;
@@ -38,58 +59,14 @@ const VOICE_ACTION_CLASS =
   "size-7 rounded-full bg-[#77777717] text-[#1414149c] shadow-[inset_0_0_0_0.5px_#1414141a] hover:bg-[#7777772b] hover:text-[#141414] disabled:opacity-40 dark:bg-[#7777772c] dark:text-[#fcfcfc8f] dark:shadow-[inset_0_0_0_0.5px_#fcfcfc1a] dark:hover:bg-[#77777752] dark:hover:text-[#fcfcfc]";
 const SEND_ACTION_CLASS =
   "size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none hover:bg-[#070707] hover:opacity-90 disabled:opacity-40 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]";
-
-function BotPlusIcon({ className }: { className?: string }) {
-  return (
-    <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 300 300">
-      <path d="M150 281Q158 281 163.5 275.5Q169 270 169 263V169H263Q270 169 275.5 163.5Q281 158 281 150Q281 142 275.5 136.5Q270 131 263 131H169V38Q169 30 163.5 24.5Q158 19 150 19Q142 19 136.5 24.5Q131 30 131 37V131H38Q30 131 24.5 136.5Q19 142 19 150Q19 158 24.5 163.5Q30 169 38 169H131V263Q131 270 136.5 275.5Q142 281 150 281Z" />
-    </svg>
-  );
-}
-
-function BotMicIcon({ className }: { className?: string }) {
-  return (
-    <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 300 300">
-      <path
-        d="M244 199Q249 199 252 195.5Q255 192 255 188V159Q255 138 247 119Q239 100 224.5 85Q210 70 190 62Q177 56 162 55V19Q162 14 158.5 10.5Q155 7 150 7Q145 7 141.5 10.5Q138 14 138 19V55Q123 56 110 62Q90 70 75.5 85Q61 100 53 119Q45 138 45 159V188Q45 192 48 195.5Q51 199 56 199Q61 199 64.5 195.5Q68 192 68 188V159Q68 143 74 128Q80 113 92 101.5Q104 90 119 83.5Q134 77 150 77Q166 77 181 83.5Q196 90 208 101.5Q220 113 226 128Q232 143 232 159V188Q232 192 235.5 195.5Q239 199 244 199ZM150 293Q170 293 184.5 278.5Q199 264 199 244V159Q199 139 184.5 124.5Q170 110 150 110Q130 110 115.5 124.5Q101 139 101 159V244Q101 264 115.5 278.5Q130 293 150 293Z"
-        transform="translate(0 300) scale(1 -1)"
-      />
-    </svg>
-  );
-}
-
-function BotArrowUpIcon({ className }: { className?: string }) {
-  return (
-    <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 300 300">
-      <path
-        d="M138 277Q144 282 151 281.5Q158 281 163 276L257 182Q262 177 262 169Q262 161 257 155.5Q252 150 244 150Q236 150 230 155L169 217V38Q169 30 163.5 24.5Q158 19 150 19Q142 19 136.5 24.5Q131 30 131 37V217L70 155Q64 150 56 150Q48 150 42.5 155.5Q37 161 37.5 169Q38 177 43 182Z"
-        transform="translate(0 300) scale(1 -1)"
-      />
-    </svg>
-  );
-}
-
-function BotReplyIcon({ className }: { className?: string }) {
-  return (
-    <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 300 300">
-      <path
-        d="M207 271Q211 274 215.5 274Q220 274 224 271L290 205Q293 202 293 197Q293 192 290 189L224 123Q220 120 215.5 120Q211 120 207.5 123Q204 126 204 131Q204 136 207 140L253 185H94Q77 185 62 176.5Q47 168 38.5 153.5Q30 139 30 122Q30 105 38.5 90.5Q47 76 62 67.5Q77 59 94 59H169Q174 59 177 55.5Q180 52 180 47Q180 42 177 38.5Q174 35 169 35H94Q70 35 50 46.5Q30 58 18.5 78Q7 98 7 121.5Q7 145 18.5 165Q30 185 50 197Q70 209 94 209H253L207 254Q204 258 204 262.5Q204 267 207 271Z"
-        transform="translate(0 300) scale(1 -1)"
-      />
-    </svg>
-  );
-}
-
-function BotCloseIcon({ className }: { className?: string }) {
-  return (
-    <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 300 300">
-      <path
-        d="M235 252Q239 255 244 255Q249 255 252 252Q255 249 255 244Q255 239 252 235L167 150L252 65Q255 61 255 56Q255 51 252 48Q249 45 244 45Q239 45 235 48L150 133L65 48Q61 45 56 45Q51 45 48 48Q45 51 45 56Q45 61 48 65L133 150L48 235Q45 239 45 244Q45 249 48 252Q51 255 56 255Q61 255 65 252L150 167Z"
-        transform="translate(0 300) scale(1 -1)"
-      />
-    </svg>
-  );
-}
+// The voice memo layer carries the glow library, so it loads on first need.
+let voiceMemoLayer: Promise<typeof import("../openteam/voice-memo/voice-memo-layer")> | undefined;
+const loadVoiceMemoLayer = () =>
+  (voiceMemoLayer ??= import("../openteam/voice-memo/voice-memo-layer"));
+const VoiceMemoLayer = lazy(loadVoiceMemoLayer);
+// Recording collapses an expanded composer back to its single-line pill.
+const VOICE_SURFACE = { height: 44, radius: 22 };
+const VOICE_EXIT_MS = 680;
 
 interface PendingAttachment {
   id: string;
@@ -202,7 +179,8 @@ export function PromptInput({
     sendAfterVoice.current = false;
   });
   useLayoutEffect(() => {
-    if (focusRequest !== undefined && !disabled) textareaRef.current?.focus({ preventScroll: true });
+    if (focusRequest !== undefined && !disabled)
+      textareaRef.current?.focus({ preventScroll: true });
   }, [focusRequest, disabled]);
 
   useLayoutEffect(() => {
@@ -254,6 +232,30 @@ export function PromptInput({
     sendAfterVoice.current = true;
     stopVoice();
   };
+
+  // While recording, the composer becomes one bar: time, the voice, discard
+  // and send. The bar grows out of the mic that started it.
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [voiceAnchor, setVoiceAnchor] = useState({ right: 26, bottom: 22 });
+  const recordFromButton = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    const frame = wrapperRef.current?.getBoundingClientRect();
+    const mic = event.currentTarget.getBoundingClientRect();
+    if (frame) {
+      setVoiceAnchor({
+        right: frame.right - (mic.left + mic.width / 2),
+        bottom: frame.bottom - (mic.top + mic.height / 2),
+      });
+    }
+    startVoice();
+  };
+  useEffect(() => {
+    if (!voice.available) return;
+    const idle = window.requestIdleCallback?.(() => void loadVoiceMemoLayer());
+    return () => {
+      if (idle !== undefined) window.cancelIdleCallback?.(idle);
+    };
+  }, [voice.available]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewUrls = useRef(new Set<string>());
   const attachmentsRef = useRef<PendingAttachment[]>([]);
@@ -265,21 +267,35 @@ export function PromptInput({
     setAttachments(next);
   }, []);
   const adoptedDraftId = useRef<string | null>(null);
-  useImperativeHandle(draftRef, () => ({
-    takeDraft: () => {
-      if (stagingInFlight.current || submitInFlight.current) return undefined;
-      const draft = { id: crypto.randomUUID(), content: value, richText, attachments: attachmentsRef.current };
-      // The receiving composer now owns staged files and their preview URLs.
-      attachmentsRef.current = [];
-      previewUrls.current.clear();
-      return draft;
-    },
-  }), [value, richText]);
+  useImperativeHandle(
+    draftRef,
+    () => ({
+      takeDraft: () => {
+        if (stagingInFlight.current || submitInFlight.current) return undefined;
+        const draft = {
+          id: crypto.randomUUID(),
+          content: value,
+          richText,
+          attachments: attachmentsRef.current,
+        };
+        // The receiving composer now owns staged files and their preview URLs.
+        attachmentsRef.current = [];
+        previewUrls.current.clear();
+        return draft;
+      },
+    }),
+    [value, richText]
+  );
   useLayoutEffect(() => {
     if (!incomingDraft || adoptedDraftId.current === incomingDraft.id) return;
     adoptedDraftId.current = incomingDraft.id;
     setValue((current) => [current, incomingDraft.content].filter(Boolean).join("\n"));
-    setRichText((current) => [current ?? value, incomingDraft.richText ?? incomingDraft.content].filter(Boolean).join("\n") || undefined);
+    setRichText(
+      (current) =>
+        [current ?? value, incomingDraft.richText ?? incomingDraft.content]
+          .filter(Boolean)
+          .join("\n") || undefined
+    );
     for (const attachment of incomingDraft.attachments) {
       if (attachment.previewUrl) previewUrls.current.add(attachment.previewUrl);
     }
@@ -327,7 +343,11 @@ export function PromptInput({
         recoveryOwned: true,
       })),
     ]);
-    setAttachmentError(recovery.message ? `Message not sent: ${clientErrorMessage(recovery.message, "Try again.")}` : null);
+    setAttachmentError(
+      recovery.message
+        ? `Message not sent: ${clientErrorMessage(recovery.message, "Try again.")}`
+        : null
+    );
     onRecoveryApplied?.();
     window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
   }, [onRecoveryApplied, recovery, replaceAttachments, value]);
@@ -452,7 +472,8 @@ export function PromptInput({
           try {
             return { file, staged: await onStage(file, file.name) };
           } catch {
-            if (mounted.current) setAttachmentError(`"${file.name}" couldn't be attached. Try again.`);
+            if (mounted.current)
+              setAttachmentError(`"${file.name}" couldn't be attached. Try again.`);
             return null;
           }
         });
@@ -513,6 +534,35 @@ export function PromptInput({
     cancel: cancelVoice,
     sendWhenReady: sendVoice,
   });
+
+  const voiceMode: VoiceMemoMode | null =
+    voice.state === "requesting" || voice.state === "recording"
+      ? "recording"
+      : voice.state === "processing" || voiceReadyToSend
+        ? "processing"
+        : null;
+  // Keep the last mode on screen while the layer animates away.
+  const lastVoiceMode = useRef<VoiceMemoMode | null>(null);
+  const [, settleVoiceExit] = useState(0);
+  if (voiceMode) lastVoiceMode.current = voiceMode;
+  const voiceExiting = !voiceMode && lastVoiceMode.current !== null;
+  useEffect(() => {
+    if (!voiceExiting) return;
+    const timer = setTimeout(() => {
+      lastVoiceMode.current = null;
+      settleVoiceExit((count) => count + 1);
+    }, VOICE_EXIT_MS);
+    return () => clearTimeout(timer);
+  }, [voiceExiting]);
+  const voiceLayerMode = voiceMode ?? lastVoiceMode.current;
+  // The editor stays focused for Enter/Esc while hidden; keep typing out of it.
+  useEffect(() => {
+    const editor = textareaRef.current;
+    if (!editor || !voiceMode) return;
+    const block = (event: Event) => event.preventDefault();
+    editor.addEventListener("beforeinput", block);
+    return () => editor.removeEventListener("beforeinput", block);
+  }, [voiceMode]);
   useLayoutEffect(() => {
     const trailing = trailingRef.current;
     if (!trailing) return;
@@ -581,7 +631,8 @@ export function PromptInput({
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const content = value.trim();
-    if ((!content && attachments.length === 0) || blocked || sendDisabled || submitInFlight.current) return;
+    if ((!content && attachments.length === 0) || blocked || sendDisabled || submitInFlight.current)
+      return;
     submitInFlight.current = true;
     restoreSubmitFocus.current = Boolean(surfaceRef.current?.contains(document.activeElement));
     const pendingAttachments = attachmentsRef.current;
@@ -737,7 +788,7 @@ export function PromptInput({
         ref={fileInputRef}
         type="file"
       />
-      <div className="relative">
+      <div className="relative" ref={wrapperRef}>
         <div
           aria-hidden="true"
           className={cn(
@@ -755,8 +806,13 @@ export function PromptInput({
             dragging && !dropTargetRef && "scale-[1.003]"
           )}
           data-prompt-surface
+          data-voice-mode={voiceMode ?? undefined}
           ref={surfaceRef}
-          style={{ height: surfaceHeight }}
+          style={
+            voiceMode
+              ? { height: VOICE_SURFACE.height, borderRadius: VOICE_SURFACE.radius }
+              : { height: surfaceHeight }
+          }
         >
           <div className="shrink-0" data-prompt-content ref={contentRef}>
             {reply && (
@@ -778,7 +834,7 @@ export function PromptInput({
             )}
 
             {attachments.length > 0 && (
-              <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1 pt-0.5">
+              <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1.5 pt-1.5 [scrollbar-width:none]">
                 {attachments.map((attachment) => {
                   const remove = () => {
                     if (attachment.staged && !attachment.recoveryOwned) {
@@ -804,27 +860,26 @@ export function PromptInput({
                     />
                   ) : (
                     <div
-                      className="group/file relative flex h-[72px] w-[220px] shrink-0 items-center gap-2 rounded-[14px] border border-black/10 bg-background px-3 dark:border-white/15"
+                      className="group/file relative flex h-14 w-[351px] max-w-[calc(100%-8px)] shrink-0 items-center gap-2 rounded-[10px] bg-white p-2 shadow-[0_0_0_0.5px_rgba(28,28,28,0.08),0_1px_4px_0_rgba(28,28,28,0.07),0_6px_12px_0_rgba(28,28,28,0.035)] dark:bg-[#1f1f1f] dark:shadow-[0_0_0_0.5px_#f5f5f51f]"
+                      data-composer-file=""
                       key={attachment.id}
                     >
-                      <File className="size-5 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-medium">{attachment.file.name}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {Math.max(
-                            1,
-                            Math.ceil((attachment.asset?.byteSize ?? attachment.file.size) / 1024)
-                          )}{" "}
-                          KB
+                      <FileGlyph variant={fileGlyphVariant(attachment.file.name)} />
+                      <div className="flex min-w-0 flex-1 flex-col gap-px">
+                        <div className="truncate text-[14px] font-medium leading-5 text-[#1c1c1c] dark:text-[#f5f5f5]">
+                          {attachment.file.name}
+                        </div>
+                        <div className="truncate text-[13px] leading-[18px] text-[#1c1c1cad] dark:text-[#f5f5f5a8]">
+                          {formatAttachmentSize(attachment.asset?.byteSize ?? attachment.file.size)}
                         </div>
                       </div>
                       <button
                         aria-label={`Remove ${attachment.file.name}`}
-                        className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/85 text-white opacity-0 transition group-hover/file:opacity-100"
+                        className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-[#1c1c1c] text-[#fcfcfc] opacity-0 transition focus-visible:opacity-100 group-hover/file:opacity-100 dark:bg-[#f5f5f5] dark:text-[#121212]"
                         onClick={remove}
                         type="button"
                       >
-                        <X className="size-4" />
+                        <X className="size-3" strokeWidth={2.4} />
                       </button>
                     </div>
                   );
@@ -861,17 +916,6 @@ export function PromptInput({
                 </button>
               </div>
             ) : null}
-            {voice.active ? (
-              <button
-                type="button"
-                onClick={cancelVoice}
-                aria-label="Cancel voice note"
-                className="sr-only focus:not-sr-only focus:self-start focus:rounded-full focus:px-2 focus:py-1 focus:text-xs"
-              >
-                Cancel voice note (Esc)
-              </button>
-            ) : null}
-
             {attachmentError && (
               <div role="alert" className="px-2 pb-1 text-[11px] text-destructive">
                 {attachmentError}
@@ -884,36 +928,64 @@ export function PromptInput({
               style={{ height: expanded ? `${textareaHeight + 38}px` : "34px" }}
             >
               <div className="absolute bottom-[7px] left-2 z-10">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      aria-label="Add attachment"
-                      className={SECONDARY_ACTION_CLASS}
-                      disabled={blocked}
-                      size="icon"
-                      type="button"
-                      variant="ghost"
+                {/* As in the reference, + is a menu only when it has more than files to offer. */}
+                {voice.available ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        aria-label="Composer actions"
+                        className={SECONDARY_ACTION_CLASS}
+                        disabled={blocked}
+                        size="icon"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <BotPlusIcon className="size-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      className="w-[200px] rounded-[12px] border-input bg-popover p-1.5 text-[13px] leading-[18px] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
+                      side="top"
+                      sideOffset={8}
                     >
-                      <BotPlusIcon className="size-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="start"
-                    className="w-[200px] rounded-[12px] border-input bg-popover p-1.5 text-[13px] leading-[18px] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
-                    side="top"
-                    sideOffset={8}
+                      <DropdownMenuItem
+                        className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
+                        disabled={attachments.length >= maxAttachments}
+                        onSelect={() => fileInputRef.current?.click()}
+                      >
+                        <span className="grid size-[18px] shrink-0 place-items-center">
+                          <Paperclip className="size-3.5" />
+                        </span>
+                        Attach files
+                      </DropdownMenuItem>
+                      {/* The reference's voice memo entry. As there, it starts a fresh memo, so it
+                        waits while the draft has text or files, or a memo is under way. */}
+                      <DropdownMenuItem
+                        className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
+                        disabled={blocked || hasPayload || voiceMode !== null}
+                        onSelect={startVoice}
+                      >
+                        <span className="grid size-[18px] shrink-0 place-items-center">
+                          <BotMicIcon className="size-3.5" />
+                        </span>
+                        Record a voice memo
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <Button
+                    aria-label="Attach file"
+                    className={SECONDARY_ACTION_CLASS}
+                    disabled={blocked || attachments.length >= maxAttachments}
+                    onClick={() => fileInputRef.current?.click()}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
                   >
-                    <DropdownMenuItem
-                      className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
-                      onSelect={() => fileInputRef.current?.click()}
-                    >
-                      <span className="grid size-[18px] shrink-0 place-items-center">
-                        <Paperclip className="size-3.5" />
-                      </span>
-                      Attach files
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                    <BotPlusIcon className="size-3.5" />
+                  </Button>
+                )}
               </div>
               <div className="relative">
                 <MentionEditor
@@ -938,15 +1010,11 @@ export function PromptInput({
                   onSubmit={() => void submit()}
                   options={mentionOptions}
                   placeholder={
-                    voice.active
-                      ? voice.state === "processing"
-                        ? "Transcribing…"
-                        : "Listening…"
-                      : attachments.length > 0
-                        ? "Add a message, or hit send."
-                        : reply
-                          ? "Reply…"
-                          : placeholder
+                    attachments.length > 0
+                      ? "Add a message, or hit send."
+                      : reply
+                        ? "Reply…"
+                        : placeholder
                   }
                   style={!expanded ? { paddingRight: `${trailingWidth + 12}px` } : undefined}
                   value={value}
@@ -961,58 +1029,32 @@ export function PromptInput({
                 />
               </div>
               <div
-                className="absolute bottom-[7px] right-2 z-10 flex items-center gap-2"
+                className="absolute bottom-[7px] right-2 z-10 flex items-center"
+                data-composer-actions
+                data-has-payload={hasPayload ? "true" : "false"}
                 ref={trailingRef}
               >
-                {voice.state === "recording" || voice.state === "requesting" ? (
+                {
                   <>
-                    <VoiceRecordingChip
-                      elapsedMs={voice.elapsedMs}
-                      stream={voice.stream}
-                      onStop={stopVoice}
-                    />
-                    <Button
-                      aria-label="Transcribe and send"
-                      title="Transcribe and send"
-                      className="size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none hover:bg-[#070707] hover:opacity-90 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
-                      onClick={sendVoice}
-                      size="icon"
-                      type="button"
-                    >
-                      <BotArrowUpIcon className="size-3.5" />
-                    </Button>
-                    <span role="status" className="sr-only">
-                      {voice.state === "requesting" ? "Requesting microphone…" : "Listening…"}
-                    </span>
-                  </>
-                ) : voice.state === "processing" ? (
-                  <span
-                    role="status"
-                    aria-label="Transcribing voice input…"
-                    className="flex size-7 shrink-0 items-center justify-center"
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="size-[18px] animate-spin rounded-full border-2 border-[#14141433] border-t-[#141414] dark:border-[#f0f0f033] dark:border-t-[#f0f0f0]"
-                    />
-                  </span>
-                ) : (
-                  <>
-                    {hasPayload && (
+                    <span className="composer-dictation-slot">
                       <Button
+                        aria-hidden={!hasPayload}
                         aria-label={
-                          voice.available
-                            ? "Record voice note"
-                            : "Set up transcription in Server settings to use voice notes"
+                          !hasPayload
+                            ? undefined
+                            : voice.available
+                              ? "Record voice note"
+                              : "Set up transcription in Voice notes settings to use voice notes"
                         }
                         title={
                           voice.available
                             ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
-                            : "Set up transcription in Server settings"
+                            : "Set up transcription in Voice notes settings"
                         }
-                        className={VOICE_ACTION_CLASS}
-                        disabled={!voice.available || blocked}
-                        onClick={startVoice}
+                        className={cn("composer-dictation-action", VOICE_ACTION_CLASS)}
+                        disabled={!hasPayload || !voice.available || blocked}
+                        tabIndex={hasPayload ? undefined : -1}
+                        onClick={recordFromButton}
                         onMouseDown={(event) => event.preventDefault()}
                         size="icon"
                         type="button"
@@ -1020,27 +1062,30 @@ export function PromptInput({
                       >
                         <BotMicIcon className="size-3.5 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
                       </Button>
-                    )}
+                    </span>
                     <Button
                       aria-label={
                         hasPayload
                           ? "Send message"
                           : voice.available
                             ? "Record voice note"
-                            : "Set up transcription in Server settings to use voice notes"
+                            : "Set up transcription in Voice notes settings to use voice notes"
                       }
                       title={
                         !hasPayload && !voice.available
-                          ? "Set up transcription in Server settings"
+                          ? "Set up transcription in Voice notes settings"
                           : !hasPayload
                             ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
                             : undefined
                       }
-                      className={cn("relative", hasPayload ? SEND_ACTION_CLASS : VOICE_ACTION_CLASS)}
+                      className={cn(
+                        "composer-primary-action relative",
+                        hasPayload ? SEND_ACTION_CLASS : VOICE_ACTION_CLASS
+                      )}
                       disabled={
                         blocked || (hasPayload && sendDisabled) || (!hasPayload && !voice.available)
                       }
-                      onClick={!hasPayload ? startVoice : undefined}
+                      onClick={!hasPayload ? recordFromButton : undefined}
                       onMouseDown={!hasPayload ? (event) => event.preventDefault() : undefined}
                       size="icon"
                       type={hasPayload ? "submit" : "button"}
@@ -1064,11 +1109,26 @@ export function PromptInput({
                       />
                     </Button>
                   </>
-                )}
+                }
               </div>
             </div>
           </div>
         </div>
+        {voiceLayerMode ? (
+          <Suspense fallback={null}>
+            <VoiceMemoLayer
+              anchor={voiceAnchor}
+              elapsedMs={voice.elapsedMs}
+              exiting={voiceExiting}
+              mode={voiceLayerMode}
+              onCancelProcessing={cancelVoice}
+              onDiscard={cancelVoice}
+              onSend={sendVoice}
+              radius={VOICE_SURFACE.radius}
+              stream={voice.stream}
+            />
+          </Suspense>
+        ) : null}
       </div>
     </form>
   );

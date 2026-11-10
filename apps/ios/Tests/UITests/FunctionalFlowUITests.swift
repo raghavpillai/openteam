@@ -86,6 +86,87 @@ final class FunctionalFlowUITests: XCTestCase {
     app.buttons["settings-button"].tap()
     app.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", "Plugins")).firstMatch.tap()
   }
+  func testBotActionsOmitHideAndDuplicateInBothAppearances() async throws {
+    continueAfterFailure = false
+    for appearance in ["light", "dark"] {
+      try await fixture("/__qa/reset")
+      let app = XCUIApplication()
+      app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
+      app.launch()
+      let row = app.buttons["channel-channel-research"]
+      XCTAssertTrue(row.waitForExistence(timeout: 15))
+      row.swipeLeft()
+      XCTAssertFalse(app.buttons["conversation-swipe-hide"].exists)
+      XCTAssertTrue(row.exists)
+      row.press(forDuration: 0.8)
+      XCTAssertTrue(app.buttons["Pin"].waitForExistence(timeout: 5))
+      XCTAssertTrue(app.buttons["Delete bot"].exists)
+      XCTAssertFalse(app.buttons["Hide"].exists)
+      XCTAssertFalse(app.buttons["Duplicate bot"].exists)
+      capture("bot-context-without-hide-" + appearance, app)
+      app.buttons["conversation-context-pin"].tap()
+      let saved = try await state()
+      XCTAssertTrue((saved["settings"] as? [String: Any])?["pinnedIds"] as? [String] == ["channel-research"])
+      let pinnedRow = app.buttons["pinned-channel-research"]
+      XCTAssertTrue(pinnedRow.waitForExistence(timeout: 8))
+      pinnedRow.tap()
+      app.buttons["conversation-details"].tap()
+      XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 8))
+      app.buttons["profile-options"].tap()
+      XCTAssertTrue(app.buttons["Delete bot"].waitForExistence(timeout: 5))
+      XCTAssertFalse(app.buttons["Duplicate bot"].exists)
+      XCTAssertFalse(app.buttons["Hide"].exists)
+      capture("bot-options-without-duplicate-" + appearance, app)
+      app.terminate()
+    }
+  }
+
+  func testBotContextDeletionCancelsAndRetriesFromPinnedRow() async throws {
+    let app = try await launch()
+    let row = app.buttons["channel-channel-research"]
+    XCTAssertTrue(row.waitForExistence(timeout: 10))
+    row.press(forDuration: 0.8)
+    app.buttons["Delete bot"].tap()
+    XCTAssertTrue(app.alerts.buttons["Cancel"].waitForExistence(timeout: 5))
+    app.alerts.buttons["Cancel"].tap()
+    let cancelled = try await state()["requests"] as? [[String: Any]] ?? []
+    XCTAssertFalse(cancelled.contains {
+      $0["method"] as? String == "DELETE" && $0["path"] as? String == "/api/v0/bots/bot-research"
+    })
+    XCTAssertTrue(row.exists)
+    try await fail("DELETE /api/v0/bots/bot-research")
+    row.press(forDuration: 0.8)
+    app.buttons["Delete bot"].tap()
+    XCTAssertTrue(app.alerts.buttons["Delete bot"].waitForExistence(timeout: 5))
+    app.alerts.buttons["Delete bot"].tap()
+    error(app)
+    closeError(app)
+    XCTAssertTrue(row.waitForExistence(timeout: 5))
+    row.press(forDuration: 0.8)
+    app.buttons["conversation-context-pin"].tap()
+    let pinned = app.buttons["pinned-channel-research"]
+    XCTAssertTrue(pinned.waitForExistence(timeout: 8))
+    pinned.press(forDuration: 0.8)
+    app.buttons["Delete bot"].tap()
+    XCTAssertTrue(app.alerts.buttons["Delete bot"].waitForExistence(timeout: 5))
+    app.alerts.buttons["Delete bot"].tap()
+    XCTAssertTrue(pinned.waitForNonExistence(timeout: 10))
+    let deleted = try await state()
+    XCTAssertFalse((deleted["bots"] as? [[String: Any]] ?? []).contains { $0["id"] as? String == "bot-research" })
+    XCTAssertFalse((deleted["channels"] as? [[String: Any]] ?? []).contains { $0["id"] as? String == "channel-research" })
+    XCTAssertTrue(app.buttons["channel-channel-ops"].exists)
+  }
+
+  func testSettingsOmitHiddenConversations() async throws {
+    let app = try await launch()
+    app.buttons["settings-button"].tap()
+    XCTAssertTrue(app.buttons["account-settings"].waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["Hidden conversations"].exists)
+    XCTAssertFalse(app.staticTexts["Hidden conversations"].exists)
+    capture("settings-without-hidden-conversations", app)
+    app.terminate()
+  }
+
   func testSearchWhitespaceAndUnavailableResultRecovery() async throws {
     let app = try await launch()
     app.buttons["search-button"].tap()
@@ -241,9 +322,9 @@ final class FunctionalFlowUITests: XCTestCase {
     name.typeText("Native persistence bot")
     try await fail("POST /api/v0/bots")
     app.buttons["create-confirm"].tap()
-    error(app)
+    XCTAssertTrue(app.staticTexts["Could not create the Bot. Please try again."].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.alerts.firstMatch.exists)
     capture("create-failure", app)
-    closeError(app)
     XCTAssertEqual(name.value as? String, "Native persistence bot")
     app.buttons["create-confirm"].tap()
     XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 12))
@@ -375,10 +456,18 @@ final class FunctionalFlowUITests: XCTestCase {
     let alias = app.textFields["Account name, e.g. Personal"]
     XCTAssertTrue(alias.waitForExistence(timeout: 10))
     replace(alias, "Work notes")
+    alias.typeText("\n")
     try await fail("PATCH /api/v0/plugin-connections/fixture-connection/account")
+    find(app.buttons["Rename account"], app)
     app.buttons["Rename account"].tap()
+    // The form creates status rows lazily above the account controls.
+    let failure = app.staticTexts.containing(
+      NSPredicate(format: "label CONTAINS[c] %@", "try again shortly")).firstMatch
+    for _ in 0..<4 where !failure.exists { app.collectionViews.firstMatch.swipeDown() }
     error(app)
+    find(alias, app)
     XCTAssertEqual(alias.value as? String, "Work notes")
+    find(app.buttons["Rename account"], app)
     app.buttons["Rename account"].tap()
     // Native Form virtualizes rows above the account controls. Bring the
     // receipt back into view rather than treating an offscreen row as absent.

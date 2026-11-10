@@ -165,7 +165,7 @@ export class MessageStore {
       })),
       nextCursor: rows.length > limit ? selected.at(-1)!.sequence : null,
       historyScope:
-        "Ordinary messages collected while connected. Disappearing and view-once messages are excluded. Search is literal and case-sensitive.",
+        "Ordinary messages collected while connected. Disappearing and view-once messages are excluded. Phone-side deletions may not reach signal-cli, so collected copies can remain readable. Search is literal and case-sensitive.",
     };
   }
 

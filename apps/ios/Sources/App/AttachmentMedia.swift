@@ -1,6 +1,8 @@
+import AVFoundation
 import ImageIO
 import Photos
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct LoadedAttachment: Identifiable {
   let url: URL
@@ -35,6 +37,95 @@ struct LoadedAttachment: Identifiable {
   }
 }
 
+extension LoadedAttachment {
+  /// The video's first frame as its preview image.
+  func withVideoPoster(side: CGFloat) async -> Self {
+    let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+    generator.appliesPreferredTrackTransform = true
+    generator.maximumSize = CGSize(width: side, height: side)
+    let poster = (try? await generator.image(at: .zero).image).map { UIImage(cgImage: $0) }
+    return Self(url: url, image: poster, maximumPixels: maximumPixels)
+  }
+}
+
+/// A sent video's first frame, read in byte ranges: AVFoundation asks only for the
+/// parts it needs (the index, wherever the file keeps it, and the first frames), so a
+/// row no longer downloads the whole video before anyone taps it.
+enum VideoPoster {
+  @MainActor private static let posters: NSCache<NSString, UIImage> = {
+    let cache = NSCache<NSString, UIImage>()
+    cache.totalCostLimit = 24 * 1024 * 1024
+    return cache
+  }()
+  @MainActor static func cached(_ asset: Asset) -> UIImage? { posters.object(forKey: asset.assetId as NSString) }
+  @MainActor static func clear() { posters.removeAllObjects() }
+
+  @MainActor static func load(_ asset: Asset, store: AppStore, side: CGFloat) async -> UIImage? {
+    if let poster = cached(asset) { return poster }
+    guard let api = store.api, asset.byteSize > 0 else { return nil }
+    let loader = RangedAssetLoader(api: api, path: "/api/v0/assets/\(API.segment(asset.assetId))",
+      byteSize: Int64(asset.byteSize), mimeType: asset.mimeType)
+    let video = AVURLAsset(url: URL(string: "openteam-asset://video/\(asset.assetId)")!)
+    video.resourceLoader.setDelegate(loader, queue: RangedAssetLoader.queue)
+    let generator = AVAssetImageGenerator(asset: video)
+    generator.appliesPreferredTrackTransform = true
+    generator.maximumSize = CGSize(width: side, height: side)
+    let frame = try? await generator.image(at: .zero).image
+    withExtendedLifetime(loader) {}
+    guard let frame, store.api?.baseURL == api.baseURL, store.api?.token == api.token else { return nil }
+    let poster = UIImage(cgImage: frame)
+    posters.setObject(poster, forKey: asset.assetId as NSString, cost: frame.width * frame.height * 4)
+    return poster
+  }
+}
+
+/// Serves AVFoundation's reads of a server asset with authenticated Range requests.
+final class RangedAssetLoader: NSObject, AVAssetResourceLoaderDelegate, Sendable {
+  static let queue = DispatchQueue(label: "openteam.ranged-asset")
+  /// AVFoundation asks again for whatever a shorter answer leaves out.
+  private static let chunk: Int64 = 512 * 1024
+  let api: API
+  let path: String
+  let byteSize: Int64
+  let contentType: String
+  init(api: API, path: String, byteSize: Int64, mimeType: String) {
+    self.api = api
+    self.path = path
+    self.byteSize = byteSize
+    contentType = UTType(mimeType: mimeType)?.identifier ?? UTType.mpeg4Movie.identifier
+  }
+  func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
+    shouldWaitForLoadingOfRequestedResource request: AVAssetResourceLoadingRequest) -> Bool {
+    if let information = request.contentInformationRequest {
+      information.contentType = contentType
+      information.contentLength = byteSize
+      information.isByteRangeAccessSupported = true
+    }
+    guard let data = request.dataRequest else { request.finishLoading(); return true }
+    let start = data.currentOffset
+    let wanted = data.requestsAllDataToEndOfResource ? byteSize - start
+      : Int64(data.requestedLength) - (start - data.requestedOffset)
+    let end = min(byteSize, start + min(max(wanted, 1), Self.chunk)) - 1
+    guard start <= end else { request.finishLoading(); return true }
+    let api = api, path = path
+    nonisolated(unsafe) let loading = request
+    Task {
+      do {
+        let (bytes, response) = try await api.raw(path, headers: ["Range": "bytes=\(start)-\(end)"])
+        guard !loading.isCancelled else { return }
+        // A server that ignores Range sends the whole file; answer with the asked-for part.
+        let part = response.statusCode == 206 ? bytes
+          : bytes.subdata(in: Int(min(start, Int64(bytes.count)))..<Int(min(end + 1, Int64(bytes.count))))
+        loading.dataRequest?.respond(with: part)
+        loading.finishLoading()
+      } catch {
+        if !loading.isCancelled { loading.finishLoading(with: error) }
+      }
+    }
+    return true
+  }
+}
+
 /// Decoded chat previews survive cell recycling. A photo scrolled back into view
 /// is drawn in its row's first layout, instead of flashing a placeholder while
 /// the original downloads and decodes again. Cleared with the account's data.
@@ -42,6 +133,15 @@ struct LoadedAttachment: Identifiable {
   private final class Entry {
     let value: LoadedAttachment
     init(_ value: LoadedAttachment) { self.value = value }
+  }
+  private static let localValues: NSCache<NSString, LocalAttachmentPreview> = {
+    let cache = NSCache<NSString, LocalAttachmentPreview>()
+    cache.countLimit = Draft.maxAttachments
+    return cache
+  }()
+  static func local(_ asset: Asset) -> LocalAttachmentPreview? { localValues.object(forKey: key(asset)) }
+  static func saveLocal(_ preview: LocalAttachmentPreview, for asset: Asset) {
+    localValues.setObject(preview, forKey: key(asset))
   }
   private static let values: NSCache<NSString, Entry> = {
     let cache = NSCache<NSString, Entry>()
@@ -54,13 +154,96 @@ struct LoadedAttachment: Identifiable {
     let cost = value.image.map { Int($0.size.width * $0.size.height * $0.scale * $0.scale * 4) } ?? 0
     values.setObject(Entry(value), forKey: key(asset), cost: cost)
   }
-  static func clear() { values.removeAllObjects() }
+  static func clear() {
+    values.removeAllObjects()
+    localValues.removeAllObjects()
+  }
 }
 
 struct GalleryItem: Identifiable {
   let id: String
   let asset: Asset
   let caption: String
+}
+
+/// Pending and accepted attachments reserve exactly the same frame and typography.
+struct AttachmentPreview: View {
+  let asset: Asset
+  var image: UIImage?
+  var loading = false
+  var failure: String?
+  private var isImage: Bool { asset.mimeType.hasPrefix("image/") }
+  private var isVideo: Bool { asset.mimeType.hasPrefix("video/") }
+  var previewSize: CGSize {
+    isVideo ? CGSize(width: 292, height: 208) : AttachmentImageFile.previewSize(width: asset.width, height: asset.height)
+  }
+  var body: some View {
+    if isImage || isVideo {
+      ZStack {
+        if isVideo { Color.black } else { NativePalette.surface }
+        if let image {
+          if isVideo {
+            Image(uiImage: image).resizable().scaledToFit()
+              .frame(width: previewSize.width, height: previewSize.height)
+          } else {
+            Image(uiImage: image).resizable().scaledToFill()
+              .frame(width: previewSize.width, height: previewSize.height).clipped()
+          }
+        } else if failure != nil && isImage {
+          Label("Image unavailable", systemImage: "arrow.clockwise").font(.caption)
+            .foregroundStyle(NativePalette.muted)
+        } else if loading { LoadingOrb(label: "Loading image") }
+        else if isImage { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
+        if isVideo {
+          Group {
+            if loading { LoadingOrb(size: 22, label: "Opening") }
+            else {
+              Image(systemName: "play.fill").font(.system(size: 20)).foregroundStyle(.white).offset(x: 1.5)
+            }
+          }
+          .frame(width: 52, height: 52)
+          .modifier(NativeGlass(radius: 26, darkTint: 0.1))
+          .environment(\.colorScheme, .dark)
+        }
+      }.frame(width: previewSize.width, height: previewSize.height)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    } else {
+      HStack(spacing: 14) {
+        FileGlyph(kind: fileKind).frame(width: 34, height: 42)
+        VStack(alignment: .leading, spacing: 3) {
+          Text(asset.fileName).font(.body).foregroundStyle(NativePalette.text)
+            .lineLimit(1).truncationMode(.middle)
+          Text(loading ? "Opening…" : fileDetail)
+            .font(.subheadline).foregroundStyle(NativePalette.muted).lineLimit(1)
+        }
+        Spacer(minLength: 0)
+        if loading { LoadingOrb(size: 16, label: "Opening") }
+      }.padding(.leading, 16).padding(.trailing, 18).padding(.vertical, 14)
+        .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in min(width * 0.8, 340) }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        .background(NativePalette.background, in: RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(NativePalette.separator, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 26))
+    }
+  }
+  private var fileExtension: String { (asset.fileName as NSString).pathExtension.lowercased() }
+  private var fileKind: FileGlyph.Kind {
+    if asset.mimeType == "application/pdf" || fileExtension == "pdf" { return .pdf }
+    if ["zip", "tar", "gz", "7z", "rar"].contains(fileExtension) { return .archive }
+    if fileExtension.isEmpty && ["", "application/octet-stream"].contains(asset.mimeType) { return .unknown }
+    return .document
+  }
+  /// "PDF · 818 KB", or just the size when the file has no type.
+  private var fileDetail: String {
+    fileKind == .unknown || fileExtension.isEmpty ? fileSize : fileExtension.uppercased() + " · " + fileSize
+  }
+  private var fileSize: String {
+    let bytes = Double(asset.byteSize)
+    let unit: (Double, String) = bytes >= 1_000_000 ? (1_000_000, "MB") : (1_000, "KB")
+    guard bytes >= 1_000 else { return "\(asset.byteSize) bytes" }
+    let value = bytes / unit.0
+    return value.formatted(.number.precision(.fractionLength(value < 10 ? 1 : 0))) + " " + unit.1
+  }
 }
 
 struct AttachmentView: View {
@@ -70,16 +253,27 @@ struct AttachmentView: View {
   let channelID: String
   let messageID: String
   @State private var loaded: LoadedAttachment?
+  private let localPreview: LocalAttachmentPreview?
+  @State private var poster: UIImage?
   @State private var loading = false
   @State private var failure: String?
-  init(asset: Asset, channelID: String, messageID: String) {
+  init(asset: Asset, channelID: String, messageID: String, localPreview: LocalAttachmentPreview? = nil) {
     self.asset = asset
     self.channelID = channelID
     self.messageID = messageID
+    self.localPreview = localPreview ?? AttachmentPreviewCache.local(asset)
     _loaded = State(initialValue: AttachmentPreviewCache.value(asset))
+    _poster = State(initialValue: asset.mimeType.hasPrefix("video/") ? VideoPoster.cached(asset) : nil)
+  }
+  private var currentLocalPreview: LocalAttachmentPreview? {
+    localPreview.flatMap { $0.matches(store.api) ? $0 : nil }
   }
   private var isImage: Bool { asset.mimeType.hasPrefix("image/") }
-  private var previewSize: CGSize { AttachmentImageFile.previewSize(width: asset.width, height: asset.height) }
+  private var isVideo: Bool { asset.mimeType.hasPrefix("video/") }
+  /// Videos sit whole in a fixed black frame, letterboxed like the reference; photos take their own shape.
+  private var previewSize: CGSize {
+    isVideo ? CGSize(width: 292, height: 208) : AttachmentImageFile.previewSize(width: asset.width, height: asset.height)
+  }
   private var galleryID: String { messageID + ":" + asset.id + ":" + asset.fileName }
   private var gallery: [GalleryItem] {
     let items = store.messages(channelID).flatMap { message in
@@ -97,72 +291,50 @@ struct AttachmentView: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         if isImage {
           modals.fullScreen = .init(content: AnyView(NativePhotoGallery(
-            items: gallery, initialID: galleryID, initialFile: loaded)))
+            items: gallery, initialID: galleryID, initialFile: loaded ?? currentLocalPreview?.file)))
         } else { Task { await load(open: true) } }
       } label: {
-        if isImage {
-          ZStack {
-            NativePalette.surface
-            if let image = loaded?.image {
-              Image(uiImage: image).resizable().scaledToFit()
-            } else if failure != nil {
-              Label("Image unavailable", systemImage: "arrow.clockwise").font(.caption)
-                .foregroundStyle(NativePalette.muted)
-            } else if loading { ProgressView() }
-            else { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
-          }.frame(width: previewSize.width, height: previewSize.height)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-        } else {
-          HStack(spacing: 10) {
-            Image(systemName: archive ? "archivebox" : "doc")
-              .font(.system(size: 16)).foregroundStyle(archive ? Color(hex: "C9A333") : NativePalette.muted)
-              .frame(width: 28, height: 28).background(NativePalette.selection, in: RoundedRectangle(cornerRadius: 9))
-            VStack(alignment: .leading, spacing: 3) {
-              fileName.font(.system(size: 16, weight: .medium)).lineLimit(1).truncationMode(.middle)
-              Text(loading ? "Opening…" : fileSize)
-                .font(.system(size: 12)).foregroundStyle(NativePalette.faint)
-            }
-            if loading { ProgressView().controlSize(.small) }
-          }.padding(.horizontal, 13).padding(.vertical, 10)
-            .background(NativePalette.assistant, in: RoundedRectangle(cornerRadius: 20))
-        }
+        AttachmentPreview(asset: asset, image: poster ?? loaded?.image ?? currentLocalPreview?.image,
+          loading: loading, failure: failure)
       }.buttonStyle(.plain).disabled(loading && !isImage)
-        .accessibilityLabel("Open " + asset.fileName)
-        .accessibilityValue(failure != nil ? "Failed" : loaded != nil ? "Loaded" : "Loading")
+        .accessibilityLabel((isVideo ? "Play " : "Open ") + asset.fileName)
+        .accessibilityValue(failure != nil ? "Failed" : loaded != nil || poster != nil || currentLocalPreview?.image != nil ? "Loaded" : "Loading")
         .accessibilityIdentifier("attachment-" + asset.id)
       if let failure, !isImage { InlineFailure(message: failure) { Task { await load(open: true) } } }
     }
-    .task(id: asset.id) { if isImage { await load(open: false) } }
-  }
-  private var archive: Bool {
-    ["zip", "tar", "gz", "7z", "rar"].contains((asset.fileName as NSString).pathExtension.lowercased())
-  }
-  private var fileSize: String {
-    let bytes = Double(asset.byteSize)
-    let unit: (Double, String) = bytes >= 1_000_000 ? (1_000_000, "MB") : (1_000, "KB")
-    guard bytes >= 1_000 else { return "\(asset.byteSize) bytes" }
-    let value = bytes / unit.0
-    return value.formatted(.number.precision(.fractionLength(value < 10 ? 1 : 0))) + " " + unit.1
-  }
-  private var fileName: Text {
-    let name = asset.fileName as NSString
-    guard !name.pathExtension.isEmpty else { return Text(asset.fileName).foregroundColor(NativePalette.text) }
-    return Text(name.deletingPathExtension).foregroundColor(NativePalette.text)
-      + Text("." + name.pathExtension).foregroundColor(NativePalette.faint)
+    .task(id: asset.id) {
+      let api = store.api
+      if let preview = currentLocalPreview { await preview.load() }
+      guard store.api?.baseURL == api?.baseURL, store.api?.token == api?.token else { return }
+      if isImage, currentLocalPreview?.image == nil { await load(open: false) }
+      else if isVideo, poster == nil, currentLocalPreview?.image == nil {
+        poster = await VideoPoster.load(asset, store: store, side: max(previewSize.width, previewSize.height) * 3)
+      }
+    }
   }
   private func presentFile(_ file: LoadedAttachment?) {
     guard let file else { return }
+    if isVideo {
+      modals.fullScreen = .init(content: AnyView(
+        ComposerVideoViewer(video: ComposerPhoto(url: file.url, name: asset.fileName, mimeType: asset.mimeType))
+          .preferredColorScheme(.dark)))
+      return
+    }
     modals.sheet = .init(content: AnyView(NativeFilePreview(url: file.url, mimeType: asset.mimeType)))
   }
   private func load(open: Bool) async {
     guard !loading else { return }
     if let loaded { if open { presentFile(loaded) }; return }
+    if let file = currentLocalPreview?.file { if open { presentFile(file) }; return }
     loading = true
     defer { loading = false }
+    let api = store.api
     do {
-      let file = try await LoadedAttachment.fetch(asset, store: store)
+      var file = try await LoadedAttachment.fetch(asset, store: store)
       guard !isImage || file.image != nil else { throw APIError("This image could not be loaded.") }
-      if isImage { AttachmentPreviewCache.save(file, for: asset) }
+      if isVideo { file = await file.withVideoPoster(side: max(previewSize.width, previewSize.height) * 3) }
+      guard store.api?.baseURL == api?.baseURL, store.api?.token == api?.token else { return }
+      if isImage || isVideo { AttachmentPreviewCache.save(file, for: asset) }
       loaded = file
       failure = nil
       if open { presentFile(loaded) }
@@ -176,6 +348,7 @@ struct AttachmentView: View {
 struct NativePhotoGallery: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let items: [GalleryItem]
   @State private var selected: String
   @State private var files: [String: LoadedAttachment]
@@ -190,6 +363,10 @@ struct NativePhotoGallery: View {
   @State private var saving = false
   @State private var saved = false
   @State private var actionError: String?
+  @State private var controlsVisible = true
+  @State private var dismissalOffset: CGSize = .zero
+  @State private var dismissing = false
+  @State private var viewportMemory = PhotoViewportMemory()
   init(items: [GalleryItem], initialID: String, initialFile: LoadedAttachment?) {
     self.items = items
     _selected = State(initialValue: initialID)
@@ -198,7 +375,11 @@ struct NativePhotoGallery: View {
   }
   private var current: GalleryItem? { items.first { $0.id == selected } }
   var body: some View {
+    GeometryReader { safeGeometry in
+    let insets = safeGeometry.safeAreaInsets
+    GeometryReader { geometry in
     VStack(spacing: 0) {
+      if controlsVisible {
       HStack {
         ChromeButton(title: "Close", symbol: "xmark", darkTint: 0.06) { dismiss() }.accessibilityIdentifier("photo-close")
         Spacer()
@@ -217,11 +398,16 @@ struct NativePhotoGallery: View {
               enabled: files[selected]?.image != nil && !saving, action: { Task { await savePhoto() } }),
           ]).frame(width: 44, height: 44).nativeGlass(darkTint: 0.06)
       }.padding(.horizontal, 18).padding(.top, 6)
-      TabView(selection: $selected) {
+        .transition(.opacity)
+      }
+      ScrollView(.horizontal) {
+        LazyHStack(spacing: 0) {
         ForEach(items) { item in
           ZStack {
             if let image = files[item.id]?.image {
-              ZoomablePhoto(image: image).padding(.horizontal, 16)
+              ZoomablePhoto(image: image, viewport: viewportMemory.viewport(for: item.id), toggleControls: toggleControls,
+                onDismissDrag: { dismissalOffset = $0 }, onDismissEnd: finishDismissDrag)
+                .padding(.horizontal, controlsVisible ? 16 : 0)
                 .accessibilityLabel(item.caption.isEmpty ? item.asset.fileName : item.caption)
                 .accessibilityIdentifier("photo-image-" + item.asset.id)
             } else if let failure = failures[item.id] {
@@ -229,10 +415,16 @@ struct NativePhotoGallery: View {
                 Text(failure).multilineTextAlignment(.center).foregroundStyle(NativePalette.muted)
                 Button("Retry") { Task { await load(item) } }.accessibilityIdentifier("photo-retry")
               }.padding(24)
-            } else { ProgressView().tint(.white) }
-          }.padding(.bottom, 18).frame(maxWidth: .infinity, maxHeight: .infinity).tag(item.id).task { await load(item) }
+            } else { LoadingOrb(theme: .dark, label: "Loading photo") }
+          }.padding(.bottom, controlsVisible ? 18 : 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .containerRelativeFrame(.horizontal).id(item.id).task { await load(item) }
         }
-      }.tabViewStyle(.page(indexDisplayMode: .never)).frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.scrollTargetLayout()
+      }.scrollIndicators(.hidden).scrollTargetBehavior(.paging)
+        .scrollPosition(id: Binding<String?>(get: { selected }, set: { if let id = $0 { selected = id } }))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      if controlsVisible {
       VStack(spacing: 20) {
         if let caption = current?.caption, !caption.isEmpty {
           Text(caption).font(.system(size: 15)).foregroundStyle(Color(white: 0.72))
@@ -245,21 +437,7 @@ struct NativePhotoGallery: View {
             ScrollView(.horizontal) {
               LazyHStack(spacing: 7) {
                 ForEach(items) { item in
-                  Button {
-                    NativeHaptics.play(.selection, source: "attachment.photo-selection")
-                    selected = item.id
-                  } label: {
-                    ZStack {
-                      Color(white: 0.15)
-                      if let image = thumbnails[item.id] { Image(uiImage: image).resizable().scaledToFill() }
-                      if item.id != selected { Color.black.opacity(0.48) }
-                    }.frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 9))
-                      .overlay { if item.id == selected { RoundedRectangle(cornerRadius: 9).stroke(.white, lineWidth: 2) } }
-                  }.buttonStyle(.plain).padding(.vertical, 2).id(item.id)
-                    .accessibilityLabel("Photo \((items.firstIndex { $0.id == item.id } ?? 0) + 1)")
-                    .accessibilityIdentifier("photo-thumbnail-" + item.asset.id)
-                    .accessibilityAddTraits(item.id == selected ? .isSelected : [])
-                    .task { await loadThumbnail(item) }
+                  thumbnailButton(for: item)
                 }
               }.padding(.horizontal, max(16, (geometry.size.width - 48) / 2))
             }.scrollIndicators(.hidden).frame(height: 52)
@@ -270,8 +448,22 @@ struct NativePhotoGallery: View {
           }.frame(height: 52)
         }
       }.fixedSize(horizontal: false, vertical: true).padding(.bottom, 8)
-    }.background(Color.black.ignoresSafeArea()).preferredColorScheme(.dark)
+        .transition(.opacity)
+      }
+    }.padding(controlsVisible ? insets : EdgeInsets())
+      .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+      .offset(x: dismissalOffset.width * 0.2, y: dismissalOffset.height)
+      .scaleEffect(1 - min(0.12, dismissalOffset.height / 2000))
+      .opacity(dismissing ? 0 : 1)
+    }.ignoresSafeArea(.container)
+    }
+      .background(Color.black.opacity(1 - min(0.6, dismissalOffset.height / 500)).ignoresSafeArea())
+      .presentationBackground(.clear)
+      .preferredColorScheme(.dark)
+      .statusBarHidden(!controlsVisible)
       .ignoresSafeArea(.keyboard)
+      .accessibilityAction(named: controlsVisible ? "Hide controls" : "Show controls", toggleControls)
+      .accessibilityAction(.escape) { dismiss() }
       .onAppear { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
       .onChange(of: selected) { _, id in
         if let item = items.first(where: { $0.id == id }) { Task { await load(item) } }
@@ -288,6 +480,43 @@ struct NativePhotoGallery: View {
         isPresented: Binding(get: { saved || actionError != nil }, set: { if !$0 { saved = false; actionError = nil } })) {
         Button("OK", role: .cancel) { saved = false; actionError = nil }
       } message: { Text(actionError ?? "") }
+  }
+  private func thumbnailButton(for item: GalleryItem) -> some View {
+    Button {
+      NativeHaptics.play(.selection, source: "attachment.photo-selection")
+      selected = item.id
+    } label: {
+      ZStack {
+        Color(white: 0.15)
+        if let image = thumbnails[item.id] { Image(uiImage: image).resizable().scaledToFill() }
+        if item.id != selected { Color.black.opacity(0.48) }
+      }.frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 9))
+        .overlay { if item.id == selected { RoundedRectangle(cornerRadius: 9).stroke(.white, lineWidth: 2) } }
+    }.buttonStyle(.plain).padding(.vertical, 2).id(item.id)
+      .accessibilityLabel("Photo \((items.firstIndex { $0.id == item.id } ?? 0) + 1)")
+      .accessibilityIdentifier("photo-thumbnail-" + item.asset.id)
+      .accessibilityAddTraits(item.id == selected ? .isSelected : [])
+      .task { await loadThumbnail(item) }
+  }
+  private func toggleControls() {
+    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+  }
+  private func finishDismissDrag(_ translation: CGSize, _ velocity: CGFloat, _ cancelled: Bool) {
+    guard !dismissing else { return }
+    if !cancelled && (translation.height > 100 || (translation.height > 24 && velocity > 900)) {
+      withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18), completionCriteria: .removed) {
+        dismissalOffset = CGSize(width: translation.width, height: max(900, translation.height))
+        dismissing = true
+      } completion: {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { dismiss() }
+      }
+    } else {
+      withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.9)) {
+        dismissalOffset = .zero
+      }
+    }
   }
   private func load(_ item: GalleryItem) async {
     // The inline preview opens immediately, then upgrades from the same local
@@ -366,16 +595,49 @@ private enum PhotoLibraryWriter {
   }
 }
 
+private final class PhotoViewport {
+  var zoomScale: CGFloat = 1
+  var fittedWidth: CGFloat = 0
+  var normalizedCenter = CGPoint(x: 0.5, y: 0.5)
+}
+
+private final class PhotoViewportMemory {
+  private var viewports: [String: PhotoViewport] = [:]
+  func viewport(for id: String) -> PhotoViewport {
+    if let viewport = viewports[id] { return viewport }
+    let viewport = PhotoViewport()
+    viewports[id] = viewport
+    return viewport
+  }
+}
+
 private struct ZoomablePhoto: UIViewRepresentable {
   let image: UIImage
-  func makeUIView(context: Context) -> PhotoScrollView { PhotoScrollView(image: image) }
-  func updateUIView(_ view: PhotoScrollView, context: Context) { view.updateImage(image) }
+  let viewport: PhotoViewport
+  let toggleControls: () -> Void
+  let onDismissDrag: (CGSize) -> Void
+  let onDismissEnd: (CGSize, CGFloat, Bool) -> Void
+  func makeUIView(context: Context) -> PhotoScrollView { PhotoScrollView(image: image, viewport: viewport) }
+  func updateUIView(_ view: PhotoScrollView, context: Context) {
+    view.photoInteractions.toggleControls = toggleControls
+    view.photoInteractions.onDrag = onDismissDrag
+    view.photoInteractions.onEnd = onDismissEnd
+    view.updateImage(image)
+  }
 }
 
 private final class PhotoScrollView: UIScrollView, UIScrollViewDelegate {
   private let photo: UIImageView
-  init(image: UIImage) {
+  private let viewport: PhotoViewport
+  private var laidOutSize: CGSize = .zero
+  private var needsViewportRestore = true
+  private var restoringViewport = false
+  private var capturesViewport: Bool
+  let photoInteractions = PhotoInteractions()
+  init(image: UIImage, viewport: PhotoViewport) {
     photo = UIImageView(image: image)
+    self.viewport = viewport
+    capturesViewport = UIApplication.shared.applicationState == .active
     super.init(frame: .zero)
     delegate = self
     minimumZoomScale = 1
@@ -390,28 +652,125 @@ private final class PhotoScrollView: UIScrollView, UIScrollViewDelegate {
     let doubleTap = UITapGestureRecognizer(target: self, action: #selector(toggleZoom(_:)))
     doubleTap.numberOfTapsRequired = 2
     addGestureRecognizer(doubleTap)
+    let tap = UITapGestureRecognizer(target: photoInteractions, action: #selector(PhotoInteractions.tap))
+    tap.require(toFail: doubleTap)
+    addGestureRecognizer(tap)
+    photoInteractions.scrollView = self
+    let dismissPan = UIPanGestureRecognizer(target: photoInteractions, action: #selector(PhotoInteractions.pan(_:)))
+    dismissPan.maximumNumberOfTouches = 1
+    dismissPan.delegate = photoInteractions
+    addGestureRecognizer(dismissPan)
+    panGestureRecognizer.require(toFail: dismissPan)
+    NotificationCenter.default.addObserver(self, selector: #selector(suspendViewportCapture),
+      name: UIApplication.willResignActiveNotification, object: nil)
+    NotificationCenter.default.addObserver(self, selector: #selector(resumeViewportCapture),
+      name: UIApplication.didBecomeActiveNotification, object: nil)
   }
+  deinit { NotificationCenter.default.removeObserver(self) }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   func updateImage(_ image: UIImage) {
     guard photo.image !== image else { return }
     photo.image = image
+    needsViewportRestore = true
     setNeedsLayout()
   }
   override func layoutSubviews() {
+    guard !restoringViewport else { super.layoutSubviews(); return }
+    let restore = needsViewportRestore || laidOutSize != bounds.size
+    restoringViewport = restore
     super.layoutSubviews()
-    if zoomScale == 1, let image = photo.image, bounds.width > 0, bounds.height > 0 {
-      let scale = min(bounds.width / image.size.width, bounds.height / image.size.height)
-      photo.frame = CGRect(origin: .zero, size: CGSize(width: image.size.width * scale, height: image.size.height * scale))
-      contentSize = photo.bounds.size
+    if restore, let image = photo.image, bounds.width > 0, bounds.height > 0 {
+      restoreViewport(image: image)
+      laidOutSize = bounds.size
+      needsViewportRestore = false
     }
+    centerPhoto()
+    restoringViewport = false
+    captureViewport()
+  }
+  private func centerPhoto() {
     photo.center = CGPoint(x: max(bounds.width, contentSize.width) / 2, y: max(bounds.height, contentSize.height) / 2)
   }
+  private func captureViewport() {
+    guard capturesViewport, !restoringViewport, !needsViewportRestore,
+      laidOutSize == bounds.size, photo.bounds.width > 0, photo.bounds.height > 0 else { return }
+    let center = photo.convert(CGPoint(x: bounds.midX, y: bounds.midY), from: self)
+    viewport.zoomScale = zoomScale
+    viewport.fittedWidth = photo.bounds.width
+    viewport.normalizedCenter = CGPoint(x: min(1, max(0, center.x / photo.bounds.width)),
+      y: min(1, max(0, center.y / photo.bounds.height)))
+  }
+  private func restoreViewport(image: UIImage) {
+    let scale = min(bounds.width / image.size.width, bounds.height / image.size.height)
+    let fittedSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+    // Preserve the displayed image size when chrome or window geometry changes.
+    // A photo at fit scale continues fitting the available space.
+    let zoom = viewport.zoomScale > 1.01 && viewport.fittedWidth > 0
+      ? viewport.zoomScale * viewport.fittedWidth / fittedSize.width : 1
+    setZoomScale(1, animated: false)
+    photo.frame = CGRect(origin: .zero, size: fittedSize)
+    contentSize = fittedSize
+    setZoomScale(min(maximumZoomScale, max(minimumZoomScale, zoom)), animated: false)
+    centerPhoto()
+    let center = photo.convert(CGPoint(x: viewport.normalizedCenter.x * photo.bounds.width,
+      y: viewport.normalizedCenter.y * photo.bounds.height), to: self)
+    setContentOffset(CGPoint(
+      x: min(max(0, contentSize.width - bounds.width), max(0, center.x - bounds.width / 2)),
+      y: min(max(0, contentSize.height - bounds.height), max(0, center.y - bounds.height / 2))), animated: false)
+  }
+  @objc private func suspendViewportCapture() {
+    captureViewport()
+    capturesViewport = false
+    needsViewportRestore = true
+  }
+  @objc private func resumeViewportCapture() {
+    DispatchQueue.main.async { [weak self] in
+      guard let self, UIApplication.shared.applicationState == .active else { return }
+      self.needsViewportRestore = true
+      self.setNeedsLayout()
+      self.layoutIfNeeded()
+      self.capturesViewport = true
+      self.captureViewport()
+    }
+  }
   func viewForZooming(in scrollView: UIScrollView) -> UIView? { photo }
+  func scrollViewDidZoom(_ scrollView: UIScrollView) {
+    centerPhoto()
+    captureViewport()
+  }
+  func scrollViewDidScroll(_ scrollView: UIScrollView) { captureViewport() }
   @objc private func toggleZoom(_ recognizer: UITapGestureRecognizer) {
     if zoomScale > 1 { setZoomScale(1, animated: true) }
     else {
       let point = recognizer.location(in: photo)
       zoom(to: CGRect(x: point.x - bounds.width / 4, y: point.y - bounds.height / 4, width: bounds.width / 2, height: bounds.height / 2), animated: true)
+    }
+  }
+}
+
+/// A downward pan belongs to dismissal only at fit scale. Zoomed photos keep
+/// their native panning, and horizontal drags continue to page the gallery.
+private final class PhotoInteractions: NSObject, UIGestureRecognizerDelegate {
+  weak var scrollView: UIScrollView?
+  var toggleControls: () -> Void = {}
+  var onDrag: (CGSize) -> Void = { _ in }
+  var onEnd: (CGSize, CGFloat, Bool) -> Void = { _, _, _ in }
+  @objc func tap() { toggleControls() }
+  func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let scrollView,
+      scrollView.zoomScale <= scrollView.minimumZoomScale + 0.01,
+      !scrollView.isZooming else { return false }
+    let velocity = pan.velocity(in: scrollView.window)
+    return velocity.y > 0 && velocity.y > abs(velocity.x) * 1.25
+  }
+  @objc func pan(_ recognizer: UIPanGestureRecognizer) {
+    let point = recognizer.translation(in: recognizer.view?.window)
+    let translation = CGSize(width: point.x, height: max(0, point.y))
+    switch recognizer.state {
+    case .began, .changed: onDrag(translation)
+    case .ended: onEnd(translation, recognizer.velocity(in: recognizer.view?.window).y, false)
+    case .cancelled, .failed: onEnd(.zero, 0, true)
+    default: break
     }
   }
 }
@@ -428,7 +787,7 @@ private struct ForwardAttachmentView: View {
       NativeList {
         Section { Text(asset.fileName).foregroundStyle(NativePalette.muted) }
         if let failure { InlineFailure(message: failure) }
-        ForEach(store.channels.filter { !store.isHidden($0) }) { channel in
+        ForEach(store.channels.filter { $0.kind != "agent_dm" }) { channel in
           Button { selected = channel.id } label: {
             HStack {
               ChannelAvatar(channel: channel, size: 32)
@@ -454,5 +813,68 @@ private struct ForwardAttachmentView: View {
           }
         }
     }.interactiveDismissDisabled(sending)
+  }
+}
+
+/// A page with a folded corner, marked by what the file is: a red band for PDFs,
+/// a question mark when the file has no type.
+struct FileGlyph: View {
+  enum Kind { case pdf, archive, document, unknown }
+  let kind: Kind
+
+  var body: some View {
+    GeometryReader { proxy in
+      let width = proxy.size.width, height = proxy.size.height
+      ZStack(alignment: .topLeading) {
+        FoldedPage(fold: width * 0.34).fill(Color(.systemGray4))
+        switch kind {
+        case .pdf:
+          FoldedPage(fold: width * 0.34).fill(Color(hex: "D0393E"))
+            .mask(alignment: .bottom) { Rectangle().frame(height: height * 0.3) }
+          lines(width: width, height: height, rows: 2)
+          RoundedRectangle(cornerRadius: 2).fill(Color(.systemGray))
+            .frame(width: width * 0.34, height: height * 0.18)
+            .offset(x: width * 0.48, y: height * 0.36)
+        case .archive:
+          VStack(spacing: height * 0.05) {
+            ForEach(0..<4, id: \.self) { _ in Rectangle().fill(Color(.systemGray)).frame(width: width * 0.14, height: height * 0.06) }
+          }.frame(width: width).offset(y: height * 0.12)
+        case .document:
+          lines(width: width, height: height, rows: 4)
+        case .unknown:
+          Text("?").font(.system(size: height * 0.42, weight: .regular)).foregroundStyle(Color(.systemGray))
+            .frame(width: width, height: height).offset(y: height * 0.05)
+        }
+      }
+    }
+    .accessibilityHidden(true)
+  }
+
+  private func lines(width: CGFloat, height: CGFloat, rows: Int) -> some View {
+    VStack(alignment: .leading, spacing: height * 0.07) {
+      ForEach(0..<rows, id: \.self) { row in
+        Capsule().fill(Color(.systemGray))
+          .frame(width: width * (row == 0 ? 0.36 : rows == 2 ? 0.28 : 0.62), height: height * 0.055)
+      }
+    }.offset(x: width * 0.14, y: height * 0.3)
+  }
+}
+
+private struct FoldedPage: Shape {
+  let fold: CGFloat
+  func path(in rect: CGRect) -> Path {
+    let radius = rect.width * 0.12
+    var path = Path()
+    path.move(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+    path.addLine(to: CGPoint(x: rect.maxX - fold, y: rect.minY))
+    path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + fold))
+    path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+    path.addQuadCurve(to: CGPoint(x: rect.maxX - radius, y: rect.maxY), control: CGPoint(x: rect.maxX, y: rect.maxY))
+    path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+    path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - radius), control: CGPoint(x: rect.minX, y: rect.maxY))
+    path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+    path.addQuadCurve(to: CGPoint(x: rect.minX + radius, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
+    path.closeSubpath()
+    return path
   }
 }

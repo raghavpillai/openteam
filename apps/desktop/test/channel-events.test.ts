@@ -4,6 +4,7 @@ import {
   channelMessageSummary,
   channelNameChangedEventFor,
   routineChangedEventFor,
+  turnInterruptedEventFor,
 } from "../src/renderer/lib/channel-events";
 
 const message = (metadata: unknown): ChannelMessageView => ({
@@ -55,5 +56,18 @@ describe("channel timeline events", () => {
       automationName: "Daily digest",
     });
     expect(channelMessageSummary(value)).toBe("Disabled routine Daily digest");
+  });
+
+  test("shows a restart notice as its own text, only for system messages", () => {
+    const notice = "This reply was interrupted by a restart. Send your message again to continue.";
+    const value = {
+      ...message({ type: "event", event: { type: "turn-interrupted", reason: "restart", runId: "run-1" } }),
+      content: notice,
+    };
+
+    expect(turnInterruptedEventFor(value)).toEqual({ type: "turn-interrupted", reason: "restart" });
+    expect(channelMessageSummary(value)).toBe(notice);
+    expect(turnInterruptedEventFor({ ...value, sender: "agent" })).toBeNull();
+    expect(turnInterruptedEventFor(message({ type: "event", event: { type: "name-changed" } }))).toBeNull();
   });
 });

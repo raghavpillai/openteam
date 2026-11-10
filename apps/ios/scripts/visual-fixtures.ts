@@ -14,7 +14,87 @@ export function visualFixture(base: any, scene: string) {
     const row={id:`visual-message-${channel}-${index}`,clientId:null,sequence:String(index),channelId:channel,sender,senderBotId:sender==="agent"?"bot-"+channel:null,sourceRunId:null,content,metadata:{type:"text",...metadata},createdAt:new Date(date.getTime()+index*1000).toISOString()};
     snapshot.channelMessages.push(row); return row;
   }
-  if (scene === "navigation-layout") {
+  if (scene === "inbox-reference") {
+    const rows = [
+      ["#00C875", "pod", "Are my replies showing up for you? If not, tell me what you see."],
+      ["#FA2AA4", "pod", ""],
+      ["#777777", "chip", "browserruncode capability check finished (one call, no retry)."],
+      ["#9254FF", "classic", "Couldn’t finish the Google Flights lookup."],
+      ["#9254FF", "owl", "Five upcoming public Luma events in New York."],
+      ["#FF253C", "classic", "Benchmark 247 audit (from this turn’s tool receipts)."],
+      ["#FF253C", "pod", "Blocked on desktop allocation — not on the task itself."],
+      ["#946437", "pod", "Benchmark 246 audit (from this turn’s tool receipts)."],
+      ["#00B8A9", "owl", "A long conversation title should leave room for the entire date."],
+    ];
+    rows.forEach(([color, icon, preview], i) => {
+      const { channel } = bot(`inbox-${i}`, i === 8
+        ? "A deliberately long conversation name that should truncate" : "New Bot", color!, icon!);
+      const row = message(channel.id, i === 0 ? "user" : "agent", preview!, i + 1, i === 1 ? {
+        type: "widget", widget: { prompt: "What should I draft for Jayne?",
+          allowCustom: true, options: [
+            { label: "Still on track", value: "on-track" },
+            { label: "Delayed on customs", value: "delayed" },
+            { label: "Not proceeding", value: "not-proceeding", style: "danger" },
+            { label: "I’ll handle it", value: "handle" },
+          ] },
+      } : {});
+      const stamp = new Date();
+      if (i === 1) stamp.setDate(stamp.getDate() - 4);
+      else if (i === 2) stamp.setMonth(10, 2);
+      else if (i > 2) stamp.setMonth(8, 30);
+      row.createdAt = stamp.toISOString();
+      channel.updatedAt = row.createdAt;
+      channel.unreadCount = i === 0 ? 1 : 0;
+      if (i === 0) channel.notificationState.lastReadSequence = "0";
+    });
+    sidebar.channelOrderByGroup.unassigned = snapshot.channels.map((c: any) => c.id);
+    snapshot.runs = [{ ...runTemplate, id: "inbox-background-run", botId: "bot-inbox-0",
+      channelId: "inbox-0", status: "running" }];
+  } else if (scene === "inbox-activity") {
+    const previews = ["??", "", "Latest user message stays visible.",
+      "Latest bot reply stays visible.", "Idle preview stays visible."];
+    previews.forEach((preview, i) => {
+      const { channel } = bot(`activity-${i}`, "New Bot", i === 1 ? "#FA2AA4" : "#00C875", "pod");
+      const row = message(channel.id, i === 0 || i === 2 ? "user" : "agent", preview, i + 1,
+        i === 1 ? { type: "widget", widget: { prompt: "What should I draft for Jayne?",
+          options: [{ label: "Still on track", value: "on-track" }], allowCustom: true } } : {});
+      channel.updatedAt = row.createdAt;
+    });
+    sidebar.channelOrderByGroup.unassigned = snapshot.channels.map((c: any) => c.id);
+    snapshot.runs = [0, 1, 2, 3].map(i => ({ ...runTemplate, id: `activity-run-${i}`,
+      botId: `bot-activity-${i}`, channelId: i === 0 ? null : `activity-${i}`, status: "running" }));
+  } else if (scene === "inbox-unread") {
+    // Widely separated unread targets exercise both directions and lazy offscreen rows.
+    for (let i = 0; i < 44; i++) {
+      const { channel } = bot(`unread-${i}`, `Conversation ${i + 1}`, "#00B8A9", "owl");
+      const row = message(channel.id, "agent", `Inbox viewport fixture ${i + 1}`, i + 1);
+      channel.updatedAt = row.createdAt;
+      channel.unreadCount = [0, 14, 28, 43].includes(i) ? 3 : 0;
+      if (channel.unreadCount) channel.notificationState.lastReadSequence = "0";
+    }
+    // A manually marked unread conversation must work too, with no server unread count.
+    snapshot.channels.find((c: any) => c.id === "unread-14").unreadCount = 0;
+    sidebar.unreadIds = ["unread-14"];
+    sidebar.channelOrderByGroup.unassigned = snapshot.channels.map((c: any) => c.id);
+  } else if (scene === "duo-sidebar") {
+    const rows = [
+      ["#FA2AA4", "pod", "What should I draft for you?"],
+      ["#777777", "hex-visor", "Browser connection is ready."],
+      ["#00C875", "pod", "Test"],
+      ["#9254FF", "classic", "Couldn't finish the lookup."],
+      ["#9254FF", "owl", "Five upcoming events."],
+      ["#FF2545", "classic", "Browser navigation audit."],
+      ["#A47952", "chip", "Ready when you are."],
+      ["#1683FF", "terminal", "The weekly summary is ready."],
+    ];
+    rows.forEach(([color, icon, preview], index) => {
+      const { channel } = bot(`duo-${index}`, "New Bot", color!, icon!);
+      message(channel.id, "agent", preview!, index + 1).createdAt =
+        new Date(date.getTime() - (index + 2) * 86400000).toISOString();
+    });
+    sidebar.channelOrderByGroup.unassigned = snapshot.channels.map((c: any) => c.id);
+    sidebar.unreadIds = ["duo-6", "duo-7"];
+  } else if (scene === "navigation-layout") {
     for (const [id, name] of [["visual-chat", "Main chat"], ["visual-other", "Other chat"]]) {
       const {channel} = bot(id!, name!, "#00B8A9", "owl");
       for (let i = 1; i <= 60; i++) message(channel.id, "agent",
@@ -84,7 +164,12 @@ export function visualFixture(base: any, scene: string) {
     const name=isMotion?"Memory Deep 914 Box copy":isLong?"Compaction Ten 0913":isActions?"Memory Deep 914 Box":isDark?"Memory Deep 914 Server":"New Bot";
     const {channel}=bot("visual-chat",name,isDark?"#FA2AA4":isLong||isActions||isMotion?"#00B8A9":"#FF6600",isDark||isLong||isActions||isMotion?"cloud":"hexagon");
     if (isDark) { snapshot.bots[0].title=""; snapshot.bots[0].instructions=""; }
-    if (isMotion) {
+    if (scene === "delivery-spacing") {
+      message(channel.id, "agent", "Ready when you are.", 1);
+      message(channel.id, "user", "Why is the return address Irving, Texas? That doesn't make sense.", 2);
+      message(channel.id, "user", "Shouldn't it be going back to T-Mobile?", 3);
+      message(channel.id, "agent", "Yes, it should go back to T-Mobile.", 4);
+    } else if (isMotion) {
       // Inert text from the supplied recording, for matched animation captures.
       date.setDate(date.getDate()-1);
       const rows: ["user"|"agent",string][] = [
@@ -97,7 +182,7 @@ export function visualFixture(base: any, scene: string) {
       rows.forEach(([sender,content],i)=>message(channel.id,sender,content,i+1));
     } else if (isDark) {
       const rows:["user"|"agent",string][]=[
-        ["user", 'Call update_state target memory action forget with exact fact "MDEEP914S stable key is APRICOT-8136.". Return the exact tool result.'],
+        ["user", 'Call UpdateMemory action forget with exact fact "MDEEP914S stable key is APRICOT-8136.". Return the exact tool result.'],
         ["agent", "Forgetting that memory now."],
         ["agent", "Forgot from your memory: MDEEP914S stable key is APRICOT-8136."],
         ["user", 'Call RecallMemory query "MDEEP914S", scope agent, limit 50. Return the exact result. Do not read files or contact other bots.'],
@@ -152,6 +237,9 @@ export function visualFixture(base: any, scene: string) {
         // Insert a timestamp row roughly every dozen messages.
         row.createdAt = new Date(date.getTime() - (count - i) * 1000 - Math.floor((count - i) / 12) * 600_000).toISOString();
       }
+    } else if(scene === "background-activity") {
+      message(channel.id, "user", "Can you check the shipping receipt?", 1);
+      message(channel.id, "agent", "I’m checking the receipt. I’ll send you the tracking number when it’s ready.", 2);
     } else if(scene === "empty-chat") {
       // No messages: initial positioning must still dismiss the native spinner.
     } else if(scene === "history-pages" || scene === "window-history") {

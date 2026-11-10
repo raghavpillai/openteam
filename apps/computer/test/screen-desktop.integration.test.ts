@@ -18,7 +18,7 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
       const status = await broker.ensure("typing-probe", "/workspace");
       const env = await broker.commandEnvironment("typing-probe", "/workspace");
       browser = await chromium.launch({
-        executablePath: "/usr/local/bin/google-chrome",
+        executablePath: "/usr/lib/openteam/bin/google-chrome",
         headless: false,
         env: env as Record<string, string>,
         args: ["--no-sandbox", "--disable-dev-shm-usage", "--window-size=1280,800"],
@@ -29,7 +29,7 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
       );
       await page.bringToFront();
       viewerBrowser = await chromium.launch({
-        executablePath: "/usr/local/bin/google-chrome",
+        executablePath: "/usr/lib/openteam/bin/google-chrome",
         args: ["--no-sandbox"],
       });
       const view = await viewerBrowser.newPage();

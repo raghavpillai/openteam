@@ -4,14 +4,15 @@ import { SubagentService } from "../../src/services/subagent/service";
 for (const resume of [undefined, "restore-missing-worker"]) {
   test(`Task cannot select inference at the server boundary, restore=${!!resume}`, async () => {
     const configured = { providerId: "openai", modelId: "configured", reasoning: "medium" };
-    const config = { combinedComputerUse: true, executorProfiles: [
+    const config = { executorProfiles: [
       { name: "high", description: "legacy", providerId: "openai", modelId: "expensive", reasoning: "high" },
     ], defaultExecutorProfile: "high" };
     let child: any;
     const stop = new Error("captured child persistence");
     const tx: any = {
       $executeRaw: async () => 1,
-      bot: { create: async () => ({}) }, channel: { create: async () => ({}) },
+      bot: { create: async () => ({}), findUnique: async () => ({ status: "active" }) }, channel: { create: async () => ({}), findFirst: async () => ({ id: "parent-room" }) },
+      run: { findUnique: async () => ({ id: "parent-run", botId: "parent", channelId: "parent-room", origin: "user", status: "running", inboxEvents: [] }), update: async () => ({}) },
       subagent: { create: async ({ data }: any) => { child = data; throw stop; } },
     };
     const db: any = {

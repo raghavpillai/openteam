@@ -2,14 +2,13 @@ import { deviceLinkDefinition, deviceLinkResult, publicDeviceLink } from "./plug
 import { createHash } from "node:crypto";
 import { equalOAuthState, validateDesktopCallback, parseManualCallback, oauthCallbackMode, MANUAL_OAUTH_REDIRECT, type PluginOAuthDesktopContext } from "../plugins/oauth-callback";
 import type { PluginOAuthCallbackInput } from "@openteam/contracts/plugin-management";
-import { pluginToolArguments } from "./plugin/tool-arguments";
-import { connectionNamespace } from "@openteam/plugin-sdk";
-import type { ConfigurePluginConnectionInput, PluginTestInput } from "@openteam/contracts";
+import { normalizeAccountLabel, pluginToolArguments } from "./plugin/tool-arguments";
+import { connectionNamespaces } from "@openteam/plugin-sdk";
+import type { ConfigurePluginConnectionInput, PluginTestInput, RunOrigin } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import type { AgentDataStore } from "@openteam/messaging";
 import { Effect, Either } from "effect";
-import type { PluginDefinition, PluginToolDefinition } from "../plugins/catalog";
 import { McpHttpClientManager } from "../plugins/mcp-client-manager";
 import { OAuthReauthorizationRequiredError } from "../plugins/packaged-oauth";
 import { OpenTeamMarketplaceSource } from "../plugins/openteam-marketplace";
@@ -20,6 +19,8 @@ import {
   fieldsForConnector,
   validateValues,
   type ConfigValue,
+  type PluginDefinition,
+  type PluginToolDefinition,
 } from "@openteam/plugin-sdk";
 import { PluginConnectors } from "./plugin/connectors";
 import type { PollableConnection } from "./plugin/events";
@@ -51,12 +52,22 @@ import { parseAuthMode } from "../auth-mode";
 // Health checks before stopped processes resumed on use wrote this for every
 // connection whose process was missing after a restart.
 const STOPPED_RUNTIME_MESSAGE = "Local runtime unavailable: MCP process is not connected. Reconnect to try again.";
+const COMPUTER_UNREACHABLE_MESSAGE = "Local runtime unavailable: The computer is not reachable. This reconnects when it is back.";
 
 const runAuthentication = async <A>(effect: Effect.Effect<A, Error>): Promise<A> => {
   const result = await Effect.runPromise(Effect.either(effect));
   if (Either.isLeft(result)) throw result.left;
   return result.right;
 };
+
+/** Typed user turns; wakes from revivals, agents, events, routines and channels are not the user asking. */
+const USER_STARTED_RUN_ORIGINS: ReadonlySet<RunOrigin> = new Set(["user"]);
+
+export const describeInstallNotUserTurn = (displayName: string, origin?: RunOrigin) =>
+  origin === "group"
+    // Adapted: a user can start a room turn, so the reference's "did not start this turn" would be false there.
+    ? `Nothing was installed: this is a group-room turn, and installing adds ${displayName} to your user's account, which happens only when they ask for it in their own 1:1 chat with you. If your user wants ${displayName}, ask them to continue in your 1:1 chat (pass "to":"dm" on SendToUser to reach it) or to add it themselves in OpenTeam.`
+    : `Nothing was installed: the user did not start this turn, and installing adds ${displayName} to their account. Only install when the user asks for it in their own chat with you, never on a turn a routine, another agent, or a Slack or Teams message started. Tell the user this needs ${displayName}, which they can add themselves in OpenTeam.`;
 
 export class PluginService {
   readonly fileTransfers: ConnectorFileTransfers;
@@ -231,6 +242,7 @@ export class PluginService {
     callId: string;
     action: string;
     arguments: unknown;
+    origin: RunOrigin;
   }, signal?: AbortSignal): Promise<unknown> => {
     signal?.throwIfAborted();
     const scope = "plugin-action";
@@ -256,6 +268,10 @@ export class PluginService {
     const existing = await this.prisma.idempotencyRecord.findUnique({ where });
     if (existing) return replay(existing);
     const args = await this.resolveToolArguments(request.action, request.arguments);
+    if (request.action === "InstallPlugin" && !USER_STARTED_RUN_ORIGINS.has(request.origin)) {
+      const detail = await this.catalogDetail(String(args.pluginKey)) as { plugin?: { name?: string } };
+      return describeInstallNotUserTurn(detail.plugin?.name ?? String(args.pluginKey), request.origin);
+    }
     signal?.throwIfAborted();
     try {
       await this.prisma.idempotencyRecord.create({ data: {
@@ -325,13 +341,14 @@ export class PluginService {
     if (action === "UninstallMcpServer") {
       const connection = await this.connectionOrThrow(connectionId);
       if (!connection.installation.pluginKey.startsWith("custom-mcp-")) {
+        const plugin = connection.installation.pluginKey;
         throw new ApiError(
           409,
           "marketplace_plugin_required",
-          "Marketplace MCP servers must be removed by uninstalling their plugin"
+          `${connection.name} was installed from marketplace plugin ${plugin}, so removing it removes that whole plugin, every connector and skill it added, not just this server. Use UninstallPlugin with plugin id ${plugin} instead, and disclose that full scope to the user first.`
         );
       }
-      return Effect.runPromise(this.uninstall(connection.installation.pluginKey));
+      return { ...(await Effect.runPromise(this.uninstall(connection.installation.pluginKey))), name: connection.name };
     }
     if (action === "AuthenticateMcpServer") {
       if (typeof args.createAccountLabel === "string") {
@@ -364,6 +381,16 @@ export class PluginService {
     const args = pluginToolArguments(action, value);
     for (const key of ["connectionIds", "createAccountLabel", "createAccountId", "createServerId"]) if (key in args)
       throw new ApiError(400, "private_plugin_argument", `${key} is assigned by the action service`);
+    if ((action === "InstallPlugin" || action === "UninstallPlugin") && typeof args.pluginKey === "string") {
+      const detail = await this.catalogDetail(args.pluginKey).catch((error: unknown) => {
+        if (error instanceof ApiError && error.code === "plugin_not_found") return null;
+        throw error;
+      }) as { installed?: boolean; plugin?: { name?: string } } | null;
+      if (!detail)
+        throw new ApiError(404, "plugin_not_found", `No plugin with id "${args.pluginKey}". Ids come from SearchPlugins. Run it and use the id it lists.`);
+      if (action === "UninstallPlugin" && !detail.installed)
+        throw new ApiError(404, "plugin_not_installed", `${detail.plugin?.name ?? args.pluginKey} (plugin ${args.pluginKey}) is not installed, so there is nothing to uninstall.`);
+    }
     if (action === "AddMcpServer") args.createServerId = crypto.randomUUID();
     if (action === "RestartMcpServers" && !args.connectionId && !args.server_id) {
       args.connectionIds = (await this.prisma.pluginConnection.findMany({
@@ -374,17 +401,22 @@ export class PluginService {
     if (!args.server_id) return args;
     if (typeof args.server_id !== "string") throw new ApiError(400, "server_id_invalid", "server_id must be a string");
     const connections = await this.prisma.pluginConnection.findMany({ include: { installation: true } });
-    const matches = connections.filter(c => c.id === args.server_id || connectionNamespace(c.id,c.alias) === args.server_id || c.installation.pluginKey === args.server_id);
-    if (!matches.length) throw new ApiError(404, "connection_not_found", "Server not found; use GetMcpServerStatus");
+    const namespaces = connectionNamespaces(connections);
+    const matches = connections.filter(c => c.id === args.server_id || namespaces.get(c.id) === args.server_id || c.installation.pluginKey === args.server_id);
+    if (!matches.length) throw new ApiError(404, "connection_not_found", `No installed MCP server "${args.server_id}". Run GetMcpServerStatus to list every server with its identifier.`);
     const groups = new Set(matches.map(c => `${c.installationId}/${c.connectorKey}`));
     if (groups.size !== 1) throw new ApiError(409, "account_ambiguous", "Use a server identifier from GetMcpServerStatus");
     const source = matches[0]!;
     const accounts = connections.filter(c => c.installationId === source.installationId && c.connectorKey === source.connectorKey);
-    const selected = typeof args.account_label === "string" ? accounts.filter(c => c.alias === args.account_label) : matches;
-    if (!selected.length && action === "AuthenticateMcpServer" && typeof args.account_label === "string") {
-      args.createAccountLabel = args.account_label;
+    const label = typeof args.account_label === "string" ? normalizeAccountLabel(args.account_label) : undefined;
+    const selected = label !== undefined ? accounts.filter(c => normalizeAccountLabel(c.alias) === label) : matches;
+    if (!selected.length && action === "AuthenticateMcpServer" && label !== undefined) {
+      args.createAccountLabel = label;
       args.createAccountId = crypto.randomUUID();
     } else if (selected.length !== 1) throw new ApiError(409, "account_ambiguous", "Select one account_label from GetMcpServerStatus");
+    if (action === "RenameMcpAccount" && typeof args.accountLabel === "string" &&
+        accounts.some(c => c.id !== selected[0]!.id && normalizeAccountLabel(c.alias) === args.accountLabel))
+      throw new ApiError(409, "connection_alias_exists", "That account alias already exists");
     const id = (selected[0] ?? source).id;
     if (args.connectionId && args.connectionId !== id) throw new ApiError(400, "account_ambiguous", "Conflicting connectionId and server_id");
     args.connectionId = id;
@@ -626,12 +658,8 @@ export class PluginService {
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);
       const oauth = jsonObject(jsonObject(connection.credentials).oauth);
-      // Authenticated users may discard a legacy agent-created orphan. This
-      // exception is cancellation-only; redemption still requires the owner.
-      const cancelSessionId = oauth.callbackMode === "manual" && oauth.callbackSessionId === null && sessionId !== null
-        ? null : sessionId;
       const context: PluginOAuthDesktopContext | undefined = oauth.callbackMode === "manual"
-        ? { redirectUrl: String(oauth.redirectUrl), sessionId: cancelSessionId, mode: "manual" }
+        ? { redirectUrl: String(oauth.redirectUrl), sessionId, mode: "manual" }
         : redirectUrl ? { redirectUrl: validateDesktopCallback(redirectUrl), sessionId } : undefined;
       return runAuthentication(this.cancelAuthentication(connectionId, state, context));
     });
@@ -806,14 +834,17 @@ export class PluginService {
       if (error instanceof OAuthReauthorizationRequiredError) throw error;
       const raw = error instanceof Error ? error.message : String(error);
       const message = String(redactConnectionSecrets(raw, connection)).slice(0, 1500);
+      // Local connectors can manage their own credentials despite authType none.
+      const connectorAuthFailure = message.startsWith("Authentication failed:");
       const authFailure =
-        connection.authType !== "none" &&
-        /401|unauthoriz|invalid.token|invalid.grant/i.test(message);
+        connectorAuthFailure ||
+        (connection.authType !== "none" &&
+          /401|unauthoriz|invalid.token|invalid.grant/i.test(message));
       await this.prisma.pluginConnection.updateMany({
         where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
         data: {
           status: authFailure ? "needs_auth" : "error",
-          statusMessage: `${authFailure ? "Authentication failed" : connection.transport === "stdio" ? "Local runtime unavailable" : "Tool discovery failed"}: ${message}`,
+          statusMessage: connectorAuthFailure ? message : `${authFailure ? "Authentication failed" : connection.transport === "stdio" ? "Local runtime unavailable" : "Tool discovery failed"}: ${message}`,
           lastCheckedAt: new Date(),
         },
       });
@@ -1241,44 +1272,6 @@ export class PluginService {
       );
   };
 
-  hostComponents = () => Effect.runPromise(this.management.hostComponents());
-
-  /**
-   * Record how the CLI's refresh of a plugin's host part went, where the plugin's activity shows it. A refreshed part
-   * restarts the plugin's working connections so they pick up its tools; after a failure they keep the previous part.
-   */
-  hostRefreshed = async (pluginKey: string, refreshed: boolean, detail?: string) => {
-    const installation = await this.prisma.pluginInstallation.findFirst({
-      where: { pluginKey, status: "installed" },
-      select: { id: true, name: true, version: true },
-    });
-    if (!installation) return { restarted: [] };
-    await this.prisma.pluginActivity.create({
-      data: {
-        installationId: installation.id,
-        kind: refreshed ? "plugin.host_refreshed" : "plugin.host_refresh_failed",
-        summary: refreshed
-          ? `Refreshed ${installation.name} ${installation.version} on the OpenTeam host`
-          : `Couldn't refresh ${installation.name} on the OpenTeam host. Run openteam update --force there to retry${detail ? ` (${detail})` : ""}`,
-        metadata: detail ? { detail } : {},
-      },
-    });
-    if (!refreshed) return { restarted: [] };
-    const connections = await this.prisma.pluginConnection.findMany({
-      where: { installationId: installation.id, status: { in: ["ready", "error"] } },
-      select: { id: true },
-    });
-    const restarted: Array<{ connectionId: string; status?: string; error?: string }> = [];
-    for (const { id } of connections)
-      restarted.push(
-        await Effect.runPromise(this.restart(id)).then(
-          (result) => ({ connectionId: id, status: String((result as { status?: unknown }).status ?? "ready") }),
-          (error) => ({ connectionId: id, error: error instanceof Error ? error.message : String(error) })
-        )
-      );
-    return { restarted };
-  };
-
   private async restartConnection(connectionId: string, sessionId: string | null) {
       await this.connectionStops.get(connectionId);
       const connection = await this.connectionOrThrow(connectionId);
@@ -1475,9 +1468,18 @@ export class PluginService {
           }
           // Discovery can spawn an OAuth bridge and open a browser. Background
           // health checks only observe the existing runtime; retries are explicit.
-          const runtime = await this.transport.stdioStatus(connection.id);
+          const runtime = await this.transport.stdioStatus(connection.id).catch(() => null);
           const current = await this.connectionOrThrow(connection.id);
           if (current.updatedAt.getTime() !== connection.updatedAt.getTime()) continue;
+          if (!runtime) {
+            // While the computer is down, only a working connection changes state,
+            // so a pending sign-in or an earlier failure keeps its own reason.
+            if (current.status === "ready") await this.prisma.pluginConnection.updateMany({
+              where: { id: connection.id, updatedAt: connection.updatedAt },
+              data: { status: "error", statusMessage: COMPUTER_UNREACHABLE_MESSAGE, lastCheckedAt: new Date() },
+            });
+            continue;
+          }
           if (runtime.state === "starting") {
             if (current.status !== "needs_auth") await this.prisma.pluginConnection.updateMany({
               where: { id: connection.id, updatedAt: connection.updatedAt },
@@ -1489,10 +1491,15 @@ export class PluginService {
             // A restart or plugin update stopped this process. A connection that was
             // working starts on its next call; calls never retry a failed start.
             if (current.status === "ready") continue;
-            if (current.statusMessage === STOPPED_RUNTIME_MESSAGE) {
+            if (
+              current.statusMessage === STOPPED_RUNTIME_MESSAGE ||
+              current.statusMessage === COMPUTER_UNREACHABLE_MESSAGE
+            ) {
               await this.markReady(current, toolSnapshot(current.toolSnapshot), "connection.resumed");
               continue;
             }
+            // A process that failed before the restart keeps its reason.
+            if (current.status !== "needs_auth") continue;
             throw new Error("Sign-in was interrupted when the computer restarted. Reconnect to try again.");
           }
           if (runtime.state !== "ready")
@@ -1510,11 +1517,12 @@ export class PluginService {
               connection
             )
           );
+          const authFailure = message.startsWith("Authentication failed:");
           await this.prisma.pluginConnection.updateMany({
             where: { id: connection.id, updatedAt: connection.updatedAt },
             data: {
-              status: "error",
-              statusMessage: `Local runtime unavailable: ${message.slice(0, 1500)}`,
+              status: authFailure ? "needs_auth" : "error",
+              statusMessage: authFailure ? message.slice(0, 1500) : `Local runtime unavailable: ${message.slice(0, 1500)}`,
               lastCheckedAt: new Date(),
             },
           });
@@ -1539,7 +1547,5 @@ export class PluginService {
     return this.transport.stopRuntime(connectionId, transport, generation);
   }
 }
-
-export { discoverRemoteTools, invokeRemoteTool } from "./plugin/transport";
 
 export { boundPluginResult } from "./plugin/values";

@@ -4,7 +4,6 @@ import {
   type BotRecipe,
   type BotView,
   type CreateBotInput,
-  type DuplicateBotInput,
   resolveBotAvatarMark,
   type UpdateBotInput,
 } from "@openteam/contracts";
@@ -14,6 +13,7 @@ import {
   type AgentDataStore,
   type AgentMessaging,
   appendAgentTimelineEvent,
+  stopRequestProgress,
   type BotFileTarget,
   buildSafeTranscript,
 } from "@openteam/messaging";
@@ -26,7 +26,6 @@ import {
   toJson,
 } from "./service-utils";
 import { type BotWithConversation, toBotView } from "./view-mappers";
-import { duplicateBot } from "./bot-duplication";
 
 export class BotService {
   constructor(
@@ -38,12 +37,11 @@ export class BotService {
     private readonly messaging?: AgentMessaging
   ) {}
 
-  list = (includeHidden = false) =>
+  list = (_includeHidden = false) =>
     serviceEffect(async () => {
       const bots = await this.prisma.bot.findMany({
         where: {
           status: { not: "archived" },
-          ...(includeHidden ? {} : { hiddenFromSidebar: false }),
           subagentIdentity: { is: null },
         },
         include: {
@@ -54,20 +52,6 @@ export class BotService {
       });
       return bots.map(toBotView);
     });
-
-  duplicate = (sourceId: string, input: DuplicateBotInput) =>
-    serviceEffect(() =>
-      duplicateBot(
-        {
-          prisma: this.prisma,
-          boss: this.boss,
-          agentData: this.agentData,
-          computerFetch: this.computerFetch,
-        },
-        sourceId,
-        input
-      )
-    );
 
   create = (input: CreateBotInput, recipe?: BotRecipe) =>
     serviceEffect(async () => {
@@ -192,7 +176,7 @@ export class BotService {
       }
       if (input.instructions !== undefined) fileTargets.push("instructions");
       if (input.icon !== undefined || input.color !== undefined) fileTargets.push("avatar");
-      if (input.notificationsEnabled !== undefined || input.hiddenFromSidebar !== undefined) {
+      if (input.notificationsEnabled !== undefined) {
         fileTargets.push("settings");
       }
       const bot = await this.agentData.mutateBotFiles(botId, fileTargets, async (tx) => {
@@ -214,7 +198,6 @@ export class BotService {
             color: input.color,
             avatarPath: input.icon !== undefined || input.color !== undefined ? null : undefined,
             notificationsEnabled: input.notificationsEnabled,
-            hiddenFromSidebar: input.hiddenFromSidebar,
             draftingDisabled: input.draftingDisabled,
             draftAllowedRecipients: input.draftAllowedRecipients
               ? [...new Set(input.draftAllowedRecipients.map((address) => address.trim().toLowerCase()))]
@@ -247,7 +230,6 @@ export class BotService {
             input.instructions !== undefined,
           settingsChanged:
             input.notificationsEnabled !== undefined ||
-            input.hiddenFromSidebar !== undefined ||
             input.draftingDisabled !== undefined ||
             input.draftAllowedRecipients !== undefined,
         });
@@ -360,7 +342,7 @@ export class BotService {
         select: { id: true, childBotId: true, currentRunId: true, status: true },
       });
       const activeChildren = children.filter((child) =>
-        ["provisioning", "queued", "running"].includes(child.status)
+        ["provisioning", "queued", "running", "waiting"].includes(child.status)
       );
       await Promise.all(
         activeChildren.flatMap((child) =>
@@ -382,6 +364,7 @@ export class BotService {
           }).catch(() => undefined)
         )
       );
+      await this.prisma.$transaction(tx => stopRequestProgress(tx, botId));
       const contextSessions = await this.prisma.contextSession.findMany({
         where: { botId: { in: [botId, ...children.map((child) => child.childBotId)] } },
         select: { id: true, runtimeSessionPath: true },
@@ -418,15 +401,15 @@ export class BotService {
           await tx.subagent.updateMany({
             where: {
               id: child.id,
-              status: { in: ["provisioning", "queued", "running"] },
+              status: { in: ["provisioning", "queued", "running", "waiting"] },
             },
-            data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
+            data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt, nextCheckAt: null },
           });
           if (attempt) {
             await tx.subagentAttempt.updateMany({
               where: {
                 id: attempt.id,
-                status: { in: ["provisioning", "queued", "running"] },
+                status: { in: ["provisioning", "queued", "running", "waiting"] },
               },
               data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
             });

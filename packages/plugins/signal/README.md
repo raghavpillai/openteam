@@ -29,7 +29,7 @@ Reuse the same request ID and content to inspect a send's recorded outcome. An `
 
 ## Privacy and removal
 
-The message index excludes disappearing and view-once content. Edits and deletion events update the index; tombstones prevent replayed originals from restoring deleted messages. The connector does not backfill history or provide a Signal backup.
+The message index excludes disappearing and view-once content. Delivered edits and deletion events update the index; tombstones prevent replayed originals from restoring deleted messages. Some phone-side deletions do not reach this integration: the live Note to Self Delete for Everyone test produced an empty signal-cli sync event without a deletion target, leaving the collected copy readable. Do not rely on deleting a message on the phone to remove OpenTeam's copy. This remains a release blocker. The connector does not backfill history or provide a Signal backup.
 
 Signal cryptographic keys, downloaded files, the local index and the send ledger are stored in a private directory per OpenTeam account on the Bot computer. This is ordinary filesystem and SQLite storage, protected by permissions, not an encrypted database. Logical deletion is not secure erasure of SQLite free pages, WAL, provider files or external backups. Signal-cli can download attachments independently of whether the index retains their references.
 

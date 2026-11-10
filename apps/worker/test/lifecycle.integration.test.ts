@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -28,29 +28,23 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     userInfoEpoch?: number;
     cwd: string;
   }
-  interface SteerInput {
-    inboxId: string;
-    clientMessageId: string;
-    content: string;
-    images?: Array<{ url: string }>;
-  }
   const seenTurns: TurnInput[] = [];
   const preflightContexts: string[] = [];
-  const seenSteers: Array<SteerInput & { runId: string }> = [];
-  const deliveredSteers = new Map<string, SteerInput[]>();
+  const cancelled: Array<{ runId: string; reason?: string }> = [];
   const releaseTurn = new Map<string, () => void>();
-  let steerDisposition: "deliver" | "drop" = "deliver";
   let turnNumber = 0;
   let onTurn: (input: TurnInput) => Promise<void> = async () => {};
   const inlineImage = {
     url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   };
   const turnBody = (content: string) => {
+    content = content.replace(/^<system_reminder>\n[\s\S]*?\n<\/system_reminder>\n/, "");
     const body =
       content.match(
         /^<timestamp>[^\n]+<\/timestamp>\n<user_query>\n([\s\S]*?)\n<\/user_query>(?:\n\n[\s\S]*)?$/
       )?.[1] ?? content;
-    return body.replace(/^\[t\d+u\]\s?/, "");
+    // Route this fake computer by the user's text, without the appended file annotation.
+    return body.replace(/^\[t\d+u\]\s?/, "").split("\n\nThe user attached a file.")[0]!;
   };
   const fakeComputer = Bun.serve({
     hostname: "127.0.0.1",
@@ -78,14 +72,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       }
       if (request.method === "POST" && url.pathname === "/v1/infer") {
         const body = (await request.json()) as { kind?: string };
-        const text =
-          body.kind === "extraction"
-            ? "NONE"
-            : body.kind === "episode"
-              ? "NONE"
-              : body.kind === "verification"
-                ? '{"approved":true}'
-                : '{"changes":[]}';
+        const text = body.kind === "extraction" ? "NONE" : '{"approved":true}';
         return Response.json({ text });
       }
       if (request.method === "PUT" && url.pathname.startsWith("/v1/workspaces/")) {
@@ -101,20 +88,15 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       if (request.method === "PUT" && url.pathname.startsWith("/v1/transcripts/")) {
         return Response.json({ ok: true });
       }
-      const steerMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/steer$/);
-      if (request.method === "POST" && steerMatch?.[1]) {
-        const input = (await request.json()) as SteerInput;
-        seenSteers.push({ ...input, runId: steerMatch[1] });
-        if (steerDisposition === "deliver") {
-          const queued = deliveredSteers.get(steerMatch[1]) ?? [];
-          queued.push(input);
-          deliveredSteers.set(steerMatch[1], queued);
-        }
-        releaseTurn.get(steerMatch[1])?.();
+      const cancelMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/cancel$/);
+      if (request.method === "POST" && cancelMatch?.[1]) {
+        const body = (await request.json().catch(() => ({}))) as { reason?: string };
+        cancelled.push({ runId: cancelMatch[1], reason: body.reason });
+        releaseTurn.get(cancelMatch[1])?.();
         return Response.json({ ok: true });
       }
-      if (request.method === "POST" && /^\/v1\/turns\/[^/]+\/cancel$/.test(url.pathname)) {
-        return Response.json({ ok: true });
+      if (request.method === "POST" && /^\/v1\/bots\/[^/]+\/background-shells\/stop$/.test(url.pathname)) {
+        return Response.json({ stopped: 0 });
       }
       const contextStateMatch = url.pathname.match(/^\/v1\/context-sessions\/([^/]+)$/);
       if (request.method === "GET" && contextStateMatch?.[1]) {
@@ -153,12 +135,6 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
             archives: [],
           },
           { type: "turn.started", turnId },
-          ...(deliveredSteers.get(input.runId) ?? []).map((steer) => ({
-            type: "input.delivered",
-            turnId,
-            inboxId: steer.inboxId,
-            clientMessageId: steer.clientMessageId,
-          })),
           {
             type: "runtime.error",
             turnId,
@@ -198,6 +174,8 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     },
   });
 
+  const envKeys = ["DATABASE_URL", "OPENTEAM_COMPUTER_URL", "OPENTEAM_CONTROL_TOKEN", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_AGENT_DATA_ROOT"] as const;
+  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   process.env.DATABASE_URL = databaseUrl;
   process.env.OPENTEAM_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
   process.env.OPENTEAM_CONTROL_TOKEN = "integration-control-token";
@@ -205,6 +183,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
   process.env.OPENTEAM_AGENT_DATA_ROOT = join(workspace, "agent-data");
 
   let app: AppService | null = null;
+  let restoreTimeZone = async () => {};
   let worker: WakeWorker | null = null;
   const close = async () => {
     if (worker) await worker.stop();
@@ -215,10 +194,18 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
 
   try {
     app = new AppService();
+    const previousZone = await app.prisma.userTimeZoneSettings.findUnique({ where: { id: "global" } });
+    restoreTimeZone = async () => {
+      await app!.prisma.userTimeZoneSettings.deleteMany({ where: { id: "global" } });
+      if (previousZone) await app!.prisma.userTimeZoneSettings.create({ data: previousZone });
+    };
     await app.prisma.$executeRawUnsafe(
       'TRUNCATE TABLE "Computer", "Bot", "OutboxDelivery", "Event", "IdempotencyRecord" CASCADE'
     );
     await Effect.runPromise(app.boot());
+    await app.agentData.writeInferenceSettings({
+      providerId: "openai-codex", modelId: "fake", reasoning: "medium",
+    });
     worker = new WakeWorker();
     await worker.start();
 
@@ -299,9 +286,12 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(seenTurns[0]?.cwd).toBe(bot.defaultDirectory);
     expect(seenTurns[0]?.images).toEqual([inlineImage]);
     expect(seenTurns[0]?.content).toMatch(
-      /^<timestamp>.+ \(UTC\+3\)<\/timestamp>\n<user_query>\n\[t\d+u\] first\n<\/user_query>/
+      /<timestamp>[^\n]+<\/timestamp>\n<user_query>\n\[t\d+u\]\nfirst\n\nThe user attached a file\. They're stored off your box at the paths below[^]*\n<\/user_query>$/
     );
-    expect(seenTurns[0]?.content).toContain("Attached files available on the shared computer:");
+    const offset = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", timeZoneName: "shortOffset" })
+      .formatToParts(new Date()).find((part) => part.type === "timeZoneName")!.value.replace("GMT", "UTC");
+    expect(firstSeenTurn.content).toContain(`(${offset})</timestamp>`);
+    expect(firstSeenTurn.content).toContain('("image.png", 68 B)');
     expect(seenTurns[0]?.content).toContain(
       join(workspace, "agent-data", "agents", bot.id, "attachments", `${uploadedImage.assetId}.png`)
     );
@@ -348,7 +338,6 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(firstSnapshot.workspace).toMatchObject({
       root: workspace,
       botsDirectory: join(workspace, "bots"),
-      projectsDirectory: join(workspace, "projects"),
       sharedDirectory: join(workspace, "shared"),
     });
 
@@ -379,105 +368,41 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       )
     ).toMatchObject([{ status: "completed" }]);
 
+    // A typed message during a running turn supersedes it and runs as a new turn, as in the reference.
     onTurn = async (input) => {
-      if (turnBody(input.content) !== "steering base task") return;
+      if (turnBody(input.content) !== "superseded base task") return;
       await new Promise<void>((resolve) => releaseTurn.set(input.runId, resolve));
       releaseTurn.delete(input.runId);
     };
-    const steeringBase = (await Effect.runPromise(
+    const supersededBase = (await Effect.runPromise(
       app.sendMessage(conversationId, {
-        content: "steering base task",
-        clientId: "client-steering-base-0003",
+        content: "superseded base task",
+        clientId: "client-superseded-base-0003",
       })
     )) as { run: { id: string } };
     await waitUntil(
-      async () => releaseTurn.has(steeringBase.run.id),
-      "active user turn ready for steering"
+      async () => releaseTurn.has(supersededBase.run.id),
+      "active user turn ready to be superseded"
     );
     const redirected = (await Effect.runPromise(
       app.sendMessage(conversationId, {
         content: "redirect the active task",
-        clientId: "client-steering-inline-0004",
+        clientId: "client-superseding-0004",
         attachments: [uploadedImage],
       })
     )) as { run: { id: string } };
-    expect(redirected.run.id).toBe(steeringBase.run.id);
-    await waitFor(steeringBase.run.id);
-    expect(
-      seenTurns.filter(
-        (turn) =>
-          turnBody(turn.content) === "steering base task" ||
-          turnBody(turn.content) === "redirect the active task"
-      )
-    ).toHaveLength(1);
-    expect(seenSteers.at(-1)).toMatchObject({
-      runId: steeringBase.run.id,
-      clientMessageId: "client-steering-inline-0004",
-    });
-    expect(turnBody(seenSteers.at(-1)?.content ?? "")).toBe("redirect the active task");
-    expect(seenSteers.at(-1)?.images).toEqual([inlineImage]);
-    const deliveredSteer = await app.prisma.inboxEvent.findUniqueOrThrow({
-      where: { idempotencyKey: "client-steering-inline-0004" },
-    });
-    const deliveredMessage = await app.prisma.message.findUniqueOrThrow({
-      where: {
-        conversationId_clientId: {
-          conversationId,
-          clientId: "client-steering-inline-0004",
-        },
-      },
-    });
-    expect(deliveredSteer).toMatchObject({
-      runId: steeringBase.run.id,
-      deliveryMode: "steer",
-      status: "completed",
-    });
-    expect(deliveredMessage.runId).toBe(steeringBase.run.id);
-
-    steerDisposition = "drop";
-    onTurn = async (input) => {
-      if (turnBody(input.content) !== "fallback base task") return;
-      await new Promise<void>((resolve) => releaseTurn.set(input.runId, resolve));
-      releaseTurn.delete(input.runId);
-    };
-    const fallbackBase = (await Effect.runPromise(
-      app.sendMessage(conversationId, {
-        content: "fallback base task",
-        clientId: "client-fallback-base-0005",
-      })
-    )) as { run: { id: string } };
+    expect(redirected.run.id).not.toBe(supersededBase.run.id);
     await waitUntil(
-      async () => releaseTurn.has(fallbackBase.run.id),
-      "active user turn ready for fallback"
+      async () => cancelled.some((cancel) => cancel.runId === supersededBase.run.id),
+      "superseded turn cancelled"
     );
-    const fallbackAccepted = (await Effect.runPromise(
-      app.sendMessage(conversationId, {
-        content: "recover this undelivered instruction",
-        clientId: "client-fallback-steer-0006",
-      })
-    )) as { run: { id: string } };
-    expect(fallbackAccepted.run.id).toBe(fallbackBase.run.id);
+    expect(cancelled.find((cancel) => cancel.runId === supersededBase.run.id)?.reason).toBe("user_message");
     await waitUntil(
-      async () =>
-        seenTurns.some((turn) => turnBody(turn.content) === "recover this undelivered instruction"),
-      "undelivered steer fallback turn"
+      async () => seenTurns.some((turn) => turnBody(turn.content) === "redirect the active task"),
+      "superseding turn"
     );
-    const recoveredSteer = await app.prisma.inboxEvent.findUniqueOrThrow({
-      where: { idempotencyKey: "client-fallback-steer-0006" },
-    });
-    const recoveredMessage = await app.prisma.message.findUniqueOrThrow({
-      where: {
-        conversationId_clientId: {
-          conversationId,
-          clientId: "client-fallback-steer-0006",
-        },
-      },
-    });
-    expect(recoveredSteer.deliveryMode).toBe("turn");
-    expect(recoveredSteer.runId).not.toBe(fallbackBase.run.id);
-    expect(recoveredMessage.runId).toBe(recoveredSteer.runId);
-    await waitFor(recoveredSteer.runId);
-    steerDisposition = "deliver";
+    const redirectedTurn = seenTurns.find((turn) => turnBody(turn.content) === "redirect the active task")!;
+    expect(redirectedTurn.images).toEqual([inlineImage]);
     onTurn = async () => {};
 
     let peerId = "";
@@ -663,7 +588,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       await app.prisma.inboxEvent.findUniqueOrThrow({
         where: { idempotencyKey: "client-cancel-queued-0007" },
       })
-    ).toMatchObject({ status: "completed", deliveryMode: "turn" });
+    ).toMatchObject({ status: "completed" });
 
     const group = await Effect.runPromise(
       app.createGroup({
@@ -813,16 +738,15 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(
       groupSnapshot.channelRounds.find((round) => round.id === accepted.round.id)?.status
     ).toBe("completed");
-    // Same-epoch directory edits arrive as instruction updates after the frozen
-    // system prefix. Check the context delivered to the model, not only that prefix.
+    // Teammate and group IDs are in the per-turn user_info catalog.
     expect(
-      groupTurns.every((turn) => `${turn.instructions}\n${turn.content}`.includes(group.id))
+      groupTurns.every((turn) => turn.userInfo?.includes(group.id))
     ).toBe(true);
     expect(
       groupTurns.every(
         (turn) =>
-          turn.userInfo?.startsWith("<user_info>\n<agent_skills>") &&
-          turn.userInfo.endsWith("</agent_skills>\n</user_info>") &&
+          turn.userInfo?.startsWith("<user_info>\nToday's date: ") &&
+          turn.userInfo.endsWith("</available_skills>\n</agent_skills>") &&
           turn.userInfoEpoch === 0
       )
     ).toBe(true);
@@ -842,7 +766,20 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       )
     ).toBe(true);
   } finally {
-    await close();
+    if (worker) await worker.stop();
+    worker = null;
+    if (app) {
+      const owned = await app.prisma.bot.findMany({ where: { defaultDirectory: { startsWith: workspace } }, select: { id: true } });
+      await app.prisma.bot.deleteMany({ where: { id: { in: owned.map((bot) => bot.id) } } });
+      await app.prisma.channel.deleteMany({ where: { kind: "group", workingDirectory: workspace } });
+      await restoreTimeZone();
+      await Effect.runPromise(app.close());
+    }
     fakeComputer.stop(true);
+    for (const key of envKeys) {
+      if (previousEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = previousEnv[key];
+    }
+    await rm(workspace, { recursive: true, force: true });
   }
 }, 90_000);

@@ -11,17 +11,23 @@ import { NativeToolExecutor } from "../src/native-tool-executor";
 const enabled = process.platform === "linux" && process.getuid?.() === 0 && process.env.OPENTEAM_TEST_DROPPED_IDENTITY === "1";
 
 test.skipIf(!enabled)("dropped child identity, private-file denial, cancellation and scoped ownership", async () => {
+  expect(process.umask()).toBe(0o022);
+  expect((await stat("/home/box")).mode & 0o7777).toBe(0o700);
+  expect((await stat("/workspace")).mode & 0o7777).toBe(0o755);
   const directory = await mkdtemp(join(tmpdir(), "agent-identity-"));
   try {
     await chmod(directory, 0o755);
     const secret = join(directory, "host-only");
     await writeFile(secret, "synthetic-host-secret", { mode: 0o600 });
-    const child = spawnAgentProcess("/bin/sh", ["-c", 'id -u; if cat "$1" 2>/dev/null; then exit 20; fi', "probe", secret], { stdio: ["ignore", "pipe", "pipe"] });
+    const shared = join(directory, "group-readable");
+    await writeFile(shared, "group-access", { mode: 0o640 });
+    await chown(shared, 0, 998);
+    const child = spawnAgentProcess("/bin/sh", ["-c", 'id -u; id -G; cat "$2"; if cat "$1" 2>/dev/null; then exit 20; fi', "probe", secret, shared], { stdio: ["ignore", "pipe", "pipe"] });
     const output: Buffer[] = [];
     child.stdout.on("data", chunk => output.push(chunk));
     const [code] = await once(child, "close");
     expect(code).toBe(0);
-    expect(Buffer.concat(output).toString().trim()).toBe("1001");
+    expect(Buffer.concat(output).toString().trim()).toBe("1000\n1000 998\ngroup-access");
 
     const sleeper = spawnAgentProcess("/bin/sleep", ["30"], { stdio: "ignore" });
     const closed = once(sleeper, "close");
@@ -48,21 +54,21 @@ test.skipIf(!enabled)("dropped child identity, private-file denial, cancellation
     const link = join(directory, "link");
     await symlink(secret, link);
     await assignAgentOwnership([owned, link], true);
-    expect((await stat(owned)).uid).toBe(1001);
+    expect((await stat(owned)).uid).toBe(1000);
     expect((await stat(secret)).uid).toBe(0);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 15_000);
 
 test.skipIf(!enabled)("restricted file transfer writes intact bytes and cancels without replacing a destination", async () => {
   const directory = await mkdtemp(join(tmpdir(), "agent-transfer-"));
-  await chown(directory, 1001, 1000);
+  await chown(directory, 1000, 1000);
   const target = join(directory, "destination");
   try {
     const payload = new TextEncoder().encode("verified-雪");
     const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(payload); controller.close(); } });
     expect(await agentWriteStream(target, stream)).toBe(payload.length);
     expect(await readFile(target, "utf8")).toBe("verified-雪");
-    expect((await stat(target)).uid).toBe(1001);
+    expect((await stat(target)).uid).toBe(1000);
     const controller = new AbortController();
     const unfinished = new ReadableStream<Uint8Array>({ start(stream) { stream.enqueue(new TextEncoder().encode("incomplete")); } });
     const writing = agentWriteStream(target, unfinished, controller.signal);
@@ -80,11 +86,11 @@ test.skipIf(!enabled)("native shell keeps its dropped identity and persists envi
   const host = join(directory, "host");
   await mkdir(working);
   await mkdir(host, { mode: 0o700 });
-  await chown(working, 1001, 1000);
+  await chown(working, 1000, 1000);
   const executor = new NativeToolExecutor({ agentDir: host, controlToken: "synthetic-test-token" });
   try {
     const first = await executor.shell({ command: "id -u; export OPENTEAM_QA_VALUE=runtime923", block_until_ms: 5_000 }, working, undefined, undefined, "identity-test");
-    expect(JSON.stringify(first.content)).toContain("1001");
+    expect(JSON.stringify(first.content)).toContain("1000");
     const next = await executor.shell({ command: 'printf "%s" "$OPENTEAM_QA_VALUE"', block_until_ms: 5_000 }, working, undefined, undefined, "identity-test");
     expect(JSON.stringify(next.content)).toContain("runtime923");
   } finally { await rm(directory, { recursive: true, force: true }); }
@@ -92,7 +98,7 @@ test.skipIf(!enabled)("native shell keeps its dropped identity and persists envi
 
 test.skipIf(!enabled)("actual restricted desktop starts VNC and Chrome and destroys its child processes", async () => {
   const home = await mkdtemp(join(tmpdir(), "agent-desktop-"));
-  await chown(home, 1001, 1000);
+  await chown(home, 1000, 1000);
   const broker = new ScreenBroker(home);
   const bot = crypto.randomUUID();
   try {
@@ -105,7 +111,7 @@ test.skipIf(!enabled)("actual restricted desktop starts VNC and Chrome and destr
     expect(screenshot.subarray(1, 4).toString()).toBe("PNG");
     const session = (broker as any).sessions.get(bot);
     const children = [...session.processes];
-    expect((await stat(join(session.runtimeDirectory, "config"))).uid).toBe(1001);
+    expect((await stat(join(session.runtimeDirectory, "config"))).uid).toBe(1000);
     await broker.destroy(bot);
     expect(children.every(child => child.exitCode !== null || child.signalCode !== null)).toBe(true);
   } finally {

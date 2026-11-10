@@ -3,9 +3,16 @@ name: openteam
 x-openteam-labels: &openteam-labels
   com.openteam.environment: production
 
+x-openteam-logging: &openteam-logging
+  driver: json-file
+  options:
+    max-size: "${OPENTEAM_LOG_MAX_SIZE:-10m}"
+    max-file: "${OPENTEAM_LOG_MAX_FILES:-3}"
+
 services:
   postgres:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
     environment:
       POSTGRES_DB: openteam
@@ -22,6 +29,7 @@ services:
 
   migrate:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-migrate:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
     environment:
       DATABASE_URL: postgresql://openteam:${OPENTEAM_POSTGRES_PASSWORD}@postgres:5432/openteam
@@ -32,6 +40,7 @@ services:
 
   agent-data-init:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /sand-data && chmod 0700 /sand-data"]
     restart: "no"
@@ -40,38 +49,22 @@ services:
 
   asset-store-init:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
-    command:
-      - sh
-      - -c
-      - >-
-        mkdir -p /asset-store &&
-        if [ -d /sand-data/.openteam ]; then
-          migrated=/asset-store/legacy-agent-data-openteam-$(date +%s) &&
-          cp -a /sand-data/.openteam "$$migrated" &&
-          rm -rf /sand-data/.openteam;
-        fi &&
-        chown -R 1000:1000 /asset-store && chmod 0700 /asset-store
-    depends_on:
-      agent-data-init:
-        condition: service_completed_successfully
+    command: ["sh", "-c", "chown -R 1000:1000 /asset-store && chmod 0700 /asset-store"]
     restart: "no"
     volumes:
-      - openteam_agent_data:/sand-data
       - openteam_assets:/asset-store
 
   computer-home-init:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command:
       - sh
       - -c
       - >-
         chown -R 1000:1000 /home/box && chmod 0700 /home/box &&
-        if [ -d /home/box/agent-data ] && [ ! -L /home/box/agent-data ]; then
-          cp -a /home/box/agent-data/. /home/box/sand-data/ &&
-          mv /home/box/agent-data /home/box/.openteam-agent-data-pre-sand-migration;
-        fi &&
         if [ ! -L /home/box/agent-data ]; then ln -s /home/box/sand-data /home/box/agent-data; fi &&
         chown -h 0:0 /home/box/agent-data
     restart: "no"
@@ -81,6 +74,7 @@ services:
 
   box-store-init:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /box-store && chmod 0700 /box-store"]
     restart: "no"
@@ -89,6 +83,7 @@ services:
 
   workspace-init:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /workspace && chmod 0755 /workspace"]
     restart: "no"
@@ -97,13 +92,19 @@ services:
 
   computer:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-computer:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
+    cgroup: private
+    # Shutdown closes bot browsers and saves their profiles before exiting.
+    stop_grace_period: 30s
+    mem_limit: ${OPENTEAM_COMPUTER_MEMORY_LIMIT:-12g}
+    memswap_limit: ${OPENTEAM_COMPUTER_MEMORY_LIMIT:-12g}
     hostname: openteam
     environment:
+      OPENTEAM_DESKTOP_MEMORY_LIMIT: ${OPENTEAM_DESKTOP_MEMORY_LIMIT:-10g}
       OPENTEAM_COMPUTER_PORT: 8790
       OPENTEAM_CONTROL_TOKEN: ${OPENTEAM_CONTROL_TOKEN:?OPENTEAM_CONTROL_TOKEN is required}
       OPENTEAM_WORKSPACE_ROOT: /workspace
-      OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}
       OPENTEAM_SERVER_URL: http://server:8787
       OPENTEAM_PI_AGENT_DIR: /home/box/.pi/agent
       OPENTEAM_AGENT_DATA_ROOT: /home/box/agent-data
@@ -119,15 +120,16 @@ services:
         condition: service_completed_successfully
       workspace-init:
         condition: service_completed_successfully
-    cap_drop: ["ALL"]
-    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+    cap_add: ["ALL"]
     security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=512m
+      - seccomp:unconfined
+      - apparmor:unconfined
+      - label:disable
+      - systempaths=unconfined
+    devices:
+      - /dev/net/tun:/dev/net/tun
     healthcheck:
-      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:8790/health');process.exit(r.ok?0:1)"]
+      test: ["CMD", "/usr/lib/openteam/bin/bun", "-e", "const r=await fetch('http://127.0.0.1:8790/health');process.exit(r.ok?0:1)"]
       interval: 3s
       timeout: 5s
       retries: 30
@@ -141,9 +143,35 @@ services:
       - openteam_agent_data:/home/box/sand-data
       - openteam_workspace:/workspace
       - openteam_box_store:/box-store
+      # Bots' system-wide installs (sudo pip and npm -g, make install, copied tools) and the record of their apt packages.
+      - openteam_computer_local:/usr/local
+
+  computer-memory-init:
+    labels: *openteam-labels
+    logging: *openteam-logging
+    image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-computer:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
+    entrypoint: ["/usr/lib/openteam/bin/openteam-memory-init"]
+    pid: service:computer
+    network_mode: none
+    depends_on:
+      computer:
+        condition: service_started
+    cap_drop: ["ALL"]
+    cap_add: ["SYS_ADMIN", "SYS_CHROOT", "SYS_PTRACE"]
+    security_opt:
+      - no-new-privileges:true
+      # Only the bootstrap helper enters the computer's mount namespace.
+      # It drops all capabilities immediately after configuring memory controls.
+      - apparmor:unconfined
+    read_only: true
+    mem_limit: 32m
+    memswap_limit: 32m
+    pids_limit: 16
+    restart: unless-stopped
 
   server:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-server:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
     environment:
       OPENTEAM_VERSION: ${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
@@ -158,11 +186,9 @@ services:
       OPENTEAM_AUTH_URL: ${OPENTEAM_AUTH_URL:-http://127.0.0.1:8787}
       OPENTEAM_PUBLIC_URL: ${OPENTEAM_PUBLIC_URL:-http://127.0.0.1:8787}
       OPENTEAM_WORKSPACE_ROOT: /workspace
-      OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}
       OPENTEAM_SCREEN_VIEWER_HOST: ${OPENTEAM_PUBLIC_HOST:-127.0.0.1}
       OPENTEAM_AGENT_DATA_ROOT: /home/box/agent-data
       OPENTEAM_ASSET_ROOT: /asset-store
-      OPENTEAM_MEMORY_DREAMING: ${OPENTEAM_MEMORY_DREAMING:-false}
       OPENTEAM_MARKETPLACE_FILE: ${OPENTEAM_MARKETPLACE_FILE:-}
     depends_on:
       migrate:
@@ -186,6 +212,7 @@ services:
 
   caddy:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     profiles: ["https"]
     command:
@@ -219,26 +246,21 @@ services:
 
   worker:
     labels: *openteam-labels
+    logging: *openteam-logging
     image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-worker:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
     environment:
       DATABASE_URL: postgresql://openteam:${OPENTEAM_POSTGRES_PASSWORD}@postgres:5432/openteam
       OPENTEAM_COMPUTER_URL: http://computer:8790
       OPENTEAM_CONTROL_TOKEN: ${OPENTEAM_CONTROL_TOKEN:?OPENTEAM_CONTROL_TOKEN is required}
       OPENTEAM_AUTH_MODE: ${OPENTEAM_AUTH_MODE:-required}
-      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
       OPENTEAM_APNS_KEY_ID: ${OPENTEAM_APNS_KEY_ID:-}
       OPENTEAM_APNS_TEAM_ID: ${OPENTEAM_APNS_TEAM_ID:-}
       OPENTEAM_APNS_TOPIC: ${OPENTEAM_APNS_TOPIC:-dev.openbot.mobile}
       OPENTEAM_APNS_PRIVATE_KEY: ${OPENTEAM_APNS_PRIVATE_KEY:-}
-      OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}
       OPENTEAM_WORKER_CONCURRENCY: ${OPENTEAM_WORKER_CONCURRENCY:-8}
-      OPENTEAM_MEMORY_EPISODE_INTERVAL: ${OPENTEAM_MEMORY_EPISODE_INTERVAL:-6}
-      OPENTEAM_MEMORY_MODEL: ${OPENTEAM_MEMORY_MODEL:-}
-      OPENTEAM_MEMORY_REASONING: ${OPENTEAM_MEMORY_REASONING:-}
       OPENTEAM_WORKSPACE_ROOT: /workspace
       OPENTEAM_AGENT_DATA_ROOT: /home/box/agent-data
       OPENTEAM_ASSET_ROOT: /asset-store
-      OPENTEAM_MEMORY_DREAMING: ${OPENTEAM_MEMORY_DREAMING:-false}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -252,6 +274,8 @@ services:
       timeout: 12s
       start_period: 45s
       retries: 3
+    # pg-boss waits up to 30 s for running jobs before the worker exits.
+    stop_grace_period: 45s
     restart: unless-stopped
     volumes:
       - openteam_agent_data:/home/box/agent-data
@@ -261,6 +285,7 @@ services:
 volumes:
   openteam_postgres:
   openteam_computer_home:
+  openteam_computer_local:
   openteam_agent_data:
   openteam_assets:
   openteam_workspace:

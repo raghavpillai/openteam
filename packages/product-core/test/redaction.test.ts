@@ -41,6 +41,14 @@ describe("diagnostic credential redaction", () => {
         "Fallback"
       )
     ).toBe("Update failed");
+    expect(
+      clientErrorMessage(
+        new Error(
+          "Error invoking remote method 'openteam:auth:sign-in': OpenTeamClientError: fetch failed"
+        ),
+        "Fallback"
+      )
+    ).toBe("fetch failed");
     expect(clientErrorMessage(null, "Could not complete the request.")).toBe(
       "Could not complete the request."
     );

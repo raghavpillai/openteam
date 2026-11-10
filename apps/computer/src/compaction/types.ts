@@ -76,10 +76,14 @@ export interface BotArchiveBlob {
   prefixDigest: string;
   summaryDigest: string;
   piBaseMessageCount: number;
+  /** Durable Pi coordinate system, independent of subsequent native compactions. */
+  piBoundary?: { leafId: string; compactionEntryId: string | null };
   userInfoMessage: BotMessage | null;
   lastUserMessage: BotMessage;
   preservedTailMessages: BotMessage[];
   durableBlocks?: string[];
+  /** "external": overflow recovery; the carrier precedes the verbatim tail, which starts at the request. */
+  flavor?: "external";
   summarizedMessages?: BotMessage[];
   selfSummaryCount: number;
   tokensBefore: number | null;
@@ -97,7 +101,7 @@ export type BotArchiveCommitInput = Omit<
   "version" | "sequence" | "selfSummaryCount" | "summaryDigest"
 >;
 
-export type BotArchiveIntentInput = Omit<BotArchiveCommitInput, "piBaseMessageCount">;
+export type BotArchiveIntentInput = Omit<BotArchiveCommitInput, "piBaseMessageCount" | "piBoundary">;
 
 export interface BotArchiveIntent {
   version: 1;
@@ -132,6 +136,8 @@ export interface BotSummaryRequest {
   messagesToSummarize: BotMessage[];
   shorter: boolean;
   tools?: readonly BotSummaryTool[];
+  /** Overflow recovery: one flattened-transcript prompt, no tools, capped output. */
+  external?: { prompt: string; maxTokens: number };
 }
 
 export interface BotSummaryTool {

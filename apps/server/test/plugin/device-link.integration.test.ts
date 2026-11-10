@@ -7,6 +7,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StdioMcpManager } from "../../../computer/src/mcp-manager";
 import { PluginService } from "../../src/services/plugin-service";
+import { PluginConfiguration } from "../../src/services/plugin/configuration";
+import { PluginManagement, pluginDigest } from "../../src/services/plugin/management";
+import { parsePluginDefinition } from "@openteam/plugin-sdk";
 
 // Opt in to an existing test database. Only uniquely owned rows and a temporary
 // MCP state directory are created/deleted; no schema reset or Signal data is used.
@@ -61,6 +64,8 @@ async function fixture() {
   const configuration = { command: process.execPath, args: ["--eval", source] };
   const manifest = {
     key: pluginKey, name: "Synthetic device link", skills: [], components: ["mcp"],
+    version: "1.0.0", publisher: "Synthetic test", description: "Synthetic lifecycle fixture",
+    category: "Developer Tools", featured: false,
     connections: [{ key: "device", name: "Device", auth: "none", transport: "stdio", tools: [], persistentState: true, configuration,
       deviceLink: { startTool: "start_link", finishTool: "finish_link", statusTool: "link_status",
         cancelTool: "cancel_link", removeTool: "remove_account", instructions: "Synthetic setup only" } }],
@@ -126,6 +131,85 @@ async function fixture() {
     poll: () => Effect.runPromise(service.pollDeviceLink(id)),
   };
 }
+
+integration("configuration save cannot erase another service's failed-removal gate", async () => {
+  const f = await fixture();
+  const entered = deferred<void>(), release = deferred<void>();
+  const before = await f.row();
+  let stops = 0;
+  const config = new PluginConfiguration(f.db, "http://localhost", async () => {
+    stops++; entered.resolve(); await release.promise;
+  });
+  let saving: ReturnType<typeof observed> | undefined;
+  try {
+    saving = observed(Effect.runPromise(config.save(f.id, { command: "synthetic-replacement" })));
+    await barrier(entered.promise);
+    f.hooks.beforeForget = async () => { throw new Error("Synthetic removal failure"); };
+    await expect(Effect.runPromise(f.otherService.removeAccount(f.id))).rejects.toThrow();
+    const removing = await f.row();
+    release.resolve();
+    expect(await saving).toHaveProperty("error");
+    const after = await f.row();
+    expect(after.configuration).toEqual(before.configuration);
+    expect(after.credentials).toHaveProperty("stateRemovalPending", true);
+    expect(after.runtimeGeneration).toBe(removing.runtimeGeneration);
+    await expect(Effect.runPromise(config.save(f.id, { command: "another-command" }))).rejects.toThrow("removal must finish");
+    expect(stops).toBe(1);
+    await expect(Effect.runPromise(f.service.connect(f.id))).rejects.toThrow("removal");
+  } finally { release.resolve(); await saving; await f.close(); }
+}, 15_000);
+
+integration.each(["remove", "disable"])("package update cannot orphan private storage by %s", async mode => {
+  const f = await fixture();
+  try {
+    const previous = parsePluginDefinition(f.installation.manifest);
+    const next = parsePluginDefinition({ ...previous, version: "1.1.0", connections: mode === "remove"
+      ? previous.connections.map(c => ({ ...c, key: "replacement" }))
+      : previous.connections.map(c => ({ ...c, persistentState: false })) });
+    let stops = 0;
+    const management = new PluginManagement(f.db, async () => [next], async () => {}, async () => {}, async () => { stops++; });
+    await expect(Effect.runPromise(management.update(f.pluginKey, pluginDigest(next)))).rejects.toThrow("private storage");
+    expect(stops).toBe(0);
+    expect((await f.row()).connectorKey).toBe("device");
+    expect((await f.db.pluginInstallation.findUniqueOrThrow({ where: { id: f.installation.id } })).version).toBe("1.0.0");
+  } finally { await f.close(); }
+}, 15_000);
+
+integration("package update rolls back if account removal starts while its stop is pending", async () => {
+  const f = await fixture();
+  const entered = deferred<void>(), release = deferred<void>();
+  let updating: ReturnType<typeof observed> | undefined;
+  try {
+    const next = parsePluginDefinition({ ...parsePluginDefinition(f.installation.manifest), version: "1.1.0" });
+    const management = new PluginManagement(f.db, async () => [next], async () => {}, async () => {}, async () => {
+      entered.resolve(); await release.promise;
+    });
+    updating = observed(Effect.runPromise(management.update(f.pluginKey, pluginDigest(next))));
+    await barrier(entered.promise);
+    f.hooks.beforeForget = async () => { throw new Error("Synthetic removal failure"); };
+    await expect(Effect.runPromise(f.otherService.removeAccount(f.id))).rejects.toThrow();
+    release.resolve();
+    expect(await updating).toHaveProperty("error");
+    expect((await f.row()).credentials).toHaveProperty("stateRemovalPending", true);
+    expect((await f.db.pluginInstallation.findUniqueOrThrow({ where: { id: f.installation.id } })).version).toBe("1.0.0");
+  } finally { release.resolve(); await updating; await f.close(); }
+}, 15_000);
+
+integration("compatible updates preserve private state and subsequent removal still deletes it", async () => {
+  const f = await fixture();
+  try {
+    await f.connect();
+    const marker = await readFile(f.marker, "utf8");
+    const next = parsePluginDefinition({ ...parsePluginDefinition(f.installation.manifest), version: "1.1.0" });
+    const management = new PluginManagement(f.db, async () => [next], async () => {}, async () => {},
+      async id => f.manager.close(id));
+    expect(await Effect.runPromise(management.update(f.pluginKey, pluginDigest(next)))).toMatchObject({ updated: true });
+    expect(await readFile(f.marker, "utf8")).toBe(marker);
+    expect((await f.row()).connectorKey).toBe("device");
+    await Effect.runPromise(f.otherService.removeAccount(f.id));
+    await expect(readFile(f.marker, "utf8")).rejects.toThrow("ENOENT");
+  } finally { await f.close(); }
+}, 15_000);
 
 integration("uninstall fences delayed MCP discovery and every sibling before deleting persistent state", async () => {
   const f = await fixture();

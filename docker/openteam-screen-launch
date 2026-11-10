@@ -4,6 +4,8 @@ set -eu
 screen_cwd=${OPENTEAM_SCREEN_CWD:-/workspace}
 browser_profile=${OPENTEAM_BROWSER_PROFILE:-/home/box/chrome-profile}
 browser_debug_port=${OPENTEAM_BROWSER_DEBUG_PORT:-9222}
+# The image's Chrome, never a same-named copy a bot put on its PATH.
+tools=${OPENTEAM_TOOLS_DIR:-/usr/lib/openteam/bin}
 
 case "${1:-}" in
   chromium)
@@ -14,12 +16,12 @@ case "${1:-}" in
     for browser_arg do
       case "$browser_arg" in
         --headless|--headless=*)
-          exec google-chrome --no-sandbox --disable-dev-shm-usage "$@"
+          exec "$tools/google-chrome" --no-sandbox --disable-dev-shm-usage "$@"
           ;;
       esac
     done
     if [ "$#" -eq 0 ]; then set -- about:blank; fi
-    exec google-chrome \
+    exec "$tools/google-chrome" \
       --no-sandbox \
       --test-type \
       --disable-dev-shm-usage \
@@ -38,6 +40,9 @@ case "${1:-}" in
     ;;
   terminal)
     cd "$screen_cwd"
+    # The desktop's programs keep OpenTeam's PATH; the terminal is the bot's.
+    PATH=${OPENTEAM_AGENT_PATH:-$PATH}
+    export PATH
     exec xfce4-terminal --disable-server
     ;;
   editor)
@@ -47,7 +52,7 @@ case "${1:-}" in
   writer|calc|impress|draw)
     # LibreOffice otherwise reuses the first process, even on another bot's
     # display. Give each assigned desktop its own application profile.
-    office_profile_uri=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).absolute().as_uri())' "${browser_profile}-office")
+    office_profile_uri=$(/usr/bin/python3 -I -S -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).absolute().as_uri())' "${browser_profile}-office")
     office_kind=$1
     shift
     exec libreoffice "-env:UserInstallation=$office_profile_uri" "--$office_kind" "$@"

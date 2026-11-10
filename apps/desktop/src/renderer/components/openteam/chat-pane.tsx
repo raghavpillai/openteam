@@ -1,7 +1,8 @@
 import { useDayClock } from "../../hooks/use-day-clock";
+import { ResourceActivityProvider } from "../../hooks/resource-activity";
 import { ThinkingCaption } from "./thinking-caption";
 import { thinkingActivity } from "../../lib/thinking-activity";
-import { ACTIVE_ASYNC_TASK_STATUSES } from "../../lib/async-tasks";
+import { EXECUTING_ASYNC_TASK_STATUSES } from "../../lib/async-tasks";
 import { firstUnreadMessageId, groupChatActivity, type GroupActivity } from "../../lib/group-chat-presentation";
 import { GroupActivityContent } from "./group-activity";
 import { TranscriptSenderAvatar, TranscriptSenderName } from "./transcript-sender";
@@ -11,6 +12,7 @@ import type { PromptDraft } from "../ai-elements/prompt-input";
 import "./permission-cards.css";
 import { usePluginMentions } from "../../hooks/use-plugin-mentions";
 import { DeliveryFooter } from "./delivery-footer";
+import { retainOutgoingMessageKey } from "../../lib/outgoing-message-key";
 import { sendProgressOwner } from "../../lib/send-progress";
 import type {
   AssetRef,
@@ -47,7 +49,6 @@ import {
   Download,
   Ellipsis,
   File,
-  LoaderCircle,
   LockKeyhole,
   MessageCircle,
   Reply,
@@ -77,6 +78,7 @@ import {
   channelNameChangedEventFor,
   routineChangedActionLabel,
   routineChangedEventFor,
+  turnInterruptedEventFor,
 } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
 import {
@@ -161,7 +163,6 @@ interface ChatPaneProps {
   mutate: Mutate;
   threadContextMessageIds?: ReadonlySet<string>;
   searchContextMessageIds?: ReadonlySet<string>;
-  activityTruncated?: boolean;
   threadContextTruncated?: boolean;
   focusMessage: { messageId: string; nonce: number } | null;
   historyGeneration?: number;
@@ -214,7 +215,6 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.mutate === next.mutate &&
   previous.threadContextMessageIds === next.threadContextMessageIds &&
   previous.searchContextMessageIds === next.searchContextMessageIds &&
-  previous.activityTruncated === next.activityTruncated &&
   previous.threadContextTruncated === next.threadContextTruncated &&
   previous.focusMessage === next.focusMessage &&
   previous.historyGeneration === next.historyGeneration &&
@@ -258,6 +258,8 @@ const messagesShareGroup = (
       !channelNameChangedEventFor(next) &&
       !routineChangedEventFor(previous) &&
       !routineChangedEventFor(next) &&
+      !turnInterruptedEventFor(previous) &&
+      !turnInterruptedEventFor(next) &&
       previous.sender === next.sender &&
       (previous.sender !== "agent" || previous.senderBotId === next.senderBotId) &&
       !shouldShowIdleGapTimestamp(previous.createdAt, next.createdAt)
@@ -323,8 +325,8 @@ interface MessageTimelineEntry {
   delivery: DurableSendRecord | null;
 }
 
-const messageImages = (message: ChannelMessageView) => {
-  const canonical = messageAssets(message)
+const messageImages = (message: ChannelMessageView) =>
+  messageAssets(message)
     .filter((attachment) => attachment.kind === "image")
     .map((attachment) => ({
       url: api.assetUrl(attachment),
@@ -332,31 +334,6 @@ const messageImages = (message: ChannelMessageView) => {
       width: attachment.width,
       height: attachment.height,
     }));
-  if (canonical.length > 0) return canonical;
-
-  const legacyImages = messageMetadata(message).images;
-  if (!Array.isArray(legacyImages)) return [];
-  return legacyImages.flatMap((image) => {
-    if (!image || typeof image !== "object" || Array.isArray(image)) return [];
-    const { url, alt, width, height } = image as Record<string, unknown>;
-    if (
-      typeof url !== "string" ||
-      !(
-        url.startsWith("/api/v0/assets/") ||
-        url.startsWith("data:image/") ||
-        url.startsWith("https://")
-      )
-    ) {
-      return [];
-    }
-    return [{
-      url,
-      ...(typeof alt === "string" ? { alt } : {}),
-      ...(typeof width === "number" ? { width } : {}),
-      ...(typeof height === "number" ? { height } : {}),
-    }];
-  });
-};
 
 const copyMessage = (message: ChannelMessageView) => {
   if (!navigator.clipboard) return;
@@ -426,6 +403,7 @@ const MessageRow = memo(function MessageRow({
   }, [entranceActive, entranceKey, onConsumeEntrance]);
   const channelEvent = channelNameChangedEventFor(message);
   const routineEvent = routineChangedEventFor(message);
+  const interruptedEvent = turnInterruptedEventFor(message);
   const from =
     message.sender === "user" ? "user" : message.sender === "system" ? "system" : "assistant";
   const hasAgentGutter = message.sender === "agent" && channel.kind !== "bot_dm";
@@ -435,7 +413,7 @@ const MessageRow = memo(function MessageRow({
   const userReactionSet = ownReactionEmojiSet(message);
   const display = messageDisplayProjection(message);
   const isWidget = messageMetadata(message).type === "widget";
-  const isDraftCard = messageMetadata(message).type === "external-draft";
+  const isDraftCard = messageMetadata(message).type === "external-draft" || messageMetadata(message).type === "imessage-send";
   const { attachments, stagedAttachments, displayContent, files: fileAttachments } = display;
   const stagedImageAttachments = stagedAttachments.filter(
     (attachment) => attachment.kind === "image" && attachment.previewUri
@@ -479,6 +457,19 @@ const MessageRow = memo(function MessageRow({
         data-message-id={message.id}
       >
         Renamed to {channelEvent.to}
+      </div>
+    );
+  }
+  if (interruptedEvent) {
+    return (
+      <div
+        className={`flex justify-center px-5 pb-3 pt-2 text-center text-xs leading-5 text-muted-foreground${
+          separatedFromPrevious ? " mt-3" : ""
+        }`}
+        data-channel-event="turn-interrupted"
+        data-message-id={message.id}
+      >
+        {message.content}
       </div>
     );
   }
@@ -583,6 +574,7 @@ const MessageRow = memo(function MessageRow({
           onAnimationEnd={(event) => {
             if (
               event.animationName === "message-row-enter" ||
+              event.animationName === "message-row-enter-outgoing" ||
               event.animationName === "message-row-enter-reduced"
             ) {
               setEntranceActive(false);
@@ -742,13 +734,13 @@ const MessageRow = memo(function MessageRow({
               {threadReplyCount} {threadReplyCount === 1 ? "reply" : "replies"}
             </button>
           )}
-          <DeliveryFooter
+          {from === "user" && <DeliveryFooter
             delivery={delivery}
             sendingSinceMs={sendingSinceMs}
             onCancel={onCancelSend}
             onDelete={onDeleteSend}
             onResend={onResendSend}
-          />
+          />}
         </Message>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-[246px]">
@@ -933,7 +925,6 @@ export const ChatPane = memo(function ChatPane({
   mutate,
   threadContextMessageIds,
   searchContextMessageIds,
-  activityTruncated = false,
   threadContextTruncated = false,
   focusMessage,
   historyGeneration = 0,
@@ -958,7 +949,7 @@ export const ChatPane = memo(function ChatPane({
   onOpenBotProfile,
 }: ChatPaneProps) {
   const now = useDayClock(active);
-  // Until the first history page arrives the spinner covers the transcript.
+  // Until the first history page arrives the loading orb covers the transcript.
   // Rows measured then (a bootstrap preview) would keep stale heights and jump
   // the transcript once the real page renders around them.
   const messages = initialHistoryPending ? EMPTY_PANE_MESSAGES : loadedMessages;
@@ -1052,10 +1043,14 @@ export const ChatPane = memo(function ChatPane({
     () => durableRecoveries.filter((record) => record.target.channelId === channel.id),
     [channel.id, durableRecoveries]
   );
+  const outgoingKeyAliases = useRef(new Map<string, string>());
   const visibleMessages = useMemo(
     () =>
       projectOutgoingMessages(messages, channelSends).map((entry) => ({
         ...entry,
+        // A safe retry gets a new backend nonce but keeps the original bubble.
+        // Remember the accepted nonce too, so retiring the journal cannot remount it.
+        renderKey: retainOutgoingMessageKey(entry, outgoingKeyAliases.current),
         animateEntrance: entry.delivery !== null || enteringMessageIds.has(entry.message.id),
       })),
     [channelSends, enteringMessageIds, messages]
@@ -1085,13 +1080,6 @@ export const ChatPane = memo(function ChatPane({
     }
     setComposerRecovery({ id: recovery.nonce, payload: recovery.payload, message: recovery.failure?.message, durable: true });
   }, [channel.id, channelRecoveries, composerRecovery, messagesById]);
-  const messagesByAddress = useMemo(
-    () =>
-      new Map(
-        visibleMessages.map(({ message }) => [channelMessageAddress(message), message] as const)
-      ),
-    [visibleMessages]
-  );
   const threads = useMemo(
     () => deriveThreads(visibleMessages.map(({ message }) => message)),
     [visibleMessages]
@@ -1105,13 +1093,18 @@ export const ChatPane = memo(function ChatPane({
     }
     return null;
   }, [focusMessage, messagesById, threads]);
-  useEffect(() => {
-    if (!focusedThreadRootId) return;
-    // A fresh search focus must reopen/refocus an already-known thread root.
-    void focusMessage?.nonce;
+  const openedThreadFocus = useRef<{ messageId: string; nonce: number } | null>(null);
+  useLayoutEffect(() => {
+    const nonce = focusMessage?.nonce;
+    // Open once per focus request (search result or alert click): a thread the
+    // user closed must stay closed when later messages arrive.
+    if (!focusedThreadRootId || nonce === undefined || !focusMessage) return;
+    if (openedThreadFocus.current?.nonce === nonce &&
+      openedThreadFocus.current.messageId === focusMessage.messageId) return;
     if (threadCloseTimer.current) window.clearTimeout(threadCloseTimer.current);
     const root = messagesById.get(focusedThreadRootId);
     if (!root) return;
+    openedThreadFocus.current = { messageId: focusMessage.messageId, nonce };
     setThreadState({
       open: true,
       pin: mergeThreadTrayPin({
@@ -1242,7 +1235,7 @@ export const ChatPane = memo(function ChatPane({
     },
     [onReactMessage]
   );
-  const pluginMentions = usePluginMentions(selectedBot?.id ?? channel.members[0]?.botId);
+  const pluginMentions = usePluginMentions(selectedBot?.id ?? channel.members[0]?.botId, active);
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const bots =
       channel.kind === "group"
@@ -1313,7 +1306,7 @@ export const ChatPane = memo(function ChatPane({
     const loadingLatest = Promise.resolve(onScrollToNewest?.());
     const glide = () => {
       const conversation = conversationRef.current;
-      if (conversation) void glideConversationToBottom(conversation, { awaitGrowth: 1_000 });
+      if (conversation) void glideConversationToBottom(conversation, { awaitGrowth: 1_000, durationMs: 350 });
     };
     if (historyMode === "latest" && !hasNewerGap) {
       glide();
@@ -1394,8 +1387,7 @@ export const ChatPane = memo(function ChatPane({
         (task) =>
           task.parentChannelId === channel.id &&
           task.parentBotId === selectedBot?.id &&
-          task.runInBackground &&
-          ACTIVE_ASYNC_TASK_STATUSES.has(task.status)
+          EXECUTING_ASYNC_TASK_STATUSES.has(task.status)
       ),
     [channel.id, channel.kind, selectedBot?.id, subagents]
   );
@@ -1460,7 +1452,7 @@ export const ChatPane = memo(function ChatPane({
       ? null
       : { index, messageId: focusMessage.messageId, nonce: focusMessage.nonce };
   }, [focusMessage, messagesById, renderedTimeline]);
-  return (
+  const content = (
     <div
       className={cn(
         "relative flex size-full min-h-0 flex-col bg-background",
@@ -1481,14 +1473,6 @@ export const ChatPane = memo(function ChatPane({
             className="max-w-none gap-1 px-4 pt-11"
             style={{ paddingBottom: `calc(${24 + restingThinkingSpace}px + var(--composer-overlap, 0px))` }}
           >
-            {activityTruncated && (
-              <div
-                className="mx-auto mb-2 w-full max-w-[640px] rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground"
-                role="status"
-              >
-                Older run details are summarized; active runs remain visible.
-              </div>
-            )}
             {threadContextTruncated && (
               <div
                 className="mx-auto mb-2 w-full max-w-[640px] rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground"
@@ -1625,11 +1609,7 @@ export const ChatPane = memo(function ChatPane({
                           onOpenBotChat={onOpenBotChat}
                           onOpenBotProfile={onOpenBotProfile}
                           replyPreview={(() => {
-                            const preview = replyTargetFor(
-                              entry.message,
-                              messagesById,
-                              messagesByAddress
-                            );
+                            const preview = replyTargetFor(entry.message, messagesById);
                             if (!preview) return null;
                             return {
                               content:
@@ -1789,4 +1769,5 @@ export const ChatPane = memo(function ChatPane({
       )}
     </div>
   );
+  return <ResourceActivityProvider active={active}>{content}</ResourceActivityProvider>;
 }, chatPanePropsEqual);

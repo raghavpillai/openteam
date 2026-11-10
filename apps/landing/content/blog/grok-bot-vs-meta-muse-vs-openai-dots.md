@@ -3,14 +3,14 @@ title: Grok Bot vs Meta Muse vs OpenAI dots, plus an open-source alternative
 seoTitle: "Grok Bot vs Meta Muse vs OpenAI dots: which one to use"
 description: Grok Bot, Meta Muse and OpenAI dots compared on price, regions, models, privacy and teamwork, plus OpenTeam, an open-source Grok Bot alternative.
 date: 2026-10-09
-updated: 2026-10-13
+updated: 2026-11-10
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam desktop app showing a bot's chat, a live preview of its Linux screen and a weekday routine
 related: meta-muse-not-available-in-your-country, claude-cowork-alternative, best-self-hosted-ai-agents
 ---
 
-**Grok Bot is for several bots that coordinate, from $30 a month with Cursor Premium. Meta Muse is for a free, phone-first agent, only in the US and Canada. OpenAI dots is for ChatGPT Pro and Business Premium users who want one always-on agent. OpenTeam is the open-source Grok Bot alternative for running self-hosted AI agents on your own hardware, at the cost of more setup.**
+**Grok Bot is for several bots that coordinate, from $30 a month with Cursor Premium. Meta Muse is for a free, phone-first agent, only in the US, Canada, Japan and Singapore. OpenAI dots is for ChatGPT Pro and Business Premium users who want one always-on agent. OpenTeam is the open-source Grok Bot alternative for running self-hosted AI agents on your own hardware, at the cost of more setup.**
 
 We build OpenTeam, an open-source (GPL-3.0) team of AI agents, so weigh our view accordingly. All three hosted products give an agent its own cloud computer that keeps working after you close the laptop. Every claim links to the vendor's own pages or to dated press, and we haven't run any of the three.
 
@@ -23,11 +23,11 @@ Facts as of October 9, 2026 (Grok Bot prices as of October 13), from each vendor
 | | Grok Bot | Meta Muse | OpenAI dots | OpenTeam |
 |---|---|---|---|---|
 | Price and plan | Cursor Premium ($30/mo) and up, Cursor Teams, or a linked SuperGrok or X Premium+ plan | Free with a limit; Power $20/mo; Maximum $100/mo | ChatGPT Pro (from $100/mo) or a Business Premium seat | Free (GPL-3.0); you pay for hardware and model usage |
-| Where you can use it | Not published; its computers run in the US | US and Canada | Pro: outside the EEA, UK and Switzerland. Business Premium: rolling out worldwide | Wherever your model provider works |
+| Where you can use it | Not published; its computers run in the US | US, Canada, Japan and, since October 27, Singapore | Pro: outside the EEA, UK and Switzerland. Business Premium: rolling out worldwide | Wherever your model provider works |
 | Model | Picked per request by Cursor; no picker | Muse Spark | GPT-6 Astra | One per server: OpenAI, Anthropic, OpenRouter or a compatible endpoint, including local |
 | Where the agent runs | One cloud computer per user, shared by your bots | A cloud Linux VM per person | Its own cloud computer; optional link to your laptop | Your machine: a Linux desktop per bot |
 | Sign-ins | Shared by your bots; you take over for passwords | Credential store the agent can't read | Private form; credentials skip the chat | Shared by all bots; password forms the model can't read |
-| Approvals | Auto-review with "Ask first" rules | Sentinel gates actions and traffic | Auto-review plus Custom Rules | None per action; Gmail drafts; handoffs for CAPTCHA, 2FA, payment |
+| Approvals | Auto-review with "Ask first" rules | Sentinel gates actions and traffic | Auto-review plus Custom Rules | Cards for email, Slack and texts; handoffs for CAPTCHA, 2FA, payment |
 | Multiple agents | Many bots; group chats of 2–6; bot-to-bot messages | One Muse, with subagents | One dot for now, with background agents | Many bots; group chats of up to 6; bot-to-bot messages |
 | Connected apps | Plugins (count not published) plus any website | Dozens of partners plus Shopify | 4,000+ via plugins | Bundled plugins plus custom MCP servers |
 | Routines | Schedules and events | Reminders and recurring tasks | Recurring tasks and events | Schedules and events |
@@ -57,7 +57,7 @@ Grok Bot is xAI's app for "always-on agents" that "have their own computer," lau
 Meta launched Muse on September 8, 2026 as a personal agent that lives on its own cloud computer, the Muse Secure VM ([Meta](https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/)).
 
 - **Price and plan:** Free with a usage limit Meta doesn't quantify. Power is $20 a month for 500 million Muse tokens a week; Maximum is $100 for 3 billion ([Meta Help Center](https://www.meta.com/help/subscriptions/1021145227643680/)).
-- **Where you can use it:** The US and Canada ([Meta](https://about.fb.com/news/2026/09/introducing-muse-small-business/)). Meta hasn't announced other countries.
+- **Where you can use it:** The US and Canada ([Meta](https://about.fb.com/news/2026/09/introducing-muse-small-business/)), Japan since October 23 ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)) and Singapore since October 27 ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)). Meta hasn't announced other countries.
 - **Model:** Muse Spark, Meta's own model.
 - **Where the agent runs:** A dedicated, persistent Linux VM per person, with a browser you can watch and take over. Your files, memory and credentials live there ([Meta](https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse)). A "Confidential VM" with user-held keys is promised for later this year.
 - **Sign-ins:** Credentials sit in a separate store and are inserted at the network edge, so the agent never sees real passwords or tokens.
@@ -100,7 +100,7 @@ OpenAI launched dots on September 29, 2026: "always-on agents" in ChatGPT, power
 OpenTeam is an open-source, self-hosted alternative to all three, and closest to Grok Bot: bots with their own computers, group chats, bot-to-bot messages and routines, with agent tools and built-in skills built for compatibility with Grok Bot's. The difference is that it runs on hardware you control. It's a young project: we [introduced OpenTeam](/blog/introducing-openteam) on October 6, and its community is small. Here's what changes:
 
 - **Where it runs.** The server runs in Docker on a Mac, Windows or Linux machine: your computer, a home server or a cloud VM. Each bot gets its own persistent Linux desktop with Chromium and a terminal, which you can watch live and take over.
-- **Which model.** One model serves every bot on a server, from an OpenAI, Anthropic or OpenRouter key or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([models](/docs/configuration/models)).
+- **Which model.** One model serves every bot on a server, from a ChatGPT or Claude plan sign-in, an OpenAI, Anthropic or OpenRouter key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([models](/docs/configuration/models)).
 - **Where your data lives.** Conversations, files, memory and website sign-ins stay on your server. Your model provider and connected services still see what bots send them ([privacy](/docs/configuration/privacy)); a local model keeps model requests at home.
 - **Where you can use it.** Anywhere your model provider works.
 - **What it costs.** The software is free; you pay for the machine and the model usage.
@@ -111,19 +111,19 @@ OpenTeam is an open-source, self-hosted alternative to all three, and closest to
 
 ## What Grok Bot, Muse and dots do better
 
-- **Setup.** You install an app and sign in. OpenTeam needs Docker, about 8 GB of RAM, a machine that stays on, and a model key or local model server.
-- **Approvals.** All three check consequential actions before they run. OpenTeam has no per-action approval step: bots act directly. Its guardrails are the container, Gmail drafts instead of sends, handoffs for CAPTCHAs, 2FA and payments, and password forms the model can't read.
-- **Managed isolation.** Grok Bot runs each user in a Firecracker microVM, and Muse routes all traffic through Sentinel; the vendors maintain both. OpenTeam's bots share one hardened container and one Unix user, on a machine you maintain.
+- **Setup.** You install an app and sign in. OpenTeam needs Docker, about 8 GB of RAM, a machine that stays on, and a model plan, key or local model server.
+- **Approvals.** All three check consequential actions before they run. OpenTeam asks only before sending email, Slack messages and texts; other actions run directly. Its other guardrails are the container, handoffs for CAPTCHAs, 2FA and payments, and password forms the model can't read.
+- **Managed isolation.** Grok Bot runs each user in a Firecracker microVM, and Muse routes all traffic through Sentinel; the vendors maintain both. OpenTeam's bots share one Docker container, with passwordless `sudo`, and one Unix user, on a machine you maintain.
 - **Apps and reach.** Grok Bot has Windows and Android apps, Muse works in WhatsApp, and dots works in Slack and Teams. OpenTeam's desktop apps are macOS (Apple silicon) and Linux x64 only, the iPhone app is a TestFlight beta, and there's no Android app.
 - **Integrations.** dots reaches 4,000+ apps and Muse checks out with one-time cards. OpenTeam has a few bundled plugins plus custom MCP servers.
 - **People.** Team Bots and ChatGPT business plans serve whole teams. OpenTeam has one human account per server.
 
-If you want an agent on your phone in two minutes, or an approval prompt before every email, one of the hosted three is the better tool today.
+If you want an agent on your phone in two minutes, or approval prompts before every consequential action, one of the hosted three is the better tool today.
 
 ## Which one should you use?
 
 - **Choose Grok Bot if** you want several named bots that split work in group chats, need Windows, Linux or Android apps, and already pay for Cursor or SuperGrok.
-- **Choose Meta Muse if** you live in the US or Canada and want a free phone agent for email, bookings and shopping, and accept training on by default or switch it off.
+- **Choose Meta Muse if** you live in the US, Canada, Japan or Singapore and want a free phone agent for email, bookings and shopping, and accept training on by default or switch it off.
 - **Choose OpenAI dots if** you already pay for ChatGPT Pro or Business Premium, work in Slack or Teams, and want one agent that knows your ChatGPT context.
 - **Choose OpenTeam if** you want bots on hardware you control and any model provider, including a local one, and you can do without approval prompts.
 - **Stay with what you have if** your agent already works where your team works; switching means rebuilding its memory.
@@ -134,7 +134,7 @@ Weighing Anthropic's agent instead? See our [Claude Cowork alternative that runs
 
 ### Is there an open-source Grok Bot alternative?
 
-Yes. OpenTeam is an open-source (GPL-3.0), self-hosted Grok Bot alternative. Each bot gets its own Linux computer, up to six bots share a group chat, and routines run on a schedule. It uses an OpenAI, Anthropic or OpenRouter key or a local model, but it has no approval prompts and one account per server.
+Yes. OpenTeam is an open-source (GPL-3.0), self-hosted Grok Bot alternative. Each bot gets its own Linux computer, up to six bots share a group chat, and routines run on a schedule. It uses a ChatGPT or Claude plan, an OpenAI, Anthropic or OpenRouter key, or a local model, but it asks for approval only before outgoing messages and has one account per server.
 
 ### Is Grok Bot free?
 
@@ -142,7 +142,7 @@ No, but you can try it. The trial is a usage credit with a 7-day window. After t
 
 ### Is Meta Muse available outside the US and Canada?
 
-No. As of October 9, 2026, Muse serves only the US and Canada, and Meta hasn't announced other countries. See [what to do if Meta Muse isn't available in your country](/blog/meta-muse-not-available-in-your-country).
+Yes, in Japan since October 23, 2026 ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)) and Singapore since October 27 ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)). Meta hasn't announced other countries. See [what to do if Meta Muse isn't available in your country](/blog/meta-muse-not-available-in-your-country).
 
 ### Can I use OpenAI dots in the UK or EU?
 

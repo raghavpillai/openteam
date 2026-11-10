@@ -7,6 +7,7 @@ import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { ComputerRuntime } from "../../src/runtime";
 import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../../src/bot-compaction";
+import { replaceTaskProgressContext } from "@openteam/contracts/task-progress";
 const deferred = () => {
   let resolve!: (v?: any) => void;
   const promise = new Promise<any>((r) => (resolve = r));
@@ -18,7 +19,7 @@ const model: any = {
   api: "openai-completions",
   name: "Lifecycle",
   baseUrl: "https://offline.invalid/v1",
-  contextWindow: 10000,
+  contextWindow: 100_000,
   maxTokens: 1000,
   reasoning: false,
   input: ["text"],
@@ -43,8 +44,8 @@ const answer = (text: string) => ({
   timestamp: Date.now(),
 });
 
-for (const timing of ["pending", "ready", "capacity"] as const) {
-  test(`four consecutive real Pi compactions with duplicate and ordered steers while summary ${timing}`, async () => {
+for (const timing of ["pending", "ready", "capacity", "task-progress"] as const) {
+  test(`four consecutive real Pi compactions while summary ${timing}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "continual-lifecycle-"));
     const store = new BotCompactionArchiveStore(join(root, "archive"));
     const coordinator = new BotCompactionCoordinator(store, 0);
@@ -67,6 +68,7 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
       return waitForCapacity(input, signal);
     };
     let path: string | undefined;
+    let currentActive: any;
     const provider = await ModelRuntime.create({
       credentials: new InMemoryCredentialStore(),
       modelsPath: null,
@@ -111,9 +113,9 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
             {
               choices: [{ index: 0, delta: {}, finish_reason: tool ? "tool_calls" : "stop" }],
               usage: {
-                prompt_tokens: tool ? 9000 : 500,
+                prompt_tokens: tool ? 90_000 : 500,
                 completion_tokens: 10,
-                total_tokens: tool ? 9010 : 510,
+                total_tokens: tool ? 90_010 : 510,
               },
             },
           ];
@@ -142,13 +144,19 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           parameters: { type: "object", properties: {} },
           execute: async () => {
             toolCalls++;
+            if (timing === "task-progress") {
+              currentActive.instructions = replaceTaskProgressContext(
+                "Updated parent scope: read-only now; never submit the pending document.",
+                { runId: currentActive.runId, revision: round, state: "working", summary: `Receipt verified in cycle ${round}`, evidence: ["/requests/receipt"], remaining: ["Inspect the later document request without sending"], nextAction: "Inspect only" }
+              );
+            }
             toolStarted.resolve();
             await releaseTool.promise;
             return {
               content: [
                 {
                   type: "text",
-                  text: `Tool result ${round}` + (timing === "capacity" ? "x".repeat(8000) : ""),
+                  text: `Tool result ${round}` + (timing === "capacity" ? "x".repeat(48_000) : ""),
                 },
               ],
               details: {},
@@ -157,10 +165,7 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
         },
       ],
       acknowledgeToolOutcomes: async () => {},
-      interruptShellWaits() {},
       cancelApprovals() {},
-      refreshPrompt: async () => ({ instructions: "System fixture", userInfo: null }),
-      acknowledgePrompt: async () => {},
       userForms: { beginTurn: async () => {}, endTurn: async () => {} },
     };
     try {
@@ -179,7 +184,7 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           contextSessionId: id,
           modelRef: { providerId: model.provider, modelId: model.id },
           reasoning: "off",
-          instructions: "System fixture",
+          instructions: timing === "task-progress" ? "Updated parent scope: read-only now; never submit the pending document." : "System fixture",
           userInfoMessage: null,
           cwd: root,
           runtimeProfile: "agent",
@@ -188,16 +193,13 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           requestSource: "agent",
           resetSelfSummaryCount: true,
           sentMessageCount: 1,
-          toolActivityAfterLastSend: false,
-          pendingSteers: [],
-          acceptedSteerIds: new Set(),
-          discoveredDynamicTools: new Set(),
           assistantOrdinal: 0,
           startedItems: new Set(),
           toolArgs: new Map(),
           attachmentTempDirectories: [],
           queue: { push: (e: any) => events.push(e), end() {} },
         };
+        currentActive = active;
         const manager = path
           ? SessionManager.open(path, join(root, "sessions"), root)
           : SessionManager.create(root, join(root, "sessions"), { id });
@@ -223,22 +225,6 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           releaseSummary.resolve();
           await new Promise((r) => setImmediate(r));
         }
-        const a = {
-          inboxId: `a-${round}`,
-          clientMessageId: `ma-${round}`,
-          content: `STEER-A-${round}: current value alpha-${round}`,
-        };
-        const b = {
-          inboxId: `b-${round}`,
-          clientMessageId: `mb-${round}`,
-          content: `STEER-B-${round}: current value beta-${round} supersedes alpha`,
-        };
-        await runtime.steer(active.runId, a);
-        await runtime.steer(active.runId, a);
-        await runtime.steer(active.runId, b);
-        expect(events.slice(startEvents).filter((e) => e.type === "input.delivered")).toHaveLength(
-          0
-        );
         if (timing === "capacity") {
           releaseTool.resolve();
           await capacityStarted.promise;
@@ -248,24 +234,21 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
         await new Promise((r) => setImmediate(r));
         releaseTool.resolve();
         await running;
-        const delivered = events
-          .slice(startEvents)
-          .filter((e) => e.type === "input.delivered")
-          .map((e) => e.inboxId);
-        expect(delivered).toEqual([a.inboxId, b.inboxId]);
         expect(toolCalls).toBe(round);
-        expect(summaryCalls).toBe(round);
+        expect(summaryCalls).toBe(timing === "task-progress" ? round * 2 : round);
         expect((await store.manifest(id)).epoch).toBe(round);
         const inputs = requests
           .filter((r) => r.round === round)
           .map((r) => JSON.stringify(r.request));
-        expect(inputs.some((s) => s.includes("summary_content") && s.includes(a.content))).toBe(
-          true
-        );
-        expect(inputs.at(-1)).toContain(b.content);
-        const firstA = inputs.findIndex((s) => s.includes(a.content)),
-          firstB = inputs.findIndex((s) => s.includes(b.content));
-        expect(firstA).toBeLessThanOrEqual(firstB);
+        expect(inputs.some((s) => s.includes("summary_content"))).toBe(true);
+        if (timing === "task-progress") {
+          // The real post-compaction provider request must carry the newest
+          // state and scope even when the summary started before that update.
+          const afterCompaction = inputs.at(-1)!;
+          expect(afterCompaction).toContain(`Receipt verified in cycle ${round}`);
+          expect(afterCompaction).toContain("read-only now; never submit");
+          expect(afterCompaction).toContain("Inspect the later document request without sending");
+        }
         expect(
           events
             .slice(startEvents)
@@ -343,9 +326,9 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
             {
               choices: [{ index: 0, delta: {}, finish_reason: tool ? "tool_calls" : "stop" }],
               usage: {
-                prompt_tokens: tool ? 9000 : 500,
+                prompt_tokens: tool ? 90_000 : 500,
                 completion_tokens: 10,
-                total_tokens: tool ? 9010 : 510,
+                total_tokens: tool ? 90_010 : 510,
               },
             },
           ];
@@ -378,7 +361,6 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
             await releaseTool.promise;
             // Model a successful terminal delivery, not only an end-turn flag.
             currentActive.sentMessageCount++;
-            currentActive.toolActivityAfterLastSend = false;
             currentActive.endTurnRequested = true;
             return {
               content: [{ type: "text", text: `Tool result ${round}` }],
@@ -389,10 +371,7 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
         },
       ],
       acknowledgeToolOutcomes: async () => {},
-      interruptShellWaits() {},
       cancelApprovals() {},
-      refreshPrompt: async () => ({ instructions: "System fixture", userInfo: null }),
-      acknowledgePrompt: async () => {},
       userForms: { beginTurn: async () => {}, endTurn: async () => {} },
     };
     try {
@@ -418,10 +397,6 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
           requestSource: "turn",
           resetSelfSummaryCount: true,
           sentMessageCount: 1,
-          toolActivityAfterLastSend: false,
-          pendingSteers: [],
-          acceptedSteerIds: new Set(),
-          discoveredDynamicTools: new Set(),
           assistantOrdinal: 0,
           startedItems: new Set(),
           toolArgs: new Map(),
@@ -479,7 +454,7 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
               (e: any) => e.type === "custom" && e.customType === "openteam-compaction-usage"
             );
           expect(measurements).toHaveLength(round - 1);
-          expect((measurements.at(-1) as any).data.inputTokens).toBe(9000);
+          expect((measurements.at(-1) as any).data.inputTokens).toBe(90_000);
           expect((measurements.at(-1) as any).data.source).toBe("provider");
         }
         releaseSummary.resolve();

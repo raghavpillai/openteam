@@ -1,14 +1,17 @@
+export type { ServerUpdateView, ServerUpdateRequest, ServerUpdateHeartbeat } from "./server-updates";
+export { stillWorking, updateBusyMessage, isUpdateBusyMessage } from "./server-updates";
 import type { NotificationRouting } from "./notification-presence";
+export type { SystemActivityView } from "./system-activity";
 import { withReferenceContract, referenceTool } from "./tool-contracts";
 import { Schema } from "effect";
 import { BOT_AVATAR_COLOR_NAMES } from "./bot-avatar";
 export { validateProcessSecretName } from "./process-secrets";
-import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, isTaskMediaPath } from "./media-input";
+import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, TASK_ATTACHMENT_LIMIT_MESSAGE, isTaskMediaPath } from "./media-input";
 import cursorToolsDocument from "./cursor-tools.json";
 export * from "./user-forms";
 export { formatUserFormReceipt } from "./user-form-receipts";
 import nativeToolsDocument from "./native-tools.json";
-import type { ClientCapabilities } from "./capabilities";
+import { CLIENT_CAPABILITIES, type ClientCapabilities } from "./capabilities";
 import { PI_REASONING_LEVELS, type RuntimeEngine } from "./inference";
 import type { AgentNotificationKind, ChannelNotificationState, NotificationReadState } from "./notification-content";
 
@@ -22,6 +25,7 @@ export * from "./plugin-settings";
 export * from "./routine-types";
 export * from "./memory-management";
 export * from "./automation-tools";
+export * from "./state-tools";
 
 export interface NativeToolDefinition {
   name: string;
@@ -135,9 +139,6 @@ export type RuntimeRequestSource = typeof RuntimeRequestSource.Type;
 export const SEND_TO_USER_REPLY_NUDGE_PROMPT =
   "Your previous turn left the user without the result they're waiting on — you never called SendToUser that turn, or every SendToUser you tried failed to deliver. Either way they received nothing and are still waiting. Do not assume a send from an earlier turn covered it: an opening acknowledgement back then did not deliver this result (ack ≠ delivery). Deliver the result now by actually invoking the SendToUser tool — make a real tool/function call, not text you write. Plain assistant text is NEVER shown to the user; only a real SendToUser tool invocation reaches them, so if you don't call the tool they just keep seeing silence.";
 
-export const SEND_TO_USER_CLOSING_NUDGE_PROMPT =
-  "Your previous turn acknowledged the user and then ran tool calls, but ended without a follow-up SendToUser — the last thing the user saw is that opening acknowledgement, so whatever the tool calls produced after it never reached them. If that work produced the result or answer they are waiting on, deliver it now by actually invoking the SendToUser tool — make a real tool/function call, not text you write. Plain assistant text is NEVER shown to the user; only a real SendToUser tool invocation reaches them. If the work is genuinely unfinished, continue it and send the result once you have it.";
-
 export const RunItemKind = Schema.Literal(
   "agent_message",
   "reasoning",
@@ -161,11 +162,6 @@ export const CreateBotInput = Schema.Struct({
 });
 export type CreateBotInput = typeof CreateBotInput.Type;
 
-export const DuplicateBotInput = Schema.Struct({
-  clientRequestId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
-});
-export type DuplicateBotInput = typeof DuplicateBotInput.Type;
-
 export const UpdateBotInput = Schema.Struct({
   name: Schema.optional(Schema.String.pipe(Schema.filter((value) => value.trim().length > 0, {
     message: () => "Bot name must not be blank",
@@ -176,7 +172,6 @@ export const UpdateBotInput = Schema.Struct({
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
-  hiddenFromSidebar: Schema.optional(Schema.Boolean),
   draftingDisabled: Schema.optional(Schema.Boolean),
   draftAllowedRecipients: Schema.optional(
     Schema.Array(Schema.String.pipe(Schema.pattern(/^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/), Schema.maxLength(320))).pipe(Schema.maxItems(500))
@@ -187,18 +182,15 @@ export type UpdateBotInput = typeof UpdateBotInput.Type;
 export const PushDevicePlatform = Schema.Literal("ios", "android");
 export type PushDevicePlatform = typeof PushDevicePlatform.Type;
 
+/** Native iOS APNs registration; the hex device token is lowercased by the server. */
 export const RegisterPushDeviceInput = Schema.Struct({
   installationId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(200)),
-  platform: PushDevicePlatform,
-  pushToken: Schema.String.pipe(
-    Schema.minLength(20),
-    Schema.maxLength(512),
-    Schema.pattern(/^(?:(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]|(?:[a-fA-F0-9]{2}){32,100})$/)
-  ),
-  provider: Schema.optional(Schema.Literal("expo", "apns")),
-  apnsEnvironment: Schema.optional(Schema.Literal("development", "production")),
-  apnsTopic: Schema.optional(Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9.-]{2,199}$/))),
-  notificationScope: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/))),
+  platform: Schema.Literal("ios"),
+  pushToken: Schema.String.pipe(Schema.pattern(/^(?:[a-fA-F0-9]{2}){32,100}$/)),
+  provider: Schema.Literal("apns"),
+  apnsEnvironment: Schema.Literal("development", "production"),
+  apnsTopic: Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9.-]{2,199}$/)),
+  notificationScope: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
   locale: Schema.optional(Schema.String.pipe(Schema.minLength(2), Schema.maxLength(35))),
 });
@@ -225,10 +217,13 @@ export interface AgentNotificationPayload {
   runId: string;
   title: string;
   body: string;
-  deepLink: string;
   badgeCount: number;
-  notificationSequence?: string;
-  messageSequence?: string;
+  notificationSequence: string;
+  messageSequence: string;
+  /** Stable message identity for opening an alert outside the latest history page. */
+  messageId?: string;
+  /** Set when the message is a reply inside a thread, so opening the alert opens that thread. */
+  threadMessageId?: string;
   sender?: import("./notification-content").NotificationSender;
 }
 
@@ -284,7 +279,7 @@ export const SendMessageInput = Schema.Struct({
   replyToMessageId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
   richText: Schema.optional(Schema.String),
   isFork: Schema.optional(Schema.Boolean),
-  attachments: Schema.optional(Schema.Array(AssetRef).pipe(Schema.maxItems(6))),
+  attachments: Schema.optional(Schema.Array(AssetRef).pipe(Schema.maxItems(CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage))),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
 }).pipe(
   Schema.filter(
@@ -372,20 +367,20 @@ export const SubagentType = Schema.Literal(
   "videoReview",
   "watchVideo",
   "computerUse",
-  "browserUse",
   "knowledgeWork"
 );
 export type SubagentType = typeof SubagentType.Type;
 
 export const TaskInput = Schema.Struct({
   description: Schema.String,
+  request_run_id: Schema.optional(Schema.UUID),
   prompt: Schema.String.pipe(Schema.minLength(1)),
   resume: Schema.optional(Schema.String),
   subagent_type: Schema.optional(SubagentType),
   file_attachments: Schema.optional(Schema.Array(Schema.String.pipe(Schema.filter(isTaskMediaPath, {
     message: () => "Task file_attachments accepts supported images or videos only. For ZIPs, PDFs and other files, put the shared filesystem path in the Task prompt and omit file_attachments.",
   }))).pipe(Schema.maxItems(MAX_TASK_ATTACHMENTS, {
-    message: () => `Task accepts at most ${MAX_TASK_ATTACHMENTS} file_attachments. Split the media across separate tasks.`,
+    message: () => TASK_ATTACHMENT_LIMIT_MESSAGE,
   }))),
   run_in_background: Schema.optional(Schema.Boolean),
   read_only: Schema.optional(Schema.Boolean),
@@ -408,9 +403,11 @@ export const MessageSubagentInput = Schema.Struct({
 });
 export type MessageSubagentInput = typeof MessageSubagentInput.Type;
 
-export const StopSubagentInput = Schema.Struct({
-  subagent_id: Schema.String.pipe(Schema.minLength(1)),
-});
+/** One running subagent by id, or every running subagent with all: true. */
+export const StopSubagentInput = Schema.Union(
+  Schema.Struct({ subagent_id: Schema.String.pipe(Schema.minLength(1)), all: Schema.optional(Schema.Literal(false)) }),
+  Schema.Struct({ all: Schema.Literal(true) })
+);
 export type StopSubagentInput = typeof StopSubagentInput.Type;
 
 export const CreateAgentInput = Schema.Struct({
@@ -419,21 +416,6 @@ export const CreateAgentInput = Schema.Struct({
   section_id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
 export type CreateAgentInput = typeof CreateAgentInput.Type;
-
-export const AGENT_DIRECTORY_QUERY_MAX_LENGTH = 120;
-export const AGENT_DIRECTORY_DEFAULT_LIMIT = 20;
-export const AGENT_DIRECTORY_MAX_LIMIT = 50;
-
-export const ListAgentsInput = Schema.Struct({
-  query: Schema.optional(Schema.String.pipe(Schema.maxLength(AGENT_DIRECTORY_QUERY_MAX_LENGTH))),
-  limit: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.between(1, AGENT_DIRECTORY_MAX_LIMIT))
-  ),
-});
-export type ListAgentsInput = typeof ListAgentsInput.Type;
-
-export const ListGroupsInput = ListAgentsInput;
-export type ListGroupsInput = typeof ListGroupsInput.Type;
 
 export const UpdateAgentInput = Schema.Struct({
   agent_id: Schema.String.pipe(Schema.minLength(1)),
@@ -470,9 +452,10 @@ export const SendToAgentInput = Schema.Struct({
 export type SendToAgentInput = typeof SendToAgentInput.Type;
 
 export const AgentSendToUserInput = Schema.Struct({
-  type: Schema.Literal("text", "attachment", "widget", "secret-request", "computer-handoff", "user-form", "external-draft", "bot-template"),
+  type: Schema.Literal("text", "attachment", "widget", "secret-request", "computer-handoff", "user-form", "external-draft", "imessage-send", "bot-template"),
   form: Schema.optional(Schema.Unknown),
   draft: Schema.optional(Schema.Unknown),
+  imessage: Schema.optional(Schema.Unknown),
   template: Schema.optional(Schema.Unknown),
   end_turn: Schema.optional(Schema.Boolean),
   content: Schema.optional(Schema.String),
@@ -628,6 +611,10 @@ export const ReactToMessageInput = Schema.Struct({
 });
 export type ReactToMessageInput = typeof ReactToMessageInput.Type;
 
+/** Per-call Shell and AwaitShell wait caps: computerUse workers get the longer one. */
+export const SHELL_WAIT_CAP_MS = 780_000;
+export const GRAPHICAL_SHELL_WAIT_CAP_MS = 3_480_000;
+
 export const ShellToolInput = Schema.Struct({
   command: Schema.String,
   block_until_ms: Schema.optional(Schema.Number.pipe(Schema.finite(), Schema.greaterThanOrEqualTo(0))),
@@ -673,6 +660,8 @@ export const PluginToolDescriptor = Schema.Struct({
   description: Schema.String,
   inputSchema: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
   source: Schema.String,
+  /** The server declares that the tool only reads. */
+  readOnly: Schema.optional(Schema.Boolean),
 });
 export type PluginToolDescriptor = typeof PluginToolDescriptor.Type;
 
@@ -1063,7 +1052,6 @@ export interface ScreenStatusView {
   browserStateCoverage: Array<
     | "cookies"
     | "local-storage"
-    | "session-storage"
     | "indexed-db"
     | "service-workers"
     | "cache-storage"
@@ -1073,7 +1061,6 @@ export interface ScreenStatusView {
     | "settings"
     | "bookmarks"
     | "history"
-    | "open-tabs"
   >;
   browserTargetRouting: "bot-owned-tabs";
 }
@@ -1082,19 +1069,16 @@ export const SEND_TO_AGENT_TOOL = cursorTool("SendToAgent");
 
 export const SEND_TO_USER_TOOL = nativeTool("SendToUser");
 export const REACT_TO_MESSAGE_TOOL = nativeTool("ReactToMessage");
-export const EXTERNAL_SHELL_TOOL = nativeTool("ExternalShell");
-export const EXTERNAL_READ_TOOL = nativeTool("ExternalRead");
 export const SHELL_TOOL = nativeTool("Shell");
 export const READ_TOOL = nativeTool("Read");
-export const LIST_MACHINES_TOOL = nativeTool("ListMachines");
+/** Looked up in the cursor namespace, as in the reference, rather than called directly. */
+export const LIST_MACHINES_TOOL = { type: "function" as const, ...referenceTool("ListMachines") };
 export const GET_DYNAMIC_TOOLS_TOOL = nativeTool("GetDynamicTools");
 export const CALL_DYNAMIC_TOOL_TOOL = nativeTool("CallDynamicTool");
 
 export const CHECK_SUBAGENT_TOOL = cursorTool("CheckSubagent");
 export const CREATE_AGENT_TOOL = cursorTool("CreateAgent");
 export const CREATE_CHANNEL_TOOL = cursorTool("CreateChannel");
-export const LIST_AGENTS_TOOL = cursorTool("ListAgents");
-export const LIST_GROUPS_TOOL = cursorTool("ListGroups");
 export const MESSAGE_SUBAGENT_TOOL = cursorTool("MessageSubagent");
 export const REQUEST_BOX_HELP_TOOL = cursorTool("request_box_help");
 export const STOP_SUBAGENT_TOOL = cursorTool("StopSubagent");
@@ -1110,9 +1094,15 @@ export const RequestBoxHelpInput = Schema.Struct({
   instruction: Schema.optional(Schema.String),
   domain: Schema.optional(Schema.String),
   idp_domain: Schema.optional(Schema.String),
+  url: Schema.optional(Schema.String),
 });
 export type RequestBoxHelpInput = typeof RequestBoxHelpInput.Type;
 
+/** profile and journal are the bot's own memory; shared_profile and shared_journal are its shard of shared user memory. */
+export const MemoryType = Schema.Literal("profile", "journal", "shared_profile", "shared_journal");
+export type MemoryType = typeof MemoryType.Type;
+
+/** The shared durable-state handler's input. Each state tool is one fixed target of it. */
 export const UpdateStateInput = Schema.Struct({
   target: Schema.Literal(
     "memory",
@@ -1121,27 +1111,23 @@ export const UpdateStateInput = Schema.Struct({
     "profile",
     "settings",
     "channel",
-    "project",
     "avatar"
   ),
   action: Schema.Literal(
     "write",
     "forget",
     "create",
+    "get",
     "update",
     "pause",
     "resume",
     "delete",
     "set",
     "disconnect",
-    "join",
-    "leave",
     "clear"
   ),
   fact: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
-  tier: Schema.optional(Schema.Literal("profile", "log", "note")),
-  scope: Schema.optional(Schema.Literal("agent", "user", "project")),
-  project: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  type: Schema.optional(MemoryType),
   id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   title: Schema.optional(Schema.String),
@@ -1153,14 +1139,70 @@ export const UpdateStateInput = Schema.Struct({
   trigger: Schema.optional(Schema.Unknown),
   enabled: Schema.optional(Schema.Boolean),
   body: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
-  hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
+  drafting_disabled: Schema.optional(Schema.Boolean),
   platform: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   path: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
 export type UpdateStateInput = typeof UpdateStateInput.Type;
 
-export const UPDATE_STATE_TOOL = nativeTool("update_state");
+const optionalText = Schema.optional(Schema.String.pipe(Schema.minLength(1)));
+
+export const UpdateMemoryToolInput = Schema.Struct({
+  action: Schema.Literal("write", "forget"),
+  fact: Schema.String.pipe(Schema.minLength(1)),
+  type: MemoryType,
+});
+export type UpdateMemoryToolInput = typeof UpdateMemoryToolInput.Type;
+
+export const UpdateRoutineToolInput = Schema.Struct({
+  action: Schema.Literal("create", "get", "update", "pause", "resume", "delete"),
+  id: optionalText,
+  name: optionalText,
+  prompt: optionalText,
+  schedule: optionalText,
+  trigger: Schema.optional(Schema.Unknown),
+  enabled: Schema.optional(Schema.Boolean),
+});
+export type UpdateRoutineToolInput = typeof UpdateRoutineToolInput.Type;
+
+export const UpdateSkillToolInput = Schema.Struct({
+  action: Schema.Literal("write", "delete"),
+  id: optionalText,
+  name: optionalText,
+  description: Schema.optional(Schema.String),
+  body: optionalText,
+});
+export type UpdateSkillToolInput = typeof UpdateSkillToolInput.Type;
+
+export const UpdateProfileToolInput = Schema.Struct({
+  name: optionalText,
+  description: Schema.optional(Schema.String),
+  title: Schema.optional(Schema.String),
+  avatar_shape: optionalText,
+  avatar_color: UpdateStateInput.fields.avatar_color,
+  notify_on_updates: Schema.optional(Schema.Boolean),
+  drafting_disabled: Schema.optional(Schema.Boolean),
+});
+export type UpdateProfileToolInput = typeof UpdateProfileToolInput.Type;
+
+export const UpdateAvatarToolInput = Schema.Struct({
+  action: Schema.Literal("set", "clear"),
+  path: optionalText,
+});
+export type UpdateAvatarToolInput = typeof UpdateAvatarToolInput.Type;
+
+export const DisconnectChannelToolInput = Schema.Struct({
+  platform: Schema.String.pipe(Schema.minLength(1)),
+});
+export type DisconnectChannelToolInput = typeof DisconnectChannelToolInput.Type;
+
+export const UPDATE_MEMORY_TOOL = nativeTool("UpdateMemory");
+export const UPDATE_ROUTINE_TOOL = nativeTool("UpdateRoutine");
+export const UPDATE_SKILL_TOOL = cursorTool("UpdateSkill");
+export const UPDATE_PROFILE_TOOL = cursorTool("UpdateProfile");
+export const UPDATE_AVATAR_TOOL = cursorTool("UpdateAvatar");
+export const DISCONNECT_CHANNEL_TOOL = cursorTool("DisconnectChannel");
 
 export const SCREENSHOT_TOOL = nativeTool("Screenshot");
 
@@ -1250,8 +1292,6 @@ export const COMPUTER_TOOL = {
 export const COMPUTER_USE_TOOL = { type: "function", ...referenceTool("Computer") };
 
 export const DynamicToolCallRequest = Schema.Struct({
-  // Runtime-only handoff; not a model-visible Task argument.
-  foregroundYield: Schema.optional(Schema.Boolean),
   runId: Schema.String,
   botId: Schema.String,
   conversationId: Schema.String,
@@ -1263,6 +1303,11 @@ export const DynamicToolCallRequest = Schema.Struct({
 });
 export type DynamicToolCallRequest = typeof DynamicToolCallRequest.Type;
 
+/** Images a turn shows the model inline: every photo a message can carry, as in the reference. */
+export const MAX_TURN_INLINE_IMAGES = CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage;
+/** Raw image bytes a turn sends inline. Base64 grows them by a third, and the computer's server
+ * refuses request bodies over Bun's 128 MiB default, so a turn stops adding images before that. */
+export const MAX_TURN_INLINE_IMAGE_BYTES = 80 * 1024 * 1024;
 export const ComputerTurnRequest = Schema.Struct({
   runId: Schema.String,
   botId: Schema.String,
@@ -1279,9 +1324,7 @@ export const ComputerTurnRequest = Schema.Struct({
   userInfoEpoch: Schema.optional(Schema.Number),
   connectorInstructions: Schema.optional(Schema.String),
   agentProfileSnapshot: Schema.optional(Schema.Unknown),
-  memorySnapshot: Schema.optional(Schema.Unknown),
   todoUpdate: Schema.optional(Schema.NullOr(Schema.String)),
-  automationTrigger: Schema.optional(Schema.NullOr(Schema.String)),
   resetSelfSummaryCount: Schema.optional(Schema.Boolean),
   requestSource: Schema.optional(RuntimeRequestSource),
   channelId: Schema.String,
@@ -1290,25 +1333,31 @@ export const ComputerTurnRequest = Schema.Struct({
   subagentType: Schema.optional(SubagentType),
   taskConfiguration: Schema.optional(Schema.Unknown),
   readOnly: Schema.optional(Schema.Boolean),
-  /** "tool" gives a worker that carries skills of its own the Skill tool; "read" (default) has it Read them by path. */
-  skillAccess: Schema.optional(Schema.Literal("read", "tool")),
+  /** The user's IANA time zone; the computer sets the box clock to it before the turn runs. */
+  timeZone: Schema.optional(Schema.String),
   model: Schema.String,
   reasoning: Schema.Literal(...PI_REASONING_LEVELS),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),
   attachmentOwnerBotId: Schema.optional(Schema.String),
-  images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
+  images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(MAX_TURN_INLINE_IMAGES))),
   dynamicNamespaces: Schema.optional(Schema.Array(PluginDynamicNamespace)),
   pluginRuntimePackages: Schema.optional(Schema.Array(Schema.Unknown)),
 });
 export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
 
-export const ComputerSteerRequest = Schema.Struct({
-  inboxId: Schema.String,
-  clientMessageId: Schema.String,
-  content: Schema.String.pipe(Schema.minLength(1)),
-  images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
+/** Apps report the zone their device detects; Settings sets or clears (null) an override. */
+export const UpdateUserTimeZoneInput = Schema.Struct({
+  detectedTimeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
+  overrideTimeZone: Schema.optional(Schema.NullOr(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)))),
 });
-export type ComputerSteerRequest = typeof ComputerSteerRequest.Type;
+export type UpdateUserTimeZoneInput = typeof UpdateUserTimeZoneInput.Type;
+
+export interface UserTimeZoneView {
+  detectedTimeZone: string | null;
+  overrideTimeZone: string | null;
+  /** The zone in effect: the override, else the detected zone, else UTC. */
+  timeZone: string;
+}
 
 export const ShellCompletionInput = Schema.Struct({
   automationRunId: Schema.optional(Schema.String),
@@ -1320,6 +1369,8 @@ export const ShellCompletionInput = Schema.Struct({
   exitCode: Schema.NullOr(Schema.Number),
   error: Schema.optional(Schema.String.pipe(Schema.maxLength(4000))),
   channelId: Schema.optional(Schema.String),
+  /** The Shell call's description, else its (redacted) command. */
+  title: Schema.optional(Schema.String.pipe(Schema.maxLength(4000))),
 });
 export type ShellCompletionInput = typeof ShellCompletionInput.Type;
 
@@ -1335,12 +1386,6 @@ export type ComputerEvent =
     }
   | { type: "turn.started"; turnId: string }
   | { type: "prompt.delivered"; turnId: string }
-  | {
-      type: "input.delivered";
-      turnId: string;
-      inboxId: string;
-      clientMessageId: string;
-    }
   | { type: "item.started"; turnId: string; item: unknown }
   | { type: "agent.delta"; turnId: string; itemId: string; delta: string }
   | { type: "item.completed"; turnId: string; item: unknown }
@@ -1624,6 +1669,9 @@ export interface RunView {
   channelId: string | null;
   deliveryId: string | null;
   error: unknown;
+  /** Parent request status; private evidence and scope records are not projected. */
+  requestState?: "working" | "waiting" | "blocked" | "complete";
+  requestNextCheckAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1640,8 +1688,7 @@ export interface SubagentActivityView {
   currentRunId: string | null;
   description: string;
   subagentType: SubagentType;
-  runInBackground: boolean;
-  status: "provisioning" | "queued" | "running" | "completed" | "failed" | "stopped";
+  status: "provisioning" | "queued" | "running" | "waiting" | "completed" | "failed" | "stopped";
   /** Sanitized completion candidate. It is never inserted into chat automatically. */
   summary: string | null;
   errorMessage: string | null;
@@ -1659,7 +1706,6 @@ export interface Snapshot {
     root: string;
     sharedDirectory: string;
     botsDirectory: string;
-    projectsDirectory: string;
   };
   bots: BotView[];
   channels: ChannelView[];
@@ -1675,8 +1721,7 @@ export interface Snapshot {
     queue: "ready" | "unavailable";
     computer: "ready" | "unavailable";
     inference: "ready" | "missing" | "invalid" | "unavailable";
-    /** Absent on older servers; clients must keep voice notes disabled in that case. */
-    transcription?: "configured" | "missing" | "invalid";
+    transcription: "configured" | "missing" | "invalid";
   };
 }
 
@@ -1735,6 +1780,16 @@ export interface ClientRuntimeView {
   runtime: ClientSnapshot["runtime"];
 }
 
+/** A user's stop of everything a bot is doing: its turns and the subagents it has running. */
+export interface BotStopView {
+  hadActiveRun: boolean;
+}
+
+/** Bots with turns or subagents in progress, longest-running first; an update waits for none. */
+export interface BusyBotsView {
+  bots: Array<{ botId: string; name: string; runIds: string[] }>;
+}
+
 /** Public release metadata used by clients before loading version-sensitive API surfaces. */
 export interface SystemVersionView {
   releaseVersion: string;
@@ -1764,8 +1819,9 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 }
-export * from "./external-draft";
-export * from "./bot-recipe";
+export * from './external-draft';
+export * from './messages-send';
+export * from './bot-recipe';
 
 export * from "./web-search";
 

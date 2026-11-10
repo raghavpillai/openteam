@@ -1,3 +1,4 @@
+import { PluginSelect } from "./plugins/plugin-ui";
 import type {
 PluginCatalogItemView,
 PluginConnectionView,
@@ -14,7 +15,6 @@ ChevronRight,
 Copy,
 ExternalLink,
 KeyRound,
-LoaderCircle,
 Plus,
 Search
 } from "lucide-react";
@@ -23,6 +23,7 @@ import { lazy,Suspense,useEffect,useLayoutEffect,useMemo,useRef,useState } from 
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 import { AnimatedCollapse } from "../ui/animated-collapse";
+import { LoadingOrb } from "../ui/loading-orb";
 const loadPluginSettingsDetail = () => import("./plugin-settings-detail");
 const PluginAuthSelect = lazy(() =>
   loadPluginSettingsDetail().then((module) => ({ default: module.PluginAuthSelect }))
@@ -35,7 +36,7 @@ type MarketplacePage = "marketplace" | "installed" | "detail" | "custom" | "mana
 type OAuthCallbackSettings = { oauthCallbackMode: "auto" | "desktop" | "server" | "manual"; oauthLoopbackPort: number };
 
 const primaryButton =
-  "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity duration-120 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45 dark:bg-white dark:text-black";
+  "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity duration-120 ease-out enabled:hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:bg-[#77777717] disabled:text-foreground disabled:opacity-60 dark:bg-white dark:text-black dark:disabled:bg-[#77777717] dark:disabled:text-foreground";
 const secondaryButton =
   "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-[#77777717] px-3 text-[13px] text-foreground outline-none transition-colors duration-120 ease-out hover:bg-[#7777772b] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45";
 
@@ -275,7 +276,7 @@ export function CustomMcpView({
           Cancel
         </button>
         <button className={primaryButton} disabled={!valid || busy} type="submit">
-          {busy ? <LoaderCircle className="size-3 animate-spin" /> : <Plus className="size-3" />}{" "}
+          {busy ? <LoadingOrb aria-hidden size={12} /> : <Plus className="size-3" />}{" "}
           Add server
         </button>
       </div>
@@ -385,7 +386,7 @@ function SquareToggle({
       type="button"
     >
       {busy ? (
-        <LoaderCircle className="size-3 animate-spin" />
+        <LoadingOrb aria-hidden inverse={checked} size={12} />
       ) : checked ? (
         <Check className="size-3" strokeWidth={2.6} />
       ) : null}
@@ -639,8 +640,8 @@ function PluginSetupCard({
               ))}
             </div>
           ) : connection.configured && setup.fields.length ? (
-            <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] text-emerald-700 dark:text-emerald-400">
-              <Check className="size-3" /> Credentials saved
+            <div className="mt-3 text-[10px] text-foreground-secondary">
+              Settings saved. {connection.status === "ready" ? "Connection verified." : "A successful connection is required to verify access."}
             </div>
           ) : null}
 
@@ -656,7 +657,7 @@ function PluginSetupCard({
             onClick={submit}
             type="button"
           >
-            {busy ? <LoaderCircle className="size-3 animate-spin" /> : null}
+            {busy ? <LoadingOrb aria-hidden size={12} /> : null}
             {requiresHttps ? "HTTPS required" : actionLabel}
           </button>
           <button className={cn(secondaryButton, "ml-2")} type="button" disabled={busy} onClick={onDismiss}>Set up later</button>
@@ -785,12 +786,18 @@ function ConnectionSettingsRow({
       {connection.auth === "oauth" && onConfigureCallback ? (
         <div className="mt-3 grid gap-2 text-[10.5px]">
           <label className="grid gap-1">Sign-in callback
-            <select className={field} aria-label="Sign-in callback" value={callbackMode} onChange={event => setCallbackMode(event.target.value as OAuthCallbackSettings["oauthCallbackMode"])}>
-              <option value="auto">Automatic (recommended)</option>
-              <option value="manual" disabled={!manualSupported}>Paste callback URL</option>
-              <option value="desktop">Desktop listener (advanced)</option>
-              <option value="server">Server callback</option>
-            </select>
+            <PluginSelect
+              className={field}
+              label="Sign-in callback"
+              value={callbackMode}
+              onChange={value => setCallbackMode(value as OAuthCallbackSettings["oauthCallbackMode"])}
+              options={[
+                { value: "auto", label: "Automatic (recommended)" },
+                { value: "manual", label: "Paste callback URL", disabled: !manualSupported },
+                { value: "desktop", label: "Desktop listener (advanced)" },
+                { value: "server", label: "Server callback" },
+              ]}
+            />
           </label>
           {callbackMode === "desktop" && <label className="grid gap-1">Desktop callback port (0 = automatic)
             <input className={field} aria-label="Desktop callback port" type="number" min={0} max={65535} value={callbackPort} onChange={event => setCallbackPort(Number(event.target.value))} />
@@ -946,7 +953,7 @@ export function PluginDetail({
             onClick={() => onInstall(plugin, setupValues)}
             type="button"
           >
-            {busy === plugin.key ? <LoaderCircle className="size-3 animate-spin" /> : null}
+            {busy === plugin.key ? <LoadingOrb aria-hidden size={12} /> : null}
             Add
           </button>
         ) : (

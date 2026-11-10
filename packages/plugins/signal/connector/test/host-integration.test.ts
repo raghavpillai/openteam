@@ -13,15 +13,15 @@ const { connectionConfigured, runtimeConfiguration, boundPluginResult } = await 
 const { StdioMcpManager } = await import(
   new URL("apps/computer/src/mcp-manager.ts", repository).href
 );
-const prototype = new URL("../../", import.meta.url).pathname;
+const sourceDirectory = new URL("../../", import.meta.url).pathname;
 const temporary = mkdtempSync(join(tmpdir(), "signal-host-"));
-const packageRoot = mkdtempSync(join(prototype, "../.signal-host-package-"));
+const packageRoot = mkdtempSync(join(sourceDirectory, "../.signal-host-package-"));
 const manager = new StdioMcpManager(join(temporary, "cache"));
 let definition: Awaited<ReturnType<typeof discoverPackages>>[number];
 let input: any;
 
 beforeAll(async () => {
-  cpSync(prototype, join(packageRoot, "signal"), {
+  cpSync(sourceDirectory, join(packageRoot, "signal"), {
     recursive: true,
     filter: (path) => !path.includes("/connector/test") && !path.endsWith("tsconfig.json"),
   });

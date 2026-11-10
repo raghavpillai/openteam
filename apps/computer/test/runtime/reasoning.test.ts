@@ -200,11 +200,12 @@ describe("Codex reasoning request semantics", () => {
       hidden: true,
       factory() {},
     });
+    const manager = SessionManager.inMemory(directory);
     const session = await internals.createStandaloneSession(
       directory,
       "Offline test",
-      SessionManager.inMemory(directory),
-      { reasoning: "off" } as ActiveTurn,
+      manager,
+      { contextSessionId: manager.getSessionId(), reasoning: "off" } as ActiveTurn,
       { providerId: model.provider, modelId: model.id }
     );
     try {

@@ -36,13 +36,16 @@ enum NativePalette {
   static let assistant = surface
   static let user = color("0E0E0E", "545454")
   static let separator = color("E4E4E4", "343434")
+  /// The conversation list's column beside a chat, and its open conversation's card.
+  static let sidebar = color("F5F5F6", "181819")
+  static let sidebarSelection = color("FFFFFF", "343336")
   static let code = color("E5E5E5", "2C2C2C")
   static let selection = code
   // Reference action fill: RGB 1/108/236. iOS 26's default blue is brighter.
   static let link = color("016CEC", "016CEC")
-  static let disabledPrimary = color("848484", "9A9A9A")
   static let toggle = Color(uiColor: .systemGreen)
   static let receiptCheck = color("347D5B", "559978")
+  static let inboxUnread = color("0E6DD2", "0E6DD2")
   static let widgetDanger = color("C83A3A", "F48182")
   static let widgetDisabled = color("E4E4E7", "303033")
   static let destructive = Color(uiColor: .systemRed)
@@ -77,10 +80,9 @@ struct NativeForm<Content: View>: View {
   @ViewBuilder var content: Content
   var body: some View {
     Form {
-      content.listRowBackground(NativePalette.surface)
+      NativeGroupedSections { content }
         .listRowInsets(rowInsets)
-        .listRowSeparatorTint(NativePalette.separator)
-    }.scrollContentBackground(.hidden).nativeCanvas()
+    }.modifier(NativeGroupedStyle()).scrollContentBackground(.hidden).nativeCanvas()
   }
 }
 
@@ -88,9 +90,94 @@ struct NativeList<Content: View>: View {
   @ViewBuilder var content: Content
   var body: some View {
     List {
+      NativeGroupedSections { content }
+    }.modifier(NativeGroupedStyle()).scrollContentBackground(.hidden).nativeCanvas()
+  }
+}
+
+/// Settings keep the reference's compact, outlined cards on both Duo displays.
+/// Rebuilding only the section backgrounds preserves native list interactions.
+enum SettingsStyle {
+  static let background = NativePalette.color("F2F2F7", "1C1C1C")
+  static let surface = NativePalette.color("FFFFFF", "272629")
+  static let border = NativePalette.color("E4E4E8", "333235")
+  static let separator = NativePalette.color("E4E4E8", "333235")
+}
+
+private struct NativeGroupedSections<Content: View>: View {
+  @Environment(\.settingsStyle) private var settingsStyle
+  @ViewBuilder var content: Content
+  var body: some View {
+    if settingsStyle {
+      ForEach(sections: content) { section in
+        Section {
+          ForEach(subviews: section.content) { row in
+            row.listRowBackground(SettingsRowBackground(
+              first: row.id == section.content.first?.id,
+              last: row.id == section.content.last?.id))
+              .listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
+              .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] + 18 }
+          }
+        } header: {
+          section.header.font(.system(size: 13)).textCase(nil)
+            .foregroundStyle(NativePalette.faint)
+        } footer: {
+          section.footer.foregroundStyle(NativePalette.muted)
+        }
+      }.listRowSeparatorTint(SettingsStyle.separator).listSectionSeparator(.hidden)
+    } else {
       content.listRowBackground(NativePalette.surface)
         .listRowSeparatorTint(NativePalette.separator)
-    }.scrollContentBackground(.hidden).nativeCanvas()
+    }
+  }
+}
+
+private struct NativeGroupedStyle: ViewModifier {
+  @Environment(\.settingsStyle) private var settingsStyle
+  func body(content: Content) -> some View {
+    if settingsStyle {
+      content.listStyle(.grouped).safeAreaPadding(.horizontal, 16).listSectionSpacing(28)
+        .environment(\.defaultMinListRowHeight, 51)
+    } else { content }
+  }
+}
+
+private struct SettingsRowBackground: View {
+  let first: Bool
+  let last: Bool
+  private let radius: CGFloat = 20
+  var body: some View {
+    UnevenRoundedRectangle(
+      topLeadingRadius: first ? radius : 0, bottomLeadingRadius: last ? radius : 0,
+      bottomTrailingRadius: last ? radius : 0, topTrailingRadius: first ? radius : 0
+    ).fill(SettingsStyle.surface).overlay {
+      // Draw only the outside of each section. List owns the inset separators.
+      GeometryReader { geometry in
+        Path { path in
+          let left: CGFloat = 0.5
+          let right = geometry.size.width - 0.5
+          let top: CGFloat = 0.5
+          let bottom = geometry.size.height - 0.5
+          path.move(to: CGPoint(x: left, y: last ? bottom - radius : geometry.size.height))
+          path.addLine(to: CGPoint(x: left, y: first ? top + radius : 0))
+          if first {
+            path.addArc(center: CGPoint(x: left + radius, y: top + radius), radius: radius,
+              startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+            path.addLine(to: CGPoint(x: right - radius, y: top))
+            path.addArc(center: CGPoint(x: right - radius, y: top + radius), radius: radius,
+              startAngle: .degrees(270), endAngle: .degrees(0), clockwise: false)
+          } else { path.move(to: CGPoint(x: right, y: 0)) }
+          path.addLine(to: CGPoint(x: right, y: last ? bottom - radius : geometry.size.height))
+          if last {
+            path.addArc(center: CGPoint(x: right - radius, y: bottom - radius), radius: radius,
+              startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+            path.addLine(to: CGPoint(x: left + radius, y: bottom))
+            path.addArc(center: CGPoint(x: left + radius, y: bottom - radius), radius: radius,
+              startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+          }
+        }.stroke(SettingsStyle.border, lineWidth: 1)
+      }
+    }
   }
 }
 
@@ -157,23 +244,26 @@ struct NativeChatGlass: ViewModifier {
 /// opacity as content scrolls.
 private struct ChromeFade: View {
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.canvasColor) private var inheritedCanvas
   var edge: VerticalEdge
+  var canvasOverride: Color? = nil
+  private var canvas: Color { canvasOverride ?? inheritedCanvas }
   var body: some View {
     LinearGradient(
       stops: [
-        .init(color: NativePalette.background, location: 0),
+        .init(color: canvas, location: 0),
         .init(
-          color: NativePalette.background.opacity(edge == .top ? 0.85 : 0.9),
+          color: canvas.opacity(edge == .top ? 0.85 : 0.9),
           location: edge == .top ? 0.20 : 0.18),
         .init(
-          color: NativePalette.background.opacity(
+          color: canvas.opacity(
             edge == .top ? 0.48 : 0.35),
           location: edge == .top ? 0.55 : 0.65),
         // Both themes fade before the floating header, independently of its glass.
         .init(
-          color: NativePalette.background.opacity(edge == .top ? 0.04 : 0),
+          color: canvas.opacity(edge == .top ? 0.04 : 0),
           location: edge == .top ? 0.85 : 1),
-        .init(color: NativePalette.background.opacity(0), location: 1),
+        .init(color: canvas.opacity(0), location: 1),
       ],
       startPoint: edge == .top ? .top : .bottom,
       endPoint: edge == .top ? .bottom : .top
@@ -208,10 +298,26 @@ private struct BackdropBlur: UIViewRepresentable {
   }
 }
 
+/// Duo's side status area leaves the top safe area available for the header.
+/// A native top bar instead follows UIKit's lower toolbar guide there.
+private struct FloatingTopBar<Bar: View>: ViewModifier {
+  @Environment(\.usesTopToolbarGuide) private var usesToolbarGuide
+  var bar: Bar
+  func body(content: Content) -> some View {
+    if #available(iOS 26, *), usesToolbarGuide {
+      content.safeAreaBar(edge: .top, spacing: 0) { bar }
+    } else {
+      content.safeAreaInset(edge: .top, spacing: 0) { bar }
+    }
+  }
+}
+
 /// GrokBot's conversation list uses the chat's fade beneath its header. The
 /// system soft scroll edge hides rows much sooner, so it is disabled here.
 private struct FadingTopBar<Bar: View>: ViewModifier {
   var bar: Bar
+  var canvas: Color? = nil
+  var showsFade = true
   @State private var barHeight: CGFloat = 0
   func body(content: Content) -> some View {
     if #available(iOS 26, *) {
@@ -219,13 +325,12 @@ private struct FadingTopBar<Bar: View>: ViewModifier {
         content
           .overlay(alignment: .top) {
             // Match the chat's fade, measured from the top of the screen.
-            ChromeFade(edge: .top)
+            ChromeFade(edge: .top, canvasOverride: canvas).opacity(showsFade ? 1 : 0)
               .frame(height: viewport.safeAreaInsets.top + 104)
               .offset(y: -viewport.safeAreaInsets.top - barHeight)
           }
-          .safeAreaBar(edge: .top, spacing: 0) {
-            bar.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
-          }
+          .modifier(FloatingTopBar(bar:
+            bar.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }))
           .scrollEdgeEffectHidden(true, for: .top)
       }
     } else {
@@ -237,76 +342,60 @@ private struct FadingTopBar<Bar: View>: ViewModifier {
 // The share extension compiles this file; app-only pieces use UIApplication.shared or
 // the app's gestures, which it cannot.
 #if !SHARE_EXTENSION
+extension EnvironmentValues {
+  @Entry var composerBottomSafeArea: CGFloat = 0
+}
+
 private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
   var top: Top
   var bottom: Bottom
-  @State private var keyboardFrame = CGRect.null
+  @State private var topBarHeight: CGFloat = 0
   func body(content: Content) -> some View {
+    // Let iOS move the inset with the keyboard, including prediction-bar and
+    // hardware/floating-keyboard changes. The composer keeps one stable layout.
     GeometryReader { viewport in
-      let bounds = viewport.frame(in: .global)
-      let docked = !keyboardFrame.isNull && keyboardFrame.maxY >= bounds.maxY
-        && keyboardFrame.width >= bounds.width * 0.95
-      let keyboardInset = docked ? max(0, bounds.maxY - keyboardFrame.minY) : 0
-      let bottomSafeArea = keyboardInset > 0 ? 0 : viewport.safeAreaInsets.bottom
+      let bottomSafeArea = viewport.safeAreaInsets.bottom
       if #available(iOS 26, *) {
         content
           .overlay(alignment: .top) {
             ChromeFade(edge: .top)
               .frame(height: viewport.safeAreaInsets.top + 104)
-              // The chat header is 44 points with six points above and below.
-              .offset(y: -viewport.safeAreaInsets.top - 56)
+              // Duo adds clearance above its controls. Include the complete
+              // header so the fade still reaches the top of the viewport.
+              .offset(y: -viewport.safeAreaInsets.top - topBarHeight)
           }
-          .safeAreaBar(edge: .top, spacing: 0) {
-            top
-          }
+          .modifier(FloatingTopBar(bar:
+            top.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topBarHeight = $0 }))
           // The composer needs a stable native inset while becoming first
           // responder. The iOS 26 scroll-pocket bar can relinquish its editor
           // during the first keyboard transition.
           .safeAreaInset(edge: .bottom, spacing: 0) {
-            bottom.background(alignment: .bottom) {
-              // Fade the transcript before it passes under the composer.
-              // Sizing this to the short bar leaves bright scrolling glyphs
-              // behind the glass; the reference fade begins above the bar.
-              GeometryReader { composer in
-                ChromeFade(edge: .bottom)
-                  .frame(width: composer.size.width, height: max(100, composer.size.height + 56))
-                  .background(alignment: .bottom) {
-                    // Continue the opaque endpoint through the home-indicator
-                    // area so content cannot reappear below the gradient.
-                    NativePalette.background
-                      .frame(height: bottomSafeArea)
-                      .offset(y: bottomSafeArea)
-                  }
-                  .frame(width: composer.size.width, height: composer.size.height, alignment: .bottom)
-                  .offset(y: min(24, bottomSafeArea))
-              }.allowsHitTesting(false)
-            }
+            bottom.environment(\.composerBottomSafeArea, bottomSafeArea)
+              .background(alignment: .bottom) {
+                // Fade the transcript before it passes under the composer.
+                // Sizing this to the short bar leaves bright scrolling glyphs
+                // behind the glass; the reference fade begins above the bar.
+                GeometryReader { composer in
+                  ChromeFade(edge: .bottom)
+                    .frame(width: composer.size.width, height: max(100, composer.size.height + 56))
+                    .background(alignment: .bottom) {
+                      // Continue the opaque endpoint through the home-indicator
+                      // area so content cannot reappear below the gradient.
+                      NativePalette.background
+                        .frame(height: bottomSafeArea)
+                        .offset(y: bottomSafeArea)
+                    }
+                    .frame(width: composer.size.width, height: composer.size.height, alignment: .bottom)
+                    .offset(y: min(24, bottomSafeArea))
+                }.allowsHitTesting(false)
+              }
           }
           .scrollEdgeEffectHidden()
-          .padding(.bottom, keyboardInset)
       } else {
         content.safeAreaInset(edge: .top, spacing: 0) { top }
-          .safeAreaInset(edge: .bottom, spacing: 0) { bottom }
-          .padding(.bottom, keyboardInset)
-      }
-    }
-    // The reference puts the editor in its typing position immediately, while
-    // UIKit presents the keyboard. Automatic avoidance instead gives the bar a
-    // second ~0.4-second slide on every tap. Keep dismissal/interactive changes
-    // animated, and reserve only the space covered by a docked keyboard.
-    .ignoresSafeArea(.keyboard, edges: .bottom)
-    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
-      guard let screenFrame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-      let window = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        .flatMap(\.windows).first(where: \.isKeyWindow)
-      let frame = window.map { $0.convert(screenFrame, from: $0.screen.coordinateSpace) } ?? screenFrame
-      let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
-      if !keyboardFrame.isNull && frame.minY > keyboardFrame.minY && duration > 0 {
-        withAnimation(.interpolatingSpring(duration: duration, bounce: 0)) { keyboardFrame = frame }
-      } else {
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { keyboardFrame = frame }
+          .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottom.environment(\.composerBottomSafeArea, bottomSafeArea)
+          }
       }
     }
   }
@@ -323,8 +412,9 @@ extension View {
     modifier(ChatFloatingBars(top: top(), bottom: bottom()))
   }
   #endif
-  func fadingTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
-    modifier(FadingTopBar(bar: bar()))
+  func fadingTopBar<Bar: View>(canvas: Color? = nil, showsFade: Bool = true,
+    @ViewBuilder _ bar: () -> Bar) -> some View {
+    modifier(FadingTopBar(bar: bar(), canvas: canvas, showsFade: showsFade))
   }
   #if !SHARE_EXTENSION
   func dismissKeyboardOnTap() -> some View {
@@ -338,7 +428,7 @@ extension View {
   /// Extend only the page color under the keyboard's transparent rounded corners.
   /// Content continues to avoid the keyboard, keeping fields and controls reachable.
   func nativeCanvas() -> some View {
-    background { NativePalette.background.ignoresSafeArea() }
+    modifier(NativeCanvas())
   }
 
   func nativeGlass(radius: CGFloat = 22, darkTint: Double = 0.11) -> some View {
@@ -357,10 +447,41 @@ extension View {
       safeAreaInset(edge: edge, spacing: 0, content: content)
     }
   }
+  /// The system's soft fade under a top bar, for lists whose rows scroll beneath bar buttons.
+  @ViewBuilder func softTopScrollEdge() -> some View {
+    if #available(iOS 26, *) {
+      scrollEdgeEffectStyle(.soft, for: .top)
+    } else {
+      self
+    }
+  }
+  /// Grouped cards' side margins. Section margins stay inside the safe area, so
+  /// cards end before a side bar like iPhone Duo's; scroll content margins don't.
+  @ViewBuilder func listCardMargins(_ length: CGFloat) -> some View {
+    if #available(iOS 26, *) {
+      listSectionMargins(.horizontal, length)
+    } else {
+      contentMargins(.horizontal, length, for: .scrollContent)
+    }
+  }
   func referenceSheet() -> some View {
     presentationDetents([.fraction(0.95), .large]).presentationDragIndicator(.hidden)
       .presentationCornerRadius(34).presentationBackground(NativePalette.background)
   }
+}
+
+/// The page color behind a screen and its edge fades; a card sets its own.
+private struct NativeCanvas: ViewModifier {
+  @Environment(\.canvasColor) private var canvas
+  func body(content: Content) -> some View { content.background { canvas.ignoresSafeArea() } }
+}
+extension EnvironmentValues {
+  @Entry var canvasColor: Color = NativePalette.background
+  @Entry var settingsStyle = false
+  /// Extra space above top bars when the status bar sits beside them, as on
+  /// iPhone Duo, so their controls line up with the clock like system bars do.
+  @Entry var topBarClearance: CGFloat = 0
+  @Entry var usesTopToolbarGuide = true
 }
 
 struct ChromeButton: View {
@@ -380,6 +501,7 @@ struct ChromeButton: View {
 }
 
 struct ChatChromeButton: View {
+  @Environment(\.nativeRailControl) private var nativeRailControl
   var title: String
   var symbol: String
   var symbolSize: CGFloat = 16
@@ -390,18 +512,53 @@ struct ChatChromeButton: View {
     Button(action: action) {
       Image(systemName: symbol).font(.system(size: symbolSize, weight: symbolWeight))
         .frame(width: 44, height: 44).foregroundStyle(NativePalette.text)
-        .nativeChatGlass(regularInLightMode: regularInLightMode).contentShape(Rectangle())
+        .modifier(ChatButtonGlass(isRail: nativeRailControl, regularInLightMode: regularInLightMode))
+        .contentShape(Circle())
     }.buttonStyle(.plain).accessibilityLabel(title)
+  }
+}
+extension EnvironmentValues {
+  @Entry var nativeRailControl = false
+}
+
+/// The rail's complete rim is drawn inside the circular hit target. Native
+/// glass can cast its shadow outside it without cutting a notch in the edge.
+struct RailControlGlass: ViewModifier {
+  @Environment(\.colorScheme) private var scheme
+  func body(content: Content) -> some View {
+    if #available(iOS 26, *) {
+      content.glassEffect(
+        (scheme == .dark
+          ? Glass.clear.tint(Color(white: 0.22).opacity(0.65))
+          : Glass.regular.tint(.black.opacity(0.025))).interactive(), in: Circle()
+      ).overlay {
+        Circle().strokeBorder(scheme == .dark ? .white.opacity(0.1) : .black.opacity(0.12), lineWidth: 0.5)
+          .allowsHitTesting(false)
+      }
+    } else {
+      content.background(.regularMaterial, in: Circle())
+        .overlay(Circle().strokeBorder(NativePalette.separator, lineWidth: 0.5))
+    }
+  }
+}
+
+private struct ChatButtonGlass: ViewModifier {
+  var isRail: Bool
+  var regularInLightMode: Bool
+  func body(content: Content) -> some View {
+    if isRail { content.modifier(RailControlGlass()) }
+    else { content.nativeChatGlass(regularInLightMode: regularInLightMode) }
   }
 }
 struct AccountMark: View {
   var name: String
   var size: CGFloat = 38
+  var initialsScale: CGFloat = 0.35
   var initials: String {
     String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
   }
   var body: some View {
-    Text(initials.isEmpty ? "OT" : initials).font(.system(size: size * 0.35, weight: .medium))
+    Text(initials.isEmpty ? "OT" : initials).font(.system(size: size * initialsScale, weight: .medium))
       .foregroundStyle(NativePalette.muted).frame(width: size, height: size)
       .background(NativePalette.muted.opacity(0.13), in: Circle())
   }
@@ -423,10 +580,11 @@ struct SheetHeading: View {
 struct PrimaryActionStyle: ButtonStyle {
   @Environment(\.isEnabled) private var enabled
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label.font(.body.weight(.medium)).foregroundStyle(NativePalette.onPrimary)
+    configuration.label.font(.body.weight(.medium))
+      .foregroundStyle(enabled ? NativePalette.onPrimary : NativePalette.text)
       .frame(maxWidth: .infinity).padding(.vertical, 12)
-      .background(enabled ? NativePalette.text : NativePalette.disabledPrimary, in: Capsule())
-      .opacity(configuration.isPressed ? 0.75 : 1)
+      .background(enabled ? NativePalette.text : NativePalette.code, in: Capsule())
+      .opacity(configuration.isPressed ? 0.75 : enabled ? 1 : 0.5)
   }
 }
 

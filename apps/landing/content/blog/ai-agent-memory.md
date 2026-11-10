@@ -3,6 +3,7 @@ title: "How OpenTeam's AI agents remember: dated Markdown in four scopes"
 seoTitle: "AI agent memory: how OpenTeam bots remember with Markdown"
 description: "OpenTeam's self-hosted AI agents keep memory as dated Markdown facts in four scopes. How learning, recall and budgets work, built up one step at a time."
 date: 2026-10-16
+updated: 2026-11-10
 category: Engineering
 image: /blog/images/memory-design-overview.png
 imageAlt: "Ladder of memory designs from v0, the bare context window, to where OpenTeam ended up, above a table comparing the two"
@@ -10,6 +11,8 @@ related: how-ai-agents-talk-to-each-other, introducing-openteam, best-self-hoste
 ---
 
 **OpenTeam's bots remember by writing short, dated facts into Markdown files: a profile of lasting facts plus monthly logs, kept separately for each bot, for you and for shared projects. After each real exchange, a background model call decides what to keep. Every prompt gets a budgeted slice, and a word-search tool finds the rest. There are no embeddings.**
+
+> **Note:** This post describes memory as it worked in OpenTeam v0.0.3. Since v0.0.6, memory lives in the server's database instead of Markdown files, in two scopes: each bot's own memory and shared memory about you. Bots save and drop facts with a dedicated memory tool, each fact records which bot saved it and how, and projects, dreaming and episode summaries were removed. To check or change what a bot remembers, ask it; [memory](/docs/usage/memory) covers how it works today.
 
 We build OpenTeam, an open-source (GPL-3.0), self-hosted AI agent team, so read this as a practitioner's account, not a neutral survey. It describes OpenTeam as of v0.0.3, and the numbers come from the source code. We build the design up in steps, from the simplest thing that could work to what OpenTeam runs today; the version numbers exist only for this post.
 

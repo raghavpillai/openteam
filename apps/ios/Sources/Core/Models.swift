@@ -111,6 +111,9 @@ public struct Channel: Codable, Identifiable, Sendable, Hashable {
   public var notificationState: JSON?
   public var updatedAt: String
   public var isGroup: Bool { kind == "group" }
+  /// A group chat with one bot is named after that bot by default, so without a label its
+  /// row reads exactly like the bot's own chat.
+  public var showsGroupLabel: Bool { isGroup && members.count == 1 }
 }
 public struct Asset: Codable, Sendable, Hashable, Identifiable {
   public var assetId: String
@@ -135,6 +138,10 @@ public struct Message: Codable, Identifiable, Sendable, Hashable {
   public var metadata: JSON
   public var createdAt: String
   public var isUser: Bool { sender == "user" && senderBotId == nil }
+  /// A reply cut off by a restart; the content is the notice to show.
+  public var isInterruptedNotice: Bool {
+    sender == "system" && metadata["event"]["type"].string == "turn-interrupted"
+  }
   public var replyTo: String? {
     let s = metadata["replyTo"].string
     return s.isEmpty ? nil : s
@@ -217,6 +224,8 @@ public struct Bootstrap: Codable, Sendable {
   public var channels: [Channel]
   public var latestMessages: [Message]
   public var activeRuns: [Run]
+  // Older disk snapshots predate background task activity.
+  public var subagents: [SubagentActivity]?
   public var runtime: JSON
 }
 public struct History: Codable, Sendable {
@@ -244,6 +253,14 @@ public struct ChannelState: Decodable, Sendable {
   public var channelId: String
   public var revision: String
   public var runs: [Run]
+  public var subagents: [SubagentActivity]?
+}
+public struct SubagentActivity: Codable, Identifiable, Sendable {
+  public var id: String
+  public var parentBotId: String
+  public var parentChannelId: String
+  public var status: String
+  public var isActive: Bool { ["provisioning", "queued", "running"].contains(status) }
 }
 public struct ProductEvent: Decodable, Sendable {
   public var sequence: String

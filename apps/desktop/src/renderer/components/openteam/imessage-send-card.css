@@ -1,0 +1,60 @@
+.imessage-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.imessage-card > .imessage-title {
+  margin-bottom: 10px;
+}
+.imessage-to {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+.imessage-name {
+  font-weight: 500;
+  color: var(--foreground);
+}
+.imessage-handle {
+  margin-left: 6px;
+  color: var(--foreground-secondary);
+}
+.imessage-bubble-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 10px 0 6px;
+}
+/* An outgoing iMessage bubble with its tail. */
+.imessage-bubble {
+  position: relative;
+  max-width: 85%;
+  padding: 7px 12px;
+  border-radius: 18px;
+  background: #0a84ff;
+  color: #fff;
+  font-size: 14px;
+  line-height: 19px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.imessage-bubble::after {
+  content: "";
+  position: absolute;
+  right: -5px;
+  bottom: 0;
+  width: 12px;
+  height: 14px;
+  background: #0a84ff;
+  border-bottom-left-radius: 10px;
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+}
+.imessage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}

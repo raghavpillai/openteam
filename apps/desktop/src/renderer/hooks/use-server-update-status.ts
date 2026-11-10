@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../client/openteam-api";
 import { API_BASE } from "../client/http";
+import { readServerUpdateSnapshot, saveServerUpdateSnapshot } from "../lib/server-update-cache";
 import { isOpenTeamVersion } from "@openteam/contracts/version-compatibility";
+import { isWindowActive } from "../lib/window-visibility";
+import { useWindowActive } from "./use-window-active";
 
 const manualCommand = (targetVersion: string | null) =>
   targetVersion && isOpenTeamVersion(targetVersion)
@@ -16,84 +19,135 @@ const unavailableStatus = (targetVersion: string | null): OpenTeamServerUpdateSt
   minimumClientVersion: null,
   maximumClientVersionExclusive: null,
   recommendedClientVersion: null,
-  updateMethod: "manual",
   updaterAvailable: false,
   status: "unavailable",
   phase: null,
-  message: "Run the update command on the server computer.",
+  message: "Run openteam update once on this server to enable updates from the app.",
   manualCommand: manualCommand(targetVersion),
   jobId: null,
   safeToCloseDesktop: false,
 });
 
-export function useServerUpdateStatus(
-  targetVersion: string | null,
-  configuredSshTarget?: string | null
-) {
-  const [status, setStatus] = useState<OpenTeamServerUpdateStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const loaded = useRef(false);
+export function useServerUpdateStatus(targetVersion: string | null) {
+  const windowActive = useWindowActive();
+  const [view, setView] = useState(() => {
+    const cached = readServerUpdateSnapshot(API_BASE, localStorage);
+    return {
+      status: cached?.status ?? (null as OpenTeamServerUpdateStatus | null),
+      loading: !cached,
+      reconnecting: Boolean(cached),
+      startedAt: cached?.startedAt ?? null,
+      observedAt: cached?.observedAt ?? (null as number | null),
+    };
+  });
+  const inFlight = useRef(false);
+  const posting = useRef(false);
+  const generation = useRef(0);
+
+  useEffect(() => {
+    saveServerUpdateSnapshot(
+      API_BASE,
+      view.status && view.observedAt !== null
+        ? { status: view.status, observedAt: view.observedAt, startedAt: view.startedAt }
+        : null,
+      localStorage
+    );
+  }, [view.status, view.observedAt, view.startedAt]);
 
   const refresh = useCallback(async () => {
-    if (!loaded.current) setLoading(true);
-    const host = await (window.openteam?.updates
-      .serverStatus({
-        serverUrl: API_BASE,
-        targetVersion,
-        sshTarget:
-          configuredSshTarget === undefined
-            ? localStorage.getItem(`openteam.update.ssh.${API_BASE}`)
-            : configuredSshTarget,
-      })
-      .catch(() => null) ?? Promise.resolve(null));
-    // The native status call owns version discovery on Electron. Retain the
-    // renderer request only for the browser-development fallback.
-    const release = window.openteam ? null : await api.systemVersion().catch(() => null);
-    const next = host ?? unavailableStatus(targetVersion);
-    setStatus({
-      ...next,
-      currentVersion: release?.releaseVersion ?? next.currentVersion,
-      apiProtocolVersion: release?.apiProtocolVersion ?? next.apiProtocolVersion,
-      minimumClientVersion: release?.minimumClientVersion ?? next.minimumClientVersion,
-      maximumClientVersionExclusive:
-        release?.maximumClientVersionExclusive ?? next.maximumClientVersionExclusive,
-      recommendedClientVersion: release?.recommendedClientVersion ?? next.recommendedClientVersion,
-      targetVersion,
-      manualCommand: manualCommand(targetVersion),
-      message:
-        release || next.currentVersion
-          ? next.message
-          : "This server does not report its release version. Update it before using a newer client.",
-    });
-    loaded.current = true;
-    setLoading(false);
-  }, [configuredSshTarget, targetVersion]);
+    if (inFlight.current || posting.current) return;
+    inFlight.current = true;
+    const requestGeneration = generation.current;
+    try {
+      const [release, update] = await Promise.all([
+        api.systemVersion().catch(() => null),
+        api.serverUpdateStatus().catch(() => null),
+      ]);
+      if (requestGeneration !== generation.current) return;
+      setView((previous) => {
+        if (!release && !update && previous.status)
+          return { ...previous, loading: false, reconnecting: true };
+        const keepProgress =
+          previous.status?.status === "updating" &&
+          (!update || (!release && update.status === "updated"));
+        const next = {
+          ...unavailableStatus(targetVersion),
+          ...(keepProgress ? previous.status : update),
+        };
+        // The host assigns its own job ID after the API queues the request.
+        const sameJob =
+          next.targetVersion === previous.status?.targetVersion &&
+          (next.jobId === previous.status?.jobId ||
+            ["checking", "queued"].includes(previous.status?.phase ?? ""));
+        return {
+          status: {
+            ...next,
+            currentVersion: release?.releaseVersion ?? previous.status?.currentVersion ?? null,
+            apiProtocolVersion:
+              release?.apiProtocolVersion ?? previous.status?.apiProtocolVersion ?? null,
+            minimumClientVersion:
+              release?.minimumClientVersion ?? previous.status?.minimumClientVersion ?? null,
+            maximumClientVersionExclusive:
+              release?.maximumClientVersionExclusive ??
+              previous.status?.maximumClientVersionExclusive ??
+              null,
+            recommendedClientVersion:
+              release?.recommendedClientVersion ??
+              previous.status?.recommendedClientVersion ??
+              null,
+            targetVersion: update?.targetVersion ?? targetVersion,
+            message:
+              release || previous.status?.currentVersion
+                ? next.message
+                : "Could not verify the connected server. Reconnecting…",
+          },
+          loading: false,
+          reconnecting: !release || !update,
+          startedAt: sameJob ? previous.startedAt : null,
+          observedAt: update && !keepProgress ? Date.now() : previous.observedAt,
+        };
+      });
+    } finally {
+      inFlight.current = false;
+    }
+  }, [targetVersion]);
+
+  const updateServer = useCallback(async (version: string) => {
+    posting.current = true;
+    generation.current++;
+    try {
+      const next = await api.updateServer(version);
+      setView((previous) => ({
+        ...previous,
+        status: { ...unavailableStatus(version), ...previous.status, ...next },
+        loading: false,
+        reconnecting: false,
+        startedAt: Date.now(),
+        observedAt: Date.now(),
+      }));
+    } finally {
+      posting.current = false;
+    }
+  }, []);
 
   useEffect(() => {
     void refresh();
     const refreshOnFocus = () => void refresh();
     window.addEventListener("focus", refreshOnFocus);
-    const interval = window.setInterval(refreshOnFocus, 60_000);
-    return () => {
-      window.removeEventListener("focus", refreshOnFocus);
-      window.clearInterval(interval);
-    };
+    return () => window.removeEventListener("focus", refreshOnFocus);
   }, [refresh]);
 
-  useEffect(
-    () =>
-      window.openteam?.updates.onServerProgress((next) => {
-        setStatus(next);
-        if (next.status === "updated") window.setTimeout(() => void refresh(), 750);
-      }),
-    [refresh]
-  );
-
   useEffect(() => {
-    if (status?.status !== "updating") return;
-    const interval = window.setInterval(() => void refresh(), 1_500);
+    if (!windowActive && view.status?.status !== "updating") return;
+    const interval = window.setInterval(
+      () => {
+        // An update already in progress must remain observable in the background.
+        if (view.status?.status === "updating" || isWindowActive()) void refresh();
+      },
+      view.status?.status === "updating" ? 1_500 : view.reconnecting ? 5_000 : 60_000
+    );
     return () => window.clearInterval(interval);
-  }, [refresh, status?.status]);
+  }, [refresh, view.status?.status, view.reconnecting, windowActive]);
 
-  return { status, loading, refresh };
+  return { ...view, refresh, updateServer };
 }

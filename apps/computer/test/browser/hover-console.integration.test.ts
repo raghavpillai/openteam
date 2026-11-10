@@ -37,7 +37,7 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)('hover reveals menu; 
   await session.execute('browser_navigate',{url:'about:blank'});
   expect(text(await session.execute('browser_console_messages',{}))).toBe('No matching console messages.');
   expect(text(await session.execute('browser_console_messages',{all:true}))).toContain('entry-249');
-  await session.execute('browser_navigate',{url:'about:blank',newTab:true});
+  await session.execute('browser_tabs',{action:'new',url:'about:blank'});
   expect(text(await session.execute('browser_console_messages',{all:true}))).toBe('No matching console messages.');
  }finally{await browser.close();await driver.stop();server.stop(true);await rm(root,{recursive:true,force:true});}
 },30_000);
@@ -55,16 +55,18 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)('waits observe delaye
   await session.execute('browser_wait_for',{text:'READY926'});
   await page.evaluate(()=>{setTimeout(()=>{document.querySelector<HTMLElement>('#status')!.remove()},150)});
   await session.execute('browser_wait_for',{textGone:'READY926'});
-  const started=Date.now(); await session.execute('browser_wait_for',{time:0.1}); expect(Date.now()-started).toBeGreaterThanOrEqual(90);
-  for (const args of [{time:10},{text:'NEVER926'}]) {
+  // A bare time returns as soon as the page is quiet, so a long time costs nothing on a quiet page.
+  const started=Date.now(); await session.execute('browser_wait_for',{time:10}); expect(Date.now()-started).toBeLessThan(5000);
+  await page.evaluate(()=>{document.body.insertAdjacentHTML('beforeend','<p>STAYS926</p>')});
+  for (const args of [{text:'NEVER926'},{textGone:'STAYS926'}]) {
    const controller=new AbortController(); const start=Date.now();
    const pending=session.execute('browser_wait_for',args,controller.signal);
    setTimeout(()=>controller.abort(new Error('New correction')),150);
    await expect(pending).rejects.toThrow('New correction'); expect(Date.now()-start).toBeLessThan(2000);
    await session.execute('browser_snapshot',{});
   }
-  await expect(session.execute('browser_wait_for',{text:'NEVER926'})).rejects.toThrow('Timed out after 10000ms');
-  for(const args of [{},{time:11},{time:-1},{time:NaN},{text:''}]) await expect(session.execute('browser_wait_for',args)).rejects.toThrow();
+  await expect(session.execute('browser_wait_for',{text:'NEVER926'})).rejects.toThrow('Timed out after 10s');
+  for(const args of [{time:11},{time:-1},{time:NaN},{text:''}]) await expect(session.execute('browser_wait_for',args)).rejects.toThrow();
  } finally {await browser.close();await driver.stop();await rm(root,{recursive:true,force:true});}
 },30_000);
 

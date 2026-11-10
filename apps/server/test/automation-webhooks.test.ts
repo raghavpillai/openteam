@@ -20,9 +20,9 @@ test('signed Slack challenges and deliveries enforce age, workspace and fixed ow
 test('GitHub signed delivery maps PR and CI events and rejects repository substitution', async () => {
  const calls: any[] = []; const git = { ...binding, source: 'github' as const, repository: 'fixture/repo' };
  const request = (payload: unknown, type: string) => { const raw = JSON.stringify(payload); return new Request('http://localhost/fixture', { method: 'POST', body: raw, headers: { 'x-github-event': type, 'x-github-delivery': 'delivery-123', 'x-hub-signature-256': `sha256=${createHmac('sha256', secret).update(raw).digest('hex')}` } }); };
- const payload = { repository: { full_name: 'fixture/repo' }, sender: { login: 'alice' }, action: 'closed', pull_request: { number: 9, merged: true, head: { ref: 'main' } } };
+ const payload = { repository: { full_name: 'fixture/repo' }, sender: { login: 'alice' }, action: 'closed', pull_request: { number: 9, merged: true, head: { ref: 'main' }, user: { login: 'bob' } } };
  await receiveAutomationWebhook(request(payload, 'pull_request'), git, secret, async (_owner, event) => { calls.push(event); });
- expect(calls[0]).toMatchObject({ kind: 'pr-merged', pr: 9, actor: 'alice', repo: 'fixture/repo' });
+ expect(calls[0]).toMatchObject({ kind: 'pr-merged', pr: 9, actor: 'alice', prOwner: 'bob', repo: 'fixture/repo' });
  await expect(receiveAutomationWebhook(request({ ...payload, repository: { full_name: 'attacker/repo' } }, 'pull_request'), git, secret, async () => {})).rejects.toThrow('repository');
  await receiveAutomationWebhook(request({ ...payload, pull_request: undefined, action: 'completed', check_suite: { conclusion: 'failure', head_branch: 'main', pull_requests: [{ number: 9 }] } }, 'check_suite'), git, secret, async (_owner, event) => { calls.push(event); });
  expect(calls[1]).toMatchObject({ kind: 'ci-failed', branch: 'main', pr: 9 });

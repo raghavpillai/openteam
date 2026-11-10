@@ -9,12 +9,14 @@ import {
 } from "@openteam/client-core";
 import type { BotView, ScreenStatusView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { LoaderCircle, Minimize2, Monitor, RefreshCw } from "lucide-react";
+import { Minimize2, Monitor, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { API_BASE } from "../../client/http";
 import { api } from "../../client/openteam-api";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
+import { useWindowVisible } from "../../hooks/use-window-active";
+import { useResourceActive } from "../../hooks/resource-activity";
 import { measureUntilNextPaint, recordPerformance } from "../../lib/performance";
 import {
   shouldLoadScreenStatus,
@@ -22,6 +24,7 @@ import {
   shouldRefreshScreenFrame,
 } from "../../lib/screen-session";
 import { Button } from "../ui/button";
+import { ComputerConnectionStatus } from "./computer-connection-status";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import VncComputer from "./vnc-computer";
@@ -49,6 +52,8 @@ export function BotScreen({
   onHandoffFinished?: () => void;
   onRetry?: () => Promise<void>;
 }) {
+  const visible = useWindowVisible();
+  const resourcesActive = useResourceActive();
   const [screen, setScreen] = useState<ScreenStatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frameRevision, setFrameRevision] = useState(Date.now());
@@ -90,10 +95,10 @@ export function BotScreen({
   }, [bot.id]);
 
   useEffect(() => {
-    if (shouldLoadScreenStatus(enabled, active) && !screen) void refreshStatus();
-  }, [active, enabled, refreshStatus, screen]);
+    if (visible && shouldLoadScreenStatus(enabled, active) && !screen) void refreshStatus();
+  }, [active, enabled, refreshStatus, screen, visible]);
   useEffect(() => {
-    if (!shouldPollScreenStatus(enabled, active, screen?.state)) return;
+    if (!visible || !shouldPollScreenStatus(enabled, active, screen?.state)) return;
     const poller = createSerialPoller({
       intervalMs: SCREEN_STATUS_POLL_MS,
       immediate: false,
@@ -108,9 +113,9 @@ export function BotScreen({
       poller.stop();
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, pollStatus);
     };
-  }, [active, enabled, refreshStatus, screen?.state]);
+  }, [active, enabled, refreshStatus, screen?.state, visible]);
   useEffect(() => {
-    if (open) return;
+    if (open || !visible) return;
     const refreshFrame = () => {
       if (
         shouldRefreshScreenFrame({
@@ -132,7 +137,7 @@ export function BotScreen({
       window.clearInterval(timer);
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, refreshFrame);
     };
-  }, [active, enabled, open, screen?.state]);
+  }, [active, enabled, open, screen?.state, visible]);
   const finishHandoff = useCallback(
     async (action: "complete" | "skip" | "dismiss") => {
       if (!handoff || handoffPending || !handoffRelease.beginFinish()) return;
@@ -227,8 +232,8 @@ export function BotScreen({
   }, [bot.id, handoff, open]);
   const viewerReady = screen?.state === "ready";
   const frameSource = useAuthenticatedResource(
-    enabled && screen?.state === "ready" && !open ? api.screenFrameUrl(bot.id, frameRevision) : null,
-    { retainPreviousFor: bot.id }
+    enabled && active && screen?.state === "ready" && !open ? api.screenFrameUrl(bot.id, frameRevision) : null,
+    { enabled: resourcesActive, retainPreviousFor: bot.id }
   );
   const retryConnection = () => {
     setError(null);
@@ -264,12 +269,15 @@ export function BotScreen({
           ) : (
             <div className="relative size-full">
               <Skeleton className="size-full rounded-none bg-neutral-800" />
-              <span className="absolute inset-0 grid place-items-center px-4 text-center text-[11px] text-white/60">
+              <ComputerConnectionStatus
+                className="absolute inset-0 px-4 text-center text-[11px] text-white/60"
+                loading={!error && bot.status !== "failed" && screen?.state !== "failed"}
+              >
                 {error ??
                   (bot.status === "failed" || screen?.state === "failed"
                     ? "Computer setup needs attention"
                     : `Starting ${bot.name}'s screen…`)}
-              </span>
+              </ComputerConnectionStatus>
             </div>
           )}
         </Button>
@@ -336,7 +344,7 @@ export function BotScreen({
               className="relative aspect-[16/10] overflow-hidden rounded-[6px] bg-[#1b1d1f]"
               style={{ width: "min(100cqw, 160cqh)" }}
             >
-              {viewerReady ? (
+              {viewerReady && visible ? (
                 <VncComputer key={bot.id} botId={bot.id} name={bot.name}
                   serverUrl={API_BASE} createSession={api.screenVncSession}
                   clipboard={(input, signal) => api.screenClipboard(bot.id, input, signal)}
@@ -344,13 +352,15 @@ export function BotScreen({
               ) : (
                 <div className="absolute inset-0 grid place-items-center text-center">
                   <div>
-                    <div className="flex items-center justify-center gap-2 text-[18px] font-medium">
-                      {!error && <LoaderCircle className="size-4 animate-spin" />}
+                    <ComputerConnectionStatus
+                      loading={!error && screen?.state !== "failed"}
+                      subtitle="Starting computer…"
+                    >
                       {error ??
                         (screen?.state === "failed"
                           ? "Computer setup needs attention"
                           : "Connecting…")}
-                    </div>
+                    </ComputerConnectionStatus>
                     {error && (
                       <Button
                         className="mt-4 border-white/15 bg-white/5 text-white hover:bg-white/10"

@@ -31,11 +31,11 @@
 				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
 				<integer>1</integer>
 				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
-				<integer>6</integer>
+				<integer>20</integer>
 				<key>NSExtensionActivationSupportsMovieWithMaxCount</key>
-				<integer>6</integer>
+				<integer>20</integer>
 				<key>NSExtensionActivationSupportsFileWithMaxCount</key>
-				<integer>6</integer>
+				<integer>20</integer>
 			</dict>
 		</dict>
 		<key>NSExtensionPointIdentifier</key>

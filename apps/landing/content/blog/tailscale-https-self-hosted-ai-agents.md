@@ -3,6 +3,7 @@ title: Reach self-hosted OpenTeam bots from anywhere with Tailscale HTTPS
 seoTitle: Tailscale HTTPS for self-hosted AI agents: a setup guide
 description: OpenTeam 0.0.2 gives self-hosted AI agents a private HTTPS address via Tailscale Serve. Setup, what it checks, fixes, and when a public domain fits better.
 date: 2026-10-14
+updated: 2026-11-10
 category: Guides
 image: /blog/images/openteam-remote-access-tailscale.png
 imageAlt: OpenTeam desktop settings open on Server, with the Remote access section showing Tailscale HTTPS configured at https://office-server.tail1a2b3c.ts.net
@@ -63,8 +64,8 @@ For a server on another machine, the section shows **Configure on the server** w
 
 Once the switch succeeds, the old LAN `http://` address stops working. On each device, connect Tailscale first. Then:
 
-- **Desktop:** sign out (**Settings → General → Sign Out**), choose **Log In**, enter the HTTPS address under **Server address**, choose **Connect**, and sign in.
-- **iPhone:** choose **Sign out** in the app's settings, then enter the same address under **Connect to your server**.
+- **Desktop:** sign out (**Settings → General → Sign Out**), choose **Get started**, enter the HTTPS address under **Server address**, choose **Connect**, and sign in.
+- **iPhone:** choose **Sign out** in the app's settings, then choose **Get started** and enter the same address on the **Where's your server?** screen.
 
 ![The OpenTeam desktop sign-in screen, Connect to your server, with https://office-server.tail1a2b3c.ts.net in the Server address field](/blog/images/openteam-login-tailscale-url.png "Reconnecting the desktop app with the tailnet HTTPS address. Sample data. Image: OpenTeam.")
 
@@ -115,7 +116,7 @@ A sixth mode, **Public address without HTTPS**, is for temporary testing only.
 
 Tailscale HTTPS needs Tailscale on every device that connects. To reach your bots from a device that can't run it, such as a locked-down work laptop, use **Public domain with automatic HTTPS**. It needs a domain pointed at the server and inbound ports 80 and 443. Routines triggered by GitHub, Slack or Linear webhooks also need a public HTTPS address, because those services can't reach a tailnet ([routines](/docs/usage/routines)).
 
-In every mode, a server has one human account and one model, and bots act without approval prompts, so anyone who signs in controls them. [Introducing OpenTeam](/blog/introducing-openteam) lists the other limits.
+In every mode, a server has one human account and one model, and bots act without approval prompts for most actions, so anyone who signs in controls them. [Introducing OpenTeam](/blog/introducing-openteam) lists the other limits.
 
 ## Upgrading from OpenTeam 0.0.0 or 0.0.1
 

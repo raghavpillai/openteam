@@ -54,6 +54,31 @@ describe("release downloads", () => {
     expect(release.version).toBe("1.2.3");
   });
 
+  test("names the file when its download breaks off after the headers", async () => {
+    // Promise 4 KB, send a line, then hang up while the body is being read.
+    const server = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        data(socket) {
+          socket.write("HTTP/1.1 200 OK\r\nContent-Length: 4096\r\n\r\nname: openteam\n");
+          setTimeout(() => socket.end(), 100);
+        },
+      },
+    });
+    servers.push(server);
+    const origin = `http://127.0.0.1:${server.port}`;
+    await expect(
+      downloadRelease({
+        repository: "owner/repo",
+        version: "1.2.3",
+        composeUrl: `${origin}/openteam-compose.yaml`,
+        checksumUrl: `${origin}/SHA256SUMS`,
+        allowUnsigned: true,
+      })
+    ).rejects.toThrow(`Could not download ${origin}/openteam-compose.yaml: `);
+  });
+
   test("rejects a checksum mismatch", async () => {
     const server = Bun.serve({
       port: 0,

@@ -12,12 +12,28 @@ export const portAvailable = (host: string, port: number): Promise<boolean> =>
     });
   });
 
+/**
+ * Addresses to probe before Docker publishes a port on `host`. On macOS a loopback bind
+ * succeeds while another socket, such as Docker Desktop's, holds the wildcard address, yet
+ * Docker still refuses the port; Linux already refuses the loopback bind.
+ */
+export const probeHosts = (host: string, platform: NodeJS.Platform = process.platform): string[] =>
+  Array.from(new Set([host, "127.0.0.1", ...(platform === "linux" ? [] : ["0.0.0.0"])]));
+
+/** First probed address where `port` is taken, or null when Docker can publish it on `host`. */
+export const occupiedHost = async (host: string, port: number): Promise<string | null> => {
+  for (const candidate of probeHosts(host)) {
+    if (!(await portAvailable(candidate, port))) return candidate;
+  }
+  return null;
+};
+
 export const firstUnavailablePort = async (
   host: string,
   ports: readonly number[]
 ): Promise<number | null> => {
   for (const port of ports) {
-    if (!(await portAvailable(host, port))) return port;
+    if (await occupiedHost(host, port)) return port;
   }
   return null;
 };
@@ -33,7 +49,7 @@ export const suggestApiPort = async (host: string, preferred = API_PORT): Promis
     const candidate = preferred + offset;
     if (candidate > 65_535) break;
     if (candidate >= VIEWER_PORT_START && candidate <= VIEWER_PORT_END) continue;
-    if (await portAvailable(host, candidate)) return candidate;
+    if (!(await occupiedHost(host, candidate))) return candidate;
   }
   return preferred;
 };

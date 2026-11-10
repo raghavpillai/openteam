@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { dirname } from "node:path";
+import { NativeCommandError } from "./native-command";
 interface Receipt {
   fingerprint: string;
   status: "running" | "completed" | "uncertain";
@@ -68,8 +69,11 @@ export class NativeActionReceipts {
       });
       return result;
     } catch (error) {
+      // A macOS refusal happens before anything is sent, so the same call may run again once allowed.
+      const refused = error instanceof NativeCommandError && error.reason === "automation_denied";
       await this.mutate((receipts) => {
-        receipts[key] = { fingerprint, status: "uncertain" };
+        if (refused) delete receipts[key];
+        else receipts[key] = { fingerprint, status: "uncertain" };
       });
       throw error;
     }

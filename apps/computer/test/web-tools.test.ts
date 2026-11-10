@@ -27,6 +27,12 @@ test("public web reader blocks private, encoded, credentialed and non-HTTP desti
   ])
     expect(() => publicWebUrl(url)).toThrow();
   await expect(publicWebGet("http://127.0.0.1/")).rejects.toThrow();
+  // Literal local and private hosts get the reference's explanation.
+  expect(() => publicWebUrl("http://localhost:3000/app")).toThrow("Cannot fetch from localhost (localhost:3000) because this tool runs from an isolated server.");
+  expect(() => publicWebUrl("http://127.0.0.1/")).toThrow("Cannot fetch from localhost (127.0.0.1) because this tool runs from an isolated server.");
+  expect(() => publicWebUrl("http://[::1]:8080/")).toThrow("Cannot fetch from localhost ([::1]:8080) because this tool runs from an isolated server.");
+  expect(() => publicWebUrl("http://192.168.1.10:8000/")).toThrow("Cannot fetch from private IP (192.168.1.10:8000) because this tool runs from an isolated server.");
+  expect(() => publicWebUrl("http://printer.local/")).toThrow("Private and local network destinations are not allowed");
 });
 
 test("HTML conversion keeps article structure and absolute citations without active content", () => {

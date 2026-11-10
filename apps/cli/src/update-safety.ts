@@ -1,5 +1,7 @@
 import {
   appendFileSync,
+  closeSync,
+  openSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -9,6 +11,8 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { assertMaintenancePath } from "./disk-maintenance";
 import { join } from "node:path";
 import type { InstallationPaths } from "./config";
 import { ensureDirectory, writeFileAtomic } from "./config";
@@ -152,7 +156,9 @@ export const acquireUpdateLock = (paths: InstallationPaths): (() => void) => {
       owner = null;
     }
     if (typeof owner?.pid === "number" && processIsAlive(owner.pid)) {
-      throw new CliError(`Another OpenTeam update is already running (process ${owner.pid}).`);
+      throw new CliError(
+        `Another OpenTeam setup or update is already running (process ${owner.pid}). Wait for it to finish, then try again.`
+      );
     }
     rmSync(paths.updateLock, { recursive: true, force: true });
     claim();
@@ -184,13 +190,20 @@ export const createDatabaseBackup = (
   fromVersion: string,
   targetVersion: string
 ): string => {
+  assertMaintenancePath(paths.directory);
+  if (!/^[0-9A-Za-z.+-]+$/.test(fromVersion) || !/^[0-9A-Za-z.+-]+$/.test(targetVersion)) {
+    throw new CliError("Invalid version in database backup filename");
+  }
+  if (existsSync(paths.backups)) assertMaintenancePath(paths.backups);
   ensureDirectory(paths.backups);
+  assertMaintenancePath(paths.backups);
   if (process.platform !== "win32") chmodSync(paths.backups, 0o700);
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const destination = join(
     paths.backups,
-    `postgres-${fromVersion}-before-${targetVersion}-${timestamp}.sql`
+    `postgres-${fromVersion}-before-${targetVersion}-${timestamp}-${randomUUID()}.sql`
   );
+  closeSync(openSync(destination, "wx", 0o600));
   const result = project.run(
     [
       "exec",

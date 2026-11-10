@@ -25,7 +25,7 @@ Saving a draft doesn't change any installed copy of the plugin.
 ## Test it
 
 1. Choose **Install for testing**.
-2. Set up an account if the plugin needs one, and run a small read with **Test a tool** under **Manage → Accounts and settings**.
+2. Open the plugin from **Marketplace** and set up an account if it needs one. Then run a small read with **Test a tool**, on the plugin's page under **Settings → Advanced settings**.
 3. Try the real workflow in chat.
 
 Check what happens with missing credentials, service errors, and reconnecting. For tools that change data, test with data you don't mind losing.
@@ -34,9 +34,11 @@ Write clear tool descriptions and input schemas, since bots rely on them to pick
 
 ## Share it
 
-Choose **Export ZIP** to package the plugin. Exports never include connected accounts, credentials, so keep secrets in account setup rather than in plugin files.
+Choose **Export ZIP** to package the plugin. Exports never include connected accounts or credentials, so keep secrets in account setup rather than in plugin files.
 
-To release an update, publish the new package with the same key, and raise the version so people can tell releases apart. When the changed package reaches someone's server, for example through a plugin source, they review the changes and choose **Apply reviewed update**. Plugins in this repository ship with OpenTeam instead: when a server updates, each installed one moves to the newer version automatically and its connected accounts reconnect. Raise the version, or the change won't be applied. Granola and Notion, which fetch their files when installed, and any plugin replaced by an uploaded package, still need a reviewed update.
+To release an update, publish the new package with the same key, and raise the version so people can tell releases apart. When the changed package reaches someone's server, for example as an imported ZIP, they review the changes and choose **Apply reviewed update** on the plugin's page under **Settings → Advanced settings**. Plugins in this repository ship with OpenTeam instead: when a server updates, each installed one moves to the newer version automatically and its connected accounts reconnect. Raise the version, or the change won't be applied. Granola and Notion, which fetch their files when installed, and any plugin replaced by an uploaded package, still need a reviewed update.
+
+To contribute a plugin to the OpenTeam repository, follow the [package guide](../../packages/plugins/README.md).
 
 ## Managed runtimes and device linking
 
@@ -45,6 +47,8 @@ Packaged connectors may declare `runtimeAssets` for large native prerequisites. 
 The computer downloads pinned bytes before MCP launch, checks the digest and size, extracts safely into a private content-addressed cache, and verifies cached files and executable modes before reuse. Concurrent account connections share downloads; cancelling one account does not cancel other users. Each connector receives `OPENTEAM_RUNTIME_<NAME>` entry-point paths. Declare upstream notices and supported platforms in the plugin package. ZIP exports retain these descriptors; unlike bundled JavaScript dependencies, large managed prerequisites require a first-connection download. Runtime cache contents contain no account state.
 
 Set `persistentState: true` to receive `OPENTEAM_PLUGIN_STATE_DIR`, a private directory scoped to the stable account ID. Disconnect preserves it. Account removal and uninstall delete it after stopping the process; failure to confirm removal is an error. Keep all provider keys, message databases and downloaded account files under this directory. Never place them in package files or the shared runtime cache.
+
+An update cannot retire a connector with private storage, or switch off its `persistentState` descriptor, while its account rows exist. Uninstall the plugin to clean up those accounts before installing that change. Updates and configuration saves also reject accounts with pending removal; concurrent lifecycle changes invalidate stale saves.
 
 For phone/device approval, declare `deviceLink` with `startTool`, `finishTool`, `statusTool`, `cancelTool`, `removeTool`, and user-facing `instructions`. This requires stdio transport with host-managed authorization (`auth: "none"`). These tools are hidden from bots by their manifest declaration and should also set MCP `_meta["openteam/hostOnly"] = true`.
 

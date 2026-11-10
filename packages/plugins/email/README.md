@@ -34,6 +34,7 @@ Bots get ListEmailInboxes, SearchEmailThreads, ReadEmailThread and ReadEmailAtta
 - Thread ids are the server's thread ID (Gmail and RFC 8474 servers) or the first message's `message_id`. Message ids are `INBOX:<uid>`, `SENT:<uid>` or `ALL:<uid>`; attachment ids add the attachment's index.
 - SearchEmailThreads covers the inbox and Sent (All Mail on Gmail). `keyword` matches the exact phrase; `hybrid` and `semantic` rank messages with every word above those with some, because a mailbox has no meaning index.
 - ReadEmailAttachment returns text-like files as text (up to 32 KB) and saves other files under `/workspace/email-attachments/<address>/` (or the temporary directory) for Read or Shell.
+- ReadEmailThread shows `Reply-To` when a message has one. Mail from an address in the optional **Your own addresses** setting (`OWNER_ADDRESSES`) that passes the sender check is marked `Sender: your owner`; all other inbound mail is marked external.
 - Reading never marks mail read.
 
 ## Sending

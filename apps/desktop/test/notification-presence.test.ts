@@ -4,44 +4,9 @@ import {
   type DesktopActivity,
 } from "../src/renderer/lib/notification-presence";
 import type { NotificationPresenceInput } from "@openteam/contracts/notification-presence";
-import {
-  createSnapshotCaches,
-  reconcileClientSnapshot,
-} from "../src/renderer/lib/snapshot-reconcile";
-import {
-  desktopNotificationSnapshot,
-  syncDesktopNotificationSnapshot,
-} from "../src/renderer/lib/notifications";
-import type { ClientSnapshot } from "@openteam/contracts";
+import { syncDesktopNotificationSnapshot } from "../src/renderer/lib/notifications";
 
-test("presence-only snapshots reach native delivery and sign-out clears the native state", () => {
-  const first = {
-    cursor: "1",
-    workspace: {},
-    runtime: {},
-    bots: [],
-    channels: [],
-    channelMessages: [],
-    channelRounds: [],
-    runs: [],
-    runItems: [],
-    subagents: [],
-  } as unknown as ClientSnapshot;
-  const notificationRouting = {
-    smartEnabled: true,
-    serverTime: 1,
-    iosActiveUntil: 60_001,
-    macActiveUntil: 0,
-  };
-  const next = reconcileClientSnapshot(
-    { ...first, notificationRouting },
-    first,
-    createSnapshotCaches()
-  );
-  expect(next).not.toBe(first);
-  expect(desktopNotificationSnapshot(next, new Set()).notificationRouting).toEqual(
-    notificationRouting
-  );
+test("sign-out clears the native notification state", () => {
   let clears = 0;
   expect(
     syncDesktopNotificationSnapshot(
@@ -51,8 +16,7 @@ test("presence-only snapshots reach native delivery and sign-out clears the nati
           clears++;
         },
       },
-      null,
-      new Set()
+      null
     )
   ).toBeFalse();
   expect(clears).toBe(1);

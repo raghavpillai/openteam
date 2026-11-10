@@ -3,14 +3,14 @@ title: An open-source Grok Bot alternative that runs on your own hardware
 seoTitle: Open-source Grok Bot alternative on your own hardware
 description: Grok Bot runs only in xAI's cloud. OpenTeam is an open-source, self-hosted alternative on your own hardware. How the two compare, and where Grok Bot wins.
 date: 2026-10-10
-updated: 2026-10-13
+updated: 2026-11-10
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam desktop app with a Research bot's chat, a live preview of its Linux screen and a weekday routine
 related: grok-bot-vs-meta-muse-vs-openai-dots, introducing-openteam, best-self-hosted-ai-agents
 ---
 
-**OpenTeam is an open-source Grok Bot alternative: a self-hosted AI agent team where each bot gets its own Linux computer and browser on hardware you control. It's GPL-3.0, uses your OpenAI, Anthropic or OpenRouter key or a local model, and needs no xAI, Cursor or SuperGrok account. Grok Bot is easier; stay with it for zero setup or Android.**
+**OpenTeam is an open-source Grok Bot alternative: a self-hosted AI agent team where each bot gets its own Linux computer and browser on hardware you control. It's GPL-3.0, uses your ChatGPT or Claude plan, an OpenAI, Anthropic or OpenRouter key, or a local model, and needs no xAI, Cursor or SuperGrok account. Grok Bot is easier; stay with it for zero setup or Android.**
 
 We build OpenTeam, so weigh our view accordingly. The Grok Bot facts below come from xAI's docs and Cursor's help and pricing pages as of October 10, 2026, and we haven't benchmarked the two. OpenTeam's agent tools, platform prompt and built-in skills are built for compatibility with Grok Bot's, so much of it will look familiar on purpose.
 
@@ -30,7 +30,7 @@ Grok Bot facts as of October 10, 2026 (prices as of October 13), from the xAI an
 | Multi-agent | Group chats of 2–6 bots; bot-to-bot messages | Group chats of up to 6 bots; bot-to-bot messages |
 | Agent tools and skills | Grok Bot's own | Built for compatibility with Grok Bot's |
 | People per install | One per account; Team Bots on Teams and Enterprise plans | One account per server |
-| Approvals | Auto-review with "Ask first" rules | None per action; Gmail drafts; handoffs for CAPTCHA, 2FA, payment |
+| Approvals | Auto-review with "Ask first" rules | Cards for email, Slack and texts; handoffs for CAPTCHA, 2FA, payment |
 | Channels | Grok Bot apps; Team Bots also in Slack | OpenTeam apps |
 | Apps | macOS, Windows, Linux, iPhone, iPad, Android | macOS (Apple silicon), Linux x64; iPhone beta |
 | Data location | xAI's cloud; training follows Cursor privacy settings | Your server; your model provider sees what bots send |
@@ -73,7 +73,7 @@ It's a compatibility layer, not a copy of xAI's service. OpenTeam doesn't claim 
 
 ### Each bot gets its own computer, on your hardware
 
-The server runs in Docker on a Mac, Windows or Linux machine, with 8 GB of RAM recommended ([installation](/docs/getting-started/installation)). Every bot gets a persistent Linux desktop (XFCE, 1280×800) with Chromium and a terminal, which you can watch live and take over ([docs](/docs/usage/computer)). Up to 100 desktops share one hardened container with dropped Linux capabilities and a read-only filesystem.
+The server runs in Docker on a Mac, Windows or Linux machine, with 8 GB of RAM recommended ([installation](/docs/getting-started/installation)). Every bot gets a persistent Linux desktop (XFCE, 1280×800) with Chromium and a terminal, which you can watch live and take over ([docs](/docs/usage/computer)). Up to 100 desktops share one Docker container, where bots can use passwordless `sudo`.
 
 Grok Bot's bots share one microVM; OpenTeam's share one container and one Unix user. Neither makes the line between your own bots a security boundary. The difference is who runs the machine. Work continues with the apps closed, but a server on a laptop that sleeps stops until it wakes. To reach it from your phone, use your local network or a VPN such as Tailscale.
 
@@ -81,24 +81,24 @@ Grok Bot's bots share one microVM; OpenTeam's share one container and one Unix u
 
 ### Sign-ins, files and memory stay on your server
 
-As in Grok Bot, you sign in once on any bot's screen and every bot is signed in. Bots share a `/workspace` folder and keep editable Markdown memory about themselves, you and your projects. For a CAPTCHA, a 2FA code or a payment, a bot sends you a handoff card, and password forms fill without the model seeing the values. Your model provider still sees what bots send it ([privacy](/docs/configuration/privacy)), unless the model runs locally.
+As in Grok Bot, you sign in once on any bot's screen and every bot is signed in. Bots share a `/workspace` folder and remember facts about themselves and you. For a CAPTCHA, a 2FA code or a payment, a bot sends you a handoff card, and password forms fill without the model seeing the values. Your model provider still sees what bots send it ([privacy](/docs/configuration/privacy)), unless the model runs locally.
 
 ![A sample sign-in page open in Chromium on a bot's Linux desktop](/screenshots/linux-sign-in.png "Sign in once on any bot's screen, and every bot shares the session. Sample data, captured September 12, 2026. Image: OpenTeam.")
 
 ### Your model, your team, your schedules
 
-One model serves every bot, chosen in **Settings → Server**: an OpenAI, Anthropic or OpenRouter key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([models](/docs/configuration/models)). Bots can't each have their own model.
+One model serves every bot, chosen in **Settings → Model**: a ChatGPT or Claude plan, an OpenAI, Anthropic or OpenRouter key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([models](/docs/configuration/models)). Bots can't each have their own model.
 
 Group chats hold up to six bots that take turns, with at most three rounds and ten bot replies per message you send. Bots also message each other directly, create teammates and delegate to subagents. Routines run on up to eight schedules, at most every five minutes, or on events ([routines](/docs/usage/routines)). Bundled plugins include Gmail, Google Calendar, Google Drive, GitHub, Linear, Notion, Slack, Granola and 1Password, plus custom MCP servers.
 
 ## What Grok Bot does better
 
-- **Zero setup.** You install an app and sign in; xAI runs the computer. OpenTeam needs Docker, a machine that stays on, a model key or local model, and some comfort with a terminal.
+- **Zero setup.** You install an app and sign in; xAI runs the computer. OpenTeam needs Docker, a machine that stays on, a model plan, key or local model, and some comfort with a terminal.
 - **Apps on every device.** Grok Bot runs on macOS, Windows, Linux, iPhone, iPad and Android ([xAI](https://docs.x.ai/grok-bot/faq)). OpenTeam's desktop apps are for macOS on Apple silicon and Linux x64 only, its iPhone app is a TestFlight beta, and there's no Android app.
 - **Teams of people.** A Team Bot serves a whole team, each person in a private chat, and posts in Slack as itself ([xAI](https://docs.x.ai/grok-bot/team-bots)). OpenTeam has one human account per server.
 - **Managed isolation.** Each user's computer is a Firecracker microVM "with hardware-level separation from other users" ([xAI](https://docs.x.ai/grok-bot/teams-and-enterprises)). OpenTeam's bots share one container on a machine you maintain.
-- **Approvals and enterprise controls.** Auto-review checks tool calls and computer actions before they run, and "Ask first" rules always stop for you ([xAI](https://docs.x.ai/grok-bot/approvals-security-and-privacy)). Enterprises add network allowlists, enforced auto-review, action recording, SCIM and SSO ([xAI](https://docs.x.ai/grok-bot/teams-and-enterprises)). OpenTeam has no approval prompts: bots act directly, and its guardrails are the container, Gmail drafts, handoff cards and password forms the model can't read.
-- **A trial and a low entry price.** A usage credit, then $30 a month for Cursor Premium, with model usage included up to the weekly grant. OpenTeam is free, but you pay per token and keep a machine running.
+- **Approvals and enterprise controls.** Auto-review checks tool calls and computer actions before they run, and "Ask first" rules always stop for you ([xAI](https://docs.x.ai/grok-bot/approvals-security-and-privacy)). Enterprises add network allowlists, enforced auto-review, action recording, SCIM and SSO ([xAI](https://docs.x.ai/grok-bot/teams-and-enterprises)). OpenTeam's only approval prompts are cards for outgoing email, Slack messages and texts; other actions run directly, and its other guardrails are the container, handoff cards and password forms the model can't read.
+- **A trial and a low entry price.** A usage credit, then $30 a month for Cursor Premium, with model usage included up to the weekly grant. OpenTeam is free, but you pay your model provider and keep a machine running.
 - **Maturity.** OpenTeam is a young project with a small community, and one model per server is a real limit next to per-task routing.
 
 xAI's [Grok Bot guide for support teams](https://x.ai/bot/guides/grok-bot-for-support) shows what an approval looks like.
@@ -148,11 +148,11 @@ The same plans apply everywhere; Cursor lists no separate India or UK price. Sin
 
 ### Can I use my own model with Grok Bot?
 
-No. Cursor routes each task to an xAI model or an approved third-party one, with no picker and no local option. OpenTeam uses one model for all bots on a server, from an OpenAI, Anthropic or OpenRouter key or an endpoint such as Ollama, LM Studio or vLLM.
+No. Cursor routes each task to an xAI model or an approved third-party one, with no picker and no local option. OpenTeam uses one model for all bots on a server, from a ChatGPT or Claude plan, an OpenAI, Anthropic or OpenRouter key, or an endpoint such as Ollama, LM Studio or vLLM.
 
 ### Does OpenTeam work like Grok Bot?
 
-Largely, by design. Its agent tools, platform prompt and built-in skills are built for compatibility with Grok Bot 0.47.0's observed behavior. Results still depend on the model you choose, and OpenTeam has no approval prompts, Team Bots or image generation.
+Largely, by design. Its agent tools, platform prompt and built-in skills are built for compatibility with Grok Bot 0.47.0's observed behavior. Results still depend on the model you choose, and OpenTeam has no Team Bots or image generation, and approval prompts only for outgoing email, Slack messages and texts.
 
 ## Try OpenTeam
 

@@ -15,6 +15,7 @@ struct NativeHistoryItem {
   let version: Int
   var anchorToBottom = false
   var animatesResize = false
+  var outgoingArrival = false
   /// Prepares asynchronously sized content (WebKit documents) before the row
   /// scrolls into view, so it is displayed at its final height.
   var prefetch: (() -> Void)?
@@ -33,8 +34,13 @@ struct NativeMessageList: UIViewControllerRepresentable {
   var initialTarget = "bottom"
   var initialLayout = InitialLayout.settled
   var request: HistoryScrollRequest?
+  var earlierPage: String?
+  var laterPage: String?
+  var onLoadEarlier: () -> Void = {}
+  var onLoadLater: () -> Void = {}
   var onPositioned: () -> Void = {}
   var onScroll: (_ atBottom: Bool, _ following: Bool) -> Void = { _, _ in }
+  var onDismissKeyboard: () -> Void = {}
 
   func makeUIViewController(context: Context) -> HistoryListController {
     MessageDocuments.prewarm()
@@ -43,11 +49,17 @@ struct NativeMessageList: UIViewControllerRepresentable {
     controller.initialLayout = initialLayout
     controller.onPositioned = onPositioned
     controller.onScroll = onScroll
+    controller.onDismissKeyboard = onDismissKeyboard
     return controller
   }
   func updateUIViewController(_ controller: HistoryListController, context: Context) {
     controller.onPositioned = onPositioned
     controller.onScroll = onScroll
+    controller.onDismissKeyboard = onDismissKeyboard
+    controller.earlierPage = earlierPage
+    controller.laterPage = laterPage
+    controller.onLoadEarlier = onLoadEarlier
+    controller.onLoadLater = onLoadLater
     controller.update(items, request: request)
   }
 }
@@ -61,6 +73,16 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var bottomAnchoredIDs = Set<String>()
   private var windowStart = 0
   private let windowSize = 80
+  var earlierPage: String?
+  var laterPage: String?
+  var onLoadEarlier: () -> Void = {}
+  var onLoadLater: () -> Void = {}
+  private var pageTrigger = HistoryPageTrigger()
+  private var highlightTarget: String?
+  private weak var highlightedCell: UITableViewCell?
+  private weak var highlightedMessage: MessageJumpFlashView?
+  private var lastHighlightedMessageID: String?
+  private var presentationFinished = false
   private var measuredHeights: [String: CGFloat] = [:]
   private var lastRequest: UUID?
   private var pendingRequest: HistoryScrollRequest?
@@ -78,6 +100,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var followingAtDragStart = false
   /// Height of a keyboard this drag dismissed (keyboardDismissMode is onDrag).
   private var keyboardDismissedByDrag: CGFloat?
+  private var keyboardTransition: (deadline: CFTimeInterval, options: UIView.AnimationOptions)?
   private var readingAnchor: Anchor?
   private var relocationSnapshot: UIView?
   private var relocationReveal: DispatchWorkItem?
@@ -107,6 +130,11 @@ struct NativeMessageList: UIViewControllerRepresentable {
   /// The table's (pixel-rounded) offset after the glide's last write.
   private var glideApplied: CGFloat = 0
   private var glideTime: CFTimeInterval = 0
+  private var outgoingArrival = false
+  private var glideDuration: CFTimeInterval?
+  private var glideElapsed: CFTimeInterval = 0
+  private var glideOrigin: CGFloat = 0
+  private var glidePreviousTarget: CGFloat?
   #if DEBUG
   private var glideStartTime: CFTimeInterval = 0
   private let recordsMotion = ProcessInfo.processInfo.arguments.contains("--trace-chat-layout")
@@ -129,6 +157,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
   var initialLayout = NativeMessageList.InitialLayout.settled
   var onPositioned: () -> Void = {}
   var onScroll: (Bool, Bool) -> Void = { _, _ in }
+  var onDismissKeyboard: () -> Void = {}
 
   override func loadView() {
     view = HistoryViewport()
@@ -163,12 +192,18 @@ struct NativeMessageList: UIViewControllerRepresentable {
     NotificationCenter.default.addObserver(
       self, selector: #selector(keyboardWillHide(_:)),
       name: UIResponder.keyboardWillHideNotification, object: nil)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(keyboardWillChangeFrame(_:)),
+      name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
     table.register(UITableViewCell.self, forCellReuseIdentifier: "message")
     table.willLayout = { [weak self] in self?.captureLayoutStart() }
     table.didLayout = { [weak self] in self?.didLayout() }
     source = UITableViewDiffableDataSource<Int, String>(tableView: table) { [weak self] table, path, id in
       guard let self, let item = self.items[id] else { return nil }
       let cell = table.dequeueReusableCell(withIdentifier: "message", for: path)
+      if self.highlightedCell === cell { self.clearHighlight() }
+      cell.backgroundView = nil
+      cell.accessibilityIdentifier = nil
       cell.backgroundColor = .clear
       cell.selectionStyle = .none
       cell.contentConfiguration = UIHostingConfiguration {
@@ -205,10 +240,12 @@ struct NativeMessageList: UIViewControllerRepresentable {
           guard frame.intersects(viewport) else { return nil }
           return ["id": item.scrollID, "y": frame.minY, "height": frame.height]
         }.sorted { ($0["y"] as? CGFloat ?? 0) < ($1["y"] as? CGFloat ?? 0) }
-        let value: [String: Any] = ["rows": rows, "mounted": self.displayedIDs.count,
+        var value: [String: Any] = ["rows": rows, "mounted": self.displayedIDs.count,
           "offset": self.table.contentOffset.y, "following": self.following,
           "viewportTop": viewport.minY, "viewportBottom": viewport.maxY,
+          "lastHighlightedMessage": self.lastHighlightedMessageID ?? "",
           "moving": self.table.isDragging || self.table.isDecelerating || self.positioning || self.updating || self.scrollingToTarget]
+        if self.tracesFrames { value["motion"] = Array(self.frameTrace.suffix(240)) }
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
         return String(data: data, encoding: .utf8)
       }
@@ -216,6 +253,19 @@ struct NativeMessageList: UIViewControllerRepresentable {
     #endif
   }
 
+  override func viewDidAppear(_ animated: Bool) {
+    super.viewDidAppear(animated)
+    // A short flash would otherwise be spent behind the incoming push. Wait
+    // for the navigation transition as well as the table's positioning barrier.
+    if let transition = transitionCoordinator,
+      transition.animate(alongsideTransition: nil, completion: { [weak self] _ in
+        guard let self, self.view.window != nil else { return }
+        self.presentationFinished = true
+        self.showTargetHighlight()
+      }) { return }
+    presentationFinished = true
+    showTargetHighlight()
+  }
   func update(_ values: [NativeHistoryItem], request: HistoryScrollRequest?) {
     loadViewIfNeeded()
     let ids = values.map(\.id)
@@ -242,6 +292,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
       pendingRequest = resolved
     }
     let previousIDs = orderedIDs
+    if positioned, values.contains(where: { $0.outgoingArrival && !previousIDs.contains($0.id) }) {
+      outgoingArrival = true
+    }
     // Any drag stops following, including one that ends a few points above
     // the end. A reader resting there still watches the latest message, so an
     // arrival resumes following instead of landing hidden behind the composer.
@@ -296,6 +349,13 @@ struct NativeMessageList: UIViewControllerRepresentable {
     let heights = [UIResponder.keyboardFrameEndUserInfoKey, UIResponder.keyboardFrameBeginUserInfoKey]
       .compactMap { (info?[$0] as? CGRect)?.height }
     keyboardDismissedByDrag = heights.max() ?? 0
+  }
+  @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+    guard view.window != nil else { return }
+    let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
+    let curve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+    keyboardTransition = (CACurrentMediaTime() + (duration > 0 ? duration : 0.25),
+      UIView.AnimationOptions(rawValue: curve << 16).union([.beginFromCurrentState, .allowUserInteraction]))
   }
   private var windowIDs: [String] {
     Array(orderedIDs.dropFirst(windowStart).prefix(windowSize))
@@ -407,6 +467,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
           self.startFooterFollow(duration: deferredFooterChange > 0
             ? ChatActivityTiming.expansion : ChatActivityTiming.collapse, from: oldOffset.y)
         } else if self.glideLink != nil {
+          if self.outgoingArrival { self.glideToBottom() }
           // Already gliding to the latest message (a send, or an earlier
           // arrival). It re-reads the bottom every frame; restarting or
           // snapping here would break the motion.
@@ -515,6 +576,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     let footerGrowing = (footerHeight ?? 0) > (lastFooterHeight ?? 0)
     lastFooterHeight = footerHeight
     let viewportResized = table.bounds.size != lastBounds
+    let viewportChange = table.bounds.height - lastBounds.height
     for path in table.indexPathsForVisibleRows ?? [] {
       if let id = source.itemIdentifier(for: path), let cell = table.cellForRow(at: path) {
         measuredHeights[id] = cell.bounds.height
@@ -553,6 +615,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
         self.positioned = true
         self.following = self.initialTarget == "bottom"
         self.onPositioned()
+        self.highlightTarget = self.initialTarget == "bottom" ? nil : self.initialTarget
+        self.showTargetHighlight()
         self.reportScroll()
       }
       settle = work
@@ -576,7 +640,41 @@ struct NativeMessageList: UIViewControllerRepresentable {
       positioning = false
     } else if resized && following && !table.isDragging && !scrollingToTarget {
       positioning = true
-      if footerResized && !viewportResized && !UIAccessibility.isReduceMotionEnabled {
+      if viewportResized, let transition = keyboardTransition,
+        transition.deadline > CACurrentMediaTime(), !UIAccessibility.isReduceMotionEnabled {
+        // UIKit receives the final keyboard-safe bounds in one layout pass.
+        // Move the scroll offset with the keyboard's UIKit curve as well, so
+        // the transcript doesn't jump to its final position ahead of the bar.
+        let target = bottomOffset
+        table.setContentOffset(CGPoint(x: 0, y: previousBottom), animated: false)
+        CATransaction.begin()
+        CATransaction.setDisableActions(false)
+        UIView.animate(withDuration: transition.deadline - CACurrentMediaTime(), delay: 0,
+          options: transition.options) { self.table.contentOffset = target }
+        CATransaction.commit()
+      } else if viewportResized, let resize = table.layer.animation(forKey: "bounds.size"),
+        !UIAccessibility.isReduceMotionEnabled {
+        // The keyboard's safe-area change can lay out before its frame
+        // notification arrives (iOS 27), while UIKit already animates this
+        // table's bounds. Follow that animation instead of jumping to the bottom.
+        followViewport(from: previousBottom, to: bottomOffset.y, matching: resize)
+      } else if viewportResized && abs(viewportChange) <= 120
+        && abs(bottomOffset.y - previousBottom) > 0.5 && !UIAccessibility.isReduceMotionEnabled {
+        // The voice bar grows and shrinks the composer without a keyboard
+        // notification. Follow it on the bar's own spring instead of moving the
+        // transcript to its new bottom in one frame. Keyboard-sized changes keep
+        // the path above: restoring the old bottom in a much taller viewport
+        // would briefly scroll the transcript out of view.
+        let target = bottomOffset
+        table.setContentOffset(CGPoint(x: 0, y: previousBottom), animated: false)
+        CATransaction.begin()
+        CATransaction.setDisableActions(false)
+        UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.84,
+          initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+          self.table.contentOffset = target
+        }
+        CATransaction.commit()
+      } else if footerResized && !viewportResized && !UIAccessibility.isReduceMotionEnabled {
         // Hosting cells report the footer's final intrinsic height. Follow that
         // change with the same timing as the robot instead of jumping 64 points.
         startFooterFollow(
@@ -687,7 +785,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
       source.indexPath(for: item.id) != nil, !updating else { return }
     pendingRequest = nil
     following = request.id == "bottom"
+    highlightTarget = request.id == "bottom" ? nil : request.id
+    if highlightTarget == nil { clearHighlight() }
     scroll(to: request.id, animated: request.animated && !UIAccessibility.isReduceMotionEnabled)
+    if !scrollingToTarget { showTargetHighlight() }
     revealRelocation()
     reportScroll()
   }
@@ -754,7 +855,11 @@ struct NativeMessageList: UIViewControllerRepresentable {
       return min(max(y, -self.table.adjustedContentInset.top), self.bottomOffset.y)
     }
   }
-  private func glideToBottom() { glide(to: { [weak self] in self?.bottomOffset.y }) }
+  private func glideToBottom() {
+    let duration: CFTimeInterval? = outgoingArrival ? 0.35 : nil
+    outgoingArrival = false
+    glide(to: { [weak self] in self?.bottomOffset.y }, duration: duration)
+  }
   private enum Glide {
     /// Critically damped (no overshoot), like iMessage's scroll to the latest
     /// message: about 90% of the way in 0.23 s, settled within ~0.45-0.65 s.
@@ -771,9 +876,17 @@ struct NativeMessageList: UIViewControllerRepresentable {
   /// of stopped short of. Unlike animating the layer, UITableView mounts the
   /// rows passed on the way. A running glide keeps its position and velocity
   /// and only adopts the new target. A drag cancels it immediately.
-  private func glide(to target: @escaping () -> CGFloat?) {
+  private func glide(to target: @escaping () -> CGFloat?, duration: CFTimeInterval? = nil) {
     glideTarget = target
-    guard glideLink == nil else { return }
+    if glideLink != nil {
+      if let duration {
+        glideDuration = duration
+        glideElapsed = 0
+        glideOrigin = table.contentOffset.y
+        glidePreviousTarget = target()
+      }
+      return
+    }
     // Continue from what is on screen, including a robot follow in flight.
     stopFooterFollow()
     guard var destination = target() else { return }
@@ -790,6 +903,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
       positioning = false
       destination = target() ?? destination
     }
+    glideDuration = duration
+    glideElapsed = 0
+    glideOrigin = start
+    glidePreviousTarget = destination
     glideOffset = start
     glideApplied = table.contentOffset.y
     glideVelocity = Glide.launch * Glide.omega * (destination - start)
@@ -818,13 +935,34 @@ struct NativeMessageList: UIViewControllerRepresentable {
     // reconfigured mid-glide (a delivery acknowledgement).
     let shift = table.contentOffset.y - glideApplied
     if abs(shift) > 0.01 { glideOffset += shift }
-    let error = glideOffset - target
-    let omega = Glide.omega
-    let decay = exp(-omega * dt)
-    let pull = glideVelocity + omega * error
-    var next = target + (error + pull * dt) * decay
-    glideVelocity = (glideVelocity - omega * pull * dt) * decay
-    let settled = abs(next - target) < 0.3 && abs(glideVelocity) < 15
+    if glideDuration != nil, let previous = glidePreviousTarget, abs(target - previous) > 0.5 {
+      // Incoming content or a media resize changes the destination mid-send.
+      // Continue with the retargetable spring at the current position/velocity;
+      // applying the old elapsed percentage to the added height would jump.
+      glideDuration = nil
+    }
+    glidePreviousTarget = target
+    var next: CGFloat
+    let settled: Bool
+    if let duration = glideDuration {
+      // GrokBot's outgoing rows follow a 300 ms ease-in/out. Keep advancing the
+      // real offset so cells mount during motion, and re-read the target as they size.
+      glideOrigin += shift
+      glideElapsed += Double(dt)
+      let t = CGFloat(min(1, glideElapsed / duration))
+      let eased = t * t * (3 - 2 * t)
+      next = glideOrigin + (target - glideOrigin) * eased
+      glideVelocity = (target - glideOrigin) * 6 * t * (1 - t) / CGFloat(duration)
+      settled = t >= 1
+    } else {
+      let error = glideOffset - target
+      let omega = Glide.omega
+      let decay = exp(-omega * dt)
+      let pull = glideVelocity + omega * error
+      next = target + (error + pull * dt) * decay
+      glideVelocity = (glideVelocity - omega * pull * dt) * decay
+      settled = abs(next - target) < 0.3 && abs(glideVelocity) < 15
+    }
     if settled { next = target }
     positioning = true
     table.contentOffset = CGPoint(x: table.contentOffset.x, y: next)
@@ -837,6 +975,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     if settled {
       stopGlide(settled: true)
       if !following { readingAnchor = captureAnchor() }
+      showTargetHighlight()
     }
     reportScroll()
   }
@@ -845,6 +984,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     link.invalidate()
     glideLink = nil
     glideVelocity = 0
+    glideDuration = nil
     glideTarget = { nil }
     scrollingToTarget = false
     #if DEBUG
@@ -887,15 +1027,34 @@ struct NativeMessageList: UIViewControllerRepresentable {
     guard let path = source.indexPath(for: anchor.id) else { return }
     positioning = true
     defer { positioning = false }
+    // A keyboard resize can move the saved reading position outside the new
+    // viewport. Mounting that row and restoring its now-offscreen offset would
+    // immediately unmount it and request the same layout again indefinitely.
+    let estimated = table.rectForRow(at: path)
+    let expectedTop = anchor.bottom ? anchor.offset - estimated.height : anchor.offset
+    let visibleTop = table.adjustedContentInset.top
+    let visibleBottom = table.bounds.height - table.adjustedContentInset.bottom
+    if readingAnchor != nil,
+      expectedTop >= visibleBottom || expectedTop + estimated.height <= visibleTop {
+      readingAnchor = captureAnchor()
+      return
+    }
     // Resolve estimated heights around the anchor, then restore its pixel offset.
     if table.indexPathsForVisibleRows?.contains(path) != true {
       table.scrollToRow(at: path, at: .top, animated: false)
       table.layoutIfNeeded()
     }
     let rect = table.rectForRow(at: path)
-    let y = (anchor.bottom ? rect.maxY : rect.minY) - anchor.offset
+    // Keyboard dismissal enlarges the viewport. An anchor captured in the
+    // smaller viewport can now lie past the scrollable end; repeatedly writing
+    // that offset fights UIKit's clamping and schedules another layout forever.
+    let desired = (anchor.bottom ? rect.maxY : rect.minY) - anchor.offset
+    let y = min(bottomOffset.y, max(-table.adjustedContentInset.top, desired))
     if abs(table.contentOffset.y - y) > 0.5 {
       table.setContentOffset(CGPoint(x: 0, y: y), animated: false)
+    }
+    if abs(desired - y) > 0.5, readingAnchor != nil {
+      readingAnchor = captureAnchor()
     }
   }
   func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -906,6 +1065,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     if let id = source.itemIdentifier(for: indexPath) { measuredHeights[id] = cell.bounds.height }
   }
   func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+    onDismissKeyboard()
     // The finger takes over at once, wherever a glide or follow has reached.
     stopGlide()
     stopFooterFollow()
@@ -913,6 +1073,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     table.layer.removeAnimation(forKey: "widget-bottom-follow")
     // onDrag dismissal can post keyboardWillHide before this callback, so the
     // dismissal flag is consumed when the scroll ends rather than reset here.
+    highlightTarget = nil
     followingAtDragStart = following
     following = false
     scrollingToTarget = false
@@ -950,6 +1111,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
       NativeHaptics.play(.selection, source: "chat.latest-scroll")
     }
     advanceWindowIfNeeded()
+    loadAdjacentPageIfNeeded()
     reportScroll()
   }
   func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -1002,8 +1164,52 @@ struct NativeMessageList: UIViewControllerRepresentable {
     // rows during a fling lets UIKit apply offset corrections in its old
     // coordinate space, even after restoring the new window's anchor.
     advanceWindowIfNeeded()
+    loadAdjacentPageIfNeeded()
     dragDirection = 0
     reportScroll()
+  }
+  private func loadAdjacentPageIfNeeded() {
+    guard positioned, !updating, !positioning, !scrollingToTarget,
+      let paths = table.indexPathsForVisibleRows,
+      let first = paths.map(\.row).min(), let last = paths.map(\.row).max() else { return }
+    let direction = pageTrigger.update(firstVisible: windowStart + first,
+      lastVisible: windowStart + last, count: orderedIDs.count,
+      direction: Double(dragDirection), earlier: earlierPage, later: laterPage)
+    guard let direction else { return }
+    // Scroll callbacks can run inside a UIKit/SwiftUI layout pass.
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      switch direction {
+      case .earlier: self.onLoadEarlier()
+      case .later: self.onLoadLater()
+      }
+    }
+  }
+  private func clearHighlight() {
+    highlightedMessage?.stop()
+    highlightedMessage = nil
+    highlightedCell = nil
+  }
+  /// Flash only the message content, after positioning. Its overlay never
+  /// participates in row sizing and becomes transparent again in 650 ms.
+  private func showTargetHighlight() {
+    func surface(in view: UIView, target: String) -> MessageJumpFlashView? {
+      if let flash = view as? MessageJumpFlashView, flash.messageID == target { return flash }
+      for child in view.subviews {
+        if let flash = surface(in: child, target: target) { return flash }
+      }
+      return nil
+    }
+    guard presentationFinished, let target = highlightTarget,
+      let item = items.values.first(where: { $0.scrollID == target }),
+      let path = source.indexPath(for: item.id), let cell = table.cellForRow(at: path),
+      let flash = surface(in: cell.contentView, target: target) else { return }
+    highlightTarget = nil
+    clearHighlight()
+    highlightedCell = cell
+    highlightedMessage = flash
+    lastHighlightedMessageID = target
+    flash.flash()
   }
   private func reportScroll() {
     guard positioned else { return }
@@ -1011,6 +1217,34 @@ struct NativeMessageList: UIViewControllerRepresentable {
     guard reported?.0 != value.0 || reported?.1 != value.1 else { return }
     reported = value
     DispatchQueue.main.async { [weak self] in self?.onScroll(value.0, value.1) }
+  }
+  /// Moves the scroll layer's presentation with the timing of an animation already
+  /// running on the table (a keyboard resize), while the model holds the final offset.
+  private func followViewport(from start: CGFloat, to target: CGFloat, matching resize: CAAnimation) {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    table.setContentOffset(CGPoint(x: 0, y: target), animated: false)
+    let movement: CABasicAnimation
+    if let spring = resize as? CASpringAnimation {
+      let follow = CASpringAnimation(keyPath: "bounds.origin.y")
+      follow.mass = spring.mass
+      follow.stiffness = spring.stiffness
+      follow.damping = spring.damping
+      follow.initialVelocity = spring.initialVelocity
+      movement = follow
+    } else {
+      movement = CABasicAnimation(keyPath: "bounds.origin.y")
+    }
+    movement.fromValue = start
+    movement.toValue = target
+    movement.duration = resize.duration
+    movement.beginTime = resize.beginTime
+    movement.speed = resize.speed
+    movement.timeOffset = resize.timeOffset
+    movement.timingFunction = resize.timingFunction
+    movement.fillMode = .backwards
+    table.layer.add(movement, forKey: "viewport-follow")
+    CATransaction.commit()
   }
   private func startFooterFollow(duration: CFTimeInterval, from offset: CGFloat) {
     stopGlide()
@@ -1104,6 +1338,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
   #endif
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    presentationFinished = false
+    clearHighlight()
     followingResize = false
     resizePinnedOffset = nil
     table.layer.removeAnimation(forKey: "widget-bottom-follow")
@@ -1113,10 +1349,12 @@ struct NativeMessageList: UIViewControllerRepresentable {
   @objc private func dismissKeyboard(_ gesture: UITapGestureRecognizer) {
     defer { keyboardDismissedByDrag = nil }
     guard view.safeAreaLayoutGuide.layoutFrame.contains(gesture.location(in: view)) else { return }
+    onDismissKeyboard()
     view.window?.endEditing(true)
   }
   func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
     guard view.safeAreaLayoutGuide.layoutFrame.contains(touch.location(in: view)) else { return false }
+    if KeyboardPreservingControlView.contains(touch) { return false }
     var candidate = touch.view
     while let view = candidate, view !== table {
       if view is UIControl || view is UITextView || view is UITextField { return false }
@@ -1153,13 +1391,17 @@ extension HistoryListController {
     // Committed geometry, or the presentation of animations committed with it.
     let presented = table.layer.animationKeys()?.isEmpty == false
       ? table.layer.presentation()?.bounds.origin.y ?? committedOffset : committedOffset
+    // The table deliberately paints beyond its model bounds under the floating
+    // bars. During a keyboard animation those bounds already have their final
+    // height; retain rows still painted in the window's presentation instead.
+    let viewportHeight = view.window.map { view.convert($0.bounds, from: $0).maxY } ?? view.bounds.height
     var rows: [[Any]] = []
     var hiddenDocuments = 0
     for row in committedRows {
       let frame = row.cell?.layer.animationKeys()?.isEmpty == false
         ? row.cell?.layer.presentation()?.frame ?? row.frame : row.frame
       let y = frame.minY - presented + table.frame.minY
-      guard y + frame.height > 0, y < view.bounds.height else { continue }
+      guard y + frame.height > 0, y < viewportHeight else { continue }
       rows.append([row.id, (Double(y) * 100).rounded() / 100, (Double(frame.height) * 100).rounded() / 100])
       hiddenDocuments += row.hidden
     }
@@ -1262,5 +1504,28 @@ extension HistoryListController {
       }
     }
     #endif
+  }
+}
+
+/// SwiftUI buttons are hosted views rather than UIControls. Mark their real hit
+/// area so the history's outside-tap recognizer leaves the composer focused.
+struct KeyboardPreservingControl: UIViewRepresentable {
+  func makeUIView(context: Context) -> KeyboardPreservingControlView { KeyboardPreservingControlView() }
+  func updateUIView(_ view: KeyboardPreservingControlView, context: Context) {}
+}
+@MainActor final class KeyboardPreservingControlView: UIView {
+  private static let regions = NSHashTable<KeyboardPreservingControlView>.weakObjects()
+  init() {
+    super.init(frame: .zero)
+    isUserInteractionEnabled = false
+    Self.regions.add(self)
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+  static func contains(_ touch: UITouch) -> Bool {
+    regions.allObjects.contains { region in
+      guard let window = region.window, window === touch.window,
+        !region.isHidden, region.alpha > 0.01 else { return false }
+      return region.bounds.contains(touch.location(in: region))
+    }
   }
 }

@@ -1,6 +1,9 @@
+import { SettingsSelectContent } from "./select-content";
+import { PrivateSettingValue } from "./private-value";
 import { SmartNotificationSettings } from "./smart-notifications";
+import { TimeZoneSettings } from "./time-zone";
 import { Copy } from "lucide-react";
-import { lazy, type PropsWithChildren, Suspense, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { signOut } from "../../../client/auth";
 import { API_BASE } from "../../../client/http";
 import { useAuthSession } from "../../../hooks/use-auth-session";
@@ -11,25 +14,16 @@ import {
   setThemePreference,
   type ThemePreference,
 } from "../../../lib/theme";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import { Select, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import type { MicrophoneControlProps } from "./microphone";
-import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
+import { SectionLabel, SettingsGroup, SettingsRow, settingsSelect, settingsSecondaryButton } from "./ui";
 const MicrophoneSettings = lazy(() => import("./microphone").then(module => ({ default: module.MicrophoneSettings })));
 
-
-const SettingsSelectContent = ({ children }: PropsWithChildren) => (
-  <SelectContent
-    align="end"
-    className="w-[200px] max-w-[calc(100vw-16px)] rounded-[12px] border-border/50 shadow-[0_8px_24px_rgba(0,0,0,0.12)] [&_[role=option]]:rounded-[6px] [&_[role=option]]:text-[13px] [&_[role=option]]:leading-5"
-  >
-    {children}
-  </SelectContent>
-);
 
 // Reuse the selector already loaded for Theme; device discovery stays lazy.
 export const renderMicrophoneControl = ({ options, ...props }: MicrophoneControlProps) => (
   <Select {...props}>
-    <SelectTrigger aria-label="Microphone" className="h-7 w-auto max-w-[220px] rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 text-[12px] shadow-none dark:border-white/[0.07] dark:bg-white/[0.07] [&>span]:truncate">
+    <SelectTrigger aria-label="Microphone" className={`${settingsSelect} w-auto max-w-[220px] [&>span]:truncate`}>
       <SelectValue />
     </SelectTrigger>
     <SettingsSelectContent>
@@ -43,7 +37,6 @@ export default function GeneralSettings() {
   const account = accountPresentation(auth.user, auth.mode);
   const [signingOut, setSigningOut] = useState(false);
   const [accountCopied, setAccountCopied] = useState(false);
-  const [endpointRevealed, setEndpointRevealed] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>(readThemePreference);
 
   const changeTheme = (value: string) => {
@@ -91,25 +84,11 @@ export default function GeneralSettings() {
             </div>
             <div className="mt-1 flex items-baseline gap-2 text-[12px] leading-4 text-foreground-secondary">
               <span className="shrink-0">Endpoint</span>
-              <button
-                aria-label={endpointRevealed ? "Hide server endpoint" : "Reveal server endpoint"}
-                aria-pressed={endpointRevealed}
-                className="min-w-0 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                onClick={() => setEndpointRevealed((revealed) => !revealed)}
-                title={endpointRevealed ? "Click to hide endpoint" : "Click to reveal endpoint"}
-                type="button"
-              >
-                <span
-                  aria-hidden={!endpointRevealed}
-                  className={`block select-none break-all transition-[filter,opacity] duration-300 ease-out motion-reduce:transition-none ${endpointRevealed ? "blur-none opacity-100" : "blur-[5px] opacity-70"}`}
-                >
-                  {API_BASE}
-                </span>
-              </button>
+              <PrivateSettingValue value={API_BASE} label="server endpoint" />
             </div>
           </div>
           <button
-            className="ml-auto inline-flex h-8 shrink-0 items-center rounded-full border border-black/[0.04] bg-black/[0.035] px-3.5 text-[12px] hover:bg-black/[0.065] disabled:cursor-default disabled:opacity-50 dark:border-white/[0.06] dark:bg-white/[0.07] dark:hover:bg-white/[0.1]"
+            className={`${settingsSecondaryButton} ml-auto`}
             disabled={auth.mode === "disabled" || signingOut}
             onClick={() => void logOut()}
             type="button"
@@ -118,6 +97,8 @@ export default function GeneralSettings() {
           </button>
         </div>
       </SettingsGroup>
+
+      <TimeZoneSettings />
 
       <SmartNotificationSettings />
 
@@ -129,7 +110,7 @@ export default function GeneralSettings() {
             <Select onValueChange={changeTheme} value={theme}>
               <SelectTrigger
                 aria-label="Theme"
-                className="h-7 w-auto rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 text-[12px] shadow-none dark:border-white/[0.07] dark:bg-white/[0.07]"
+                className={`${settingsSelect} w-auto`}
               >
                 <SelectValue />
               </SelectTrigger>

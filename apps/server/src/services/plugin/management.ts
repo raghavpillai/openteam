@@ -58,7 +58,7 @@ async function fetchPackageResource(value: string): Promise<{ bytes: Uint8Array;
   }
   const response = await fetch(url, {
     signal: AbortSignal.timeout(30_000),
-    headers: { "User-Agent": "OpenBot-Plugins" },
+    headers: { "User-Agent": "OpenTeam-Plugins" },
   });
   if (!response.ok)
     throw new ApiError(
@@ -104,14 +104,6 @@ const newerVersion = (next: string, current: string): boolean => {
 };
 
 export type ReleasedPluginUpdate = { key: string; from: string; to: string; reconnect: string[] };
-export type PluginHostComponentView = {
-  key: string;
-  name: string;
-  version: string;
-  installedMarker: string;
-  refreshCommand: string[];
-  files: Record<string, string>;
-};
 
 export class PluginManagement {
   constructor(
@@ -442,31 +434,6 @@ export class PluginManagement {
       return updated;
     });
 
-  /** Host parts of installations that run exactly the package this release ships. */
-  hostComponents = () =>
-    serviceEffect(async (): Promise<PluginHostComponentView[]> => {
-      const released = await this.releasedPackages();
-      const installations = await this.prisma.pluginInstallation.findMany({
-        where: { status: "installed", pluginKey: { in: [...released.keys()] } },
-        select: { pluginKey: true, manifest: true },
-      });
-      return installations.flatMap((installation) => {
-        const next = released.get(installation.pluginKey)!;
-        const current = definitionFromManifest(installation.manifest);
-        if (!next.host || !current || pluginDigest(current) !== pluginDigest(next)) return [];
-        return [
-          {
-            key: next.key,
-            name: next.name,
-            version: next.version,
-            installedMarker: next.host.installedMarker,
-            refreshCommand: next.host.refreshCommand,
-            files: next.files ?? {},
-          },
-        ];
-      });
-    });
-
   update = (key: string, digest: string, rollback = false, automatic = false) =>
     serviceEffect(async () => {
       const installation = await this.prisma.pluginInstallation.findUnique({
@@ -488,6 +455,14 @@ export class PluginManagement {
           "The package changed; review the update again"
         );
       parsePluginDefinition(next);
+      if (installation.connections.some(account => jsonObject(account.credentials).stateRemovalPending === true))
+        throw new ApiError(409, "plugin_account_removal_pending", "Account removal must finish before updating this plugin.");
+      // Retiring the descriptor would make the old private directory unreachable
+      // from account removal. Uninstall is the explicit, fenced cleanup path.
+      if (previous.connections.some(connector => connector.persistentState &&
+        installation.connections.some(account => account.connectorKey === connector.key) &&
+        !next.connections.find(candidate => candidate.key === connector.key)?.persistentState))
+        throw new ApiError(409, "plugin_persistent_state_retired", "This update removes a connector's private storage. Uninstall the plugin to remove its account data, then install the new version.");
       await Promise.all(
         installation.connections.map((connection) => this.stop(connection.id, connection.transport))
       );
@@ -513,6 +488,12 @@ export class PluginManagement {
             "plugin_update_conflict",
             "This installation changed; review the update again"
           );
+        await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE "installationId" = ${installation.id}::uuid ORDER BY id FOR UPDATE`;
+        const currentAccounts = await tx.pluginConnection.findMany({ where: { installationId: installation.id } });
+        if (currentAccounts.length !== installation.connections.length || currentAccounts.some(account =>
+          jsonObject(account.credentials).stateRemovalPending === true ||
+          account.runtimeGeneration !== installation.connections.find(previous => previous.id === account.id)?.runtimeGeneration))
+          throw new ApiError(409, "plugin_update_conflict", "An account changed while updating. Finish account removal or refresh and review the update again.");
         for (const connector of next.connections) {
           const defaults = Object.fromEntries(
             fieldsForConnector(next, connector.key)

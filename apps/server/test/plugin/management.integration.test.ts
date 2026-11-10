@@ -11,7 +11,7 @@ const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const integration = test.skipIf(!databaseUrl);
 
 integration(
-  "management preserves accounts, policy and snapshots through configuration, discovery and upgrades",
+  "management preserves accounts, direct tool execution and snapshots through configuration, discovery and upgrades",
   async () => {
     const prisma = createPrismaClient(databaseUrl!);
     let syncFails = true;
@@ -92,45 +92,51 @@ integration(
       await Effect.runPromise(service.renameAccount(first.id, "renamed"));
       const renamedNamespaces = await service.dynamicNamespaces(botId);
       expect(renamedNamespaces.map(entry=>entry.name)).not.toEqual(initialNamespaces.map(entry=>entry.name));
-      expect(renamedNamespaces.find(entry=>entry.tools.some(tool=>tool.connectionId===first.id))?.name).toContain("__72656e616d6564");
+      expect(renamedNamespaces.find(entry=>entry.tools.some(tool=>tool.connectionId===first.id))?.name).toEndWith("--renamed");
       await Effect.runPromise(service.connect(first.id));
       expect(
-        (await service.dynamicNamespaces(botId))[0]?.tools.some(
+        (await service.dynamicNamespaces(botId)).flatMap((entry) => entry.tools).some(
           (tool) => tool.connectionId === first.id && tool.name === "echo"
         )
-      ).toBe(false);
+      ).toBe(true);
       const projected = await pluginRuntimeContext(prisma, botId);
       expect(
         projected.dynamicNamespaces
           .flatMap((entry) => entry.tools)
           .some((tool) => tool.connectionId === first.id && tool.name === "echo")
-      ).toBe(false);
-      await expect(
-        service.invoke({
+      ).toBe(true);
+      expect(
+        await service.invoke({
           connectionId: first.id,
           botId,
           runId,
           callId: crypto.randomUUID(),
           toolName: "echo",
-          arguments: { text: "denied" },
+          arguments: { text: "direct read" },
         })
-      ).rejects.toThrow("denied");
-      const pending = crypto.randomUUID();
-      await expect(
-        service.invoke({
-          connectionId: first.id,
-          botId,
-          runId,
-          callId: pending,
-          toolName: "remember_note",
-          arguments: { note: "Must not execute after revoke" },
-        })
-      ).rejects.toThrow("approval");
+      ).toEqual({ text: "direct read" });
+      const write = {
+        connectionId: first.id,
+        botId,
+        runId,
+        callId: crypto.randomUUID(),
+        toolName: "remember_note",
+        arguments: { note: "Direct write executes once" },
+      };
+      expect(await service.invoke(write)).toEqual({ remembered: true });
+      expect(await service.invoke(write)).toEqual({ remembered: true });
       expect(
         await prisma.pluginActivity.count({
           where: { connectionId: first.id, kind: "fixture.note" },
         })
-      ).toBe(0);
+      ).toBe(1);
+      await Effect.runPromise(service.disconnect(first.id));
+      await expect(service.invoke({ ...write, callId: crypto.randomUUID() }))
+        .rejects.toMatchObject({ code: "plugin_connection_not_ready" });
+      expect(await prisma.pluginActivity.count({
+        where: { connectionId: first.id, kind: "fixture.note" },
+      })).toBe(1);
+      await Effect.runPromise(service.connect(first.id));
       await Effect.runPromise(
         service.management.saveDraft(draft.id, {
           ...definition,
@@ -156,6 +162,10 @@ integration(
       expect((await Effect.runPromise(service.management.package(key))).definition.version).toBe(
         base.version
       );
+      // Applying a package invalidates discovery. Reconnect before using its new snapshot.
+      expect((await prisma.pluginConnection.findUniqueOrThrow({ where: { id: first.id } })).status)
+        .toBe("disconnected");
+      await Effect.runPromise(service.connect(first.id));
       const directNamespaces=await service.dynamicNamespaces(botId);
       expect(directNamespaces.length).toBeGreaterThan(0);
       expect(await service.dynamicNamespaces(botId)).toEqual(directNamespaces);

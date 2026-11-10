@@ -81,6 +81,8 @@ export const commandDiagnostic = (command: string, result: RunResult): string =>
   return `${command}: ${safe.length > 1200 ? `${safe.slice(0, 1200)}…` : safe}`;
 };
 
+export const DOCKER_CLI_MISSING = "The docker command was not found in this terminal.";
+
 export const dockerFailureCheck = (
   kind: "cli" | "daemon",
   result: RunResult,
@@ -97,16 +99,14 @@ export const dockerFailureCheck = (
     return {
       level: "fail",
       label: "Docker CLI",
-      detail: missing
-        ? "The docker command was not found in this terminal."
-        : "The docker command could not run.",
+      detail: missing ? DOCKER_CLI_MISSING : "The docker command could not run.",
       diagnostic,
       action: permission
         ? "Check the Docker executable's permissions or repair its installation, then run docker --version."
         : missing
           ? platform === "linux"
-            ? "Install Docker Engine and the Compose plugin (or Docker Desktop), then open a new terminal and run docker --version. If Docker is already installed, check PATH and the executable's permissions."
-            : "Install Docker Desktop from https://docs.docker.com/desktop/, then open a new terminal and run docker --version. If Docker is already installed, check that its command is on PATH and check the executable's permissions."
+            ? "Install Docker Engine and the Compose plugin (https://docs.docker.com/engine/install/), then open a new terminal and run docker --version. If Docker is already installed, check PATH and the executable's permissions."
+            : "Install Docker Desktop from https://www.docker.com/products/docker-desktop/, then open a new terminal and run docker --version. If Docker is already installed, check that its command is on PATH and check the executable's permissions."
           : "Run docker --version to inspect the error; repair or update the Docker CLI before retrying.",
     };
   }

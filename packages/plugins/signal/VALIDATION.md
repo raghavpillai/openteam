@@ -45,7 +45,7 @@ An own send does not necessarily echo to the same linked device. A temporary imp
 
 The phone sent the requested tagged Note to Self message, which the collector received and stored. The packaged MCP connector then returned that message through `list_messages`. An edit made on the phone synchronized correctly: the message ID and original timestamp stayed unchanged, the body updated, and the result reported `edited: true`. The linked collector was also restarted as the packaged MCP entry point between these checks, preserving the collected message. Sanitized evidence is in ignored `private/live-phone-evidence.json`.
 
-The live phone Delete for Everyone check has not passed: after the user deleted the edited Note to Self test message, its indexed copy remained visible. This is an unresolved release blocker; do not infer live deletion correctness from synthetic tests. Real incoming attachment retrieval, disappearing-message behavior, phone revocation/relinking, rate limits and authenticated network recovery also remain unvalidated.
+The live phone Delete for Everyone check failed twice: both the edited test and a fresh unedited Note to Self test remained in the index. A temporary receive-stream probe observed the fresh original as `syncMessage.sentMessage`, then an empty `syncMessage: {}` after the phone deletion, without a sent message or deletion target. The probe forwarded frames unchanged and recorded only structural keys and timestamps, never raw frames or message bodies. Pinned upstream `JsonSyncMessage` / `MessageEnvelope.Sync` also expose no delete-for-me payload. This establishes an upstream event-information gap for this live path; it does not establish that all direct/group deletion paths fail. The connector cannot identify the deleted message safely from that empty event. This remains an unresolved release blocker; synthetic deletion tests do not supersede this result. Real incoming attachment retrieval, disappearing-message behavior, phone revocation/relinking, rate limits and authenticated network recovery also remain unvalidated.
 
 A real directory lookup exposed a contact listing larger than the host response limit. Contacts and groups now use stable-ID sorting and bounded pages (`offset`, `limit`, `nextOffset`), with optional recipient/group filters for targeted lookups. No directory snapshots are persisted. New regressions reconstruct all 240 synthetic contacts and 80 groups through the host result-bounding path, preserve escaped Unicode fields, reject invalid parameters, and check targeted account-scoped lookups. The real linked account’s collected chat labels were then resolved successfully through the packaged MCP tools. Chat names and unrelated message contents are not included in this report.
 
@@ -68,3 +68,27 @@ The index excludes ephemeral content but signal-cli has independent downloaded f
 ## History import scope
 
 Signal’s official apps support an encrypted phone-to-linked-device history transfer: https://signal.org/blog/a-synchronized-start-for-linked-devices/. This integration uses the pinned signal-cli JSON-RPC receive interface and does not implement that history import. The maintainer also documents signal-cli’s lack of stored history/Android backup restore in https://github.com/AsamK/signal-cli/issues/1747. This is a limitation of the current integration and upstream interface, not a general prohibition on Signal history transfer.
+
+## Integration with current main — 2026-11-10
+
+Merged `origin/main` at `d560b8df` into this isolated branch and resolved nine text conflicts. Main's shared server/worker namespace builder now filters manifest-declared and metadata-only host tools; its current schema repair, diagnostics, UI loading component, client endpoints and SDK exports are preserved.
+
+Independent review found two adjacent account cleanup defects. Configuration saves now compare the runtime generation atomically, preserving another service's pending-removal gate. Package updates reject retirement of persistent connectors/storage, and revalidate locked account generations and removal gates before changing manifests or credentials. Four additional PostgreSQL regressions exercise stale saves, both storage-retirement variants, and removal during update. A fifth confirms that compatible updates preserve private state and subsequent account removal still deletes it. New links also use the device name **OpenTeam Signal**.
+
+Post-integration results:
+
+| Check | Result |
+| --- | --- |
+| Signal connector including seven real macOS ARM64 runtime checks | 100 passed; 283 assertions |
+| All server plugin suites with isolated PostgreSQL | 155 passed; 3 optional provider tests skipped; 0 failed; 2,043 assertions |
+| Focused PostgreSQL lifecycle tests, including five new regressions | 13 passed; 122 assertions; pre-existing rows unchanged and fixtures cleaned |
+| Runtime/manifest/link/state unit regressions | 178 passed; 557 assertions |
+| SDK/package/client/MCP regressions | 130 passed; 1,883 assertions |
+| Shared namespaces and connector suite | 96 passed; 7 real-runtime checks skipped in that invocation; real checks passed separately above |
+| Independent scoped integration review before the two fixes | 53 passed; 356 assertions; two findings fixed with real-database regressions |
+| SDK, contracts, client, server, worker, computer and desktop TypeScript | Passed after regenerating the local Prisma client |
+| Standalone Signal TypeScript | Passed |
+| SDK browser, server, worker and computer bundles | Passed |
+| Signal ZIP round-trip | Passed |
+
+Groups overlap and are not a unique-test total. The old-base management/catalog failures described earlier did not recur in the complete post-main server-plugin run. No claim is made about unrelated whole-repository suites or about untested live scenarios. Live phone deletion remains a release blocker despite the passing automated tests.

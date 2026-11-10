@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { parseNotificationTarget } from "../main/notifications";
+import type { DesktopNotificationTarget } from "@openteam/contracts/notification-content";
 import type { ApplicationMenuAction } from "../main/application-menu";
 
 const appVersionArgument = process.argv.find((argument) =>
@@ -96,26 +98,9 @@ const deliveryJournal = (value: unknown): unknown => {
   return value;
 };
 
-const serverUpdateRequest = (value: unknown) => {
-  const input = record(value, "Server update request");
-  if (
-    typeof input.serverUrl !== "string" ||
-    !input.serverUrl.trim() ||
-    input.serverUrl.length > 2_000
-  ) {
-    throw new Error("Server URL is invalid");
-  }
-  for (const field of ["targetVersion", "sshTarget"] as const) {
-    if (input[field] !== undefined && input[field] !== null && typeof input[field] !== "string") {
-      throw new Error(`Server update ${field} is invalid`);
-    }
-  }
-  return value;
-};
-
 const notificationSnapshot = (value: unknown) => {
   const input = record(value, "Notification snapshot");
-  if (!Array.isArray(input.agents) || input.agents.length > 10_000) {
+  if (!Array.isArray(input.channels) || input.channels.length > 10_000) {
     throw new Error("Notification snapshot is invalid");
   }
   return value;
@@ -145,6 +130,20 @@ contextBridge.exposeInMainWorld("openteam", {
     return () => ipcRenderer.removeListener("openteam:app-menu", listener);
   },
   visibility: {
+    subscribeActivity: (callback: (active: boolean) => void) => {
+      let subscribed = true;
+      let receivedEvent = false;
+      const listener = (_event: Electron.IpcRendererEvent, active: unknown) => {
+        if (typeof active !== "boolean") return;
+        receivedEvent = true;
+        if (subscribed) callback(active);
+      };
+      ipcRenderer.on("openteam:window-activity-changed", listener);
+      void ipcRenderer.invoke("openteam:window-activity").then((active) => {
+        if (subscribed && !receivedEvent && typeof active === "boolean") callback(active);
+      }).catch(() => { /* Browser focus remains the fallback during shutdown. */ });
+      return () => { subscribed = false; ipcRenderer.removeListener("openteam:window-activity-changed", listener); };
+    },
     subscribe: (callback: (visible: boolean) => void) => {
       let active = true;
       let receivedEvent = false;
@@ -188,9 +187,26 @@ contextBridge.exposeInMainWorld("openteam", {
       return () => ipcRenderer.removeListener("openteam:plugin-oauth:result", listener);
     },
   },
+  localServer: {
+    detect: () => ipcRenderer.invoke("openteam:local-server:detect"),
+  },
+  providerSignIn: {
+    capture: (authorizationUrl: string, redirectUri: string) =>
+      ipcRenderer.invoke("openteam:provider-sign-in:capture", authorizationUrl, redirectUri),
+    cancel: () => ipcRenderer.invoke("openteam:provider-sign-in:cancel"),
+  },
   computer: {
+    network: () => ipcRenderer.invoke("openteam:network:get"),
+    shareNetwork: (enabled: boolean) => ipcRenderer.invoke("openteam:network:share", enabled),
     get: () => ipcRenderer.invoke("openteam:computer:get"),
-    update: (request: { machineLabel: string }) => ipcRenderer.invoke("openteam:computer:update", request),
+    update: (request: { machineLabel?: string; messagesEnabled?: boolean }) => ipcRenderer.invoke("openteam:computer:update", request),
+    messagesPermissions: (request?: "fullDiskAccess" | "automation" | "contacts") => ipcRenderer.invoke("openteam:computer:messages-permissions", request ?? null),
+    messagesIcon: (): Promise<string | null> => ipcRenderer.invoke("openteam:computer:messages-icon"),
+    onMessagesGrantsNeeded: (listener: () => void) => {
+      const handler = () => listener();
+      ipcRenderer.on("openteam:messages-grants-needed", handler);
+      return () => { ipcRenderer.removeListener("openteam:messages-grants-needed", handler); };
+    },
   },
   files: {
     downloadAll: (files: Array<{ fileName: string; url: string }>) =>
@@ -227,21 +243,7 @@ contextBridge.exposeInMainWorld("openteam", {
       ipcRenderer.on("openteam:desktop-update-progress", handler);
       return () => ipcRenderer.removeListener("openteam:desktop-update-progress", handler);
     },
-    serverStatus: (request: {
-      serverUrl: string;
-      targetVersion?: string | null;
-      sshTarget?: string | null;
-    }) => ipcRenderer.invoke("openteam:updates:server-status", serverUpdateRequest(request)),
-    updateServer: (request: {
-      serverUrl: string;
-      targetVersion?: string | null;
-      sshTarget?: string | null;
-    }) => ipcRenderer.invoke("openteam:updates:update-server", serverUpdateRequest(request)),
-    onServerProgress: (listener: (status: unknown) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, status: unknown) => listener(status);
-      ipcRenderer.on("openteam:server-update-progress", handler);
-      return () => ipcRenderer.removeListener("openteam:server-update-progress", handler);
-    },
+
   },
   microphone: {
     status: () => ipcRenderer.invoke("openteam:microphone:status"),
@@ -270,9 +272,12 @@ contextBridge.exposeInMainWorld("openteam", {
     openSettings: () => ipcRenderer.invoke("openteam:notifications:open-settings"),
   },
   getProcessMetrics: () => ipcRenderer.invoke("openteam:performance-snapshot"),
-  onNotificationClick: (listener: (channelId: string) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, channelId: unknown) => {
-      if (typeof channelId === "string") listener(channelId);
+  onNotificationClick: (
+    listener: (target: DesktopNotificationTarget) => void
+  ) => {
+    const handler = (_event: Electron.IpcRendererEvent, target: unknown) => {
+      const parsed = parseNotificationTarget(target);
+      if (parsed) listener(parsed);
     };
     ipcRenderer.on("openteam:notification-click", handler);
     return () => ipcRenderer.removeListener("openteam:notification-click", handler);

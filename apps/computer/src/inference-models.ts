@@ -3,7 +3,7 @@ import { formatPiModelRef, type PiModelRef, type SubagentType } from "@openteam/
 import type { Api, Model } from "@earendil-works/pi-ai";
 
 export const assertGraphicalModel = (model: Model<Api>, subagentType: SubagentType | null): void => {
-  if ((subagentType === "computerUse" || subagentType === "browserUse") && !model.input.includes("image")) {
+  if (subagentType === "computerUse" && !model.input.includes("image")) {
     throw new Error(`${model.provider}/${model.id} is configured without image input and cannot inspect screenshots for ${subagentType}. Choose an image-capable model in model settings, then retry.`);
   }
 };

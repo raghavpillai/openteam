@@ -4,7 +4,8 @@ import { spawnAgentProcess as spawn, agentProcessIdentity, sanitizedAgentEnviron
 import { AGENT_FILE_IO_SCRIPT } from "./agent-file-io";
 import { nodeBinary } from "./node-runtime";
 
-function fileProcess(mode: "read" | "write", path: string, signal?: AbortSignal, policy?: { allowedRoots: string[]; excludedRoots: string[] }) {
+type ReadPolicy = { protectedRoot: string } | { allowedRoots: string[]; excludedRoots: string[] };
+function fileProcess(mode: "read" | "write", path: string, signal?: AbortSignal, policy?: ReadPolicy) {
   const child = spawn(
     nodeBinary(),
     ["-e", AGENT_FILE_IO_SCRIPT, mode, path, String(Number.MAX_SAFE_INTEGER), "verify", ...(policy ? [JSON.stringify(policy)] : [])],
@@ -39,7 +40,7 @@ function fileProcess(mode: "read" | "write", path: string, signal?: AbortSignal,
   void done.catch(() => {});
   return { child, done, control };
 }
-export function agentReadStream(path: string, signal?: AbortSignal, policy?: { allowedRoots: string[]; excludedRoots: string[] }) {
+export function agentReadStream(path: string, signal?: AbortSignal, policy?: ReadPolicy) {
   const { child, done, control } = fileProcess("read", path, signal, policy);
   child.stdin.end();
   control.end();

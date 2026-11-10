@@ -1,8 +1,9 @@
+import UIKit
 import XCTest
 
 /// Record this deterministic scenario with simctl recordVideo for frame inspection.
 @MainActor final class ChatMotionUITests: XCTestCase {
-  let base = URL(string: "http://127.0.0.1:20070")!
+  let base = URL(string: ProcessInfo.processInfo.environment["CHAT_MOTION_SERVER"] ?? "http://127.0.0.1:20070")!
   var marks: [[String: Any]] = []
   func control(_ path: String, _ body: [String: Any]) async throws {
     var request = URLRequest(url: base.appendingPathComponent(path))
@@ -319,6 +320,85 @@ import XCTest
     }
   }
 
+  func testKeyboardPreservesComposerWidthAndDraftWrapping() async throws {
+    continueAfterFailure = false
+    for appearance in ["light", "dark"] {
+      try await control("__qa/scene", ["scene": "motion-reference"])
+      let app = XCUIApplication()
+      app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+        "--appearance", appearance, "--open-channel", "visual-chat"]
+      app.launch()
+      defer { app.terminate() }
+      let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      XCTAssertTrue(input.waitForExistence(timeout: 15))
+      XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+        .firstMatch.waitForNonExistence(timeout: 15))
+      let closed = input.frame
+      input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      XCTAssertEqual(input.frame.minX, closed.minX, accuracy: 1,
+        "Opening the keyboard must not slide the placeholder sideways")
+      XCTAssertEqual(input.frame.width, closed.width, accuracy: 1,
+        "Keyboard avoidance must not change the editor's line wrapping")
+      let draft = "Keep this draft wrapped the same way when the keyboard opens and closes. "
+        + "The text and the glass should travel together."
+      input.typeText(draft)
+      let editing = input.frame
+      XCTAssertGreaterThan(editing.height, closed.height + 10)
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+      XCTAssertEqual(input.value as? String, draft)
+      XCTAssertEqual(input.frame.minX, editing.minX, accuracy: 1)
+      XCTAssertEqual(input.frame.width, editing.width, accuracy: 1)
+      XCTAssertEqual(input.frame.height, editing.height, accuracy: 1,
+        "A multiline draft must not reflow when the keyboard closes")
+      input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      XCTAssertEqual(input.frame.height, editing.height, accuracy: 1)
+      XCTAssertEqual(input.value as? String, draft)
+    }
+  }
+
+  func testRepeatedKeyboardTransitionsKeepDraft() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "motion-reference"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--appearance", "dark", "--open-channel", "visual-chat",
+      "--trace-composer-latency", "--trace-scroll-frames", "--ui-testing-scroll-geometry"]
+    app.launch()
+    defer { app.terminate() }
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(input.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+      .firstMatch.waitForNonExistence(timeout: 15))
+    let closed = input.frame
+    var draft = ""
+    for cycle in 0..<3 {
+      mark("open-\(cycle)")
+      input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      XCTAssertEqual(input.frame.minX, closed.minX, accuracy: 1)
+      XCTAssertEqual(input.frame.width, closed.width, accuracy: 1)
+      if cycle == 1 {
+        draft = "Keyboard motion check"
+        input.typeText(draft)
+      }
+      try await Task.sleep(for: .milliseconds(500))
+      mark("close-\(cycle)")
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+      if !draft.isEmpty { XCTAssertEqual(input.value as? String, draft) }
+      XCTAssertEqual(input.frame.minY, closed.minY, accuracy: 1)
+      try await Task.sleep(for: .milliseconds(500))
+    }
+    let timing = XCTAttachment(data: try JSONSerialization.data(withJSONObject: marks, options: .prettyPrinted),
+      uniformTypeIdentifier: "public.json")
+    timing.name = "keyboard-cycle-timestamps"
+    timing.lifetime = .keepAlways
+    add(timing)
+  }
+
   func testHistoryScrollDismissesKeyboardAndPreservesDraft() async throws {
     continueAfterFailure = false
     func waitForKeyboard(_ app: XCUIApplication, visible: Bool) -> Bool {
@@ -351,7 +431,7 @@ import XCTest
           thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)),
           withVelocity: .slow, thenHoldForDuration: 0.1)
         XCTAssertTrue(waitForKeyboard(app, visible: false),
-          "Scrolling history must dismiss the keyboard in either direction")
+          "Scrolling history must dismiss the keyboard in either direction; app=\(app.frame), input=\(input.frame), keyboards=\(app.keyboards.allElementsBoundByIndex.map(\.frame))")
         XCTAssertGreaterThan(input.frame.minY, app.frame.maxY * 0.8)
         XCTAssertEqual(input.value as? String, "Keep this draft")
         capture("scroll-dismiss-\(appearance)-\(dy)", app)
@@ -421,6 +501,246 @@ import XCTest
     add(timing)
   }
 
+  /// The + tray: the camera adds a photo to the draft, the photo opens full screen,
+  /// and the photo panel's back button closes the tray. The simulator has no
+  /// camera, so a still stands in for its feed.
+  func testChatMediaAndFileCards() async throws {
+    continueAfterFailure = false
+    try await control("__qa/reset", [:])
+    try await control("__qa/content", ["scene": "media-chat"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "channel-research"]
+    app.launch()
+    defer { app.terminate() }
+    let photo = app.buttons["attachment-media-photo"], video = app.buttons["attachment-media-video"]
+    let pdf = app.buttons["attachment-" + String(repeating: "a", count: 64)]
+    let nameless = app.buttons["attachment-" + String(repeating: "b", count: 64)]
+    XCTAssertTrue(video.waitForExistence(timeout: 15))
+    XCTAssertTrue(pdf.waitForExistence(timeout: 5))
+    // Photos keep their shape; a video sits whole in a wider, fixed frame.
+    XCTAssertGreaterThan(photo.frame.height, photo.frame.width)
+    XCTAssertEqual(video.frame.width / video.frame.height, 292 / 208, accuracy: 0.02)
+    XCTAssertGreaterThan(video.frame.width, photo.frame.width)
+    // File cards share one width, whatever their names, and say what they are.
+    XCTAssertEqual(pdf.frame.width, nameless.frame.width, accuracy: 1)
+    XCTAssertTrue(app.staticTexts["PDF · 818 KB"].exists)
+    XCTAssertTrue(app.staticTexts["1.2 MB"].exists)
+
+    video.tap()
+    XCTAssertTrue(app.buttons["composer-video-play"].waitForExistence(timeout: 10))
+    app.buttons["composer-photo-close"].tap()
+    XCTAssertTrue(app.buttons["composer-video-play"].waitForNonExistence(timeout: 5))
+    photo.tap()
+    XCTAssertTrue(app.buttons["photo-close"].waitForExistence(timeout: 10))
+    app.buttons["photo-close"].tap()
+    XCTAssertTrue(app.buttons["photo-close"].waitForNonExistence(timeout: 5))
+    pdf.tap()
+    XCTAssertTrue(app.buttons["file-preview-close"].waitForExistence(timeout: 10))
+    app.buttons["file-preview-close"].tap()
+  }
+
+  private func attachmentCameraFixture() throws -> URL {
+    let still = FileManager.default.temporaryDirectory.appendingPathComponent("camera-fixture.jpg")
+    let image = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 800)).image { context in
+      UIColor.systemTeal.setFill()
+      context.fill(CGRect(x: 0, y: 0, width: 600, height: 800))
+    }
+    try XCTUnwrap(image.jpegData(compressionQuality: 0.8)).write(to: still)
+    return still
+  }
+
+  func testAttachmentTrayCameraViewerAndPhotos() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "empty-chat"])
+    let still = try attachmentCameraFixture()
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "visual-chat",
+      "-ui-testing-camera-fixture", still.path]
+    app.launch()
+    defer { app.terminate() }
+    let attach = app.buttons["attach-button"]
+    XCTAssertTrue(attach.waitForExistence(timeout: 15))
+    let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
+
+    attach.tap()
+    // A cold launch can still be pushing the chat in, and taps during that are dropped.
+    if !app.buttons["attach-camera"].waitForExistence(timeout: 3) { attach.tap() }
+    app.buttons["attach-camera"].tap()
+    let shutter = app.buttons["attach-shutter"]
+    XCTAssertTrue(shutter.waitForExistence(timeout: 5))
+    shutter.tap()
+    let photo = app.buttons["composer-photo"]
+    XCTAssertTrue(photo.waitForExistence(timeout: 5), "The shot must land in the draft")
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 3))
+
+    photo.tap()
+    let close = app.buttons["composer-photo-close"]
+    XCTAssertTrue(close.waitForExistence(timeout: 5))
+    close.tap()
+    XCTAssertTrue(close.waitForNonExistence(timeout: 5))
+
+    attach.tap()
+    app.buttons["attach-photos"].tap()
+    XCTAssertTrue(app.buttons["attach-add-photos"].waitForExistence(timeout: 5))
+    // A fresh simulator shows the system picker's one-time privacy explanation.
+    if app.buttons["OK"].exists { app.buttons["OK"].tap() }
+    let photosFrame = tray.frame
+    XCTAssertLessThanOrEqual(photosFrame.width, 371)
+    app.buttons["attach-back"].tap()
+    XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 3), "Back must restore the menu")
+    XCTAssertTrue(tray.exists)
+    XCTAssertEqual(app.buttons.matching(identifier: "composer-photo").count, 1)
+    app.buttons["attach-photos"].tap()
+    app.buttons["attach-add-photos"].tap()
+    let cancel = app.buttons["Cancel"]
+    XCTAssertTrue(cancel.waitForExistence(timeout: 8))
+    cancel.tap()
+    XCTAssertTrue(app.buttons["attach-back"].waitForExistence(timeout: 5),
+      "Cancelling All Photos must restore the inline grid")
+    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 3), "Outside Photos must close the entire tray")
+
+    // A panel can't cover the keyboard, so it goes down and Back brings it up again.
+    let keyboard = app.keyboards.firstMatch
+    if !keyboard.exists {
+      app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.tap()
+    }
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+    attach.tap()
+    app.buttons["attach-camera"].tap()
+    XCTAssertTrue(shutter.waitForExistence(timeout: 5))
+    XCTAssertEqual(tray.frame.minX, photosFrame.minX, accuracy: 1)
+    XCTAssertEqual(tray.frame.minY, photosFrame.minY, accuracy: 1)
+    XCTAssertEqual(tray.frame.width, photosFrame.width, accuracy: 1)
+    XCTAssertEqual(tray.frame.height, photosFrame.height, accuracy: 1)
+    XCTAssertTrue(keyboard.waitForNonExistence(timeout: 3))
+    app.buttons["attach-back"].tap()
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 3), "Back must return the keyboard")
+    XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 3))
+    app.buttons["attach-camera"].tap()
+    XCTAssertTrue(shutter.waitForExistence(timeout: 5))
+    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 3), "Outside Camera must close the entire tray")
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+  }
+
+  func testAttachmentTrayMenuMorphRoundTrips() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "empty-chat"])
+    let still = try attachmentCameraFixture()
+    let draft = "Preserve this draft"
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--open-channel", "visual-chat", "--appearance", "dark",
+      "--visual-draft-base64", Data(draft.utf8).base64EncodedString(),
+      "-ui-testing-camera-fixture", still.path]
+    app.launch()
+    defer { app.terminate() }
+    let attach = app.buttons["attach-button"]
+    XCTAssertTrue(attach.waitForExistence(timeout: 15))
+    attach.tap()
+    if !app.buttons["attach-camera"].waitForExistence(timeout: 3) { attach.tap() }
+    let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
+    let original = tray.frame
+    XCTAssertEqual(original.height, 230, accuracy: 1)
+    XCTAssertFalse(app.buttons["attach-voice"].exists)
+    for page in ["camera", "photos", "camera"] {
+      app.buttons["attach-" + page].tap()
+      let back = app.buttons["attach-back"]
+      XCTAssertTrue(back.waitForExistence(timeout: 5))
+      if page == "photos", app.buttons["OK"].exists { app.buttons["OK"].tap() }
+      try await Task.sleep(for: .milliseconds(600))
+      back.tap()
+      XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 5))
+      XCTAssertEqual(tray.frame.minX, original.minX, accuracy: 1)
+      XCTAssertEqual(tray.frame.minY, original.minY, accuracy: 1)
+      XCTAssertEqual(tray.frame.width, original.width, accuracy: 1)
+      XCTAssertEqual(tray.frame.height, original.height, accuracy: 1)
+      XCTAssertFalse(app.buttons["attach-voice"].exists)
+      try await Task.sleep(for: .milliseconds(600))
+    }
+    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 5))
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertEqual(input.value as? String, draft)
+  }
+
+  func testAttachmentTrayAnchorsToComposerInLandscape() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "empty-chat"])
+    XCUIDevice.shared.orientation = .landscapeLeft
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
+    let attach = app.buttons["attach-button"]
+    XCTAssertTrue(attach.waitForExistence(timeout: 15))
+    attach.tap()
+    if !app.buttons["attach-photos"].waitForExistence(timeout: 3) { attach.tap() }
+    let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
+    let menuFrame = tray.frame
+    app.buttons["attach-photos"].tap()
+    XCTAssertTrue(app.buttons["attach-add-photos"].waitForExistence(timeout: 5))
+    XCTAssertEqual(tray.frame.minX, menuFrame.minX + 8, accuracy: 1,
+      "Expanded photos must follow the composer's leading edge on wider screens")
+    XCTAssertEqual(tray.frame.width, 370, accuracy: 1)
+    XCTAssertEqual(tray.frame.maxY, app.frame.maxY - 12, accuracy: 1)
+    capture("attachment-tray-landscape", app)
+    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 3))
+  }
+
+  func testAttachmentTrayRespectsUnfoldedChatColumn() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "empty-chat"])
+    let still = try attachmentCameraFixture()
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--open-channel", "visual-chat", "--appearance", "dark",
+      "-ui-testing-camera-fixture", still.path]
+    app.launch()
+    defer { app.terminate() }
+    let attach = app.buttons["attach-button"]
+    XCTAssertTrue(attach.waitForExistence(timeout: 15))
+    attach.tap()
+    if !app.buttons["attach-camera"].waitForExistence(timeout: 3) { attach.tap() }
+    XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 5))
+    // Duo's app frame can retain the cover display's orientation in XCTest;
+    // the tray window and its children share the active display's coordinates.
+    let viewport = app.buttons["attachment-tray-dismiss"].frame
+    try XCTSkipIf(viewport.width < 700, "Run on Duo's unfolded inner display or a wide tablet")
+    let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
+    let original = tray.frame
+    XCTAssertGreaterThan(original.minX, 280, "The menu must stay in the chat column beside the sidebar")
+    XCTAssertEqual(original.minX, attach.frame.midX - 31, accuracy: 1)
+    capture("attachment-unfolded-menu", app)
+    var previousPanel: CGRect?
+    for page in ["camera", "photos"] {
+      app.buttons["attach-" + page].tap()
+      XCTAssertTrue(app.buttons["attach-back"].waitForExistence(timeout: 5))
+      if page == "photos", app.buttons["OK"].exists { app.buttons["OK"].tap() }
+      let panel = tray.frame
+      let backdrop = app.buttons["attachment-tray-dismiss"].frame
+      XCTAssertEqual(panel.minX, original.minX + 8, accuracy: 1)
+      XCTAssertEqual(panel.width, 370, accuracy: 1)
+      XCTAssertEqual(panel.height, 493, accuracy: 1)
+      XCTAssertEqual(panel.maxY, backdrop.maxY - 12, accuracy: 1)
+      XCTAssertLessThan(panel.maxX, backdrop.maxX - 72, "The panel must clear Duo's side controls")
+      if let previousPanel { XCTAssertEqual(panel, previousPanel) }
+      previousPanel = panel
+      if page == "camera" {
+        let shutter = app.buttons["attach-shutter"].frame
+        XCTAssertEqual(shutter.midX, panel.midX, accuracy: 1)
+        XCTAssertEqual(shutter.maxY, panel.maxY - 14, accuracy: 1)
+      }
+      capture("attachment-unfolded-" + page, app)
+      app.buttons["attach-back"].tap()
+      XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 5))
+      XCTAssertEqual(tray.frame, original)
+    }
+    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+    XCTAssertTrue(tray.waitForNonExistence(timeout: 3))
+  }
   func testEmptyChatFinishesLoadingAndCanSend() async throws {
     continueAfterFailure = false
     try await control("__qa/scene", ["scene": "empty-chat"])
@@ -528,6 +848,136 @@ import XCTest
     capture("offline-cached-chat-readable", app)
     app.terminate()
   }
+  /// Sample committed display frames rather than XCTest's settled frames, which
+  /// cannot distinguish a smooth keyboard transition from a one-frame jump.
+  func testKeyboardAndArrivalsAnimateTranscript() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "dark-chat-seven"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--appearance", "dark", "--open-channel", "visual-chat",
+      "--ui-testing-scroll-geometry", "--trace-scroll-frames", "--trace-composer-latency"]
+    app.launch()
+    defer { app.terminate() }
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(input.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+      .waitForNonExistence(timeout: 15))
+    let history = app.tables["chat-history"]
+    func geometry() throws -> [String: Any] {
+      let value = try XCTUnwrap(history.value as? String)
+      return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(value.utf8)) as? [String: Any])
+    }
+    let initial = try geometry()
+    let rows = try XCTUnwrap(initial["rows"] as? [[String: Any]])
+    let id = try XCTUnwrap(rows.last(where: { ($0["id"] as? String)?.hasPrefix("visual-message-") == true })?["id"] as? String)
+    func position(_ value: [String: Any]) throws -> Double {
+      let rows = try XCTUnwrap(value["rows"] as? [[String: Any]])
+      return try XCTUnwrap(rows.first(where: { $0["id"] as? String == id })?["y"] as? Double)
+    }
+    func assertSmooth(since start: Double, from: Double, to: Double) throws {
+      let frames = try XCTUnwrap(geometry()["motion"] as? [[String: Any]])
+      let positions: [Double] = frames.filter { ($0["t"] as? Double ?? 0) > start }.compactMap { frame in
+        (frame["rows"] as? [[Any]])?.first(where: { $0.first as? String == id })?[1] as? Double
+      }
+      let low = min(from, to), high = max(from, to)
+      let intermediate = positions.filter { $0 > low + 2 && $0 < high - 2 }
+      XCTAssertGreaterThan(Set(intermediate.map { Int($0.rounded()) }).count, 4,
+        "The transcript must move through intermediate positions with the keyboard")
+      let samples = [from] + positions + [to]
+      let largestStep = zip(samples, samples.dropFirst()).map { abs($1 - $0) }.max() ?? 0
+      XCTAssertLessThan(largestStep, abs(to - from) * 0.65,
+        "The transcript must not jump most of the keyboard distance in one frame")
+    }
+    func lastTime() throws -> Double {
+      let frames = try XCTUnwrap(geometry()["motion"] as? [[String: Any]])
+      return try XCTUnwrap(frames.last?["t"] as? Double)
+    }
+    let closedY = try position(initial)
+    let opening = try lastTime()
+    input.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+    try await Task.sleep(for: .milliseconds(700))
+    let openY = try position(geometry())
+    XCTAssertLessThan(openY, closedY - 100)
+    try assertSmooth(since: opening, from: closedY, to: openY)
+    let closing = try lastTime()
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+    try await Task.sleep(for: .milliseconds(700))
+    let returnedY = try position(geometry())
+    XCTAssertEqual(returnedY, closedY, accuracy: 3)
+    try assertSmooth(since: closing, from: openY, to: returnedY)
+    let arrival = try lastTime()
+    try await control("__qa/motion", ["active": false, "content": "Animated incoming message."])
+    XCTAssertTrue(app.staticTexts["Animated incoming message."].waitForExistence(timeout: 5))
+    try await Task.sleep(for: .milliseconds(700))
+    let afterArrival = try position(geometry())
+    XCTAssertLessThan(afterArrival, returnedY - 20)
+    try assertSmooth(since: arrival, from: returnedY, to: afterArrival)
+  }
+
+  /// The voice bar changes the composer height without a keyboard notification. The
+  /// transcript must follow it rather than reaching its new bottom in one frame.
+  func testVoiceBarAnimatesTranscript() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "dark-chat-seven"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--appearance", "dark", "--open-channel", "visual-chat", "--qa-synthetic-voice",
+      "--ui-testing-scroll-geometry", "--trace-scroll-frames"]
+    app.launch()
+    defer { app.terminate() }
+    let mic = app.buttons["voice-record-button"]
+    XCTAssertTrue(mic.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+      .waitForNonExistence(timeout: 15))
+    try await Task.sleep(for: .seconds(1))
+    let history = app.tables["chat-history"]
+    func geometry() throws -> [String: Any] {
+      let value = try XCTUnwrap(history.value as? String)
+      return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(value.utf8)) as? [String: Any])
+    }
+    let rows = try XCTUnwrap(try geometry()["rows"] as? [[String: Any]])
+    let id = try XCTUnwrap(rows.last(where: { ($0["id"] as? String)?.hasPrefix("visual-message-") == true })?["id"] as? String)
+    func position() throws -> Double {
+      let rows = try XCTUnwrap(try geometry()["rows"] as? [[String: Any]])
+      return try XCTUnwrap(rows.first(where: { $0["id"] as? String == id })?["y"] as? Double)
+    }
+    func lastTime() throws -> Double {
+      try XCTUnwrap((try geometry()["motion"] as? [[String: Any]])?.last?["t"] as? Double)
+    }
+    func assertSmooth(since start: Double, from: Double, to: Double, _ what: String) throws {
+      let frames = try XCTUnwrap(try geometry()["motion"] as? [[String: Any]])
+      let positions: [Double] = frames.filter { ($0["t"] as? Double ?? 0) > start }.compactMap { frame in
+        (frame["rows"] as? [[Any]])?.first(where: { $0.first as? String == id })?[1] as? Double
+      }
+      let low = min(from, to), high = max(from, to)
+      let intermediate = positions.filter { $0 > low + 1 && $0 < high - 1 }
+      XCTAssertGreaterThan(Set(intermediate.map { Int($0.rounded()) }).count, 2,
+        "The transcript must move through intermediate positions when \(what)")
+      let samples = [from] + positions + [to]
+      let largestStep = zip(samples, samples.dropFirst()).map { abs($1 - $0) }.max() ?? 0
+      XCTAssertLessThan(largestStep, abs(to - from) * 0.65,
+        "The transcript must not jump most of the way in one frame when \(what)")
+    }
+    let restingY = try position()
+    let growing = try lastTime()
+    mic.tap()
+    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
+    try await Task.sleep(for: .milliseconds(900))
+    let recordingY = try position()
+    XCTAssertLessThan(recordingY, restingY - 5, "The taller voice bar must lift the transcript")
+    try assertSmooth(since: growing, from: restingY, to: recordingY, "the voice bar grows")
+    let shrinking = try lastTime()
+    app.buttons["Discard recording"].tap()
+    XCTAssertTrue(mic.waitForExistence(timeout: 5))
+    try await Task.sleep(for: .milliseconds(1500))
+    let returnedY = try position()
+    XCTAssertEqual(returnedY, restingY, accuracy: 3)
+    try assertSmooth(since: shrinking, from: recordingY, to: returnedY, "the composer returns")
+  }
+
   func testKeyboardSendAndActivityTransitions() async throws {
     continueAfterFailure = false
     try await control("__qa/scene", ["scene": "dark-chat-seven"])
@@ -730,9 +1180,17 @@ import XCTest
     XCTAssertTrue(prompt.exists && lookup.exists && result.exists)
     XCTAssertEqual(lookup.frame.minY - prompt.frame.maxY, 12, accuracy: 0.5)
     XCTAssertEqual(result.frame.minY - lookup.frame.maxY, 8, accuracy: 0.5)
-    XCTAssertEqual(prompt.frame.height, 106, accuracy: 0.5)
-    XCTAssertEqual(lookup.frame.height, 40, accuracy: 0.5)
-    XCTAssertEqual(result.frame.height, 84, accuracy: 0.5)
+    // Text bubbles are 9 + 9 points of padding around whole 22-point line boxes. These
+    // replies end within a few points of the bubble's text width, so where they wrap
+    // depends on the runtime's font metrics; check the line boxes, not one line break.
+    func assertLineBoxes(_ element: XCUIElement, lines expected: ClosedRange<Double>, _ name: String) {
+      let lines = (element.frame.height - 18) / 22
+      XCTAssertEqual(lines, lines.rounded(), accuracy: 0.03, "\(name) must be whole 22-point line boxes")
+      XCTAssertTrue(expected.contains(lines.rounded()), "\(name) has \(lines.rounded()) lines")
+    }
+    assertLineBoxes(prompt, lines: 4...5, "The prompt bubble")
+    assertLineBoxes(lookup, lines: 1...2, "The lookup bubble")
+    assertLineBoxes(result, lines: 3...4, "The result bubble")
     capture("reference-before-send", app)
     mark("reference-send")
     app.buttons["send-button"].tap()

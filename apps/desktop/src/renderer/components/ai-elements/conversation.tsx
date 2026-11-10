@@ -19,6 +19,7 @@ import { ScrollArea } from "radix-ui";
 import { cn } from "../../lib/cn";
 import { recordPerformance } from "../../lib/performance";
 import { Button } from "../ui/button";
+import { LoadingOrb } from "../ui/loading-orb";
 import { useInitialConversationLayout } from "../../hooks/use-initial-conversation-layout";
 
 // A critically damped spring with this response settles like an iMessage send:
@@ -85,7 +86,7 @@ export const registerConversationViewportSync = (state: StickToBottomState, sync
  */
 export const glideConversationToBottom = (
   context: StickToBottomContext,
-  { awaitGrowth = 0 }: { awaitGrowth?: number } = {}
+  { awaitGrowth = 0, durationMs }: { awaitGrowth?: number; durationMs?: number } = {}
 ): Promise<boolean> => {
   const { scrollRef, state } = context;
   activeGlides.get(state)?.();
@@ -104,10 +105,16 @@ export const glideConversationToBottom = (
     let velocity = 0;
     let lastFrameAt = startedAt;
     let frame = 0;
+    let segmentFrom = position;
+    let segmentTarget = startBottom;
+    let segmentStartedAt = startedAt;
+    let initializedSendTarget = false;
+    let followingSpring = durationMs === undefined;
     if (startBottom - position > viewport.clientHeight * GLIDE_MAX_VIEWPORTS) {
       position = startBottom - viewport.clientHeight * GLIDE_LEAD_VIEWPORTS;
       viewport.scrollTop = position;
       viewportSyncs.get(state)?.();
+      segmentFrom = position;
     }
     // While gliding, the library's notion of "bottom" is the glide position:
     // its resize-follow then cannot jump ahead, and it reports the reader as
@@ -132,13 +139,35 @@ export const glideConversationToBottom = (
       const seconds = Math.min(0.05, Math.max(0, now - lastFrameAt) / 1000);
       lastFrameAt = now;
       const target = bottom();
-      // Exact critically damped step for this frame's duration: independent of
-      // refresh rate, and velocity carries through a moving target.
-      const offset = position - target;
-      const decay = Math.exp(-GLIDE_OMEGA * seconds);
-      const impulse = (velocity + GLIDE_OMEGA * offset) * seconds;
-      velocity = (velocity - GLIDE_OMEGA * impulse) * decay;
-      position = target + (offset + impulse) * decay;
+      if (!followingSpring) {
+        if (target !== segmentTarget) {
+          if (!initializedSendTarget) {
+            // The optimistic row initializes the send's 350ms ease-in-out.
+            segmentFrom = position;
+            segmentTarget = target;
+            segmentStartedAt = now;
+            initializedSendTarget = true;
+          } else {
+            // Further measurement, media or incoming rows must not restart the
+            // easing at zero speed. Retarget the spring from the last position
+            // and the smoothstep's derivative, then keep following continuously.
+            followingSpring = true;
+          }
+        }
+      }
+      if (!followingSpring && durationMs !== undefined) {
+        const t = Math.min(1, Math.max(0, (now - segmentStartedAt) / durationMs));
+        const eased = t * t * (3 - 2 * t);
+        position = segmentFrom + (segmentTarget - segmentFrom) * eased;
+        velocity = ((segmentTarget - segmentFrom) * 6 * t * (1 - t)) / (durationMs / 1000);
+      } else {
+        // Exact critically damped step, independent of refresh rate.
+        const offset = position - target;
+        const decay = Math.exp(-GLIDE_OMEGA * seconds);
+        const impulse = (velocity + GLIDE_OMEGA * offset) * seconds;
+        velocity = (velocity - GLIDE_OMEGA * impulse) * decay;
+        position = target + (offset + impulse) * decay;
+      }
       const settled = Math.abs(position - target) < 0.5 && Math.abs(velocity) < 30;
       if (settled) {
         position = target;
@@ -193,7 +222,7 @@ export const ConversationContent = ({
   );
   const loading = !layoutReady && (
     <div className="pointer-events-none absolute inset-0 grid place-items-center" role="status" aria-label="Loading messages">
-      <span className="size-5 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-muted-foreground" />
+      <LoadingOrb aria-hidden />
     </div>
   );
   const layoutProps = {

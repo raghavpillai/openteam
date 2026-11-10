@@ -267,13 +267,16 @@ async function run() {
   reports.push("microphone selection syncs across windows without a test row or audio capture");
 
   await unmount();
+  const sent: string[] = [];
   root.render(
     <PromptInput
       transcriptionConfigured
       onStage={async () => {
         throw new Error("No attachments");
       }}
-      onSubmit={async () => undefined}
+      onSubmit={async (text) => {
+        sent.push(text);
+      }}
     />
   );
   await pause();
@@ -282,31 +285,53 @@ async function run() {
       throw new DOMException("Disconnected", "NotFoundError");
     return synthesize();
   };
-  document.querySelector<HTMLButtonElement>('[aria-label="Record voice note"]')!.click();
-  await waitFor(() => Boolean(button("Stop recording")), "Voice recording");
+  // The mic turns the composer into the recording bar with its waveform.
+  const recordHandsFree = () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="Record voice note"]')!.click();
+  const locked = () =>
+    Boolean(document.querySelector('[data-voice-memo="recording"]:not([data-exiting])'));
+  recordHandsFree();
+  await waitFor(locked, "Voice recording");
   assert(
     document.body.textContent!.includes("Using system default"),
     "Composer fallback notice missing"
   );
-  await pause(650);
-  const waveform = [...document.querySelectorAll<HTMLElement>("[data-voice-waveform] > span")];
-  assert(waveform.length === 5, "Recording waveform does not contain five spectrum bars");
-  assert(
-    waveform.some((bar) => bar.getBoundingClientRect().height > 3),
+  // The synthetic stream can take a moment to carry audio across contexts.
+  const tallestBar = () => {
+    const wave = document.querySelector<HTMLCanvasElement>("[data-voice-wave]");
+    if (!wave) return 0;
+    const pixels = wave.getContext("2d")!.getImageData(0, 0, wave.width, wave.height);
+    let tallest = 0;
+    for (let x = 0; x < pixels.width; x++) {
+      let top = -1;
+      let bottom = -1;
+      for (let y = 0; y < pixels.height; y++) {
+        if (pixels.data[(y * pixels.width + x) * 4 + 3]! === 0) continue;
+        if (top === -1) top = y;
+        bottom = y;
+      }
+      if (top !== -1) tallest = Math.max(tallest, bottom - top + 1);
+    }
+    return tallest;
+  };
+  // Silence draws 2 px dots; the synthetic tone must draw taller bars.
+  await waitFor(
+    () => tallestBar() > 4 * Math.min(2, window.devicePixelRatio || 1),
     "Waveform did not respond to the real synthetic audio stream"
   );
-  button("Stop recording").click();
+  // Past the minimum voice note length before sending.
+  await pause(700);
+  button("Send voice note").click();
   await waitFor(
-    () =>
-      document.querySelector("[contenteditable]")!.textContent!.includes("Microphone choice works"),
+    () => sent.some((text) => text.includes("Microphone choice works")),
     "Voice transcript"
   );
   assert(uploads === 1 && active.size === 0, "Recording did not upload once and release input");
   reports.push("actual MediaRecorder and composer use the saved microphone and fallback");
 
   capture = synthesize;
-  document.querySelector<HTMLButtonElement>('[aria-label="Record voice note"]')!.click();
-  await waitFor(() => Boolean(button("Stop recording")), "Second recording");
+  recordHandsFree();
+  await waitFor(locked, "Second recording");
   await pause(650);
   [...active][0]!.dispatchEvent(new Event("ended"));
   await waitFor(

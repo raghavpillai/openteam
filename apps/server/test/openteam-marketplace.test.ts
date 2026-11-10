@@ -25,9 +25,11 @@ describe("OpenTeam marketplace", () => {
     expect(plugins.map((plugin) => plugin.key)).toContain("linear");
     expect(plugins.map((plugin) => plugin.key)).toContain("plaid");
     expect(plugins.map((plugin) => plugin.key)).toContain("email");
+    expect(plugins.map((plugin) => plugin.key)).toContain("ramp");
     expect(plugins.map((plugin) => plugin.key)).not.toContain("atlassian");
     expect(plugins.map((plugin) => plugin.key)).not.toContain("asana");
     expect(plugins.map((plugin) => plugin.key)).not.toContain("research-playbook");
+    expect(plugins.map((plugin) => plugin.key)).not.toContain("imessage-ssh");
     // Upstream packages pin their own revision; unpinned packages use the catalog revision.
     expect(plugins.map((plugin) => plugin.sourceRevision)).toEqual(
       bundledOpenTeamMarketplace.plugins.map((plugin) => plugin.sourceRevision ?? bundledOpenTeamMarketplace.revision)
@@ -90,4 +92,17 @@ describe("OpenTeam marketplace", () => {
       })
     ).toThrow("Duplicate plugin key");
   });
+});
+
+test("marketplace reads isolate mutable metadata and installation payload maps", async () => {
+  const source = new OpenTeamMarketplaceSource(undefined, bundledOpenTeamMarketplace);
+  const first = await source.plugins();
+  const original = structuredClone(first);
+  const files = first.find((plugin) => Object.keys(plugin.files ?? {}).length > 0)!.files!;
+  const binaries = first.find((plugin) => Object.keys(plugin.binaryFiles ?? {}).length > 0)!.binaryFiles!;
+  files[Object.keys(files)[0]!] = "changed";
+  delete binaries[Object.keys(binaries)[0]!];
+  first[0]!.components.length = 0;
+  first.find((plugin) => plugin.connections.length > 0)!.connections[0]!.name = "changed";
+  expect(await source.plugins()).toEqual(original);
 });

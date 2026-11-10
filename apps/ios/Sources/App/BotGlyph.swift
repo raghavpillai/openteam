@@ -101,6 +101,10 @@ private struct RobotSurface: UIViewRepresentable {
     CATransaction.setDisableActions(true)
     root.position = .zero
     root.transform = CATransform3DMakeScale(bounds.width / 108, bounds.height / 108, 1)
+    // Each display reports its own scale; layers built off screen catch up here.
+    for (layer, _, _, _) in inkLayers where layer.contentsScale != traitCollection.displayScale {
+      layer.contentsScale = traitCollection.displayScale
+    }
     CATransaction.commit()
   }
   override func didMoveToWindow() {
@@ -191,7 +195,7 @@ private struct RobotSurface: UIViewRepresentable {
       shape.lineWidth = node.strokeWidth
       shape.lineCap = CAShapeLayerLineCap(rawValue: node.strokeLinecap)
       shape.lineJoin = CAShapeLayerLineJoin(rawValue: node.strokeLinejoin)
-      shape.contentsScale = UIScreen.main.scale
+      shape.contentsScale = traitCollection.displayScale
       inkLayers.append(
         (shape, node.tag == "line" ? "none" : node.fill, node.stroke, node.strokeWidth))
       layer = shape
@@ -262,6 +266,7 @@ struct BotActivityRow: View {
   let bot: Bot
   let mode: RobotAvatarMode
   let visible: Bool
+  var text: String?
   var body: some View {
     HStack {
       // Keep the row geometry while giving the desktop artwork the reference's
@@ -272,12 +277,16 @@ struct BotActivityRow: View {
         .opacity(visible ? 1 : 0)
         .animation(
           reduceMotion ? nil : .easeOut(duration: visible ? 0.18 : 0.12), value: visible)
-      Spacer()
+      if let text {
+        Text(text).font(.body).foregroundStyle(NativePalette.muted)
+          .opacity(visible ? 1 : 0)
+      }
+      Spacer(minLength: 0)
     }.frame(height: visible ? 50 : 0).padding(.top, visible ? 2 : 0)
       .padding(.bottom, visible ? 12 : 0)
       .clipped()
       .accessibilityElement(children: .ignore)
-      .accessibilityLabel(bot.name + (mode == .idle ? " needs input" : " is working"))
+      .accessibilityLabel(text ?? (bot.name + (mode == .idle ? " needs input" : " is working")))
       .accessibilityIdentifier("bot-activity").accessibilityHidden(!visible)
   }
 }

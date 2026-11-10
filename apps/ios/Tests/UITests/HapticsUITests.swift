@@ -1,11 +1,13 @@
 import XCTest
 
 @MainActor final class HapticsUITests: XCTestCase {
-  let base = "http://127.0.0.1:20030"
+  let base = ProcessInfo.processInfo.environment["HAPTICS_SERVER"] ?? "http://127.0.0.1:20030"
   enum HapticAuditFailure: Error { case missing(String) }
   struct Event: Decodable {
     let effect: String, source: String
     let enabled: Bool, active: Bool, emitted: Bool
+    let intensity: Double?
+    let timestamp: Double?
   }
   func request(_ path: String, method: String = "POST", body: [String: Any] = [:]) async throws
     -> Data
@@ -41,7 +43,7 @@ import XCTest
   }
   func launch(
     home: Bool = false, haptics: String? = "on", login: Bool = false, visual: Bool = true,
-    content: String? = nil
+    content: String? = nil, pinned: String? = nil
   )
     async throws -> XCUIApplication
   {
@@ -51,6 +53,12 @@ import XCTest
     if !visual { _ = try await request("/__qa/reset") }
     if let content { _ = try await request("/__qa/content", body: ["scene": content]) }
     if login { _ = try await request("/__qa/control", body: ["authRequired": true]) }
+    if let pinned {
+      _ = try await request("/api/v0/settings/sidebar", body: [
+        "version": 2, "pinnedIds": [pinned], "unreadIds": [], "sections": [],
+        "sectionByChannel": [:], "channelOrderByGroup": [:], "unassignedCollapsed": false,
+      ])
+    }
     let app = XCUIApplication()
     app.launchArguments = [
       "--ui-testing", "--server", base, "--appearance", "dark", "--haptic-audit",
@@ -70,6 +78,39 @@ import XCTest
     }
     try await clear()
     return app
+  }
+  func testSwitchingBotsHasOneLightTapIncludingPinnedRows() async throws {
+    for pinned in [false, true] {
+      let app = try await launch(home: true, pinned: pinned ? "visual-0" : nil)
+      let first = app.buttons[pinned ? "pinned-visual-0" : "channel-visual-0"]
+      XCTAssertTrue(first.waitForExistence(timeout: 8))
+      first.tap()
+      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 8))
+      try await expect("conversation.select", "light")
+      if app.staticTexts["sidebar-account-name"].exists {
+        first.tap()
+        try await Task.sleep(for: .milliseconds(400))
+        try await expect("conversation.select", "light")
+      } else {
+        app.buttons["chat-back"].tap()
+      }
+      let second = app.buttons["channel-visual-1"]
+      XCTAssertTrue(second.waitForExistence(timeout: 8))
+      second.tap()
+      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 8))
+      try await expect("conversation.select", "light", count: 2)
+      let audit = try await events()
+      XCTAssertEqual(audit.filter(\.emitted).count, 2)
+      app.terminate()
+    }
+  }
+  func testSwitchingBotsRespectsDisabledHaptics() async throws {
+    let app = try await launch(home: true, haptics: "off")
+    app.buttons["channel-visual-0"].tap()
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 8))
+    try await expect("conversation.select", "light", emitted: false)
+    let audit = try await events()
+    XCTAssertTrue(audit.allSatisfy { !$0.emitted })
   }
   func field(_ app: XCUIApplication) -> XCUIElement {
     app.descendants(matching: .any).matching(identifier: app.buttons["thread-back"].isHittable ? "thread-message-input" : "message-input").firstMatch
@@ -91,11 +132,11 @@ import XCTest
     try await clear()
     hold(app)
     app.buttons["Reply"].tap()
-    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
     try await expect("message.reply-action", "light")
     field(app).typeText("Haptic send check")
     try await clear()
-    app.buttons["thread-send-button"].tap()
+    app.buttons["send-button"].tap()
     try await expect("message.send", "light")
     XCTAssertTrue(app.staticTexts["Haptic send check"].waitForExistence(timeout: 8))
     let log = try await events()
@@ -109,13 +150,18 @@ import XCTest
     start.press(
       forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 30, dy: 0)), withVelocity: .slow,
       thenHoldForDuration: 0.3)
-    XCTAssertFalse(app.buttons["thread-back"].exists)
+    XCTAssertFalse(app.buttons["Cancel reply"].exists)
     let belowThreshold = try await events()
     XCTAssertTrue(belowThreshold.isEmpty)
+    start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -100, dy: 0)),
+      withVelocity: .slow, thenHoldForDuration: 0.3)
+    XCTAssertFalse(app.buttons["Cancel reply"].exists)
+    let timestampEvents = try await events()
+    XCTAssertTrue(timestampEvents.isEmpty, "Revealing timestamps must not produce reply feedback")
     start.press(
       forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 80, dy: 0)), withVelocity: .slow,
       thenHoldForDuration: 0.3)
-    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
     try await expect("message.reply-swipe", "light")
     let swipeEvents = try await events()
     XCTAssertEqual(swipeEvents.filter(\.emitted).count, 1)
@@ -157,7 +203,7 @@ import XCTest
     app.buttons["Reply"].tap()
     try await expect("message.reply-action", "light", emitted: false)
     field(app).typeText("Silent send")
-    app.buttons["thread-send-button"].tap()
+    app.buttons["send-button"].tap()
     try await expect("message.send", "light", emitted: false)
     let log = try await events()
     XCTAssertTrue(log.allSatisfy { !$0.enabled && !$0.emitted })
@@ -197,9 +243,13 @@ import XCTest
   func testAttachmentMenuAndConversationHold() async throws {
     let app = try await launch()
     app.buttons["attach-button"].tap()
-    XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["attach-files"].waitForExistence(timeout: 5))
     try await expect("composer.attach", "light")
-    app.buttons["Attach Image"].tap()
+    app.buttons["attach-photos"].tap()
+    try await expect("composer.attach-option", "selection")
+    let allPhotos = app.buttons["attach-add-photos"]
+    XCTAssertTrue(allPhotos.waitForExistence(timeout: 5))
+    allPhotos.tap()
     XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 8))
     app.buttons["Cancel"].tap()
     try await expect("composer.attach", "light")
@@ -306,14 +356,14 @@ import XCTest
   func testInboxSwipeActionsAndPinnedHoldPreserveFeedback() async throws {
     let app = try await launch(home: true, visual: false)
     let row = app.buttons["channel-channel-research"]
-    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5))
     start.press(
-      forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 100, dy: 0)),
+      forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -100, dy: 0)),
       withVelocity: .slow, thenHoldForDuration: 0.2)
     let pin = app.buttons["conversation-swipe-pin"].firstMatch
     XCTAssertTrue(pin.waitForExistence(timeout: 5))
     pin.tap()
-    try await expect("conversation.swipe-action", "light")
+    try await expect("conversation.swipe-action", "rigid")
     let pinned = app.buttons["pinned-channel-research"]
     XCTAssertTrue(pinned.waitForExistence(timeout: 8))
     try await clear()
@@ -323,17 +373,131 @@ import XCTest
     app.buttons["Unpin"].tap()
     XCTAssertTrue(row.waitForExistence(timeout: 5))
     try await clear()
-    let left = row.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5))
-    left.press(
-      forDuration: 0.05, thenDragTo: left.withOffset(CGVector(dx: -100, dy: 0)),
+    let right = row.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+    right.press(
+      forDuration: 0.05, thenDragTo: right.withOffset(CGVector(dx: 100, dy: 0)),
       withVelocity: .slow, thenHoldForDuration: 0.2)
-    let hide = app.buttons["conversation-swipe-hide"].firstMatch
-    XCTAssertTrue(hide.waitForExistence(timeout: 5))
-    hide.tap()
-    try await expect("conversation.swipe-action", "light")
-    let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: row)
-    await fulfillment(of: [gone], timeout: 8)
+    let unread = app.buttons["conversation-swipe-mark-unread"].firstMatch
+    XCTAssertTrue(unread.waitForExistence(timeout: 5))
+    unread.tap()
+    try await expect("conversation.swipe-action", "rigid")
+    XCTAssertTrue(row.exists)
+    XCTAssertTrue(row.label.contains("Unread"))
   }
+  func testInboxSwipeTensionBuildsBothWaysAndThresholdCrossingPops() async throws {
+    let app = try await launch(home: true, visual: false)
+    continueAfterFailure = false
+    let row = app.buttons["channel-channel-research"]
+    let closedFrame = row.frame
+    let window = app.coordinate(withNormalizedOffset: .zero)
+    for direction: CGFloat in [-1, 1] {
+      try await clear()
+      let frame = row.frame
+      // A moving row must not also move XCTest's destination coordinate.
+      let startPoint = CGPoint(x: frame.minX + frame.width * (direction < 0 ? 0.7 : 0.3), y: frame.midY)
+      let start = window.withOffset(CGVector(dx: startPoint.x, dy: startPoint.y))
+      start.press(forDuration: 0.05,
+        // Stay below the minimum 112pt arm distance at every sidebar width.
+        thenDragTo: start.withOffset(CGVector(dx: direction * 90, dy: 0)),
+        withVelocity: .slow, thenHoldForDuration: 0.3)
+      let action = app.buttons[direction < 0 ? "conversation-swipe-pin" : "conversation-swipe-mark-unread"].firstMatch
+      let revealed = action.waitForExistence(timeout: 5)
+      // Give the opt-in audit requests time to arrive; holding at the detent
+      // must not generate more pulses or an activation pop below the threshold.
+      try await Task.sleep(for: .milliseconds(350))
+      let log = try await events()
+      let geometry = XCTAttachment(string: "Direction \(direction), start \(startPoint), travel \(direction * 90), row before \(frame), row after \(row.frame), events \(String(describing: log))")
+      geometry.name = "inbox-swipe-window-geometry-\(direction)"
+      geometry.lifetime = .keepAlways
+      add(geometry)
+      XCTAssertTrue(revealed)
+      let ramp = log.filter { $0.source == "conversation.swipe-tension" }
+        .sorted { ($0.timestamp ?? 0) < ($1.timestamp ?? 0) }
+      XCTAssertGreaterThanOrEqual(ramp.count, 2)
+      XCTAssertTrue(ramp.allSatisfy { $0.effect == "soft" && $0.emitted })
+      let strengths = ramp.compactMap(\.intensity)
+      XCTAssertEqual(strengths.count, ramp.count)
+      XCTAssertTrue(zip(strengths, strengths.dropFirst()).allSatisfy { $0 < $1 })
+      XCTAssertFalse(log.contains { $0.source == "conversation.swipe-action" || $0.source == "conversation.swipe-arm" })
+      row.tap()
+      XCTAssertTrue(action.waitForNonExistence(timeout: 3))
+      XCTAssertFalse(app.buttons["chat-back"].exists)
+      let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+        abs(row.frame.minX - closedFrame.minX) < 0.5
+      }, object: nil)
+      await fulfillment(of: [settled], timeout: 3)
+      let closed = try await events()
+      XCTAssertEqual(closed.filter { $0.source == "conversation.swipe-tension" }.count, ramp.count)
+      XCTAssertFalse(closed.contains { $0.source == "conversation.swipe-action" })
+    }
+    try await clear()
+    let frame = row.frame
+    let start = window.withOffset(CGVector(dx: frame.minX + frame.width * 0.15, dy: frame.midY))
+    start.press(forDuration: 0.05,
+      thenDragTo: start.withOffset(CGVector(dx: row.frame.width * 0.72, dy: 0)),
+      withVelocity: .slow, thenHoldForDuration: 0.2)
+    try await expect("conversation.swipe-arm", "rigid")
+    XCTAssertTrue(row.label.contains("Unread"))
+    let committed = try await events()
+    XCTAssertFalse(committed.contains { $0.source == "conversation.swipe-action" },
+      "Releasing an armed swipe must not repeat the activation pop")
+    XCTAssertFalse(app.buttons["pinned-channel-research"].exists)
+  }
+
+  func testFullLeftSwipeOnlyPinsAndDoesNotChangeReadState() async throws {
+    let app = try await launch(home: true, visual: false)
+    let row = app.buttons["channel-channel-research"]
+    XCTAssertFalse(row.label.contains("Unread"))
+    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+    start.press(forDuration: 0.05,
+      thenDragTo: start.withOffset(CGVector(dx: -row.frame.width * 0.7, dy: 0)),
+      withVelocity: .slow, thenHoldForDuration: 0.5)
+    try await expect("conversation.swipe-arm", "rigid")
+    XCTAssertTrue(app.buttons["pinned-channel-research"].waitForExistence(timeout: 8))
+    let data = try await request("/__qa/state", method: "GET")
+    let state = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let settings = try XCTUnwrap(state["settings"] as? [String: Any])
+    XCTAssertTrue((settings["pinnedIds"] as? [String] ?? []).contains("channel-research"))
+    XCTAssertFalse((settings["unreadIds"] as? [String] ?? []).contains("channel-research"))
+    let log = try await events()
+    XCTAssertFalse(log.contains { $0.source == "conversation.swipe-action" })
+  }
+
+  func testInboxSwipeTensionAndPopRespectHapticsOff() async throws {
+    let app = try await launch(home: true, haptics: "off", visual: false)
+    let row = app.buttons["channel-channel-research"]
+    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+    start.press(forDuration: 0.05,
+      thenDragTo: start.withOffset(CGVector(dx: -row.frame.width * 0.7, dy: 0)),
+      withVelocity: .slow, thenHoldForDuration: 0.2)
+    try await expect("conversation.swipe-arm", "rigid", emitted: false)
+    let pinned = app.buttons["pinned-channel-research"]
+    XCTAssertTrue(pinned.waitForExistence(timeout: 8))
+    // Exercise the revealed button too, with the preference still disabled.
+    pinned.press(forDuration: 0.7)
+    XCTAssertTrue(app.buttons["Unpin"].waitForExistence(timeout: 5))
+    app.buttons["Unpin"].tap()
+    XCTAssertTrue(row.waitForExistence(timeout: 5))
+    let short = row.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5))
+    short.press(forDuration: 0.05,
+      thenDragTo: short.withOffset(CGVector(dx: -100, dy: 0)),
+      withVelocity: .slow, thenHoldForDuration: 0.2)
+    let pin = app.buttons["conversation-swipe-pin"].firstMatch
+    XCTAssertTrue(pin.waitForExistence(timeout: 5))
+    pin.tap()
+    try await expect("conversation.swipe-action", "rigid", emitted: false)
+    XCTAssertTrue(pinned.waitForExistence(timeout: 8))
+    let log = try await events()
+    XCTAssertGreaterThan(log.filter { $0.source == "conversation.swipe-tension" }.count, 1)
+    XCTAssertTrue(log.allSatisfy { !$0.enabled && !$0.emitted })
+    // Do not leave the persistent preference off for the next manual review.
+    app.terminate()
+    var restored = app.launchArguments
+    if let index = restored.firstIndex(of: "--haptics") { restored[index + 1] = "on" }
+    app.launchArguments = restored
+    app.launch()
+  }
+
   func testLatestButtonAndScrollDoNotDoubleSignal() async throws {
     let app = try await launch()
     let scroll = app.tables["chat-history"]

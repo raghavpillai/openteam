@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SubagentActivityView } from "@openteam/contracts";
-import { activeAsyncTasksForBot, asyncTaskElapsed } from "../src/renderer/lib/async-tasks";
+import { activeAsyncTaskChannelIds, activeAsyncTasksForBot, asyncTaskElapsed } from "../src/renderer/lib/async-tasks";
 
 const attempt = (overrides: Partial<SubagentActivityView> = {}): SubagentActivityView => ({
   id: "attempt-1",
@@ -12,7 +12,6 @@ const attempt = (overrides: Partial<SubagentActivityView> = {}): SubagentActivit
   currentRunId: "child-run-1",
   description: "Check the release",
   subagentType: "executor",
-  runInBackground: true,
   status: "running",
   summary: null,
   errorMessage: null,
@@ -25,6 +24,20 @@ const attempt = (overrides: Partial<SubagentActivityView> = {}): SubagentActivit
 });
 
 describe("OpenTeam-compatible async-task overlay", () => {
+  test("parked children retain inspector ownership without animating their channel", () => {
+    const parked = attempt({ status: "waiting" });
+    expect(activeAsyncTasksForBot([parked], "parent-1")).toEqual([parked]);
+    expect([...activeAsyncTaskChannelIds([parked])]).toEqual([]);
+    for (const status of ["provisioning", "queued", "running"] as const) {
+      const executing = attempt({ id: "awake", subagentId: "awake", status });
+      expect([...activeAsyncTaskChannelIds([parked, executing])]).toEqual(["channel-1"]);
+      expect([...activeAsyncTaskChannelIds([parked, { ...executing, status: "completed" }])]).toEqual([]);
+    }
+    for (const status of ["completed", "failed", "stopped"] as const) {
+      expect([...activeAsyncTaskChannelIds([parked, attempt({ status })])]).toEqual([]);
+    }
+  });
+
   test("lists only active children owned by the selected parent", () => {
     expect(
       activeAsyncTasksForBot(

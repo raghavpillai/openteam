@@ -1,6 +1,6 @@
 # Blog images
 
-Images used in blog posts. Rasters wider than 1600 px were scaled down to 1600 px, and some were converted between PNG, JPEG and WebP; none were cropped or edited. Third-party images were retrieved on 2026-10-12 and 2026-10-13. Each post captions them with their owner.
+Images used in blog posts. Rasters wider than 1600 px were scaled down to 1600 px, and some were converted between PNG, JPEG and WebP. Unless noted below, none were cropped or edited. Third-party images were retrieved on 2026-10-12 and 2026-10-13. Each post captions them with their owner.
 
 ## OpenTeam
 
@@ -27,7 +27,52 @@ Staged screenshots for the Google Docs, Sheets and Slides guide use the same met
 - `openteam-sheets-routine-chat.png`: a bot's weekly update to a Google Sheet beside its Monday routine.
 - `openteam-deck-two-designs.png`: a bot offering two title-slide designs before building a deck.
 
-Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG on a 1,000 px canvas, rendered at 2× and scaled to 1600 px wide. Numbers come from the source code. Each post's v0 to v5 frames share one template, so each component stays in the same place as the design grows:
+Staged screenshots for the iMessage guide use the same method, with fictional people, businesses and conversations, captured on 2026-10-19:
+
+- `openteam-imessage-catch-up-chat.png`: a bot summarizing texts since the morning, then replying in an existing conversation.
+
+Staged screenshots for the Claude Duet comparison use the same method, with fictional people, businesses, invoices and `example.com` addresses, captured on 2026-10-21:
+
+- `openteam-morning-brief-routine.png`: a bot creating a weekday 7:30 AM morning-brief routine from a chat request, with the routine panel open.
+- `openteam-morning-brief-chat.png`: the routine's morning brief of meetings, emails, an invoice and a Slack request that need attention.
+- `openteam-email-draft-approval.png`: an email reply draft card waiting for Send, with the Needs approval setting.
+
+Staged screenshots for the self-hosting guide use a made-up home server (`192.168.1.20`) and user (`sam`), captured on 2026-10-21. The desktop screens are the shipping first-run wizard (`apps/desktop/test/browser/model-onboarding.html`) walked in a local browser against a synthetic API fixture, with OpenRouter model IDs read from OpenRouter's public model list that day. The terminal screens are the shipping CLI renderers (`renderSetupSession`, `createSetupPresentation`, `renderCompactDoctor`) fed the same sample values and drawn in a terminal frame; the setup header, which shows the release version, is left out:
+
+- `openteam-install-setup-connection.png`: the Connection step of `openteam setup`, with Private network and a detected private address.
+- `openteam-install-setup-ready.png`: the end of setup, with the server address, username and app links.
+- `openteam-install-server-check.png`: the desktop app's first-run server check.
+- `openteam-install-model-test.png`: a passed model test with OpenRouter's Auto Router.
+- `openteam-install-first-bot.png`: the Create your first bot screen.
+
+Screenshots for the local-models guide are real captures, not staged. They come from the shipping desktop renderer, run in a local browser against a throwaway OpenTeam test server whose bots used Qwen 3.5 4B on Ollama, on 2026-10-21. The chat shows the model's actual replies:
+
+- `openteam-local-models-settings.png`: Settings → Server → Model with Ollama as the provider and the `qwen3.5-agent:latest` model.
+- `openteam-local-models-chat.png`: a bot's first turns on the local model, including its repeated greetings.
+
+Screenshots for the iPhone Duo guide come from the shipping iPhone app, built in Debug from the commit of the TestFlight beta testers had on 2026-10-24 with Xcode 27.1, and run in Xcode's iPhone Duo simulator (iOS 27.1) against a local fixture server with fictional bots and conversations. The bot desktop in the computer view is the 2026-09-12 capture `/screenshots/linux-vendor-review.png`, streamed through a local VNC fixture. Captured on 2026-10-26 and framed in a plain device outline:
+
+- `iphone-duo-openteam-unfolded.png`: the inner display, with the conversation list beside a Researcher chat.
+- `iphone-duo-openteam-folded.png`: the outer display, with the conversation list and a group chat.
+- `iphone-duo-openteam-computer.png`: a bot's computer on the inner display with the Take control menu open.
+
+Screenshots for the tested roundup of open-source Grok Bot alternatives are real captures from our own test on 2026-10-26. Each project was installed on one Mac with its own install path, used with test accounts, bots named Scout and Ada and one OpenRouter model, and captured from the running app (headless Playwright or the app's debugging port). Each shows the project's own interface, credited to the project in the caption:
+
+- `rakazo-bot-screen-panel.png`: Rakazo (Apache-2.0), `edge` images at commit `ccbfe31`, with Scout's chat beside its screen panel.
+- `mausbot-bot-handoff.png`: MausBot (Apache-2.0 core), Mac app v0.1.127, with Scout handing work to Ada.
+- `open-duet-team-panel.png`: Open Duet (Apache-2.0), 0.4.1 from source at commit `743d014`, with its My team panel open.
+- `openteam-two-bot-handoff.png`: the OpenTeam desktop app on an isolated test server, with the test bots' real replies.
+- `nightly-openbot-sign-in.png`: nightly-labs OpenBot (PolyForm Noncommercial 1.0.0), Mac app v0.51.1, at its required sign-in screen.
+
+Screenshots for the n8n comparison are real captures from our own test in late October 2026 on one cloud VM: n8n Community Edition 2.45.4 in Docker beside OpenTeam's current release, with a throwaway n8n owner account and a temporary bot named Scout. The n8n editor captures were taken with headless Playwright at 2× and scaled to 1600 px; the nodes were arranged in two rows before capture so their labels stay legible. They show n8n's own interface and are credited to n8n in the caption:
+
+- `n8n-workflow-hn-digest.png`: the Hacker News digest workflow after a run.
+- `n8n-workflow-quotes-http-only.png`: the quotes workflow, for the JavaScript page and the login, after a run.
+- `n8n-mcp-server-trigger.png`: the MCP Server Trigger's settings, showing a credential name and no token.
+- `openteam-hn-digest-routine.png`: the OpenTeam desktop app's own components rendered with the test's real messages, a staged clock and sample sidebar bots.
+- `openteam-bot-browser-quotes-login.png`: a real 1280×800 frame of Scout's screen on the quotes.toscrape.com practice site. The browser's extension icons were painted over.
+
+Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG on a 1,000 px canvas, rendered at 2× and scaled to 1600 px wide. Numbers come from the source code. Each post's version frames share one template, so each component stays in the same place as the design grows:
 
 - `memory-design-overview.png`: the memory design's steps, and the first step compared with the final design.
 - `memory-design-v0.png` to `memory-design-v5.png`: the memory design at each step.
@@ -35,6 +80,28 @@ Diagrams and charts for the engineering posts were drawn for this blog in HTML a
 - `agent-messaging-overview.png`: the messaging design's steps, and the first step compared with the final design.
 - `agent-messaging-v0.png` to `agent-messaging-v5.png`: bot-to-bot messaging at each step.
 - `agent-messaging-room.png`, `agent-messaging-delivery.png`, `agent-messaging-priorities.png`, `agent-messaging-patterns.png`: a group chat round, the delivery path, mailbox priorities and the three communication patterns.
+- `bot-computer-overview.png`: the bot computer design's steps, and the first step compared with the final design.
+- `bot-computer-v0.png` to `bot-computer-v7.png`: a bot's computer at each step.
+- `bot-computer-anatomy.png`: the final computer container, the server's VNC proxy and the apps.
+
+Diagrams for the Claude Duet comparison use the same method. Claude Duet facts come from Anthropic's announcement and help center on 2026-10-21; OpenTeam facts come from its docs and code:
+
+- `claude-duet-scorecard.png`: where Claude Duet and OpenTeam differ.
+- `claude-duet-where-each-runs.png`: where each agent runs and holds your data.
+- `claude-duet-morning-brief.png`: an OpenTeam morning-brief routine from schedule to sent reply.
+- `claude-duet-urgent-email-timing.png`: Duet's interval checks next to an OpenTeam email-triggered routine.
+
+Diagrams for the iPhone Duo guide and the Meta Muse safety explainer use the same method. iPhone Duo facts come from Apple's newsroom and developer pages; Muse facts come from Meta's newsroom, engineering post, help center and privacy policy, checked on 2026-10-25; OpenTeam facts come from its docs and code:
+
+- `iphone-duo-openteam-layouts.png`: where the iPhone app's controls sit folded, unfolded and unfolded in portrait.
+- `meta-muse-what-it-can-reach.png`: what Muse's cloud VM holds and what it can reach once connected.
+- `meta-muse-vs-self-hosted-data.png`: where data goes with Muse and with a self-hosted OpenTeam server.
+- `roundup-test-scorecard.png`: the results of the 2026-10-26 install and task test, from our test logs.
+
+Diagrams for the n8n comparison use the same method. n8n facts come from its docs, pricing page and repository, checked in late October 2026; results come from our test logs:
+
+- `n8n-vs-openteam-scorecard.png`: what happened when n8n and OpenTeam got the same jobs.
+- `n8n-openteam-bridges.png`: three ways to connect n8n and OpenTeam, two tested end to end and one checked in code.
 
 ## Third-party images
 
@@ -45,11 +112,13 @@ Diagrams and charts for the engineering posts were drawn for this blog in HTML a
 | `call4me-ai-call-assistant.png` | call4me's share card for its AI call assistant | [call4.me/ai-call-assistant](https://call4.me/ai-call-assistant) (`/og/assistant.png`) | call4me | Vendor image |
 | `claude-cowork-web-and-mobile-approvals.png` | Cowork tasks on iPhone and web, with an approval prompt | [claude.com article, 2026-07-07](https://claude.com/resources/articles/cowork-web-mobile) | Anthropic | Vendor screenshot |
 | `claude-cowork-built-in-browser.jpg` | Cowork's built-in browser beside the chat | [claude.com/product/cowork](https://claude.com/product/cowork) | Anthropic | Vendor screenshot |
+| `claude-duet-app-screens.png` | Duet's morning brief, email approval and payment approval, three product-page phone mockups placed side by side without edits | [claude.com/product/claude-duet](https://claude.com/product/claude-duet), retrieved 2026-10-21 | Anthropic | Vendor screenshot |
 | `grok-bot-multi-bot-handoff.jpg` | An orchestrator bot messaging other bots and creating a routine | [x.ai Grok Bot guide](https://x.ai/bot/guides/grok-bot-for-mobile-app-development) | SpaceXAI LLC (xAI) | Vendor screenshot |
 | `grok-bot-approval-prompt.jpg` | A support bot asking to approve its write actions | [x.ai Grok Bot guide](https://x.ai/bot/guides/grok-bot-for-support) | SpaceXAI LLC (xAI) | Vendor screenshot |
 | `meta-muse-browser-task.png` | Muse booking cinema seats in its own browser | [muse.ai](https://muse.ai/) (`/images/landing/browser.webp`) | Meta | Vendor screenshot |
 | `openai-dots-chat-and-cloud-computer.png` | A dot fixing a bug in chat beside its cloud browser | [OpenAI dots launch post, 2026-09-29](https://openai.com/index/introducing-dots/) | OpenAI | Vendor screenshot |
 | `meta-muse-approval-prompt.png` | Muse asking before it places an order | [muse.ai](https://muse.ai/) (`/images/landing/approvals.webp`) | Meta | Vendor screenshot |
+| `meta-muse-is-muse-safe-faq.png` | The expanded "Is Muse safe?" answer in Muse's FAQ, cropped to the question and answer | [ai.meta.com/muse](https://ai.meta.com/muse/), retrieved 2026-10-26 | Meta | Vendor screenshot |
 | `openclaw-control-ui-chat.png` | OpenClaw's Control UI chat with Skill Workshop | [OpenClaw blog, 2026-06-03](https://openclaw.ai/blog/openclaw-agent-skill-workshop) | OpenClaw | Vendor screenshot |
 | `openclaw-whatsapp-chat.jpg` | Chatting with OpenClaw in WhatsApp | [openclaw/openclaw `docs/whatsapp-openclaw.jpg`](https://github.com/openclaw/openclaw/blob/main/docs/whatsapp-openclaw.jpg) | OpenClaw contributors | MIT |
 | `hermes-agent-desktop-app.jpg` | The Hermes Agent desktop app | [nousresearch.com](https://nousresearch.com/) | Nous Research | Vendor screenshot |

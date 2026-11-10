@@ -24,7 +24,8 @@ Outlook.com and Microsoft 365 can't be used: Microsoft only lets mail apps sign 
 1. In **Marketplace**, choose **Add** on **Email**.
 2. Open the plugin's account settings and enter the **Email address** and the **App password**.
 3. Leave **IMAP server** and **SMTP server** set to `auto`. OpenTeam finds them from the address, including custom domains hosted by Google, iCloud or Fastmail. For your own server or Proton Mail Bridge, enter them as `host:port`, or `imap://host:port` and `smtp://host:port` for a local bridge without TLS.
-4. Choose **Connect**. OpenTeam signs in to check the password. A wrong password or blocked app password shows as an error on the account.
+4. Optionally, list the addresses you'll email the bot from under **Your own addresses**, separated by commas. Mail from them that passes the sender check (DMARC) is marked as coming from you, so the bot treats it as your request. All other mail is marked as outside information.
+5. Choose **Connect**. OpenTeam signs in to check the password. A wrong password or blocked app password shows as an error on the account.
 
 To connect more mailboxes, add another account with a new name. Every bot can use every connected mailbox.
 
@@ -53,7 +54,7 @@ By default, nothing leaves the mailbox until you approve it. When a bot writes a
 
 The menu in the card's corner, **Needs approval**, sets how that bot's later emails are reviewed:
 
-- **Always allow** lets the bot email this card's recipients without asking. Their next drafts send on their own, and the card says **Auto-approved by your rule**. Choose **Needs approval** on any card to these recipients to take the permission back.
+- **Always allow** lets the bot email this card's recipients without asking. Their next drafts send on their own, and the card says **Auto-approved by your rule**. Choose **Needs approval** on any card to these recipients to take the permission back. Slack draft cards don't offer this option.
 - **Disable drafts for Bot** sends all of that bot's emails and Slack messages without a card. Choose **Needs approval** on any of its cards to turn review back on.
 
 These settings belong to the bot, not to the mailbox, so other bots using the same mailbox still ask first.

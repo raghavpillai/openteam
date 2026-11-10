@@ -36,7 +36,7 @@ export const safeErrorMessage = (error: unknown): string =>
 export const clientErrorMessage = (error: unknown, fallback: string): string => {
   const message = (error instanceof Error ? error.message : typeof error === "string" ? error : "")
     // Electron prefixes errors thrown by main-process handlers with the IPC channel name.
-    .replace(/^Error invoking remote method ['"][^'"]+['"]:\s*(?:Error:\s*)?/, "")
+    .replace(/^Error invoking remote method ['"][^'"]+['"]:\s*(?:[A-Za-z]*Error:\s*)?/, "")
     .trim();
   return redactSensitiveText(message || fallback);
 };

@@ -1,219 +1,204 @@
 # OpenTeam CLI
 
-## Private HTTPS and plugin sign-in
+`openteam` installs and manages a self-hosted OpenTeam server. It sets up the server's connection and
+your account, starts and stops the Docker Compose stack, checks its health, manages models and iPhone
+push credentials, and installs updates. It's a native executable, so you don't need Node.js or Bun.
 
-Setup always shows the Connection step, including a dedicated **Tailscale HTTPS** choice with HTTPS port selection. Eligible detected routes are recommended and existing matching private routes can be reused, including custom ports. `openteam tailscale enable [--https-port 14443]`, `openteam tailscale status`, and `openteam tailscale disable` provide explicit management after setup; all accept `--dir` and `--json`. Desktop **Settings → Server → Remote access** provides local controls and host-side instructions for remote installations.
-
-The resulting `tailscale` access mode uses loopback backend ports and a persistent private Serve mapping. Enable restarts the stack and verifies DNS, endpoint health, and TLS. Failure restores the previous configuration with an actionable error, without silently falling back to HTTP. Disable switches to local access and removes only unchanged mappings recorded as OpenTeam-owned in `tailscale-routes.json`; reused user-managed mappings and other routes/Funnel settings are preserved. Keep Tailscale running and signed in, with MagicDNS and HTTPS certificates enabled. Reconnect apps after URL changes. A custom HTTPS domain remains available. Plugin sign-in follows `OPENTEAM_PUBLIC_URL`: HTTPS uses one stable server callback, HTTP uses manual loopback callback paste for compatible providers. Neither requires an OpenTeam-hosted service. Google registration differs by method; see [Google setup](../../docs/integrations/google.md).
-
-## First installation and prerequisites
-
-The shell and PowerShell installers install and verify the CLI before starting server setup.
-Docker is required for the server. If Docker is missing, its engine is stopped or inaccessible,
-or Compose is missing or older than 2.20.0, setup stops with an explanation and recovery steps.
-The CLI stays installed, and preflight does not create server configuration or start containers.
-After fixing the problem, run `openteam setup`; it installs the server if necessary or resumes
-an existing installation. `openteam doctor` can also check prerequisites before installation.
-
-Automatic setup starts after a five-second countdown once preflight passes. Press any key
-(including Esc, Enter, or Ctrl+C) to cancel; the CLI stays installed and prints the command
-to continue later. Cancellation happens before downloading server configuration or images.
-Explicit `openteam setup` starts immediately. `--no-setup` skips both the countdown and guided setup.
-
-In a noninteractive shell, prerequisite errors still appear. Once preflight passes, guided
-installation asks you to continue in a terminal before downloading server configuration.
-The explicit `openteam install --no-setup` automation path remains available.
+The server needs a running Docker engine for Linux containers, the Docker CLI, and Compose 2.20 or
+newer. On macOS and Windows, Docker Desktop provides them and must stay running. The CLI uses your
+active Docker context; check it with `docker info` and `docker compose version`.
 
 ```sh
-bun run test:install
-bun run test:install:fresh
+curl -fsSL https://openteam.so/install | sh      # macOS or Linux
+irm https://openteam.so/install.ps1 | iex       # Windows PowerShell
 ```
 
-The fresh test builds the standalone Linux release binary and runs the real download script in
-a Debian container with an empty home. It uses real Docker and Compose executables and a separate
-Docker-in-Docker engine, without mounting the host Docker socket or credentials. It requires Docker
-and permission to run a privileged test container; its containers, volumes, and network are removed
-afterward. Reports are saved under `output/fresh-install` at the repository root.
-
-Release downloads use local fixture assets with real checksum verification. The successful path
-uses a small Compose fixture, reaches the account screen, and tests cancellation and resuming.
-This suite covers installation and preflight, not a complete production server deployment or a
-native Windows/macOS VM. It also checks missing Docker, stopped or inaccessible engines, broken
-contexts, executable permissions, missing Compose, gzip fallback, and a corrupt download. Process
-regressions additionally cover API incompatibility and old Compose, and preserve existing configuration
-on failure.
-
-The `CLI installer` GitHub Actions workflow runs terminal checks on Linux, macOS, and Windows.
-On Windows, `bun scripts/test-windows-install.ts` builds the real Windows executable and tests
-both Windows PowerShell 5.1 and PowerShell 7 with ConPTY (Python `pywinpty` and `pyte` required).
-It checks keyboard cancellation, all five countdown steps, downloads and checksums, missing Docker,
-and recovery messages. Windows Docker responses are simulated; the Linux suite uses a real engine.
-Windows logs are saved under `output/windows-install`. These checks do not validate a full Windows
-Docker Desktop deployment or Windows on ARM (which uses the x64 executable through emulation).
-Use a disposable Windows runner: the suite temporarily hides any preinstalled Docker CLI on
-GitHub Actions so Windows cannot discover it in System32, then restores it in cleanup.
-
-The fresh test also records automatic setup and cancellation under
-`output/fresh-install/recordings`. To render those actual terminal recordings as an MP4 and GIF,
-run `python scripts/render-installer-demo.py` from this directory with `pillow`, `pyte`, and
-`ffmpeg` installed. Pass `--font /path/to/monospace.ttf` outside macOS. Generated media is saved
-under `output/installer-demo` at the repository root.
-
-## Status and health
-
-`openteam status` and `openteam health` are aliases. Both show the containers for the selected
-installation, Docker health checks, setup job results, and the local server's readiness and release.
-Use `--dir <path>` to check another installation. Commands shown in the report keep that directory.
-
-The report distinguishes **RUNNING**, **STARTING**, **STOPPED**, **NEEDS ATTENTION**,
-**STATUS UNKNOWN** (a check was blocked), and **NOT INSTALLED**. It shows missing services,
-unhealthy or restarting containers, failed replicas, and exit codes. Successful setup jobs are
-shown as completed. Containers without a Docker health check are labeled explicitly.
-
-Neither command changes configuration or starts services, and neither sends a model request.
-The services' bounded self-tests create and clean up diagnostic queue jobs and temporary workspace files. Exit code `0` means the required services
-and server are ready; `2` means they are not ready or could not be checked. Provider setup is shown
-separately and does not make healthy containers fail. Use `openteam doctor` for deeper diagnostics.
-The existing `status --json-progress` behavior for desktop-managed updates also works with `health`.
-
-```sh
-openteam status
-openteam health --dir /path/to/installation
-bun run test:status
-bun run preview:status --list
-bun run preview:status --scenario unhealthy --width 40
-bun run preview:status --scenario docker-stopped --no-color
-bun run preview:status --scenario all --output /tmp/openteam-status-reports
-bun run preview:status --gallery /tmp/openteam-status-gallery
-```
-
-Status tests cover 41 scenarios through the collector and both CLI entry points, including Docker
-and Compose failures, startup, stopped containers, missing services, failed jobs, and API errors.
-The CLI subprocess tests use isolated Docker stubs and local HTTP fixtures; they verify exit codes,
-alias parity, project selection, and that installation files stay unchanged. Subprocess and PTY
-tests run on macOS/Linux; the PTY tests require Python 3. Renderer checks cover six terminal widths,
-ANSI/no-color output, and saved snapshots. Preview scenarios use the same fixtures and renderer.
-Update intentional snapshot changes with `bun test ./test/status.test.ts --update-snapshots`.
-
-### What healthy means
-
-The worker now has a Docker health check in both production and development Compose files.
-It requires a fresh event-loop heartbeat, registered application queue consumers, working
-application/queue database access, an authenticated computer connection, accessible storage,
-and a diagnostic job consumed and acknowledged by that exact worker instance. Concurrent
-Docker and doctor probes share one check so they cannot cause false failures in each other.
-
-Server readiness verifies live database and queue queries and the authenticated computer API.
-Computer readiness launches a process as the agent user and verifies workspace file creation,
-readback, and deletion. Status displays separate database, queue database, and computer results.
-Doctor additionally tests model access, storage round trips, job backlog, leases, and configuration.
-
-These checks cover core service readiness. They do not guarantee every plugin, external provider,
-browser session, or user task will succeed. Doctor sends a small model request; health does not.
-Existing containers need images and Compose configuration from this change to show the new check.
-Run `bun run test:health:chaos` from the repository root for repeatable health-check fault testing.
-
-## Testing doctor errors and terminal output
-
-Run the doctor regression suite from this directory:
-
-```sh
-bun run test:doctor
-```
-
-The suite covers missing Docker, Compose fallback and unsupported versions, stopped engines,
-socket permissions, remote DNS/SSH/TLS/API errors, broken configuration, service and migration
-failures, storage problems, health responses, and provider failures. Process tests run the real
-CLI against isolated fake Docker executables and local HTTP fixtures. They assert exit codes,
-recommended actions, and that installation files and service state are unchanged.
-
-UI tests render every scenario at 24, 40, 60, 76, 90, and 110 columns with and without ANSI colors.
-They check wrapping, Unicode paths, secret redaction, skipped-check summaries, and recovery
-ordering. Checked-in snapshots cover representative full and compact reports. On macOS/Linux
-with Python 3, additional tests use a real pseudo-terminal to check colors, progress-line cleanup,
-`NO_COLOR`, and `TERM=dumb` behavior. Windows recovery copy is covered by the portable renderer
-tests; the POSIX executable-permission and pseudo-terminal tests are skipped on Windows.
-
-Preview the same fixtures in your terminal without running any diagnostic probes:
-
-```sh
-bun run preview:doctor --list
-bun run preview:doctor --scenario docker-missing
-bun run preview:doctor --scenario docker-stopped --width 40 --compact
-bun run preview:doctor --scenario provider-quota --no-color
-bun run preview:doctor --scenario all --output /tmp/openteam-doctor-reports
-bun run preview:doctor --gallery /tmp/openteam-doctor-gallery
-```
-
-Open the generated gallery's `index.html` to switch between scenarios, widths, full/compact
-reports, and light/dark palettes. It displays the renderer's actual ANSI text; it has no live
-shell connection. Review deliberate layout changes before updating snapshots with
-`bun test ./test/doctor-matrix-ui.test.ts --update-snapshots`.
-
-Install and manage the self-hosted OpenTeam server stack. It requires a running Docker Engine for
-Linux containers, the Docker CLI, and Compose 2.20 or newer. The supported installer downloads a
-native CLI, so Node.js and Bun are not required.
-
-Linux can run Docker Engine and Compose directly. On macOS and Windows, Docker Desktop supplies
-the Linux VM and Docker tools; its backend must stay running. The CLI checks the engine and
-Compose, without requiring Docker Desktop specifically. It uses your active Docker context and
-does not install or start a VM backend. Verify it with `docker info` and `docker compose version`.
-
-```sh
-curl -fsSL https://openteam.so/install | sh
-```
+The installer downloads and verifies the CLI, checks Docker, and starts guided setup after a
+five-second countdown. Press Enter to start now, or Esc, q, or Ctrl+C to cancel and continue later
+with `openteam setup`. If Docker is missing, stopped, or too old, setup explains how to fix it and
+stops without creating server configuration or starting containers. On macOS, it starts an installed
+Docker Desktop and waits up to two minutes for it. See [Installation](../../docs/getting-started/installation.md)
+for requirements and where the CLI is installed.
 
 ## Commands
 
 ```text
-openteam install
-openteam setup
-openteam doctor
-openteam status
-openteam update
-openteam stop
-openteam start
-openteam logs
+openteam install                    Install OpenTeam and run guided setup
+openteam setup                      Set up or change the connection and account
+openteam status                     Show container health and server readiness
+openteam health                     Alias for status
+openteam doctor                     Check for installation problems
+openteam start                      Start OpenTeam after account setup
+openteam stop                       Stop OpenTeam
+openteam logs [service]             View troubleshooting logs
+openteam update                     Install the latest OpenTeam release
+openteam tailscale <enable|status|disable>
+openteam notifications <configure|status>
 openteam provider <list|login|logout|add|remove>
 openteam model [list|use]
 openteam account update
-openteam uninstall
+openteam uninstall                  Remove OpenTeam services and CLI
 ```
 
-Run `openteam <command> --help` or `openteam help <command>` for command-specific usage and
-options. Provider and model subcommands have their own help pages as well.
+Run `openteam <command> --help` or `openteam help <command>` for options; subcommands have their own
+help pages. Most commands accept `--dir <path>` to manage an installation in another folder. Output
+wraps to the terminal width and respects `NO_COLOR` and `TERM=dumb`.
 
-`start` and setup check for port conflicts before starting containers, including Tailscale Serve
-listeners that can block Docker's host port forwarding even when Docker reports a running server.
-Loopback servers behind Tailscale Serve are allowed. Conflicts report the affected port and how to
-inspect or change the listener; setup only creates the reviewed OpenTeam HTTPS route. While waiting
-for readiness, the CLI prints the health URL, current failure, and elapsed time. If the server is
-ready inside Docker but remains unreachable from the host, startup reports a forwarding error
-instead of waiting the full three minutes.
-On success, `start` also prints the configured network address when it differs from the local
-health-check address, so you can connect from another device using your Tailscale, LAN, or HTTPS URL.
-Storage initialization and database migrations run as one-time jobs. Docker displays `Exited` after
-they finish; exit code `0` means they completed successfully. The server, worker, database, and
-computer services keep running.
-Repeating `start` still runs preflight. If all required services and the expected server release are
-ready, it prints `OpenTeam is already running` with the connection addresses and leaves the services
-and completed setup jobs alone. Otherwise it reports whether OpenTeam is stopped, partially running,
-or not ready before starting or checking the services.
-`start` requires completed account setup and directs unfinished installations to `openteam setup`.
+## Everyday use
 
-Connecting an AI provider can be skipped during setup; services can still run, but startup explicitly
-reports that AI tasks need a provider connection. `install --no-setup` remains an explicit automation
-option for starting the core services before account setup.
+`openteam start` needs finished account setup; otherwise it sends you to `openteam setup`. It checks
+for port conflicts first, including Tailscale Serve listeners that can block Docker's port forwarding.
+While it waits for the server (up to three minutes), it prints the health URL, the current failure,
+and the elapsed time. On success, it prints the address to use from other devices. If everything is
+already healthy, it prints `OpenTeam is already running` and leaves the services alone. If no model
+is connected, it says so: the services run, but AI tasks need a connected model.
 
-Human-facing commands use a consistent terminal layout: grouped help, a service dashboard for
-`status`, connected-account and model catalogs, and clear confirmations for lifecycle and account
-changes. Model listings highlight the saved selection and thinking level and retain complete model
-identifiers. `status` exits `2` when required services or initialization jobs are not ready, including
-a missing worker even if the API responds. Use `doctor` for deeper connection and storage checks.
-Doctor also checks iOS push registrations and their login sessions, APNs credentials in the running
-worker, P-256 signing-key validity, app bundle-ID matches, and recent push errors or overdue pushes.
-Missing APNs credentials warn for installations without an eligible iPhone and fail when an eligible
-iPhone needs push delivery. Import APNs credentials with:
+Storage setup and database migrations run as one-time jobs. Docker shows them as `Exited` when they
+finish; exit code `0` means success.
+
+`openteam stop` stops the services and keeps the containers and data. `openteam logs` shows the last
+200 lines; add a service name (or `--service <name>`), `--tail <lines>`, or `--follow`.
+
+## Setup and connection modes
+
+`openteam install` runs guided setup in the same command. Run `openteam setup` again whenever you want
+to change the connection; it keeps your account and doesn't sign anyone out. Setup asks everything
+before it downloads the server images, then starts the server and points you to the desktop and
+iPhone apps.
+
+Setup doesn't connect a model. Connect one in the OpenTeam app under **Settings → Model**. On a server
+without the apps, use `openteam model` and `openteam provider`.
+
+Setup is one screen with **Connection**, **Account**, and **Review** sections. Left and Right move
+between sections, Up and Down move within one, and Enter picks an option or edits a field. Typing
+replaces a highlighted field. Esc cancels without changes. **Review** lists anything still missing and
+applies the configuration. If a port is busy when the server starts, setup returns to **Connection**
+with your answers kept and the API port editable. Terminals without cursor support (`TERM=dumb`) get
+typed prompts instead.
+
+| Connection | Use it for |
+| --- | --- |
+| **Private network** | A Tailscale, WireGuard, or LAN address only your devices can reach. Traffic isn't encrypted, so use it only on a network you trust. |
+| **This machine only** | This computer, local development, or an SSH tunnel. |
+| **Public domain with automatic HTTPS** | Access from anywhere. A bundled Caddy service gets and renews the certificate: point the domain's A/AAAA records at this server and open inbound TCP ports 80 and 443. |
+| **Use my existing HTTPS setup** | An existing nginx, Caddy, Traefik, or cloud proxy. OpenTeam listens on loopback; point the proxy at the local address shown in **Review**, forward HTTPS and WebSocket upgrades, and have it replace inbound `X-Forwarded-*` headers. |
+| **Public address without HTTPS** | Temporary testing only. Passwords and sessions travel unencrypted, so setup asks you to confirm the risk. The iPhone app connects over HTTP but shows a warning. |
+| **Tailscale HTTPS** | A private HTTPS address from Tailscale Serve on this server. See [Tailscale HTTPS](#tailscale-https). |
+
+On a new install, setup preselects **Tailscale HTTPS** when this host can serve it, and otherwise
+**Private network** with a detected address. Running setup again keeps your current choice. Bot screen
+viewers are reachable from your LAN or VPN only in **Private network** mode; the other modes keep them
+on this machine.
+
+`openteam setup --advanced` also shows the API port and **Tasks at once** (how many tasks can run at
+the same time). Every connection mode is available without it.
+
+Plugin sign-in follows the server's public URL. Over HTTPS, providers redirect back to the server;
+over HTTP, you paste the redirect URL back, for providers that allow it. See
+[Google setup](../../docs/integrations/google.md) for how this affects Google.
+
+### Tailscale HTTPS
+
+```sh
+openteam tailscale enable [--https-port 14443]
+openteam tailscale status
+openteam tailscale disable
+```
+
+Keep Tailscale running and signed in, with MagicDNS and HTTPS certificates turned on. `enable` adds a
+Tailscale Serve route to OpenTeam (or reuses a matching private route), restarts the stack, and
+verifies the HTTPS address. If that fails, it restores the previous configuration instead of falling
+back to HTTP. It never replaces another application's route or turns on Funnel. `disable` switches to
+local-only access and removes only routes OpenTeam created. All three accept `--dir` and `--json`;
+`status` exits `2` if configured HTTPS needs attention. Reconnect the apps after the address changes.
+
+On desktop, **Settings → Server → Remote access** has the same controls for a server on that Mac and
+instructions for a remote one.
+
+### Change your username or password
+
+`openteam account update` prompts for a new username and password. Use `--username <name>` to change
+only the username, `--password` to change only the password, or both. Every change signs out all
+apps. Passwords are typed hidden, confirmed, and sent to the server over stdin; they're never stored
+in `.env`.
+
+## Status and health
+
+`openteam status` (or `openteam health`) shows the containers, Docker health checks, setup jobs, and
+the server's readiness and release. It reports **RUNNING**, **STARTING**, **STOPPED**,
+**NEEDS ATTENTION**, **STATUS UNKNOWN** (a check was blocked), or **NOT INSTALLED**, and lists missing
+services, unhealthy or restarting containers, and exit codes. It doesn't change configuration, start
+services, or send a model request. Exit code `0` means the services and server are ready; `2` means
+they aren't or couldn't be checked. A missing model connection is shown separately and doesn't fail
+the check.
+
+Ready means the core services work: database and queue queries, the worker processing a test job,
+and the bot computer creating and deleting a workspace file. It doesn't guarantee that every plugin,
+provider, or browser session works.
+
+`openteam doctor` goes further. It checks prerequisites, configuration, storage, the job backlog, and
+iPhone push setup (registrations, APNs credentials, and recent delivery errors), and sends one short
+request to your saved model. Missing APNs credentials only warn until an iPhone needs push delivery.
+Failed checks exit `2`; warnings alone exit `0`. Doctor doesn't start services or change anything, and
+you can run it before installing to check prerequisites.
+
+## Models and providers
+
+`openteam model` opens an interactive editor for a running server. Left and Right switch between
+**Inference** and **Transcription**. Each tab has its own save action, and Esc asks before discarding
+unsaved edits.
+
+**Inference** picks a provider, a model from its searchable list, and a thinking level. Choosing a
+provider that isn't connected opens its sign-in screen; **Back to providers** returns to the list.
+Browser sign-in offers **Open sign-in page**, **Copy sign-in link**, and **Paste code or redirect
+URL**, and Esc or Ctrl+C cancels it. Codes and keys are masked. The model changes only when you save.
+
+| Provider ID | Shown as | Connect with |
+| --- | --- | --- |
+| `openai-codex` | ChatGPT | ChatGPT plan sign-in |
+| `claude-code` | Claude | Claude plan sign-in |
+| `openai` | OpenAI | API key |
+| `anthropic` | Anthropic | API key |
+| `openrouter` | OpenRouter | API key |
+
+For a plan sign-in, **Use Codex login** and **Use Claude Code login** import a sign-in already saved on
+this machine. Codex reads `~/.codex/auth.json` (or `$CODEX_HOME`). Claude Code reads
+`~/.claude/.credentials.json` (or `$CLAUDE_CONFIG_DIR`) or the macOS Keychain. Credentials go to the
+server over stdin, never in command arguments.
+
+For scripts, `openteam provider login [provider]` signs in or adds an API key, `provider logout`
+removes a credential, and `provider list` shows providers, model counts, and sign-in status.
+`openteam model list [provider]` lists the chat models your connected providers report, and
+`openteam model use <provider> <model> [--thinking <level>]` sets the model for the whole server
+(levels: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
+
+**Transcription** sets up voice notes: **OpenAI**, **Deepgram**, or **Custom / OpenAI-compatible**
+(your own base URL), plus a model (browse or enter an ID), language, and API key. Transcription needs
+its own API key, separate from ChatGPT sign-in. Saved keys stay on the server and show only their last
+four characters; leave the field blank to keep one. To remove a key, choose **Delete key**, then
+**Save transcription**. Changing the endpoint needs a new key or deleting the saved one. **Test saved
+connection** checks the provider and its model list; send a voice note to confirm transcription works.
+
+### Custom endpoints
+
+```sh
+openteam provider add local --name "Local models" \
+  --base-url http://host.docker.internal:11434/v1 \
+  --api openai-completions --no-auth
+openteam model list local
+```
+
+`--api` is `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai`.
+The URL must be reachable from the **computer container**, where `localhost` is the container itself.
+Without `--no-auth`, `provider add` prompts for the key and passes it over stdin. Models are
+discovered from `<base-url>/models` (a host-only URL gets `/v1`), so give the API base URL, not a
+request endpoint. A listed model isn't a guarantee of quota or tool support; `openteam doctor` sends a
+real request. To change a custom provider, switch to another one, then remove it and add it again.
+See [Model providers](../../docs/configuration/models.md).
+
+## iPhone push notifications
+
+The iPhone app needs Apple Push Notification service (APNs) credentials on the server:
 
 ```sh
 openteam notifications configure --config ./apns.json
@@ -221,157 +206,108 @@ openteam notifications status
 openteam doctor
 ```
 
-`apns.json` contains `keyId`, `teamId`, `topic` (the distributed app uses
-`dev.openbot.mobile`) and `privateKeyFile`, a path to the Apple `.p8` key relative to the JSON file.
-Alternatively, use `--key-file ./AuthKey.p8 --key-id ABCDE12345 --team-id FGHIJ67890 --topic dev.openbot.mobile`.
-The CLI validates locally and imports through the running server's authenticated settings API.
-The signing key is encrypted in PostgreSQL with the installation control token; it is never returned
-by the status API. Back up the database and installation `.env` together, and retain your Apple key
-so you can import it again if the installation control token changes.
-Workers read this setting before each push and refresh their Apple authentication token and connections
-when it changes. Neither the deployment nor the worker needs to restart. The database setting takes
-precedence over legacy `OPENTEAM_APNS_*` environment credentials; editing those environment values
-still requires worker recreation. Older releases need one update to gain this command and runtime support.
+`apns.json` holds `keyId`, `teamId`, `topic` (`dev.openbot.mobile` for the distributed app), and
+`privateKeyFile`, the path to your Apple `.p8` key relative to the JSON file. You can pass
+`--key-file`, `--key-id`, `--team-id`, and `--topic` instead. The server must be running, and workers
+use the new credentials from their next push, with no restart. The key is stored encrypted with the
+installation control token, so back up the database and `.env` together and keep your `.p8` file in
+case you need to import it again. Saved credentials take precedence over `OPENTEAM_APNS_*`
+environment variables. None of these checks send a test alert; confirm delivery on a real iPhone. See
+[Mobile notifications](../../docs/configuration/mobile-notifications.md).
 
-These server-side checks run on Linux and macOS, do not send test alerts, and do not prove Apple
-accepted the credentials. Verify delivery on a real iPhone after resolving configuration errors.
-Output wraps to the terminal width and respects `NO_COLOR` and `TERM=dumb`. Redirected output has
-no color escapes; `--version`, update JSON progress, and raw Docker log streams keep their existing
-formats. Human update progress shows each phase as it happens.
+## Updates
 
-`openteam install` enters staged setup in the same command. The standalone `openteam setup` command
-reconfigures an existing installation without changing its owner or signing out active sessions.
-Fresh installs automatically use a detected Tailscale, WireGuard, or LAN address for private-network
-access, create the OpenTeam username and password, and optionally connect an inference provider. A
-recommended model is selected automatically, or inference can be skipped and configured later. The guided choices cover
-ChatGPT Plus/Pro OAuth, Claude Pro/Max OAuth, OpenAI and Anthropic API keys, and compatible custom
-endpoints. `openteam setup` reviews connection modes; `--advanced` also exposes server and inference tuning. Public HTTPS uses a bundled Caddy service:
-point a domain's A/AAAA record at the VM and open inbound TCP ports 80 and 443, and Caddy obtains and
-renews the certificate automatically. No certificate needs to exist on the VM beforehand.
-Normal setup runs as one interactive session with Connection, Account, Inference, and Review sections. Left and Right
-move between sections, Up and Down move the highlight within a section, Enter picks the highlighted
-option or edits the highlighted field, typing replaces a highlighted field, and finishing required fields
-advances automatically. Esc cancels without changes. The Review section lists anything
-still missing and applies the configuration. Terminals without cursor support (`TERM=dumb`) fall back to
-typed prompts.
+`openteam update` updates the CLI and server in one job. It verifies the release files against their
+GitHub Actions Sigstore identity and checksums, checks Docker and that at least 4 GiB of disk is free,
+pulls the new images, stops the services, saves a PostgreSQL backup under `backups/`, then starts the
+new release and waits until it reports ready. If the update fails, it restores the previous
+configuration, restores the database backup if the new release had already started, and restarts the
+previous release.
 
-Public HTTP accepts an IP address or hostname, but it sends passwords and bearer sessions without
-encryption and is rejected by the iOS app. Setup therefore requires an explicit warning
-acknowledgement. Internet-facing modes keep the raw screen-viewer range on loopback; private mode
-may expose it only within the trusted LAN or VPN.
+Downgrades and prereleases are refused unless you pass `--allow-downgrade` or `--allow-prerelease`.
+Other options are `--version <version>`, `--force` (reapply the installed release), and `--when-idle`
+(refuse, changing nothing, while any bot is working).
 
-Passwords are hidden, confirmed, and sent to the server over stdin; they are never stored in `.env`.
-Use `openteam account update` to interactively replace both credentials. Pass `--username <name>`
-for a username-only update, `--password` for a hidden password-only prompt, or combine the flags.
-Every credential update revokes all current sessions. Use `openteam setup --advanced` to override
-the connection mode, hostname, local API port, time zone, model, thinking level, or number of tasks that can run at once.
-The time zone, private-network address, free API port, current inference settings, and initial task limit are
-detected when possible. Setup also detects compatible Codex CLI and Claude Code sign-ins and reuses
-them without opening another browser login when the installed computer image supports importing
-sign-ins. Older images use a fresh provider sign-in and explain this before setup is applied. For
-ChatGPT sign-in over SSH, choose Device code login when prompted.
-Setup and provider login verify that authentication was saved before reporting a connection.
-If input closes before sign-in finishes, retry the login in an interactive terminal. Setup also
-checks that the running server can use the sign-in before declaring authenticated setup ready.
-The setup header shows the CLI version; the installed server release is labeled separately.
+The update runs as a background job, so closing the terminal or SSH session doesn't stop it; run
+`openteam update` again to reconnect. Its state, events, and full output are in `update-state.json`,
+`update-events.jsonl`, and `update.log` in the installation folder. A standalone CLI downloads and
+verifies the new CLI first and replaces itself only after the new server is healthy, keeping the old
+executable beside it with a `.previous` suffix. The desktop app uses its own bundled CLI, which updates
+with the app. See [Updates](../../docs/manage/updates.md).
 
-Run `openteam model` to open the interactive model editor for an installed, running server. Left/Right
-switch between **Inference** and **Transcription**; Up/Down moves the highlight and Enter selects or
-edits a field. Each tab has its own **Save** action. Esc goes back and asks before discarding unsaved
-edits. Add `--dir /path/to/installation` to select another installation.
+### Disk maintenance
 
-Inference starts with a provider, followed by its searchable chat model list and a thinking level.
-The compact provider picker groups subscription accounts, API keys, and custom endpoints.
-Selecting a disconnected provider opens a connection screen with **Back to providers**.
-During browser sign-in, **Esc** or **Ctrl+C** cancels the remote sign-in and returns to the picker.
-In a key or code field, Esc discards the input; Ctrl+C cancels the whole connection.
-**Open sign-in page**, **Copy sign-in link**, and **Paste code or redirect URL** keep long OAuth
-URLs out of the main flow. Codes and API keys are masked.
+After a successful update, OpenTeam removes older images it pulled for this installation, keeping the
+current and previous release. Images that you tagged, that other installations use, or that any
+container references are kept. It also keeps only the newest 3 database backups the updater made,
+plus the one from this update. A failed update cleans up nothing. Cleanup never touches databases or
+Docker volumes, messages, bot memory, workspace files, credentials, or browser sign-ins.
 
-**Use Claude Code login** imports a saved login from `~/.claude/.credentials.json`, or the
-macOS Keychain. `CLAUDE_CONFIG_DIR` selects a custom credentials file; a missing custom file
-never falls back to another account's default Keychain entry. **Use Codex login** reads
-`~/.codex/auth.json` (or `CODEX_HOME`). Importing is an explicit action: credentials travel over
-stdin to this OpenTeam server and never appear in command arguments. Missing, expired, or
-unreadable credentials leave Browser sign-in and Back available. A completed connection opens
-that provider's model picker; the active model changes only when you save.
+Two limits apply all the time, not only during updates. Docker rotates each container's logs at
+10 MiB × 3 files. The bot's browser keeps its HTTP cache near 128 MiB and clears its cache folders
+before restarting after a normal exit; cookies, sign-ins, and site data stay.
 
-Transcription offers
-OpenAI or an OpenAI-compatible audio endpoint, model browsing or manual model ID entry, language,
-and a masked API key. Browsing does not save or enable transcription. Model discovery filters out
-known chat, embedding, image, and speech-generation models. Saved keys stay on the server, blank key edits
-keep them, and changing endpoints never transfers a stored key. Use **Remove saved key** to clear it.
-**Test saved connection** checks the provider and model catalog; send a voice note to verify actual
-audio transcription. Transcription needs its own API credentials, separate from ChatGPT sign-in.
+Set these in the installation's `.env`:
 
-`openteam model list` and `openteam model use <provider> <model>` remain available for scripts.
-To inspect UI states without changing server settings, run `bun run preview:model --gallery
-../../output/model-ui` from `apps/cli`, or run `bun run test:model` for keyboard, HTTP, and terminal tests.
+- `OPENTEAM_BACKUP_RETENTION_COUNT`: updater backups to keep (default `3`; `0` keeps them all).
+- `OPENTEAM_LOG_MAX_SIZE` and `OPENTEAM_LOG_MAX_FILES`: log rotation (defaults `10m` and `3`). They
+  apply when the containers are next recreated, such as by an update.
 
-Use `openteam provider login [provider]` to configure OAuth/subscription or API-key authentication without repeating server setup. `provider list` shows Anthropic, the two OpenAI authentication modes, and custom endpoints you have added. Anthropic offers Claude Pro/Max OAuth or an API key; OpenAI API access uses `openai`, while ChatGPT/Codex OAuth uses `openai-codex` and its separate subscription catalog.
+Older backups are deleted, so to keep one, copy it somewhere else (or into a subfolder of `backups/`)
+before the next update, and protect it like the database itself. Don't run `docker system prune` or
+volume pruning as routine maintenance.
 
-`model list` lists chat models reported by connected providers, grouped by provider. Use `model list
-anthropic` to narrow it. Missing credentials, rejected requests, or unavailable discovery produce
-an actionable message and no selectable models for that provider. The bundled Pi catalog supplies
-model metadata; it does not grant access or supply a fallback list. Selection checks discovery again.
+## Uninstall
 
-Custom endpoints can use Pi's `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai` adapters. For example:
+`openteam uninstall` removes the containers and the standalone `openteam` executable, but keeps the
+installation folder (configuration and backups) and the Docker volumes that hold your data. Run the
+installer again to restore the CLI and recreate the containers with the preserved data.
+`openteam uninstall --purge` permanently deletes the containers, volumes, configuration, and data, as
+well as the CLI. Add `--yes` to skip the confirmation.
+
+## Development and tests
+
+Run these from `apps/cli`:
 
 ```sh
-openteam provider add local --name "Local models" \
-  --base-url http://host.docker.internal:11434/v1 \
-  --api openai-completions --no-auth
-openteam model list local
-openteam model
+bun run test                 # all CLI tests
+bun run test:doctor          # doctor checks, recovery steps, and terminal output
+bun run test:status          # status/health, start, and their terminal output
+bun run test:model           # model editor keyboard, HTTP, and terminal tests
+bun run test:install         # installer preflight and setup countdown
+bun run test:install:fresh   # real installer in a clean Debian container (needs privileged Docker)
 ```
 
-Use an endpoint reachable from the **computer container**. Its `localhost` is the container itself.
-Omit `--no-auth` for authenticated endpoints: `provider add` prompts for the API key or password
-and passes it over stdin; credentials are not written to `.env` or command arguments. No initial
-`--model` is needed. That optional flag supplies model metadata, but does not bypass discovery or
-access checks. Existing provider IDs cannot be replaced with `provider add`; remove and re-add them
-after switching away from the provider.
+Process tests run the real CLI against fake Docker executables and local HTTP fixtures. The
+pseudo-terminal tests need macOS or Linux with Python 3 and are skipped on Windows.
 
-OpenAI-compatible discovery uses `<base-url>/models`; a host-only base URL gains `/v1`.
-Anthropic uses `/v1/models`, and Google-compatible endpoints use `/v1beta/models` when given that
-base URL. Discovery support is required for selectable chat models. Provider catalogs do not always
-declare model types: capability metadata takes priority, followed by known model families. Opaque
-IDs on a custom chat endpoint are treated as chat models. A listed model is not a guarantee of
-quota, billing, or tool support; `openteam doctor` tests a real inference request.
-See [model provider setup](../../docs/configuration/models.md).
+Preview terminal output from the test fixtures without touching a server:
 
-`openteam logs`
-shows the most recent 200 lines; add `--follow`, `--tail <lines>`, or `--service <name>` to narrow a
-diagnostic session. Existing-proxy mode keeps OpenTeam on loopback and prints the HTTP upstream; the
-external proxy must forward HTTPS and WebSocket upgrades to it and replace inbound
-`X-Forwarded-*` headers with values derived from its own connection.
+```sh
+bun run preview:doctor --list
+bun run preview:doctor --scenario docker-stopped --width 40 --compact
+bun run preview:status --scenario unhealthy --no-color
+bun run preview:doctor --gallery /tmp/openteam-doctor-gallery
+bun run preview:status --gallery /tmp/openteam-status-gallery
+bun run preview:model --gallery /tmp/openteam-model-ui
+```
 
-Install and update verify release files against their GitHub Actions Sigstore identity and
-checksums. A standalone update also verifies and stages the target CLI executable before touching
-the server, then safely promotes it only after the updated server reports healthy. Updates are
-serialized by an installation lock, reject downgrades and prereleases by
-default, validate Docker and free disk, create a private PostgreSQL backup, pull immutable image
-digests, and require the requested release to report ready. A failed post-migration startup restores
-the retained database backup before restarting the prior release. The latest job state is stored in
-`update-state.json`; backups are retained under `backups/` for operator recovery.
+Open a gallery's `index.html` to compare scenarios and widths. After a deliberate layout change, update
+snapshots with `bun test ./test/doctor-matrix-ui.test.ts --update-snapshots` (or
+`./test/status.test.ts`).
 
-The Electron client can run this command locally or over non-interactive SSH. Remote use requires a
-working SSH agent, an existing host-key entry, and `openteam` on the remote command path. Password and
-host-key prompts are intentionally rejected.
+Other harnesses:
 
-`openteam update` remains the only update command an operator needs. When a newer standalone CLI is
-part of the target release, the current CLI downloads and verifies it, then hands the transaction
-to that staged executable. The worker follows a replayable high-level progress journal and performs
-the server-stack restart only after release verification, image download, and backup finish. It
-promotes the staged CLI beside a retained `.previous` copy only after server readiness passes. The
-Desktop app instead uses its own bundled CLI, which is replaced by Desktop's signed app update.
-Closing the terminal, SSH session, or Electron desktop app does not stop the worker; running the
-same update command again
-reattaches to the active job. Detailed worker output is retained in `update.log`, and structured
-events are retained in `update-events.jsonl` beside `update-state.json`.
+- `bun scripts/test-windows-install.ts` tests the Windows installer under Windows PowerShell 5.1 and
+  PowerShell 7 (needs Python `pywinpty` and `pyte`; Docker is simulated). Use a disposable Windows
+  machine: it temporarily hides any installed Docker CLI.
+- `python scripts/render-installer-demo.py` renders the fresh-install recordings as MP4 and GIF (needs
+  `pillow`, `pyte`, and `ffmpeg`; pass `--font` outside macOS).
+- From the repository root, `bun run test:health:chaos` injects health-check faults.
+- From the repository root, `OPENTEAM_TEST_DOCKER_CONTEXT=<throwaway-context> bun apps/cli/scripts/test-disk-maintenance-docker.ts`
+  tests image and backup retention against a real Docker daemon. It removes only its own fixtures.
+- From the repository root, `OPENTEAM_TEST_CHROMIUM_EXECUTABLE=<chromium> bun apps/computer/scripts/test-browser-cache-maintenance.ts`
+  tests browser cache cleanup with a temporary profile.
 
-An installation whose CLI predates self-update support must re-run the installer once. After that
-bootstrap, normal releases require only `openteam update`.
-
-`uninstall` removes the containers but preserves the installation configuration and Docker volumes.
-Use `openteam uninstall --purge` to permanently delete the installation data.
+Reports, recordings, and demo media go to `output/` at the repository root. The `CLI installer`
+GitHub Actions workflow runs the installer checks on Linux, macOS, and Windows.

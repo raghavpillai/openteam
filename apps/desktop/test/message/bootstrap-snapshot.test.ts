@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelMessageView, ClientBootstrapView } from "@openteam/contracts";
 import type { LoadedChannelHistory } from "@openteam/product-core/history";
+import type { ChannelClientState } from "../../src/renderer/client/openteam-api";
 import {
   backgroundHistoryNeed,
   bootstrapSnapshot,
+  openHistoryNeedsRead,
 } from "../../src/renderer/lib/bootstrap-snapshot";
 import { emptyChannelMessageWindow } from "../../src/renderer/lib/message-history-window";
 
@@ -175,5 +177,38 @@ describe("background history", () => {
         detachedMessageIds,
       })
     ).toBeNull();
+  });
+});
+
+describe("open chat history", () => {
+  const state = (revision: string) => ({ channelId: "loaded", revision }) as unknown as ChannelClientState;
+  const now = 10_000;
+  const need = (transcript: ChannelMessageView[], revision: string, loadedAt = now - 20) => {
+    const latest = [message("loaded", 5)];
+    const loaded = history(transcript, loadedAt);
+    return openHistoryNeedsRead({
+      bootstrap: bootstrap(latest),
+      channelId: "loaded",
+      history: loaded,
+      state: state(revision),
+      detachedMessageIds: project(latest, loaded).detachedMessageIds,
+      now,
+    });
+  };
+
+  test("reuses a page read moments ago when it already holds the newest message", () => {
+    expect(need([message("loaded", 4), message("loaded", 5)], "100")).toBe(false);
+  });
+
+  test("reads again when a page read moments ago missed the newest message", () => {
+    // History and run state are separate reads. A reply that lands between them
+    // is in the state read's revision but not on the page, and bootstrap then
+    // shows its notification while the open transcript withholds it.
+    expect(need([message("loaded", 3), message("loaded", 4)], "100")).toBe(true);
+  });
+
+  test("reads again when run state is behind bootstrap or the page is not recent", () => {
+    expect(need([message("loaded", 4), message("loaded", 5)], "99")).toBe(true);
+    expect(need([message("loaded", 4), message("loaded", 5)], "100", now - 250)).toBe(true);
   });
 });

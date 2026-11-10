@@ -25,15 +25,6 @@
     backdrop-filter: blur(16px);
     border-bottom-color: #e8ebe6;
   }
-  .landing.ot-home .ot-site-header .ot-nav { height: 66px; gap: 12px; }
-  .landing.ot-home .ot-site-header .ot-mobile-menu > summary {
-    border-radius: 9px;
-    background: #f4f6f2;
-    color: #65705f;
-    font-size: 13px;
-    min-width: 46px;
-  }
-  .landing.ot-home .ot-site-header .ot-mobile-menu[open] > summary { background: #e8eee2; }
   .landing.ot-home .ot-site-header .ot-mobile-menu nav {
     top: 62px;
     padding: 10px;
@@ -201,7 +192,6 @@
   .ot-home .ot-container { width: calc(100% - 32px); }
   .ot-home .ot-machine-section,
   .ot-home .ot-memory-section { width: calc(100% - 16px); }
-  .landing.ot-home .ot-site-header .ot-nav { gap: 8px; }
   .ot-home .ot-hero h1 { font-size: 42px; }
   .ot-home .ot-hero-description > p:first-child { font-size: 16px; }
   .ot-home .ot-hero-actions { gap: 12px; }

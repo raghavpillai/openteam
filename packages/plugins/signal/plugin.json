@@ -19,6 +19,7 @@
       "Choose Connect to install the verified Signal runtime and display a QR code.",
       "On your phone, open Signal \u2192 Settings \u2192 Linked Devices, then scan the code.",
       "History begins while connected. Disappearing and view-once content is excluded.",
+      "Some phone-side deletions do not sync. Deleting a message on the phone may leave OpenTeam's collected copy readable.",
       "Remove this linked device in Signal settings when removing your account from OpenTeam."
     ],
     "fields": [],

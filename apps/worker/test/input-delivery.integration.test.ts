@@ -6,8 +6,7 @@ import { Effect } from 'effect';
 import { AppService } from '../../server/src/app-service';
 import { WakeWorker } from '../src/worker';
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
-test('worker replays an unacknowledged user input and clears its watermark only after durable delivery', async () => {
- if (!databaseUrl) return;
+test.skipIf(!databaseUrl)('worker replays an unacknowledged user input and clears its watermark only after durable delivery', async () => {
  const root = await mkdtemp(join(tmpdir(), 'input-delivery-')); let app: AppService | undefined, worker: WakeWorker | undefined;
  const seen: any[] = []; let failed = false;
  const fake = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
@@ -33,7 +32,9 @@ test('worker replays an unacknowledged user input and clears its watermark only 
   Object.assign(process.env, { DATABASE_URL: databaseUrl, OPENTEAM_COMPUTER_URL: fake.url.origin, OPENTEAM_CONTROL_TOKEN: 'synthetic-control', OPENTEAM_WORKSPACE_ROOT: root, OPENTEAM_AGENT_DATA_ROOT: join(root, 'data') });
   app = new AppService();
   await app.prisma.$executeRawUnsafe('TRUNCATE TABLE "Computer", "Bot", "OutboxDelivery", "Event", "IdempotencyRecord" CASCADE');
-  await Effect.runPromise(app.boot()); worker = new WakeWorker(); await worker.start();
+  await Effect.runPromise(app.boot());
+  await app.agentData.writeInferenceSettings({ providerId: 'openai-codex', modelId: 'fake', reasoning: 'medium' });
+  worker = new WakeWorker(); await worker.start();
   const bot = await Effect.runPromise(app.createBot({ clientRequestId: crypto.randomUUID(), name: 'Input fixture' }));
   const initial = await Effect.runPromise(app.sendMessage(bot.conversationId, { content: 'This user input must survive', clientId: 'delivery-initial' })) as any;
   const until = async (check: () => Promise<boolean>) => { for (let i = 0; i < 300; i++) { if (await check()) return; await Bun.sleep(50); } throw new Error('Delivery fixture timed out'); };

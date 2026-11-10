@@ -3,6 +3,7 @@ import SwiftUI
 struct BotExchangeView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.sideChrome) private var sideChrome
   let channel: Channel
   let peer: BotExchangePeer
   @State private var ready = false
@@ -20,7 +21,7 @@ struct BotExchangeView: View {
         initialLayout: .nextLayout, onPositioned: { ready = true })
         .opacity(ready ? 1 : 0).allowsHitTesting(ready).accessibilityHidden(!ready)
       if !ready && showsLoading {
-        ProgressView().accessibilityLabel("Loading exchange").accessibilityIdentifier("exchange-loading")
+        LoadingOrb(label: "Loading exchange").accessibilityIdentifier("exchange-loading")
       }
     }.task {
       try? await Task.sleep(for: .milliseconds(200))
@@ -33,13 +34,14 @@ struct BotExchangeView: View {
           .accessibilityIdentifier("exchange-read-only")
           .frame(maxWidth: .infinity).padding(.top, 4)
       })
+      .padding(.trailing, sideChrome?.contentInset ?? 0)
+      .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
+      .preference(key: ContextualSideControlsKey.self, value: sideChrome != nil)
       .background(NativeBackGesture().frame(width: 0, height: 0))
   }
   private var header: some View {
     HStack(spacing: 8) {
-      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
-        regularInLightMode: true) { dismiss() }
-        .accessibilityIdentifier("exchange-back")
+      if sideChrome == nil { backButton }
       HStack(spacing: -9) {
         if let source { MessageBotMark(bot: source, size: 29) }
         if let peerBot {
@@ -49,7 +51,18 @@ struct BotExchangeView: View {
       }.padding(.leading, 8).accessibilityElement(children: .ignore)
         .accessibilityLabel((source?.name ?? channel.name) + " and " + peer.name)
       Spacer()
-    }.padding(.horizontal, 18).padding(.vertical, 6)
+    }.padding(.horizontal, 18).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
+  }
+  private var backButton: some View {
+    ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
+      regularInLightMode: true) { dismiss() }
+      .accessibilityIdentifier("exchange-back").foregroundStyle(NativePalette.text)
+  }
+  private var sideControls: some View {
+    VStack {
+      backButton
+      Spacer(minLength: 12)
+    }
   }
   private var rows: [NativeHistoryItem] {
     var result: [NativeHistoryItem] = []

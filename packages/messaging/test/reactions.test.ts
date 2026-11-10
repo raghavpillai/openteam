@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { toggleMessageReaction } from "../src";
+import { reactionNotificationBody, toggleMessageReaction } from "../src";
 
 describe("toggleMessageReaction", () => {
   test("keeps different emoji from the same actor", () => {
@@ -27,5 +27,15 @@ describe("toggleMessageReaction", () => {
       ],
       removed: true,
     });
+  });
+});
+
+describe("reactionNotificationBody", () => {
+  test("quotes the reacted-to message as plain text", () => {
+    expect(reactionNotificationBody("👍", "**Ship it** on [Friday](https://example.com)\nThanks")).toBe(
+      "Reacted 👍 to “Ship it on Friday”"
+    );
+    expect(reactionNotificationBody("❤️", "")).toBe("Reacted ❤️ to your message");
+    expect(reactionNotificationBody("❤️", "```\n```")).toBe("Reacted ❤️ to your message");
   });
 });

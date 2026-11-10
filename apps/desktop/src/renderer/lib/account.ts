@@ -20,12 +20,17 @@ export const accountPresentation = (
       copyValue: null,
     };
   }
-  const name = accountName(user);
+  const name = user.name.trim() || accountName(user);
+  const words = name.split(/\s+/u);
+  const initials =
+    words.length > 1
+      ? `${Array.from(words[0]!)[0]}${Array.from(words.at(-1)!)[0]}`.toLocaleUpperCase()
+      : Array.from(name.toLocaleUpperCase()).slice(0, 2).join("");
   const detail = "Username and password";
   return {
     name,
     detail,
-    initials: accountInitials(user),
+    initials,
     copyValue: user.username?.trim() || null,
   };
 };

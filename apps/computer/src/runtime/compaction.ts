@@ -1,4 +1,5 @@
 import { fenceToolResults } from "./untrusted-results";
+import { imagesBeforeText } from "./user-content-order";
 import { repairImageHistory } from "./image-input";
 import type {
   ExtensionFactory,
@@ -17,7 +18,6 @@ import {
   type BotSummaryResult,
   botSummarySystemPrompt,
   botSummaryResponse,
-  replaceBotUserInfo,
   canonicalJson,
   isValidBotEarlyThreshold,
   estimateBotMeasuredContextTokens,
@@ -27,9 +27,23 @@ import { textFromContent } from "./content";
 import { inferenceReasoningOptions } from "./reasoning";
 import type { RuntimeTools } from "./tools";
 import type { ActiveTurn } from "./types";
-import { communicationReminder, executionClock, executionReceipts, promptFingerprint } from "./prompt-context";
+import { communicationReminder, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder, promptFingerprint } from "./prompt-context";
 import { compactRepeatedDiscovery } from "./discovery-context";
-import { graphicalProgressReminder } from "./graphical-completion";
+import { DISK_PRESSURE_REMINDER } from "./disk-pressure";
+import { INSTALL_NOTICE_TYPE } from "./install-notice";
+import { PROCESS_NOTICE_TYPE } from "./process-notice";
+
+const TOO_MANY_MEDIA_MARKERS = [
+  "request contained too many images or documents",
+  "too many images or documents error",
+  "too many images and documents",
+  "too much media",
+];
+// Pi's overflow detector recognizes this phrase, which routes the error into compaction.
+const MEDIA_OVERFLOW_NOTE = "context_length_exceeded: too many images or documents";
+
+export const isTooManyMediaError = (message: unknown): boolean =>
+  typeof message === "string" && TOO_MANY_MEDIA_MARKERS.some((marker) => message.toLowerCase().includes(marker));
 
 export const modelVisibleSummaryTools = (
   tools: ReadonlyArray<{
@@ -61,18 +75,19 @@ export function compactionObservation(active: ActiveTurn): Omit<BotObservation, 
   return {
     contextSessionId: active.contextSessionId,
     piMessages,
+    piBoundary: active.compactionReadPiBoundary?.(),
     systemPrompt: active.instructions,
     userInfoMessage: active.userInfoMessage,
-    usedTokens: estimateBotMeasuredContextTokens(piMessages),
+    usedTokens: active.compactionUsageInvalidated?.() ? null : estimateBotMeasuredContextTokens(piMessages),
     maxTokens: usage?.contextWindow ?? active.session?.model?.contextWindow ?? 0,
     modelKey: sha256(canonicalJson({ model: active.modelRef, reasoning: active.reasoning, tools })),
     earlyThreshold: active.compactionEarlyThreshold,
     tools,
     projectRoot: active.cwd,
     isRootProject: active.isRootProject,
-    transcriptPath: active.sessionPath ?? undefined,
+    // Workers have no ReadTranscript, which the transcript guidance points to.
+    transcriptPath: active.subagentType ? undefined : active.sessionPath ?? undefined,
     todoUpdate: active.todoUpdate ?? undefined,
-    automationTrigger: active.automationTrigger ?? undefined,
   };
 }
 
@@ -97,10 +112,10 @@ export function compactionExtension(
   ) => Promise<BotSummaryResult>,
   sessionManager: SessionManager,
   active: ActiveTurn,
-  refreshContext?: (epoch: number) => Promise<void>,
-  acknowledgeToolOutcomes?: (messages: BotMessage[]) => Promise<void>
+  acknowledgeToolOutcomes?: (messages: BotMessage[]) => Promise<void>,
+  history?: import("./compaction-history").CompactionHistory
 ): { name: string; hidden: boolean; factory: ExtensionFactory } {
-  const readPiMessages = () => sessionManager.buildSessionContext().messages as BotMessage[];
+  const readPiMessages = history?.read ?? (() => sessionManager.buildSessionContext().messages as BotMessage[]);
   active.compactionReadPiMessages = readPiMessages;
   const infer = (request: BotSummaryRequest, signal: AbortSignal) =>
     inferCompaction(active, request, signal);
@@ -110,7 +125,7 @@ export function compactionExtension(
     name: "openteam-bot-compaction",
     hidden: true,
     factory: (pi) => {
-      pi.on("before_agent_start", async () => ({ systemPrompt: active.instructions }));
+      pi.on("before_agent_start", async () => ({ systemPrompt: taskProgressBaseInstructions(active.instructions) }));
       pi.on("context", async (event, ctx) => {
         if (!restoredMeasurement) {
           restoredMeasurement = true;
@@ -132,18 +147,37 @@ export function compactionExtension(
               epoch: latest.epoch,
             };
         }
+        event.messages = imagesBeforeText(event.messages);
         await acknowledgeToolOutcomes?.(event.messages as BotMessage[]);
-        // The SDK's model projection can omit custom-entry metadata. Count from
-        // the durable tape so a checkpoint resets the cadence on later steps.
-        const graphicalReminder = graphicalProgressReminder(readPiMessages(), active);
-        if (graphicalReminder && active.session) {
+        if (active.diskPressureEpisode != null && !active.diskPressureReminded && active.session) {
+          active.diskPressureReminded = true;
           await active.session.sendCustomMessage(
-            {
-              customType: "openteam-graphical-progress",
-              content: graphicalReminder,
-              display: false,
-              details: { origin: "host" },
-            },
+            { customType: "openteam-disk-pressure", content: DISK_PRESSURE_REMINDER, display: false, details: { episode: active.diskPressureEpisode, origin: "host" } },
+            { triggerTurn: false }
+          );
+          event.messages = [...event.messages, active.session.messages.at(-1)!];
+        }
+        if (active.installNotice && !active.installReminded && active.session) {
+          active.installReminded = true;
+          await active.session.sendCustomMessage(
+            { customType: INSTALL_NOTICE_TYPE, content: active.installNotice.content, display: false, details: { episode: active.installNotice.episode, origin: "host" } },
+            { triggerTurn: false }
+          );
+          event.messages = [...event.messages, active.session.messages.at(-1)!];
+        }
+        if (active.processNotice && !active.processReminded && active.session) {
+          active.processReminded = true;
+          await active.session.sendCustomMessage(
+            { customType: PROCESS_NOTICE_TYPE, content: active.processNotice.content, display: false, details: { origin: "host" } },
+            { triggerTurn: false }
+          );
+          event.messages = [...event.messages, active.session.messages.at(-1)!];
+        }
+        // Calls cut off at the output limit come back as errors; say why once, before the retry.
+        if (owesOutputLimitReminder(readPiMessages(), active) && active.session) {
+          active.outputLimitReminded = true;
+          await active.session.sendCustomMessage(
+            { customType: "openteam-output-limit", content: OUTPUT_LIMIT_REMINDER, display: false, details: { origin: "host" } },
             { triggerTurn: false }
           );
           event.messages = [...event.messages, active.session.messages.at(-1)!];
@@ -175,22 +209,16 @@ export function compactionExtension(
           ...observation,
         });
         const adopted = compaction.takeProjectedEvent(active.contextSessionId);
+        // A mid-loop summary keeps this turn's system prompt and user_info; the
+        // next user turn renders them for the new epoch, as in the reference.
         if (adopted) {
           active.compactionEarlyThreshold = undefined;
           publishCompaction(active, adopted);
-          await refreshContext?.(adopted.epoch);
-          // Refresh may append durable update notes after the projection's base
-          // was committed. Re-read that tail before acknowledging it to the model.
-          messages = replaceBotUserInfo(
-            await compaction.contextMessages(active.contextSessionId, readPiMessages()),
-            active.userInfoMessage
-          );
         }
         active.compactionRequestMessages = structuredClone(readPiMessages());
         messages = compactRepeatedDiscovery(messages);
-        active.dynamicDiscoveryMessages = messages;
         const fingerprint = promptFingerprint(
-          active.instructions,
+          taskProgressBaseInstructions(active.instructions),
           textFromContent(active.userInfoMessage?.content),
           modelVisibleSummaryTools(
             (active.session?.getAllTools() ?? []).filter((tool) =>
@@ -216,9 +244,25 @@ export function compactionExtension(
             },
           });
         }
-        return {
-          messages: [...messages, ...executionClock(active.runtimeStartedAt), ...executionReceipts(readPiMessages(), active.runtimeStartedAt)] as typeof event.messages,
-        };
+        // Pi captures the system prompt when a turn starts. A progress tool can
+        // update the host record during that turn, after a summary was started.
+        // Keep the latest snapshot explicitly after a potentially older summary.
+        // Persist it once: an ephemeral tail message would move on every model
+        // call and invalidate the cached prefix of the growing conversation.
+        const progressStart = active.instructions.lastIndexOf(TASK_PROGRESS_START);
+        if (active.session && progressStart >= 0 && active.instructions.indexOf(TASK_PROGRESS_END, progressStart) >= 0) {
+          const content = `Latest host task record (observations only):\n${active.instructions.slice(progressStart)}`;
+          const previous = messages.findLast(message =>
+            message.role === "custom" && message.customType === "openteam-task-progress");
+          if (previous?.content !== content) {
+            await active.session.sendCustomMessage({
+              customType: "openteam-task-progress", content, display: false,
+              details: { origin: "host" },
+            }, { triggerTurn: false });
+            messages = [...messages, active.session.messages.at(-1)! as BotMessage];
+          }
+        }
+        return { messages: messages as typeof event.messages };
       });
       pi.on("message_start", async (event) => {
         if (event.message.role === "assistant") {
@@ -257,8 +301,14 @@ export function compactionExtension(
       pi.on("message_end", async (event) => {
         if (event.message.role !== "assistant" || !active.session) return;
         const message = event.message as unknown as BotMessage;
+        // Too many images or documents is recovered like an overflow: Pi summarizes and retries.
+        if (message.stopReason === "error" && isTooManyMediaError(message.errorMessage)) {
+          compaction.forceReason(active.contextSessionId, "approaching_image_limit");
+          return { message: { ...event.message, errorMessage: `${String(message.errorMessage)} (${MEDIA_OVERFLOW_NOTE})` } };
+        }
         if (["error", "aborted"].includes(String(message.stopReason))) return;
         const measuredInputTokens = responseTokens(message, false);
+        if (measuredInputTokens > 0) history?.acceptUsage();
         if (active.pendingCompactionMeasurement && measuredInputTokens > 0) {
           const measurement = {
             ...active.pendingCompactionMeasurement,
@@ -279,6 +329,9 @@ export function compactionExtension(
         ) {
           active.compactionEarlyThreshold = early;
         }
+        // Launch only over settled history, as the reference does at step start: a
+        // response with calls waits for the next context hook, after its results.
+        if (Array.isArray(message.content) && message.content.some((part) => part?.type === "toolCall")) return;
         await compaction.observe({
           ...observation,
           infer,
@@ -291,32 +344,55 @@ export function compactionExtension(
       });
       pi.on("session_before_compact", async (event) => {
         deferredAutomatic = false;
-        const observation = compactionObservation(active);
-        const prepared = await compaction.beforePiCompaction({
-          ...observation,
-          piMessages: readPiMessages(),
-          readPiMessages,
-          reason: event.reason,
-          firstKeptEntryId: event.preparation.firstKeptEntryId,
-          tokensBefore: observation.usedTokens ?? event.preparation.tokensBefore,
-          infer,
-          signal: event.signal,
-        });
-        deferredAutomatic = event.reason !== "manual" && !prepared;
-        return prepared ? { compaction: prepared as never } : { cancel: true };
+        try {
+          const observation = compactionObservation(active);
+          const prepared = await compaction.beforePiCompaction({
+            ...observation,
+            piMessages: readPiMessages(),
+            readPiMessages,
+            reason: event.reason,
+            firstKeptEntryId: event.preparation.firstKeptEntryId,
+            tokensBefore: observation.usedTokens ?? event.preparation.tokensBefore,
+            infer,
+            signal: event.signal,
+          });
+          deferredAutomatic = event.reason !== "manual" && !prepared;
+          return prepared ? { compaction: prepared as never } : { cancel: true };
+        } catch (error) {
+          // Pi swallows hook exceptions and then runs its native summarizer.
+          // Explicit cancellation keeps the durable archive coordinate intact.
+          console.error("OpenTeam compaction preparation failed; cancelling Pi compaction", error);
+          return { cancel: true };
+        }
       });
-      pi.on("session_compact", async () => {
+      pi.on("session_compact", async (event) => {
+        // Pi looks up this event's entry by summary text, which may repeat.
+        // The durable leaf, and its archive ID, identify the new checkpoint.
+        const checkpoint = sessionManager.getLeafEntry();
+        const details = checkpoint?.type === "compaction"
+          ? checkpoint.details as { openteamBotCompaction?: boolean; id?: string } | undefined
+          : undefined;
+        const staged = await compaction.stagedId(active.contextSessionId);
+        if (checkpoint?.type !== "compaction" || !event.fromExtension ||
+          details?.openteamBotCompaction !== true || details.id !== staged) {
+          // An unowned native checkpoint must not change the archive's view.
+          // The reader preserves its accepted basis and all later entries.
+          readPiMessages();
+          console.error("Ignoring unowned Pi compaction for OpenTeam archive", checkpoint?.id);
+          return;
+        }
         // Counts always describe the durable transcript, including retry errors.
         // The model projection removes this entire prefix on every entry point.
-        const piBaseMessageCount = readPiMessages().length;
+        const piBaseMessageCount = sessionManager.buildSessionContext().messages.length;
         const adopted = await compaction.afterPiCompaction({
           contextSessionId: active.contextSessionId,
           piBaseMessageCount,
+          piBoundary: { leafId: checkpoint.id, compactionEntryId: checkpoint.id },
         });
         if (!adopted) return;
+        history?.acceptCompaction(checkpoint.id);
         active.compactionEarlyThreshold = undefined;
         publishCompaction(active, adopted);
-        await refreshContext?.(adopted.epoch);
       });
       pi.on("session_compact_failed", async () => {
         if (deferredAutomatic) {
@@ -344,7 +420,19 @@ export async function inferCompaction(
   // The summarization wrapper sends the normal model-visible schemas through
   // a stream-only session. Calling the model runtime directly gives us the same
   // surface while making tool execution structurally impossible.
-  const result = await modelRuntime.completeSimple(
+  const result = request.external ? await modelRuntime.completeSimple(
+    model,
+    {
+      systemPrompt: request.systemPrompt,
+      messages: [{ role: "user", content: [{ type: "text", text: request.external.prompt }], timestamp: Date.now() }] as never,
+      tools: [],
+    },
+    {
+      signal,
+      ...inferenceReasoningOptions(model, active.reasoning),
+      maxTokens: Math.min(request.external.maxTokens, model.maxTokens || request.external.maxTokens),
+    }
+  ) : await modelRuntime.completeSimple(
     model,
     {
       systemPrompt: botSummarySystemPrompt(request.systemPrompt),
@@ -424,10 +512,6 @@ export function withPendingSummaryResults(messages: readonly BotMessage[]): BotM
 }
 
 export function publishCompaction(active: ActiveTurn, adopted: BotCompactionEvent): void {
-  // Schemas removed by compaction must be discovered again. Still-visible full
-  // descriptors can be recovered from the next model projection at invocation.
-  active.discoveredDynamicTools.clear();
-  active.dynamicDiscoveryMessages = undefined;
   active.pendingCompactionMeasurement = {
     compactionId: adopted.compactionId,
     epoch: adopted.epoch,
@@ -461,3 +545,4 @@ export function publishCompaction(active: ActiveTurn, adopted: BotCompactionEven
     completedAt: adopted.completedAt,
   });
 }
+import { TASK_PROGRESS_START, TASK_PROGRESS_END, taskProgressBaseInstructions } from "@openteam/contracts/task-progress";

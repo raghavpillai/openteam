@@ -8,16 +8,9 @@ import { requestDesktopUpdateRestart } from "../../lib/desktop-update";
 
 export const VERSION_MISMATCH_TOAST_ID = "openteam-version-mismatch";
 
-const openUpdates = () =>
-  window.dispatchEvent(
-    new CustomEvent(OPENTEAM_DEEP_LINK_EVENT, {
-      detail: { url: "openteam://app/v1/settings?id=update-status" },
-    })
-  );
-
 export function VersionMismatchBanner({ showReview = true }: { showReview?: boolean }) {
   const clientVersion = window.openteam?.versions.app ?? "0.0.0";
-  const { status, loading, refresh } = useServerUpdateStatus(clientVersion);
+  const { status, loading, refresh, updateServer } = useServerUpdateStatus(clientVersion);
   const [clientUpdate, setClientUpdate] = useState<OpenTeamUpdateStatus | null>(null);
   const acting = useRef(false);
 
@@ -46,6 +39,13 @@ export function VersionMismatchBanner({ showReview = true }: { showReview?: bool
         recommendedClientVersion: status.recommendedClientVersion,
       })
     : null;
+
+  const openUpdates = useCallback(() => {
+    const anchor = compatibility === "client-update-required" ? "update-status" : "server-update";
+    window.dispatchEvent(new CustomEvent(OPENTEAM_DEEP_LINK_EVENT, {
+      detail: { url: `openteam://app/v1/settings?id=${anchor}` },
+    }));
+  }, [compatibility]);
 
   const updateDesktop = useCallback(async () => {
     if (!window.openteam) throw new Error("Desktop updates are unavailable");
@@ -79,12 +79,7 @@ export function VersionMismatchBanner({ showReview = true }: { showReview?: bool
       if (compatibility === "client-update-required") {
         await updateDesktop();
       } else if (status.updaterAvailable) {
-        if (!window.openteam) throw new Error("Server updates are unavailable");
-        await window.openteam.updates.updateServer({
-          serverUrl: status.serverUrl,
-          targetVersion: compatibility === "server-update-required" ? clientVersion : null,
-          sshTarget: localStorage.getItem(`openteam.update.ssh.${status.serverUrl}`),
-        });
+        await updateServer(clientVersion);
         await refresh();
       } else {
         const command =
@@ -106,7 +101,7 @@ export function VersionMismatchBanner({ showReview = true }: { showReview?: bool
     } finally {
       acting.current = false;
     }
-  }, [clientVersion, compatibility, refresh, status, updateDesktop]);
+  }, [clientVersion, compatibility, refresh, status, updateDesktop, updateServer, openUpdates]);
 
   useEffect(() => {
     if (loading || !status || !compatibility) return;
@@ -150,7 +145,7 @@ export function VersionMismatchBanner({ showReview = true }: { showReview?: bool
       action: { label: actionLabel, onClick: () => void runDirectAction() },
       ...(showReview ? { cancel: { label: "Details", onClick: openUpdates } } : {}),
     });
-  }, [clientVersion, compatibility, loading, runDirectAction, showReview, status]);
+  }, [clientVersion, compatibility, loading, runDirectAction, showReview, status, openUpdates]);
 
   return null;
 }

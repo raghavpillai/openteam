@@ -113,14 +113,6 @@ try {
     return line.match(/\[ref=([^\]]+)\]/)![1];
   };
   const embedded = await ref("Embedded action");
-  const expectedBox = await page
-    .frameLocator("iframe")
-    .frameLocator("iframe")
-    .getByRole("button")
-    .boundingBox();
-  const boxResult = text(await session.execute("browser_get_bounding_box", { ref: embedded }));
-  assert.ok(boxResult.includes(`"x":${Math.round(expectedBox.x)}`));
-  assert.ok(boxResult.includes(`"y":${Math.round(expectedBox.y)}`));
   await session.execute("browser_click", { ref: embedded });
   // The child frame reports through postMessage, which is asynchronous even
   // after Playwright has completed the click and captured its observation.
@@ -138,7 +130,7 @@ try {
     "same live ref must remain usable"
   );
   const input = await ref("Embedded text");
-  await session.execute("browser_fill", { ref: input, element: "Embedded text", value: "Café 42" });
+  await session.execute("browser_type", { target: input, element: "Embedded text", text: "Café 42" });
   assert.equal(
     await page.frameLocator("iframe").frameLocator("iframe").getByRole("textbox").inputValue(),
     "Café 42"
@@ -149,7 +141,7 @@ try {
     () => session!.execute("browser_click", { ref: stale }),
     /stale|unknown|not found/
   );
-  console.log("PASS nested-frame coordinates, clicks, repeated refs, fill, stale-node rejection");
+  console.log("PASS nested-frame clicks, repeated refs, fill, stale-node rejection");
   const saved: string[] = [];
   for (let i = 0; i < 2; i++) {
     const result = await session.execute("browser_click", { ref: await ref("Download example") });
@@ -167,19 +159,7 @@ try {
     "synthetic-download-1\nCafé 42",
     "a repeat download must not overwrite the first"
   );
-  const dom = (
-    await session.execute("browser_cdp", { method: "DOM.getDocument", params: { depth: 0 } })
-  ).details.result as any;
-  const inputNode = (
-    await session.execute("browser_cdp", {
-      method: "DOM.querySelector",
-      params: { nodeId: dom.root.nodeId, selector: "input[type=file]" },
-    })
-  ).details.result as any;
-  await session.execute("browser_cdp", {
-    method: "DOM.setFileInputFiles",
-    params: { nodeId: inputNode.nodeId, files: [saved[1]] },
-  });
+  await page.locator("input[type=file]").setInputFiles(saved[1]!);
   assert.equal(
     await page.locator("input[type=file]").evaluate((node: any) => node.files[0].name),
     "example (1).txt"

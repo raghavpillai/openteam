@@ -7,12 +7,14 @@ import {
   readFile,
   rm,
   symlink,
+  truncate,
   utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { MAX_TURN_INLINE_IMAGE_BYTES, MAX_TURN_INLINE_IMAGES } from "@openteam/contracts";
 import { AssetStore } from "../src";
 
 const roots: string[] = [];
@@ -326,6 +328,53 @@ describe("content-addressed attachment store", () => {
     ]);
   });
 
+  test("shows every photo of a full message inline", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const refs = await Promise.all(Array.from({ length: MAX_TURN_INLINE_IMAGES }, (_, index) => {
+      const bytes = png();
+      bytes.writeUInt32BE(index + 2, 16);
+      return store.ingestBytes({ fileName: `photo-${index}.png`, bytes });
+    }));
+    const images = await store.runtimeImages(refs);
+    expect(images.map(image => image.url)).toEqual(await Promise.all(refs
+      .map(async ref => `data:image/png;base64,${(await readFile(store.contentPath(ref.assetId))).toString("base64")}`)));
+  });
+
+  test("shares one budget across the messages sent in one request", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const size = 24 * 1024 * 1024;
+    const image = (index: number) => {
+      const bytes = Buffer.alloc(size);
+      png().copy(bytes);
+      bytes.writeUInt32BE(index + 2, 16);
+      return store.ingestBytes({ fileName: `big-${index}.png`, bytes });
+    };
+    const [a, b, c, d] = await Promise.all([0, 1, 2, 3].map(image));
+    // Two replayed messages of two 24 MiB photos each: alone each fits, together the
+    // request would carry four, so the second message gets only what's left.
+    const budget = { images: MAX_TURN_INLINE_IMAGES, bytes: MAX_TURN_INLINE_IMAGE_BYTES };
+    expect((await store.runtimeImages([a!, b!], budget)).length).toBe(2);
+    expect((await store.runtimeImages([c!, d!], budget)).length).toBe(Math.floor(MAX_TURN_INLINE_IMAGE_BYTES / size) - 2);
+    expect((await store.runtimeImages([c!, d!])).length).toBe(2);
+  });
+
+  test("stops adding inline images before the turn outgrows its request", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const size = 24 * 1024 * 1024;
+    const refs = [];
+    for (let index = 0; index < 4; index++) {
+      const bytes = Buffer.concat([png(), Buffer.alloc(size)]);
+      bytes.writeUInt32BE(index + 2, 16);
+      refs.push(await store.ingestBytes({ fileName: `large-${index}.png`, bytes }));
+    }
+    const images = await store.runtimeImages(refs);
+    expect(images).toHaveLength(Math.floor(MAX_TURN_INLINE_IMAGE_BYTES / refs[0]!.byteSize));
+    expect(images.reduce((total, image) => total + image.url.length, 0)).toBeLessThan(128 * 1024 * 1024);
+  });
+
   test("normalizes agent data URLs immediately instead of persisting inline bytes", async () => {
     const root = await temporaryRoot();
     const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
@@ -349,6 +398,56 @@ describe("content-addressed attachment store", () => {
     });
 
     expect(ref).toMatchObject({ kind: "text", mimeType: "text/plain" });
+  });
+
+  test("names office, archive and data files by extension when their bytes match", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+    const ole = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    // The store is content-addressed, so each sample gets its own bytes.
+    const stored = async (fileName: string, bytes: Uint8Array, mimeType?: string) => {
+      const ref = await store.ingestBytes({ fileName, bytes: Buffer.concat([bytes, Buffer.from(fileName)]), mimeType });
+      return { kind: ref.kind, mimeType: ref.mimeType };
+    };
+
+    expect(await stored("Report.DOCX", zip, "application/octet-stream")).toEqual({
+      kind: "file",
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    expect(await stored("budget.xlsx", zip)).toEqual({
+      kind: "file",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    expect(await stored("deck.pptx", zip)).toEqual({
+      kind: "file",
+      mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    expect((await stored("notes.odt", zip)).mimeType).toBe("application/vnd.oasis.opendocument.text");
+    expect((await stored("bundle.zip", zip)).mimeType).toBe("application/zip");
+    expect((await stored("old.xls", ole)).mimeType).toBe("application/vnd.ms-excel");
+    expect((await stored("logs.tgz", Buffer.from([0x1f, 0x8b, 8, 0, 0]))).mimeType).toBe("application/gzip");
+    // A name alone never claims a container type.
+    expect(await stored("fake.docx", Buffer.from("not a zip"))).toEqual({
+      kind: "file",
+      mimeType: "application/octet-stream",
+    });
+    expect(await stored("people.csv", Buffer.from("name,role\nAda,eng\n"))).toEqual({
+      kind: "text",
+      mimeType: "text/csv",
+    });
+    expect(await stored("rows.tsv", Buffer.from("a\tb\n"))).toEqual({
+      kind: "text",
+      mimeType: "text/tab-separated-values",
+    });
+    expect(await stored("README.md", Buffer.from("# Title\n"))).toEqual({
+      kind: "text",
+      mimeType: "text/markdown",
+    });
+    expect(await stored("config.yaml", Buffer.from("a: 1\n"))).toEqual({
+      kind: "text",
+      mimeType: "application/yaml",
+    });
   });
 
   test("refuses to serve bytes that no longer match their content address", async () => {
@@ -385,6 +484,19 @@ describe("content-addressed attachment store", () => {
     await expect(
       store.ingestSource({ url: pathToFileURL(join(outside, "secret.txt")).toString() })
     ).rejects.toMatchObject({ code: "asset_path_outside_store" });
+    // A missing file inside an allowed root is named as missing, not as outside the store.
+    await mkdir(join(root, "allowed"));
+    await expect(store.ingestSource({ url: pathToFileURL(join(root, "allowed", "nope.pdf")).toString() })).rejects.toMatchObject({
+      code: "attachment_missing",
+      message: `No file at ${join(root, "allowed", "nope.pdf")} on your box, so nothing was sent. Attachments come from the box. For a file on one of the user's computers, copy it to the box with CopyToBox and attach the box path it returns; otherwise check the path and send again.`,
+    });
+    await expect(store.ingestSource({ url: pathToFileURL(join(outside, "nope.pdf")).toString() })).rejects.toMatchObject({ code: "asset_path_outside_store" });
+    await writeFile(join(root, "allowed", "big.pdf"), "");
+    await truncate(join(root, "allowed", "big.pdf"), 26_214_401);
+    await expect(store.ingestSource({ url: pathToFileURL(join(root, "allowed", "big.pdf")).toString() })).rejects.toMatchObject({
+      code: "asset_too_large",
+      message: "big.pdf is over the 25 MB attachment limit, so nothing was sent. Compress, shrink, or split it on the box and attach the smaller file.",
+    });
   });
 
   test("resolves symlinks before accepting file sources", async () => {

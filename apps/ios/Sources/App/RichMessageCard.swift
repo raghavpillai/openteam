@@ -37,15 +37,17 @@ struct RichMessageCard: View {
   private var state: String {
     meta["cardState"].string.isEmpty ? "pending" : meta["cardState"].string
   }
+  /// Drafts and text approvals share the reference draft card's frame.
+  private var isDraftLike: Bool { type == "external-draft" || type == "imessage-send" }
   private var supported: Bool {
     return [
       "widget", "secret-request", "computer-handoff", "user-form", "external-draft",
-      "bot-template",
+      "imessage-send", "bot-template",
     ].contains(type)
   }
   var body: some View {
     if supported {
-      VStack(alignment: .leading, spacing: type == "widget" ? 12.25 : type == "external-draft" ? 10 : 13) {
+      VStack(alignment: .leading, spacing: type == "widget" ? 12.25 : isDraftLike ? 10 : 13) {
         if let failure { InlineFailure(message: failure) }
         switch type {
         case "widget": widget
@@ -53,11 +55,12 @@ struct RichMessageCard: View {
         case "computer-handoff": handoff
         case "user-form": form
         case "external-draft": externalDraft
+        case "imessage-send": imessageSend
         case "bot-template": sharedTemplate
         default: EmptyView()
         }
-      }.padding(type == "widget" ? 14 : type == "external-draft" ? 12 : 16).background(
-        NativePalette.surface, in: RoundedRectangle(cornerRadius: type == "external-draft" ? 16 : 18)
+      }.padding(type == "widget" ? 0 : isDraftLike ? 12 : 16).background(
+        type == "widget" ? Color.clear : NativePalette.surface, in: RoundedRectangle(cornerRadius: isDraftLike ? 16 : 18)
       )
       .animation(type == "widget" && !reduceMotion ? .easeOut(duration: 0.24) : nil,
         value: meta["respondedValue"])
@@ -111,119 +114,124 @@ struct RichMessageCard: View {
   }
   @ViewBuilder var widget: some View {
     let widget = meta["widget"]
-    HStack(alignment: .top, spacing: 8) {
-      Text(widget["prompt"].string).font(.body.weight(.medium))
-        .fixedSize(horizontal: false, vertical: true)
-      Spacer(minLength: 0)
-      if meta["respondedValue"] == .null && !meta["widgetDismissed"].bool {
-        Button { act("widget-dismiss") } label: {
-          Image(systemName: "xmark").font(.system(size: 15, weight: .regular))
-            .foregroundStyle(NativePalette.chatFaint).frame(width: 20, height: 20)
-            .contentShape(Rectangle().inset(by: -10))
-        }.buttonStyle(.plain).accessibilityLabel("Dismiss")
-          .accessibilityIdentifier("widget-dismiss-" + message.id)
-      }
-    }
-    if !widget["helpText"].string.isEmpty {
-      Text(widget["helpText"].string).font(.system(size: 14))
-        .foregroundStyle(NativePalette.chatFaint).padding(.trailing, 36)
-    }
-    if case .string(let response) = meta["respondedValue"] {
-      let answers = WidgetAnswer.resolve(widget: widget, response: response)
-      VStack(spacing: 0) {
-        ForEach(Array(answers.enumerated()), id: \.offset) { index, answer in
-          if index > 0 { NativePalette.separator.frame(height: 0.5) }
-          HStack(spacing: 12) {
-            Text(answer.label).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            Path { path in
-              path.move(to: CGPoint(x: 3, y: 8))
-              path.addLine(to: CGPoint(x: 6, y: 11))
-              path.addLine(to: CGPoint(x: 13, y: 4))
-            }.stroke(NativePalette.receiptCheck,
-              style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-              .frame(width: 16, height: 16).accessibilityHidden(true)
-          }.padding(.horizontal, 10).padding(.vertical, 10)
-            .frame(minHeight: 40).accessibilityElement(children: .combine)
-            .accessibilityValue("Selected")
-            .accessibilityIdentifier("widget-answer-\(message.id)-\(index)")
+    VStack(alignment: .leading, spacing: 12.25) {
+      HStack(alignment: .top, spacing: 8) {
+        Text(widget["prompt"].string).font(.body.weight(.medium))
+          .fixedSize(horizontal: false, vertical: true)
+        Spacer(minLength: 0)
+        if meta["respondedValue"] == .null && !meta["widgetDismissed"].bool {
+          Button { act("widget-dismiss") } label: {
+            Image(systemName: "xmark").font(.system(size: 15, weight: .regular))
+              .foregroundStyle(NativePalette.chatFaint).frame(width: 20, height: 20)
+              .contentShape(Rectangle().inset(by: -10))
+          }.buttonStyle(.plain).accessibilityLabel("Dismiss")
+            .accessibilityIdentifier("widget-dismiss-" + message.id)
         }
-      }.background(NativePalette.background, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(NativePalette.separator, lineWidth: 0.5))
-    } else {
-      let dismissed = meta["widgetDismissed"].bool
-      VStack(spacing: 0) {
-        ForEach(Array(widget["options"].array.enumerated()), id: \.offset) { index, option in
-          if index > 0 { NativePalette.separator.opacity(0.5).frame(height: 0.5) }
-          let value = option["value"].string.isEmpty ? option["label"].string : option["value"].string
-          Button {
-            if widget["multiSelect"].bool {
-              NativeHaptics.play(.selection, source: "widget.selection")
-              var values = selected
-              if values.contains(value) { values.remove(value) } else { values.insert(value) }
-              var draft = store.draft(message.channelId)
-              draft.widgetResponse = nil
-              if draft.widgetSelections == nil { draft.widgetSelections = [:] }
-              draft.widgetSelections?[message.id] = widget["options"].array.map {
-                $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
-              }.filter(values.contains)
-              store.saveDraft(draft, channel: message.channelId)
-            } else { act("widget-response", body: ["value": .string(value)]) }
-          } label: {
-            HStack(alignment: .top, spacing: 9) {
-              Text(index < 26 ? String(UnicodeScalar(65 + index)!) : String(index + 1))
-                .font(.system(size: 13)).foregroundStyle(NativePalette.chatFaint)
-                .frame(width: 20, height: 20)
-                .background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 5))
-                .accessibilityHidden(true)
-              VStack(alignment: .leading, spacing: 3.5) {
-                Text(option["label"].string).font(.body)
-                  .foregroundStyle(option["style"].string == "danger"
-                    ? NativePalette.widgetDanger : NativePalette.text)
-                if !option["description"].string.isEmpty {
-                  Text(option["description"].string).font(.system(size: 14))
-                    .foregroundStyle(NativePalette.chatMuted)
-                }
-              }.fixedSize(horizontal: false, vertical: true)
-              Spacer(minLength: 0)
-              if selected.contains(value) {
-                Image(systemName: "checkmark").font(.system(size: 14))
-                  .foregroundStyle(NativePalette.receiptCheck)
-              }
+      }
+      if !widget["helpText"].string.isEmpty {
+        Text(widget["helpText"].string).font(.system(size: 14))
+          .foregroundStyle(NativePalette.chatFaint).padding(.trailing, 36)
+      }
+      if case .string(let response) = meta["respondedValue"] {
+        let answers = WidgetAnswer.resolve(widget: widget, response: response)
+        VStack(spacing: 0) {
+          ForEach(Array(answers.enumerated()), id: \.offset) { index, answer in
+            if index > 0 { NativePalette.separator.frame(height: 0.5) }
+            HStack(spacing: 12) {
+              Text(answer.label).fixedSize(horizontal: false, vertical: true)
+              Spacer(minLength: 8)
+              Path { path in
+                path.move(to: CGPoint(x: 3, y: 8))
+                path.addLine(to: CGPoint(x: 6, y: 11))
+                path.addLine(to: CGPoint(x: 13, y: 4))
+              }.stroke(NativePalette.receiptCheck,
+                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                .frame(width: 16, height: 16).accessibilityHidden(true)
             }.padding(.horizontal, 10).padding(.vertical, 10)
-              .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-              .contentShape(Rectangle())
-          }.buttonStyle(.plain).disabled(dismissed)
-            .accessibilityLabel(option["label"].string)
-            .accessibilityValue(selected.contains(value) ? "Selected" : "")
-        }
-      }.background(NativePalette.background, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(NativePalette.separator.opacity(0.5), lineWidth: 0.5))
-        .opacity(dismissed ? 0.35 : 1)
-      if dismissed {
-        Text("dismissed").font(.system(size: 12)).foregroundStyle(NativePalette.chatFaint)
-          .accessibilityIdentifier("widget-dismissed-" + message.id)
+              .frame(minHeight: 40).accessibilityElement(children: .combine)
+              .accessibilityValue("Selected")
+              .accessibilityIdentifier("widget-answer-\(message.id)-\(index)")
+          }
+        }.background(NativePalette.background, in: RoundedRectangle(cornerRadius: 12))
+          .overlay(RoundedRectangle(cornerRadius: 12).stroke(NativePalette.separator, lineWidth: 0.5))
       } else {
-        if widget["allowCustom"].bool {
-          Text("Or answer in the chat below").font(.system(size: 14))
-            .foregroundStyle(NativePalette.chatFaint)
-        }
-        if widget["multiSelect"].bool {
-          Button {
-            let values = widget["options"].array.map {
-              $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
-            }.filter(selected.contains)
-            act("widget-response", body: ["value": .string(values.joined(separator: "\n"))])
-          } label: {
-            Text("Submit").font(.system(size: 15, weight: .medium))
-              .foregroundStyle(selected.isEmpty ? NativePalette.chatFaint : NativePalette.onPrimary)
-              .frame(maxWidth: .infinity).frame(height: 38)
-              .background(selected.isEmpty ? NativePalette.widgetDisabled : NativePalette.text,
-                in: RoundedRectangle(cornerRadius: 9))
-          }.buttonStyle(WidgetSubmitStyle()).disabled(selected.isEmpty)
-            .accessibilityIdentifier("widget-submit-" + message.id)
+        let dismissed = meta["widgetDismissed"].bool
+        VStack(spacing: 0) {
+          ForEach(Array(widget["options"].array.enumerated()), id: \.offset) { index, option in
+            let value = option["value"].string.isEmpty ? option["label"].string : option["value"].string
+            Button {
+              if widget["multiSelect"].bool {
+                NativeHaptics.play(.selection, source: "widget.selection")
+                var values = selected
+                if values.contains(value) { values.remove(value) } else { values.insert(value) }
+                var draft = store.draft(message.channelId)
+                draft.widgetResponse = nil
+                if draft.widgetSelections == nil { draft.widgetSelections = [:] }
+                draft.widgetSelections?[message.id] = widget["options"].array.map {
+                  $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
+                }.filter(values.contains)
+                store.saveDraft(draft, channel: message.channelId)
+              } else { act("widget-response", body: ["value": .string(value)]) }
+            } label: {
+              HStack(alignment: .top, spacing: 11) {
+                Text(index < 26 ? String(UnicodeScalar(65 + index)!) : String(index + 1))
+                  .font(.system(size: 13))
+                  .foregroundStyle(Color(hex: "979699"))
+                  .frame(width: 24, height: 24)
+                  .background(NativePalette.separator.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                  .overlay(RoundedRectangle(cornerRadius: 8)
+                    .stroke(NativePalette.separator, lineWidth: 1))
+                  .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3.5) {
+                  Text(option["label"].string).font(.body)
+                    .foregroundStyle(option["style"].string == "danger"
+                      ? NativePalette.widgetDanger : NativePalette.text)
+                  if !option["description"].string.isEmpty {
+                    Text(option["description"].string).font(.system(size: 14))
+                      .foregroundStyle(NativePalette.chatMuted)
+                  }
+                }.fixedSize(horizontal: false, vertical: true).padding(.top, 2)
+                Spacer(minLength: 0)
+                if selected.contains(value) {
+                  Image(systemName: "checkmark").font(.system(size: 14))
+                    .foregroundStyle(NativePalette.receiptCheck)
+                }
+              }.padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: 41, alignment: .leading)
+                .contentShape(Rectangle())
+            }.buttonStyle(.plain).disabled(dismissed)
+              .accessibilityLabel(option["label"].string)
+              .accessibilityValue(selected.contains(value) ? "Selected" : "")
+          }
+        }.opacity(dismissed ? 0.35 : 1)
+        if dismissed {
+          Text("dismissed").font(.system(size: 12)).foregroundStyle(NativePalette.chatFaint)
+            .accessibilityIdentifier("widget-dismissed-" + message.id)
+        } else {
+          if widget["multiSelect"].bool {
+            Button {
+              let values = widget["options"].array.map {
+                $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
+              }.filter(selected.contains)
+              act("widget-response", body: ["value": .string(values.joined(separator: "\n"))])
+            } label: {
+              Text("Submit").font(.system(size: 15, weight: .medium))
+                .foregroundStyle(selected.isEmpty ? NativePalette.chatFaint : NativePalette.onPrimary)
+                .frame(maxWidth: .infinity).frame(height: 38)
+                .background(selected.isEmpty ? NativePalette.widgetDisabled : NativePalette.text,
+                  in: RoundedRectangle(cornerRadius: 9))
+            }.buttonStyle(WidgetSubmitStyle()).disabled(selected.isEmpty)
+              .accessibilityIdentifier("widget-submit-" + message.id)
+          }
         }
       }
+    }.padding(14)
+      .background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 18))
+      .overlay(RoundedRectangle(cornerRadius: 18)
+        .stroke(NativePalette.separator, lineWidth: 0.5))
+    if meta["respondedValue"] == .null && !meta["widgetDismissed"].bool && widget["allowCustom"].bool {
+      Text("Or answer in the chat below").font(.system(size: 14))
+        .foregroundStyle(NativePalette.chatFaint).padding(.leading, 14)
     }
   }
   @ViewBuilder var secretRequest: some View {
@@ -532,7 +540,7 @@ struct RichMessageCard: View {
           draftAction("send")
         } label: {
           HStack(spacing: 6) {
-            if sending { ProgressView().controlSize(.mini).tint(DraftPalette.quaternary) }
+            if sending { LoadingOrb(size: 14, label: "Sending") }
             Text(sending ? "Sending…" : "Send")
           }
         }.buttonStyle(DraftButtonStyle(primary: true, sending: sending))
@@ -556,13 +564,102 @@ struct RichMessageCard: View {
       }
     }
   }
+  /// "Send this message?": a bot's text waits until the user sends it from the named Mac.
+  @ViewBuilder var imessageSend: some View {
+    let send = meta["imessage"]
+    let machine = send["machineLabel"].string.isEmpty ? "your Mac" : send["machineLabel"].string
+    let name = send["recipientName"].string
+    let handle = send["to"].string
+    let recipient = send["recipientLabel"].string
+    let text = send["text"].string
+    let sending = state == "sending" || draftSending
+    if state == "pending" || state == "sending" {
+      HStack(spacing: 8) {
+        Image(systemName: "message.fill").font(.system(size: 15)).foregroundStyle(Color(red: 0.2, green: 0.78, blue: 0.35))
+        Text(verbatim: "Send this message?").font(.system(size: 15, weight: .medium)).kerning(-0.15)
+          .foregroundStyle(DraftPalette.text).lineLimit(1)
+      }
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(verbatim: "To").font(.system(size: 13)).foregroundStyle(DraftPalette.tertiary)
+        Text(verbatim: name.isEmpty ? (handle.isEmpty ? recipient : handle) : name)
+          .font(.system(size: 15, weight: .medium)).foregroundStyle(DraftPalette.text).lineLimit(1)
+        if !name.isEmpty, !handle.isEmpty {
+          Text(verbatim: handle).font(.system(size: 15)).foregroundStyle(DraftPalette.secondary).lineLimit(1)
+        }
+      }
+      HStack {
+        Spacer(minLength: 40)
+        Text(verbatim: text).font(.system(size: 16)).foregroundStyle(.white)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(.horizontal, 12).padding(.vertical, 7)
+          .background(Color(red: 0.04, green: 0.52, blue: 1), in: RoundedRectangle(cornerRadius: 18))
+      }
+      DraftNote("The message will be sent from " + machine)
+      if !meta["sendError"].string.isEmpty { DraftNote(meta["sendError"].string, alert: true) }
+      let allowName = name.isEmpty ? handle : name
+      let allowable = send["allowable"].bool && !handle.isEmpty
+      // One row when it fits; otherwise Send and Discard stay together and Always allow goes below.
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 8) {
+          imessageSendButton(sending: sending)
+          if allowable { imessageAllowButton(allowName, sending: sending) }
+          imessageDiscardButton(sending: sending)
+        }
+        VStack(alignment: .leading, spacing: 8) {
+          HStack(spacing: 8) { imessageSendButton(sending: sending); imessageDiscardButton(sending: sending) }
+          if allowable { imessageAllowButton(allowName, sending: sending) }
+        }
+      }
+    } else {
+      HStack(spacing: 8) {
+        Image(systemName: "message.fill").font(.system(size: 13)).foregroundStyle(Color(red: 0.2, green: 0.78, blue: 0.35))
+        Text(verbatim: "Messages").font(.system(size: 15, weight: .medium)).kerning(-0.15).foregroundStyle(DraftPalette.text)
+        Spacer(minLength: 0)
+        DraftStatusBadge(state: state)
+      }
+      let line = text.split(separator: "\n").first.map(String.init) ?? text
+      let summary = state == "unknown"
+        ? "The send was interrupted — check Messages on " + machine + " to see whether it went out"
+        : (state == "sent" ? "Sent to " : "To ") + (name.isEmpty ? recipient : name) + " — “" + line + "”"
+      Text(verbatim: summary).font(.system(size: 15)).kerning(-0.15)
+        .foregroundStyle(DraftPalette.secondary).lineLimit(1).truncationMode(.tail)
+      if state == "sent", !meta["allowedRecipient"].string.isEmpty {
+        DraftNote("Later messages to " + (name.isEmpty ? recipient : name) + " from this computer won't ask")
+      } else if state == "sent", meta["sentUnder"].bool {
+        DraftNote("Sent without asking, as allowed on " + machine)
+      }
+      if state == "failed", !meta["sendError"].string.isEmpty { DraftNote(meta["sendError"].string, alert: true) }
+    }
+  }
+  private func imessageSendButton(sending: Bool) -> some View {
+    Button {
+      act("imessage-send", body: ["action": .string("send")])
+    } label: {
+      HStack(spacing: 6) {
+        if sending { LoadingOrb(size: 14, label: "Sending") }
+        Text(sending ? "Sending…" : "Send")
+      }
+    }.buttonStyle(DraftButtonStyle(primary: true, sending: sending)).disabled(sending)
+  }
+  private func imessageAllowButton(_ name: String, sending: Bool) -> some View {
+    Button("Always allow " + name) { act("imessage-send", body: ["action": .string("allow")]) }
+      .buttonStyle(DraftButtonStyle(primary: false, sending: false)).lineLimit(1).disabled(sending)
+  }
+  private func imessageDiscardButton(sending: Bool) -> some View {
+    Button("Discard") { act("imessage-send", body: ["action": .string("cancel")]) }
+      .buttonStyle(DraftButtonStyle(primary: false, sending: false)).disabled(sending)
+  }
   @ViewBuilder var sharedTemplate: some View {
     let template = meta["template"]
     Text(template["recipe"]["profile"]["name"].string).font(.headline)
     Text(template["recipe"]["profile"]["description"].string)
     DisclosureGroup("Complete template") { Text(template["recipe"].pretty).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
     ShareLink("Export template", item: template["recipe"].pretty)
-    Text(meta["outcomeText"].string.isEmpty ? state.capitalized : meta["outcomeText"].string)
+    Text(meta["outcomeText"].string.isEmpty ? (state == "draft" ? "Unpublished" : state.capitalized) : meta["outcomeText"].string)
+    if state == "draft" {
+      Text("Draft: only you can see it until you publish").font(.footnote).foregroundStyle(NativePalette.muted)
+      Button(busy ? "Publishing…" : "Publish") { templateAction("publish") }
+    }
     if state == "published" {
       Button("Create a bot from this template") { templateAction("import") }
       Button("Unpublish") { templateAction("unpublish") }
@@ -615,7 +712,7 @@ struct RichMessageCard: View {
       requestID = UUID().uuidString
     }
     if payload["clientId"] == nil { payload["clientId"] = .string(requestID) }
-    if suffix == "external-draft", body["action"]?.string == "send" { draftSending = true }
+    if suffix == "external-draft" || suffix == "imessage-send", ["send", "allow"].contains(body["action"]?.string ?? "") { draftSending = true }
     Task {
       defer {
         busy = false
@@ -630,7 +727,7 @@ struct RichMessageCard: View {
           store.persist()
         }
         // A draft reports its outcome in the returned card (sent, reopened with an error, unchanged).
-        guard suffix == "external-draft"
+        guard suffix == "external-draft" || suffix == "imessage-send"
           || WidgetMutationReceipt.accepted(result, action: suffix, clientID: payload["clientId"]?.string ?? "", value: payload["value"] ?? .null) else {
           NativeHaptics.play(.error, source: "rich-action.result")
           failure = "This action is no longer available. The card has been refreshed."

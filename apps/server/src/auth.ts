@@ -3,7 +3,7 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { bearer, username } from "better-auth/plugins";
 
-const secret = process.env.OPENTEAM_AUTH_SECRET ?? process.env.BETTER_AUTH_SECRET;
+const secret = process.env.OPENTEAM_AUTH_SECRET;
 const baseURL = process.env.OPENTEAM_AUTH_URL || "http://127.0.0.1:8787";
 
 if (!secret || secret.length < 32) {
@@ -57,6 +57,9 @@ export const auth = betterAuth({
       minUsernameLength: 3,
       maxUsernameLength: 30,
       displayUsername: false,
+      // Sign-in only looks the name up, in any case; the rules apply when a username is set
+      // (owner-credentials.ts), so a mistyped name gets the usual wrong-credentials answer.
+      usernameValidator: () => true,
     }),
     bearer({ requireSignature: true }),
   ],

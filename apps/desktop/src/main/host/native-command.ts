@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
 export type NativeCommand = (file: string, args: string[], signal?: AbortSignal) => Promise<string>;
+/** reason names a recognized macOS refusal, which callers detect themselves (stderr is never read). */
+export class NativeCommandError extends Error {
+  constructor(message: string, readonly reason: "automation_denied" | "failed") { super(message); }
+}
 export const nativeCommand: NativeCommand = (file, args, signal) =>
   new Promise((resolve, reject) => {
     const child = spawn(file, args, { stdio: ["ignore", "pipe", "pipe"], signal });
@@ -26,8 +30,9 @@ export const nativeCommand: NativeCommand = (file, args, signal) =>
       clearTimeout(timeout);
       if (code !== 0 || exceeded)
         reject(
-          new Error(
-            `Native operation failed (${code ?? "interrupted"}); check the application's OS permissions and connection`
+          new NativeCommandError(
+            `Native operation failed (${code ?? "interrupted"}); check the application's OS permissions and connection`,
+            "failed"
           )
         );
       else resolve(Buffer.concat(output).toString("utf8"));

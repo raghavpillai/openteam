@@ -1,5 +1,8 @@
 import { ApiError } from "@openteam/contracts";
 
+/** Account labels match case-insensitively, and new ones are stored lowercase, as in the reference. */
+export const normalizeAccountLabel = (label: string): string => label.trim().toLowerCase();
+
 /** Keep compatibility aliases out of account selection. Conflicting spellings
  * are refused instead of silently routing to a different account. */
 export function pluginToolArguments(action: string, value: unknown): Record<string, unknown> {
@@ -20,6 +23,15 @@ export function pluginToolArguments(action: string, value: unknown): Record<stri
     if (args[legacy] !== undefined) args[canonical] = args[legacy];
     delete args[legacy];
   };
+  if (["GetPlugin", "InstallPlugin", "UninstallPlugin"].includes(action)) {
+    // The reference accepts id and pluginId for plugin_id, and refuses conflicting spellings.
+    const spellings = ["plugin_id", "pluginId", "id"].filter((key) => args[key] !== undefined);
+    if (new Set(spellings.map((key) => args[key])).size > 1)
+      throw new ApiError(400, "ambiguous_plugin_arguments", "Pass the plugin's id once, as plugin_id (from SearchPlugins).");
+    if (spellings.length) args.plugin_id = args[spellings[0]!];
+    delete args.pluginId;
+    delete args.id;
+  }
   alias("pluginKey", "plugin_id");
   alias("forceReauth", "force_reauth");
   if (action === "RenameMcpAccount") alias("accountLabel", "new_account_label");
@@ -31,6 +43,7 @@ export function pluginToolArguments(action: string, value: unknown): Record<stri
       catch { throw new ApiError(400, "invalid_account_label", "Invalid quoted account label"); }
     }
   }
+  if (action === "RenameMcpAccount" && typeof args.accountLabel === "string") args.accountLabel = normalizeAccountLabel(args.accountLabel);
   if (action === "AddMcpServer" && args.auth !== undefined && typeof args.auth !== "string") {
     const auth = args.auth as Record<string, unknown> | null;
     if (

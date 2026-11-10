@@ -7,9 +7,9 @@ import { join } from "node:path";
 import { discoverPackages } from "../../../scripts/generate";
 import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
 
-const prototype = new URL("../../", import.meta.url).pathname;
+const sourceDirectory = new URL("../../", import.meta.url).pathname;
 const temporary = mkdtempSync(join(tmpdir(), "signal-mcp-"));
-const packageRoot = mkdtempSync(join(prototype, "../.signal-package-"));
+const packageRoot = mkdtempSync(join(sourceDirectory, "../.signal-package-"));
 let client: Client;
 let transport: StdioClientTransport;
 let definition: Awaited<ReturnType<typeof discoverPackages>>[number];
@@ -17,7 +17,7 @@ let stderr = "";
 
 beforeAll(async () => {
   // Build with the same catalog generator as a published packaged plugin.
-  cpSync(prototype, join(packageRoot, "signal"), {
+  cpSync(sourceDirectory, join(packageRoot, "signal"), {
     recursive: true,
     filter: (path) => !path.includes("/connector/test") && !path.endsWith("tsconfig.json"),
   });
@@ -49,7 +49,7 @@ beforeAll(async () => {
   transport.stderr?.on("data", (data) => {
     stderr += String(data);
   });
-  client = new Client({ name: "signal-prototype-test", version: "1" });
+  client = new Client({ name: "signal-connector-test", version: "1" });
   await client.connect(transport);
 });
 afterAll(async () => {

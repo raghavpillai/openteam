@@ -4,49 +4,86 @@ Each bot has its own screen on the server's Linux computer, with a browser and a
 
 ## Watch a bot's screen
 
-Open a bot and choose the computer button at the top right of the conversation. Select the screen preview to open the bot's screen full size. After you've opened it once, the preview refreshes every few seconds while the panel is open.
+Open a bot and choose the computer button at the top right of the conversation.
 
-The full-size view is live, so you can click and type in it. Avoid doing so while the bot is mid-task, or you'll get in each other's way.
+On desktop, this opens a panel with a preview of the bot's screen. After you've opened it once, the preview refreshes every few seconds while the panel is open. Select the preview to open the screen full size. The full-size view gives you control: you can click and type, and the bot can't use its screen or browser until you close the view. Close it when you're done so the bot can carry on.
+
+On iPhone and iPad, the button opens the bot's screen full size, for watching only. To click and type, choose **Take control** from the **⋯** menu. The bot pauses until you choose **Give back control** or close the screen with **Done**.
 
 ## Take over when the bot needs you
 
-Some steps need a person. When that happens, the bot posts a card in the chat asking you to take over (**Take over the computer** on desktop).
+Some steps need a person. When that happens, the bot posts a card in the chat asking you to take over (**Take over the computer** on desktop, **Your help is needed** on iPhone).
 
 1. Choose **Take over** to open the bot's screen.
 2. Complete the step.
-3. Choose **I'm done, continue** to hand control back. Choose **Skip this step** if you can't or don't want to do it.
+3. Hand control back. On desktop, choose **I'm done, continue**, or **Skip this step** if you can't or don't want to do it. On iPhone, tap **Done** when you've finished.
 
-On iPhone, the card is titled **Your help is needed** and offers **Take over** and **Skip**. Tap **Done** when you've finished. To step in at other times, open the bot's screen and choose **Take control** from the **⋯** menu.
+To decline without opening the screen, choose **Skip** on the card.
 
 ## Sign in to websites
 
 Bots' browsers share sign-ins, so once you sign in to a site on one bot's screen, all your bots are signed in. Sign-ins that the site remembers last across restarts.
 
-There are two ways to sign a bot in:
+There are three ways to sign a bot in:
 
 - **Type it yourself.** Take over the bot's screen and sign in to the site directly. Never paste a password into the chat.
+- **Fill in a secure form.** When a page needs something you have to type, such as a login or a one-time code, the bot can show a form in the chat. Passwords and codes you enter there go straight into the page in the bot's browser; the bot never sees them.
 - **Use saved logins.** Add the **1Password** plugin with a read-only service account token. The bot looks up the matching login with the 1Password CLI and types it into the site. Values it reads appear in the conversation.
+
+On a Mac, a bot can also import your Chrome sign-ins; see [use your own computer](#use-your-own-computer).
 
 Some sites block automated browsers or ask for extra verification. If that happens, take over to finish the step, or ask the bot to find another way.
 
+## Administrator commands
+
+Bots can use `sudo` without a password to install software and change their Linux computer. That also lets them read every file in the computer's container, including your provider credentials. The computer is a Docker container that shares the host's kernel, not a separate virtual machine. VPN apps can run there but may need extra setup.
+
+## What restarts and updates keep
+
+When OpenTeam updates, or recreates the computer after a settings change, the computer starts again from a fresh image. It keeps the bots' home folder and `/workspace`, including each bot's browser profile and sign-ins (open tabs aren't reopened). It also keeps everything under `/usr/local`, where `sudo pip install` and `sudo npm install -g` put software, and it reinstalls apt packages that bots installed. Everything else, such as `/tmp`, changes under `/etc` and files in `/opt`, starts fresh. If a package can't be reinstalled, the bots are told. To see what the computer reinstalls, ask a bot to run `openteam-installs`.
+
 ## Use your own computer
 
-The desktop app can connect your own computer to OpenTeam, so bots can work with local files and tools. The app makes an outgoing connection, so you don't need to open any ports.
+When you sign in to the desktop app, it connects that computer to OpenTeam, so bots can work with local files and tools. The app makes an outgoing connection, so you don't need to open any ports.
 
-With your permission, a bot can:
+A bot can:
 
 - Run commands on your computer (macOS and Linux only)
 - Read files on your computer
 - Copy files between your computer and its `/workspace`
-- On a Mac: read your contacts, read and send Messages, and import your Chrome sign-ins into its browser
+- On a Mac: import your Chrome sign-ins into its browser for the sites a task needs, and, if you turn on [Messages](#messages-on-a-mac), find your contacts and read and send texts
 
-Bots don't get a view of your screen or control of your mouse and keyboard. They work through commands and files.
+Bots don't get a view of your screen or control of your mouse and keyboard. They work through commands and files, and they run commands, file transfers and Chrome sign-in imports without asking first. Your computer may ask you to grant OpenTeam permissions, such as access to Contacts.
 
-Bots execute commands, transfers, and available native tools directly on enrolled computers. To stop access, disable the computer under **Settings → Computer → Computers** or close the desktop app.
+To stop access, quit the desktop app, or disable the computer from another device: open **Settings → Server → Manage devices** and choose **Disable** from the computer's **…** menu on desktop, or swipe its row on iPhone.
 
-Your computer may ask you to grant OpenTeam permissions, such as access to Contacts. To read Messages, turn on Full Disk Access for OpenTeam in **System Settings → Privacy & Security**; macOS doesn't ask for this one.
+### Messages on a Mac
+
+Bots can use Messages only on a Mac where you turn it on:
+
+1. On that Mac, open **Settings → Computer** in the desktop app and turn on **Use Messages**, or choose **Set up** next to **Messages** under **This Mac** in **Marketplace**.
+2. A window lists the macOS permissions Messages needs. Choose **Allow** next to each: **Automation** lets bots send through Messages, **Contacts** lets them find people by name, and **Full Disk Access** lets them search your texts. macOS doesn't ask for Full Disk Access, so **Allow** opens System Settings, where you turn on OpenTeam. Reopen the window any time from **macOS permissions** in the same section. If a bot needs a permission you haven't granted, the window opens on that Mac.
+
+Before a bot sends a text, a **Send this message?** card shows the recipient, the text and the Mac it goes out from, in the desktop and iPhone apps. Choose **Send**, **Discard**, or **Always allow** to let bots text that person from that Mac without asking. **Send Without Asking** skips the card for every text. **Allowed recipients** under **Settings → Computer → Messages** lists the people you've allowed, with a button to remove each. Turning Messages off and on again clears both.
+
+With Messages on for more than one Mac, a bot uses the Mac you last wrote from, or the only one that's online. A Mac goes offline when it sleeps or its app closes, so closing a MacBook moves Messages to another Mac that's awake. **Settings → Server → Manage devices** shows each computer as online now or when it was last opened, and whether Messages is on there. The iPhone app has the same list under **Settings → Server → Manage devices**.
 
 Keep the desktop app open while a bot works on your computer. When you give a task, say which computer you mean, because the bot's Linux computer and your own computer have different files.
+
+## Route computer traffic through a connected computer
+
+The bot computer can use the internet connection of a Mac or Linux computer running the desktop app, so websites see that computer's connection. Bots, browser profiles and sign-ins stay on your server, and sharing doesn't give bots that computer's files.
+
+1. On the computer that will share its connection, open **Settings → Server** in the desktop app and turn on **Share this computer’s connection** under **Computer network**. Check the server address before allowing it. The computer joins the connection list.
+2. Drag the connections into the order you want, then choose **Apply**. On iPhone or iPad, open **Settings → Server**, reorder the **Browser network** list (or use **Move up** and **Move down**), then choose **Apply**.
+
+OpenTeam uses the highest available connection. **Server connection** is always in the list; computers below it aren't used.
+
+Everything on the bot computer is routed, including its browser, terminal commands and plugins that run there. Model requests, web fetch and plugins in other containers keep the server's connection. Local and private network addresses are blocked, and UDP other than DNS isn't supported.
+
+When a computer sleeps, quits the app or stops sharing, OpenTeam moves to the next connection. Switching drops open downloads and connections. Pages stay open, but nothing is replayed, so check whether an action went through before retrying it. **Connection test → Test** checks the active connection's speed, and **Exit IP** shows the address and approximate location websites see.
+
+To stop sharing, turn off the switch or quit the app (on a Mac, closing the window leaves the app running). Windows computers and phones can't share a connection.
 
 ## If the screen won't load
 

@@ -42,21 +42,23 @@ Some installed plugins include skills and runtime instructions. These load for a
 
 | Plugin | Included skills |
 | --- | --- |
-| [Slack](../../packages/plugins/slack/README.md#skills-and-commands) | 8: `slack-messaging`, `slack-search`, `slack-docs`, `slack-api`, `slack-cli`, `create-slack-app`, `test-slack-app`, and `block-kit` |
+| [Slack (managed)](../../packages/plugins/slack/README.md#skills-and-commands) | 8: `slack-messaging`, `slack-search`, `slack-docs`, `slack-api`, `slack-cli`, `create-slack-app`, `test-slack-app`, and `block-kit` |
 | [Granola](../../packages/plugins/granola/README.md) | 3: `granola-context`, `granola-prep`, and `granola-review` |
 | [Notion](../../packages/plugins/notion/README.md) | 14: `search`, `find`, `create-page`, `create-task`, `create-database-row`, `database-query`, `knowledge-capture`, `meeting-intelligence`, `research-documentation`, `spec-to-implementation`, `tasks-plan`, `tasks-build`, `tasks-explain-diff`, and `tasks-setup` |
 | [Plaid](../../packages/plugins/plaid/README.md) | 4: `plaid-setup`, `plaid-connections`, `plaid-financial-data`, and `plaid-troubleshooting` |
+| [Ramp](../../packages/plugins/ramp/README.md) | 23: `ramp-openteam`, plus 22 Ramp playbooks such as `ramp-spend-analysis`, `ramp-approval-dashboard`, `ramp-complete-expenses`, and `ramp-book-flight` |
+| [Email](../integrations/email.md) | 1: `email-mailbox` |
 | [1Password](../../packages/plugins/1password/README.md) | 1: `1password` |
 | [Google Drive](../../packages/plugins/google-drive/README.md) | 1: `google-drive` |
 | [Google Docs](../../packages/plugins/google-docs/README.md) | 1: `google-docs` |
 | [Google Sheets](../../packages/plugins/google-sheets/README.md) | 1: `google-sheets` |
 | [Google Slides](../../packages/plugins/google-slides/README.md) | 1: `google-slides` |
 
-Gmail, Google Calendar, GitHub, and Linear provide tools without bundled skills. You can create a private skill that uses those tools.
+Gmail, Google Calendar, GitHub, Linear, and Slack (stealth) provide tools without bundled skills. You can create a private skill that uses those tools.
 
 Provider skills keep their original upstream instructions. Installing or updating Granola and Notion fetches their pinned skills automatically; you don't need to copy files yourself. Updating a plugin updates its included skills. Your private skills remain separate.
 
-Slack and Granola also include commands. For example, ask for `/slack:summarize-channel #general` or `/granola-brief <meeting or topic>`. See their package guides for all commands and any extra setup. Slack's app-development skills may need the Slack CLI and a language runtime on the bot computer. The 1Password skill installs the 1Password CLI on the bot computer the first time it runs and uses the token entered when the plugin was added.
+Slack (managed) and Granola also include commands. For example, ask for `/slack:summarize-channel #general` or `/granola-brief <meeting or topic>`. See their package guides for all commands and any extra setup. Slack's app-development skills may need the Slack CLI and a language runtime on the bot computer. The 1Password skill installs the 1Password CLI on the bot computer the first time it runs and uses the token entered when the plugin was added.
 
 ## Test and improve a skill
 

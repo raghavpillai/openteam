@@ -34,7 +34,7 @@ function runtime() {
 }
 
 real(
-  "real signal-cli returns its version through the prototype transport",
+  "real signal-cli returns its version through the connector transport",
   async () => {
     expect((await runtime().request("version")).version).toMatch(/^0\.14\./);
   },

@@ -72,7 +72,7 @@ export const checkAgentWorkspace = (workspace: string, timeoutMs = 2_000): Promi
       {
         ...identity,
         // The probe needs no credentials, inherited shell hooks, or user configuration.
-        env: { PATH: "/usr/local/bin:/usr/bin:/bin" },
+        env: { PATH: "/usr/bin:/bin" },
         cwd: "/tmp",
         stdio: "ignore",
       }

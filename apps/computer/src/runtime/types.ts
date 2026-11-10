@@ -6,16 +6,17 @@ import type {
   PluginDynamicNamespace,
   SubagentType,
 } from "@openteam/contracts";
-import type { BotMessage } from "../bot-compaction";
+import type { BotArchiveBlob, BotMessage } from "../bot-compaction";
 import type { ComputerEventQueue } from "../computer-event-queue";
 import type { DynamicToolDefinition } from "../dynamic-tool-gateway";
 import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 
-export type TurnStatus = "completed" | "failed" | "interrupted";
+export type TurnStatus = "completed" | "failed" | "interrupted" | "cancelled";
 
 export interface ActiveTurn {
-  runtimeStartedAt?: number;
   taskConfiguration?: TaskConfiguration;
+  /** A connected Mac had Messages turned on when the turn started, so the Messages tools are offered. */
+  messagesAvailable?: boolean;
   pluginRuntimePackages?: readonly import("@openteam/plugin-sdk").PluginRuntimePackage[];
   pluginAbortController?: AbortController;
   closePluginSession?: () => Promise<void>;
@@ -29,7 +30,6 @@ export interface ActiveTurn {
   deliveryId: string | null;
   runtimeProfile: "agent" | "subagent";
   subagentType: SubagentType | null;
-  skillAccess: "read" | "tool";
   modelRef: PiModelRef;
   reasoning: PiReasoningLevel;
   cwd: string;
@@ -41,9 +41,10 @@ export interface ActiveTurn {
   compactionRequestMessages?: BotMessage[];
   /** Canonical persisted history; Pi may remove retry failures only from memory. */
   compactionReadPiMessages?: () => BotMessage[];
+  compactionReadPiBoundary?: () => BotArchiveBlob["piBoundary"];
+  compactionUsageInvalidated?: () => boolean;
   pendingCompactionMeasurement?: { compactionId: string; epoch: number };
   todoUpdate: string | null;
-  automationTrigger: string | null;
   resetSelfSummaryCount: boolean;
   requestSource: NonNullable<ComputerTurnRequest["requestSource"]>;
   turnId: string;
@@ -56,34 +57,57 @@ export interface ActiveTurn {
   currentAssistantId: string | null;
   currentReasoningId: string | null;
   startedItems: Set<string>;
-  toolArgs: Map<string, { toolName: string; args: unknown; deliveryCleanup?: boolean }>;
+  toolArgs: Map<string, { toolName: string; args: unknown; responseCall?: boolean }>;
   lastStopReason: string | null;
   lastErrorMessage: string | null;
   lastGraphicalSurface?: "browser" | "computer";
   sentMessageCount: number;
-  toolActivityAfterLastSend: boolean;
+  /** SendToUser calls of a response go out one after another, in call order. */
+  sendChain?: Promise<unknown>;
   initialUserStarted: boolean;
   initialUserClientId?: string;
-  pendingSteers: Array<{
-    inboxId: string;
-    clientMessageId: string;
-    content: string;
-  }>;
-  acceptedSteerIds: Set<string>;
-  discoveredDynamicTools: Set<string>;
-  /** Exact projection sent to the current model call, before result fencing. */
-  dynamicDiscoveryMessages?: readonly BotMessage[];
   pluginNamespaces: readonly PluginDynamicNamespace[];
   attachmentTempDirectories: string[];
   lastPromptFingerprint?: string;
   connectorInstructions?: string;
   endTurnRequested?: boolean;
-  /** Remaining attachment calls from the already-produced assistant response. */
-  pendingDeliveryAttachments?: Map<string, string>;
-  finishDeliveryAttachments?: boolean;
-  /** Exact stop calls already emitted alongside a closing response. */
-  pendingDeliveryCleanup?: Map<string, string>;
+  /** Recovery waits for ownership and provider resources to be released. */
+  contextReleased?: Promise<void>;
+  resolveContextReleased?: () => void;
+  /** Unexecuted calls of the latest assistant response; each may run once after its closing send. */
+  pendingResponseCalls?: Map<string, string>;
+  /** A closing send, closing reaction, or question ended the turn; the rest of its response still runs. */
+  finishResponseCalls?: boolean;
+  /** Calls of the latest assistant response that started, each settled once its result is final. */
+  responseCallEnds?: Map<string, { ended: Promise<void>; settle: () => void }>;
+  /** Calls of the latest assistant response that failed. */
+  failedResponseCalls?: string[];
+  /** SendToUser calls of the latest assistant response that failed. */
+  failedResponseSends?: Set<string>;
+  /** This turn showed a question or handed the box back; it waits on the user and is never held open. */
+  awaitingUser?: boolean;
+  /** The closing send or reaction; a hold's reminder rides on its result. */
+  endTurnCallId?: string;
+  endTurnHolds?: number;
   acknowledgedCardOutcomes?: Set<string>;
+  /** computerUse only: failure classes of the current run of failed calls. */
+  toolFailureStreak?: string[];
+  toolFailureBreakerTripped?: boolean;
+  lastAgentMessage?: { id: string; text: string };
+  outputLimitReminded?: boolean;
+  /** The low-disk episode this main-agent turn tells the bot about, and whether it went out. */
+  diskPressureEpisode?: string | null;
+  diskPressureReminded?: boolean;
+  /** Likewise for installs the computer's last start could not bring back, or rebuilt. */
+  installNotice?: { episode: string; content: string } | null;
+  installReminded?: boolean;
+  /** Likewise for programs the bot left running that a restart stopped. */
+  processNotice?: { keys: string[]; content: string } | null;
+  processReminded?: boolean;
+  /** A typed message superseded this run; calls it cut off say so. */
+  interruptedByUserAt?: number;
+  /** Stopped through the cancel-run API (the user's stop or StopSubagent): the turn settles as cancelled. */
+  stopped?: boolean;
 }
 
 export interface RuntimeDynamicTool extends DynamicToolDefinition {

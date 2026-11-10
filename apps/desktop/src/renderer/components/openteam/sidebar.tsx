@@ -18,8 +18,6 @@ import {
   ChevronRight,
   Clock3,
   Copy,
-  CopyPlus,
-  EyeOff,
   Folder,
   FolderPlus,
   LogOut,
@@ -35,8 +33,11 @@ import {
   UserRound,
 } from "lucide-react";
 import { Collapsible } from "radix-ui";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import calendarLogo from "../../assets/apps/google-calendar.svg?url";
+import notionLogo from "../../assets/apps/notion.svg?url";
+import slackLogo from "../../assets/apps/slack.svg?url";
 import { signOut } from "../../client/auth";
 import { useAuthSession } from "../../hooks/use-auth-session";
 import type {
@@ -48,7 +49,8 @@ import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import { accountPresentation } from "../../lib/account";
 import { channelMessageSummary } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
-import { requestDesktopUpdateRestart } from "../../lib/desktop-update";
+import { desktopUpdateProgress, requestDesktopUpdateRestart } from "../../lib/desktop-update";
+import { showsGroupLabel } from "../../lib/group-chat-presentation";
 import {
   COMPACT_SIDEBAR_WIDTH,
   MIN_EXPANDED_SIDEBAR_WIDTH,
@@ -108,6 +110,7 @@ import { Input } from "../ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { BotAvatar, ChannelAvatar } from "./avatar";
 import { BotName, BotRenameContext } from "./bot-name";
+import { DesktopUpdateCard } from "./desktop-update-card";
 import { SidebarCollapseMotion, SidebarMotion } from "./sidebar-motion";
 import { SidebarActivityProvider, useSidebarComposing } from "./sidebar-activity";
 import { SidebarUnreadAvatar, SidebarUnreadDot } from "./sidebar-unread";
@@ -169,7 +172,7 @@ function UnreadJumpPill({
     <button
       aria-label={`More unreads ${direction}`}
       className={cn(
-        "absolute left-1/2 z-[12] inline-flex -translate-x-1/2 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-full border-0 bg-[#469ffe] py-1 pl-1 pr-2 font-[inherit] text-[13px] font-normal leading-[18px] text-[#fcfcfc] shadow-[inset_0_0_0_1px_rgba(20,20,20,0.05),0_2px_8px_rgba(0,0,0,0.12)] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "sidebar-unread-pill absolute left-1/2 z-[12] inline-flex -translate-x-1/2 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-full border-0 py-1 pl-1 pr-2 font-[inherit] text-[13px] font-normal leading-[18px] text-[#fcfcfc] outline-none focus-visible:ring-2 focus-visible:ring-ring",
         direction === "above" ? "top-2" : "bottom-2",
         compact && "size-8 justify-center gap-0 p-0"
       )}
@@ -217,18 +220,77 @@ export function AccountMenu({
   const openingUpdateDialog = useRef(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [update, setUpdate] = useState<OpenTeamUpdateStatus | null>(null);
-  useEffect(
-    () =>
-      window.openteam?.updates.onClientProgress((next) => {
-        setUpdate(next);
-        if (next.status === "downloaded") {
-          openingUpdateDialog.current = true;
-          setMenuOpen(false);
-        }
-      }),
-    []
+  const [startingDownload, setStartingDownload] = useState(false);
+  const startingDownloadRef = useRef(false);
+  const updateDescriptionId = useId();
+  useEffect(() => {
+    let active = true;
+    let receivedProgress = false;
+    const unsubscribe = window.openteam?.updates.onClientProgress((next) => {
+      receivedProgress = true;
+      if (!active) return;
+      setUpdate(next);
+      if (next.status === "downloaded") {
+        openingUpdateDialog.current = true;
+        setMenuOpen(false);
+      }
+    });
+    // The badge must be visible before the account menu has ever been opened.
+    void window.openteam?.updates
+      .status()
+      .then((next) => {
+        if (active && !receivedProgress) setUpdate(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, []);
+  const hasUpdate = ["available", "downloading", "downloaded", "installing"].includes(
+    update?.status ?? ""
   );
-  const menuItem = "h-8 gap-2 rounded-[8px] px-2 text-[13px] font-normal leading-[19.5px]";
+  const progress = update ? desktopUpdateProgress(update) : null;
+  const updateLabel =
+    update?.status === "downloaded"
+      ? "Restart"
+      : update?.status === "downloading"
+        ? progress === null
+          ? "Updating"
+          : `${progress}%`
+        : update?.status === "installing"
+          ? "Restarting"
+          : "Update";
+  const updateDescription =
+    update?.status === "downloaded"
+      ? "Update ready. Restart to update OpenTeam."
+      : update?.status === "downloading"
+        ? `Downloading OpenTeam update${progress === null ? "" : `, ${progress}%`}.`
+        : update?.status === "installing"
+          ? "Restarting OpenTeam to install the update."
+          : "An OpenTeam update is available.";
+  const downloadUpdate = async () => {
+    if (!update || startingDownloadRef.current) return;
+    setUpdateError(null);
+    if (update.status === "downloaded") {
+      openingUpdateDialog.current = true;
+      setMenuOpen(false);
+      requestDesktopUpdateRestart(update);
+      return;
+    }
+    if (update.status !== "available") return;
+    startingDownloadRef.current = true;
+    setStartingDownload(true);
+    try {
+      await window.openteam?.updates.openDownload();
+    } catch {
+      setUpdateError("Could not download the update. Try again from update settings.");
+    } finally {
+      startingDownloadRef.current = false;
+      setStartingDownload(false);
+    }
+  };
+  const menuItem = "h-[34px] gap-2.5 rounded-[8px] px-2.5 text-[13px] font-normal leading-[19.5px]";
   const openExternal = (url: string) => window.open(url, "_blank", "noopener,noreferrer");
 
   return (
@@ -249,7 +311,35 @@ export function AccountMenu({
             .catch(() => setUpdateError("Could not check for updates. Try again from Settings."));
         }}
       >
-        <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
+        <div className="relative min-w-0" data-account-update={hasUpdate || undefined}>
+          <DropdownMenuTrigger aria-describedby={hasUpdate ? updateDescriptionId : undefined} asChild>
+            {children}
+          </DropdownMenuTrigger>
+          {hasUpdate ? (
+            <>
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute flex items-center justify-center gap-1 rounded-full bg-blue-600 font-medium text-white shadow-[0_0_0_2px_var(--sidebar)] dark:bg-blue-400 dark:text-[#10243a]",
+                  compact
+                    ? "right-1 top-1 size-4"
+                    : "right-2 top-1/2 h-5 -translate-y-1/2 px-1.5 text-[10px]"
+                )}
+                data-desktop-update-badge={update?.status}
+              >
+                {update?.status === "downloaded" ? (
+                  <RotateCw className="size-2.5" strokeWidth={2.5} />
+                ) : (
+                  <ArrowUp className="size-2.5" strokeWidth={2.5} />
+                )}
+                {!compact ? updateLabel : null}
+              </span>
+              <span className="sr-only" id={updateDescriptionId} role="status">
+                {updateDescription}
+              </span>
+            </>
+          ) : null}
+        </div>
         <DropdownMenuContent
           align={compact ? "end" : "start"}
           aria-label="Account"
@@ -258,51 +348,16 @@ export function AccountMenu({
             event.preventDefault();
             openingUpdateDialog.current = false;
           }}
-          className="w-[228px] rounded-[13px] border-0 bg-[#fcfcfc] p-1.5 antialiased shadow-[inset_0_0_0_0.5px_#d9d9d9,0_8px_22px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.04)] dark:bg-popover dark:shadow-[inset_0_0_0_0.5px_#3a3a3a,0_8px_22px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.04)]"
+          className="w-[264px] max-w-[calc(100vw-16px)] rounded-[16px] border-0 bg-[#fcfcfc] p-2 antialiased shadow-[inset_0_0_0_0.5px_#d9d9d9,0_8px_22px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.04)] dark:bg-popover dark:shadow-[inset_0_0_0_0.5px_#3a3a3a,0_8px_22px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.04)]"
           side={compact ? "right" : "top"}
           sideOffset={8}
         >
-          {["available", "downloading", "downloaded", "installing"].includes(
-            update?.status ?? ""
-          ) ? (
-            <div className="mb-1 flex h-[46px] items-center gap-2 rounded-[12px] bg-[#e3efff] pl-3 pr-2.5 text-[#0879e8] dark:bg-[#1b3b62] dark:text-[#469ffe]">
-              <span aria-live="polite" className="relative top-px min-w-0 flex-1 text-[13px]">
-                {update?.status === "downloading"
-                  ? "Downloading update"
-                  : update?.status === "installing"
-                    ? "Restarting…"
-                    : "New update available"}
-              </span>
-              <button
-                className="h-[26px] min-w-[47.5px] shrink-0 rounded-[6px] bg-[#fafafa] px-[5.5px] text-[13px] text-[#141414] hover:bg-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#469ffe]"
-                disabled={["downloading", "installing"].includes(update?.status ?? "")}
-                onClick={() => {
-                  setUpdateError(null);
-                  if (update?.status === "downloaded") {
-                    openingUpdateDialog.current = true;
-                    setMenuOpen(false);
-                    requestDesktopUpdateRestart(update);
-                    return;
-                  }
-                  void window.openteam?.updates
-                    .openDownload()
-                    .catch(() =>
-                      setUpdateError(
-                        "Could not download the update. Try again from update settings."
-                      )
-                    );
-                }}
-                type="button"
-              >
-                <span className="relative top-px">
-                  {update?.status === "downloading"
-                    ? `${Math.round(update.progress ?? 0)}%`
-                    : update?.status === "installing"
-                      ? "Restarting"
-                      : "Install"}
-                </span>
-              </button>
-            </div>
+          {hasUpdate && update ? (
+            <DesktopUpdateCard
+              onUpdate={() => void downloadUpdate()}
+              startingDownload={startingDownload}
+              update={update}
+            />
           ) : null}
           {updateError ? (
             <p className="px-2 py-1 text-[12px] text-destructive" role="alert">
@@ -319,7 +374,7 @@ export function AccountMenu({
             Get OpenTeam for iOS
           </DropdownMenuItem>
           <DropdownMenuItem className={menuItem} onSelect={onOpenSettings}><Settings className="size-4" strokeWidth={1.85} />Settings</DropdownMenuItem>
-          <DropdownMenuSeparator />
+          <DropdownMenuSeparator className="mx-1 my-1.5" />
           <DropdownMenuItem className={menuItem} onSelect={() => setSignOutOpen(true)}>
             <LogOut className="size-4" strokeWidth={1.85} />
             Log out
@@ -356,138 +411,12 @@ export function AccountMenu({
   );
 }
 
-export function HiddenAgentsDialog({
-  botById,
-  hiddenBots,
-  hiddenGroups,
-  onOpenChange,
-  onOpenChannel,
-  onUnhideBot,
-  onUnhideGroup,
-  open,
-}: {
-  botById: ReadonlyMap<string, BotView>;
-  hiddenBots: BotView[];
-  hiddenGroups: ChannelView[];
-  onOpenChange: (open: boolean) => void;
-  onOpenChannel: (channelId: string) => void;
-  onUnhideBot: (bot: BotView) => Promise<void>;
-  onUnhideGroup: (group: ChannelView) => Promise<void>;
-  open: boolean;
-}) {
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [error, setError] = useState(false);
-  const hiddenAgentCount = hiddenBots.length + hiddenGroups.length;
-  const unhide = async (id: string, request: () => Promise<void>) => {
-    setPendingId(id);
-    setError(false);
-    try {
-      await request();
-    } catch {
-      setError(true);
-    } finally {
-      setPendingId(null);
-    }
-  };
-
-  return (
-    <Dialog
-      onOpenChange={(nextOpen) => {
-        onOpenChange(nextOpen);
-        if (!nextOpen) setError(false);
-      }}
-      open={open}
-    >
-      <DialogContent
-        className="w-[420px] max-w-[calc(100vw-32px)] gap-0 overflow-hidden rounded-[16px] border-black/10 bg-background p-0 shadow-[0_24px_72px_rgba(0,0,0,0.24)]"
-        showCloseButton={false}
-      >
-        <div className="border-b border-black/[0.07] px-4 py-4 dark:border-white/[0.08]">
-          <DialogTitle className="text-[14px] font-medium">Hidden Bots</DialogTitle>
-          <DialogDescription className="mt-1 text-[12.5px] leading-[18px] text-foreground-secondary">
-            Hidden Bots stay active and keep their history, they're just not visible in the sidebar.
-          </DialogDescription>
-        </div>
-        <div className="bot-scrollbar max-h-[420px] min-h-[96px] overflow-y-auto p-2">
-          {error ? (
-            <div className="px-3 py-3 text-center text-[13px] text-destructive">
-              Check your connection and try again.
-            </div>
-          ) : null}
-          {hiddenAgentCount === 0 ? (
-            <div className="px-3 py-8 text-center text-[13px] text-foreground-secondary">
-              No hidden bots
-            </div>
-          ) : (
-            <div className="space-y-0.5">
-              {hiddenBots.map((bot) => (
-                <div
-                  className="flex h-11 items-center gap-2 rounded-[10px] px-2 hover:bg-accent"
-                  key={bot.id}
-                >
-                  <button
-                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none"
-                    onClick={() => {
-                      onOpenChange(false);
-                      onOpenChannel(bot.dmChannelId);
-                    }}
-                    type="button"
-                  >
-                    <BotAvatar bot={bot} channelId={bot.dmChannelId} size="sm" />
-                    <span className="min-w-0 flex-1 truncate text-[13px]">{bot.name}</span>
-                  </button>
-                  <button
-                    className="rounded-[8px] bg-black/[0.055] px-2.5 py-1.5 text-[12px] hover:bg-black/[0.09] disabled:opacity-50 dark:bg-white/[0.08] dark:hover:bg-white/[0.12]"
-                    disabled={pendingId !== null}
-                    onClick={() => void unhide(bot.id, () => onUnhideBot(bot))}
-                    type="button"
-                  >
-                    Unhide
-                  </button>
-                </div>
-              ))}
-              {hiddenGroups.map((group) => (
-                <div
-                  className="flex h-11 items-center gap-2 rounded-[10px] px-2 hover:bg-accent"
-                  key={group.id}
-                >
-                  <button
-                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none"
-                    onClick={() => {
-                      onOpenChange(false);
-                      onOpenChannel(group.id);
-                    }}
-                    type="button"
-                  >
-                    <ChannelAvatar botById={botById} channel={group} size="sm" />
-                    <span className="min-w-0 flex-1 truncate text-[13px]">{group.name}</span>
-                  </button>
-                  <button
-                    className="rounded-[8px] bg-black/[0.055] px-2.5 py-1.5 text-[12px] hover:bg-black/[0.09] disabled:opacity-50 dark:bg-white/[0.08] dark:hover:bg-white/[0.12]"
-                    disabled={pendingId !== null}
-                    onClick={() => void unhide(group.id, () => onUnhideGroup(group))}
-                    type="button"
-                  >
-                    Unhide
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export type BotRowAction =
   | "togglePin"
   | "toggleUnread"
   | "editProfile"
-  | "duplicate"
   | "copyConversationId"
   | "showAsyncTasks"
-  | "hide"
   | "retry"
   | "delete";
 
@@ -496,7 +425,6 @@ export type GroupRowAction =
   | "toggleUnread"
   | "editProfile"
   | "copyConversationId"
-  | "hide"
   | "delete";
 
 const SHOW_INTERNAL_ASYNC_TASKS = import.meta.env.VITE_OPENTEAM_INTERNAL_ASYNC_TASKS === "true";
@@ -735,9 +663,6 @@ function BotContextMenu({
       <ContextMenuItem onSelect={() => onBotAction(bot, "editProfile")}>
         <Pencil className="size-4" /> Edit Profile
       </ContextMenuItem>
-      <ContextMenuItem onSelect={() => onBotAction(bot, "duplicate")}>
-        <CopyPlus className="size-4" /> Duplicate
-      </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => onBotAction(bot, "copyConversationId")}>
         <Copy className="size-4" /> Copy conversation ID
@@ -748,9 +673,6 @@ function BotContextMenu({
         </ContextMenuItem>
       )}
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => onBotAction(bot, "hide")}>
-        <EyeOff className="size-4" /> Hide from sidebar
-      </ContextMenuItem>
       <ContextMenuItem
         className="text-destructive data-[highlighted]:text-destructive [&_svg]:text-destructive"
         onSelect={() => onBotAction(bot, "delete")}
@@ -825,9 +747,6 @@ function GroupContextMenu({
         <Copy className="size-4" /> Copy conversation ID
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => onGroupAction(channel, "hide")}>
-        <EyeOff className="size-4" /> Hide from sidebar
-      </ContextMenuItem>
       <ContextMenuItem
         className="text-destructive data-[highlighted]:text-destructive [&_svg]:text-destructive"
         onSelect={() => onGroupAction(channel, "delete")}
@@ -909,7 +828,7 @@ const ChannelRow = memo(function ChannelRow({
   const content = (
     <Button
       className={cn(
-        "group flex h-[54px] w-full items-center gap-2 rounded-[10px] px-2 text-left font-normal outline-none transition-[transform,width,padding] duration-200 ease-[var(--ease-pane)] focus-visible:ring-2 focus-visible:ring-ring/30",
+        "group flex h-[54px] w-full items-center gap-[10px] rounded-[12px] px-2 text-left font-normal outline-none transition-[transform,width,padding] duration-200 ease-[var(--ease-pane)] focus-visible:ring-2 focus-visible:ring-ring/30",
         selected ? "bg-selected hover:bg-selected" : "hover:bg-hover"
       )}
       onClick={(event) => onSelect(channel.id, event.detail > 0)}
@@ -931,9 +850,9 @@ const ChannelRow = memo(function ChannelRow({
             <span className="min-w-0 truncate text-[14px] font-medium">
               <BotName name={channel.name} />
             </span>
-            {bot?.title ? (
+            {bot?.title || showsGroupLabel(channel) ? (
               <span className="max-w-24 shrink-0 truncate rounded-[4px] bg-black/[0.07] px-1.5 py-px text-[11px] font-normal leading-[15px] text-foreground-secondary dark:bg-white/[0.1] dark:text-[#ababab]">
-                {bot.title}
+                {bot?.title || "Group"}
               </span>
             ) : null}
             {pinned && (
@@ -2135,22 +2054,18 @@ function MarketplaceIcon() {
 function CompactSidebarContent({
   groups,
   botById,
-  hiddenAgentCount,
   unreadIds,
   selectedId,
   onSelect,
   onNewBot,
-  onOpenHiddenAgents,
   onOpenPlugins,
 }: {
   groups: Array<{ id: string; rows: ChannelRowData[] }>;
   botById: ReadonlyMap<string, BotView>;
-  hiddenAgentCount: number;
   unreadIds: ReadonlySet<string>;
   selectedId: string | null;
   onSelect: (id: string, focusComposer?: boolean) => void;
   onNewBot: () => void;
-  onOpenHiddenAgents: () => void;
   onOpenPlugins: () => void;
 }) {
   const scrollRef = useRef<HTMLElement>(null);
@@ -2255,24 +2170,6 @@ function CompactSidebarContent({
               </div>
             ))
           )}
-          {hiddenAgentCount > 0 ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  aria-label={`Hidden Bots (${hiddenAgentCount})`}
-                  className="relative mt-2 grid size-[54px] shrink-0 self-center place-items-center rounded-[11px] text-foreground-tertiary hover:bg-subtle"
-                  onClick={onOpenHiddenAgents}
-                  type="button"
-                >
-                  <EyeOff className="size-4" strokeWidth={1.8} />
-                  <span className="absolute right-1 top-1 grid min-w-4 place-items-center rounded-full bg-foreground px-1 text-[9px] leading-4 text-background">
-                    {hiddenAgentCount}
-                  </span>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Hidden Bots</TooltipContent>
-            </Tooltip>
-          ) : null}
           </SidebarMotion>
         </nav>
         {scrollState.jumps.above && (
@@ -2296,7 +2193,7 @@ function CompactSidebarContent({
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              aria-label="New chat"
+              aria-label="New Bot"
               className="size-7 rounded-[7px] p-0 text-foreground-tertiary hover:bg-subtle hover:text-foreground-secondary"
               onClick={onNewBot}
               variant="ghost"
@@ -2304,7 +2201,7 @@ function CompactSidebarContent({
               <Plus className="size-5" strokeWidth={1.8} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">New chat</TooltipContent>
+          <TooltipContent side="top">New Bot</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -2342,7 +2239,6 @@ const readSidebarWidth = () => {
 export const Sidebar = memo(function Sidebar({
   channels,
   botById,
-  hiddenAgentCount,
   latestMessageByChannel,
   activeRunByChannel,
   activeTaskChannelIds,
@@ -2353,14 +2249,11 @@ export const Sidebar = memo(function Sidebar({
   onSearch,
   onSelect,
   onNewBot,
-  onNewGroup,
-  onOpenHiddenAgents,
   onOpenPlugins,
   onOpenSettings,
   onBotAction,
   onDeleteChannel,
   onEditChannel,
-  onHideChannel,
   forcedCompact = false,
   maxExpandedWidth = MAX_SIDEBAR_WIDTH,
   onLayoutChange,
@@ -2369,7 +2262,6 @@ export const Sidebar = memo(function Sidebar({
 }: {
   channels: ChannelView[];
   botById: ReadonlyMap<string, BotView>;
-  hiddenAgentCount: number;
   latestMessageByChannel: ReadonlyMap<string, ChannelMessageView>;
   activeRunByChannel: ReadonlyMap<string, RunView>;
   activeTaskChannelIds: ReadonlySet<string>;
@@ -2380,14 +2272,11 @@ export const Sidebar = memo(function Sidebar({
   onSearch: () => void;
   onSelect: (id: string, focusComposer?: boolean) => void;
   onNewBot: () => void;
-  onNewGroup: () => void;
-  onOpenHiddenAgents: () => void;
   onOpenPlugins: () => void;
   onOpenSettings: () => void;
   onBotAction: (bot: BotView, action: BotRowAction) => void;
   onDeleteChannel: (channel: ChannelView) => void;
   onEditChannel: (channelId: string) => void;
-  onHideChannel: (channel: ChannelView) => void;
   forcedCompact?: boolean;
   maxExpandedWidth?: number;
   onLayoutChange?: (layout: { compact: boolean; width: number }) => void;
@@ -2492,7 +2381,7 @@ export const Sidebar = memo(function Sidebar({
     let previousCompact: boolean | undefined;
     const syncVisibleWidth = (beforePaint = false) => {
       const visibleWidth = Math.round(sidebar.getBoundingClientRect().width);
-      // Keep the expanded search field shrinking with the pane until its rendered
+      // Keep the expanded toolbar shrinking with the pane until its rendered
       // width reaches the compact layout threshold, including interrupted snaps.
       const nextCompact = sidebar.clientWidth <= COMPACT_SIDEBAR_CONTENT_WIDTH;
       if (nextCompact !== previousCompact) {
@@ -2513,8 +2402,6 @@ export const Sidebar = memo(function Sidebar({
     syncVisibleWidth();
     return () => observer.disconnect();
   }, []);
-  const allSidebarAgentsHidden =
-    rows.length === 0 && hiddenAgentCount > 0 && !creating && !pendingBot;
   const virtualizeExpanded = shouldVirtualizeExpandedSidebar(
     rows.length,
     preferences.sections.length
@@ -2807,10 +2694,6 @@ export const Sidebar = memo(function Sidebar({
         onEditChannel(channel.id);
         return;
       }
-      if (action === "hide") {
-        onHideChannel(channel);
-        return;
-      }
       if (action === "delete") {
         onDeleteChannel(channel);
         return;
@@ -2820,7 +2703,6 @@ export const Sidebar = memo(function Sidebar({
     [
       onDeleteChannel,
       onEditChannel,
-      onHideChannel,
       preferences.togglePinned,
       preferences.toggleUnread,
     ]
@@ -2903,7 +2785,7 @@ export const Sidebar = memo(function Sidebar({
     <SidebarActivityProvider runs={activeRunByChannel} items={itemsByRun}>
     <aside
       className={cn(
-        "relative flex min-w-0 shrink-0 flex-col overflow-hidden bg-sidebar",
+        "relative flex min-w-0 shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar",
         (!sidebarResizing || sidebarSnapping) && "transition-[width] duration-[var(--motion-pane)] ease-[var(--ease-pane)]",
         forcedCompact && "!w-[88px]"
       )}
@@ -2937,38 +2819,25 @@ export const Sidebar = memo(function Sidebar({
         <CompactSidebarContent
           botById={botById}
           groups={compactGroups}
-          hiddenAgentCount={hiddenAgentCount}
           onNewBot={onNewBot}
           onOpenPlugins={onOpenPlugins}
-          onOpenHiddenAgents={onOpenHiddenAgents}
           onSelect={onSelect}
           selectedId={selectedId}
           unreadIds={preferences.unreadIds}
         />
       ) : (
         <>
-          <div className="electron-drag flex h-[47px] shrink-0 items-center justify-end gap-0.5 px-[13px] pt-0.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button aria-label="New chat" className="electron-no-drag size-7 rounded-[7px] text-foreground-tertiary hover:bg-subtle hover:text-foreground dark:text-foreground-secondary" onClick={onNewBot} size="icon-sm" variant="ghost">
-                  <Plus className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">New chat</TooltipContent>
-            </Tooltip>
-          </div>
-          <div className="relative px-[12px] pb-[9px]">
-            <Search className="pointer-events-none absolute left-5 top-[10px] z-10 size-[14px] text-foreground-secondary" />
-            <button
-              aria-label="Search"
-              className="relative top-px flex h-[32px] w-full items-center rounded-[8px] bg-field pl-[26.5px] pr-2 text-left text-[13.5px] text-foreground-secondary shadow-[inset_0_0_0_0.5px_var(--input)] outline-none focus-visible:shadow-[inset_0_0_0_0.5px_var(--ring)]"
-              onClick={onSearch}
-              onFocus={onPreloadSearch}
-              onPointerEnter={onPreloadSearch}
-              type="button"
-            >
-              Search
-            </button>
+          <div className="electron-drag flex h-[60px] shrink-0 items-center justify-end gap-2 px-4 py-3" data-sidebar-toolbar="">
+            <Tooltip><TooltipTrigger asChild>
+              <Button aria-label="Search" className="sidebar-toolbar-button electron-no-drag size-9 rounded-full p-0" onClick={onSearch} onFocus={onPreloadSearch} onPointerEnter={onPreloadSearch} size="icon" variant="ghost">
+                <Search className="size-4" strokeWidth={1.8} />
+              </Button>
+            </TooltipTrigger><TooltipContent side="bottom">Search</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild>
+              <Button aria-label="New Bot" className="sidebar-toolbar-button electron-no-drag size-9 rounded-full p-0" onClick={onNewBot} size="icon" variant="ghost">
+                <Plus className="size-4" strokeWidth={1.8} />
+              </Button>
+            </TooltipTrigger><TooltipContent side="bottom">New Bot</TooltipContent></Tooltip>
           </div>
           <DragDropProvider
             sensors={sidebarSensors}
@@ -3075,233 +2944,196 @@ export const Sidebar = memo(function Sidebar({
               });
             }}
           >
-            <ContextMenu>
-              <ContextMenuTrigger asChild>
-                <div className="relative flex min-h-0 flex-1">
-                  <nav
-                    className="relative sidebar-roster bot-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto pl-[12px] pr-1"
-                    onScroll={scheduleUnreadJumpMeasure}
-                    ref={sidebarScrollRef}
-                    data-scroll-fade-top={sidebarTopFade}
-                    data-scroll-fade-bottom={sidebarBottomFade}
-                    style={{
-                      maskImage: `linear-gradient(to bottom, ${sidebarTopFade ? "transparent 0px, black 28px" : "black 0px"}, ${sidebarBottomFade ? "black calc(100% - 28px), transparent 100%" : "black 100%"})`,
-                    }}
-                  >
-                    <SidebarMotion pinnedIds={preferences.pinnedIds} disabled={Boolean(dragSourceChannelId || dragSourceSectionId || sidebarResizing)}>
-                    {!creating && (
-                      <div className="grid">
-                        <TransitionDropZone
-                          group={PINNED_GROUP_ID}
-                          label="Drag here to pin"
-                          settling={false}
-                          visible={pinTargetVisible && groups.pinned.length === 0}
-                        />
-                        <div className="col-start-1 row-start-1 relative overflow-x-visible overflow-y-clip [overflow-clip-margin:16px]" data-pinned-shell="">
-                        {groups.pinned.length > 0 && (
-                          <ChannelGroupSurface
-                            active={activeDropGroup === PINNED_GROUP_ID}
-                            className="col-start-1 row-start-1 pb-3 pt-2"
-                            disabled={dndDisabled || dragSourceGroup === PINNED_GROUP_ID}
-                            group={PINNED_GROUP_ID}
+            <div className="relative flex min-h-0 flex-1">
+              <nav
+                className="relative sidebar-roster bot-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto pb-6 pl-3 pr-1 pt-1"
+                onScroll={scheduleUnreadJumpMeasure}
+                ref={sidebarScrollRef}
+                data-scroll-fade-top={sidebarTopFade}
+                data-scroll-fade-bottom={sidebarBottomFade}
+                style={{
+                  maskImage: `linear-gradient(to bottom, ${sidebarTopFade ? "transparent 0px, black 28px" : "black 0px"}, ${sidebarBottomFade ? "black calc(100% - 48px), transparent 100%" : "black 100%"})`,
+                }}
+              >
+                <SidebarMotion pinnedIds={preferences.pinnedIds} disabled={Boolean(dragSourceChannelId || dragSourceSectionId || sidebarResizing)}>
+                {!creating && (
+                  <div className="grid">
+                    <TransitionDropZone
+                      group={PINNED_GROUP_ID}
+                      label="Drag here to pin"
+                      settling={false}
+                      visible={pinTargetVisible && groups.pinned.length === 0}
+                    />
+                    <div className="col-start-1 row-start-1 relative overflow-x-visible overflow-y-clip [overflow-clip-margin:16px]" data-pinned-shell="">
+                    {groups.pinned.length > 0 && (
+                      <ChannelGroupSurface
+                        active={activeDropGroup === PINNED_GROUP_ID}
+                        className="col-start-1 row-start-1 pb-3 pt-2"
+                        disabled={dndDisabled || dragSourceGroup === PINNED_GROUP_ID}
+                        group={PINNED_GROUP_ID}
+                      >
+                        {groups.pinned.length > EXPANDED_SIDEBAR_MAX_MOUNTED_ITEMS ? (
+                          <VirtualizedPinnedTiles
+                            activeChannelId={dragSourceChannelId}
+                            botById={botById}
+                            onBotAction={onBotAction}
+                            onGroupAction={handleSidebarGroupAction}
+                            onCreateSection={createSection}
+                            onMoveToSection={preferences.moveToSection}
+                            onRegisterJumpHandler={registerVirtualJumpHandler}
+                            onSelect={onSelect}
+                            rows={groups.pinned}
+                            scrollRef={sidebarScrollRef}
+                            sections={preferences.sections}
+                            selectedId={selectedId}
+                            sidebarWidth={sidebarWidth}
+                            unreadIds={preferences.unreadIds}
+                          />
+                        ) : (
+                          <div
+                            className="grid w-full justify-center gap-x-2 gap-y-3 rounded-[12px] p-[6px]"
+                            data-pinned-grid=""
+                            style={{
+                              gridTemplateColumns:
+                                "repeat(auto-fit, minmax(80px, max-content))",
+                            }}
                           >
-                            {groups.pinned.length > EXPANDED_SIDEBAR_MAX_MOUNTED_ITEMS ? (
-                              <VirtualizedPinnedTiles
-                                activeChannelId={dragSourceChannelId}
+                            {groups.pinned.map((row) => (
+                              <DraggablePinnedTile
                                 botById={botById}
+                                key={row.channel.id}
                                 onBotAction={onBotAction}
                                 onGroupAction={handleSidebarGroupAction}
                                 onCreateSection={createSection}
                                 onMoveToSection={preferences.moveToSection}
-                                onRegisterJumpHandler={registerVirtualJumpHandler}
                                 onSelect={onSelect}
-                                rows={groups.pinned}
-                                scrollRef={sidebarScrollRef}
+                                row={row}
                                 sections={preferences.sections}
-                                selectedId={selectedId}
-                                sidebarWidth={sidebarWidth}
-                                unreadIds={preferences.unreadIds}
+                                selected={row.channel.id === selectedId}
+                                unread={preferences.unreadIds.has(row.channel.id)}
                               />
-                            ) : (
-                              <div
-                                className="grid w-full justify-center gap-x-2 gap-y-3 rounded-[12px] p-[6px]"
-                                data-pinned-grid=""
-                                style={{
-                                  gridTemplateColumns:
-                                    "repeat(auto-fit, minmax(80px, max-content))",
-                                }}
-                              >
-                                {groups.pinned.map((row) => (
-                                  <DraggablePinnedTile
-                                    botById={botById}
-                                    key={row.channel.id}
-                                    onBotAction={onBotAction}
-                                    onGroupAction={handleSidebarGroupAction}
-                                    onCreateSection={createSection}
-                                    onMoveToSection={preferences.moveToSection}
-                                    onSelect={onSelect}
-                                    row={row}
-                                    sections={preferences.sections}
-                                    selected={row.channel.id === selectedId}
-                                    unread={preferences.unreadIds.has(row.channel.id)}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </ChannelGroupSurface>
-                        )}
-                        </div>
-                      </div>
-                    )}
-                    {pendingBot && (
-                      <div
-                        aria-current="page"
-                        className="flex h-[54px] w-full items-center gap-2 rounded-[10px] bg-selected px-2 text-left"
-                        data-pending-bot-row=""
-                      >
-                        <span className="grid size-9 shrink-0 place-items-center rounded-full border border-border bg-subtle text-foreground-tertiary">
-                          <UserRound className="size-4 opacity-60" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[14px] font-medium">
-                            {pendingBot.name}
-                          </span>
-                          <span className="mt-px block text-[13px] leading-4 text-foreground-secondary">
-                            Creating…
-                          </span>
-                        </span>
-                      </div>
-                    )}
-                    {allSidebarAgentsHidden ? (
-                      <div className="flex min-h-[180px] flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
-                        <span className="text-[13px] text-foreground-secondary">
-                          All bots are hidden
-                        </span>
-                        <Button onClick={onOpenHiddenAgents} size="sm" variant="secondary">
-                          Show Hidden Bots
-                        </Button>
-                      </div>
-                    ) : (
-                      <>
-                        {virtualizeExpanded && preferences.sections.length > 0 ? (
-                          <VirtualizedSections
-                            activeSectionId={activeVirtualSectionId}
-                            renderSection={renderSection}
-                            onRegisterJumpHandler={registerVirtualJumpHandler}
-                            rowsBySection={groups.bySection}
-                            scrollRef={sidebarScrollRef}
-                            sections={preferences.sections}
-                          />
-                        ) : (
-                          <div
-                            className={cn(
-                              "flex min-h-0 flex-col",
-                              preferences.sections.length > 0 && "gap-[10px]"
-                            )}
-                          >
-                            {preferences.sections.map(renderSection)}
+                            ))}
                           </div>
                         )}
-                        <ChannelGroupSurface
-                          active={activeDropGroup === UNASSIGNED_GROUP_ID}
-                          className={cn(
-                            "flex min-h-[36px] flex-1 flex-col",
-                            preferences.sections.length > 0 && "pt-[10px]"
-                          )}
-                          disabled={dndDisabled || dragSourceGroup === UNASSIGNED_GROUP_ID}
-                          group={UNASSIGNED_GROUP_ID}
-                        >
-                          <Collapsible.Root
-                            onOpenChange={(open) => {
-                              if (preferences.sections.length === 0) return;
-                              if (open === preferences.unassignedCollapsed) {
-                                preferences.toggleUnassigned();
-                              }
-                            }}
-                            open={
-                              preferences.sections.length === 0 || !preferences.unassignedCollapsed
-                            }
-                          >
-                            {preferences.sections.length > 0 && (
-                              <Collapsible.Trigger asChild>
-                                <button
-                                  className="group flex h-[30px] w-full items-center rounded-md px-2 text-[12px] font-normal text-foreground-tertiary outline-none transition-colors duration-[170ms] ease-out hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none dark:text-foreground-secondary dark:hover:bg-hover"
-                                  type="button"
-                                >
-                                  <span className="min-w-0 flex-1 -translate-y-[1.5px] truncate text-left">
-                                    Unassigned
-                                  </span>
-                                  <SectionDisclosure
-                                    collapsed={preferences.unassignedCollapsed}
-                                    count={groups.unassigned.length}
-                                  />
-                                </button>
-                              </Collapsible.Trigger>
-                            )}
-                            <SidebarCollapsibleContent
-                              className={preferences.sections.length > 0 ? "pt-1" : undefined}
-                            >
-                              {groups.unassigned.length > EXPANDED_SIDEBAR_MAX_MOUNTED_ITEMS ? (
-                                <VirtualizedChannelRows
-                                  activeChannelId={dragSourceChannelId}
-                                  group={UNASSIGNED_GROUP_ID}
-                                  onRegisterJumpHandler={registerVirtualJumpHandler}
-                                  renderRow={renderRow}
-                                  rows={groups.unassigned}
-                                  scrollRef={sidebarScrollRef}
-                                />
-                              ) : (
-                                <div className="flex flex-col gap-1">
-                                  {groups.unassigned.map((row, index) =>
-                                    renderRow(row, index, UNASSIGNED_GROUP_ID)
-                                  )}
-                                </div>
-                              )}
-                            </SidebarCollapsibleContent>
-                          </Collapsible.Root>
-                        </ChannelGroupSurface>
-                        {hiddenAgentCount > 0 ? (
-                          <button
-                            aria-haspopup="dialog"
-                            className="mb-1 mt-2 flex h-10 w-full shrink-0 items-center gap-2 rounded-[9px] px-2 text-[13px] text-foreground-secondary hover:bg-subtle"
-                            onClick={onOpenHiddenAgents}
-                            type="button"
-                          >
-                            <EyeOff className="size-4" strokeWidth={1.8} />
-                            <span className="min-w-0 flex-1 truncate text-left">Hidden Bots</span>
-                            <span className="text-[12px] text-foreground-tertiary">
-                              {hiddenAgentCount}
-                            </span>
-                          </button>
-                        ) : null}
-                      </>
+                      </ChannelGroupSurface>
                     )}
-                    </SidebarMotion>
-                  </nav>
-                  {unreadJumps.above ? (
-                    <UnreadJumpPill
-                      direction="above"
-                      onJump={jumpToUnread}
-                      target={unreadJumps.above}
-                    />
-                  ) : null}
-                  {unreadJumps.below ? (
-                    <UnreadJumpPill
-                      direction="below"
-                      onJump={jumpToUnread}
-                      target={unreadJumps.below}
-                    />
-                  ) : null}
-                </div>
-              </ContextMenuTrigger>
-              {hiddenAgentCount > 0 ? (
-                <ContextMenuContent aria-label="Sidebar actions" className="w-[160px]">
-                  <ContextMenuItem onSelect={onOpenHiddenAgents}>
-                    <EyeOff className="size-4" /> Hidden Bots ({hiddenAgentCount})
-                  </ContextMenuItem>
-                </ContextMenuContent>
+                    </div>
+                  </div>
+                )}
+                {pendingBot && (
+                  <div
+                    aria-current="page"
+                    className="flex h-[54px] w-full items-center gap-2 rounded-[10px] bg-selected px-2 text-left"
+                    data-pending-bot-row=""
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center rounded-full border border-border bg-subtle text-foreground-tertiary">
+                      <UserRound className="size-4 opacity-60" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] font-medium">
+                        {pendingBot.name}
+                      </span>
+                      <span className="mt-px block text-[13px] leading-4 text-foreground-secondary">
+                        Creating…
+                      </span>
+                    </span>
+                  </div>
+                )}
+                {virtualizeExpanded && preferences.sections.length > 0 ? (
+                  <VirtualizedSections
+                    activeSectionId={activeVirtualSectionId}
+                    renderSection={renderSection}
+                    onRegisterJumpHandler={registerVirtualJumpHandler}
+                    rowsBySection={groups.bySection}
+                    scrollRef={sidebarScrollRef}
+                    sections={preferences.sections}
+                  />
+                ) : (
+                  <div
+                    className={cn(
+                      "flex min-h-0 flex-col",
+                      preferences.sections.length > 0 && "gap-[10px]"
+                    )}
+                  >
+                    {preferences.sections.map(renderSection)}
+                  </div>
+                )}
+                <ChannelGroupSurface
+                  active={activeDropGroup === UNASSIGNED_GROUP_ID}
+                  className={cn(
+                    "flex min-h-[36px] flex-1 flex-col",
+                    preferences.sections.length > 0 && "pt-[10px]"
+                  )}
+                  disabled={dndDisabled || dragSourceGroup === UNASSIGNED_GROUP_ID}
+                  group={UNASSIGNED_GROUP_ID}
+                >
+                  <Collapsible.Root
+                    onOpenChange={(open) => {
+                      if (preferences.sections.length === 0) return;
+                      if (open === preferences.unassignedCollapsed) {
+                        preferences.toggleUnassigned();
+                      }
+                    }}
+                    open={
+                      preferences.sections.length === 0 || !preferences.unassignedCollapsed
+                    }
+                  >
+                    {preferences.sections.length > 0 && (
+                      <Collapsible.Trigger asChild>
+                        <button
+                          className="group flex h-[30px] w-full items-center rounded-md px-2 text-[12px] font-normal text-foreground-tertiary outline-none transition-colors duration-[170ms] ease-out hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none dark:text-foreground-secondary dark:hover:bg-hover"
+                          type="button"
+                        >
+                          <span className="min-w-0 flex-1 -translate-y-[1.5px] truncate text-left">
+                            Unassigned
+                          </span>
+                          <SectionDisclosure
+                            collapsed={preferences.unassignedCollapsed}
+                            count={groups.unassigned.length}
+                          />
+                        </button>
+                      </Collapsible.Trigger>
+                    )}
+                    <SidebarCollapsibleContent
+                      className={preferences.sections.length > 0 ? "pt-1" : undefined}
+                    >
+                      {groups.unassigned.length > EXPANDED_SIDEBAR_MAX_MOUNTED_ITEMS ? (
+                        <VirtualizedChannelRows
+                          activeChannelId={dragSourceChannelId}
+                          group={UNASSIGNED_GROUP_ID}
+                          onRegisterJumpHandler={registerVirtualJumpHandler}
+                          renderRow={renderRow}
+                          rows={groups.unassigned}
+                          scrollRef={sidebarScrollRef}
+                        />
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          {groups.unassigned.map((row, index) =>
+                            renderRow(row, index, UNASSIGNED_GROUP_ID)
+                          )}
+                        </div>
+                      )}
+                    </SidebarCollapsibleContent>
+                  </Collapsible.Root>
+                </ChannelGroupSurface>
+                </SidebarMotion>
+              </nav>
+              {unreadJumps.above ? (
+                <UnreadJumpPill
+                  direction="above"
+                  onJump={jumpToUnread}
+                  target={unreadJumps.above}
+                />
               ) : null}
-            </ContextMenu>
+              {unreadJumps.below ? (
+                <UnreadJumpPill
+                  direction="below"
+                  onJump={jumpToUnread}
+                  target={unreadJumps.below}
+                />
+              ) : null}
+            </div>
+
             <DragOverlay
               className="pointer-events-none z-[100] flex justify-center overflow-visible"
               dropAnimation={{
@@ -3331,37 +3163,71 @@ export const Sidebar = memo(function Sidebar({
               }}
             </DragOverlay>
           </DragDropProvider>
-          <div className="flex flex-col gap-0.5 pb-0.5 pl-[7px] pr-[12px] pt-2">
-            <Button
-              className="h-10 w-full justify-start px-[13px] text-[13.5px] font-normal hover:bg-hover"
-              data-marketplace-trigger=""
-              onClick={onOpenPlugins}
-              variant="ghost"
-            >
-              <span className="grid size-7 shrink-0 place-items-center rounded-full border-[0.5px] border-[#e4e4e4] bg-background dark:border-[#393939] dark:bg-[#181818]">
-                <MarketplaceIcon />
-              </span>
-              Marketplace
-            </Button>
-          </div>
         </>
       )}
 
       </SidebarCollapseMotion>
       <div className="sidebar-account-footer">
         <AccountMenu compact={compact} onOpenSettings={onOpenSettings}>
-          <Button
+          <button
             aria-label={`Account: ${account.name}`}
             data-sidebar-account-trigger=""
-            className="sidebar-account-button group/footer-account relative w-full rounded-[11px] p-0 hover:bg-subtle data-[state=open]:bg-subtle"
-            variant="ghost"
+            className="sidebar-account-button"
+            title={account.name}
+            type="button"
           >
-            <span className="sidebar-account-avatar" data-sidebar-account-avatar="">
+            <span
+              className="sidebar-account-avatar"
+              data-sidebar-account-avatar=""
+              aria-hidden="true"
+            >
               {account.initials}
             </span>
             <span className="sidebar-account-name">{account.name}</span>
-          </Button>
+          </button>
         </AccountMenu>
+        <button
+          aria-label="Connect apps"
+          className="sidebar-connect-apps"
+          data-marketplace-trigger=""
+          data-sidebar-connect-apps=""
+          onClick={onOpenPlugins}
+          type="button"
+        >
+          <span className="sidebar-connect-glyph" aria-hidden="true">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <path d="M17.5 14v7M14 17.5h7" />
+            </svg>
+          </span>
+          <span className="sidebar-connect-content" aria-hidden="true">
+            <span>Connect apps</span>
+            <span className="sidebar-connect-logos">
+              {[calendarLogo, notionLogo, slackLogo].map((logo, index) => (
+                <span
+                  className="sidebar-connect-logo"
+                  key={logo}
+                  style={{ "--logo-index": index } as React.CSSProperties}
+                >
+                  <span className="sidebar-connect-logo-face">
+                    <img alt="" draggable={false} height="16" src={logo} width="16" />
+                  </span>
+                </span>
+              ))}
+            </span>
+          </span>
+        </button>
       </div>
 
       <div

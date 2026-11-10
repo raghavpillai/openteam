@@ -4,7 +4,11 @@ Give bots files to work from, and get back files you can open and use.
 
 ## Attach a file
 
-Use the attachment button in the message box to add files or images. On iPhone, you can also take a photo or choose one from your library. Once the file appears in the message box, send your request.
+Use the attachment button in the message box to add up to **20 attachments** to one message. Files and images can be up to 25 MiB each; videos can be up to 200 MiB each.
+
+On iPhone or iPad, tap **+** and choose **Camera**, **Photos**, or **Files**. Review the attachments in the message box and remove any you don't want before sending. If a message with attachments doesn't send, see [message delivery status](conversations.md#if-a-message-doesnt-send).
+
+The bot receives each attachment's filename and size, so you can refer to files by name. Large image collections may exceed what the model can see at once; the bot can still open the remaining attachments as files.
 
 Say which file to use and what you want back:
 

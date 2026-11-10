@@ -59,14 +59,15 @@ describe("snapshot pagination", () => {
     });
     const running = run("run-active", "running", 2);
     const finished = run("run-finished", "completed", 1);
+    const waiting = { ...run("request-waiting", "completed", 0), requestProgress: { state: "waiting", evidence: ["private evidence"] }, requestNextCheckAt: at(3600) };
     const itemQueries: string[][] = [];
     const service = new SnapshotService(
       {
         channel: { findFirst: async () => ({ id: channelId }) },
         channelRound: { findMany: async () => [] },
         run: {
-          findMany: async ({ where }: { where: { status: { in?: string[] } } }) =>
-            where.status.in ? [running] : [finished],
+          findMany: async ({ where }: any) =>
+            where.OR ? [waiting, running] : [finished],
         },
         subagentAttempt: { findMany: async () => [] },
         event: { findFirst: async () => ({ sequence: 7n }) },
@@ -87,7 +88,9 @@ describe("snapshot pagination", () => {
 
     const state = await Effect.runPromise(service.channelState(channelId));
 
-    expect(state.runs.map(({ id }) => id)).toEqual(["run-finished", "run-active"]);
+    expect(state.runs.map(({ id }) => id)).toEqual(["request-waiting", "run-finished", "run-active"]);
+    expect(state.runs[0]?.requestState).toBe("waiting");
+    expect(JSON.stringify(state)).not.toContain("private evidence");
     expect(itemQueries).toEqual([["run-active"]]);
     expect(state.runItems.map(({ id }) => id)).toEqual(["item-active"]);
     expect(state.truncated.runItems).toBe(false);
@@ -103,6 +106,43 @@ describe("snapshot pagination", () => {
 
     expect(selected.items.map(({ id }) => id)).toEqual(["current-1", "current-2", "recent-3"]);
     expect(selected.truncated).toBe(true);
+  });
+
+  test("a busy idle channel reports activity truncation independently of message history", async () => {
+    const channelId = "busy-channel";
+    const finished = Array.from({ length: 101 }, (_, index) => ({
+      id: `run-${index}`, botId: "bot-1", channelId, status: "completed",
+      createdAt: new Date(index * 1000), updatedAt: new Date(index * 1000),
+    })).reverse();
+    const message = {
+      id: "message-1", channelId, sequence: 1n, sender: "user", senderBotId: null,
+      sourceRunId: null, content: "Please check this transaction.", metadata: {},
+      createdAt: new Date(0),
+    };
+    let count = 100;
+    const service = new SnapshotService({
+      channel: { findFirst: async () => ({ id: channelId }) },
+      channelRound: { findMany: async () => [] },
+      run: {
+        findMany: async ({ where, take }: { where: { OR?: unknown[] }; take: number }) =>
+          where.OR ? [] : finished.slice(0, Math.min(count, take)),
+      },
+      runItem: { findMany: async () => [] },
+      subagentAttempt: { findMany: async () => [] },
+      channelMessage: { findMany: async () => [message] },
+      event: { findFirst: async () => ({ sequence: 7n }) },
+    } as never, "/workspace", "http://computer", () => true);
+
+    expect((await Effect.runPromise(service.channelState(channelId))).truncated.runs).toBe(false);
+    count = 101;
+    const state = await Effect.runPromise(service.channelState(channelId));
+    expect(state.runs).toHaveLength(100);
+    expect(state.truncated).toEqual({ channelRounds: false, runs: true, runItems: false, subagents: false });
+    expect(state.runItems).toEqual([]);
+    const history = await Effect.runPromise(service.history(channelId, null, 100));
+    expect(history.messages.map(({ content }) => content)).toEqual([message.content]);
+    expect(history.hasMore).toBe(false);
+    expect(history.threadContextTruncated).toBe(false);
   });
 
   test("keeps the history cursor contiguous while supplying an older thread-root chain", async () => {

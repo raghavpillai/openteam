@@ -196,7 +196,6 @@ export class AgentDirectoryInventory {
       groupText,
       profileText,
       settingsText,
-      memoryStats,
       contents,
     ] = await Promise.all([
       stat(directory).catch(() => null),
@@ -204,12 +203,11 @@ export class AgentDirectoryInventory {
       readFile(join(directory, "group.json"), "utf8").catch(() => null),
       readFile(join(directory, "profile.json"), "utf8").catch(() => null),
       readFile(join(directory, "settings.json"), "utf8").catch(() => null),
-      stat(join(directory, "memory", "profile.md")).catch(() => null),
       readdir(directory).catch(() => []),
     ]);
     if (!directoryStats) return null;
     const hasQuarantinedStore = contents.some((name) => name.startsWith("store.db.corrupt-"));
-    if (!storeStats && !profileText && !memoryStats && !hasQuarantinedStore && !groupText)
+    if (!storeStats && !profileText && !hasQuarantinedStore && !groupText)
       return null;
     let profile: Record<string, unknown> = {};
     if (profileText !== null) {

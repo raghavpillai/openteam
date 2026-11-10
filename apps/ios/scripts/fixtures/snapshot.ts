@@ -9,7 +9,6 @@ export const mobileFixture: ClientSnapshot = {
     root: "/workspace",
     sharedDirectory: "/workspace/shared",
     botsDirectory: "/workspace/bots",
-    projectsDirectory: "/workspace/projects",
   },
   bots: [
     {

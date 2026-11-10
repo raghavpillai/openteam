@@ -1,3 +1,4 @@
+import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import type {
   AssetKind,
   AssetRef,
@@ -7,7 +8,6 @@ import type {
 import { clientErrorMessage } from "./redaction";
 
 export const DURABLE_SEND_SCHEMA_VERSION = 2;
-const DURABLE_SEND_LEGACY_SCHEMA_VERSION = 1;
 export const DURABLE_SEND_ACK_TIMEOUT_MS = 120_000;
 export const DURABLE_ATTACHMENT_COMMIT_TIMEOUT_MS = 120_000;
 export const DURABLE_SEND_JOURNAL_MAX_BYTES = 16 * 1024 * 1024;
@@ -87,6 +87,8 @@ export interface DurableSendRecord {
   updatedAtMs: number;
   attemptCount: number;
   dispatchStartedAtMs: number | null;
+  /** Start of this user-initiated send's bounded automatic retry window. */
+  retryStartedAtMs?: number;
   queuedAtMs: number | null;
   acceptedAtMs: number | null;
   acceptedMessage: ChannelMessageView | null;
@@ -128,6 +130,8 @@ export interface DurableSendRuntime {
   createNonce?: () => string;
   now?: () => number;
   ackTimeoutMs?: number;
+  /** Optional platform retry budget; offline compositions start it only on dispatch. */
+  retryTimeoutMs?: number;
   attachmentCommitTimeoutMs?: number;
   onTelemetry?: (event: DurableSendTelemetryEvent) => void;
 }
@@ -269,18 +273,6 @@ export const durableSendScope = (scope: unknown): string => {
 /** Stable, non-reversible account-scope key for platform journal filenames. */
 export const durableSendScopeHash = (scope: string): string =>
   sha256(durableSendScope(scope)).slice(0, 32);
-
-const legacyDurableSendPromptDigest = (
-  payload: Pick<DurableSendPayload, "content" | "richText" | "replyToMessageId" | "isFork">
-): string =>
-  sha256(
-    JSON.stringify({
-      content: payload.content,
-      richText: payload.richText ?? null,
-      replyToMessageId: payload.replyToMessageId ?? null,
-      isFork: payload.isFork ?? false,
-    })
-  );
 
 type AuthoredAttachment = Pick<
   AssetRef | DurableStagedAttachment,
@@ -473,7 +465,7 @@ const stagedAttachment = (value: unknown): value is DurableStagedAttachment => {
       (finiteNumber(value.position) &&
         Number.isSafeInteger(value.position) &&
         value.position >= 0 &&
-        value.position < 6)) &&
+        value.position < CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage)) &&
     (value.alt === undefined || (typeof value.alt === "string" && value.alt.length <= 2_000)) &&
     (value.previewUri === undefined ||
       (typeof value.previewUri === "string" && value.previewUri.length <= 8_192)) &&
@@ -533,7 +525,7 @@ const parsePayload = (value: unknown): DurableSendPayload | null => {
     position === undefined ? [] : [position]
   );
   if (
-    parsedAssets.length + parsedStaged.length > 6 ||
+    parsedAssets.length + parsedStaged.length > CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage ||
     new Set(parsedStaged.map(({ stagingId }) => stagingId)).size !== parsedStaged.length ||
     new Set(positioned).size !== positioned.length ||
     positioned.some((position) => position >= parsedAssets.length + parsedStaged.length)
@@ -542,7 +534,7 @@ const parsePayload = (value: unknown): DurableSendPayload | null => {
   }
   return {
     content: value.content,
-    attachments: parsedAssets.slice(0, 6),
+    attachments: parsedAssets.slice(0, CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage),
     ...(parsedStaged.length > 0 ? { stagedAttachments: parsedStaged } : {}),
     ...(isRecord(value.consumedDraft)
       ? {
@@ -572,11 +564,7 @@ const parseFailure = (value: unknown): DurableSendFailure | null => {
 const lineageIdFor = (scope: string, nonce: string): string =>
   sha256(`${scope}\u0000${nonce}`).slice(0, 32);
 
-const parseDurableSendRecord = (
-  value: unknown,
-  schemaVersion: number,
-  scope: string
-): DurableSendRecord | null => {
+const parseDurableSendRecord = (value: unknown): DurableSendRecord | null => {
   if (!isRecord(value) || !isRecord(value.target)) return null;
   const payload = parsePayload(value.payload);
   if (
@@ -612,13 +600,7 @@ const parseDurableSendRecord = (
     conversationId: value.target.conversationId as string | null,
   };
   const expectedPromptDigest = durableSendPromptDigest(payload, target);
-  const legacyPromptDigest = legacyDurableSendPromptDigest(payload);
-  const promptDigestIsValid =
-    schemaVersion === DURABLE_SEND_LEGACY_SCHEMA_VERSION
-      ? value.promptDigest === undefined ||
-        value.promptDigest === expectedPromptDigest ||
-        value.promptDigest === legacyPromptDigest
-      : value.promptDigest === expectedPromptDigest;
+  const promptDigestIsValid = value.promptDigest === expectedPromptDigest;
   const acceptedMessage = value.acceptedMessage as ChannelMessageView | null;
   const parsedFailure = value.failure === null ? null : parseFailure(value.failure);
   const acceptedMessageIsValid =
@@ -637,9 +619,7 @@ const parseDurableSendRecord = (
   const lineageId =
     typeof value.lineageId === "string" && /^[a-f0-9]{32}$/.test(value.lineageId)
       ? value.lineageId
-      : schemaVersion === DURABLE_SEND_LEGACY_SCHEMA_VERSION
-        ? lineageIdFor(scope, priorNonces[0] ?? (value.nonce as string))
-        : null;
+      : null;
   if (
     lineageId === null ||
     uniquePriorNonces.size !== priorNonces.length ||
@@ -654,8 +634,6 @@ const parseDurableSendRecord = (
     nonce: value.nonce,
     lineageId,
     priorNonces,
-    // Journals created before prompt digests are migrated in memory and write
-    // the digest on their next state transition.
     promptDigest: expectedPromptDigest,
     target,
     payload,
@@ -664,6 +642,7 @@ const parseDurableSendRecord = (
     updatedAtMs: value.updatedAtMs,
     attemptCount: Math.max(0, Math.trunc(value.attemptCount)),
     dispatchStartedAtMs: value.dispatchStartedAtMs,
+    ...(finiteNumber(value.retryStartedAtMs) ? { retryStartedAtMs: value.retryStartedAtMs } : {}),
     queuedAtMs: value.queuedAtMs,
     acceptedAtMs: value.acceptedAtMs,
     acceptedMessage,
@@ -678,9 +657,7 @@ export const parseDurableSendJournal = (
 ): DurableSendJournal => {
   if (
     !isRecord(value) ||
-    ![DURABLE_SEND_LEGACY_SCHEMA_VERSION, DURABLE_SEND_SCHEMA_VERSION].includes(
-      Number(value.schemaVersion)
-    ) ||
+    value.schemaVersion !== DURABLE_SEND_SCHEMA_VERSION ||
     value.scope !== expectedScope ||
     !Array.isArray(value.records) ||
     value.records.length > DURABLE_SEND_MAX_RECORDS
@@ -691,7 +668,7 @@ export const parseDurableSendJournal = (
   const claimedNonces = new Set<string>();
   const lineageIds = new Set<string>();
   for (const candidate of value.records) {
-    const parsed = parseDurableSendRecord(candidate, Number(value.schemaVersion), expectedScope);
+    const parsed = parseDurableSendRecord(candidate);
     // Treat a partially corrupt journal as corrupt. Keeping only the
     // parseable subset can violate ordering or resend a nonce without its owner.
     if (
@@ -1008,15 +985,17 @@ export const createDurableSendController = (
     await persist().catch(() => persistEventually());
   };
 
-  const queue = async (record: DurableSendRecord, markComposedOffline = false): Promise<void> => {
+  const queue = async (record: DurableSendRecord, markComposedOffline = false, retrying = false): Promise<void> => {
     const current = records.get(record.nonce);
-    if (disposed || !current) return;
+    if (disposed || !current || current.phase === "failed" || current.phase === "accepted-awaiting-echo") return;
     // queuedAtMs is specifically the offline-composition marker used by
     // “Sent while offline”, not a generic time spent behind another send.
     const next = replace({
       ...current,
       phase: "queued",
       updatedAtMs: now(),
+      ...(retrying && runtime.retryTimeoutMs !== undefined && current.retryStartedAtMs === undefined
+        ? { retryStartedAtMs: now() } : {}),
       queuedAtMs:
         current.queuedAtMs ??
         (markComposedOffline && current.attemptCount === 0 ? current.createdAtMs : null),
@@ -1113,6 +1092,30 @@ export const createDurableSendController = (
     }
   };
 
+  const retryExpired = (record: DurableSendRecord) => runtime.retryTimeoutMs !== undefined
+    && record.retryStartedAtMs !== undefined
+    && now() - record.retryStartedAtMs >= runtime.retryTimeoutMs;
+  const finishRetryWindow = async (record: DurableSendRecord): Promise<void> => {
+    // Resolve the same nonce before parking it. An outage never justifies an
+    // automatic new nonce, and acceptance always wins over a local timeout.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const resolution = await Promise.race([
+      resolveLineage(record),
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 2_000); }),
+    ]).finally(() => { if (timer !== undefined) clearTimeout(timer); });
+    const current = records.get(record.nonce);
+    if (!current || current.phase === "failed" || current.phase === "accepted-awaiting-echo") return;
+    if (resolution?.status === "accepted" || resolution?.status === "rejected") {
+      await applyResolution(current, resolution);
+      return;
+    }
+    await fail(current, {
+      code: "retry_exhausted",
+      message: "Delivery could not be confirmed. Check your connection and retry.",
+      uncertain: current.attemptCount > 0,
+    });
+  };
+
   const dispatchRecord = (record: DurableSendRecord): Promise<void> => {
     if (disposed) return Promise.resolve();
     const existing = inFlight.get(record.nonce);
@@ -1122,6 +1125,7 @@ export const createDurableSendController = (
       if (!current || current.phase === "accepted-awaiting-echo" || current.phase === "failed") {
         return;
       }
+      if (retryExpired(current)) { await finishRetryWindow(current); return; }
       const staged = current.payload.stagedAttachments ?? [];
       if (staged.length > 0) {
         if (!runtime.commitStagedAttachments) {
@@ -1153,7 +1157,7 @@ export const createDurableSendController = (
           } else {
             // Bot marks an initially-online composition as offline when the
             // first attachment commit is where transport loss is discovered.
-            await queue(current, disposition === "offline");
+            await queue(current, disposition === "offline", true);
           }
           return;
         }
@@ -1208,8 +1212,8 @@ export const createDurableSendController = (
         const result = await runtime.dispatch(dispatching);
         await accepted(dispatching, result.message);
       } catch (cause) {
-        const latest = records.get(dispatching.nonce);
-        if (!latest) return;
+        let latest = records.get(dispatching.nonce);
+        if (!latest || latest.phase === "failed" || latest.phase === "accepted-awaiting-echo") return;
         const disposition = runtime.classifyError(cause);
         if (disposition === "fatal") {
           await fail(latest, {
@@ -1219,12 +1223,16 @@ export const createDurableSendController = (
           });
           return;
         }
+        // Start the budget before the acceptance lookup: the lookup itself may stall.
+        if (runtime.retryTimeoutMs !== undefined && latest.retryStartedAtMs === undefined) {
+          latest = replace({ ...latest, retryStartedAtMs: now() });
+        }
         const resolution = await resolveLineage(latest);
         if (resolution) {
           const outcome = await applyResolution(latest, resolution);
           if (outcome !== "not_found" && outcome !== "wait") return;
         }
-        await queue(latest);
+        await queue(latest, false, true);
       }
     })().finally(() => {
       inFlight.delete(record.nonce);
@@ -1268,6 +1276,9 @@ export const createDurableSendController = (
     restore,
     async enqueue(input) {
       if (disposed) throw new Error("Durable delivery controller is disposed");
+      // Anything persisted here must also survive restore. Reject an invalid
+      // composition before it can invalidate unrelated records in the journal.
+      if (!parsePayload(input.payload)) throw new Error("Message attachments or payload are invalid");
       await restore();
       if (disposed) throw new Error("Durable delivery controller is disposed");
       const createdAtMs = now();
@@ -1431,6 +1442,11 @@ export const createDurableSendController = (
       if (disposed) return;
       const currentTime = now();
       for (const record of [...snapshot]) {
+        if (record.phase !== "failed" && record.phase !== "accepted-awaiting-echo"
+          && retryExpired(record)) {
+          await finishRetryWindow(record);
+          continue;
+        }
         if (
           record.phase === "queued" ||
           record.phase === "failed" ||
@@ -1501,6 +1517,7 @@ export const createDurableSendController = (
         updatedAtMs: createdAtMs,
         attemptCount: 0,
         dispatchStartedAtMs: null,
+        retryStartedAtMs: undefined,
         queuedAtMs: runtime.isTransportDown?.() === true ? createdAtMs : currentFailed.queuedAtMs,
         acceptedAtMs: null,
         acceptedMessage: null,

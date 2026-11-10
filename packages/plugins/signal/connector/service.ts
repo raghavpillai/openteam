@@ -171,7 +171,7 @@ export class SignalService {
       try {
         await rpc.request(
           "finishLink",
-          { deviceLinkUri: uri, deviceName: "OpenTeam Signal prototype" },
+          { deviceLinkUri: uri, deviceName: "OpenTeam Signal" },
           90_000
         );
         await this.loadAccount(rpc);

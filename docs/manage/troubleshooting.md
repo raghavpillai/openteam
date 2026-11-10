@@ -23,7 +23,7 @@ openteam logs server --follow
 
 - **Docker isn't running:** run `docker info`. If it fails, start Docker Desktop or Docker Engine. If you have more than one Docker setup, run `docker context show` to check which one you're using.
 - **A port is already in use:** another program, or another OpenTeam installation, is using port `8787` or `6200–6299`. Stop it, or choose a different **API port** with `openteam setup --advanced`. The screen ports `6200–6299` can't be changed, so free them instead. With automatic HTTPS, ports `80` and `443` must also be free.
-- **Some containers show "Exited (0)":** that's normal. Setup containers exit once they finish. The `server`, `worker`, `computer`, and `postgres` containers should stay running, and `caddy` too if you use automatic HTTPS.
+- **Some containers show "Exited (0)":** that's normal. Setup containers exit once they finish. The `server`, `worker`, `computer`, `computer-memory-init`, and `postgres` containers should stay running, and `caddy` too if you use automatic HTTPS.
 - **`openteam` isn't found:** open a new terminal, or add the install location to your `PATH`. See [installation](../getting-started/installation.md#install).
 
 ## The app can't connect
@@ -51,6 +51,10 @@ Then sign in again. Don't reset your keychain or delete saved credentials to get
 2. Run `openteam doctor` to check your model provider. Sign-ins can expire and accounts can run out of quota. To reconnect, see [model providers](../configuration/models.md#check-the-connection).
 3. If the bot is working on your own computer, make sure the desktop app is open and connected.
 
+## Doctor reports a workspace permission problem
+
+`openteam doctor` checks that bots can read, write, and delete files in the workspace, running as the bot's user (UID 1000) on the computer. If the check fails, make sure the Docker drive has free space and that the workspace volume is writable by that user. Run `openteam logs computer` to look for storage errors.
+
 ## The screen doesn't load
 
 - Run `openteam status` and check that the `computer` service is healthy.
@@ -61,9 +65,11 @@ For work on your own computer, check **Settings → Computer** in the desktop ap
 
 ## A plugin is connected but tasks fail
 
-1. In **Marketplace → Manage → Accounts and settings**, use **Test a tool** to check that the connection works.
-Installed plugins and their connected accounts are available to all bots.
+1. In the desktop app, open **Marketplace**, then the plugin. Check the account's status on its page, and use its **Sign in**, **Connect**, or **Set up** button if it needs one.
+2. On the same page, open **Settings → Advanced settings** and use **Test a tool** to check that the connection works.
 3. Check the account's permissions and quota on the service's side.
+
+Installed plugins and their connected accounts are available to all bots. On iPhone, plugins are under **Settings → Plugins**.
 
 For sign-in and callback errors, see [connecting accounts](../integrations/accounts.md#troubleshooting).
 

@@ -1,6 +1,5 @@
 import type { BotService } from "./bot-service";
 import { storeProcessSecret } from "./process-secrets";
-import { FeedbackService } from "./feedback-service";
 import { SharedTemplateService } from "./shared-template-service";
 import {
   ApiError,
@@ -19,11 +18,14 @@ import { Prisma, type PrismaClient } from "@openteam/db";
 import { type AgentMessaging, type ToolContext, PRIORITY } from "@openteam/messaging";
 import { Effect } from "effect";
 import type { PluginService } from "./plugin-service";
-import type { ScreenService } from "./screen-service";
+import { UserFormRefusal, type ScreenService } from "./screen-service";
+import { buildUserFormUnsupportedTurnResult } from "@openteam/contracts/reference-form-results";
 import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-utils";
 import { toChannelMessageView as messageView } from "./view-mappers";
 
 import { ExternalDraftService } from "./external-draft-service";
+import { MessagesSendService } from "./messages-send-service";
+import type { MachineService } from "./machine-service";
 
 type Metadata = Record<string, unknown>;
 
@@ -106,24 +108,29 @@ export const dismissMoveOnWidgets = async (
 
 export class RichMessageService {
   readonly sharedTemplates: SharedTemplateService;
-  readonly feedback: FeedbackService;
   readonly externalDrafts: ExternalDraftService;
+  readonly messagesSends?: MessagesSendService;
   constructor(
     private readonly prisma: PrismaClient,
     private readonly messaging: AgentMessaging,
     private readonly plugins: PluginService,
     private readonly screens: ScreenService,
-    bots?: BotService
-  ) { this.externalDrafts = new ExternalDraftService(prisma, messaging, plugins); this.sharedTemplates = new SharedTemplateService(prisma, messaging, bots); this.feedback = new FeedbackService(prisma); }
+    bots?: BotService,
+    machines?: MachineService
+  ) {
+    this.externalDrafts = new ExternalDraftService(prisma, messaging, plugins);
+    this.sharedTemplates = new SharedTemplateService(prisma, messaging, bots);
+    if (machines) this.messagesSends = new MessagesSendService(prisma, messaging, machines);
+  }
 
   private recovering: Promise<void> | null = null;
   recoverPendingDeliveries(): Promise<void> {
     if (this.recovering) return this.recovering;
     this.recovering = (async () => {
-      const messages = await this.prisma.channelMessage.findMany({ where: { channel: { archivedAt: null }, AND: [{ metadata: { path: ["cardState"], equals: "sending" } }, { metadata: { path: ["type"], equals: "external-draft" } }] }, orderBy: { sequence: "asc" }, take: 100 });
+      const messages = await this.prisma.channelMessage.findMany({ where: { channel: { archivedAt: null }, AND: [{ metadata: { path: ["cardState"], equals: "sending" } }, { OR: [{ metadata: { path: ["type"], equals: "external-draft" } }, { metadata: { path: ["type"], equals: "imessage-send" } }] }] }, orderBy: { sequence: "asc" }, take: 100 });
       for (const message of messages) {
-        const service = this.externalDrafts;
-        await Effect.runPromise(service.mutate(message.id, { action: "refresh" }));
+        const service = metadataRecord(message.metadata).type === "imessage-send" ? this.messagesSends : this.externalDrafts;
+        if (service) await Effect.runPromise(service.mutate(message.id, { action: "refresh" }));
       }
     })().finally(() => { this.recovering = null; });
     return this.recovering;
@@ -131,8 +138,13 @@ export class RichMessageService {
 
   async createUserForm(context: ToolContext, raw: unknown) {
     const form = parseUserForm(raw);
+    // Form cards are only shown in the private chat, so a room turn is told before any preflight.
+    const channel = await this.prisma.channel.findUnique({ where: { id: context.channelId }, select: { kind: true } });
+    if (channel?.kind === "group") return buildUserFormUnsupportedTurnResult(form, "room");
     const id = createHash("sha256").update(`${context.botId}:${context.callId}`).digest("hex");
-    const prepared = await this.screens.userFormAction(context.botId, id, "prepare", { form });
+    let prepared: unknown;
+    try { prepared = await this.screens.userFormAction(context.botId, id, "prepare", { form }); }
+    catch (error) { if (error instanceof UserFormRefusal) return error.message; throw error; }
     const result = await this.messaging.sendVisible(context, { type: "user-form", form: { ...parseUserForm(prepared), id }, end_turn: true });
     return {...result.acknowledgement as Record<string,unknown>,...(typeof metadataRecord(prepared).preflightNote === "string" ? {preflightNote:metadataRecord(prepared).preflightNote} : {})};
   }

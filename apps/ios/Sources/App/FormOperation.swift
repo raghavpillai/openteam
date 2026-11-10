@@ -37,7 +37,7 @@ struct FormStatus: View {
   /// Off when the triggering control shows its own progress.
   var progress = true
   var body: some View {
-    if operation.busy, progress { ProgressView("Working…") }
+    if operation.busy, progress { LoadingOrbLabel(title: "Working…") }
     if let failure = operation.failure { InlineFailure(message: failure) }
     if let success = operation.success {
       Label(success, systemImage: "checkmark.circle").foregroundStyle(NativePalette.muted).font(

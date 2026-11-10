@@ -25,6 +25,7 @@ let transportDownSnapshot = navigator.onLine === false;
 const transportListeners = new Set<() => void>();
 const ephemeralStages = new Map<string, Blob>();
 const ATTACHMENT_COMMIT_TIMEOUT_MS = 120_000;
+const SEND_RETRY_TIMEOUT_MS = 10_000;
 
 class InactiveDeliveryScopeError extends Error {}
 
@@ -56,39 +57,19 @@ const storageKey = (scope: string): string => `openteam:send-journal:v1:${scope}
 const storageFor = (scope: string) => ({
   read: async (): Promise<unknown> => {
     const host = window.openteam?.deliveryJournal;
-    if (host) {
-      try {
-        const journal = await host.read(scope);
-        if (journal) return journal;
-      } catch {
-        // A legacy renderer journal is still a valid crash-recovery source if
-        // the host bridge is temporarily unavailable during startup.
-      }
-    }
+    if (host) return host.read(scope).catch(() => null);
+    // Browser dev mode has no host bridge; the journal lives in localStorage.
     const encoded = localStorage.getItem(storageKey(scope));
     if (!encoded) return null;
-    let journal: unknown;
     try {
-      journal = JSON.parse(encoded) as unknown;
+      return JSON.parse(encoded) as unknown;
     } catch {
       return null;
     }
-    if (host) {
-      try {
-        await host.write(scope, journal);
-        localStorage.removeItem(storageKey(scope));
-      } catch {
-        // Keep the legacy copy until a later host-backed write succeeds.
-      }
-    }
-    return journal;
   },
   write: async (journal: DurableSendJournal): Promise<void> => {
-    if (window.openteam?.deliveryJournal) {
-      await window.openteam.deliveryJournal.write(scope, journal);
-      localStorage.removeItem(storageKey(scope));
-      return;
-    }
+    const host = window.openteam?.deliveryJournal;
+    if (host) return host.write(scope, journal);
     localStorage.setItem(storageKey(scope), JSON.stringify(journal));
   },
 });
@@ -263,17 +244,57 @@ const startLifecycle = (controller: DurableSendController) => {
     if (document.visibilityState === "visible") flush();
   };
   document.addEventListener("visibilitychange", onVisibilityChange);
-  const interval = window.setInterval(() => {
-    refreshTransportSnapshot();
-    void controller.expireAcknowledgements();
-    if (navigator.onLine !== false) void controller.flush();
-  }, 5_000);
+  let retryTimer: number | undefined;
+  let interval: number | undefined;
+  let expiring = false;
+  let active = true;
+  const scheduleRetryExpiry = () => {
+    window.clearTimeout(retryTimer);
+    if (!active || expiring) return;
+    const deadline = Math.min(...controller.getSnapshot().flatMap(record =>
+      record.phase !== "failed" && record.phase !== "accepted-awaiting-echo" && record.retryStartedAtMs !== undefined
+        ? [record.retryStartedAtMs + SEND_RETRY_TIMEOUT_MS] : []));
+    if (Number.isFinite(deadline)) retryTimer = window.setTimeout(expireAndFlush, Math.max(0, deadline - Date.now()));
+  };
+  const expireAndFlush = () => {
+    if (!active || expiring) return;
+    expiring = true;
+    void controller.expireAcknowledgements().finally(() => {
+      expiring = false;
+      if (!active) return;
+      scheduleRetryExpiry();
+      if (navigator.onLine !== false) void controller.flush();
+    });
+  };
+  const syncPolling = () => {
+    const needed = active && (transportDownUntilMs > Date.now() ||
+      controller.getSnapshot().some(record => record.phase !== "failed"));
+    if (needed && interval === undefined) {
+      interval = window.setInterval(() => {
+        refreshTransportSnapshot();
+        expireAndFlush();
+        syncPolling();
+      }, 5_000);
+    } else if (!needed && interval !== undefined) {
+      window.clearInterval(interval);
+      interval = undefined;
+    }
+  };
+  const unsubscribeExpiry = controller.subscribe(() => {
+    scheduleRetryExpiry();
+    syncPolling();
+  });
+  scheduleRetryExpiry();
+  syncPolling();
   controllerCleanups.set(controller, () => {
+    active = false;
     window.removeEventListener("online", noteTransportChange);
     window.removeEventListener("offline", noteTransportChange);
     window.removeEventListener("focus", flush);
     document.removeEventListener("visibilitychange", onVisibilityChange);
     window.clearInterval(interval);
+    unsubscribeExpiry();
+    window.clearTimeout(retryTimer);
     controller.dispose();
   });
 };
@@ -305,6 +326,7 @@ export const desktopDurableSendController = (): DurableSendController => {
       return resolveAcceptance(record);
     },
     classifyError,
+    retryTimeoutMs: SEND_RETRY_TIMEOUT_MS,
     commitStagedAttachments: (record) =>
       withAttachmentCommitDeadline(
         mapWithConcurrency(

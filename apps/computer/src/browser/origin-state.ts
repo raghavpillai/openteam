@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { JsonObject } from "./cdp-connection";
+import { browserJsonChunks } from "./json-chunks";
 
 export interface BrowserOriginState extends JsonObject {
   origin: string;
@@ -14,6 +15,7 @@ export const BROWSER_STATE_EXPORT_EXPRESSION = String.raw`(async () => {
   const bytesToBase64 = (bytes) => {
     let value = "";
     const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    if (typeof view.toBase64 === "function") return view.toBase64();
     for (let index = 0; index < view.length; index += 0x8000) {
       value += String.fromCharCode(...view.subarray(index, index + 0x8000));
     }
@@ -129,6 +131,7 @@ export const BROWSER_STATE_EXPORT_EXPRESSION = String.raw`(async () => {
 
 export const BROWSER_STATE_IMPORT_FUNCTION = String.raw`async (state) => {
   const base64ToBytes = (value) => {
+    if (typeof Uint8Array.fromBase64 === "function") return Uint8Array.fromBase64(value);
     const decoded = atob(value);
     const bytes = new Uint8Array(decoded.length);
     for (let index = 0; index < decoded.length; index += 1) bytes[index] = decoded.charCodeAt(index);
@@ -280,7 +283,8 @@ export const originForUrl = (value: string): string | null => {
   }
 };
 
-export const stateDigest = (value: BrowserOriginState): string =>
-  createHash("sha256")
-    .update(JSON.stringify({ ...value, capturedAt: undefined }))
-    .digest("hex");
+export const stateDigest = (value: BrowserOriginState): string => {
+  const hash = createHash("sha256");
+  for (const chunk of browserJsonChunks({ ...value, capturedAt: undefined })) hash.update(chunk);
+  return hash.digest("hex");
+};

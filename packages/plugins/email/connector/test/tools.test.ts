@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
-import { tools } from "../server";
+import { defaultInvalidArguments, tools } from "../server";
 
 const ours = Object.fromEntries(tools("account-1").map((tool) => [tool.name, tool]));
 const valid = (name: string, args: Record<string, unknown>) =>
@@ -46,8 +46,25 @@ describe("Email tool contracts", () => {
     expect(valid("ReadEmailThread", {})).toBe(false);
   });
 
+  test("out-of-range numbers and modes fall back to their defaults, like the reference", () => {
+    const search = defaultInvalidArguments(ours.SearchEmailThreads!);
+    expect(search({ query: "x", limit: 26, mode: "fuzzy" })).toEqual({ query: "x" });
+    expect(search({ query: "x", limit: 25, mode: "keyword" })).toEqual({ query: "x", limit: 25, mode: "keyword" });
+    const read = defaultInvalidArguments(ours.ReadEmailThread!);
+    expect(read({ thread_id: "INBOX:42", max_messages: 0, body_max_chars: 50001 })).toEqual({ thread_id: "INBOX:42" });
+    expect(read({ thread_id: "" })).toEqual({ thread_id: "" });
+    expect(valid("SearchEmailThreads", search({ query: "x", limit: 2.5 }))).toBe(true);
+  });
+
   test("outbound mail goes only through review cards", () => {
     for (const name of ["send_reviewed_email", "poll_new_mail"])
       expect(ours[name]!._meta).toEqual({ "openteam/hostOnly": true });
   });
+});
+
+test("the mailbox skill says the bot can turn drafts back on", async () => {
+  // UpdateProfile refuses drafting_disabled: true but accepts false, so only turning drafts off is the user's.
+  const skill = await Bun.file(new URL("../../skills/email-mailbox/SKILL.md", import.meta.url)).text();
+  expect(skill).not.toContain("Only the user changes that");
+  expect(skill).toContain("Only the user can turn drafts off or allow recipients; you can turn drafts back on with UpdateProfile drafting_disabled: false when they ask.");
 });

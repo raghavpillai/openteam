@@ -20,7 +20,7 @@ try:
             if not data: break
             output += data
             if b'Starting in 5s' in output and not sent:
-                keys = {'escape': b'\x1b', 'enter': b'\r', 'letter': b'x', 'ctrl-c': b'\x03', 'arrow': b'\x1b[A', 'paste': b'multi\nline'}
+                keys = {'escape': b'\x1b', 'q': b'q', 'enter': b'\r', 'letter': b'x', 'ctrl-c': b'\x03', 'arrow': b'\x1b[A', 'paste': b'multi\nline'}
                 if scenario in keys: os.write(master, keys[scenario])
                 elif scenario == 'resize':
                     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 20, 24, 0, 0))

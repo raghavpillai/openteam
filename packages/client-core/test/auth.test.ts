@@ -90,6 +90,38 @@ describe("shared authentication protocol", () => {
     });
   });
 
+  test("reports an answer cut off partway as a dropped connection, not a different server", async () => {
+    const cutOff = () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"mode":"requ'));
+            controller.error(new TypeError("network error"));
+          },
+        })
+      );
+    const client = createOpenTeamAuthClient({
+      baseUrl: "https://openteam.test",
+      fetch: async () => cutOff(),
+    });
+
+    await expect(client.validateServer()).rejects.toMatchObject({
+      code: "offline",
+      message: "The connection dropped while checking this server. Try again.",
+    });
+    // Discovery keeps failing closed instead of throwing.
+    expect(await client.discoverMode()).toBe("required");
+  });
+
+  test("still rejects a server whose complete answer isn't OpenTeam's", async () => {
+    const client = createOpenTeamAuthClient({
+      baseUrl: "https://example.test",
+      fetch: async () => new Response("<html>Welcome</html>"),
+    });
+
+    await expect(client.validateServer()).rejects.toMatchObject({ code: "invalid_server" });
+  });
+
   test("surfaces the server's nested authentication error", async () => {
     const client = createOpenTeamAuthClient({
       baseUrl: "https://openteam.test",

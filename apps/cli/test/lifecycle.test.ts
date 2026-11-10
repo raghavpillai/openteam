@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parseArguments } from "../src/arguments";
 import {
   createEnvironment,
@@ -13,6 +22,7 @@ import {
   writeFileAtomic,
   writeManifest,
 } from "../src/config";
+import * as config from "../src/config";
 import { runDoctor } from "../src/doctor";
 import * as ports from "../src/ports";
 import {
@@ -24,10 +34,14 @@ import {
   UPDATE_PROGRESS_PREFIX,
 } from "../src/lifecycle";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
+import type { SetupPrompter } from "../src/setup";
+import { updateBusyMessage } from "@openteam/contracts/server-updates";
+import { registerDatabaseBackup } from "../src/disk-maintenance";
 import { readUpdateState } from "../src/update-safety";
 
 class HealthyDockerRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
+  imageTags = new Map<string, Set<string>>();
   running = ["postgres", "server", "worker", "computer"];
   publishedBy: Record<string, string> = {};
   tailscale = "{}";
@@ -46,6 +60,33 @@ class HealthyDockerRunner implements CommandRunner {
 
   run(command: string, args: readonly string[], options?: RunOptions): RunResult {
     this.calls.push({ command, args, options });
+    if (args.includes("config") && args.includes("--format")) {
+      const version = parseEnvironment(readFileSync(join(options!.cwd!, ".env"), "utf8")).get(
+        "OPENTEAM_VERSION"
+      );
+      return {
+        status: 0,
+        stdout: JSON.stringify({ services: { server: { image: `fixture:${version}` } } }),
+        stderr: "",
+      };
+    }
+    if (args[0] === "container" && args[1] === "ls") return { status: 0, stdout: "", stderr: "" };
+    if (args[0] === "image" && args[1] === "inspect") {
+      const ref = args[2]!;
+      const id = ref.startsWith("fixture:")
+        ? `sha256:${Buffer.from(ref).toString("hex").padEnd(64, "0")}`
+        : [...this.imageTags].find(([, tags]) => tags.has(ref))?.[0];
+      return {
+        status: 0,
+        stdout: JSON.stringify([{ Id: id, RepoTags: [...(this.imageTags.get(id!) ?? [])] }]),
+        stderr: "",
+      };
+    }
+    if (args[0] === "image" && args[1] === "tag") {
+      const tags = this.imageTags.get(args[2]!) ?? new Set<string>();
+      tags.add(args[3]!);
+      this.imageTags.set(args[2]!, tags);
+    }
     if (command === "tailscale") return { status: 0, stdout: this.tailscale, stderr: "" };
     if (args.includes("exec") && args.includes("-e")) {
       return { status: 0, stdout: this.internalHealth, stderr: "" };
@@ -117,13 +158,15 @@ afterEach(() => {
   }
 });
 
-const fixture = (inference = "missing") => {
-  const directory = mkdtempSync(join(tmpdir(), "openteam-cli-lifecycle-"));
+const fixture = (inference = "missing", activity?: (request: Request) => Response) => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "openteam-cli-lifecycle-")));
   temporaryDirectories.push(directory);
   const paths = installationPaths(directory);
   const server = Bun.serve({
     port: 0,
-    fetch() {
+    fetch(request) {
+      if (activity && new URL(request.url).pathname === "/api/v0/internal/busy-bots")
+        return activity(request);
       const version = parseEnvironment(readFileSync(paths.environment, "utf8")).get(
         "OPENTEAM_VERSION"
       );
@@ -184,6 +227,129 @@ const releaseFixture = () => {
   ];
 };
 
+describe("fresh install", () => {
+  test("asks every setup question before pulling images, then starts and points to the apps", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-fresh-install-"));
+    temporaryDirectories.push(directory);
+    const paths = installationPaths(join(directory, "installation"));
+    const health = Bun.serve({
+      port: 0,
+      fetch() {
+        const version = parseEnvironment(readFileSync(paths.environment, "utf8")).get(
+          "OPENTEAM_VERSION"
+        );
+        return Response.json({
+          status: "ready",
+          runtime: { inference: "missing" },
+          release: { releaseVersion: version },
+        });
+      },
+    });
+    servers.push(health);
+    // Keep the new installation's health checks on the fixture instead of port 8787.
+    const original = config.createEnvironment;
+    const environment = spyOn(config, "createEnvironment").mockImplementation((options) =>
+      replaceEnvironmentValue(original(options), "OPENTEAM_API_PORT", String(health.port))
+    );
+    const runner = new HealthyDockerRunner();
+    const answers = [
+      "2",
+      "Raghav-P",
+      "correct horse battery staple",
+      "correct horse battery staple",
+      "yes",
+    ];
+    const prompts: Array<{ prompt: string; calls: number; manifest: boolean }> = [];
+    const ask = async (prompt: string) => {
+      prompts.push({ prompt, calls: runner.calls.length, manifest: existsSync(paths.manifest) });
+      const answer = answers.shift();
+      if (answer === undefined) throw new Error(`No answer for ${prompt}`);
+      return answer;
+    };
+    const prompter: SetupPrompter = { question: ask, secret: ask, close() {} };
+    const output: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...values) => {
+      output.push(values.join(" "));
+    });
+    const write = spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await installCommand(
+        paths,
+        parseArguments(["install", ...releaseFixture()]),
+        runner,
+        prompter
+      );
+    } finally {
+      log.mockRestore();
+      write.mockRestore();
+      environment.mockRestore();
+    }
+
+    expect(answers).toEqual([]);
+    expect(prompts.every((prompt) => prompt.manifest)).toBe(true);
+    const answered = prompts.at(-1)!.calls;
+    const pull = runner.calls.findIndex((call) => call.args.includes("pull"));
+    const up = runner.calls.findIndex((call) => call.args.includes("up"));
+    expect(pull).toBeGreaterThanOrEqual(answered);
+    expect(up).toBeGreaterThan(pull);
+    expect(runner.calls.some((call) => call.args.includes("openteam-pi-auth"))).toBe(false);
+    expect(readManifest(paths)?.ownerUsername).toBe("Raghav-P");
+    const printed = output.join("\n");
+    expect(printed).toContain("OpenTeam is ready");
+    expect(printed).toContain(
+      "Next: open the OpenTeam app and sign in with this server and username."
+    );
+    expect(printed).toContain("https://openteam.so/download");
+    expect(printed).toContain("https://testflight.apple.com/join/KFBFPkjP");
+    expect(printed).toContain("The app will help you connect a model and create your first bot.");
+    expect(printed).not.toContain("Inference");
+  });
+});
+
+describe("interrupted first install", () => {
+  test("a first install that cannot save its files leaves none behind, so it can be retried", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-partial-install-"));
+    temporaryDirectories.push(directory);
+    const paths = installationPaths(join(directory, "installation"));
+    const original = config.writeFileAtomic;
+    const write = spyOn(config, "writeFileAtomic").mockImplementation((path, contents, mode) => {
+      if (path === paths.environment) throw new Error("ENOSPC: no space left on device, write");
+      original(path, contents, mode);
+    });
+    const prompter: SetupPrompter = {
+      question: async () => "",
+      secret: async () => "",
+      close() {},
+    };
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    const output = spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await expect(
+        installCommand(
+          paths,
+          parseArguments(["install", ...releaseFixture()]),
+          new HealthyDockerRunner(),
+          prompter
+        )
+      ).rejects.toThrow(
+        `Could not save the OpenTeam configuration in ${paths.directory}: ENOSPC: no space left on device, write.`
+      );
+    } finally {
+      write.mockRestore();
+      log.mockRestore();
+      output.mockRestore();
+    }
+
+    for (const file of [paths.compose, paths.environment, paths.manifest]) {
+      expect(existsSync(file)).toBe(false);
+    }
+    const diagnosis = await runDoctor(paths, new HealthyDockerRunner(), "openteam", {
+      checkInstallPorts: false,
+    });
+    expect(diagnosis.checks.find((check) => check.label === "Installation")?.level).toBe("warn");
+  });
+});
+
 describe("installed lifecycle", () => {
   test("reinstall refreshes release images while preserving account, environment and data", async () => {
     const { paths } = fixture();
@@ -191,7 +357,11 @@ describe("installed lifecycle", () => {
     const environment = readFileSync(paths.environment, "utf8");
     writeFileAtomic(paths.compose, "old local image configuration");
     writeManifest(paths, { ...manifest, uninstalledAt: new Date().toISOString() });
-    await installCommand(paths, parseArguments(["install", ...releaseFixture()]), new HealthyDockerRunner());
+    await installCommand(
+      paths,
+      parseArguments(["install", ...releaseFixture()]),
+      new HealthyDockerRunner()
+    );
     expect(readFileSync(paths.compose, "utf8")).toContain("example/openteam-server");
     expect(readFileSync(paths.environment, "utf8")).toBe(environment);
     expect(readManifest(paths)?.ownerUsername).toBe(manifest.ownerUsername);
@@ -231,9 +401,11 @@ describe("installed lifecycle", () => {
         log.mockRestore();
       }
       expect(output.join("\n")).toContain("already running");
-      expect(output.join("\n").includes("No AI provider is connected")).toBe(
-        inference === "missing"
-      );
+      expect(output.join("\n").includes("No model is connected yet")).toBe(inference === "missing");
+      if (inference === "missing")
+        expect(output.join(" ").replace(/\s+/g, " ")).toContain(
+          "Connect one in the OpenTeam app under Settings → Model, or run openteam model"
+        );
     }
   });
 
@@ -419,7 +591,7 @@ describe("installed lifecycle", () => {
     expect(result.checks).toContainEqual({
       level: "warn",
       label: "Inference",
-      detail: "status is missing; connect a model provider before starting a task",
+      detail: "status is missing; connect a model before starting a task",
     });
   });
 
@@ -551,6 +723,235 @@ describe("installed lifecycle", () => {
       "verifying",
       "complete",
     ]);
+  });
+
+  test.each([
+    "classic",
+    "containerd",
+  ])("successive updates retire digest-pulled images with the %s image store", async (store) => {
+    const { paths } = fixture();
+    const docker = new HealthyDockerRunner();
+    const runner: CommandRunner = {
+      run(command, args, options) {
+        const result = docker.run(command, args, options);
+        if (args[0] !== "image" || args[1] !== "inspect") return result;
+        const images = JSON.parse(result.stdout);
+        const digest = `registry.example:5000/runtime@${images[0].Id}`;
+        images[0].RepoDigests = [digest];
+        if (store === "containerd") images[0].RepoTags.push(digest);
+        return { ...result, stdout: JSON.stringify(images) };
+      },
+    };
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    const ledgerPath = join(paths.directory, "image-retention.json");
+    try {
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+        runner
+      );
+      const first = JSON.parse(readFileSync(ledgerPath, "utf8"));
+      const retired = first.rollback[0];
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.4.0", ...releaseFixture()]),
+        runner
+      );
+      expect(readManifest(paths)?.version).toBe("1.4.0");
+      expect(readUpdateState(paths)?.status).toBe("complete");
+      const second = JSON.parse(readFileSync(ledgerPath, "utf8"));
+      expect(second.rollback).toEqual(first.current);
+      expect(second.owned).not.toContain(retired);
+      expect(
+        docker.calls
+          .filter((call) => call.args[0] === "image" && call.args[1] === "rm")
+          .map((call) => call.args)
+      ).toEqual([
+        ["image", "rm", `registry.example:5000/runtime@${retired}`],
+        ["image", "rm", `openteam-retention-${first.owner}:${retired.slice(7)}`],
+      ]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test("disk maintenance failures warn without undoing a successful update", async () => {
+    const { paths } = fixture();
+    writeFileSync(join(paths.directory, "backup-retention.json"), "malformed");
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+        new HealthyDockerRunner()
+      );
+      expect(readManifest(paths)?.version).toBe("1.3.0");
+      expect(readUpdateState(paths)?.status).toBe("complete");
+      expect(warning).toHaveBeenCalled();
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  test("a successful update preserves legacy unregistered backup files", async () => {
+    const { paths } = fixture();
+    const old = [
+      "postgres-1.1.0-before-1.2.0-2026-01-01T00-00-00-000Z.sql",
+      "postgres-1.2.0-before-1.2.1-2026-02-01T00-00-00-000Z.sql",
+      "postgres-1.2.1-before-1.2.2-2026-03-01T00-00-00-000Z.sql",
+      "postgres-1.2.2-before-1.2.3-2026-04-01T00-00-00-000Z.sql",
+    ];
+    mkdirSync(paths.backups, { recursive: true });
+    for (const name of old) writeFileSync(join(paths.backups, name), "SELECT 1;\n");
+    const messages: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...values) => {
+      messages.push(values.map(String).join(" "));
+    });
+    try {
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+        new HealthyDockerRunner()
+      );
+    } finally {
+      log.mockRestore();
+    }
+    const current = readUpdateState(paths)!.backupPath!;
+    expect(readdirSync(paths.backups).sort()).toEqual([...old, basename(current)].sort());
+    expect(messages.some((message) => message.startsWith("Removed "))).toBe(false);
+  });
+
+  test("forcing the installed release preserves the last distinct rollback stack", async () => {
+    const { paths } = fixture();
+    const runner = new HealthyDockerRunner();
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+        runner
+      );
+      const ledgerPath = join(paths.directory, "image-retention.json");
+      const first = JSON.parse(readFileSync(ledgerPath, "utf8"));
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", "--force", ...releaseFixture()]),
+        runner
+      );
+      const second = JSON.parse(readFileSync(ledgerPath, "utf8"));
+      expect(second.rollback).toEqual(first.rollback);
+      expect(second.current).toEqual(first.current);
+      expect(runner.calls.some((call) => call.args[0] === "image" && call.args[1] === "rm")).toBe(
+        false
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test("a failed update deletes no backups", async () => {
+    const { paths } = fixture();
+    const old = [1, 2, 3, 4].map(
+      (month) => `postgres-1.2.2-before-1.2.3-2026-0${month}-01T00-00-00-000Z.sql`
+    );
+    mkdirSync(paths.backups, { recursive: true });
+    for (const name of old) writeFileSync(join(paths.backups, name), "SELECT 1;\n");
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await expect(
+        updateCommand(
+          paths,
+          parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+          new HealthyDockerRunner(false, true)
+        )
+      ).rejects.toThrow("Update failed");
+    } finally {
+      log.mockRestore();
+    }
+    expect(readdirSync(paths.backups)).toHaveLength(5);
+  });
+
+  test("--when-idle refuses while a bot is working, before it downloads or stops anything", async () => {
+    let authorization: string | null = null;
+    const { paths } = fixture("missing", (request) => {
+      authorization = request.headers.get("authorization");
+      return Response.json({ bots: [{ botId: "b", name: "Chief of Staff", runIds: ["r"] }] });
+    });
+    const previousCompose = readFileSync(paths.compose, "utf8");
+    const runner = new HealthyDockerRunner();
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await expect(
+        updateCommand(
+          paths,
+          parseArguments(["update", "--version", "1.3.0", "--when-idle", ...releaseFixture()]),
+          runner
+        )
+      ).rejects.toThrow(updateBusyMessage(["Chief of Staff"]));
+    } finally {
+      log.mockRestore();
+    }
+    const token = parseEnvironment(readFileSync(paths.environment, "utf8")).get(
+      "OPENTEAM_CONTROL_TOKEN"
+    );
+    expect(String(authorization)).toBe(`Bearer ${token}`);
+    expect(runner.calls.some((call) => call.args.includes("pull"))).toBe(false);
+    expect(runner.calls.some((call) => call.args.includes("stop"))).toBe(false);
+    expect(readFileSync(paths.compose, "utf8")).toBe(previousCompose);
+    expect(readManifest(paths)?.version).toBe("1.2.3");
+  });
+
+  test("--when-idle checks again after the download and stops nothing if a bot started working", async () => {
+    let checks = 0;
+    const { paths } = fixture("missing", () =>
+      Response.json({ bots: ++checks > 1 ? [{ botId: "b", name: "Scout", runIds: [] }] : [] })
+    );
+    const previousCompose = readFileSync(paths.compose, "utf8");
+    const runner = new HealthyDockerRunner();
+    const messages: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...values) => {
+      messages.push(values.map(String).join(" "));
+    });
+    try {
+      await expect(
+        updateCommand(
+          paths,
+          parseArguments([
+            "update",
+            "--version",
+            "1.3.0",
+            "--when-idle",
+            "--json-progress",
+            ...releaseFixture(),
+          ]),
+          runner
+        )
+      ).rejects.toThrow(updateBusyMessage(["Scout"]));
+    } finally {
+      log.mockRestore();
+    }
+    expect(checks).toBe(2);
+    expect(runner.calls.some((call) => call.args.includes("pull"))).toBe(true);
+    expect(runner.calls.some((call) => call.args.includes("stop"))).toBe(false);
+    expect(messages.some((message) => message.includes('"phase":"rolling-back"'))).toBe(false);
+    expect(existsSync(`${paths.compose}.next`)).toBe(false);
+    expect(readFileSync(paths.compose, "utf8")).toBe(previousCompose);
+  });
+
+  test("--when-idle updates once every bot is done", async () => {
+    const { paths } = fixture("missing", () => Response.json({ bots: [] }));
+    const runner = new HealthyDockerRunner();
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", "--when-idle", ...releaseFixture()]),
+        runner
+      );
+    } finally {
+      log.mockRestore();
+    }
+    expect(readManifest(paths)?.version).toBe("1.3.0");
   });
 
   test("restores configuration and reports rollback when an update fails", async () => {

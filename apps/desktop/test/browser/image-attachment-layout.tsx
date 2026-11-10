@@ -82,13 +82,15 @@ const render = (images: DisplayImage[], narrow: boolean, visit: number) =>
   );
 
 async function run() {
+  // The reference's photo row: one photo stands up to 192 tall in its own shape (never under 64),
+  // and a photo without a usable size is laid out as 4:3.
   const cases = [
-    { name: "portrait", width: 400, height: 800, expected: [150, 300] },
-    { name: "landscape", width: 1600, height: 900, expected: [320, 180] },
-    { name: "small", width: 80, height: 60, expected: [80, 60] },
-    { name: "legacy", expected: [320, 180] },
-    { name: "invalid", width: 0, height: Infinity, expected: [320, 180] },
-    { name: "broken", width: 400, height: 800, expected: [150, 300] },
+    { name: "portrait", width: 400, height: 800, expected: [96, 192] },
+    { name: "landscape", width: 1600, height: 900, expected: [341, 192] },
+    { name: "small", width: 80, height: 60, expected: [85, 64] },
+    { name: "no-dimensions", expected: [256, 192] },
+    { name: "invalid", width: 0, height: Infinity, expected: [256, 192] },
+    { name: "broken", width: 400, height: 800, expected: [96, 192] },
   ];
   for (const narrow of [false, true]) {
     for (const scenario of cases) {
@@ -105,8 +107,11 @@ async function run() {
         root.render(null);
         await pause();
         pending.clear();
+        const errorsBefore = imageErrors;
         render(images, narrow, visit);
-        await waitFor(() => pending.size === 1);
+        await waitFor(() => pending.size === 1 ||
+          (scenario.name === "broken" ? imageErrors > errorsBefore :
+            [...document.querySelectorAll("img")].some((image) => image.naturalWidth > 0)));
         check(!document.querySelector("img:not([src])"), "Loading must not show a broken image");
         const before = sample();
         if (!narrow) {
@@ -120,7 +125,6 @@ async function run() {
         }
         if (initial) equalGeometry(initial, before, `${scenario.name}: revisit`);
         initial = before;
-        const errorsBefore = imageErrors;
         for (const release of pending.values()) release();
         await waitFor(() =>
           scenario.name === "broken"

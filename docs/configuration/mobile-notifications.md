@@ -1,34 +1,28 @@
 # Mobile notifications
 
-iPhone alerts need both permission on the phone and Apple Push Notification service (APNs) credentials on your OpenTeam server. Importing or changing the server credentials applies live, without restarting the deployment.
+iPhone alerts are push notifications, so your OpenTeam server needs an Apple Push Notification service (APNs) key from the Apple Developer team that signs your iPhone app. The TestFlight app (bundle ID `dev.openbot.mobile`) gets alerts only with a key supplied by its signing team; a key from any other Apple account won't work with it. Otherwise, [build the iPhone app yourself](../../apps/ios/README.md) and use your own team's key and bundle ID.
+
+Desktop banners don't need APNs. Importing or changing the server's key applies live, without a restart.
 
 ## Enable alerts on iPhone
 
 1. Connect the iPhone app to your OpenTeam server and sign in.
-2. Open **Settings → Notifications**, enable notifications, and allow them when iOS asks.
-3. Under **Bot notifications**, choose which bots notify you.
+2. In **Settings**, turn on **Notifications**, and allow them when iOS asks.
+3. Under **Settings → Bot notifications**, choose which bots notify you.
 
-If iOS permission was previously denied, allow OpenTeam in the iPhone's system notification settings. Focus and Do Not Disturb can silence alerts. OpenTeam also suppresses alerts for the conversation you are viewing.
+If iOS permission was denied, choose **Allow notifications in iPhone Settings**. Focus and Do Not Disturb can silence alerts. You don't get alerts for the conversation you're viewing.
 
-By default, **Pause alerts on other devices while I’m active** keeps your phone
-quiet while you use a Mac running OpenTeam, including other Mac applications.
-Phone alerts resume for new activity after five minutes of Mac inactivity or when
-the Mac locks, sleeps, or quits OpenTeam. Opening OpenTeam on iPhone gives it priority
-and silences desktop alerts. Turn this shared setting off in either app's settings
-to receive independent alerts on both devices. Earlier suppressed alerts are not
-replayed; their messages remain unread until you read them.
+**Pause iPhone alerts while I’m using my Mac** is on by default. While you're using a Mac that's running OpenTeam, in any app, your phone stays quiet unless OpenTeam is open on it. Alerts resume for new activity after five minutes of Mac inactivity, or when the Mac locks, sleeps, or quits OpenTeam. Paused alerts aren't sent later; their messages stay unread. The setting is shared: turn it off in iPhone **Settings**, or in desktop **Settings → General** (**Pause iPhone alerts while using this Mac**), to get alerts on both devices.
 
 ## Get the matching Apple credentials
 
-The signing key must belong to the Apple Developer team that signed your iPhone app, and must allow pushes for that app's bundle ID. A key from an unrelated Apple account will not work with the distributed OpenTeam app.
+The key must belong to the Apple Developer team that signed your iPhone app and allow pushes for that app's bundle ID.
 
-For the distributed app, use APNs credentials supplied by its signing team; its bundle ID is `dev.openbot.mobile`. If you build the iPhone app yourself, use your build's Apple team and bundle ID instead.
-
-If you manage that Apple Developer team, follow [Apple's key creation instructions](https://developer.apple.com/help/account/keys/create-a-private-key/): enable **Apple Push Notification service**, configure the allowed environment and topics, and download the `.p8` key. Record its **Key ID** and your **Team ID**. TestFlight and App Store builds use production APNs; development builds use development APNs. The key must allow the environment your app uses. Apple allows the private key to be downloaded only once, so retain it securely.
+If you manage that team, follow [Apple's key creation instructions](https://developer.apple.com/help/account/keys/create-a-private-key/): enable **Apple Push Notification service**, configure the allowed environment and topics, and download the `.p8` key. Record its **Key ID** and your **Team ID**. TestFlight and App Store builds use production APNs; development builds use development APNs, so the key must allow the environment your app uses. Apple lets you download the key only once.
 
 ## Import credentials on the server
 
-Run these commands on the computer hosting your OpenTeam server. For a remote server, connect to that host first. Place the `.p8` key there and create `apns.json` alongside it:
+Run these commands on the computer hosting your OpenTeam server. Place the `.p8` key there and create `apns.json` alongside it:
 
 ```json
 {
@@ -39,7 +33,7 @@ Run these commands on the computer hosting your OpenTeam server. For a remote se
 }
 ```
 
-Replace the example IDs and key filename with your real values. The key path is relative to the JSON file.
+Replace the example IDs and key filename with your real values; `topic` is your app's bundle ID. The key path is relative to the JSON file.
 
 ```sh
 openteam notifications configure --config ./apns.json
@@ -57,16 +51,16 @@ openteam notifications configure \
   --topic dev.openbot.mobile
 ```
 
-If your installation uses a custom folder, add `--dir /path/to/installation`. If the command is unavailable, update to a release that supports live APNs configuration first.
+If your installation uses a custom folder, add `--dir /path/to/installation`.
 
-The CLI validates the IDs, bundle-ID format, and P-256 signing key before importing. The server saves the key encrypted in PostgreSQL. Every worker reads the saved configuration before its next push, so later imports and key rotations need no restart. APNs credentials do not need to be added to `.env`; that file still holds installation settings and the control token used to protect the saved key. Keep it with your database backups, or import the Apple key again after changing the control token.
+The server stores the key encrypted in its database, so you don't add it to `.env`. The key is protected by the control token in `.env`: keep that file with your database backups, or import the key again after changing the token.
 
 ## Verify delivery
 
-`notifications status` shows the configuration source and local validation result without returning the key. Doctor checks iOS registration, the running worker's credentials, app bundle-ID matches, and recent push errors. Without an eligible iPhone registration, missing credentials produce a warning; with an eligible iPhone, they block readiness.
+`notifications status` shows where the configuration comes from and whether it's valid, without showing the key. `openteam doctor` checks iPhone registration, bundle-ID matches, and recent push errors.
 
-Neither command sends a test alert or proves that Apple accepts the key. To verify delivery, allow OpenTeam through Focus, leave the bot's conversation closed, and have that bot send a message or finish a task. Confirm that the alert appears on the iPhone.
+Neither command sends a test alert or proves that Apple accepts the key. To check delivery, allow OpenTeam through Focus, leave the bot's conversation closed, and have that bot send a message. Confirm that the alert appears on the iPhone.
 
-If alerts do not arrive, check that the phone is connected to the server you configured, retry registration by turning app notifications off and on, and inspect `openteam logs worker`. Check the signing team, app bundle ID, key environment, and whether Apple has revoked the key. After fixing a configuration error, trigger a new notification; an old failed delivery may have exhausted its retries.
+If alerts don't arrive, check that the phone is connected to the server you configured, turn **Notifications** off and on to register again, and inspect `openteam logs worker`. Check the signing team, bundle ID, key environment, and whether Apple has revoked the key. After fixing a configuration error, trigger a new notification; an old failed delivery may have used up its retries.
 
-Desktop alerts and notifications generated locally on the phone do not require APNs credentials. See [settings and notifications](apps.md#notifications) for device and bot preferences.
+See [settings and notifications](apps.md#notifications) for device and bot preferences.

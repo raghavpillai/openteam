@@ -11,7 +11,7 @@ describe.skipIf(
     !Bun.which("Xvfb") ||
     !Bun.which("xdotool") ||
     !Bun.which("xmodmap") ||
-    !existsSync("/usr/local/bin/google-chrome")
+    !existsSync("/usr/lib/openteam/bin/google-chrome")
 )("real X11 computer input", () => {
   let xvfb: ChildProcess;
   let browser: Browser;
@@ -29,7 +29,7 @@ describe.skipIf(
     });
     env = { ...process.env, DISPLAY: `:${display}`, LANG: "C", LC_ALL: "C", LC_CTYPE: "C" };
     browser = await chromium.launch({
-      executablePath: "/usr/local/bin/google-chrome",
+      executablePath: "/usr/lib/openteam/bin/google-chrome",
       headless: false,
       env: env as Record<string, string>,
       args: ["--no-sandbox", "--disable-dev-shm-usage", "--window-size=1280,800"],

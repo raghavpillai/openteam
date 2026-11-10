@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate the small, dependency-free Xcode project; no XcodeGen or CocoaPods required."""
+"""Generate the small Xcode project; no XcodeGen or CocoaPods required. Its only dependencies are
+revision-pinned Swift packages (see `packages` below)."""
 from pathlib import Path
 import hashlib
 import json
@@ -22,7 +23,7 @@ sources = add('sources', dict(isa='PBXFileSystemSynchronizedRootGroup', path='So
 ui_tests = add('ui-tests', dict(isa='PBXFileSystemSynchronizedRootGroup', path='Tests/UITests', sourceTree='<group>'))
 resources = []
 resource_refs = []
-for path, kind in [('Resources/Assets.xcassets', 'folder.assetcatalog'), ('Resources/PrivacyInfo.xcprivacy', 'text.xml')]:
+for path, kind in [('Resources/Assets.xcassets', 'folder.assetcatalog'), ('Resources/PrivacyInfo.xcprivacy', 'text.xml'), ('Resources/Skills.skillsbundle', 'wrapper.skillsbundle')]:
     ref = add(path, dict(isa='PBXFileReference', lastKnownFileType=kind, path=path, sourceTree='<group>'))
     resources.append(add(path+'-build', dict(isa='PBXBuildFile', fileRef=ref))); resource_refs.append(ref)
 products = add('products', dict(isa='PBXGroup', children=[app, test, extension], name='Products', sourceTree='<group>'))
@@ -34,18 +35,21 @@ def configs(name, settings):
         build = dict(settings)
         if name == 'app':
             build.update(APP_DISPLAY_NAME='OpenTeam Swift' if mode == 'Debug' else 'OpenTeam', APP_URL_SCHEME='openteam-swift' if mode == 'Debug' else 'openteam')
+            build['ENABLE_TESTABILITY'] = 'YES' if mode == 'Debug' else 'NO'
         if name == 'share':
             build.update(APP_DISPLAY_NAME='OpenTeam Swift' if mode == 'Debug' else 'OpenTeam', APP_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift' if mode == 'Debug' else release['bundleIdentifier'])
         if mode == 'Release' and name in ['app', 'extension', 'share']:
             build.update(PRODUCT_BUNDLE_IDENTIFIER=release['bundleIdentifier'] + {'app': '', 'extension': '.notifications', 'share': '.share'}[name], CURRENT_PROJECT_VERSION=release['buildNumber'], MARKETING_VERSION=release['version'], DEVELOPMENT_TEAM=release['teamIdentifier'], PROVISIONING_PROFILE_SPECIFIER={'app': '$(APP_PROVISIONING_PROFILE)', 'extension': '$(EXTENSION_PROVISIONING_PROFILE)', 'share': '$(SHARE_PROVISIONING_PROFILE)'}[name])
         if name == 'app': build['APNS_ENVIRONMENT'] = 'development' if mode == 'Debug' else 'production'
         build.update({'SWIFT_OPTIMIZATION_LEVEL': '-Onone' if mode == 'Debug' else '-O', 'SWIFT_ACTIVE_COMPILATION_CONDITIONS': 'DEBUG' if mode == 'Debug' else '', 'DEBUG_INFORMATION_FORMAT': 'dwarf' if mode == 'Debug' else 'dwarf-with-dsym'})
+        # Swift packages build only the active architecture in Debug; the targets that import them must match.
+        if mode == 'Debug': build['ONLY_ACTIVE_ARCH'] = 'YES'
         if name == 'share': build['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] = ('DEBUG ' if mode == 'Debug' else '') + 'SHARE_EXTENSION'
         refs.append(add(name+mode, dict(isa='XCBuildConfiguration', buildSettings=build, name=mode)))
     return add(name+'-config', dict(isa='XCConfigurationList', buildConfigurations=refs, defaultConfigurationIsVisible=0, defaultConfigurationName='Release'))
 common = dict(SWIFT_VERSION='6.0', IPHONEOS_DEPLOYMENT_TARGET='18.0', SDKROOT='iphoneos', TARGETED_DEVICE_FAMILY='1,2', CLANG_ENABLE_MODULES='YES', CODE_SIGN_STYLE='Automatic')
 project_config = configs('project', common)
-app_config = configs('app', dict(CODE_SIGN_ENTITLEMENTS='Resources/OpenTeam.entitlements', PRODUCT_NAME='OpenTeamNative', PRODUCT_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift', INFOPLIST_FILE='Resources/Info.plist', GENERATE_INFOPLIST_FILE='NO', ASSETCATALOG_COMPILER_APPICON_NAME='AppIcon', CURRENT_PROJECT_VERSION='1', MARKETING_VERSION='0.1.0', SWIFT_EMIT_LOC_STRINGS='YES', LD_RUNPATH_SEARCH_PATHS=['$(inherited)', '@executable_path/Frameworks']))
+app_config = configs('app', dict(CODE_SIGN_ENTITLEMENTS='Resources/OpenTeam.entitlements', PRODUCT_NAME='OpenTeamNative', PRODUCT_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift', INFOPLIST_FILE='Resources/Info.plist', GENERATE_INFOPLIST_FILE='NO', ASSETCATALOG_COMPILER_APPICON_NAME='AppIcon', CURRENT_PROJECT_VERSION='1', MARKETING_VERSION=release['version'], SWIFT_EMIT_LOC_STRINGS='YES', LD_RUNPATH_SEARCH_PATHS=['$(inherited)', '@executable_path/Frameworks']))
 test_config = configs('test', dict(PRODUCT_NAME='$(TARGET_NAME)', PRODUCT_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift.uitests', GENERATE_INFOPLIST_FILE='YES', TEST_TARGET_NAME='OpenTeamNative', LD_RUNPATH_SEARCH_PATHS=['$(inherited)', '@executable_path/Frameworks', '@loader_path/Frameworks']))
 
 def phases(name, resources=[]):
@@ -60,7 +64,7 @@ for filename, kind in [('NotificationService.swift', 'sourcecode.swift'), ('Robo
     objects[main]['children'].append(ref)
     build = add('notification-build-'+filename, dict(isa='PBXBuildFile', fileRef=ref))
     (extension_sources if filename.endswith('.swift') else extension_resources).append(build)
-extension_config = configs('extension', dict(PRODUCT_NAME='OpenTeamNotifications', PRODUCT_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift.notifications', INFOPLIST_FILE='NotificationService/Info.plist', GENERATE_INFOPLIST_FILE='NO', CODE_SIGN_ENTITLEMENTS='NotificationService/NotificationService.entitlements', CURRENT_PROJECT_VERSION='1', MARKETING_VERSION='0.1.0', APPLICATION_EXTENSION_API_ONLY='YES', SKIP_INSTALL='YES', SWIFT_VERSION='5.0', LD_RUNPATH_SEARCH_PATHS=['$(inherited)', '@executable_path/Frameworks', '@executable_path/../../Frameworks']))
+extension_config = configs('extension', dict(PRODUCT_NAME='OpenTeamNotifications', PRODUCT_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift.notifications', INFOPLIST_FILE='NotificationService/Info.plist', GENERATE_INFOPLIST_FILE='NO', CODE_SIGN_ENTITLEMENTS='NotificationService/NotificationService.entitlements', CURRENT_PROJECT_VERSION='1', MARKETING_VERSION=release['version'], APPLICATION_EXTENSION_API_ONLY='YES', SKIP_INSTALL='YES', SWIFT_VERSION='5.0', LD_RUNPATH_SEARCH_PATHS=['$(inherited)', '@executable_path/Frameworks', '@executable_path/../../Frameworks']))
 extension_phases = phases('extension', extension_resources)
 objects[uid('extension-sources')]['files'] = extension_sources
 extension_target = add('extension-target', dict(isa='PBXNativeTarget', name='OpenTeamNotifications', buildConfigurationList=extension_config, buildPhases=extension_phases, buildRules=[], dependencies=[], productName='OpenTeamNotifications', productReference=extension, productType='com.apple.product-type.app-extension'))
@@ -88,17 +92,42 @@ share_file('NotificationService/RobotNotificationArtwork.json', 'text.json', ref
 share_file('NotificationService/RobotNotificationAvatar.swift', 'sourcecode.swift', ref=uid('notification-RobotNotificationAvatar.swift'), app_too=True)
 for path in ['Sources/Core/API.swift', 'Sources/Core/Models.swift', 'Sources/Core/ShareDirectory.swift', 'Sources/Core/UserFacingError.swift', 'Sources/Core/SessionRecord.swift', 'Sources/App/SecureSession.swift', 'Sources/App/NativeDesign.swift']:
     share_file(path, 'sourcecode.swift')
-share_config = configs('share', dict(PRODUCT_NAME='OpenTeamShare', PRODUCT_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift.share', INFOPLIST_FILE='ShareExtension/Info.plist', GENERATE_INFOPLIST_FILE='NO', CODE_SIGN_ENTITLEMENTS='ShareExtension/ShareExtension.entitlements', CURRENT_PROJECT_VERSION='1', MARKETING_VERSION='0.1.0', APPLICATION_EXTENSION_API_ONLY='YES', SKIP_INSTALL='YES', SWIFT_VERSION='5.0', LD_RUNPATH_SEARCH_PATHS=['$(inherited)', '@executable_path/Frameworks', '@executable_path/../../Frameworks']))
+share_config = configs('share', dict(PRODUCT_NAME='OpenTeamShare', PRODUCT_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift.share', INFOPLIST_FILE='ShareExtension/Info.plist', GENERATE_INFOPLIST_FILE='NO', CODE_SIGN_ENTITLEMENTS='ShareExtension/ShareExtension.entitlements', CURRENT_PROJECT_VERSION='1', MARKETING_VERSION=release['version'], APPLICATION_EXTENSION_API_ONLY='YES', SKIP_INSTALL='YES', SWIFT_VERSION='5.0', LD_RUNPATH_SEARCH_PATHS=['$(inherited)', '@executable_path/Frameworks', '@executable_path/../../Frameworks']))
 share_phases = phases('share', share_resources)
 objects[uid('share-sources')]['files'] = share_sources
 share_target = add('share-target', dict(isa='PBXNativeTarget', name='OpenTeamShare', buildConfigurationList=share_config, buildPhases=share_phases, buildRules=[], dependencies=[], productName='OpenTeamShare', productReference=share, productType='com.apple.product-type.app-extension'))
 share_proxy = add('share-proxy', dict(isa='PBXContainerItemProxy', containerPortal=uid('project'), proxyType=1, remoteGlobalIDString=share_target, remoteInfo='OpenTeamShare'))
 objects[app_target]['dependencies'].append(add('share-dependency', dict(isa='PBXTargetDependency', target=share_target, targetProxy=share_proxy)))
 objects[uid('embed-extensions')]['files'].append(add('embed-share-build', dict(isa='PBXBuildFile', fileRef=share, settings={'ATTRIBUTES':['RemoveHeadersOnCopy']})))
+# Remote Swift packages, pinned to an exact revision so a regenerated project never tracks a branch.
+# Each product gets one XCSwiftPackageProductDependency per target (as Xcode itself writes them)
+# plus a PBXBuildFile in that target's Frameworks phase; SwiftPM links them statically.
+packages = {
+    'libraries-dev': dict(url='https://github.com/Jakubantalik/Libraries.dev', revision='bfcb86329da15235a5ee2dcdb6417c8a80f82bb1'),
+}
+package_refs = {name: add('package-'+name, dict(isa='XCRemoteSwiftPackageReference', repositoryURL=spec['url'], requirement=dict(kind='revision', revision=spec['revision']))) for name, spec in packages.items()}
+def link_package(target_name, target, package, product):
+    dependency = add(f'package-product-{target_name}-{product}', dict(isa='XCSwiftPackageProductDependency', package=package_refs[package], productName=product))
+    objects[target].setdefault('packageProductDependencies', []).append(dependency)
+    objects[uid(target_name+'-frameworks')]['files'].append(add(f'package-build-{target_name}-{product}', dict(isa='PBXBuildFile', productRef=dependency)))
+# ThinkingOrbsKit replaces indeterminate spinners; VoiceGlowKit lights the composer while recording.
+link_package('app', app_target, 'libraries-dev', 'ThinkingOrbsKit')
+link_package('app', app_target, 'libraries-dev', 'VoiceGlowKit')
+link_package('share', share_target, 'libraries-dev', 'ThinkingOrbsKit')
 proxy = add('proxy', dict(isa='PBXContainerItemProxy', containerPortal=uid('project'), proxyType=1, remoteGlobalIDString=app_target, remoteInfo='OpenTeamNative'))
 dependency = add('dependency', dict(isa='PBXTargetDependency', target=app_target, targetProxy=proxy))
 test_target = add('test-target', dict(isa='PBXNativeTarget', name='OpenTeamNativeUITests', buildConfigurationList=test_config, buildPhases=phases('test'), buildRules=[], dependencies=[dependency], fileSystemSynchronizedGroups=[ui_tests], productName='OpenTeamNativeUITests', productReference=test, productType='com.apple.product-type.bundle.ui-testing'))
-project = add('project', dict(isa='PBXProject', attributes={'BuildIndependentTargetsInParallel':'YES', 'LastUpgradeCheck':'2660', 'TargetAttributes':{app_target:{'CreatedOnToolsVersion':'26.6','SystemCapabilities':{'com.apple.Push':{'enabled':1},'com.apple.BackgroundModes':{'enabled':1}}}, test_target:{'CreatedOnToolsVersion':'26.6','TestTargetID':app_target}}}, buildConfigurationList=project_config, compatibilityVersion='Xcode 16.0', developmentRegion='en', hasScannedForEncodings=0, knownRegions=['en', 'Base'], mainGroup=main, productRefGroup=products, projectDirPath='', projectRoot='', targets=[app_target, test_target, extension_target, share_target]))
+# Hosted tests exercise App Intents, Keychain identity checks, and Spotlight
+# against deterministic loopback fixtures without Siri language-model access.
+system_test_ref = add('system-test-ref', dict(isa='PBXFileReference', explicitFileType='wrapper.cfbundle', path='OpenTeamSystemTests.xctest', sourceTree='BUILT_PRODUCTS_DIR'))
+objects[products]['children'].append(system_test_ref)
+system_tests = add('system-tests', dict(isa='PBXFileSystemSynchronizedRootGroup', path='Tests/SystemTests', sourceTree='<group>'))
+objects[main]['children'].append(system_tests)
+system_config = configs('system-tests', dict(PRODUCT_NAME='OpenTeamSystemTests', PRODUCT_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift.system-tests', GENERATE_INFOPLIST_FILE='YES', SWIFT_VERSION='6.0', TEST_HOST='$(BUILT_PRODUCTS_DIR)/OpenTeamNative.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OpenTeamNative', BUNDLE_LOADER='$(TEST_HOST)'))
+system_target = add('system-test-target', dict(isa='PBXNativeTarget', name='OpenTeamSystemTests', buildConfigurationList=system_config, buildPhases=phases('system-tests'), buildRules=[], dependencies=[dependency], fileSystemSynchronizedGroups=[system_tests], productName='OpenTeamSystemTests', productReference=system_test_ref, productType='com.apple.product-type.bundle.unit-test'))
+project = add('project', dict(isa='PBXProject', attributes={'BuildIndependentTargetsInParallel':'YES', 'LastUpgradeCheck':'2660', 'TargetAttributes':{app_target:{'CreatedOnToolsVersion':'26.6','SystemCapabilities':{'com.apple.Push':{'enabled':1},'com.apple.BackgroundModes':{'enabled':1}}}, test_target:{'CreatedOnToolsVersion':'26.6','TestTargetID':app_target}}}, buildConfigurationList=project_config, compatibilityVersion='Xcode 16.0', developmentRegion='en', hasScannedForEncodings=0, knownRegions=['en', 'Base'], mainGroup=main, packageReferences=list(package_refs.values()), productRefGroup=products, projectDirPath='', projectRoot='', targets=[app_target, test_target, extension_target, share_target]))
+objects[project]['targets'].append(system_target)
+
 directory = root / 'OpenTeamNative.xcodeproj'
 directory.mkdir(exist_ok=True)
 (directory / 'project.pbxproj').write_text('// !$*UTF8*$!\n' + quote(dict(archiveVersion=1, classes={}, objectVersion=77, objects=objects, rootObject=project)) + '\n')
@@ -114,6 +143,13 @@ app_ref = reference(app_target, 'OpenTeamNative.app'); test_ref = reference(test
 <AnalyzeAction buildConfiguration="Debug"/><ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
 </Scheme>''')
 print(directory)
+
+system_ref = reference(system_target, 'OpenTeamSystemTests.xctest')
+system_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text()
+system_scheme = system_scheme.replace(f'{test_ref}<SkippedTests>', f'{system_ref}<SkippedTests>')
+system_scheme = system_scheme.replace('shouldUseLaunchSchemeArgsEnv="YES"', 'shouldUseLaunchSchemeArgsEnv="NO"', 1)
+system_scheme = system_scheme.replace('</Testables></TestAction>', '</Testables><EnvironmentVariables><EnvironmentVariable key="OPENTEAM_SYSTEM_TEST_HOST" value="1" isEnabled="YES"/></EnvironmentVariables></TestAction>')
+(schemes / 'SystemIntents.xcscheme').write_text(system_scheme)
 
 visual_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<SkippedTests><Test Identifier="LiveBackendUITests"/><Test Identifier="QAAuditUITests"/><Test Identifier="SettingsPluginAuditUITests"/><Test Identifier="NativePushUITests"/></SkippedTests>', '<SelectedTests><Test Identifier="SelectedUITests"/></SelectedTests>')
 
@@ -131,6 +167,7 @@ visual_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<Skip
 # Real inference is explicitly opt-in; regular UI verification stays deterministic.
 (schemes / 'VNCValidation.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'VNCValidationUITests'))
 (schemes / 'LaunchRobot.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'LaunchRobotUITests'))
+(schemes / 'SiriSkills.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'SiriSkillsUITests'))
 (schemes / 'Palette.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'PaletteUITests'))
 (schemes / 'Haptics.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'HapticsUITests'))
 (schemes / 'RoutineSchedule.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'RoutineScheduleUITests'))
@@ -153,7 +190,12 @@ for scheme in ['OpenTeamNative.xcscheme']:
     path = schemes / scheme
     path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="GlassSectionsUITests"/><Test Identifier="EdgeBackUITests"/><Test Identifier="MessagePerformanceUITests"/><Test Identifier="ChatMotionUITests"/></SkippedTests>'))
 
-# Broader post-migration acceptance; fixture ports 20032/20043/20039 plus local installation.
-(schemes / 'MigrationAcceptance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', ''.join(f'<Test Identifier="{name}"/>' for name in ['RoutineScheduleUITests', 'EdgeBackUITests', 'LiveHTTPUITests'])))
+# Broader acceptance: routines, edge gestures and local installation (fixture ports 20032/20043/20039).
+(schemes / 'Acceptance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', ''.join(f'<Test Identifier="{name}"/>' for name in ['RoutineScheduleUITests', 'EdgeBackUITests', 'LiveHTTPUITests'])))
 
 (schemes / 'MotionPerformance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', '<Test Identifier="ChatMotionUITests"/><Test Identifier="MessagePerformanceUITests"/>'))
+
+# Search/navigation fixtures run separately on port 20124.
+(schemes / 'SearchNavigation.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'SearchNavigationUITests'))
+path = schemes / 'OpenTeamNative.xcscheme'
+path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="SearchNavigationUITests"/></SkippedTests>'))

@@ -17,6 +17,12 @@ export interface RoutineChangedEvent {
   automationName: string;
 }
 
+/** A reply cut off by a stack restart; the notice text is the message content. */
+export interface TurnInterruptedEvent {
+  type: "turn-interrupted";
+  reason: "restart";
+}
+
 const eventMetadata = (message: ChannelMessageView): Record<string, unknown> | null => {
   const metadata = messageMetadata(message);
   if (metadata.type !== "event") return null;
@@ -52,6 +58,11 @@ export const routineChangedEventFor = (message: ChannelMessageView): RoutineChan
       }
     : null;
 };
+
+export const turnInterruptedEventFor = (message: ChannelMessageView): TurnInterruptedEvent | null =>
+  message.sender === "system" && eventMetadata(message)?.type === "turn-interrupted"
+    ? { type: "turn-interrupted", reason: "restart" }
+    : null;
 
 export const routineChangedActionLabel = (action: RoutineChangedAction): string =>
   `${action[0]?.toUpperCase() ?? ""}${action.slice(1)} routine`;

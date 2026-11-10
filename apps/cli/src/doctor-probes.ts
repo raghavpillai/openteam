@@ -188,7 +188,7 @@ try {
   if (!Number.isFinite(age) || age < -5000 || age > 20000 || typeof heartbeat.updatedAt !== "number" || typeof heartbeat.instance !== "string" || !heartbeat.instance) throw new Error("Worker heartbeat is stale or invalid");
   checks.push({ level: "pass", label: "Worker heartbeat", detail: "Event loop heartbeat " + Math.max(0, Math.floor(age / 1000)) + "s ago" });
 } catch (error) {
-  checks.push({ level: "fail", label: "Worker heartbeat", detail: error.code === "ENOENT" ? "No worker heartbeat; update older images with openteam update --force" : error.message });
+  checks.push({ level: "fail", label: "Worker heartbeat", detail: error.code === "ENOENT" ? "No worker heartbeat; the worker has not finished starting" : error.message });
 }
 if (heartbeat && checks[0].level === "pass") {
   try {
@@ -229,7 +229,7 @@ if (process.env.OPENTEAM_DOCTOR_STORAGE === "computer" && process.getuid() === 0
   const identity = (value, fallback) => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : fallback;
   process.setgroups([]);
   process.setgid(identity(process.env.OPENTEAM_AGENT_GID, 1000));
-  process.setuid(identity(process.env.OPENTEAM_AGENT_UID, 1001));
+  process.setuid(identity(process.env.OPENTEAM_AGENT_UID, 1000));
 }
 for (const root of roots) {
   let directory;

@@ -1,5 +1,4 @@
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { DESKTOP_UPDATE_RESTART_EVENT } from "../../lib/desktop-update";
 import {
@@ -12,6 +11,7 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
+import { LoadingOrb } from "../ui/loading-orb";
 
 export function DesktopUpdateDialog() {
   const [update, setUpdate] = useState<OpenTeamUpdateStatus | null>(null);
@@ -109,7 +109,7 @@ export function DesktopUpdateDialog() {
             onClick={() => void install()}
           >
             {installing ? (
-              <LoaderCircle className="size-3.5 animate-spin" />
+              <LoadingOrb aria-hidden inverse size={14} />
             ) : (
               <svg
                 aria-hidden="true"

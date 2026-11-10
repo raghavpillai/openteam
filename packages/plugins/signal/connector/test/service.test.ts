@@ -168,6 +168,7 @@ test("link approval uses the exact server-issued URI and subscribes only after b
   expect(peer.calls.find((call) => call.method === "finishLink")!.params.deviceLinkUri).toBe(
     session.deviceLinkUri
   );
+  expect(peer.calls.find((call) => call.method === "finishLink")!.params.deviceName).toBe("OpenTeam Signal");
   expect(await service.status()).toMatchObject({ linked: true });
   await expect(service.startLink()).rejects.toThrow("already linked");
 });

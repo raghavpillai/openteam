@@ -55,7 +55,7 @@ export async function groupRoutineState(tx: Prisma.TransactionClient, rootMessag
     active:
       rounds.some((round) => ["queued", "running"].includes(round.status)) ||
       continuations.some((run) => ["queued", "running"].includes(run.status)) ||
-      children.some((child) => ["provisioning", "queued", "running"].includes(child.status)),
+      children.some((child) => ["provisioning", "queued", "running", "waiting"].includes(child.status)),
     failed:
       rounds.some((round) => round.status === "failed") ||
       deliveries.some((delivery) => delivery.status === "failed") ||

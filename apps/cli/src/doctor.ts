@@ -488,7 +488,7 @@ export const runDoctor = async (
         detail:
           health.inference === "ready"
             ? "provider credentials are configured"
-            : `status is ${health.inference}; connect a model provider before starting a task`,
+            : `status is ${health.inference}; connect a model before starting a task`,
       });
     }
     if (options.deepChecks || options.testInference) {
@@ -520,7 +520,7 @@ export const runDoctor = async (
         checks.push({
           level: "warn",
           label: "AI connection",
-          detail: "not tested; no provider is connected. Run openteam setup",
+          detail: "not tested; no model is connected. Connect one in the OpenTeam app",
         });
       } else {
         try {
@@ -554,21 +554,11 @@ export const runDoctor = async (
 
 export const printDoctor = (
   result: DoctorResult,
-  options: { compact?: boolean; omitLabels?: readonly string[] } = {}
+  options: { compact?: boolean; omit?: (check: DoctorCheck) => boolean } = {}
 ): void => {
-  if (!options.compact) {
-    console.log(
-      renderDoctor({
-        ...result,
-        checks: result.checks.filter((check) => !options.omitLabels?.includes(check.label)),
-      })
-    );
-    return;
-  }
-  console.log(
-    renderCompactDoctor({
-      ...result,
-      checks: result.checks.filter((check) => !options.omitLabels?.includes(check.label)),
-    })
-  );
+  const shown = {
+    ...result,
+    checks: result.checks.filter((check) => !options.omit?.(check)),
+  };
+  console.log(options.compact ? renderCompactDoctor(shown) : renderDoctor(shown));
 };

@@ -85,11 +85,16 @@ export const resizeImageForModel = async (
   }
   const image = await Jimp.read(bytes);
   const originalMime = image.mime ?? "image/png";
-  const mimeType = ["image/png", "image/jpeg", "image/gif"].includes(originalMime) ? originalMime : "image/png";
+  // As in the reference, everything but PNG and JPEG (GIF, BMP, TIFF) goes to the model as PNG.
+  const mimeType = originalMime === "image/jpeg" ? "image/jpeg" : "image/png";
   // Pointer tools consume coordinates in the screenshot's original pixel space.
   // Resizing only the model input silently moves every subsequent click.
   if (options.preserveDimensions) {
-    if (bytes.length <= MODEL_IMAGE_BYTE_TARGET) return { data: bytes, mimeType };
+    if (bytes.length <= MODEL_IMAGE_BYTE_TARGET && mimeType === originalMime) return { data: bytes, mimeType };
+    if (mimeType !== originalMime) {
+      const data = await image.getBuffer("image/png");
+      if (data.length <= MODEL_IMAGE_BYTE_TARGET) return { data, mimeType };
+    }
     for (const quality of [85, 65, 45, 25]) {
       const data = await image.getBuffer("image/jpeg", { quality });
       if (data.length <= MODEL_IMAGE_BYTE_TARGET) return { data, mimeType: "image/jpeg" };
@@ -124,6 +129,28 @@ export const boundToolImage = async (bytes: Buffer, mimeType: string, preserveDi
 
 // Validate historic tool images at the model boundary too. Keep original receipts
 // intact, and cache immutable message objects so each image is decoded only once.
+// Bound decoded pixel buffers across simultaneous history validations.
+const HISTORY_IMAGE_CONCURRENCY = 2;
+let activeHistoryImages = 0;
+const historyImageWaiters: Array<() => void> = [];
+async function boundHistoryImage(part: RuntimeImage, preserveCoordinates: boolean) {
+  if (activeHistoryImages >= HISTORY_IMAGE_CONCURRENCY) {
+    await new Promise<void>((resolve) => historyImageWaiters.push(resolve));
+  } else {
+    activeHistoryImages += 1;
+  }
+  try {
+    const result = await boundToolImage(Buffer.from(part.data, "base64"), part.mimeType, preserveCoordinates);
+    // Reuse the immutable payload string while preserving separate receipt objects.
+    if (result.type === "image" && result.data === part.data) result.data = part.data;
+    return result;
+  } finally {
+    const next = historyImageWaiters.shift();
+    if (next) next();
+    else activeHistoryImages -= 1;
+  }
+}
+
 const safeMessages = new WeakMap<object, Promise<any>>();
 export async function repairImageHistory<T extends { role: string }>(messages: readonly T[]): Promise<T[]> {
   return Promise.all(messages.map(message => {
@@ -135,7 +162,7 @@ export async function repairImageHistory<T extends { role: string }>(messages: r
       const preserveCoordinates = message.role === "toolResult" &&
         (toolName === "Computer" || toolName === "Screenshot" || toolName?.startsWith("browser_") === true);
       cached = Promise.all(content.map(part => part?.type === "image"
-        ? boundToolImage(Buffer.from(part.data, "base64"), part.mimeType, preserveCoordinates)
+        ? boundHistoryImage(part, preserveCoordinates)
         : part)).then(content => ({ ...message, content }));
       safeMessages.set(message, cached);
     }

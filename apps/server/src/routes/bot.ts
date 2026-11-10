@@ -1,7 +1,6 @@
 import {
   CreateBotInput,
   CreateGroupInput,
-  DuplicateBotInput,
   ScreenActionInput,
   ScreenClipboardInput,
   ScreenPauseInput,
@@ -67,13 +66,6 @@ export async function botRoutes(context: RouteContext): Promise<Response | undef
 
 const routes = [
   bodyRoute("POST", "/api/bots", CreateBotInput, ({ app }, id, input) => app.createBot(input), 201),
-  bodyRoute(
-    "POST",
-    /^\/api\/bots\/([^/]+)\/duplicate$/,
-    DuplicateBotInput,
-    ({ app }, id, input) => app.duplicateBot(id, input),
-    201
-  ),
   bodyRoute(
     "POST",
     "/api/channels",

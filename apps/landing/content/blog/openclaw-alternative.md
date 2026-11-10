@@ -3,6 +3,7 @@ title: An OpenClaw alternative where every bot gets its own computer
 seoTitle: OpenClaw alternative where every bot gets its own computer
 description: OpenTeam is a self-hosted OpenClaw alternative: a team of AI agents, each on its own Linux desktop with a browser. Plus what OpenClaw still does better.
 date: 2026-10-13
+updated: 2026-11-10
 category: Comparisons
 image: /blog/images/openteam-desktop.png
 imageAlt: The OpenTeam desktop app with three bots in the sidebar, a chat with the Research bot, and a live preview of that bot's Linux screen
@@ -59,18 +60,18 @@ OpenClaw facts come from its README and docs as of October 13, 2026. OpenTeam fa
 | Models | Many providers, local runtimes; a model per agent | OpenAI, Anthropic, OpenRouter or any OpenAI-compatible endpoint, local included; one model for all bots |
 | Multi-agent | Many agents per Gateway, agent-to-agent messages, subagents | Group chats of up to 6 bots, bot-to-bot messages, subagents |
 | People per install | Several, with roles | One account |
-| Approvals | Available; host exec defaults to no prompt | None; bots act directly |
+| Approvals | Available; host exec defaults to no prompt | Email and Slack drafts and texts wait for your Send; other actions run directly |
 | Channels | WhatsApp, Telegram, iMessage, Slack and 20+ more | OpenTeam apps only |
 | Apps | macOS, iOS, Android, Windows, Linux | macOS (Apple silicon), Linux x64; iPhone beta |
 | Data location | Your machine | Your machine |
 
 ## How OpenTeam works differently
 
-OpenTeam runs a team of bots on one server you control. Each bot keeps its conversations and an editable Markdown memory, and the bots share a `/workspace` folder. For the full tour, read [Introducing OpenTeam: AI agents that each get their own computer](/blog/introducing-openteam).
+OpenTeam runs a team of bots on one server you control. Each bot keeps its conversations and remembers facts about itself and you, and the bots share a `/workspace` folder. For the full tour, read [Introducing OpenTeam: AI agents that each get their own computer](/blog/introducing-openteam).
 
 ### Each bot has its own desktop, away from your host
 
-Each bot gets a persistent Linux desktop (XFCE, 1280×800) with Chromium and a terminal. You can watch its screen live and take over with your own mouse and keyboard. Up to 100 of these desktops run in one Docker container, with most Linux capabilities dropped and a read-only filesystem. The container gets its own storage volumes, not your home folder.
+Each bot gets a persistent Linux desktop (XFCE, 1280×800) with Chromium and a terminal. You can watch its screen live and take over with your own mouse and keyboard. Up to 100 of these desktops run in one Docker container, where bots can use passwordless `sudo` to install packages; it shares your host's kernel rather than adding a VM boundary ([computer](/docs/usage/computer)). The container gets its own storage volumes, not your home folder.
 
 Two caveats. The desktops are separated from your host, not from each other: all bots run as one Unix user. And if you connect your own computer through the desktop app, bots run commands and read files there directly, without asking each time ([computer docs](/docs/usage/computer)).
 
@@ -86,9 +87,9 @@ OpenClaw coordinates agents too, with agent-to-agent messages, spawned subagents
 
 ### Sign in once, and every bot is signed in
 
-Bots' browsers share website sign-ins. Sign in to a site once on any bot's screen, and every bot can use it. When a site needs a CAPTCHA, a two-factor code or a payment, the bot posts a card asking you to take over. If you'd rather not take over, an in-chat form can type your password into the page without the model seeing it. The Gmail plugin writes drafts and never sends.
+Bots' browsers share website sign-ins. Sign in to a site once on any bot's screen, and every bot can use it. When a site needs a CAPTCHA, a two-factor code or a payment, the bot posts a card asking you to take over. If you'd rather not take over, an in-chat form can type your password into the page without the model seeing it. Gmail sends only after you review a bot's draft card and press Send, unless you've allowed those recipients or turned drafts off for that bot.
 
-The trade-off is plain. Every bot can act on every connected account, because plugins and sign-ins are shared. There are no per-bot grants and no approval prompts before actions.
+The trade-off is plain. Every bot can act on every connected account, because plugins and sign-ins are shared. There are no per-bot grants, and apart from outgoing email, Slack messages and texts, no approval prompts before actions.
 
 ![A sample sign-in page open in Chromium on a bot's Linux desktop](/screenshots/linux-sign-in.png "A sample sign-in page on a bot's screen. Once you sign in, every bot shares the session. Captured September 2026. Image: OpenTeam.")
 
@@ -104,13 +105,13 @@ The default connection mode is **Private network**. In that mode, the app's port
 - For access away from home, put the server and your devices on a VPN such as [Tailscale](https://tailscale.com). Don't forward ports from your router.
 - Use HTTPS for any address reachable from the internet.
 
-Change the mode with `openteam setup --advanced`.
+Change the mode with `openteam setup`.
 
 ## What OpenClaw does better
 
 - **Chat channels.** WhatsApp, Telegram, Signal, Discord, iMessage, Teams and 20+ more ([README](https://github.com/openclaw/openclaw)). OpenTeam has no chat channels; you reach bots through its own apps. Slack is a plugin bots work in, not a way to talk to them.
 - **A model per agent.** Each OpenClaw agent can use its own model, from a long list that includes Ollama, LM Studio, vLLM and llama.cpp ([model providers](https://docs.openclaw.ai/concepts/model-providers)). Every OpenTeam bot uses the one model set for the server.
-- **Approvals you can switch on.** Exec approvals support allowlists and ask-before-running modes, and the sandbox can be set per agent ([exec approvals](https://docs.openclaw.ai/tools/exec-approvals)). OpenTeam has no approval step at all.
+- **Approvals you can switch on.** Exec approvals support allowlists and ask-before-running modes, and the sandbox can be set per agent ([exec approvals](https://docs.openclaw.ai/tools/exec-approvals)). OpenTeam's only approval step is the card for outgoing email, Slack messages and texts.
 - **People, not only bots.** Team deployments give each person a profile, shared sessions and "roles that bound what each person can do" ([teams docs](https://docs.openclaw.ai/start/teams)). OpenTeam has one account per server.
 - **Ecosystem and backing.** The foundation runs the ClawHub registry of skills and plugins ([ClawHub](https://clawhub.ai)). DigitalOcean ([January 30](https://www.digitalocean.com/blog/technical-dive-openclaw-hardened-1-click-app)) and AWS Lightsail ([March 4](https://aws.amazon.com/blogs/aws/introducing-openclaw-on-amazon-lightsail-to-run-your-autonomous-private-ai-agents)) offer ready-made hosting.
 - **Platforms, license and community.** OpenClaw has an Android app on Google Play and a Windows app. OpenTeam has desktop apps for macOS (Apple silicon) and Linux, an iPhone beta, and no Android. MIT is more permissive than GPL-3.0, and about 390,000 stars dwarf a project whose first release was October 6.

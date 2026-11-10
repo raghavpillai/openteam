@@ -917,7 +917,14 @@ const SNAPSHOT_FN = (opts) => {
 	};
 	let selectorDiagnosis;
 	let root;
-	if (opts.selector) {
+	if (typeof opts.scopeKey === "string") {
+		// A browser script registered this element as the root for its
+		// locator.ariaSnapshot({ mode: 'ai' }); the script removes the entry.
+		const scopes = globalThis.__sandSnapshotScopes;
+		const scope = scopes != null && typeof scopes.get === "function" ? scopes.get(opts.scopeKey) : undefined;
+		root = scope != null && scope.isConnected === true ? scope : undefined;
+		selectorDiagnosis = { matched: root !== undefined, closedShadow: false };
+	} else if (opts.selector) {
 		const queried = deepQuery(opts.selector);
 		root = queried.element ?? undefined;
 		selectorDiagnosis = {
@@ -1153,7 +1160,7 @@ function recordRefOwners(refOwners, lines, owner) {
 }
 
 async function snapshotAcrossFrames(context, page, opts) {
-	const scoped = typeof opts.selector === "string";
+	const scoped = typeof opts.selector === "string" || typeof opts.scopeKey === "string";
 	const main = await snapshotFrame(context, page, page, { ...opts, refStart: opts.stableRefs ? (refCounterByPage.get(page) ?? 0) : 0 });
 	const lines = [...main.lines];
 	const refOwners = {};
@@ -1380,16 +1387,27 @@ async function fillCommitState(element, value) {
 	return element.evaluate(FILL_COMMIT_STATE_FN, value);
 }
 
-async function typeFillValuePerKey(page, element, value, secret, beforeWrite) {
+async function typeFillValuePerKey(page, element, value, secret, beforeWrite, bindEachKeyToTarget = false) {
 	if (secret !== true) {
 		await beforeWrite?.();
 		await page.keyboard.type(value, { delay: 20 });
 		return;
 	}
 	if (!(await element.evaluate(TOP_WINDOW_REACHABLE_FN))) {
-		throw new Error(
-			"The target sits in a cross-origin frame, where the host cannot watch keyboard focus across the frame boundary while a secret types, so the per-key fill was refused and the field was left unfilled. Hand the user the screen for this field.",
-		);
+		if (!bindEachKeyToTarget) {
+			throw new Error(
+				"The target sits in a cross-origin frame, where the host cannot watch keyboard focus across the frame boundary while a secret types, so the per-key fill was refused and the field was left unfilled. Hand the user the screen for this field.",
+			);
+		}
+		// ElementHandle.type focuses its element before typing. Repeating that
+		// action per character keeps a single-control secret bound to the resolved
+		// target even when a cross-origin parent changes focus between keys.
+		for (const char of value) {
+			await beforeWrite?.();
+			await element.type(char);
+			await sleep(20);
+		}
+		return;
 	}
 	noteSkippedDocuments(
 		"arming the secret-fill focus sentinel on every reachable document",
@@ -1717,7 +1735,7 @@ const referenceFill = async ({ request, page, element: suppliedElement = undefin
 						.catch((failure) =>
 							noteIgnoredFailure("clearing the masked control before per-key typing", failure),
 						);
-					await typeFillValuePerKey(page, element, request.value, request.secret, beforeWrite);
+					await typeFillValuePerKey(page, element, request.value, request.secret, beforeWrite, true);
 					if ((await fillCommitState(element, request.value)) === "swallowed") {
 						throw new Error(
 							"The control did not keep the inserted text: an input mask on the page rejected both the set-value insert and per-key typing, so the field was left unfilled.",
@@ -1785,7 +1803,7 @@ const referenceType = async ({ request, page }) => {
             !el.hasAttribute("readonly") && el.matches('input[type="date"],input[type="time"],input[type="month"],input[type="datetime-local"]') ? el.type : null);
           if (temporal) {
             const format = { date: "YYYY-MM-DD", time: "HH:mm or HH:mm:ss", month: "YYYY-MM", "datetime-local": "YYYY-MM-DDTHH:mm" }[temporal];
-            throw new Error(`Target is an input[type=${temporal}] control, not a plain text editor. No click or typing was performed. Use browser_fill with value in ${format} format, or browser_fill_form with type textbox and that value; then inspect the resulting state.`);
+            throw new Error(`Target is an input[type=${temporal}] control, not a plain text editor. No click or typing was performed. Use browser_type without slowly, with text in ${format} format, or browser_fill_form with type textbox and that value; then inspect the resulting state.`);
           }
           throw new Error("Target is not an enabled editable text control. No click or typing was performed. Take a fresh browser_snapshot and choose an editable ref.");
         }

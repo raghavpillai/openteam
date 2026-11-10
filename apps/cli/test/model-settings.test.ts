@@ -12,6 +12,24 @@ const fixture = () => {
   return { ...f, client: createModelSettingsAPI(f.paths) };
 };
 describe("interactive model HTTP settings", () => {
+  test("retains only a validated four-character suffix from settings responses", async () => {
+    const { client, api } = fixture();
+    const transcription = api.transcription;
+    api.transcription = async (...args) => ({
+      ...(await transcription(...args)),
+      apiKeySuffix: "A7z9",
+      apiKey: "synthetic-private-key",
+    });
+    expect(await client.transcription()).toMatchObject({ apiKeySuffix: "A7z9" });
+    expect(await client.transcription()).not.toHaveProperty("apiKey");
+    for (const suffix of ["full-secret", "a\u001b[", 1234]) {
+      api.transcription = async (...args) => ({
+        ...(await transcription(...args)),
+        apiKeySuffix: suffix as string,
+      });
+      await expect(client.transcription()).rejects.toThrow("invalid model settings");
+    }
+  });
   test("accepts unconfigured inference settings so fresh installs can select a model", async () => {
     const { client, api } = fixture();
     const catalog = api.catalog;

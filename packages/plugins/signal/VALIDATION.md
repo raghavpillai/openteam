@@ -75,3 +75,19 @@ Twenty new fault tests pass, with 2,866 assertions. The combined CI entry point 
 One operational issue was found and fixed: SIGKILL bypasses installation cleanup and leaves partial staging directories. Subsequent runtime resolution now reclaims recognized staging directories older than 24 hours, well beyond the five-minute installation timeout. Regression checks preserve recent staging, symlinks, unrelated files and verified published runtimes; cleanup is best effort.
 
 The storage rollback tests also clarify a fundamental limit: upstream delivery is not acknowledged by the local database commit. A received event lost before commit is not guaranteed to replay. The collector cannot promise archival completeness or reconstruct an undelivered deletion target. These chaos checks do not remove that limitation or resolve the inconclusive live view-once test.
+
+## Fault injection against the real linked plugin
+
+After the automated chaos checks, an operator-run experiment exercised commit `b292986` using the exported plugin, the production `StdioMcpManager`, the existing phone-linked account and the real pinned signal-cli/Java runtime. No synthetic Signal peer was used. A private launcher forwarded the runtime protocol and recorded only metadata for specifically tagged Note to Self sends. It could deny network access for its Java descendants and deliberately withhold a selected send reply.
+
+| Live fault | Observed result |
+| --- | --- |
+| Authenticated baseline self-send and repeated request ID | Actual send succeeded; retry did not dispatch another send |
+| Three successive SIGKILLs of the real Java process | Automatic recovery in 2.732, 2.787 and 2.801 seconds; the MCP process stayed alive; subsequent self-send returned SUCCESS |
+| Network denied by the OS sandbox for restarted plugin Java processes | Three network-denied starts; account reported unavailable. Restoring access recovered in 1.777 seconds without replacing MCP or scanning another QR; subsequent self-send returned SUCCESS |
+| Successful real send reply deliberately dropped, then entire MCP process SIGKILLed | After recreating the manager and reconnecting, eight concurrent retries returned the durable unknown outcome with zero additional send RPCs; no new phone approval. A fresh self-send returned SUCCESS |
+| Final storage check | SQLite integrity_check returned ok |
+
+Network denial was scoped to plugin Java descendants and required restarting that runtime under the sandbox; system networking and other apps were unchanged. Whole-MCP recovery above included an explicit manager restart/reconnect, whereas Java recovery was automatic within the same MCP process. This does not establish automatic recovery of every desktop/server failure or queued incoming-message delivery during an outage.
+
+Five deliberately labeled messages were sent only to Note to Self. The four normally returned send responses contained recipient result type SUCCESS; the intentionally withheld response produced the expected unknown ledger entry. Fault controls were disabled, owned processes stopped, and the same private account state restored to its original location. Local ignored evidence is under `private/physical-1794341794891/`, with an ignored operator harness at `output/signal-validation/physical-chaos.ts`. No keys, phone identifiers or unrelated messages are included here. The live view-once and current iOS SDK limitations above remain unchanged.

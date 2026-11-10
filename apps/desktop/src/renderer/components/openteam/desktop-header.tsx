@@ -2,11 +2,11 @@ import type { BotView, ChannelView } from "@openteam/contracts";
 import {
   ArrowLeftRight,
   ChevronLeft,
-  ChevronsRight,
+  ChevronRight,
+  X,
   Info,
   MessageCircle,
   Monitor,
-  Settings,
 } from "lucide-react";
 import { useRef } from "react";
 import type { A2AExchangePhase } from "../../lib/a2a-exchange";
@@ -27,7 +27,6 @@ export function DesktopHeader({
   selected,
   selectedBot,
   onDetailsOpenChange,
-  onShowSettings,
   onShowSummary,
 }: {
   agentNameById: ReadonlyMap<string, string>;
@@ -44,19 +43,17 @@ export function DesktopHeader({
   selected: ChannelView | null;
   selectedBot?: BotView;
   onDetailsOpenChange: (open: boolean) => void;
-  onShowSettings: () => void;
   onShowSummary: () => void;
 }) {
   const computerRef = useRef<HTMLButtonElement>(null);
-  const settingsRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const backRef = useRef<HTMLButtonElement>(null);
   const focusNext = (ref: { current: HTMLButtonElement | null }) => requestAnimationFrame(() => ref.current?.focus({ preventScroll: true }));
-  const showSummary = () => { onShowSummary(); focusNext(settingsRef); };
-  const showSettings = () => { onShowSettings(); focusNext(backRef); };
+  const showSummary = () => { onShowSummary(); focusNext(closeRef); };
   const changeDetails = (open: boolean) => {
     measureUntilNextPaint("view.details-toggle", { opening: open });
     onDetailsOpenChange(open);
-    focusNext(open ? (inspectorMode === "summary" ? settingsRef : backRef) : computerRef);
+    focusNext(open ? (inspectorMode === "summary" ? closeRef : backRef) : computerRef);
   };
   const directChannel = exchange?.channel ?? (selected?.kind === "agent_dm" ? selected : undefined);
   const directNameFallbacks = directChannel?.name.split(" ↔ ") ?? [];
@@ -88,10 +85,10 @@ export function DesktopHeader({
 
   return (
     // The whole bar moves the window; buttons opt out via the global no-drag rule.
-    <header className="electron-drag pointer-events-none absolute inset-x-0 top-0 z-30 flex h-11 items-center bg-background">
+    <header className="desktop-conversation-header electron-drag pointer-events-none absolute inset-x-0 top-0 z-30 flex h-11 items-center bg-background">
       {selected ? (
         <>
-          <div className={cn("flex h-full min-w-0 flex-1 items-center", selected.kind === "group" ? "px-3" : "px-4")}>
+          <div className={cn("desktop-conversation-title flex h-full min-w-0 flex-1 items-center", selected.kind === "group" ? "px-3" : "px-4")}>
             <h2
               aria-label={selected.name}
               className="pointer-events-auto inline-flex h-6 max-w-full items-center gap-1.5 overflow-hidden"
@@ -121,10 +118,11 @@ export function DesktopHeader({
               ) : selected.kind === "bot_dm" ? (
                 <button
                   aria-label="View conversation details"
-                  className="electron-no-drag inline-flex min-w-0 items-center gap-1.5 rounded-[5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                  aria-expanded={detailsOpen}
+                  className="desktop-conversation-pill electron-no-drag inline-flex min-w-0 items-center outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                   onClick={() => {
                     changeDetails(true);
-                    showSettings();
+                    showSummary();
                   }}
                   type="button"
                 >
@@ -134,6 +132,7 @@ export function DesktopHeader({
                     <MessageCircle className="size-4 text-violet-500" />
                   )}
                   <span className="truncate text-[13px] font-medium">{selected.name}</span>
+                  <ChevronRight aria-hidden className="desktop-conversation-chevron size-3 shrink-0" />
                 </button>
               ) : (
                 <button
@@ -155,7 +154,7 @@ export function DesktopHeader({
 
           <div
             className={cn(
-              "pointer-events-auto relative h-full shrink-0 overflow-hidden",
+              "pointer-events-auto relative h-full shrink-0 overflow-hidden transition-[width] duration-300 ease-[var(--ease-pane)] motion-reduce:transition-none",
               !detailsOpen && !selectedBot && selected.kind !== "group" && "w-0"
             )}
             style={{
@@ -214,40 +213,17 @@ export function DesktopHeader({
                 </>
               )}
               <div className="flex justify-end">
-                {inspectorMode === "summary" && (selectedBot || selected.kind === "group") ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        ref={settingsRef}
-                        aria-label={
-                          selected.kind === "group" ? "Conversation settings" : "Bot settings"
-                        }
-                        className="rounded-full text-foreground-tertiary"
-                        onClick={() => {
-                          measureUntilNextPaint("view.inspector-mode", { mode: "settings" });
-                          showSettings();
-                        }}
-                        size="icon-sm"
-                        variant="ghost"
-                      >
-                        <Settings className="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {selected.kind === "group" ? "Conversation settings" : "Bot settings"}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
+                      ref={closeRef}
                       aria-label="Close details"
-                      className="rounded-full text-foreground-tertiary hover:bg-transparent hover:text-foreground"
+                      className="size-9 rounded-full bg-message-assistant text-foreground-secondary hover:bg-hover hover:text-foreground"
                       onClick={() => changeDetails(false)}
                       size="icon-sm"
                       variant="ghost"
                     >
-                      <ChevronsRight className="size-4" />
+                      <X className="size-4" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Close details</TooltipContent>

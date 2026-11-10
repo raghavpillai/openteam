@@ -253,7 +253,13 @@ function PdfPreview({ url }: { url: string }) {
   );
 }
 
-function ProgressiveHtmlPreview({ source }: { source: HTMLElement }) {
+function ProgressiveHtmlPreview({
+  source,
+  table = false,
+}: {
+  source: HTMLElement;
+  table?: boolean;
+}) {
   const articleRef = useRef<HTMLElement>(null);
   const [completedSource, setCompletedSource] = useState<HTMLElement | null>(null);
   const complete = completedSource === source;
@@ -279,7 +285,11 @@ function ProgressiveHtmlPreview({ source }: { source: HTMLElement }) {
   return (
     <article
       aria-busy={complete ? undefined : true}
-      className="openteam-document-preview mx-auto min-h-full w-full max-w-[860px] bg-white px-12 py-10 text-[#222] shadow-sm"
+      className={
+        table
+          ? "openteam-document-preview openteam-table-preview"
+          : "openteam-document-preview mx-auto min-h-full w-full max-w-[860px] bg-white px-12 py-10 text-[#222] shadow-sm"
+      }
       ref={articleRef}
     />
   );
@@ -408,7 +418,7 @@ function LoadedDocumentPreview({
   if (state.kind === "error")
     return <PreviewStatus detail={state.message} title="Couldn’t read file" />;
   if (state.kind === "html") {
-    return <ProgressiveHtmlPreview source={state.value} />;
+    return <ProgressiveHtmlPreview source={state.value} table={kind === "table"} />;
   }
   return (
     <div className="mx-auto min-h-full w-full max-w-[960px] bg-background px-8 py-7">
@@ -420,7 +430,7 @@ function LoadedDocumentPreview({
       {kind === "markdown" ? (
         <MessageResponse>{state.value}</MessageResponse>
       ) : (
-        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-[18px]">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[18px]">
           {state.value}
         </pre>
       )}
@@ -431,6 +441,9 @@ function LoadedDocumentPreview({
 export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
   const [open, setOpen] = useState(false);
   const kind = attachmentPreviewKind(attachment);
+  const dot = attachment.fileName.lastIndexOf(".");
+  const baseName = dot > 0 ? attachment.fileName.slice(0, dot) : attachment.fileName;
+  const extension = dot > 0 ? attachment.fileName.slice(dot) : "";
 
   return (
     <>
@@ -448,9 +461,13 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
         >
           <FileGlyph variant={fileGlyphVariant(attachment.fileName)} />
           <span className="flex min-w-0 flex-1 flex-col gap-px">
-            <span className="truncate text-[14px] font-medium leading-5 text-[#1c1c1c] dark:text-[#f5f5f5]">
-              {attachment.fileName}
-            </span>
+            <bdi
+              dir="ltr"
+              className="flex min-w-0 text-[14px] font-medium leading-5 text-[#1c1c1c] dark:text-[#f5f5f5]"
+            >
+              <span className="truncate">{baseName}</span>
+              <span className="shrink-0">{extension}</span>
+            </bdi>
             <span className="truncate text-[13px] leading-[18px] text-[#1c1c1cad] dark:text-[#f5f5f5a8]">
               {formatAttachmentSize(attachment.byteSize)}
             </span>
@@ -460,7 +477,7 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
 
       <Dialog onOpenChange={setOpen} open={open}>
         <DialogContent
-          className="grid h-[calc(100vh-80px)] w-[min(1100px,calc(100vw-80px))] max-w-none grid-rows-[40px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[12px] border-[0.5px] border-black/10 bg-[#fcfcfc] p-0 shadow-[0_32px_80px_rgba(0,0,0,0.55)] dark:border-[#303030] dark:bg-[#070707]"
+          className="file-preview-dialog grid h-[calc(100vh-80px)] w-[min(1100px,calc(100vw-80px))] max-w-none grid-rows-[40px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[12px] border-[0.5px] border-black/10 bg-[#fcfcfc] p-0 shadow-[0_32px_80px_rgba(0,0,0,0.55)] dark:border-[#303030] dark:bg-[#070707]"
           onOpenAutoFocus={(event) => event.preventDefault()}
           showCloseButton={false}
           surface="transparent"

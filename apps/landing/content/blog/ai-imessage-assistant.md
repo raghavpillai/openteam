@@ -5,8 +5,8 @@ description: An AI iMessage assistant you host yourself. Turn on Messages in Ope
 date: 2026-10-19
 updated: 2026-11-10
 category: Guides
-image: /blog/images/openteam-imessage-catch-up-chat.png
-imageAlt: An OpenTeam chat where the Chief of Staff bot summarizes four Messages conversations from the morning, then replies to Maya in her existing conversation that Saturday at 7 at Lucia's works
+image: /blog/images/openteam-imessage-catch-up-sent-card.png
+imageAlt: An OpenTeam chat where the Chief of Staff bot summarizes four Messages conversations from the morning, then a Messages card shows its reply to Maya Chen was sent without asking, as allowed on the Mac mini
 related: ai-agent-phone-calls, tailscale-https-self-hosted-ai-agents, openclaw-alternative
 ---
 
@@ -34,6 +34,8 @@ Apple has no Messages API for this, so the desktop app reads the Mac's Messages 
 
 ## What you need
 
+Earlier versions of this guide used the iMessage (SSH) plugin, which has been removed. If you installed it, uninstall it in **Marketplace** and stop the `openteam-imessage` user service on your server's host.
+
 - An up-to-date OpenTeam server, with a [model](/docs/configuration/models) that handles tool calls well.
 - A Mac signed in to Messages, with the OpenTeam app for Apple silicon from the [download page](/download). For SMS, turn on Text Message Forwarding for that Mac on your iPhone, under **Settings → Apps → Messages**.
 
@@ -50,7 +52,7 @@ Keep the app open while bots use Messages. If it closes or the Mac sleeps, that 
 
 ### More than one Mac
 
-Turn on Messages on each Mac you want bots to use. A bot uses the Mac you last wrote to it from. If that Mac is offline, for example a MacBook with its lid closed, it uses another Mac that's online with Messages on, such as a Mac mini at home. When more than one Mac could serve and you wrote from your phone, the bot asks which one, or names one itself. **Settings → Server → Manage devices**, on the desktop or the iPhone app, shows which Macs are online and which have Messages on.
+Turn on Messages on each Mac you want bots to use. A bot uses the Mac you last wrote to it from. If that Mac is offline, for example a MacBook with its lid closed, it uses another Mac that's online with Messages on, such as a Mac mini at home. When more than one Mac could serve and none is the Mac you wrote from, for example because you wrote from your phone, the bot asks which one, or names one itself. **Settings → Server → Manage devices**, on the desktop or the iPhone app, shows which Macs are online and which have Messages on.
 
 ## Approve texts before they go out
 
@@ -70,7 +72,7 @@ Under **Settings → Computer → Messages**, **Send Without Asking** skips the 
 
 The bot lists the chats active since then, reads them and summarizes.
 
-![An OpenTeam chat where the Chief of Staff bot lists four conversations since 8 AM, then replies to Maya that Saturday at 7 at Lucia's works](/blog/images/openteam-imessage-catch-up-chat.png "A catch-up, then one reply to Maya. She's an allowed recipient on this Mac, so the reply skips the approval card. Sample data. Image: OpenTeam.")
+![An OpenTeam chat where the Chief of Staff bot lists four conversations since 8 AM, then a Messages card marked Sent shows its reply to Maya Chen, sent without asking as allowed on the Mac mini](/blog/images/openteam-imessage-catch-up-sent-card.png "A catch-up, then one reply to Maya. She's an allowed recipient on this Mac, so the text went out without a card to approve, and a Sent card records it in the chat. Sample data. Image: OpenTeam.")
 
 ### Find what someone said about a topic
 
@@ -108,7 +110,7 @@ OpenClaw's docs recommend a dedicated Apple ID for the bot. Apple's Smart Reply 
 ### What ChatGPT's plugin does better
 
 - **No server.** It's a plugin in an app you may already use, on all ChatGPT plans.
-- **Per-chat allow rules.** ChatGPT can always allow a whole chat, groups included. OpenTeam allows one recipient at a time; group texts always need a card unless you turn on Send Without Asking.
+- **Per-chat allow rules.** ChatGPT can always allow a whole chat, groups included. OpenTeam allows one recipient at a time, for texts a bot addresses to that person's number or email; group texts always need a card unless you turn on Send Without Asking.
 
 OpenTeam fits if you want open source, your own hardware and model, or more than one Mac.
 
@@ -138,7 +140,7 @@ OpenTeam fits if you want open source, your own hardware and model, or more than
 | Problem | What it means | What to do |
 |---|---|---|
 | The bot says it has no Messages tools | No online Mac has Messages turned on | Open the app on your Mac and turn on **Use Messages** in **Settings → Computer** |
-| "Messages needs Full Disk Access" | The Mac can't read the Messages database | Turn on OpenTeam under **System Settings → Privacy & Security → Full Disk Access** |
+| The bot says the Mac hasn't granted Full Disk Access, or Settings shows "Needs Full Disk Access" | The Mac can't read the Messages database | Turn on OpenTeam under **System Settings → Privacy & Security → Full Disk Access** |
 | A send fails with a permission error | macOS hasn't allowed control of Messages | Choose **Allow** next to Automation; after a denial, turn on Messages under OpenTeam in **Privacy & Security → Automation** |
 | "Mac is offline" on a card | The Mac slept or the app closed | Open the app on that Mac and press **Send** again |
 | The bot asks which Mac to use | More than one Mac has Messages on | Name the Mac, or write from the Mac you want |

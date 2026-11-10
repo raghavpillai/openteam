@@ -320,6 +320,8 @@ export const turnContentWithNotes = (
   input: {
     origin: RunOrigin;
     inboxType?: string;
+    /** The captured assembler adds the reply reminder only when explicitly requested. */
+    appendReplyReminder?: boolean;
     runtimeProfile: "agent" | "subagent";
     notes: ReadonlyArray<string | null | undefined>;
     unfinishedTasks?: boolean;
@@ -329,7 +331,8 @@ export const turnContentWithNotes = (
   withTurnSystemReminder(
     turnSystemReminder(input.notes, {
       unfinishedTasks: input.unfinishedTasks,
-      reply: input.runtimeProfile === "agent" && turnOwesReplyReminder(input.origin, content, input.inboxType),
+      reply: input.appendReplyReminder === true && input.runtimeProfile === "agent" &&
+        turnOwesReplyReminder(input.origin, content, input.inboxType),
     }),
     content
   );

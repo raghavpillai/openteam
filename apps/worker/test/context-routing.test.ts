@@ -71,7 +71,7 @@ describe("OpenTeam-style runtime context routing", () => {
     const update = "[SAND_HIDDEN_PROMPT]<<SAND_AGENT_PROFILE_UPDATE:v1:fixture>>\n<agent_profile_update>\n</agent_profile_update>";
     const sections = "<instructions_update>\nchanged\n</instructions_update>";
     const query = "<timestamp>Monday, Oct 20, 2026, 9:00 AM (UTC)</timestamp>\n<user_query>\nhi\n</user_query>";
-    expect(turnContentWithNotes({ origin: "user", runtimeProfile: "agent", notes: [update, null, sections] }, query)).toBe([
+    expect(turnContentWithNotes({ origin: "user", runtimeProfile: "agent", appendReplyReminder: true, notes: [update, null, sections] }, query)).toBe([
       "<system_reminder>",
       update,
       "",

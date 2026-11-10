@@ -22,11 +22,19 @@ test("a reaction wake gets no text-reply reminder after canonical timestamp fram
 
 test("visible user messages still require delivery, even when they quote a hidden marker", () => {
   const content = wrapped("[t1u]\n[SAND_HIDDEN_PROMPT] explain this marker");
-  const turn = turnContentWithNotes({ origin: "user", inboxType: "message.user", runtimeProfile: "agent", notes: [] }, content);
+  const turn = turnContentWithNotes({ origin: "user", inboxType: "message.user", runtimeProfile: "agent", appendReplyReminder: true, notes: [] }, content);
   expect(turn).toStartWith("<system_reminder>\n");
   expect(turn).toContain("SendToUser");
   expect(turn).toContain("Plain assistant text is NEVER delivered");
   expect(turn).toEndWith(content);
+});
+
+test("ordinary assembly does not force a text send; recorded framing can explicitly request the source reminder", () => {
+  const content = wrapped("[t1u]\nThanks");
+  const input = { origin: "user" as const, inboxType: "message.user", runtimeProfile: "agent" as const, notes: [] };
+  expect(turnContentWithNotes(input, content)).toBe(content);
+  expect(turnContentWithNotes({ ...input, appendReplyReminder: true }, content)).toContain("Reply to this message by actually invoking the SendToUser tool.");
+  expect(turnContentWithNotes({ ...input, appendReplyReminder: true, inboxType: "user.reaction" }, wrapped(hidden))).toBe(wrapped(hidden));
 });
 
 test("hidden feedback retains meaningful instruction updates without demanding a reply", () => {

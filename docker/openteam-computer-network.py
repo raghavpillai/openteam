@@ -163,6 +163,26 @@ def update_management(server_url, values):
     state.write_text(json.dumps(addresses))
 
 
+def update_families(value):
+    if (not isinstance(value, dict) or set(value) != {'ipv4', 'ipv6'} or
+            any(type(v) is not bool for v in value.values())):
+        raise ValueError('Invalid address families')
+    families = network_families()
+    for family, enabled in [('-4', value['ipv4']), ('-6', value['ipv6'])]:
+        if family not in families:
+            continue
+        # The unreachable route must remain: deleting it would fall through to
+        # the host underlay. Reject before tun2socks can acknowledge a SYN.
+        run('ip', family, 'route', 'replace', 'unreachable', 'default', 'metric', '42760', 'table', TABLE)
+        if enabled:
+            run('ip', family, 'route', 'replace', 'default', 'dev', TUN, 'metric', '10', 'table', TABLE)
+        else:
+            result = subprocess.run(['ip', family, 'route', 'del', 'default', 'dev', TUN,
+                                     'metric', '10', 'table', TABLE], capture_output=True)
+            if result.returncode and b'No such process' not in result.stderr:
+                raise subprocess.CalledProcessError(result.returncode, result.args, stderr=result.stderr)
+
+
 def prepare(server_url):
     url, port = management_url(server_url)
     families = network_families()
@@ -218,7 +238,9 @@ def prepare(server_url):
     run('ip', 'link', 'set', 'dev', TUN, 'mtu', '1500', 'up')
     for family in families:
         run('ip', family, 'route', 'replace', 'unreachable', 'default', 'metric', '42760', 'table', TABLE)
-        run('ip', family, 'route', 'replace', 'default', 'dev', TUN, 'metric', '10', 'table', TABLE)
+        # Families are enabled only after the selected exit has been tested.
+        subprocess.run(['ip', family, 'route', 'del', 'default', 'dev', TUN,
+                        'metric', '10', 'table', TABLE], capture_output=True)
         # Dedicated priorities are owned by this container's network service.
         for priority in ['98', '99', '100', '101', '110']:
             while subprocess.run(['ip', family, 'rule', 'del', 'pref', priority], capture_output=True).returncode == 0:
@@ -226,9 +248,12 @@ def prepare(server_url):
         run('ip', family, 'rule', 'add', 'pref', '100', 'fwmark', MARK + '/0xffff', 'lookup', 'main')
         run('ip', family, 'rule', 'add', 'pref', '101', 'fwmark', MARK + '/0xffff', 'prohibit')
         run('ip', family, 'rule', 'add', 'pref', '110', 'lookup', TABLE)
-    # Responses arrive from the virtual interface, rather than the Docker NIC.
-    for interface in ['all', TUN]:
-        Path(f'/proc/sys/net/ipv4/conf/{interface}/rp_filter').write_text('0')
+    # The maximum of all/interface rp_filter applies. Even loose filtering on
+    # eth0 drops marked relay/probe replies when ordinary routes are unreachable
+    # during bootstrap. Disable it throughout this namespace, including the
+    # default for future interfaces; nftables still enforces every output path.
+    for interface in Path('/proc/sys/net/ipv4/conf').iterdir():
+        (interface / 'rp_filter').write_text('0')
     Path('/run/openteam-management.json').write_text('[]')
     if addresses:
         update_management(server_url, addresses)
@@ -240,7 +265,9 @@ def prepare(server_url):
 
 if __name__ == '__main__':
     try:
-        if len(sys.argv) == 4 and sys.argv[1] == '--management':
+        if len(sys.argv) == 3 and sys.argv[1] == '--families':
+            update_families(json.loads(sys.argv[2]))
+        elif len(sys.argv) == 4 and sys.argv[1] == '--management':
             update_management(sys.argv[2], json.loads(sys.argv[3]))
         elif len(sys.argv) == 3 and sys.argv[1] == '--host-bridge':
             update_host_bridge(sys.argv[2])

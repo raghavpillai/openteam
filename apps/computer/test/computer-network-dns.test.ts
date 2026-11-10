@@ -163,3 +163,19 @@ test("Node DNS reuses bounded TLS, fences epochs, cancels queued/late dials and 
     await rm(directory, { recursive: true, force: true });
   }
 }, 10000);
+
+test("DNS bootstrap follows a working IPv6-only exit and invalidates the old transport pool", async () => {
+  let ipv6 = false;
+  const opened: string[] = [];
+  const exchange = createDnsExchange({ open: async (host) => { opened.push(host); throw Error("fixture unavailable"); } }, {
+    routeKey: () => "same-exit", preferIPv6: () => ipv6,
+  });
+  try {
+    await expect(exchange(query)).rejects.toThrow();
+    ipv6 = true; exchange.syncRoute();
+    await expect(exchange(query)).rejects.toThrow();
+    ipv6 = false; exchange.syncRoute();
+    await expect(exchange(query)).rejects.toThrow();
+    expect(opened).toEqual(["1.1.1.1", "2606:4700:4700::1111", "1.1.1.1"]);
+  } finally { exchange.close(); }
+});

@@ -106,9 +106,9 @@ const DesktopDialogs = lazy(() =>
 const Inspector = lazy(() =>
   import("./components/openteam/inspector").then((module) => ({ default: module.Inspector }))
 );
-const NewBotScreen = lazy(() =>
-  import("./components/openteam/new-bot-screen").then((module) => ({
-    default: module.NewBotScreen,
+const NewBotDialog = lazy(() =>
+  import("./components/openteam/new-bot-dialog").then((module) => ({
+    default: module.NewBotDialog,
   }))
 );
 const PluginDialog = lazy(() =>
@@ -257,7 +257,6 @@ export default function App() {
   const consumeTransferredDraft = useCallback(() => setTransferredDraft(null), []);
   const [newBotPicker, setNewBotPicker] = useState(false);
   const [newChatDraft, setNewChatDraft] = useState(0);
-  const [newGroupDialog, setNewGroupDialog] = useState(false);
   const [deleteGroupTarget, setDeleteGroupTarget] = useState<ChannelView | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -611,7 +610,7 @@ export default function App() {
     toggleUnread: sidebarPreferences.toggleUnread,
   });
   if (aboutOpen) loadedSurfaces.current.about = true;
-  if (deleteBotTarget || deleteGroupTarget || newGroupDialog || rowTranscript) {
+  if (deleteBotTarget || deleteGroupTarget || rowTranscript) {
     loadedSurfaces.current.dialogs = true;
   }
   if (pluginsOpen) loadedSurfaces.current.plugins = true;
@@ -631,32 +630,20 @@ export default function App() {
     [handleStandardBotRowAction]
   );
 
-  const createNewBot = useCallback(
-    async (requestedName?: string, draft?: PromptDraft) => {
-      if (creatingBot.current) return;
-      creatingBot.current = true;
-      if (draft) setTransferredDraft({ channelId: null, draft });
+  const createNewBot = useCallback(async (input: CreateBotInput, draft?: PromptDraft) => {
+    if (creatingBot.current) return;
+    creatingBot.current = true;
+    try {
+      const bot = await mutate(() => api.createBot(input));
       setNewBotPicker(false);
-      const name = requestedName?.trim() || "New Bot";
-      setPendingBot({ name });
-      try {
-        const bot = await mutate(() =>
-          api.createBot({ clientRequestId: crypto.randomUUID(), name })
-        );
-        setInspectorMode("summary");
-        setDetailsOpen(false);
-        setPendingBot({ name: bot.name, dmChannelId: bot.dmChannelId });
-        if (draft) setTransferredDraft({ channelId: bot.dmChannelId, draft });
-      } catch {
-        // Keep the composer draft available when bot creation fails.
-        setPendingBot(null);
-        if (draft) setNewBotPicker(true);
-      } finally {
-        creatingBot.current = false;
-      }
-    },
-    [mutate]
-  );
+      setInspectorMode("summary");
+      setDetailsOpen(false);
+      setPendingBot({ name: bot.name, dmChannelId: bot.dmChannelId });
+      if (draft) setTransferredDraft({ channelId: bot.dmChannelId, draft });
+    } finally {
+      creatingBot.current = false;
+    }
+  }, [mutate]);
 
   // Setup hands over to its first bot: the main page appears with the bot flying into its
   // sidebar row, holds there a moment with the row lit, then opens its chat for the
@@ -798,10 +785,6 @@ export default function App() {
     measureUntilNextPaint("view.new-bot-open");
     setNewChatDraft((draft) => draft + 1);
     setNewBotPicker(true);
-  }, []);
-  const openNewGroup = useCallback(() => {
-    measureUntilNextPaint("view.dialog-open", { dialog: "new-group" });
-    setNewGroupDialog(true);
   }, []);
   const openAbout = useCallback(() => setAboutOpen(true), []);
   const openSettingsTarget = useCallback((anchor: SettingsAnchor | null) => {
@@ -1285,7 +1268,7 @@ export default function App() {
 
   return (
     <BotAvatarActivityProvider
-      channel={newBotPicker || pendingBot ? null : (a2aExchangeChannel ?? selected)}
+      channel={pendingBot ? null : (a2aExchangeChannel ?? selected)}
       run={index.activeRunByChannel.get((a2aExchangeChannel ?? selected)?.id ?? "")}
       runsByChannel={index.runsByChannel}
     >
@@ -1307,7 +1290,6 @@ export default function App() {
             activeTaskChannelIds={activeTaskChannelIds}
             botById={index.botById}
             channels={visibleChannels}
-            creating={newBotPicker}
             forcedCompact={forcedSidebarCompact}
             maxExpandedWidth={sidebarMaxWidth}
             latestMessageByChannel={index.latestMessageByChannel}
@@ -1316,7 +1298,6 @@ export default function App() {
             onEditChannel={editSidebarChannel}
             onLayoutChange={handleSidebarLayoutChange}
             onNewBot={openNewBot}
-            onNewGroup={openNewGroup}
             onOpenPlugins={openPlugins}
             onOpenSettings={openSettings}
             onPreloadSearch={preloadSearchDialog}
@@ -1325,7 +1306,7 @@ export default function App() {
             pendingBot={pendingBot}
             preferences={sidebarPreferences}
             selectedId={
-              newBotPicker || pendingBot || landing
+              pendingBot || landing
                 ? null
                 : selected?.kind === "agent_dm"
                   ? lastWritableChannelId.current
@@ -1334,7 +1315,7 @@ export default function App() {
           />
 
           <section className="relative flex min-w-0 flex-1 flex-col" data-workspace-main="">
-            {!newBotPicker && !pendingBot && !landing && (
+            {!pendingBot && !landing && (
               <DesktopHeader
                 agentNameById={index.agentNameById}
                 botById={index.botById}
@@ -1381,49 +1362,7 @@ export default function App() {
               </div>
             )}
 
-            {newBotPicker ? (
-              <Suspense
-                fallback={
-                  <div className="grid min-h-0 flex-1 place-items-center" role="status">
-                    <LoadingOrb label="Loading new Bot" size={24} />
-                  </div>
-                }
-              >
-                <NewBotScreen
-                  key={newChatDraft}
-                  botById={index.botById}
-                  channels={visibleChannels}
-                  onCancel={() => {
-                    setNewBotPicker(false);
-                    requestAnimationFrame(() =>
-                      document
-                        .querySelector<HTMLElement>('[contenteditable="true"]:not([inert] *)')
-                        ?.focus()
-                    );
-                  }}
-                  incomingDraft={
-                    transferredDraft?.channelId === null ? transferredDraft.draft : null
-                  }
-                  onDraftApplied={consumeTransferredDraft}
-                  onCreateBot={(name, draft) => void createNewBot(name, draft)}
-                  onCreateGroup={(botIds) =>
-                    mutate(() =>
-                      api.createGroup({
-                        name: botIds
-                          .map((id) => index.botById.get(id)?.name ?? "Bot")
-                          .join(", ")
-                          .slice(0, 120),
-                        botIds,
-                      })
-                    )
-                  }
-                  onSelect={(id, draft) => {
-                    if (draft) setTransferredDraft({ channelId: id, draft });
-                    selectSidebarChannel(id);
-                  }}
-                />
-              </Suspense>
-            ) : pendingBot ? (
+            {pendingBot ? (
               <div
                 aria-label={`Creating ${pendingBot.name}`}
                 aria-live="polite"
@@ -1464,9 +1403,6 @@ export default function App() {
                       >
                         <ChatPane
                           active={channelId === selectedId && !a2aExchangeChannel}
-                          activityTruncated={
-                            historyByChannel.get(channelId)?.activityTruncated ?? false
-                          }
                           threadContextTruncated={
                             historyByChannel.get(channelId)?.threadContextTruncated ?? false
                           }
@@ -1533,7 +1469,6 @@ export default function App() {
                       >
                         <ChatPane
                           activeRun={undefined}
-                          activityTruncated={false}
                           threadContextTruncated={false}
                           agentNameById={index.agentNameById}
                           botById={index.botById}
@@ -1701,7 +1636,7 @@ export default function App() {
                 {snapshot.bots.length === 0 ? (
                   <div className="flex flex-col items-center gap-3">
                     <span>Bots do the work in OpenTeam. Create one to get started.</span>
-                    <Button onClick={() => void createNewBot()} size="sm">
+                    <Button onClick={openNewBot} size="sm">
                       Create a bot
                     </Button>
                   </div>
@@ -1712,25 +1647,25 @@ export default function App() {
             )}
           </section>
 
+          {newBotPicker && (
+            <Suspense fallback={null}>
+              <NewBotDialog
+                key={newChatDraft}
+                onOpenChange={setNewBotPicker}
+                onCreateBot={(input) => createNewBot(input, transferredDraft?.channelId === null ? transferredDraft.draft : undefined)}
+              />
+            </Suspense>
+          )}
           <MessagesGrantsPrompt />
           {loadedSurfaces.current.dialogs && (
             <Suspense fallback={null}>
               <DesktopDialogs
-                activeBots={snapshot.bots.filter((bot) => bot.status === "active")}
                 deleteBotTarget={deleteBotTarget}
                 deleteGroupTarget={deleteGroupTarget}
-                newGroupOpen={newGroupDialog}
                 onConfirmDeleteBot={confirmDeleteBot}
                 onConfirmDeleteGroup={confirmDeleteGroup}
-                onCreateGroup={async (name, botIds) => {
-                  const channel = await mutate(() => api.createGroup({ name, botIds }));
-                  setSelectedId(channel.id);
-                  setNewBotPicker(false);
-                  setNewGroupDialog(false);
-                }}
                 onDeleteBotOpenChange={(open) => !open && setDeleteBotTarget(null)}
                 onDeleteGroupOpenChange={(open) => !open && setDeleteGroupTarget(null)}
-                onNewGroupOpenChange={setNewGroupDialog}
                 onTranscriptOpenChange={(open) => !open && setRowTranscript(null)}
                 rowTranscript={rowTranscript}
               />

@@ -194,7 +194,7 @@ async function run() {
             "Broken diagrams must finish with an error"
           );
         if (kind === "media" && rendererFailure !== "file")
-          check(document.querySelector("article.group\\/file"), "File card must exist at reveal");
+          check(document.querySelector("[data-file-attachment-card]"), "File card must exist at reveal");
         const before = geometry();
         // Media is deliberately still downloading when the ready conversation opens.
         for (const release of downloads.splice(0)) release();

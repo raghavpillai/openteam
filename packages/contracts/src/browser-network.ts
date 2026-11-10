@@ -6,7 +6,11 @@ export type {
   NetworkSettingsUpdate,
   NetworkEgress,
   NetworkQuality,
+  NetworkConnectivity,
+  NetworkFamilyHealth,
+  NetworkFamilyState,
 } from "@openteam/plugin-sdk/browser-network/protocol";
+export { currentConnectivity } from "@openteam/plugin-sdk/browser-network/protocol";
 export interface NetworkSharingStatus {
   supported: boolean;
   connected: boolean;

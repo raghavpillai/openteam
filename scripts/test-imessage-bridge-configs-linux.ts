@@ -63,8 +63,18 @@ const route = (container: string, endpoint: Endpoint) =>
     "dport",
     String(endpoint.port)
   );
-const prepare = (container: string) =>
-  exec(container, "python3", "/tmp/computer-network.py", "http://127.0.0.1:8787");
+const prepare = async (container: string) => {
+  await exec(container, "python3", "/tmp/computer-network.py", "http://127.0.0.1:8787");
+  // The synthetic fixture stands in for an exit whose families passed checks.
+  // Production keeps ordinary traffic blocked until the worker verifies them.
+  await exec(
+    container,
+    "python3",
+    "/tmp/computer-network.py",
+    "--families",
+    JSON.stringify({ ipv4: true, ipv6: true })
+  );
+};
 const refresh = (container: string) =>
   exec(container, "python3", "/tmp/computer-network.py", "--host-bridge", "http://127.0.0.1:8787");
 const interruptedRefresh = (container: string) =>

@@ -309,7 +309,14 @@ const server = Bun.serve<VncConnection | NetworkConnection>({
       }
       const context: RouteContext = { app, request, url, path, authMode, authenticatedSessionId };
       if (path === "/api/server-settings/browser-network") {
-        if (request.method === "GET") return json(await browserNetwork.view());
+        if (request.method === "GET") {
+          const connectivity = await app.browserNetworkConnectivity().catch(() => undefined);
+          const view = await browserNetwork.view();
+          const sourceId = view.runtime.state === "server" ? "server" : view.runtime.activeMachineId;
+          if (connectivity && connectivity.epoch === view.runtime.routeEpoch && connectivity.sourceId === sourceId)
+            view.runtime.connectivity = connectivity;
+          return json(view);
+        }
         if (request.method === "PATCH") return json(await browserNetwork.update(await request.json().catch(() => null)), 202);
       }
       if (path === "/api/server-settings/browser-network/quality" && request.method === "POST")

@@ -12,13 +12,15 @@ related: grok-bot-vs-meta-muse-vs-openai-dots, introducing-openteam, best-self-h
 
 **As of October 28, 2026, Meta Muse is available in the United States, Canada, Japan and Singapore. Meta hasn't announced a date for any other country. Elsewhere, you can wait, use a hosted agent sold where you live, or run OpenTeam, an open-source, self-hosted AI agent team that works wherever your model provider does.**
 
-We build OpenTeam, so weigh our view accordingly. Every Muse fact below links to Meta or to press coverage. The post describes the situation on October 8, 2026, and was updated on October 26 for Muse's launch in Japan and on October 28 for Singapore.
+We build OpenTeam, so weigh our view accordingly. Every Muse fact below links to Meta or to press coverage. The post describes the situation on October 8, 2026, and was updated on October 26 for Muse's launch in Japan, on October 28 for Singapore and on November 10 for voice.
 
 ## Meta Muse countries: the US, Canada, Japan and Singapore
 
 Meta [launched Muse on September 8](https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/), "rolling out in the US on iOS, Android, and muse.ai." Canada followed on September 18 ([iPhone in Canada](https://www.iphoneincanada.ca/2026/09/18/metas-muse-ai-agent-is-now-available-in-canada/)). On September 29, Meta's newsroom described Muse as "a personal AI agent available in the US and Canada" ([Meta](https://about.fb.com/news/2026/09/introducing-muse-small-business/)), and its [terms](https://muse.ai/terms) set the minimum age at 18. Japan followed on October 23, the first country outside North America, on iOS, Android and muse.ai ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)). Singapore followed on October 27 on the same platforms, with local connector partners such as Grab, Shopee and Singapore Airlines ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)).
 
 Muse runs on the web, iOS, Android and WhatsApp. It's free to start, with paid plans at $20 and $100 a month, and it asks for a payment card at sign-up ([TechCrunch](https://techcrunch.com/2026/09/08/meta-debuts-its-muse-ai-agent-will-consumers-trust-it/)).
+
+New features don't always reach every Muse country at once. Voice conversations with an animated avatar, added on November 5, are rolling out "in the US to start" ([Meta](https://about.fb.com/news/2026/11/introducing-muse-ai-voice-expressive-avatars/)). Spaces, custom views Muse builds inside the app, arrived on November 6 "everywhere Muse is available" ([Meta](https://about.fb.com/news/2026/11/introducing-spaces-customize-muse-app/)).
 
 ## What Meta has said about other countries
 

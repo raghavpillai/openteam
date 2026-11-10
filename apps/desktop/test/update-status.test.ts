@@ -119,6 +119,24 @@ describe("desktop update diagnostics", () => {
     ).toBe("feed-malformed");
   });
 
+  test("treats Electron network errors as an unreachable update service", () => {
+    // Messages electron-updater reported for a refused connection, an unknown host and a
+    // connection that never answered.
+    for (const message of [
+      "net::ERR_CONNECTION_REFUSED",
+      "net::ERR_NAME_NOT_RESOLVED",
+      "net::ERR_CONNECTION_TIMED_OUT",
+    ]) {
+      expect(classifyDesktopUpdateError(new Error(message), "checking")).toEqual({
+        failureKind: "service-unavailable",
+        message: "The update service is currently unreachable. Check your connection and try again.",
+      });
+      expect(classifyDesktopUpdateError(new Error(message), "downloading").failureKind).toBe(
+        "download-failed"
+      );
+    }
+  });
+
   test("unknown updater errors use bounded public copy", () => {
     const failure = classifyDesktopUpdateError(
       `Unexpected error ${"private response ".repeat(1_000)}`,

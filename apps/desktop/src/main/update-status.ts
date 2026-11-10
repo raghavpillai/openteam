@@ -59,8 +59,9 @@ export const classifyDesktopUpdateError = (
       message: `The update service returned ${status ? `HTTP ${status}` : "an HTTP error"}. Try again in a few minutes.`,
     };
   }
+  // Electron's net module reports Chromium codes such as net::ERR_NAME_NOT_RESOLVED.
   if (
-    /network|offline|unreachable|timed?\s*out|time-?out|econn|enotfound/.test(
+    /network|offline|unreachable|timed?[\s_-]*out|time-?out|econn|enotfound|net::err_(?:internet_disconnected|name_not_resolved|name_resolution_failed|connection_|address_unreachable|proxy_connection_failed|tunnel_connection_failed|empty_response)/.test(
       normalized + " " + code.toLowerCase()
     )
   ) {

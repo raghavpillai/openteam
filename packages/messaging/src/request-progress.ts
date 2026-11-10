@@ -13,7 +13,7 @@ const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.Inp
 const openWorkers = ["provisioning", "queued", "running", "waiting"] as const;
 /** A newer message interrupts the model turn, not the user's unfinished request.
  * Explicit stops still win, including those issued after a priority interruption. */
-const requestIsStopped = (run: { requestStoppedAt?: Date | null; status: string; error?: unknown }) => {
+export const requestIsStopped = (run: { requestStoppedAt?: Date | null; status: string; error?: unknown }) => {
   const error = run.error && typeof run.error === "object" ? run.error as { code?: unknown } : null;
   return !!run.requestStoppedAt || (run.status === "cancelled" && error?.code !== "priority_peer_interrupt");
 };
@@ -378,7 +378,12 @@ export async function settleRequestProgress(
 export async function recoverRequestProgress(prisma: PrismaClient, messaging: AgentMessaging) {
   const roots = await prisma.run.findMany({
     where: {
-      status: { notIn: ["queued", "running"] },
+      // Filter before distinct: a cancelled request must not hide a recoverable
+      // request in the same conversation.
+      OR: [
+        { status: { notIn: ["queued", "running", "cancelled"] } },
+        { status: "cancelled", error: { path: ["code"], equals: "priority_peer_interrupt" } },
+      ],
       requestStoppedAt: null,
       requestProgress: { path: ["state"], equals: "working" },
       bot: { status: "active" },

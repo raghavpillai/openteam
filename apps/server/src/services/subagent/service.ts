@@ -1,4 +1,4 @@
-import { initialTaskProgress, taskProgress, taskScopeUpdates, ensureRequestForTask, stopRequestProgress } from "@openteam/messaging";
+import { initialTaskProgress, taskProgress, taskScopeUpdates, ensureRequestForTask, stopRequestProgress, requestIsStopped } from "@openteam/messaging";
 import {
   ApiError,
   formatPiModelRef,
@@ -705,7 +705,7 @@ export class SubagentService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openteam-subagent-capacity'))`;
       await assertSubagentCapacity(context.botId, type, tx);
       const priorRequest = subagent.requestRunId ? await tx.run.findUnique({ where: { id: subagent.requestRunId } }) : null;
-      const inheritedRequestId = priorRequest && priorRequest.channelId === context.channelId && !priorRequest.requestStoppedAt && priorRequest.status !== "cancelled" && taskProgress(priorRequest.requestProgress)?.state !== "complete" ? priorRequest.id : undefined;
+      const inheritedRequestId = priorRequest && priorRequest.channelId === context.channelId && !requestIsStopped(priorRequest) && taskProgress(priorRequest.requestProgress)?.state !== "complete" ? priorRequest.id : undefined;
       const requestRunId = await ensureRequestForTask(tx, context.botId, context.runId, input.request_run_id ?? inheritedRequestId);
       const current = await tx.subagent.findUniqueOrThrow({ where: { id: subagent.id } });
       if (current.currentRunId !== subagent.currentRunId || !["completed", "failed", "stopped", "waiting"].includes(current.status)) throw new ApiError(409, "subagent_not_resumable", "The task already continued; inspect its current state before dispatching again");

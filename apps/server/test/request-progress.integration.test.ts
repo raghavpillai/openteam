@@ -59,18 +59,23 @@ test.skipIf(!url)("a result wake can close the original request after its model 
   expect((await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } })).requestProgress).toMatchObject({ state: "complete" });
 }));
 
-test.skipIf(!url)("an approval reply resuming the same worker retains its original broader request without requiring the model to repeat its ID", () => fixture(async f => {
+for (const priorState of ["active", "interrupted", "stopped"] as const) test.skipIf(!url)(`resuming a worker ${priorState === "stopped" ? "starts a new request after an explicit stop" : `retains the original ${priorState} request`} without requiring the model to repeat its ID`, () => fixture(async f => {
   await f.service.task(f.context, { description: "Approved one-message step", subagent_type: "computerUse", prompt: "Send the approved message once, then read the receipt." });
   const child = await f.db.subagent.findFirstOrThrow({ where: { parentBotId: f.owner.id } });
   await f.db.bot.update({ where: { id: child.childBotId }, data: { status: "active" } });
   await f.db.subagent.update({ where: { id: child.id }, data: { status: "completed" } });
+  if (priorState !== "active") await f.db.run.update({ where: { id: f.context.runId }, data: {
+    status: "cancelled", error: { code: "priority_peer_interrupt" },
+  } });
+  if (priorState === "stopped") await f.db.$transaction(tx => stopRequestProgress(tx, f.owner.id, f.context.runId));
   const reply = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, { botId: f.owner.id, channelId: f.channel.id,
     origin: "user", type: "user.message", content: "Read its status only; do not send anything further.", clientId: crypto.randomUUID(), priority: 300 }));
   await f.db.run.update({ where: { id: reply.run.id }, data: { status: "running" } });
   await f.service.task({ ...f.context, runId: reply.run.id, callId: crypto.randomUUID() }, { description: "Read the existing status", subagent_type: "computerUse",
     resume: `sand-subagent-${child.id}`, prompt: "Read the status only; no further outgoing action is approved.", read_only: true });
-  expect(await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).toMatchObject({ requestRunId: f.context.runId, readOnly: true });
-  expect((await requestProgressSnapshot(f.db, f.owner.id, f.channel.id)).map(s => s.request_run_id)).toEqual([f.context.runId]);
+  const expectedRequest = priorState === "stopped" ? reply.run.id : f.context.runId;
+  expect(await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).toMatchObject({ requestRunId: expectedRequest, readOnly: true });
+  expect((await requestProgressSnapshot(f.db, f.owner.id, f.channel.id)).map(s => s.request_run_id)).toEqual([expectedRequest]);
 }));
 async function fixture(body: (f: Awaited<ReturnType<typeof setup>>) => Promise<void>) {
   const f = await setup();
@@ -417,6 +422,29 @@ test.skipIf(!url)(
       ).toBe(1);
     })
 );
+
+for (const recoveredStatus of ["completed", "cancelled"] as const) test.skipIf(!url)(`restart recovery does not let a cancelled request hide ${recoveredStatus === "completed" ? "completed" : "priority-interrupted"} work in the same channel`, () => fixture(async f => {
+  await f.db.$transaction(tx => ensureRequestForTask(tx, f.owner.id, f.context.runId));
+  await f.db.run.update({ where: { id: f.context.runId }, data: {
+    status: "cancelled", error: { code: "cancelled_by_user" },
+  } });
+  const other = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, {
+    botId: f.owner.id, channelId: f.channel.id, origin: "user", type: "user.message",
+    content: "Verify the unrelated export.", clientId: crypto.randomUUID(), priority: 300,
+  }));
+  await f.db.$transaction(tx => ensureRequestForTask(tx, f.owner.id, other.run.id));
+  await f.db.run.update({ where: { id: other.run.id }, data: {
+    status: recoveredStatus, error: { code: "priority_peer_interrupt" },
+  } });
+  await recoverRequestProgress(f.db, f.messaging);
+  await recoverRequestProgress(f.db, f.messaging);
+  const checks = await f.db.inboxEvent.findMany({
+    where: { botId: f.owner.id, type: "request.check", status: "pending" },
+  });
+  expect(checks).toHaveLength(1);
+  expect(checks[0]!.payload).toMatchObject({ taskContextRunId: other.run.id });
+  expect((await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } })).requestReconciliations).toBe(0);
+}));
 
 test.skipIf(!url)(
   "folded independent completions are reconciled together without erasing either request",

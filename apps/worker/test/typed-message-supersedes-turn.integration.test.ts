@@ -187,7 +187,7 @@ test.skipIf(!databaseUrl)("a typed message during a running Shell cancels the tu
   const claimedSecond = await bot.claimedFor(second.run.id, "worker-second");
   expect(claimedSecond.interruptedRunId).toBe(first.run.id);
   const content = turnContentWithNotes({ origin: "user", runtimeProfile: "agent", notes: [], unfinishedTasks: await worker.supersededUnfinishedRun(claimedSecond) }, claimedSecond.content);
-  expect(content.startsWith(`<system_reminder>\n${UNFINISHED_TASKS_REMINDER}\n\n`)).toBe(true);
+  expect(content.startsWith(`<system_reminder>\n${UNFINISHED_TASKS_REMINDER}\n</system_reminder>\n`)).toBe(true);
   const secondTurn = await bot.startTurn(claimedSecond, content, sessionPath);
   await secondTurn.done;
   const sent = JSON.stringify((await modelRequests()).at(-1).messages);

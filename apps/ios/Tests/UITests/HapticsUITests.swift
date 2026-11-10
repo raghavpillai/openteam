@@ -386,20 +386,31 @@ import XCTest
   }
   func testInboxSwipeTensionBuildsBothWaysAndThresholdCrossingPops() async throws {
     let app = try await launch(home: true, visual: false)
+    continueAfterFailure = false
     let row = app.buttons["channel-channel-research"]
+    let closedFrame = row.frame
+    let window = app.coordinate(withNormalizedOffset: .zero)
     for direction: CGFloat in [-1, 1] {
       try await clear()
-      let start = row.coordinate(withNormalizedOffset: CGVector(dx: direction < 0 ? 0.7 : 0.3, dy: 0.5))
+      let frame = row.frame
+      // A moving row must not also move XCTest's destination coordinate.
+      let startPoint = CGPoint(x: frame.minX + frame.width * (direction < 0 ? 0.7 : 0.3), y: frame.midY)
+      let start = window.withOffset(CGVector(dx: startPoint.x, dy: startPoint.y))
       start.press(forDuration: 0.05,
         // Stay below the minimum 112pt arm distance at every sidebar width.
         thenDragTo: start.withOffset(CGVector(dx: direction * 90, dy: 0)),
         withVelocity: .slow, thenHoldForDuration: 0.3)
       let action = app.buttons[direction < 0 ? "conversation-swipe-pin" : "conversation-swipe-mark-unread"].firstMatch
-      XCTAssertTrue(action.waitForExistence(timeout: 5))
+      let revealed = action.waitForExistence(timeout: 5)
       // Give the opt-in audit requests time to arrive; holding at the detent
       // must not generate more pulses or an activation pop below the threshold.
       try await Task.sleep(for: .milliseconds(350))
       let log = try await events()
+      let geometry = XCTAttachment(string: "Direction \(direction), start \(startPoint), travel \(direction * 90), row before \(frame), row after \(row.frame), events \(String(describing: log))")
+      geometry.name = "inbox-swipe-window-geometry-\(direction)"
+      geometry.lifetime = .keepAlways
+      add(geometry)
+      XCTAssertTrue(revealed)
       let ramp = log.filter { $0.source == "conversation.swipe-tension" }
         .sorted { ($0.timestamp ?? 0) < ($1.timestamp ?? 0) }
       XCTAssertGreaterThanOrEqual(ramp.count, 2)
@@ -409,14 +420,19 @@ import XCTest
       XCTAssertTrue(zip(strengths, strengths.dropFirst()).allSatisfy { $0 < $1 })
       XCTAssertFalse(log.contains { $0.source == "conversation.swipe-action" || $0.source == "conversation.swipe-arm" })
       row.tap()
-      XCTAssertFalse(action.exists)
+      XCTAssertTrue(action.waitForNonExistence(timeout: 3))
       XCTAssertFalse(app.buttons["chat-back"].exists)
+      let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+        abs(row.frame.minX - closedFrame.minX) < 0.5
+      }, object: nil)
+      await fulfillment(of: [settled], timeout: 3)
       let closed = try await events()
       XCTAssertEqual(closed.filter { $0.source == "conversation.swipe-tension" }.count, ramp.count)
       XCTAssertFalse(closed.contains { $0.source == "conversation.swipe-action" })
     }
     try await clear()
-    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+    let frame = row.frame
+    let start = window.withOffset(CGVector(dx: frame.minX + frame.width * 0.15, dy: frame.midY))
     start.press(forDuration: 0.05,
       thenDragTo: start.withOffset(CGVector(dx: row.frame.width * 0.72, dy: 0)),
       withVelocity: .slow, thenHoldForDuration: 0.2)

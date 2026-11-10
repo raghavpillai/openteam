@@ -29,6 +29,7 @@
     "test:auth:e2e": "bun scripts/test-auth-e2e.ts",
     "test:browser-network:linux": "bun scripts/test-browser-network-linux.ts",
     "test:computer-network:linux": "bun scripts/test-computer-network-linux.ts",
+    "test:imessage-bridge:linux": "bun scripts/test-imessage-bridge-linux.ts",
     "test:browser-network:chaos": "bun test apps/server/test/browser-network.test.ts --test-name-pattern chaos && bun test packages/plugin-sdk/test/browser-network/client.test.ts packages/plugin-sdk/test/browser-network/mux.test.ts apps/desktop/test/network apps/computer/test/display-settings.test.ts apps/computer/test/browser-network-worker.test.ts apps/computer/test/browser-network-quality.test.ts apps/computer/test/browser-network-egress.test.ts",
     "db:generate": "bun --filter @openteam/db db:generate",
     "db:push": "bun --filter @openteam/db db:push",

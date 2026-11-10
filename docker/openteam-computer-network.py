@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 MARK = '0x4f54'
 TABLE = '18791'
 TUN = 'openteam0'
+HOST_BRIDGE_PORT = '8799'
 
 
 def run(*args, input=None):
@@ -86,6 +87,15 @@ def update_management(server_url, values):
 
 def prepare(server_url):
     url, port = management_url(server_url)
+    # Existing installations can retain the authenticated Messages SSH bridge.
+    # Reserve its fixed host endpoint before plugins start, even if the bridge
+    # is provisioned later. Discover gateways again on every container startup.
+    gateways = {}
+    for family in ['-4', '-6']:
+        routes = json.loads(run('ip', family, '-j', 'route', 'show', 'table', 'main', 'default'))
+        gateways[family] = sorted({str(ipaddress.ip_address(route['gateway']))
+                                   for route in routes
+                                   if route.get('gateway') and route.get('dev') != TUN})
     # The server can start only after the computer is healthy. Do not perform
     # hostname resolution here: the marked worker discovers it asynchronously.
     try:
@@ -95,11 +105,15 @@ def prepare(server_url):
     rules = f'''table inet openteam_network {{
     set management_v4 {{ type ipv4_addr; }}
     set management_v6 {{ type ipv6_addr; }}
+    set host_bridge_v4 {{ type ipv4_addr; }}
+    set host_bridge_v6 {{ type ipv6_addr; }}
     chain transport {{
         type route hook output priority -150; policy accept;
         ct direction reply meta mark set {MARK}
         ip daddr @management_v4 tcp dport {port} meta mark set {MARK}
         ip6 daddr @management_v6 tcp dport {port} meta mark set {MARK}
+        ip daddr @host_bridge_v4 tcp dport {HOST_BRIDGE_PORT} meta mark set {MARK}
+        ip6 daddr @host_bridge_v6 tcp dport {HOST_BRIDGE_PORT} meta mark set {MARK}
     }}
     chain dns {{
         type nat hook output priority -110; policy accept;
@@ -123,6 +137,10 @@ def prepare(server_url):
     }}
 }}
 '''
+    for family, suffix in [('-4', 'v4'), ('-6', 'v6')]:
+        if gateways[family]:
+            rules += (f'add element inet openteam_network host_bridge_{suffix} '
+                      f'{{ {", ".join(gateways[family])} }}\n')
     # One atomic transaction; do not flush Docker's tables or unrelated rules.
     exists = subprocess.run(['nft', 'list', 'table', 'inet', 'openteam_network'], capture_output=True).returncode == 0
     run('nft', '-f', '-', input=('delete table inet openteam_network\n' if exists else '') + rules)
@@ -135,9 +153,13 @@ def prepare(server_url):
         run('ip', family, 'route', 'replace', 'unreachable', 'default', 'metric', '42760', 'table', TABLE)
         run('ip', family, 'route', 'replace', 'default', 'dev', TUN, 'metric', '10', 'table', TABLE)
         # Dedicated priorities are owned by this container's network service.
-        for priority in ['99', '100', '101', '110']:
+        for priority in ['98', '99', '100', '101', '110']:
             while subprocess.run(['ip', family, 'rule', 'del', 'pref', priority], capture_output=True).returncode == 0:
                 pass
+        # Select the physical source address before the first packet reaches nft.
+        for gateway in gateways[family]:
+            run('ip', family, 'rule', 'add', 'pref', '98', 'to', gateway,
+                'ipproto', '6', 'dport', HOST_BRIDGE_PORT, 'lookup', 'main')
         run('ip', family, 'rule', 'add', 'pref', '100', 'fwmark', MARK + '/0xffff', 'lookup', 'main')
         run('ip', family, 'rule', 'add', 'pref', '101', 'fwmark', MARK + '/0xffff', 'prohibit')
         run('ip', family, 'rule', 'add', 'pref', '110', 'lookup', TABLE)

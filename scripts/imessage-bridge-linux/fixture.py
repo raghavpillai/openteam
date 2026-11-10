@@ -20,6 +20,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         global bridge
+        if self.server.server_port == 8799 and self.headers.get('Authorization') != 'Bearer fixture-token':
+            self.send_error(401)
+            return
         if self.server.server_port == 8787:
             if self.path == '/start' and bridge is None:
                 bridge = Server(('::', 8799), Handler)
@@ -54,7 +57,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def rpc(request):
     req = Request(os.environ['FIXTURE_BRIDGE'], data=json.dumps(request).encode(),
-                  headers={'Content-Type': 'application/json'})
+                  headers={'Content-Type': 'application/json',
+                           'Authorization': 'Bearer ' + os.environ.get('FIXTURE_BRIDGE_TOKEN', 'fixture-token')})
     with urlopen(req, timeout=2) as response:
         return json.load(response)
 

@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import { startComputerDns, createDnsExchange } from "./computer-network-dns";
 import { runOrdinaryProbe, probeComputerNetwork } from "./computer-network-probe";
 import { startManagementDiscovery } from "./computer-network-management";
+import { startHostBridgeDiscovery } from "./computer-network-host-bridge";
 
 const lines = createInterface({ input: process.stdin });
 let shutdown: (() => void) | undefined,
@@ -67,6 +68,7 @@ const dns = dnsExchange ? await startComputerDns(dnsExchange) : undefined;
 const management = config.computerNetwork
   ? startManagementDiscovery(config.serverUrl, () => client.start())
   : undefined;
+const hostBridge = config.computerNetwork ? startHostBridgeDiscovery(config.serverUrl) : undefined;
 if (!config.computerNetwork) client.start();
 const egress = createEgressProbe(client);
 const quality = createQualityProbe(client);
@@ -142,6 +144,7 @@ const status = setInterval(() => console.log(JSON.stringify(client.status())), 1
 shutdown = () => {
   clearInterval(status);
   management?.stop();
+  hostBridge?.stop();
   for (const diagnostic of diagnostics) diagnostic.abort();
   dns?.close();
   dnsExchange?.close();

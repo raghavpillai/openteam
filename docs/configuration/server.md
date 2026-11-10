@@ -42,6 +42,30 @@ The [install directory](../getting-started/installation.md#where-openteam-is-ins
 
 Setup and updates maintain these files, so change settings with the CLI instead of editing them. Don't put model API keys in `.env`; connect providers in the app or with `openteam provider login`. Include this directory in your [backups](../manage/backups.md).
 
+## Existing Messages SSH connections
+
+Previously installed **iMessage (SSH)** connections keep their private bridge
+configuration at `/home/box/.config/openteam/imessage-bridge.json` in the computer's
+persistent home. The file contains `endpoint` and `token` fields and must be a
+regular file with owner-only permissions, normally `0600`. Treat its token as a credential.
+
+With computer networking enabled, startup reserves direct TCP access to only that
+configured address and port. Numeric IPv4 and IPv6 addresses, custom ports, and
+addresses on a secondary Docker interface are supported. Use an HTTP or HTTPS URL
+with a numeric address. Hostnames, scoped IPv6 addresses, and URLs containing user
+credentials, queries, or fragments cannot reserve a direct route. IPv4 connections
+also work when the container has IPv6 disabled.
+
+The computer checks for configuration changes every two seconds. Replacing or
+removing the private file updates or revokes the reservation. The host bridge can
+start later without changing the reservation. A failed connector startup requires
+**Reconnect** after the bridge becomes available.
+
+Container recreation preserves the saved endpoint. If a Docker network change
+makes that address unavailable, reprovision both the host bridge's listener
+binding and the saved endpoint, then reconnect the plugin. Changing the default
+gateway alone does not migrate those settings.
+
 
 ## Desktop memory limits
 

@@ -14,7 +14,13 @@ const control = async (action: string) => {
   assert.equal(response.status, 200);
 };
 const status = () => manager.call("bridge", configuration, "IMessageStatus", {});
-const readable = (value: unknown) => assert.match(JSON.stringify(value), /readable/);
+const readable = (value: unknown) => {
+  const result = value as { isError?: boolean; content: Array<{ type: string; text: string }> };
+  assert.notEqual(result.isError, true);
+  const content = result.content.find((item) => item.type === "text");
+  assert.ok(content);
+  assert.equal(JSON.parse(content.text).readable, true);
+};
 const starts = () => readFileSync("/tmp/bridge-adapter-starts", "utf8").trim().split("\n").length;
 
 try {
@@ -46,7 +52,21 @@ try {
   const tools = await manager.discover("bridge", configuration, 1);
   assert.equal((tools[0] as { name: string }).name, "IMessageStatus");
   readable(await manager.call("bridge", configuration, "IMessageStatus", {}, 1));
-  console.log("MCP restart, concurrency, bridge outage, and explicit reconnect passed");
+
+  // Invalid saved credentials fail startup and recover through explicit reconnect.
+  const invalid = {
+    ...configuration,
+    env: { ...configuration.env, FIXTURE_BRIDGE_TOKEN: "invalid-fixture-token" },
+  };
+  await assert.rejects(manager.discover("invalid-token", invalid));
+  assert.equal(manager.status("invalid-token").state, "error");
+  await assert.rejects(manager.discover("invalid-token", configuration));
+  await manager.close("invalid-token", 1);
+  await manager.discover("invalid-token", configuration, 1);
+  readable(await manager.call("invalid-token", configuration, "IMessageStatus", {}, 1));
+  console.log(
+    "MCP restart, concurrency, bridge outage, credentials, and explicit reconnect passed"
+  );
 } finally {
   await manager.closeAll();
 }

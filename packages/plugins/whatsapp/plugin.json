@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "key": "whatsapp",
+  "version": "1.0.7",
+  "name": "WhatsApp",
+  "description": "Link your WhatsApp account to search conversations, read history, send messages and attachments, and manage chats.",
+  "publisher": "OpenTeam",
+  "category": "Inbox & Collaboration",
+  "featured": false,
+  "components": ["mcp", "skills"],
+  "homepageUrl": "https://github.com/openclaw/wacli",
+  "icon": "assets/icon.png",
+  "setup": {
+    "kind": "none",
+    "connectionKey": "whatsapp",
+    "title": "Link your WhatsApp account",
+    "description": "Connect the plugin, then ask a Bot to link WhatsApp. Scan its QR code or enter a pairing code on your phone. Requires a Linux bot computer; no Meta developer account or API key is needed.",
+    "documentationUrl": "https://github.com/openclaw/wacli/blob/v0.26.0/docs/auth.md",
+    "steps": [
+      "Save this account's settings and choose Connect. This makes the connector's tools available; WhatsApp still needs linking.",
+      "Ask a Bot to link this WhatsApp account. On your phone, open WhatsApp → Linked devices → Link a device and scan the QR shown in chat. For setup on the same phone, ask for phone-number pairing and enter the displayed code in WhatsApp.",
+      "Keep WhatsApp online while the initial history arrives. Ask the Bot to check connection status, then try a small chat search. History is limited to what WhatsApp supplies and what the local archive retains.",
+      "For attachments, place files in the configured folder on the bot computer. Downloaded media also goes there. Default: /workspace.",
+      "Add a separate OpenTeam account for each WhatsApp identity. To revoke access, ask the Bot to unlink this device or remove it under Linked devices on your phone. Removing the plugin alone does not revoke the linked device or erase its local history."
+    ],
+    "fields": [
+      { "key": "WHATSAPP_READ_ONLY", "label": "Read-only access", "type": "boolean", "default": false, "required": false, "secret": false, "helpText": "Hide messaging and chat-change tools. Pairing, sync, and local attachment downloads remain available." },
+      { "key": "WHATSAPP_MEDIA_ROOT", "label": "Attachment folder", "type": "string", "default": "/workspace", "required": false, "secret": false, "helpText": "Absolute folder on the bot computer. Uploads and downloads stay within it; WhatsApp session files cannot be sent." },
+      { "key": "WHATSAPP_MAX_MESSAGES", "label": "Maximum stored messages", "type": "integer", "default": 100000, "required": false, "secret": false, "helpText": "Between 1,000 and 1,000,000. Sync stops at this limit or 512 MB of message database storage; existing history is retained." }
+    ],
+    "requiredScopes": []
+  },
+  "connections": [
+    {
+      "key": "whatsapp",
+      "name": "WhatsApp",
+      "transport": "stdio",
+      "auth": "none",
+      "endpoint": "",
+      "tools": [],
+      "configuration": {
+        "command": "bun",
+        "args": ["${PLUGIN_ROOT}/connector/server.mjs", "--read-only=${WHATSAPP_READ_ONLY}", "--max-messages=${WHATSAPP_MAX_MESSAGES}"],
+        "env": {
+          "WHATSAPP_MEDIA_ROOT": "${WHATSAPP_MEDIA_ROOT}"
+        }
+      }
+    }
+  ],
+  "skills": [
+    { "name": "whatsapp", "description": "Search and read WhatsApp conversations, resolve contacts, send messages and attachments, reply, react, or change chat state through the connected account's tools.", "path": "skills/whatsapp" },
+    { "name": "whatsapp-setup", "description": "Link a WhatsApp account with a QR or phone pairing code, check sync and history coverage, recover a disconnected session, or unlink the device.", "path": "skills/whatsapp-setup" }
+  ],
+  "installationSteps": [
+    "Install WhatsApp and connect an account in Marketplace.",
+    "Ask a Bot to link WhatsApp, then approve the QR or phone pairing code in your phone's Linked devices screen.",
+    "Check connection status and search for a known conversation after the initial sync.",
+    "Configure tool access and add a separate account for each additional WhatsApp number."
+  ]
+}

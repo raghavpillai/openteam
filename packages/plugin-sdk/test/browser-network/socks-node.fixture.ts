@@ -19,7 +19,9 @@ async function waitFor(test: () => boolean, message: string, timeout = 5000) {
   }
 }
 async function check(name: string, fn: () => Promise<void>) {
-  if (name.startsWith("chaos:") !== process.argv.includes("--chaos")) return;
+  const soaking = process.argv.includes("--soak");
+  if (name.startsWith("soak:") !== soaking) return;
+  if (!soaking && name.startsWith("chaos:") !== process.argv.includes("--chaos")) return;
   if (process.argv.includes("--half-close") && !name.startsWith("pipelined payload")) return;
   const only = process.argv.find((arg) => arg.startsWith("--case="))?.slice(7);
   if (only && !name.includes(only)) return;
@@ -39,7 +41,10 @@ async function client(port: number, bytes?: Buffer, fin = false): Promise<Client
   socket.on("close", () => {
     value.closed = true;
   });
-  socket.on("error", () => {});
+  socket.on("error", (error: NodeJS.ErrnoException) => {
+    if (process.env.OPENTEAM_SOCKS_DIAGNOSTICS)
+      console.error(JSON.stringify({ fixtureClientError: error.code }));
+  });
   await new Promise<void>((resolve) => {
     socket.once("connect", () => {
       if (fin) socket.end(bytes ?? Buffer.alloc(0));
@@ -89,7 +94,11 @@ async function fixture(
     socket.on("error", () => {});
     await new Promise<void>((resolve, reject) => {
       socket.once("connect", resolve);
-      socket.once("error", reject);
+      socket.once("error", (error: NodeJS.ErrnoException) => {
+        if (process.env.OPENTEAM_SOCKS_DIAGNOSTICS)
+          console.error(JSON.stringify({ fixtureDialError: error.code }));
+        reject(error);
+      });
     });
     return socket;
   };
@@ -299,8 +308,13 @@ if (process.argv.includes("--baseline")) {
   );
   await check("upstream dial failures recover without poisoning admission", async () => {
     let fail = true;
+    let failures = 0;
+    const codes = ["ECONNREFUSED", "EADDRNOTAVAIL", "EMFILE", "ENETUNREACH", "EHOSTUNREACH"];
     const f = await fixture(8, async (standard) => {
-      if (fail) throw new Error("synthetic dial failure");
+      if (fail)
+        throw Object.assign(new Error("synthetic dial failure"), {
+          code: codes[failures++ % codes.length],
+        });
       return standard();
     });
     try {
@@ -310,6 +324,7 @@ if (process.argv.includes("--baseline")) {
         assert(clients.every((c) => c.bytes[3] === 1));
         await waitFor(() => !f.downstream.size, "dial failure retained a slot");
       }
+      assert.equal(failures, 40);
       fail = false;
       assert.equal(await burst(f, 16), 8);
     } finally {
@@ -344,25 +359,64 @@ if (process.argv.includes("--baseline")) {
     }
   });
   await check(
-    "real 30s pending-dial timeout releases slots and destroys late upstreams",
+    "real 30s deadline cancels dials and dribbling handshakes while established streams survive",
     async () => {
       let pending = true;
+      let active = 0,
+        aborted = 0,
+        drips = 0;
       const completions: Array<(stream: Duplex) => void> = [];
-      const f = await fixture(2, (standard) =>
-        pending ? new Promise((resolve) => completions.push(resolve)) : standard()
-      );
+      const f = await fixture(4, (standard, signal, target) => {
+        if (!pending || target![1] === 83) return standard();
+        if (target![1] === 81)
+          return new Promise<Duplex>((_resolve, reject) => {
+            active++;
+            const abort = () => {
+              active--;
+              aborted++;
+              reject(new Error("deadline cancelled dial"));
+            };
+            signal!.addEventListener("abort", abort, { once: true });
+            if (signal!.aborted) abort();
+          });
+        return new Promise((resolve) => completions.push(resolve));
+      });
+      const packet = (port: number) => {
+        const bytes = Buffer.from(request);
+        bytes.writeUInt16BE(port, bytes.length - 2);
+        return bytes;
+      };
+      let drip: ReturnType<typeof setInterval> | undefined;
       try {
+        const healthy = await client(f.port, packet(83));
+        await ready(healthy);
         const start = performance.now();
-        const clients = await Promise.all([client(f.port, request), client(f.port, request)]);
-        await waitFor(() => completions.length === 2, "pending opens were not created");
+        const clients = await Promise.all([client(f.port, packet(80)), client(f.port, packet(81))]);
+        const slow = await client(f.port, Buffer.from([5, 255]));
+        drip = setInterval(() => {
+          if (!slow.socket.destroyed) {
+            slow.socket.write(Buffer.from([0]));
+            drips++;
+          }
+        }, 200);
+        await waitFor(
+          () => completions.length === 1 && active === 1,
+          "pending opens were not created"
+        );
         const overflow = await client(f.port, request);
         await waitFor(() => overflow.closed, "pending opens did not enforce capacity");
         await waitFor(
-          () => clients.every((c) => c.closed) && !f.downstream.size,
+          () => clients.every((c) => c.closed) && slow.closed && f.downstream.size === 1,
           "real handshake deadline did not release slots",
           33000
         );
+        clearInterval(drip);
         assert(performance.now() - start >= 29000, "real timeout must not be replaced with a mock");
+        assert(drips > 100, "partial handshake was not kept active across the deadline");
+        await waitFor(() => active === 0 && aborted === 1, "deadline did not cancel the dial");
+        assert(!healthy.closed, "handshake deadline killed an established stream");
+        healthy.socket.write("survived-deadline");
+        assert.equal((await take(healthy, 17)).toString(), "survived-deadline");
         const late = completions.map((resolve) => {
           const stream = new PassThrough();
           resolve(stream);
@@ -370,8 +424,11 @@ if (process.argv.includes("--baseline")) {
         });
         await waitFor(() => late.every((s) => s.destroyed), "late upstream leaked after timeout");
         pending = false;
-        assert.equal(await burst(f, 4), 2);
+        await f.drain();
+        healthy.socket.destroy();
+        assert.equal(await burst(f, 6), 4);
       } finally {
+        clearInterval(drip);
         await f.close();
       }
     }
@@ -652,7 +709,7 @@ if (process.argv.includes("--baseline")) {
         }
       }
       assert(
-      successes > seeds.length * 10 && cancellations > seeds.length && failures > seeds.length,
+        successes > seeds.length * 10 && cancellations > seeds.length && failures > seeds.length,
         "fault schedule did not exercise its branches"
       );
       console.error(JSON.stringify({ seeds, successes, cancellations, failures }));
@@ -727,6 +784,123 @@ if (process.argv.includes("--baseline")) {
       }
     }
   });
+  await check(
+    "soak: sustained overflow recovers capacity and preserves a live stream",
+    async () => {
+      const duration = Number(
+        process.argv.find((arg) => arg.startsWith("--duration="))?.slice(11) ?? 120000
+      );
+      // Leave room in the host's ephemeral-port pool for other local workloads.
+      // Each offered connection can also create a second, upstream TCP socket.
+      const interval = 2000;
+      assert(Number.isFinite(duration) && duration >= 30000 && duration <= 600000);
+      const collect = (globalThis as { gc?: () => void }).gc;
+      const f = await fixture(80);
+      const start = performance.now();
+      let rounds = 0,
+        baselineHeap = 0,
+        peakHeap = 0;
+      try {
+        const healthy = await client(f.port, request);
+        await ready(healthy);
+        while (performance.now() - start < duration) {
+          const batchStart = performance.now();
+          const marker = Buffer.from(`soak-round-${rounds}`);
+          const clients = await Promise.all(
+            Array.from({ length: 128 }, () => client(f.port, Buffer.concat([request, marker])))
+          );
+          await waitFor(
+            () => clients.every((c) => c.closed || c.bytes.length >= 12),
+            "soak burst did not settle"
+          );
+          const accepted = clients.filter((c) => c.bytes.length >= 12 && c.bytes[3] === 0);
+          if (accepted.length !== 79)
+            console.error(
+              JSON.stringify({
+                soakFailure: {
+                  round: rounds,
+                  accepted: accepted.length,
+                  dialsStarted: f.calls.length,
+                  replies: clients.reduce<Record<string, number>>((counts, c) => {
+                    const key =
+                      c.bytes.length >= 12
+                        ? `socks-${c.bytes[3]}`
+                        : c.closed
+                          ? "closed-before-reply"
+                          : "pending";
+                    counts[key] = (counts[key] ?? 0) + 1;
+                    return counts;
+                  }, {}),
+                },
+              })
+            );
+          assert.equal(accepted.length, 79, `capacity degraded in soak round ${rounds}`);
+          for (const [index, c] of accepted.entries()) {
+            await ready(c);
+            assert.deepEqual(await take(c, marker.length), marker);
+            if (index % 3 === 0) c.socket.resetAndDestroy();
+            else c.socket.end();
+          }
+          await waitFor(
+            () =>
+              clients.every((c) => c.closed) &&
+              f.downstream.size === 1 &&
+              f.upstream.size === 1 &&
+              f.peers.size === 1,
+            "soak retained closed connections"
+          );
+          assert(!healthy.closed, "soak interrupted the live stream");
+          healthy.socket.write(marker);
+          assert.deepEqual(await take(healthy, marker.length), marker);
+          f.calls.length = 0;
+          rounds++;
+          if (rounds === 5 || rounds % 20 === 0) {
+            collect?.();
+            const heap = process.memoryUsage().heapUsed;
+            if (!baselineHeap) baselineHeap = heap;
+            peakHeap = Math.max(peakHeap, heap);
+            console.error(
+              JSON.stringify({
+                soakRound: rounds,
+                elapsedMs: Math.round(performance.now() - start),
+                heapBytes: heap,
+              })
+            );
+          }
+          await delay(Math.max(0, interval - (performance.now() - batchStart)));
+        }
+        healthy.socket.end();
+        await waitFor(() => healthy.closed, "soak stream did not finish");
+        await waitFor(
+          () => !f.downstream.size && !f.upstream.size && !f.peers.size,
+          "soak ended with sockets retained"
+        );
+        collect?.();
+        peakHeap = Math.max(peakHeap, process.memoryUsage().heapUsed);
+        assert(
+          rounds >= Math.floor(duration / (interval * 2)),
+          "soak did not sustain its target load"
+        );
+        if (collect)
+          assert(
+            peakHeap - baselineHeap < 32 * 1024 * 1024,
+            "retained heap grew across soak cycles"
+          );
+        console.error(
+          JSON.stringify({
+            soakDurationMs: Math.round(performance.now() - start),
+            rounds,
+            baselineHeapBytes: baselineHeap,
+            peakHeapBytes: peakHeap,
+            forcedGC: !!collect,
+            rssBytes: process.memoryUsage().rss,
+          })
+        );
+      } finally {
+        await f.close();
+      }
+    }
+  );
   console.log(
     JSON.stringify({
       runtime: process.version,

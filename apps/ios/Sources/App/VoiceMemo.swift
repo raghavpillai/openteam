@@ -341,7 +341,7 @@ final class VoiceMemoController: ObservableObject {
       announce(failure)
       return
     }
-    NativeHaptics.play(.light, source: "composer.voice-send")
+    NativeHaptics.voiceSend(source: "composer.voice-send")
     processingStart = Date()
     transcription?.cancel()
     transcription = Task { [weak self] in

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct ComposerView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.composerBottomSafeArea) private var bottomSafeArea
   @Environment(\.isEnabled) private var isEnabled
   @Environment(\.botVoicePresentation) private var botVoicePresentation
   @VoiceMotionPreference private var reduceMotion
@@ -33,6 +34,7 @@ struct ComposerView: View {
   @State private var pluginMentions: [JSON] = []
   @State private var resumeEditingAfterVoice = false
   @FocusState private var focused: Bool
+  @State private var keyboardPresented = false
   private var draft: Draft { store.draft(key) }
   private var attachmentCount: Int {
     draft.attachments.count + (draft.stagedFiles?.count ?? 0) + pending.count
@@ -58,7 +60,9 @@ struct ComposerView: View {
     VStack(spacing: 0) {
       messageControls
     }.padding(.horizontal, 30).padding(.top, 4)
-      .padding(.bottom, 4)
+      // Native keyboard avoidance retains its existing clearance. At rest, the
+      // floating inset plus this correction leaves 18pt to the physical bottom.
+      .padding(.bottom, keyboardPresented ? 4 : 18 - bottomSafeArea)
       // The voice glow rises from the bottom of the screen, behind the composer.
       .background(alignment: .bottom) {
         GeometryReader { composer in
@@ -86,6 +90,12 @@ struct ComposerView: View {
           ComposerLatencyProbe()
         }
         #endif
+      }
+      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+        if focused { keyboardPresented = true }
+      }
+      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+        keyboardPresented = false
       }
       .task(id: channel.id) {
         if let botID = store.bot(for: channel)?.id ?? channel.members.first?.botId {

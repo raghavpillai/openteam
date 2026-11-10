@@ -1151,8 +1151,8 @@ final class AppStore {
   }
   @discardableResult
   func markRead(_ id: String, through sequence: String? = nil,
-    throughNotificationSequence: String? = nil) async -> Bool {
-    guard !Task.isCancelled, foreground, activeChannel == id, let api,
+    throughNotificationSequence: String? = nil, fromInbox: Bool = false) async -> Bool {
+    guard !Task.isCancelled, foreground, (fromInbox || activeChannel == id), let api,
       channel(id) != nil
     else { return false }
     let through =

@@ -12,7 +12,7 @@ related: meta-muse-not-available-in-your-country, grok-bot-vs-meta-muse-vs-opena
 
 **Meta Muse is reasonably safe to try if you connect it carefully, but it asks for more trust than most apps. Its agent lives in a dedicated cloud VM behind a gatekeeper it can't override. Meta still trains on your chats by default and can reach your data. OpenTeam, an open-source, self-hosted AI agent team, moves that data to your own server, with fewer guardrails than Muse, not more.**
 
-We build OpenTeam (GPL-3.0), so weigh our view accordingly. On October 25, 2026, Muse was offered in the US, Canada and, since October 23, Japan ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)). Singapore followed on October 27 ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)). We haven't tested it ourselves.
+We build OpenTeam (GPL-3.0), so weigh our view accordingly. On October 25, 2026, Muse was offered in the US, Canada and, since October 23, Japan ([Meta](https://about.fb.com/ja/news/2026/10/muse-personal-ai-agent-launches-in-japan/)). Singapore followed on October 27 ([Meta](https://about.fb.com/news/2026/10/muse-is-now-available-in-singapore-the-worlds-first-personal-ai-agent-built-for-everyone/)), and on November 10 we added Muse's newer features below. We haven't tested it ourselves.
 
 ## Meta Muse vs a self-hosted agent team at a glance
 
@@ -40,6 +40,7 @@ Meta launched Muse on September 8. It can "open a browser, fill out forms, and n
 - **Your Mac.** The Mac app "works with your desktop computer files, apps and browser tabs" ([Meta](https://ai.meta.com/muse/)). Reading Messages needs Full Disk Access plus a Messages connector, Meta says ([TechCrunch](https://techcrunch.com/2026/09/30/meta-disputes-claim-that-muse-read-a-users-private-messages-without-permission/)).
 - **Your money.** Checkout can run through Link by Stripe, which issues a single-use card number per purchase.
 - **What it remembers.** Memory files such as MEMORY.md, which you can edit ([Meta](https://www.meta.com/help/superintelligence/2225571704857152/)), and "a page for every person in the user's life," refreshed hourly ([Wired](https://www.wired.com/story/muse-creates-detailed-profiles-of-all-your-friends-and-family/)).
+- **New since this post.** On November 5, US users got voice conversations with Muse ([Meta](https://about.fb.com/news/2026/11/introducing-muse-ai-voice-expressive-avatars/)). On November 6, Meta added spaces, custom views that draw on your accounts, such as "a school dashboard that finds the events relevant to your kids in school emails and adds them to your calendar" ([Meta](https://about.fb.com/news/2026/11/introducing-spaces-customize-muse-app/)).
 
 Connecting email "won't download your whole inbox (unless you tell it to)," and the email connector filters out one-time codes and password-reset links ([Meta](https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse)).
 

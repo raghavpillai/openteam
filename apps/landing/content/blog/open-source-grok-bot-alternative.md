@@ -14,15 +14,15 @@ related: grok-bot-vs-meta-muse-vs-openai-dots, introducing-openteam, best-self-h
 
 We build OpenTeam, so weigh our view accordingly. The Grok Bot facts below come from xAI's docs and Cursor's help and pricing pages as of October 10, 2026, and we haven't benchmarked the two. OpenTeam's agent tools, platform prompt and built-in skills are built for compatibility with Grok Bot's, so much of it will look familiar on purpose.
 
-> **Updated October 13, 2026:** Cursor replaced its plans on October 13. Grok Bot now comes with Cursor Premium ($30 a month) and higher plans, or Teams; the new $8 Plus plan doesn't include it ([Cursor](https://cursor.com/pricing)). The Grok Bot prices below reflect the change.
+> **Updated November 10, 2026:** On October 12, xAI replaced Cursor's plans for new customers with The X Subscription, one plan for Grok, Grok Bot, Cursor and X Premium ([xAI](https://x.ai/news/x-subscription)). Grok Bot comes with its Premium plan ($30 a month) and higher tiers, or a Teams seat; the $8 Plus plan doesn't include it ([xAI](https://docs.x.ai/x-subscription/pricing)). Since then, Grok Bot's phone apps can use some apps on your phone, and it can make phone calls. The Grok Bot facts below reflect these changes.
 
 ## Grok Bot vs OpenTeam at a glance
 
-Grok Bot facts as of October 10, 2026 (prices as of October 13), from the xAI and Cursor pages linked below. OpenTeam facts are from its v0.0.1 release and docs.
+Grok Bot facts as of October 10, 2026 (prices and plans as of November 10), from the xAI and Cursor pages linked below. OpenTeam facts are from its v0.0.1 release and docs.
 
 | | Grok Bot | OpenTeam |
 |---|---|---|
-| Price | Cursor Premium ($30/mo) and up, Cursor Teams, or a linked SuperGrok or X Premium+ plan; trial credit | Free; you pay for the machine and model usage |
+| Price | The X Subscription's Premium ($30/mo) and up, or a Teams seat; older Cursor plans and SuperGrok links still work; trial credit | Free; you pay for the machine and model usage |
 | License | Proprietary | GPL-3.0 |
 | Where it runs | xAI's cloud, in the US | Your computer, home server or cloud VM, in Docker |
 | Computer per agent | One cloud computer per user, shared by your bots | A Linux desktop per bot, in one shared container |
@@ -41,7 +41,7 @@ xAI launched Grok Bot in beta on August 11, 2026, describing its bots as "AI tea
 
 Bots work in group chats of two to six and message each other directly ([xAI](https://docs.x.ai/grok-bot/chat-and-collaboration)). Skills are reusable instructions shared across your bots. Routines run on a schedule or an event, up to 50 per bot and at least five minutes apart ([xAI](https://docs.x.ai/grok-bot/skills-routines-and-automations)). Team Bots, in public beta since September 28 on Teams and Enterprise plans, give a team one shared bot with its own Slack app ([xAI](https://x.ai/news/team-bots)).
 
-Grok Bot has no standalone price. It comes with Cursor Premium and higher plans and Cursor Teams, or with a linked SuperGrok or X Premium+ subscription, after a trial credit with a 7-day window ([Cursor Help](https://cursor.com/help/grok-bot/plans)). Since October 13, Premium costs $30 a month and Teams starts at $30 per user, while the $8 Plus plan doesn't include Grok Bot ([Cursor](https://cursor.com/pricing)). Before that, it came with Cursor Pro at $20 a month.
+Grok Bot has no standalone price. Since October 12, it comes with The X Subscription's Premium plan at $30 a month, its Super and Ultra tiers, and every paid Teams seat, from $30; the $8 Plus plan doesn't include it ([xAI](https://docs.x.ai/x-subscription/pricing)). New accounts get a trial credit with a 7-day window ([Cursor Help](https://cursor.com/help/grok-bot/plans)). Before that, it came with Cursor Pro at $20 a month, and existing Cursor plans and linked SuperGrok or X Premium+ subscriptions still include it.
 
 ## Why people look for a Grok Bot alternative
 
@@ -55,7 +55,7 @@ Cursor's help center is direct: "Grok Bot has no per-user or per-request model s
 
 ### 3. Usage is metered in Cursor's units
 
-Paid access includes a weekly usage grant; past it, work continues as on-demand usage billed through Cursor, if you've turned that on ([Cursor Help](https://cursor.com/help/grok-bot/plans)). There's no separate Grok Bot spend cap ([xAI](https://docs.x.ai/grok-bot/teams-and-enterprises)). Some people would rather pay a model provider directly and see every token.
+On The X Subscription, Grok Bot draws on a weekly pool shared with Cursor and the Grok apps, whose size xAI doesn't publish; past it, work continues on prepaid credit ([xAI](https://docs.x.ai/x-subscription/prepaid-balance)). Older Cursor plans bill extra usage on demand instead ([Cursor Help](https://cursor.com/help/grok-bot/plans)). There's no separate Grok Bot spend cap ([xAI](https://docs.x.ai/grok-bot/teams-and-enterprises)). Some people would rather pay a model provider directly and see every token.
 
 ## How OpenTeam works differently
 
@@ -89,16 +89,17 @@ As in Grok Bot, you sign in once on any bot's screen and every bot is signed in.
 
 One model serves every bot, chosen in **Settings → Model**: a ChatGPT or Claude plan, an OpenAI, Anthropic or OpenRouter key, or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([models](/docs/configuration/models)). Bots can't each have their own model.
 
-Group chats hold up to six bots that take turns, with at most three rounds and ten bot replies per message you send. Bots also message each other directly, create teammates and delegate to subagents. Routines run on up to eight schedules, at most every five minutes, or on events ([routines](/docs/usage/routines)). Bundled plugins include Gmail, Google Calendar, Google Drive, GitHub, Linear, Notion, Slack, Granola and 1Password, plus custom MCP servers.
+Group chats hold up to six bots that take turns, with at most three rounds and ten bot replies per message you send. Bots also message each other directly, create teammates and delegate to subagents. Routines run on up to eight schedules, at most every five minutes, or when an email arrives ([routines](/docs/usage/routines)). Bundled plugins include Gmail, Google Calendar, Google Drive, GitHub, Linear, Notion, Slack, Granola and 1Password, plus custom MCP servers.
 
 ## What Grok Bot does better
 
 - **Zero setup.** You install an app and sign in; xAI runs the computer. OpenTeam needs Docker, a machine that stays on, a model plan, key or local model, and some comfort with a terminal.
 - **Apps on every device.** Grok Bot runs on macOS, Windows, Linux, iPhone, iPad and Android ([xAI](https://docs.x.ai/grok-bot/faq)). OpenTeam's desktop apps are for macOS on Apple silicon and Linux x64 only, its iPhone app is a TestFlight beta, and there's no Android app.
+- **Your phone and phone calls.** The phone apps let a bot use your calendar, contacts, location and alarms, plus Reminders and Home on iPhone ([xAI](https://docs.x.ai/grok-bot/mobile)). On November 4, xAI said Grok Bot "can now make phone calls" ([Grok Bot on X](https://x.com/bot/status/2118043939592942052)). OpenTeam bots can only place calls through a separate calling service connected over MCP.
 - **Teams of people.** A Team Bot serves a whole team, each person in a private chat, and posts in Slack as itself ([xAI](https://docs.x.ai/grok-bot/team-bots)). OpenTeam has one human account per server.
 - **Managed isolation.** Each user's computer is a Firecracker microVM "with hardware-level separation from other users" ([xAI](https://docs.x.ai/grok-bot/teams-and-enterprises)). OpenTeam's bots share one container on a machine you maintain.
 - **Approvals and enterprise controls.** Auto-review checks tool calls and computer actions before they run, and "Ask first" rules always stop for you ([xAI](https://docs.x.ai/grok-bot/approvals-security-and-privacy)). Enterprises add network allowlists, enforced auto-review, action recording, SCIM and SSO ([xAI](https://docs.x.ai/grok-bot/teams-and-enterprises)). OpenTeam's only approval prompts are cards for outgoing email, Slack messages and texts; other actions run directly, and its other guardrails are the container, handoff cards and password forms the model can't read.
-- **A trial and a low entry price.** A usage credit, then $30 a month for Cursor Premium, with model usage included up to the weekly grant. OpenTeam is free, but you pay your model provider and keep a machine running.
+- **A trial and a low entry price.** A usage credit, then $30 a month for Premium on The X Subscription, with model usage included up to the weekly pool. OpenTeam is free, but you pay your model provider and keep a machine running.
 - **Maturity.** OpenTeam is a young project with a small community, and one model per server is a real limit next to per-task routing.
 
 xAI's [Grok Bot guide for support teams](https://x.ai/bot/guides/grok-bot-for-support) shows what an approval looks like.
@@ -132,7 +133,7 @@ Comparing hosted agents too? See [Grok Bot vs Meta Muse vs OpenAI dots](/blog/gr
 
 ### Is Grok Bot open source?
 
-No. Grok Bot is a proprietary, hosted xAI service that comes with Cursor and SuperGrok plans. OpenTeam (GPL-3.0), MausBot and Rakazo (both Apache-2.0) are open-source alternatives.
+No. Grok Bot is a proprietary, hosted xAI service that comes with The X Subscription's Premium and higher plans, and with older Cursor and SuperGrok plans. OpenTeam (GPL-3.0), MausBot and Rakazo (both Apache-2.0) are open-source alternatives.
 
 ### Is there an open-source Grok Bot alternative on GitHub?
 
@@ -144,7 +145,7 @@ No. Its computers run in xAI's cloud in the United States, and there's no self-h
 
 ### How much does Grok Bot cost in India or the UK?
 
-The same plans apply everywhere; Cursor lists no separate India or UK price. Since October 13, 2026, that means Cursor plans from Premium at $30 a month, listed in US dollars before applicable taxes, or a linked SuperGrok or X Premium+ subscription. OpenTeam is free; you pay for the machine and model usage.
+xAI's pricing docs list one set of plans, in US dollars before applicable taxes. Since October 12, 2026, Grok Bot starts at The X Subscription's Premium plan at $30 a month. OpenTeam is free; you pay for the machine and model usage.
 
 ### Can I use my own model with Grok Bot?
 

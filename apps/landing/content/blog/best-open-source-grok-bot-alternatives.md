@@ -162,7 +162,7 @@ If one of these decides it for you, pick that project.
 - **Choose OpenTeam if** you want a server that keeps a Linux desktop for every bot and works with any provider, and you can live without approval prompts.
 - **Choose nightly-labs OpenBot if** your use is noncommercial and you want the most agent CLIs.
 - **Choose CopilotKit OpenBot if** you're building a product and want a policy gate on every action.
-- **Stay with Grok Bot if** you want zero setup and apps on every device, iPad included ([xAI](https://docs.x.ai/grok-bot/faq)).
+- **Stay with Grok Bot if** you want zero setup and apps on every device, iPad included ([xAI](https://docs.x.ai/grok-bot/faq)), or, since November 4, a bot that "can now make phone calls" itself ([Grok Bot on X](https://x.com/bot/status/2118043939592942052)).
 
 ## Frequently asked questions
 

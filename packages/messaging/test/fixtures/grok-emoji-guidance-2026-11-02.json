@@ -7,7 +7,9 @@
     "endTurnLine": 632539,
     "replyReminderLine": 589446,
     "respondLine": 589770,
-    "limit": "Captured source equality; current live private prompt and feature gates not authenticated."
+    "limit": "Captured source equality; current live private prompt and feature gates not authenticated.",
+    "replyReminderGateLine": 606416,
+    "recordedUserTurnLine": 684084
   },
   "activeDescription": "React to one of the user's messages with a single emoji tapback, shown as a small pill on their message. Reactions are an everyday part of your voice: expect to react in most conversations, wherever a person in a chat would tap one instead of typing, though not on every message. Use 👍 or ❤️ for thanks or agreement, 🎉 for good news, 😂 for something funny, and ✅ when a small request is done and the result is already visible. Don't follow a reaction with a message saying the same thing. A reaction never replaces a reply the user needs: an answer, a result, a link, or the opening acknowledgement before longer work. At most one per message, and hold back when the conversation is formal or tense or the user is frustrated. Reacting with the same emoji again removes it.",
   "replyReminder": "Reply to this message by actually invoking the SendToUser tool. Make a real tool/function call, not text you write. Plain assistant text is NEVER delivered; only a real SendToUser tool invocation reaches the user, so if you don't invoke the tool they just see silence.",
@@ -38,5 +40,7 @@
       "emoji"
     ]
   },
-  "inlineEmojiClause": "Use dashes and emoji rarely."
+  "inlineEmojiClause": "Use dashes and emoji rarely.",
+  "replyReminderGateExpression": "options2.appendReplyReminder === true && (options2.hidden !== true || options2.prewarm === true) && allowsSystemReminder(host, \"reply\")",
+  "recordedReplyReminderOptIn": "runOptions: { messageId, appendReplyReminder: !framing.carriesReplyReminder }"
 }

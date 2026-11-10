@@ -782,6 +782,20 @@ struct MessageRow: View {
   }
   private func openActions() {
     guard modals.sheet == nil, !viewOnly else { return }
+    if let url = LinkPress.shared.current {
+      NativeHaptics.play(.medium, source: "link.long-press")
+      modals.sheet = .init(content: AnyView(LinkActionsView(
+        url: url,
+        onOpen: { modals.dismissSheet { InAppBrowser.open(url) } },
+        onCopy: {
+          UIPasteboard.general.url = url
+          NativeHaptics.play(.light, source: "message.copy")
+          modals.dismissSheet()
+        },
+        onShare: { modals.dismissSheet { InAppBrowser.share(url) } }
+      )))
+      return
+    }
     NativeHaptics.play(.medium, source: "message.long-press")
     modals.sheet = .init(content: AnyView(MessageActionsView(
       onReply: {
@@ -949,27 +963,29 @@ struct MessageActionsView: View {
 struct MarkdownText: View {
   let source: String
   var textColor: Color = NativePalette.text
-  /// Received links stay blue even with the monochrome app accent. Your own
-  /// links use the bubble's text color; underlines distinguish links in both.
+  /// Links keep the bubble's text color in every message; the site icon before
+  /// each link and a faint underline mark it, as in the reference design.
   var ownMessage = false
   func inline(_ block: String) -> AttributedString {
-    Self.underliningLinks(MessageTextCache.inline(block))
+    Self.underliningLinks(MessageTextCache.inline(block), color: textColor)
   }
-  static func underliningLinks(_ text: AttributedString) -> AttributedString {
+  static func underliningLinks(_ text: AttributedString, color: Color) -> AttributedString {
     var text = text
     for range in text.runs.filter({ $0.link != nil }).map(\.range) {
-      text[range].underlineStyle = .single
+      text[range].underlineStyle = Text.LineStyle(pattern: .solid, color: color.opacity(0.35))
     }
     return text
   }
   var body: some View {
-    if RichMarkdownView.required(source) {
-      RichMarkdownView(source: source)
-    } else if IdentifierMessageText.requiresNativeWrapping(source) {
-      IdentifierMessageText(source: source, color: textColor)
-    } else {
-      blocks.tint(ownMessage ? textColor : NativePalette.link)
-    }
+    Group {
+      if RichMarkdownView.required(source) {
+        RichMarkdownView(source: source)
+      } else if IdentifierMessageText.requiresNativeWrapping(source) {
+        IdentifierMessageText(source: source, color: textColor)
+      } else {
+        blocks.tint(textColor)
+      }
+    }.environment(\.openURL, InAppBrowser.action)
   }
   private var blocks: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -981,11 +997,63 @@ struct MarkdownText: View {
             Text(code).font(.system(.footnote, design: .monospaced)).padding(12)
           }.background(NativePalette.code, in: RoundedRectangle(cornerRadius: 8))
         } else {
-          Text(inline(block))
-            .font(.body).fixedSize(horizontal: false, vertical: true)
+          LinkedText(text: inline(block))
         }
       }
     }
+  }
+}
+
+/// Inline Markdown with a site icon before each link. Long-pressing a link opens
+/// link actions: the text reports where its links are drawn and shades the pressed one.
+struct LinkedText: View {
+  let text: AttributedString
+  @State private var region = LinkRegion()
+  @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 17
+  private var links: [URL] {
+    var seen: [URL] = []
+    for run in text.runs { if let url = run.link, seen.last != url { seen.append(url) } }
+    return seen
+  }
+  var body: some View {
+    let links = links
+    if links.isEmpty {
+      Text(text).font(.body).fixedSize(horizontal: false, vertical: true)
+    } else {
+      let pressed = LinkPress.shared.current.flatMap { links.contains($0) ? $0 : nil }
+      composed
+        .font(.body).fixedSize(horizontal: false, vertical: true)
+        .textRenderer(LinkGeometryRenderer(region: region, pressed: pressed,
+          highlight: NativePalette.muted.opacity(0.28)))
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { region.update(frame: $0) }
+        .onAppear {
+          LinkPress.shared.register(region)
+          LinkPress.shared.installTracker()
+        }
+        .onDisappear { region.update(frame: .null) }
+    }
+  }
+  private var composed: Text {
+    var result = Text(verbatim: "")
+    var previous: URL?
+    for run in text.runs {
+      let piece = Text(AttributedString(text[run.range]))
+      guard let url = run.link else {
+        result = result + piece
+        previous = nil
+        continue
+      }
+      let tag = LinkRunTag(url: url)
+      if url != previous {
+        let icon = FaviconStore.inlineImage(FaviconStore.shared.state(for: url), size: iconSize,
+          fallback: UIColor(NativePalette.muted))
+        result = result + Text(Image(uiImage: icon)).baselineOffset(-iconSize * 0.16).customAttribute(tag)
+          + Text(verbatim: "\u{2009}").customAttribute(tag)
+      }
+      result = result + piece.customAttribute(tag)
+      previous = url
+    }
+    return result
   }
 }
 

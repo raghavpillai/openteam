@@ -162,7 +162,8 @@
     "test:server-update-resume-ui": "bun scripts/test-server-update-resume-ui.ts",
     "test:native:e2e": "bun test/host/fixtures/capability-integration.ts",
     "test:chat-transition-motion": "bun scripts/analyze-chat-transitions.ts",
-    "test:browser-network": "bun scripts/test-browser-network.ts"
+    "test:browser-network": "bun scripts/test-browser-network.ts",
+    "test:link-favicons": "bun scripts/test-link-favicons.ts"
   },
   "type": "module"
 }

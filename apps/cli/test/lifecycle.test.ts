@@ -404,7 +404,7 @@ describe("installed lifecycle", () => {
       expect(output.join("\n").includes("No model is connected yet")).toBe(inference === "missing");
       if (inference === "missing")
         expect(output.join(" ").replace(/\s+/g, " ")).toContain(
-          "Connect one in the OpenTeam app under Settings → Server, or run openteam model"
+          "Connect one in the OpenTeam app under Settings → Model, or run openteam model"
         );
     }
   });

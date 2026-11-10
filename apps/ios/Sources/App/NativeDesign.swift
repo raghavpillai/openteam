@@ -45,6 +45,7 @@ enum NativePalette {
   static let link = color("016CEC", "016CEC")
   static let toggle = Color(uiColor: .systemGreen)
   static let receiptCheck = color("347D5B", "559978")
+  static let inboxUnread = color("0E6DD2", "0E6DD2")
   static let widgetDanger = color("C83A3A", "F48182")
   static let widgetDisabled = color("E4E4E7", "303033")
   static let destructive = Color(uiColor: .systemRed)
@@ -341,6 +342,10 @@ private struct FadingTopBar<Bar: View>: ViewModifier {
 // The share extension compiles this file; app-only pieces use UIApplication.shared or
 // the app's gestures, which it cannot.
 #if !SHARE_EXTENSION
+extension EnvironmentValues {
+  @Entry var composerBottomSafeArea: CGFloat = 0
+}
+
 private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
   var top: Top
   var bottom: Bottom
@@ -365,7 +370,7 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
           // responder. The iOS 26 scroll-pocket bar can relinquish its editor
           // during the first keyboard transition.
           .safeAreaInset(edge: .bottom, spacing: 0) {
-            bottom
+            bottom.environment(\.composerBottomSafeArea, bottomSafeArea)
               .background(alignment: .bottom) {
                 // Fade the transcript before it passes under the composer.
                 // Sizing this to the short bar leaves bright scrolling glyphs
@@ -389,7 +394,7 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
       } else {
         content.safeAreaInset(edge: .top, spacing: 0) { top }
           .safeAreaInset(edge: .bottom, spacing: 0) {
-            bottom
+            bottom.environment(\.composerBottomSafeArea, bottomSafeArea)
           }
       }
     }

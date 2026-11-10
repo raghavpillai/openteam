@@ -16,6 +16,7 @@ struct ChatView: View {
   @Environment(\.conversationListVisible) private var conversationListVisible
   @Environment(\.topBarTrailingInset) private var topBarTrailingInset
   let channel: Channel
+  private var usesNativeInboxChrome: Bool { leadingControl == nil && sideChrome == nil }
   @State private var details = false
   @State private var replyFocusRequest = UUID()
   @State private var computerBot: Bot?
@@ -183,7 +184,9 @@ struct ChatView: View {
     .nativeCanvas()
     .chatFloatingBars(top: {
       VStack(spacing: 0) {
-        if sideChrome?.holdsAllControls == true { titleBar } else { header }
+        if !usesNativeInboxChrome {
+          if sideChrome?.holdsAllControls == true { titleBar } else { header }
+        }
         MessageRefreshStatus(channelID: channel.id).padding(.horizontal, 20)
       }
     }, bottom: {
@@ -197,6 +200,13 @@ struct ChatView: View {
     .nativeCanvas()
     .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
     .toolbar(.hidden, for: .navigationBar).background(NativeBackGesture().frame(width: 0, height: 0))
+    .nativeInboxNavigationChrome(enabled: usesNativeInboxChrome, backIdentifier: "chat-back")
+    .toolbar {
+      if usesNativeInboxChrome {
+        ToolbarItem(id: InboxChrome.title, placement: .principal) { titleButton }.inboxHorizontalTitle()
+        ToolbarItem(id: InboxChrome.secondaryAction, placement: .topBarTrailing) { moreMenu }
+      }
+    }
     .navigationDestination(isPresented: $details) {
       ConversationDetails(channelID: channel.id)
     }
@@ -408,6 +418,7 @@ struct ChatView: View {
   /// text does in system bars, and its buttons move to the region.
   private var titleBar: some View {
     HStack {
+      Spacer(minLength: 0)
       titleButton
       Spacer(minLength: 0)
     }.padding(.horizontal, 14).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
@@ -420,9 +431,18 @@ struct ChatView: View {
       } else if sideChrome?.holdsAllControls == true || leadingControl != nil {
         leadingButton
       }
-      computerButton
+      if !usesNativeInboxChrome { moreMenu.frame(width: 44, height: 44).nativeChatGlass() }
       Spacer(minLength: 12)
     }.foregroundStyle(NativePalette.text)
+  }
+  private var moreMenu: some View {
+    Menu {
+      Button("Conversation details", systemImage: "info.circle") { details = true }
+      if let bot = store.computerBot(for: channel) {
+        Button("Computer", systemImage: "display") { computerBot = bot }
+      }
+    } label: { Image(systemName: "ellipsis").font(.system(size: 20, weight: .regular)) }
+      .accessibilityLabel("More").accessibilityIdentifier("chat-more")
   }
   @ViewBuilder private var computerButton: some View {
     if let bot = store.computerBot(for: channel) {
@@ -447,10 +467,12 @@ struct ChatView: View {
   @ViewBuilder var header: some View {
     if leadingChatTitle {
       HStack(spacing: 8) {
-        if !conversationListVisible { leadingButton }
-        titleButton
-        Spacer(minLength: 0)
-        computerButton
+        Group {
+          if !conversationListVisible { leadingButton }
+          else { Color.clear.accessibilityHidden(true) }
+        }.frame(width: 44, height: 44)
+        titleButton.frame(maxWidth: .infinity)
+        moreMenu.frame(width: 44, height: 44)
       }.padding(.horizontal, 14).padding(.trailing, topBarTrailingInset)
         .modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
         .foregroundStyle(NativePalette.text)
@@ -466,8 +488,8 @@ struct ChatView: View {
         // without a Computer action. Long names truncate within the middle slot.
         // Beside a side region, Computer sits in it, below the status bar.
         Group {
-          if sideChrome == nil, store.computerBot(for: channel) != nil {
-            computerButton
+          if sideChrome == nil {
+            moreMenu
           } else {
             Color.clear.accessibilityHidden(true)
           }

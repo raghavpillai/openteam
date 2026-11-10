@@ -8,6 +8,7 @@ import { MessageStore, type SignalAccount } from "./store";
 
 type Rpc = Pick<SignalRpc, "request" | "close" | "connected" | "exited">;
 type RpcFactory = (receive: (params: any) => void) => Rpc;
+class AccountUnavailableError extends Error {}
 
 export function accountDirectory(
   accountId: string,
@@ -27,11 +28,13 @@ export class SignalService {
   private restart?: ReturnType<typeof setTimeout>;
   private reconnectDelay: number;
   private account?: SignalAccount;
+  private hadLinkedAccount = false;
   private version?: string;
   private link?: { id: string; uri: string; expires: number };
   private startingLink?: Promise<{ sessionId: string; deviceLinkUri: string; expiresAt: number }>;
   private finishingLink?: Promise<unknown>;
   private linkError?: string;
+  private linkEpoch = 0;
   private closing?: Promise<void>;
 
   constructor(
@@ -41,6 +44,7 @@ export class SignalService {
     private readonly runtimePatch: string | null = null
   ) {
     this.reconnectDelay = reconnectMs;
+    this.hadLinkedAccount = Boolean(store.db.query("SELECT aci FROM identity LIMIT 1").get());
   }
 
   async connect() {
@@ -99,6 +103,10 @@ export class SignalService {
     if (!Array.isArray(accounts) || accounts.length > 1)
       throw new Error("Use a private signal-cli data directory containing at most one account.");
     const candidate: SignalAccount | undefined = accounts[0];
+    if (!candidate && this.hadLinkedAccount)
+      throw new AccountUnavailableError(
+        "The Signal account is unavailable. Reconnect, or link it again if the device was revoked."
+      );
     if (candidate) {
       if (typeof candidate.aci !== "string" || !candidate.aci)
         throw new Error("Signal returned an account without an ACI.");
@@ -107,11 +115,18 @@ export class SignalService {
       if (!rpc.connected || this.rpc !== rpc)
         throw new Error("Signal disconnected during account initialization.");
       this.account = candidate;
+      this.hadLinkedAccount = true;
+      this.linkError = undefined;
     }
   }
 
   async status() {
-    await this.connect();
+    try {
+      await this.connect();
+    } catch (error) {
+      if (!(error instanceof AccountUnavailableError)) throw error;
+      this.linkError = error.message;
+    }
     const rpc = this.rpc!;
     const selected = this.account;
     if (selected) {
@@ -133,7 +148,10 @@ export class SignalService {
         if (!accounts.length) {
           this.account = undefined;
           this.linkError =
-            "This Signal linked device is no longer authorized. Link it again from account settings.";
+            "The Signal account is unavailable. Reconnect, or link it again if the device was revoked.";
+          // A closed account manager can result from a network failure while
+          // the JSON-RPC dispatcher stays alive. Recreate it with normal backoff.
+          await rpc.close();
         } else {
           this.store.bind(accounts[0]);
           this.account = accounts[0];
@@ -145,6 +163,12 @@ export class SignalService {
       linked: !!this.account,
       runtimeVersion: this.version,
       runtimePatch: this.runtimePatch,
+      recovering:
+        this.hadLinkedAccount &&
+        !this.account &&
+        !(this.link && this.link.expires > Date.now()) &&
+        !this.startingLink &&
+        !this.finishingLink,
       recommendedVersion: "0.14.10",
       account: this.account ?? null,
       linking: !!this.finishingLink,
@@ -153,6 +177,36 @@ export class SignalService {
   }
 
   async startLink() {
+    const recover = Boolean(this.store.db.query("SELECT aci FROM identity LIMIT 1").get());
+    const epoch = this.linkEpoch;
+    try {
+      return await this.startLinkAttempt();
+    } catch (error) {
+      if (
+        recover &&
+        epoch === this.linkEpoch &&
+        !this.stopped &&
+        !this.account &&
+        !this.startingLink &&
+        !this.finishingLink &&
+        !(this.link && this.link.expires > Date.now())
+      ) {
+        this.hadLinkedAccount = true;
+        await this.rpc?.close();
+        this.scheduleReconnect();
+      }
+      throw error;
+    }
+  }
+
+  private async startLinkAttempt() {
+    // This is an explicit account-settings action. Stop retrying a formerly
+    // linked account so a revoked device can obtain a fresh approval session.
+    await this.connecting?.catch(() => {});
+    if (this.account) throw new Error("This account directory is already linked.");
+    clearTimeout(this.restart);
+    this.restart = undefined;
+    this.hadLinkedAccount = false;
     await this.connect();
     if (this.account) throw new Error("This account directory is already linked.");
     if (this.finishingLink)
@@ -234,6 +288,7 @@ export class SignalService {
   async cancelLink(sessionId: string) {
     if (this.link && this.link.id !== sessionId)
       throw new Error("A newer linking session replaced this code.");
+    this.linkEpoch++;
     this.link = undefined;
     this.linkError = undefined;
     await this.rpc?.close();

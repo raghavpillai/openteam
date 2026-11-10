@@ -217,6 +217,8 @@ export class PluginConfiguration {
         endpoint !== connection.endpoint;
       if (changed) {
         delete credentials.oauth;
+        delete credentials.deviceLink;
+        delete credentials.deviceRecoveryPending;
         await this.stop(id, connection.transport);
         const updated = await this.prisma.pluginConnection.updateMany({
           // Stop may await another service's removal/reconnect. Never overwrite

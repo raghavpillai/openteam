@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createPrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StdioMcpManager } from "../../../computer/src/mcp-manager";
@@ -38,7 +38,7 @@ async function fixture() {
     import { Server } from ${JSON.stringify(sdk("server/index.js"))};
     import { StdioServerTransport } from ${JSON.stringify(sdk("server/stdio.js"))};
     import { CallToolRequestSchema, ListToolsRequestSchema } from ${JSON.stringify(sdk("types.js"))};
-    import { appendFile } from "node:fs/promises";
+    import { appendFile, readFile } from "node:fs/promises";
     import { join } from "node:path";
     const marker = join(process.env.OPENTEAM_PLUGIN_STATE_DIR, "synthetic-boots");
     await appendFile(marker, "boot\\n");
@@ -50,7 +50,8 @@ async function fixture() {
     server.setRequestHandler(CallToolRequestSchema, async request => {
       const name = request.params.name;
       let value = {pending:true};
-      if (name === "link_status") value = {linked:false,linking};
+      if (name === "link_status") value = await readFile(join(process.env.OPENTEAM_PLUGIN_STATE_DIR, "status-override.json"), "utf8")
+        .then(text => JSON.parse(text)).catch(() => ({linked:false,linking}));
       if (name === "start_link") {
         linking = true;
         value = {sessionId:crypto.randomUUID(),expiresAt:Date.now()+120000,
@@ -208,6 +209,67 @@ integration("compatible updates preserve private state and subsequent removal st
     expect((await f.row()).connectorKey).toBe("device");
     await Effect.runPromise(f.otherService.removeAccount(f.id));
     await expect(readFile(f.marker, "utf8")).rejects.toThrow("ENOENT");
+    } finally {
+      await f.close();
+    }
+  },
+  15_000
+);
+
+integration(
+  "durable recovery state resumes through a fresh host service without provisioning",
+  async () => {
+    const f = await fixture();
+    try {
+      await f.connect();
+      const path = join(f.marker, "../status-override.json");
+      await f.db.pluginConnection.update({
+        where: { id: f.id },
+        data: {
+          status: "ready",
+          credentials: { syntheticPrivate: "synthetic-host-private" },
+        },
+      });
+      await writeFile(path, JSON.stringify({ linked: false, recovering: true }));
+      expect(await f.poll()).toMatchObject({ recovering: true });
+      expect((await f.row()).status).toBe("error");
+      expect((await f.row()).credentials).toHaveProperty("deviceRecoveryPending", true);
+      const starts = f.calls.filter((call) => call.tool === "start_link").length;
+      await writeFile(path, JSON.stringify({ linked: true }));
+      await (f.otherService as any).refreshLocalConnections();
+      expect((await f.row()).status).toBe("ready");
+      expect((await f.row()).credentials).not.toHaveProperty("deviceRecoveryPending");
+      expect((await f.row()).credentials).toHaveProperty(
+        "syntheticPrivate",
+        "synthetic-host-private"
+      );
+      expect(f.calls.filter((call) => call.tool === "start_link")).toHaveLength(starts);
+    } finally {
+      await f.close();
+    }
+  },
+  15_000
+);
+
+integration(
+  "regenerating a pending QR stops its old waiter and returns a fresh code immediately",
+  async () => {
+    const f = await fixture();
+    try {
+      await f.connect();
+      const before = await f.row();
+      const oldCode = (before.credentials as any).deviceLink.sessionId;
+      const result = await Effect.runPromise(f.service.restart(f.id));
+      expect(result).toMatchObject({ status: "needs_auth" });
+      const after = await f.row();
+      expect((after.credentials as any).deviceLink.sessionId).not.toBe(oldCode);
+      expect(after.runtimeGeneration).toBe(before.runtimeGeneration + 1);
+      expect(
+        f.calls.some(
+          (call) => call.method === "DELETE" && call.generation === after.runtimeGeneration
+        )
+      ).toBe(true);
+      expect((await readFile(f.marker, "utf8")).trim().split("\n")).toHaveLength(2);
   } finally { await f.close(); }
 }, 15_000);
 

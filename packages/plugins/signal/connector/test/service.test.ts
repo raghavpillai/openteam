@@ -101,18 +101,122 @@ test("status notices phone revocation while the multi-account RPC process remain
   await service.connect();
   peer.accounts = [];
   expect(await service.status()).toMatchObject({
-    connected: true,
+    connected: false,
     linked: false,
-    authorizationError: expect.stringContaining("no longer authorized"),
+    authorizationError: expect.stringContaining("account is unavailable"),
   });
-  await expect(service.accountRequest("listContacts")).rejects.toThrow("Link a Signal account");
+  await expect(service.accountRequest("listContacts")).rejects.toThrow("account is unavailable");
   await expect(
     service.send("after-revocation", { noteToSelf: true }, "must not send")
-  ).rejects.toThrow("Link a Signal account");
+  ).rejects.toThrow("account is unavailable");
   expect(peer.calls.some((call) => call.method === "send" || call.method === "listContacts")).toBe(
     false
   );
+});
+
+test("an account manager lost during a network failure recovers in the background without restarting MCP", async () => {
+  const peers: FakeRpc[] = [];
+  const service = new SignalService(
+    new MessageStore(":memory:"),
+    () => {
+      const peer = new FakeRpc();
+      if (peers.length === 1) peer.accounts = [];
+      peers.push(peer);
+      return peer;
+    },
+    10
+  );
+  services.push(service);
+  await service.connect();
+  peers[0]!.accounts = [];
+  expect(await service.status()).toMatchObject({ connected: false, linked: false });
+  const deadline = Date.now() + 2000;
+  while (peers.length < 3 && Date.now() < deadline) await Bun.sleep(5);
+  expect(peers.length).toBeGreaterThanOrEqual(3);
+  expect(await service.status()).toMatchObject({ linked: true, authorizationError: null });
+  expect(peers.flatMap((peer) => peer.calls).some((call) => call.method === "startLink")).toBe(
+    false
+  );
+});
+
+test("an existing account started offline retries without provisioning a new device", async () => {
+  const store = new MessageStore(":memory:");
+  store.bind(self);
+  const peers: FakeRpc[] = [];
+  const service = new SignalService(
+    store,
+    () => {
+      const peer = new FakeRpc();
+      if (!peers.length) peer.accounts = [];
+      peers.push(peer);
+      return peer;
+    },
+    10
+  );
+  services.push(service);
+  expect(await service.status()).toMatchObject({ linked: false });
+  const deadline = Date.now() + 2000;
+  while (peers.length < 2 && Date.now() < deadline) await Bun.sleep(5);
+  expect(await service.status()).toMatchObject({ linked: true, authorizationError: null });
+  expect(peers.flatMap((peer) => peer.calls).some((call) => call.method === "startLink")).toBe(
+    false
+  );
+});
+
+test("explicit linking of a revoked account cancels background recovery until phone approval", async () => {
+  const store = new MessageStore(":memory:");
+  store.bind(self);
+  const peers: FakeRpc[] = [];
+  const service = new SignalService(
+    store,
+    () => {
+      const peer = new FakeRpc();
+      peer.accounts = [];
+      peers.push(peer);
+      return peer;
+    },
+    10
+  );
+  services.push(service);
+  expect(await service.status()).toMatchObject({ linked: false });
   expect(await service.startLink()).toHaveProperty("sessionId");
+  const count = peers.length;
+  await Bun.sleep(50);
+  expect(peers).toHaveLength(count);
+  expect(
+    peers.flatMap((peer) => peer.calls).filter((call) => call.method === "startLink")
+  ).toHaveLength(1);
+});
+
+test("failed explicit QR start preserves recovery of the previously linked account", async () => {
+  const store = new MessageStore(":memory:");
+  store.bind(self);
+  const peers: FakeRpc[] = [];
+  let offline = true;
+  const service = new SignalService(
+    store,
+    () => {
+      const peer = new FakeRpc();
+      if (offline) peer.accounts = [];
+      const normal = peer.request.bind(peer);
+      peer.request = async (method, params) => {
+        if (offline && method === "startLink") throw new Error("Synthetic network failure");
+        return normal(method, params);
+      };
+      peers.push(peer);
+      return peer;
+    },
+    10
+  );
+  services.push(service);
+  expect(await service.status()).toMatchObject({ linked: false, recovering: true });
+  await expect(service.startLink()).rejects.toThrow("Synthetic network failure");
+  const before = peers.length;
+  offline = false;
+  const deadline = Date.now() + 2000;
+  while (peers.length === before && Date.now() < deadline) await Bun.sleep(5);
+  expect(peers.length).toBeGreaterThan(before);
+  expect(await service.status()).toMatchObject({ linked: true, recovering: false });
 });
 
 test("status rejects replacement identities before permitting subsequent account-scoped work", async () => {

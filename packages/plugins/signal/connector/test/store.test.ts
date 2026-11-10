@@ -102,6 +102,33 @@ test.each([
   expect(raw).toEqual({ body: null, attachments: "[]" });
 });
 
+test("an empty iOS sent view-once placeholder blocks later content replay", () => {
+  const value = store();
+  const sent = (data: Record<string, unknown>) => ({
+    account: self.aci,
+    envelope: {
+      sourceUuid: self.aci,
+      syncMessage: {
+        sentMessage: {
+          destinationUuid: self.aci,
+          timestamp: 1000,
+          message: null,
+          expiresInSeconds: 0,
+          ...data,
+        },
+      },
+    },
+  });
+  value.capture(sent({ viewOnce: true }));
+  value.capture(sent({ message: "unflagged replay", attachments: [{ id: "private-photo" }] }));
+  expect(value.list().messages).toHaveLength(0);
+  expect(value.db.query("SELECT body,attachments,deleted FROM messages").get()).toEqual({
+    body: null,
+    attachments: "[]",
+    deleted: 1,
+  });
+});
+
 test("ignores metadata, receipt, reaction and malformed envelopes", () => {
   const value = store();
   for (const field of ["isExpirationUpdate", "isEndSession", "isProfileKeyUpdate"])

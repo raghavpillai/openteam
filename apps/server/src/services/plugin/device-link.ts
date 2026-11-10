@@ -46,3 +46,12 @@ export function publicDeviceLink(credentials: unknown) {
     instructions: link.instructions,
   };
 }
+
+/** Clear temporary approval/recovery state while retaining provider credentials. */
+export function clearDeviceLinkState(credentials: unknown) {
+  return Object.fromEntries(
+    Object.entries(jsonObject(credentials)).filter(
+      ([key]) => key !== "deviceLink" && key !== "deviceRecoveryPending"
+    )
+  );
+}

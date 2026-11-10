@@ -9,6 +9,8 @@ on:
       - "apps/computer/src/mcp-manager.ts"
       - "apps/computer/src/plugin-package-cache.ts"
       - "apps/server/src/services/plugin/**"
+      - "apps/server/src/services/plugin-service.ts"
+      - "apps/server/test/plugin/device-link*"
       - ".github/workflows/signal-plugin.yml"
   workflow_dispatch:
 
@@ -30,5 +32,6 @@ jobs:
           java-version: "25.0.5+8"
       - run: bun install --frozen-lockfile --ignore-scripts --filter @openteam/plugins --filter @openteam/computer --filter @openteam/server
       - run: bun run --filter @openteam/db db:generate
+      - run: bun run prepare:plugins
       - name: Verify reproducible Java patch, protobuf deletion path, packaged runtime and connector regressions
         run: bun packages/plugins/signal/connector/test/patch-ci.ts

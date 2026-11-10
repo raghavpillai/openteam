@@ -1,4 +1,9 @@
-import { deviceLinkDefinition, deviceLinkResult, publicDeviceLink } from "./plugin/device-link";
+import {
+  clearDeviceLinkState,
+  deviceLinkDefinition,
+  deviceLinkResult,
+  publicDeviceLink,
+} from "./plugin/device-link";
 import { createHash } from "node:crypto";
 import { equalOAuthState, validateDesktopCallback, parseManualCallback, oauthCallbackMode, MANUAL_OAUTH_REDIRECT, type PluginOAuthDesktopContext } from "../plugins/oauth-callback";
 import type { PluginOAuthCallbackInput } from "@openteam/contracts/plugin-management";
@@ -873,9 +878,28 @@ export class PluginService {
     const prior = publicDeviceLink(connection.credentials);
     if (prior && status.linking === true)
       return { id: connection.id, status: "needs_auth", toolCount: 0 };
-    const link = deviceLinkResult(
-      await this.transport.callHostTool(connection, definition.startTool, {})
-    );
+    let link: ReturnType<typeof deviceLinkResult>;
+    try {
+      link = deviceLinkResult(
+        await this.transport.callHostTool(connection, definition.startTool, {})
+      );
+    } catch (error) {
+      // Background recovery or another approval may complete after the first
+      // status snapshot. Accept that success instead of requiring a second click.
+      let recovered: ReturnType<typeof deviceLinkResult> | undefined;
+      try {
+        recovered = deviceLinkResult(
+          await this.transport.callHostTool(connection, definition.statusTool, {})
+        );
+      } catch {
+        /* Preserve the original setup failure when status is unavailable. */
+      }
+      if (recovered?.linked === true) {
+        const ready = await this.markReady(connection, tools);
+        return { id: ready.id, status: ready.status, toolCount: tools.length };
+      }
+      throw error;
+    }
     const stored = {
       sessionId: link.sessionId,
       qrCodeDataUrl: link.qrCodeDataUrl,
@@ -887,7 +911,7 @@ export class PluginService {
     const updated = await this.prisma.pluginConnection.updateMany({
       where: { id: connection.id, runtimeGeneration: connection.runtimeGeneration },
       data: {
-        credentials: toJson({ ...jsonObject(connection.credentials), deviceLink: stored }),
+        credentials: toJson({ ...clearDeviceLinkState(connection.credentials), deviceLink: stored }),
         status: "needs_auth",
         statusMessage: "Scan the code with your phone to link this account.",
         toolSnapshot: toJson(tools),
@@ -924,15 +948,18 @@ export class PluginService {
     const definition = deviceLinkDefinition(connection);
     if (!definition || connection.status === "disconnected") return { pending: false };
     const link = jsonObject(jsonObject(connection.credentials).deviceLink);
-    if (connection.status !== "ready" && !link.sessionId) return { pending: false };
+    const recovering = jsonObject(connection.credentials).deviceRecoveryPending === true;
+    if (connection.status !== "ready" && !link.sessionId && !recovering) return { pending: false };
     if (connection.status !== "ready") {
       const runtime = await this.transport.stdioStatus(connectionId);
       if (runtime.state === "stopped" || runtime.state === "error") {
-        const credentials = { ...jsonObject(connection.credentials) }; delete credentials.deviceLink;
+        const credentials = clearDeviceLinkState(connection.credentials);
         await this.prisma.pluginConnection.updateMany({ where: { id: connectionId,
           runtimeGeneration: connection.runtimeGeneration, updatedAt: connection.updatedAt }, data: {
           credentials: toJson(credentials), status: "needs_auth", connectedAt: null,
-          statusMessage: "Device linking was interrupted. Connect again for a new code.",
+          statusMessage: recovering
+              ? "Connection interrupted. Connect again to continue."
+              : "Device linking was interrupted. Connect again for a new code.",
         } });
         return { linked: false, interrupted: true };
       }
@@ -941,19 +968,44 @@ export class PluginService {
       await this.transport.callHostTool(connection, definition.statusTool, {})
     );
     if (status.linked === true) {
-      if (connection.status !== "ready")
-        await this.markReady(connection, toolSnapshot(connection.toolSnapshot));
+      if (connection.status !== "ready" || recovering)
+        await this.markReady(connection, toolSnapshot(connection.toolSnapshot),
+          "connection.ready",
+          connection.updatedAt
+        );
       return { linked: true };
+    }
+    if (status.recovering === true && !link.sessionId) {
+      await this.prisma.pluginConnection.updateMany({
+        where: {
+          id: connectionId,
+          runtimeGeneration: connection.runtimeGeneration,
+          updatedAt: connection.updatedAt,
+        },
+        data: {
+          credentials: toJson({
+            ...clearDeviceLinkState(connection.credentials),
+            deviceRecoveryPending: true,
+          }),
+          status: "error",
+          connectedAt: null,
+          lastCheckedAt: new Date(),
+          statusMessage:
+            "Connection interrupted. Reconnecting automatically; choose Connect if the device was revoked.",
+        },
+      });
+      return { linked: false, recovering: true };
     }
     const expired = typeof link.expiresAt === "number" && link.expiresAt <= Date.now();
     const interrupted = status.linking === false;
-    if (expired || interrupted || status.authorizationError || connection.status === "ready") {
+    if (expired || interrupted || status.authorizationError || connection.status === "ready" ||
+      recovering
+    ) {
       if (link.sessionId)
         await this.transport
           .callHostTool(connection, definition.cancelTool, { sessionId: link.sessionId })
           .catch(() => {});
-      const credentials = { ...jsonObject(connection.credentials) };
-      delete credentials.deviceLink;
+      const credentials = clearDeviceLinkState(connection.credentials);
       await this.prisma.pluginConnection.updateMany({
         where: {
           id: connectionId,
@@ -1020,7 +1072,7 @@ export class PluginService {
           credentials: toJson(
             Object.fromEntries(
               Object.entries(jsonObject(current.credentials)).filter(
-                ([key]) => key !== "deviceLink"
+                ([key]) => key !== "deviceLink" && key !== "deviceRecoveryPending"
               )
             )
           ),
@@ -1193,6 +1245,7 @@ export class PluginService {
       const current = await tx.pluginConnection.findUniqueOrThrow({ where: { id: connectionId } });
       const credentials = { ...jsonObject(current.credentials), stateRemovalPending: true };
       delete (credentials as Record<string, unknown>).deviceLink;
+      delete (credentials as Record<string, unknown>).deviceRecoveryPending;
       return tx.pluginConnection.update({ where: { id: connectionId }, data: {
         runtimeGeneration: { increment: 1 }, credentials: toJson(credentials),
         status: "disconnected", connectedAt: null,
@@ -1338,7 +1391,8 @@ export class PluginService {
       installation: { pluginKey: string };
     },
     tools: PluginToolDefinition[],
-    activityKind = "connection.ready"
+    activityKind = "connection.ready",
+    expectedUpdatedAt?: Date
   ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE id = ${connection.id}::uuid FOR UPDATE`;
@@ -1346,7 +1400,9 @@ export class PluginService {
         where: { id: connection.id },
         include: { installation: true },
       });
-      if (!current || current.runtimeGeneration !== connection.runtimeGeneration)
+      if (!current || current.runtimeGeneration !== connection.runtimeGeneration ||
+        (expectedUpdatedAt && current.updatedAt.getTime() !== expectedUpdatedAt.getTime())
+      )
         throw new ApiError(
           409,
           "plugin_connection_changed",
@@ -1359,7 +1415,7 @@ export class PluginService {
           credentials: toJson(
             Object.fromEntries(
               Object.entries(jsonObject(current.credentials)).filter(
-                ([key]) => key !== "deviceLink"
+                ([key]) => key !== "deviceLink" && key !== "deviceRecoveryPending"
               )
             )
           ),
@@ -1448,6 +1504,7 @@ export class PluginService {
           OR: [
             { status: "ready" },
             { status: "error", statusMessage: { startsWith: "Local runtime unavailable:" } },
+            { status: "error", credentials: { path: ["deviceRecoveryPending"], equals: true } },
             { status: "needs_auth", statusMessage: { startsWith: "Local runtime starting:" } },
             {
               status: "needs_auth",

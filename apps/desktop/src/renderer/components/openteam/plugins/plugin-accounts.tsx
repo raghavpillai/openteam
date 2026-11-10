@@ -7,6 +7,7 @@ import { LoadingOrb } from "../../ui/loading-orb";
 import { cn } from "../../../lib/cn";
 import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { PluginAuthorization } from "./plugin-authorization";
+import { useVisibleNow } from "../../../hooks/use-visible-now";
 
 const button =
   "inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1 rounded-full bg-[#77777717] px-3 text-[12px] outline-none transition-colors duration-120 ease-out hover:bg-[#7777772b] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-45";
@@ -37,6 +38,8 @@ export function PluginAccountRow({
   const [alias, setAlias] = useState(connection.alias);
   useEffect(() => setAlias(connection.alias), [connection.alias]);
   const ready = connection.status === "ready";
+  const now = useVisibleNow(1_000, Boolean(connection.deviceLink));
+  const linkExpired = Boolean(connection.deviceLink && connection.deviceLink.expiresAt <= now);
   const authorization = pluginAuthorization(connection);
   const status = connection.setupPhase === "provider_setup_required" ? "Setup needed" : connection.setupPhase === "authorization_pending" ? "Finish signing in" : connection.setupPhase === "ready_to_authorize" && connection.auth === "oauth" ? "Sign-in needed" : ready
     ? "Connected"
@@ -153,17 +156,28 @@ export function PluginAccountRow({
       {connection.deviceLink ? (
         <div className="px-3.5 pb-4 space-y-3">
           <p className="text-[13px]">{connection.deviceLink.instructions}</p>
-          <img
+          {!linkExpired ? (
+            <img
             src={connection.deviceLink.qrCodeDataUrl}
             alt="Scan to link your account"
             width={256}
             height={256}
             className="rounded-lg bg-white"
           />
+          ) : null}
           <p className="text-[12px] text-foreground-secondary">
+            {linkExpired ? (
+              "Code expired. Get a new code when you’re ready."
+            ) : (
+              <>
             Code expires at {new Date(connection.deviceLink.expiresAt).toLocaleTimeString()}.
-            Waiting for approval…
+                Waiting for approval…
+              </>
+            )}
           </p>
+          <button type="button" className={button} disabled={busy} onClick={() => onConnect()}>
+            Get new code
+          </button>
           <button type="button" className={button} disabled={busy} onClick={onCancelAuthentication}>
             Cancel linking
           </button>

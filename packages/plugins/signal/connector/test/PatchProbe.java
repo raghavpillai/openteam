@@ -40,6 +40,9 @@ public final class PatchProbe implements RecipientResolver {
 
     private static void check(boolean value, String message) { if (!value) throw new AssertionError(message); }
     private static SignalServiceContent content(SyncMessage.DeleteForMe deletion, String sender) throws Exception {
+        return content(new SyncMessage.Builder().deleteForMe(deletion).build(), sender);
+    }
+    private static SignalServiceContent content(SyncMessage sync, String sender) throws Exception {
         var local = new AddressProto.Builder().uuid(ServiceId.parseOrThrow(SELF).toByteString()).e164("+12025550100").build();
         var address = new AddressProto.Builder().uuid(ServiceId.parseOrThrow(sender).toByteString()).build();
         var metadata = new MetadataProto.Builder().address(address).senderDevice(2).timestamp(9000L)
@@ -47,7 +50,7 @@ public final class PatchProbe implements RecipientResolver {
             .serverGuid("33333333-3333-4333-8333-333333333333").destinationUuid(SELF).build();
         return SignalServiceContent.Companion.createFromProto(new SignalServiceContentProto.Builder()
             .localAddress(local).metadata(metadata).content(new Content.Builder()
-                .syncMessage(new SyncMessage.Builder().deleteForMe(deletion).build()).build()).build());
+                .syncMessage(sync).build()).build());
     }
     private static AddressableMessage target(String author, long timestamp) {
         return new AddressableMessage.Builder().authorServiceIdBinary(ServiceId.parseOrThrow(author).toByteString())
@@ -106,6 +109,23 @@ public final class PatchProbe implements RecipientResolver {
         var pniProjection = SyncDeletions.from(content(pniDelete, SELF), resolver, addresses).orElseThrow().messageDeletes().get(0);
         check(!pniProjection.conversation().id().equals(SELF) && !pniProjection.messages().get(0).author().equals(SELF), "PNI confused with ACI");
         check(SyncDeletions.from(content(deletion, OTHER), resolver, addresses).isEmpty(), "foreign sync authorized deletion");
+        // iOS syncs a view-once placeholder with its original timestamp and flag,
+        // but deliberately omits the photo body and attachments.
+        var viewOnce = content(new SyncMessage.Builder().sent(new SyncMessage.Sent.Builder()
+            .timestamp(9000L).destinationServiceIdBinary(ServiceId.parseOrThrow(SELF).toByteString())
+            .message(new DataMessage.Builder().timestamp(9000L).isViewOnce(true)
+                .requiredProtocolVersion(3).build()).build()).build(), SELF);
+        check(viewOnce.getSyncMessage().orElseThrow().getSent().orElseThrow().getDataMessage()
+            .orElseThrow().isViewOnce(), "library dropped view-once flag");
+        var viewOnceEnvelope = MessageEnvelope.from(envelope, viewOnce, Map.of(), resolver, addresses, pointer -> null, null);
+        check(viewOnceEnvelope.sync().orElseThrow().sent().orElseThrow().message().orElseThrow()
+            .isViewOnce(), "manager dropped view-once flag");
+        var viewOnceJson = Util.createJsonObjectMapper().valueToTree(JsonMessageEnvelope.from(viewOnceEnvelope, null, manager))
+            .path("syncMessage").path("sentMessage");
+        check(viewOnceJson.path("viewOnce").asBoolean(), "JSON dropped view-once flag");
+        check(viewOnceJson.path("timestamp").asLong() == 9000L, "JSON lost view-once timestamp");
+        check(viewOnceJson.path("destinationUuid").asText().equals(SELF), "JSON lost view-once destination");
+        check(viewOnceJson.path("message").isNull() && !viewOnceJson.has("attachments"), "view-once placeholder gained content");
         System.out.println("Patched real protobuf -> authenticated content -> manager -> JSON: passed");
     }
 }

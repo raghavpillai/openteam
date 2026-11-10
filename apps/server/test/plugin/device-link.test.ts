@@ -187,6 +187,97 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
     expect(f.toolCalls("remove_account")).toHaveLength(0);
   });
 
+  test("connect accepts an account recovered between the status check and QR start", async () => {
+    const f = fixture();
+    f.runtime.onCall = async (name) => {
+      if (name === "start_link") {
+        f.runtime.linked = true;
+        throw new Error("Account recovered and is already linked");
+      }
+    };
+    expect(await f.connect()).toMatchObject({ status: "ready" });
+    expect(f.connection.status).toBe("ready");
+    expect(f.connection.credentials.deviceLink).toBeUndefined();
+    expect(f.toolCalls("finish_link")).toHaveLength(0);
+    expect(f.toolCalls("link_status")).toHaveLength(2);
+  });
+
+  test("a running collector's recovery is observed after the host leaves ready without provisioning", async () => {
+    const f = fixture();
+    f.runtime.linked = true;
+    await f.connect();
+    f.runtime.onCall = async (name) =>
+      name === "link_status" ? envelope({ linked: false, recovering: true }) : undefined;
+    expect(await f.poll()).toMatchObject({ recovering: true });
+    expect(f.connection.status).toBe("error");
+    expect(f.connection.credentials.deviceRecoveryPending).toBe(true);
+    f.runtime.onCall = undefined;
+    const otherService = f.newService();
+    await (otherService as any).refreshLocalConnections();
+    expect(f.connection.status).toBe("ready");
+    expect(f.connection.credentials.deviceRecoveryPending).toBeUndefined();
+    expect(f.toolCalls("start_link")).toHaveLength(0);
+  });
+
+  test.each([
+    "stopped",
+    "error",
+  ])("recovery polling observes %s runtimes without starting them", async (state) => {
+    const f = fixture();
+    f.connection.status = "error";
+    f.connection.credentials.deviceRecoveryPending = true;
+    f.runtime.state = state;
+    const before = f.calls.length;
+    await f.poll();
+    expect(f.calls.slice(before)).toEqual([expect.objectContaining({ method: "GET" })]);
+    expect(f.connection.credentials.deviceRecoveryPending).toBeUndefined();
+    expect(f.connection.status).toBe("needs_auth");
+  });
+
+  test("disconnect clears recovery state and fences a delayed recovered status", async () => {
+    const f = fixture();
+    f.connection.status = "error";
+    f.connection.credentials.deviceRecoveryPending = true;
+    const entered = deferred<void>(),
+      release = deferred<unknown>();
+    f.runtime.onCall = async (name) => {
+      if (name === "link_status") {
+        entered.resolve();
+        return release.promise;
+      }
+    };
+    const polling = f.poll().catch(() => {});
+    await entered.promise;
+    await Effect.runPromise(f.service.disconnect(f.connection.id));
+    release.resolve(envelope({ linked: true }));
+    await polling;
+    expect(f.connection.status).toBe("disconnected");
+    expect(f.connection.credentials.deviceRecoveryPending).toBeUndefined();
+  });
+
+  test("a delayed recovery success cannot clear a newer QR at the same generation", async () => {
+    const f = fixture();
+    f.connection.status = "error";
+    f.connection.credentials.deviceRecoveryPending = true;
+    const entered = deferred<void>(),
+      release = deferred<unknown>();
+    f.runtime.onCall = async (name) => {
+      if (name === "link_status") {
+        entered.resolve();
+        return release.promise;
+      }
+    };
+    const polling = f.poll().catch(() => {});
+    await entered.promise;
+    f.connection.credentials = { deviceLink: { ...qr("newer-session"), instructions: "Scan" } };
+    f.connection.status = "needs_auth";
+    f.connection.updatedAt = new Date(f.connection.updatedAt.getTime() + 1);
+    release.resolve(envelope({ linked: true }));
+    await polling;
+    expect(f.connection.status).toBe("needs_auth");
+    expect(f.connection.credentials.deviceLink.sessionId).toBe("newer-session");
+  });
+
   test("expiration cancels the matching session and prevents Bot invocation", async () => {
     const f = fixture();
     await f.connect();

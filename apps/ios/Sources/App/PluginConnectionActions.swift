@@ -44,12 +44,19 @@ struct PluginConnectionActions: View {
         "This account is ready to use."
       )
       .font(.footnote).foregroundStyle(NativePalette.muted)
-    } else if let image = deviceLinkImage {
+    } else if !connection["deviceLink"]["sessionId"].string.isEmpty {
       Text(connection["deviceLink"]["instructions"].string).font(.subheadline)
-      Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
-        .frame(maxWidth: 280).accessibilityLabel("Scan to link your account")
+      if let image = deviceLinkImage {
+        Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
+          .frame(maxWidth: 280).accessibilityLabel("Scan to link your account")
+      } else {
+        Text("Code expired. Get a new code when you’re ready.")
+          .font(.footnote).foregroundStyle(NativePalette.muted)
+      }
       Text("Scan with the phone that has your account, or open OpenTeam on another screen.")
         .font(.footnote).foregroundStyle(NativePalette.muted)
+      Button("Get new code") { Task { await command("/restart") } }
+        .disabled(operation.busy)
       Button("Cancel linking", role: .cancel) {
         let sessionId = connection["deviceLink"]["sessionId"].string
         Task { await command("/device-link/cancel", body: .object(["sessionId": .string(sessionId)])) }
@@ -257,16 +264,17 @@ struct PluginConnectionActions: View {
   private func connect() async {
     // Connection settings may hold unsaved setup fields; connecting without them fails validation.
     if let beforeSignIn, !(await beforeSignIn()) { return }
-    await command("/connect")
+    await command(connection.object["deviceLink"] != nil ? "/restart" : "/connect")
   }
   private func command(_ suffix: String, body: JSON? = nil) async {
-    if suffix == "/connect" { recovery.begin() }
+    if suffix == "/connect" || suffix == "/restart" { recovery.begin() }
     else { recovery.cancel() }
     await operation.run {
       do { _ = try await store.request(path + suffix, method: "POST", body: body) } catch {
         try? await refresh()
         let reconciled =
-          (suffix == "/connect" && connection["status"].string == "ready")
+          ((suffix == "/connect" || suffix == "/restart") &&
+            (connection["status"].string == "ready" || deviceLinkImage != nil))
           || (suffix == "/authenticate/manual" && connection["status"].string == "ready")
           || (suffix == "/disconnect" && connection["status"].string == "disconnected")
           || (suffix == "/authenticate/cancel" && session == nil)

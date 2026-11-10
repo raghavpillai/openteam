@@ -21,6 +21,30 @@ import { SubagentService } from "../src/services/subagent/service";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 
+for (const finishedDuringCancel of [false, true]) test.skipIf(!url)(`Stop ${finishedDuringCancel ? "accepts a turn that finished during a failed cancellation" : "reports failure when the active turn cannot be cancelled"}`, () => fixture(async f => {
+  const service = new SubagentService(f.db, f.messaging, {
+    cancel: () => Effect.promise(async () => {
+      if (finishedDuringCancel) await f.db.run.update({ where: { id: f.context.runId }, data: { status: "completed" } });
+      throw new Error("Synthetic computer cancellation failure");
+    }),
+  } as never, f.dir, async () => Response.json({ stopped: true }), f.store);
+  if (finishedDuringCancel) {
+    expect(await Effect.runPromise(service.stopBot(f.owner.id))).toEqual({ hadActiveRun: true });
+  } else {
+    await expect(Effect.runPromise(service.stopBot(f.owner.id))).rejects.toThrow("could not be stopped");
+    expect((await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } })).status).toBe("running");
+  }
+}));
+
+test.skipIf(!url)("Stop reports a worker cancellation failure even after its parent turn finished", () => fixture(async f => {
+  await f.service.task(f.context, { description: "Pending check", subagent_type: "executor", prompt: "Compute the requested digest." });
+  await f.db.run.update({ where: { id: f.context.runId }, data: { status: "completed" } });
+  const service = new SubagentService(f.db, f.messaging, {
+    cancel: () => Effect.fail(new Error("Synthetic worker cancellation failure")),
+  } as never, f.dir, async () => Response.json({ stopped: true }), f.store);
+  await expect(Effect.runPromise(service.stopBot(f.owner.id))).rejects.toThrow("could not be stopped");
+}));
+
 test.skipIf(!url)("a typed follow-up does not discard a completed background result; an explicit stop still does", () => fixture(async f => {
   await f.service.task(f.context, { description: "Compute digest", subagent_type: "executor", prompt: "Compute the requested digest." });
   await f.db.run.update({ where: { id: f.context.runId }, data: {

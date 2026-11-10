@@ -23,6 +23,7 @@ function fixture() {
     run: {
       findUnique: async ({ where }: any) => (runs[where.id] ? { ...runs[where.id], inboxEvents: [] } : null),
       findMany: async ({ where }: any) => where.requestProgress ? [] : Object.values(runs).filter((row) => matches(row, where)).map(({ id }) => ({ id })),
+      count: async ({ where }: any) => Object.values(runs).filter(row => matches(row, where)).length,
     },
     subagent: {
       findFirst: async ({ where }: any) => subagents.find((row) => matches(row, where)) ?? null,

@@ -350,6 +350,13 @@ export class SubagentService {
       await Promise.allSettled(runs.map((run) => Effect.runPromise(this.stopRun(run.id))));
       const requests = await this.prisma.$transaction(tx => stopRequestProgress(tx, botId));
       const workers = await this.stopRunningSubagents(botId, `user-stop:bot:${botId}`);
+      // Stop is best effort across all targets, but success must not hide a
+      // failed cancellation. A turn that finished during the attempt is fine.
+      const remaining = runs.length ? await this.prisma.run.count({
+        where: { id: { in: runs.map(run => run.id) }, status: { in: ["queued", "running"] } },
+      }) : 0;
+      if (remaining || workers.some(worker => worker.outcome === "failed"))
+        throw new ApiError(503, "bot_stop_incomplete", "Some work could not be stopped. Try Stop again.");
       return { hadActiveRun: runs.length > 0 || workers.length > 0 || requests > 0 };
     });
 

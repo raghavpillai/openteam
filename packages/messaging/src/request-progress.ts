@@ -11,6 +11,12 @@ import { taskProgress } from "./task-progress";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const openWorkers = ["provisioning", "queued", "running", "waiting"] as const;
+/** A newer message interrupts the model turn, not the user's unfinished request.
+ * Explicit stops still win, including those issued after a priority interruption. */
+const requestIsStopped = (run: { requestStoppedAt?: Date | null; status: string; error?: unknown }) => {
+  const error = run.error && typeof run.error === "object" ? run.error as { code?: unknown } : null;
+  return !!run.requestStoppedAt || (run.status === "cancelled" && error?.code !== "priority_peer_interrupt");
+};
 const lock = (tx: Prisma.TransactionClient, botId: string) =>
   tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${botId}`}))`;
 
@@ -57,7 +63,7 @@ async function requestForRun(
       "request_not_owned",
       "The request must belong to this agent and conversation"
     );
-  if (root.requestStoppedAt || root.status === "cancelled")
+  if (requestIsStopped(root))
     throw new ApiError(
       409,
       "request_stopped",
@@ -298,7 +304,7 @@ export async function settleRequestProgress(
     where: { id: runId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
   });
-  if (!source || source.status === "cancelled") return;
+  if (!source || requestIsStopped(source)) return;
   // Several independent completions can fold into one parent wake. Reconcile
   // every open request in this conversation, rather than losing the folded IDs.
   const roots = await tx.run.findMany({
@@ -317,8 +323,7 @@ export async function settleRequestProgress(
     if (
       !root ||
       root.botId !== botId ||
-      root.requestStoppedAt ||
-      root.status === "cancelled" ||
+      requestIsStopped(root) ||
       !p ||
       p.state !== "working" ||
       root.requestNextCheckAt
@@ -373,7 +378,7 @@ export async function settleRequestProgress(
 export async function recoverRequestProgress(prisma: PrismaClient, messaging: AgentMessaging) {
   const roots = await prisma.run.findMany({
     where: {
-      status: { notIn: ["queued", "running", "cancelled"] },
+      status: { notIn: ["queued", "running"] },
       requestStoppedAt: null,
       requestProgress: { path: ["state"], equals: "working" },
       bot: { status: "active" },
@@ -415,10 +420,9 @@ export async function dispatchRequestChecks(
       if (
         !p ||
         p.state !== "waiting" ||
-        root.requestStoppedAt ||
+        requestIsStopped(root) ||
         !root.requestNextCheckAt ||
-        root.requestNextCheckAt > now ||
-        root.status === "cancelled"
+        root.requestNextCheckAt > now
       )
         return 0;
       if (!(await canContinueRequest(tx, root))) {
@@ -524,7 +528,7 @@ export async function requestWakeAllowed(
   // Preserve legacy automation/revival routing. Only request-tracked contexts
   // and the new check type use this additional revision/cancellation fence.
   if (!root?.requestProgress) return wake.type !== "request.check";
-  if (root.botId !== wake.botId || root.requestStoppedAt || root.status === "cancelled")
+  if (root.botId !== wake.botId || requestIsStopped(root))
     return false;
   if (taskProgress(root.requestProgress)?.state === "complete") return false;
   if (!(await canContinueRequest(tx, root))) return false;

@@ -21,6 +21,44 @@ import { SubagentService } from "../src/services/subagent/service";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 
+test.skipIf(!url)("a typed follow-up does not discard a completed background result; an explicit stop still does", () => fixture(async f => {
+  await f.service.task(f.context, { description: "Compute digest", subagent_type: "executor", prompt: "Compute the requested digest." });
+  await f.db.run.update({ where: { id: f.context.runId }, data: {
+    status: "cancelled", error: { code: "priority_peer_interrupt", message: "superseded by a new user message" },
+  } });
+  const wake = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, {
+    botId: f.owner.id, channelId: f.channel.id, origin: "background_revival", type: "subagent.completed",
+    content: "[SAND_HIDDEN_PROMPT]The digest is ready.", clientId: crypto.randomUUID(), priority: 260,
+    taskContextRunId: f.context.runId,
+  }));
+  const event = await f.db.inboxEvent.findFirstOrThrow({ where: { runId: wake.run.id } });
+  expect(await f.db.$transaction(tx => requestWakeAllowed(tx, event))).toBe(true);
+  await f.db.run.update({ where: { id: f.context.runId }, data: { error: { code: "user_stopped" } } });
+  expect(await f.db.$transaction(tx => requestWakeAllowed(tx, event))).toBe(false);
+  await f.db.run.update({ where: { id: f.context.runId }, data: { error: { code: "priority_peer_interrupt" } } });
+  await f.db.$transaction(tx => stopRequestProgress(tx, f.owner.id, f.context.runId));
+  expect(await f.db.$transaction(tx => requestWakeAllowed(tx, event))).toBe(false);
+}));
+
+test.skipIf(!url)("a result wake can close the original request after its model turn was interrupted", () => fixture(async f => {
+  await f.service.task(f.context, { description: "Compute digest", subagent_type: "executor", prompt: "Compute the requested digest." });
+  await f.db.subagent.updateMany({ where: { parentBotId: f.owner.id }, data: { status: "completed" } });
+  await f.db.run.update({ where: { id: f.context.runId }, data: {
+    status: "cancelled", error: { code: "priority_peer_interrupt" },
+  } });
+  const wake = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, {
+    botId: f.owner.id, channelId: f.channel.id, origin: "background_revival", type: "subagent.completed",
+    content: "[SAND_HIDDEN_PROMPT]The digest is ready.", clientId: crypto.randomUUID(), priority: 260,
+    taskContextRunId: f.context.runId,
+  }));
+  await f.db.run.update({ where: { id: wake.run.id }, data: { status: "running" } });
+  await reportRequestProgress(f.db, { ...f.context, runId: wake.run.id, callId: crypto.randomUUID() }, {
+    request_run_id: f.context.runId, key: "digest-delivered", state: "complete",
+    summary: "Verified and delivered the digest.", evidence: ["message:digest-delivered"], remaining: [],
+  });
+  expect((await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } })).requestProgress).toMatchObject({ state: "complete" });
+}));
+
 test.skipIf(!url)("an approval reply resuming the same worker retains its original broader request without requiring the model to repeat its ID", () => fixture(async f => {
   await f.service.task(f.context, { description: "Approved one-message step", subagent_type: "computerUse", prompt: "Send the approved message once, then read the receipt." });
   const child = await f.db.subagent.findFirstOrThrow({ where: { parentBotId: f.owner.id } });

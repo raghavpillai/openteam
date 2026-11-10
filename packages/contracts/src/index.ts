@@ -779,7 +779,15 @@ export interface PluginCatalogItemView {
   setup: PluginSetupView | null;
 }
 
+export interface PluginDeviceLinkView {
+  sessionId: string;
+  qrCodeDataUrl: string;
+  expiresAt: number;
+  instructions: string;
+}
+
 export interface PluginConnectionView {
+  deviceLink?: PluginDeviceLinkView | null;
   id: string;
   revision: string;
   pluginKey: string;
@@ -796,7 +804,8 @@ export interface PluginConnectionView {
   oauthRedirectUrl: string | null;
   oauthCallbackMode?: "desktop" | "server" | "manual";
   manualCallbackSupported?: boolean;
-  setupPhase?: "provider_setup_required" | "ready_to_authorize" | "ready_to_connect" | "authorization_pending" | "validation_failed" | "connected";
+  setupPhase?:
+    | "provider_setup_required" | "ready_to_authorize" | "ready_to_connect" | "authorization_pending" | "validation_failed" | "connected";
   oauthLoopbackPort?: number;
   canAuthenticate: boolean;
   configured: boolean;
@@ -839,6 +848,7 @@ export interface PluginSettingsView {
 }
 
 export interface PluginConnectionStatusView {
+  deviceLink?: PluginDeviceLinkView | null;
   oauthCallbackMode?: PluginConnectionView["oauthCallbackMode"];
   setupPhase?: PluginConnectionView["setupPhase"];
   id: string;
@@ -919,7 +929,8 @@ export const ScreenClipboardInput = Schema.Union(
   })
 );
 export type ScreenClipboardInput = typeof ScreenClipboardInput.Type;
-export interface ScreenClipboardView { text?: string }
+export interface ScreenClipboardView { text?: string;
+}
 
 const ComputerUseActionName = Schema.Literal(
   "screenshot",
@@ -1753,8 +1764,8 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 }
-export * from './external-draft';
-export * from './bot-recipe';
+export * from "./external-draft";
+export * from "./bot-recipe";
 
 export * from "./web-search";
 

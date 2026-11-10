@@ -11,7 +11,8 @@
     "./json-schema": "./src/json-schema.ts",
     "./skill-markdown": "./src/skill-markdown.ts",
     "./templates": "./src/templates.ts",
-    "./file-spool": "./src/file-spool.ts"
+    "./file-spool": "./src/file-spool.ts",
+    "./runtime-assets": "./src/runtime-assets.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target browser",
@@ -22,6 +23,7 @@
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "fflate": "0.8.3",
+    "tar": "7.5.22",
     "yaml": "2.9.0"
   },
   "sideEffects": false

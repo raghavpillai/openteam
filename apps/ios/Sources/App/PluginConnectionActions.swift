@@ -44,6 +44,17 @@ struct PluginConnectionActions: View {
         "This account is ready to use."
       )
       .font(.footnote).foregroundStyle(NativePalette.muted)
+    } else if let image = deviceLinkImage {
+      Text(connection["deviceLink"]["instructions"].string).font(.subheadline)
+      Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
+        .frame(maxWidth: 280).accessibilityLabel("Scan to link your account")
+      Text("Scan with the phone that has your account, or open OpenTeam on another screen.")
+        .font(.footnote).foregroundStyle(NativePalette.muted)
+      Button("Cancel linking", role: .cancel) {
+        let sessionId = connection["deviceLink"]["sessionId"].string
+        Task { await command("/device-link/cancel", body: .object(["sessionId": .string(sessionId)])) }
+      }
+        .disabled(operation.busy)
     } else if presentation.connecting {
       ProgressView("Connecting your account…")
     } else if presentation.canReconnect {
@@ -118,6 +129,13 @@ struct PluginConnectionActions: View {
           .disabled(operation.busy)
       }
     }
+  }
+  private var deviceLinkImage: UIImage? {
+    let link = connection["deviceLink"]
+    guard Double(link["expiresAt"].int) > now.timeIntervalSince1970 * 1000,
+      link["qrCodeDataUrl"].string.hasPrefix("data:image/png;base64,"),
+      let data = Data(base64Encoded: String(link["qrCodeDataUrl"].string.dropFirst(22))) else { return nil }
+    return UIImage(data: data)
   }
   private var manualInstructions: some View {
     NavigationStack {
@@ -198,6 +216,9 @@ struct PluginConnectionActions: View {
     }
   }
   private func refresh() async throws {
+    if !connection["deviceLink"]["sessionId"].string.isEmpty {
+      _ = try? await store.request(path + "/device-link/poll", method: "POST")
+    }
     let result = try await store.request(
       "/api/v0/plugin-connections/status", query: ["id": connection["id"].string])
     try Task.checkCancellation()

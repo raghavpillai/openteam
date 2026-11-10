@@ -54,11 +54,25 @@ export class PluginInvocations {
     if (connection.status !== "ready") {
       throw new ApiError(409, "plugin_connection_not_ready", "Plugin connection is not ready");
     }
+    const connector = definitionFromManifest(connection.installation.manifest)?.connections.find(
+      (c) => c.key === connection.connectorKey
+    );
+    if (
+      connector?.deviceLink &&
+      Object.entries(connector.deviceLink).some(
+        ([key, value]) => key.endsWith("Tool") && value === request.toolName
+      )
+    )
+      throw new ApiError(
+        403,
+        "plugin_host_tool_unsupported",
+        "Device linking tools are available only in account settings"
+      );
     if (!request.hostTool) {
       const tool = toolSnapshot(connection.toolSnapshot).find(
         (candidate) => candidate.name === request.toolName
       );
-      if (!tool) throw new ApiError(404, "plugin_tool_not_found", "Plugin tool not found");
+      if (!tool || connectorHostTools(connector).includes(request.toolName)) throw new ApiError(404, "plugin_tool_not_found", "Plugin tool not found");
       validateJsonSchema(tool.inputSchema, request.arguments);
     } else if (
       connection.transport !== "stdio" ||

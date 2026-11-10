@@ -431,7 +431,7 @@ function PluginSetupCard({
   useEffect(() => {
     if (connection.configured) setValues({});
   }, [connection.id, connection.configured]);
-  if (!setup || pluginAuthorization(connection)) return null;
+  if (!setup || pluginAuthorization(connection) || connection.deviceLink) return null;
 
   const ready = connection.status === "ready";
   const requiresHttps = connection.oauthCallbackMode === "manual" && connection.manualCallbackSupported === false;

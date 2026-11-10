@@ -100,6 +100,8 @@ public struct PluginConnectionPresentation {
         || connection["configured"] == .bool(false))
     if connected {
       status = "Connected"
+    } else if !connection["deviceLink"]["sessionId"].string.isEmpty {
+      status = "Scan to connect"
     } else if connecting {
       status = "Connecting…"
     } else if let session = PluginAuthorizationSession(connection, now: now) {

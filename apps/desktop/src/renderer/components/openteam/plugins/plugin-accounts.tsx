@@ -125,10 +125,11 @@ export function PluginAccountRow({
             {status}
           </span>
         )}
-        {!editing && !ready && !authorization && (
+        {!editing && !ready && !authorization && !connection.deviceLink && (
           <button className={button} type="button" disabled={busy} onClick={() => onConnect()}>
             {busy ? <LoaderCircle className="size-3 animate-spin" /> : null}
-            {connection.configured ? (connection.auth === "oauth" ? "Sign in" : "Connect") : "Set up"}
+            {connection.configured ? connection.auth === "oauth" ? "Sign in" : "Connect"
+              : "Set up"}
           </button>
         )}
         {editing && (connection.alias !== "default" || connection.status !== "needs_auth") && (
@@ -148,8 +149,31 @@ export function PluginAccountRow({
           </button>
         )}
       </div>
+      {connection.deviceLink ? (
+        <div className="px-3.5 pb-4 space-y-3">
+          <p className="text-[13px]">{connection.deviceLink.instructions}</p>
+          <img
+            src={connection.deviceLink.qrCodeDataUrl}
+            alt="Scan to link your account"
+            width={256}
+            height={256}
+            className="rounded-lg bg-white"
+          />
+          <p className="text-[12px] text-foreground-secondary">
+            Code expires at {new Date(connection.deviceLink.expiresAt).toLocaleTimeString()}.
+            Waiting for approval…
+          </p>
+          <button type="button" className={button} disabled={busy} onClick={onCancelAuthentication}>
+            Cancel linking
+          </button>
+        </div>
+      ) : null}
       <PluginAuthorization connection={connection} busy={busy} onCancel={onCancelAuthentication} onRetry={onConnect} />
-      {connection.statusMessage && !ready && !authorization ? <p role="status" className="px-3.5 pb-3 text-[11px] text-foreground-secondary">{connection.statusMessage}</p> : null}
+      {connection.statusMessage && !ready && !authorization ? (
+        <p role="status" className="px-3.5 pb-3 text-[11px] text-foreground-secondary">
+          {connection.statusMessage}
+        </p>
+      ) : null}
       <AnimatedCollapse open={expanded} id={settingsId}>
         <div className="px-3 pb-3">{children}</div>
       </AnimatedCollapse>
@@ -192,7 +216,8 @@ export function AddPluginAccount({
           onSubmit={async (e) => {
             e.preventDefault();
             const connection = choices.find((c) => c.connectorKey === connector);
-            if (connection && !busy && alias.trim().length >= 2 && await onAdd(connection, alias.trim())) {
+            if (connection && !busy && alias.trim().length >= 2 &&
+              (await onAdd(connection, alias.trim()))) {
               setOpen(false);
               setAlias("");
             }

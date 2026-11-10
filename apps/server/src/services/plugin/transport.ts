@@ -301,7 +301,18 @@ export class PluginTransport {
     runtimeGeneration?: number;
   }): Promise<PluginToolDefinition[]> {
     const response = await this.callComputer(`/v1/mcp/connections/${connection.id}/discover`, await this.stdioRuntime(connection));
-    return this.stdioTools(response.tools);
+    const current = await this.prisma.pluginConnection.findUnique({
+      where: { id: connection.id },
+      include: { installation: true },
+    });
+    const hidden = current
+      ? connectorHostTools(
+          definitionFromManifest(current.installation.manifest)?.connections.find(
+            (c) => c.key === current.connectorKey
+          )
+        )
+      : [];
+    return this.stdioTools(response.tools).filter((tool) => !hidden.includes(tool.name));
   }
 
   async stdioStatus(connectionId: string) {
@@ -342,7 +353,8 @@ export class PluginTransport {
 
   /** Calls a packaged connector tool for the server itself, outside any Bot run. */
   callHostTool(
-    connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue; runtimeGeneration?: number },
+    connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue; runtimeGeneration?: number;
+    },
     toolName: string,
     args: unknown
   ): Promise<unknown> {
@@ -350,7 +362,8 @@ export class PluginTransport {
   }
 
   private async callStdio(
-    connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue; runtimeGeneration?: number },
+    connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue; runtimeGeneration?: number;
+    },
     toolName: string,
     args: unknown
   ): Promise<unknown> {
@@ -374,7 +387,8 @@ export class PluginTransport {
     return redactConnectionSecrets(response.result, { configuration: {}, credentials: { env } });
   }
 
-  private async stdioConfiguration(connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue }) {
+  private async stdioConfiguration(connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue;
+  }) {
     return (await this.stdioRuntime(connection)).configuration;
   }
 
@@ -452,7 +466,13 @@ export class PluginTransport {
           env: { ...env, OPENTEAM_PLUGIN_ACCOUNT_ID: current.id },
           packageFiles: definition?.files ?? {},
           packageBinaryFiles: definition?.binaryFiles ?? {},
-        } };
+            runtimeAssets: definition?.connections.find(
+              (candidate) => candidate.key === current.connectorKey
+            )?.runtimeAssets,
+            persistentState: definition?.connections.find(
+              (candidate) => candidate.key === current.connectorKey
+            )?.persistentState,
+          } };
       },
       { maxWait: 40_000, timeout: 40_000 }
     );
@@ -471,11 +491,14 @@ export class PluginTransport {
       if(latest.status!=="ready")throw new Error("Connection is no longer ready");
       const state=jsonObject(jsonObject(latest.credentials).oauth) as StoredOAuthState;
       const provider=this.oauthProvider(latest,async oauth=>{await tx.pluginConnection.update({where:{id:connectionId},data:{credentials:toJson({...jsonObject(latest.credentials),oauth})}});});
-      if(!state.tokens?.access_token||state.tokensExpireAt!==undefined&&state.tokensExpireAt<Date.now()+60_000){
+      if(!state.tokens?.access_token||
+                (state.tokensExpireAt!==undefined&&state.tokensExpireAt<Date.now()+60_000)
+              ){
         // Native delivery uses the same persisted SDK OAuth refresh path as MCP.
         // Any interactive reauthorization stays pending in account settings.
         const endpoint=runtimeEndpoint(latest);if(!endpoint)throw new Error("This OAuth connection has no endpoint");
-        if(await auth(provider,{serverUrl:endpoint,scope:provider.clientMetadata.scope})!=="AUTHORIZED")throw new Error("Reauthenticate this account in plugin settings before sending files");
+        if(
+                  (await auth(provider,{serverUrl:endpoint,scope:provider.clientMetadata.scope}))!=="AUTHORIZED")throw new Error("Reauthenticate this account in plugin settings before sending files");
       }
       return provider.tokens()?.access_token;
     },{maxWait:40_000,timeout:40_000}):jsonObject(current.credentials).bearerToken;
@@ -483,7 +506,8 @@ export class PluginTransport {
     return token;
   }
 
-  async fileAccessToken(connection: { id: string; configuration: Prisma.JsonValue; credentials: Prisma.JsonValue }): Promise<string> {
+  async fileAccessToken(connection: { id: string; configuration: Prisma.JsonValue; credentials: Prisma.JsonValue;
+  }): Promise<string> {
     const configuration = await this.stdioConfiguration(connection);
     const env = configuration.env as Record<string, string>;
     const token = env.GOOGLE_ACCESS_TOKEN ?? env.MICROSOFT_ACCESS_TOKEN;
@@ -500,13 +524,30 @@ export class PluginTransport {
       const connection = generation === undefined
         ? await this.prisma.pluginConnection.findUnique({ where: { id: connectionId }, select: { runtimeGeneration: true } })
         : { runtimeGeneration: generation };
-      await this.computerFetch(`/v1/mcp/connections/${connectionId}`, {
+      const response = await this.computerFetch(`/v1/mcp/connections/${connectionId}`, {
         method: "DELETE",
         headers: connection ? { "x-openteam-mcp-generation": String(connection.runtimeGeneration) } : undefined,
-      }).catch(
-        () => undefined
-      );
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok)
+        throw new Error(
+          "Could not confirm the runtime stopped. Reconnect the computer and try again."
+        );
     }
+  }
+
+  async forgetRuntime(connectionId: string, generation: number) {
+    if (!this.computerFetch)
+      throw new Error("Computer unavailable. Account state has not been removed.");
+    const response = await this.computerFetch(`/v1/mcp/connections/${connectionId}/state`, {
+      method: "DELETE",
+      headers: { "x-openteam-mcp-generation": String(generation) },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok)
+      throw new Error(
+        "Account state could not be removed. Reconnect the computer and retry removal."
+      );
   }
 
   private async callComputer(path: string, body: unknown): Promise<JsonObject> {

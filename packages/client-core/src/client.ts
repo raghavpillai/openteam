@@ -171,7 +171,8 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         body: audio,
         signal,
       }),
-    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;connected:boolean;enabled:boolean}>>("/api/v0/server-settings/machines"),
+    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;connected:boolean;enabled:boolean;
+        }>>("/api/v0/server-settings/machines"),
     computerDisplay: () => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display"),
     saveComputerDisplay: (value:{width:number;height:number}) => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display",{method:"PATCH",body:JSON.stringify(value)}),
     registerMachine: (bridgeUrl:string) => transport.request("/api/v0/server-settings/machines",{method:"POST",body:JSON.stringify({bridgeUrl})}),
@@ -353,6 +354,16 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       transport.request<{ updated: string[] }>(
         `/api/v0/plugins/${encodeURIComponent(pluginKey)}/environment`,
         { method: "PUT", body: JSON.stringify({ values }) }
+      ),
+    cancelPluginDeviceLink: (connectionId: string, sessionId: string) =>
+      transport.request(
+        `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/device-link/cancel`,
+        { method: "POST", body: JSON.stringify({ sessionId }) }
+      ),
+    pollPluginDeviceLink: (connectionId: string) =>
+      transport.request(
+        `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/device-link/poll`,
+        { method: "POST" }
       ),
     connectPlugin: (connectionId: string) =>
       transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/connect`, {

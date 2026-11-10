@@ -1,3 +1,4 @@
+import { publicDeviceLink } from "./device-link";
 import { rankPluginsLexically } from "@openteam/contracts/reference-formatters";
 import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "@openteam/contracts/plugin-workflows";
 import type {
@@ -16,7 +17,8 @@ import {
   PLUGIN_CONNECTION_STATUS_MAX_IDS,
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
-import { connectionNamespace, fileTransferCapabilities } from "@openteam/plugin-sdk";
+import { connectionNamespace,
+  connectorHostTools, fileTransferCapabilities } from "@openteam/plugin-sdk";
 import type { PluginDefinition } from "../../plugins/catalog";
 import { serviceEffect } from "../service-utils";
 import {
@@ -120,9 +122,10 @@ export class PluginQueries {
       ].slice(0, PLUGIN_CONNECTION_STATUS_MAX_IDS);
       if (ids.length === 0) return { connections: [] };
       return {
-        connections: (
+        connections:
           // Project only provider setup metadata, never package files/artwork on frequent polls.
-          await this.prisma.$queryRaw<Array<{
+          (
+            await this.prisma.$queryRaw<Array<{
             id: string;
             authType: string;
             connectorKey: string;
@@ -140,7 +143,7 @@ export class PluginQueries {
                 'key', i."pluginKey", 'name', i."name", 'skills', '[]'::jsonb,
                 'setup', i."manifest"->'setup', 'setupFields', i."manifest"->'setupFields',
                 'connections', COALESCE((SELECT jsonb_agg(jsonb_build_object(
-                  'key', connector->'key', 'oauth', connector->'oauth', 'setup', connector->'setup'
+                  'key', connector->'key', 'oauth', connector->'oauth', 'setup', connector->'setup', 'deviceLink', connector->'deviceLink'
                 )) FROM jsonb_array_elements(i."manifest"->'connections') connector
                   WHERE connector->>'key' = c."connectorKey"), '[]'::jsonb)
               ) AS "manifest"
@@ -158,6 +161,11 @@ export class PluginQueries {
               ? String(jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl)
               : null,
           authorizationExpiresAt: oauthAuthorizationExpiry(connection.credentials),
+            ...(definitionFromManifest(connection.manifest)?.connections.find(
+              (c) => c.key === connection.connectorKey
+            )?.deviceLink
+              ? { deviceLink: publicDeviceLink(connection.credentials) }
+              : {}),
           oauthCallbackMode: connectionCallbackMode(this.publicUrl, connection),
           setupPhase: connectionSetupPhase(connection, definitionFromManifest(connection.manifest)),
           configured: connectionConfigured(connection, definitionFromManifest(connection.manifest)),
@@ -293,7 +301,14 @@ export class PluginQueries {
       description: `${connection.installation.name}: ${connection.name}${connection.instructions ? `\nSaved instructions: ${connection.instructions}` : ""}`,
       namespaceStatus: statusForRuntime(connection.status),
       fileTransfers: fileTransferCapabilities(connection.installation.pluginKey),
-      tools: toolSnapshot(connection.toolSnapshot).map((tool) => ({
+      tools: toolSnapshot(connection.toolSnapshot).filter(
+          (tool) =>
+            !connectorHostTools(
+              definitionFromManifest(connection.installation.manifest)?.connections.find(
+                (c) => c.key === connection.connectorKey
+              )
+            ).includes(tool.name)
+        ).map((tool) => ({
           connectionId: connection.id,
           name: tool.name,
           description: tool.description,

@@ -73,27 +73,12 @@ public struct BrowserNetworkConnectivity: Decodable, Sendable {
     public var label: String {
       switch state { case "working": "Working"; case "unavailable": "Unavailable"; default: "Checking…" }
     }
-    public var detail: String {
-      switch reason {
-      case "tls_failed": "Secure connection could not be verified."
-      case "path_failed": "The bot computer could not use this protocol."
-      case "connect_failed": "The selected exit could not connect."
-      default: state == "working" ? "Verified through the selected exit." : state == "unavailable" ? "No working connection was found." : "Waiting for a connection check."
-      }
-    }
   }
   public let epoch: String
   public let sourceId: String
   public let checkedAt: String?
   public let ipv4: Family
   public let ipv6: Family
-  public var summary: String {
-    if ipv4.state == "working" && ipv6.state == "working" { return "Both protocols are available. Apps choose automatically." }
-    if ipv4.state == "working" { return "IPv4 is available. Apps use the working connection." }
-    if ipv6.state == "working" { return "IPv6 is available. IPv4-only sites may be unreachable." }
-    if ipv4.state == "unavailable" && ipv6.state == "unavailable" { return "Neither protocol could reach the internet. Check the selected exit’s connection." }
-    return "Checking the selected exit’s internet connection."
-  }
 }
 public enum BrowserNetworkRequest {
   public static let path = "/api/v0/server-settings/browser-network"

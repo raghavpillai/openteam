@@ -277,7 +277,7 @@ try {
   await page.reload();
   await page.getByRole("list", { name: "Connection priority" }).waitFor();
   const protocolRow = page.locator(".bn-protocols");
-  assert(!(await protocolRow.getAttribute("open")), "protocol details start collapsed");
+  assert((await protocolRow.locator("details, summary, button").count()) === 0, "protocol row is read-only");
   for (const [ipv4, ipv6] of [["working", "unavailable"], ["working", "working"], ["unavailable", "working"], ["unavailable", "unavailable"], ["checking", "checking"]]) {
     await page.evaluate(([ipv4, ipv6]) => { (window as any).networkFixture.protocols = [ipv4, ipv6]; }, [ipv4, ipv6]);
     await page.waitForFunction(([ipv4, ipv6]) => {
@@ -300,12 +300,8 @@ try {
   }
   await page.evaluate(() => { (window as any).networkFixture.protocols = ["working", "unavailable"]; });
   await page.waitForFunction(() => document.querySelectorAll(".bn-protocol")[1]?.classList.contains("unavailable"));
-  assert((await protocolRow.locator("summary").getAttribute("aria-label"))?.includes("IPv4 Working. IPv6 Unavailable."), "collapsed summary announces protocol health");
-  await protocolRow.locator("summary").focus();
-  await page.keyboard.press("Enter");
-  assert(await protocolRow.getAttribute("open") !== null, "keyboard opens protocol details");
-  await protocolRow.getByText("The selected exit could not connect.").waitFor();
-  await page.screenshot({ path: resolve(output, "protocols-details-dark.png"), fullPage: true });
+  assert((await protocolRow.getByText("Working", { exact: true }).count()) === 1, "IPv4 health stays visible");
+  assert((await protocolRow.getByText("Unavailable", { exact: true }).count()) === 1, "IPv6 health stays visible");
   await page.setViewportSize({ width: 760, height: 1000 });
   await page.evaluate(() => { document.body.style.zoom = "2"; });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "protocols fit at 200 percent zoom");

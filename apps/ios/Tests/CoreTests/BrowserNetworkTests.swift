@@ -85,13 +85,13 @@ extension BrowserNetworkTests {
     let health = try XCTUnwrap(connectivityView("working", "unavailable").connectivity)
     XCTAssertEqual(health.ipv4.label, "Working")
     XCTAssertEqual(health.ipv6.label, "Unavailable")
-    XCTAssertTrue(health.summary.hasPrefix("IPv4 is available."))
-    XCTAssertEqual(health.ipv6.detail, "The selected exit could not connect.")
+    XCTAssertFalse(try connectivityView("working", "unavailable").internetUnavailable)
+    XCTAssertEqual(health.ipv6.reason, "connect_failed")
   }
   func testProtocolStatesIncludeDualStackIPv6OnlyAndFailure() throws {
-    XCTAssertTrue(try connectivityView("working", "working").connectivity!.summary.hasPrefix("Both protocols"))
-    XCTAssertTrue(try connectivityView("unavailable", "working").connectivity!.summary.hasPrefix("IPv6 is available."))
-    XCTAssertTrue(try connectivityView("unavailable", "unavailable").connectivity!.summary.hasPrefix("Neither protocol"))
+    XCTAssertEqual(try connectivityView("working", "working").connectivity!.ipv6.label, "Working")
+    XCTAssertFalse(try connectivityView("unavailable", "working").internetUnavailable)
+    XCTAssertEqual(try connectivityView("unavailable", "unavailable").connectivity!.ipv4.label, "Unavailable")
     XCTAssertTrue(try connectivityView("unavailable", "unavailable").internetUnavailable)
     XCTAssertTrue(try connectivityView("unavailable", "unavailable").summary.hasPrefix("No internet through"))
     XCTAssertFalse(try connectivityView("working", "unavailable").internetUnavailable)

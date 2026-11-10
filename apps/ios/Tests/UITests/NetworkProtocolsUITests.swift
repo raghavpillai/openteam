@@ -35,16 +35,13 @@ import XCTest
     let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", state), object: element)
     XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 10), .completed)
   }
-  func testProtocolStatesAndDetails() async throws {
+  func testProtocolStatesStayVisibleWithoutDisclosure() async throws {
     continueAfterFailure = false
     let app = try await open("light")
     waitLabel("IPv4", "Working", app); waitLabel("IPv6", "Unavailable", app)
     XCTAssertFalse(app.staticTexts["The selected exit could not connect."].exists)
     capture("protocols-ipv4-light", app)
-    let disclosure = app.buttons.matching(identifier: "network-protocols").firstMatch
-    XCTAssertTrue(disclosure.waitForExistence(timeout: 5)); disclosure.tap()
-    XCTAssertTrue(app.staticTexts["The selected exit could not connect."].waitForExistence(timeout: 5))
-    capture("protocols-details-light", app)
+    XCTAssertEqual(app.buttons.matching(identifier: "network-protocols").count, 0)
     for states in [["working", "working"], ["unavailable", "working"], ["unavailable", "unavailable"], ["checking", "checking"]] {
       try await post("/__qa/browser-network", ["protocols": states])
       waitLabel("IPv4", states[0] == "working" ? "Working" : states[0] == "checking" ? "Checking" : "Unavailable", app)
@@ -65,12 +62,10 @@ import XCTest
     let ipv4 = protocolElement("IPv4", app), ipv6 = protocolElement("IPv6", app)
     XCTAssertLessThan(ipv4.frame.height, 160, "Protocol words must remain readable at the largest text size")
     XCTAssertLessThan(ipv6.frame.height, 160, "Protocol words must remain readable at the largest text size")
-    XCTAssertLessThanOrEqual(ipv6.frame.maxX, row.frame.maxX, "Protocol health stays within the disclosure row")
+    XCTAssertLessThanOrEqual(ipv6.frame.maxX, row.frame.maxX, "Protocol health stays within the status row")
     XCTAssertLessThanOrEqual(ipv4.frame.maxY, ipv6.frame.minY, "Accessibility sizes stack the protocols")
     capture("protocols-dark-accessibility", app)
-    row.tap()
-    XCTAssertTrue(app.staticTexts["The selected exit could not connect."].waitForExistence(timeout: 5))
-    capture("protocols-dark-accessibility-details", app)
+    XCTAssertEqual(app.buttons.matching(identifier: "network-protocols").count, 0)
   }
   func testPriorityChangeKeepsProtocolStatusOnTheSelectedExit() async throws {
     continueAfterFailure = false

@@ -15,7 +15,6 @@ struct BrowserNetworkSettingsView: View {
   @State private var quality: BrowserNetworkQuality?
   @State private var testing = false
   @State private var qualityFailed = false
-  @State private var showingProtocols = false
   private var order: [String] { draft ?? view?.order ?? ["server"] }
   private var dirty: Bool { draft != nil && draft != view?.order }
 
@@ -62,21 +61,7 @@ struct BrowserNetworkSettingsView: View {
           }
         }
         Section {
-          DisclosureGroup(isExpanded: $showingProtocols) {
-            VStack(alignment: .leading, spacing: 10) {
-              Text(view.connectivity?.summary ?? (live ? "Protocol checks have not been reported yet." : "Connect an exit to check its protocols."))
-              ForEach([4, 6], id: \.self) { version in
-                let family = version == 4 ? view.connectivity?.ipv4 : view.connectivity?.ipv6
-                HStack(alignment: .top, spacing: 10) {
-                  Text("IPv\(version)").monospacedDigit()
-                  Text(family?.detail ?? "Waiting for a connection check.")
-                }
-              }
-              if let stamp = view.connectivity?.checkedAt, let date = ISO8601DateFormatter().date(from: stamp) ?? Self.fractionalDate.date(from: stamp) {
-                Text("Checked \(date.formatted(date: .omitted, time: .shortened))").font(.caption2)
-              }
-            }.font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
-          } label: {
+          VStack(alignment: .leading, spacing: 0) {
             if dynamicTypeSize.isAccessibilitySize {
               VStack(alignment: .leading, spacing: 12) {
                 Text("Protocols").foregroundStyle(.primary)
@@ -96,7 +81,7 @@ struct BrowserNetworkSettingsView: View {
                 }
               }
             }
-          }.tint(.secondary).accessibilityIdentifier("network-protocols")
+          }.accessibilityElement(children: .contain).accessibilityIdentifier("network-protocols")
           if live, let egress, egress.epoch == view.runtime.routeEpoch {
             PrivateNetworkValue(label: "Exit IP", value: egress.ip).id("ip-\(egress.epoch)-\(egress.ip)")
             PrivateNetworkValue(label: "Location", value: egress.location).id("location-\(egress.epoch)-\(egress.location)")
@@ -146,7 +131,7 @@ struct BrowserNetworkSettingsView: View {
             .disabled(!dirty || operation.busy).accessibilityIdentifier("network-apply")
         }
       }
-      .onChange(of: view?.runtime.routeEpoch) { _, _ in quality = nil; qualityFailed = false; showingProtocols = false }
+      .onChange(of: view?.runtime.routeEpoch) { _, _ in quality = nil; qualityFailed = false }
       .task(id: scenePhase) {
         guard scenePhase == .active else { return }
         repeat {
@@ -173,11 +158,6 @@ struct BrowserNetworkSettingsView: View {
         Text("Changing the active connection interrupts browser downloads and connections. Pages stay open; requests are not replayed.")
       }
   }
-  private static let fractionalDate: ISO8601DateFormatter = {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter
-  }()
   private func sourceStatus(_ id: String, view: BrowserNetworkView) -> some View {
     HStack(spacing: 4) {
       Circle().fill(view.working(id) ? Color.green : Color.secondary).frame(width: 5, height: 5)

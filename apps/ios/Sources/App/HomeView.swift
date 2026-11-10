@@ -384,7 +384,11 @@ struct HomeView: View {
                 }
               } else { Color.black }
             }
-            .refreshable { await store.refresh() }
+            .refreshable {
+              // SwiftUI can cancel its refresh action when sync state redraws
+              // the inbox. Let the store finish its account-scoped refresh.
+              await Task { await store.refresh() }.value
+            }
           if isSidebar {
             SidebarFooterFade().frame(height: 132 + clearance).ignoresSafeArea(edges: .bottom)
             accountFooter.padding(.bottom, clearance)

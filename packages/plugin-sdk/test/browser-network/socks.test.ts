@@ -45,6 +45,59 @@ test("rejected connections release capacity instead of leaking slots", async () 
   }
 }, 15_000);
 
+test("Node SOCKS admission, TCP lifecycle and real timeout regressions", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const directory = await mkdtemp(join(tmpdir(), "openteam-socks-node-"));
+  try {
+    const bundle = join(directory, "fixture.mjs");
+    const build = Bun.spawn(
+      [
+        process.execPath,
+        "build",
+        join(import.meta.dirname, "socks-node.fixture.ts"),
+        "--target",
+        "node",
+        "--outfile",
+        bundle,
+      ],
+      { stdout: "pipe", stderr: "pipe" }
+    );
+    const [buildOut, buildErrors, buildCode] = await Promise.all([
+      new Response(build.stdout).text(),
+      new Response(build.stderr).text(),
+      build.exited,
+    ]);
+    if (buildCode !== 0) throw new Error(buildErrors || buildOut);
+    expect(buildCode).toBe(0);
+    const child = Bun.spawn([process.env.OPENTEAM_TEST_NODE ?? "node", bundle], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timeout = setTimeout(() => child.kill(), 55_000);
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    clearTimeout(timeout);
+    if (code !== 0) throw new Error(stderr || stdout);
+    const result = JSON.parse(stdout);
+    expect(result.passed).toBe(11);
+    expect(result.offeredConnections).toBeGreaterThan(3500);
+    console.log(
+      JSON.stringify({
+        runtime: result.runtime,
+        lifecycleChecks: result.passed,
+        connections: result.offeredConnections,
+      })
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test("abandoned half-open clients release their slot immediately", async () => {
   const proxy = createBrowserProxy(async () => {
     throw new Error("unused");

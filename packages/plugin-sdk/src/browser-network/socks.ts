@@ -29,9 +29,10 @@ export function createBrowserProxy(
     let stage = 0,
       bytes = Buffer.alloc(0),
       busy = false;
-    // An abandoned half-open request must not hold a slot for the full idle window.
+    // Release abandoned handshakes. After a complete CONNECT, FIN may mean a
+    // valid request body has ended while its upstream is still being opened.
     client.once("end", () => {
-      if (!upstream) client.destroy();
+      if (!upstream && !busy) client.destroy();
     });
     timer = setTimeout(() => client.destroy(), 30_000);
     timer.unref();

@@ -1327,7 +1327,6 @@ export default function App() {
                   if (open) setInspectorMode("summary");
                   setDetailsOpen(open);
                 }}
-                onShowSettings={() => setInspectorMode("settings")}
                 onShowSummary={() =>
                   setInspectorMode(inspectorMode === "routine" ? routineReturnMode : "summary")
                 }
@@ -1502,6 +1501,7 @@ export default function App() {
                   className={cn(
                     "shrink-0 overflow-hidden bg-inspector opacity-100",
                     detailsOverlay && "absolute inset-y-0 right-0 z-20 shadow-2xl",
+                    !inspectorResizing && "transition-[width] duration-300 ease-[var(--ease-pane)] motion-reduce:transition-none",
                     !visibleDetailsOpen && "pointer-events-none opacity-0"
                   )}
                   inert={!visibleDetailsOpen}

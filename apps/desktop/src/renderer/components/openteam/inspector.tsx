@@ -1,5 +1,5 @@
 import type { BotView, ChannelView, UpdateBotInput } from "@openteam/contracts";
-import { Plus, Share, Trash2, X } from "lucide-react";
+import { Clock3, ChevronRight, Plus, Share, Trash2, X } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertDialog,
@@ -571,25 +571,34 @@ export const Inspector = memo(function Inspector({
   }
 
   return (
-    <aside className="flex size-full flex-col bg-background px-4 pb-5 pt-11">
+    <aside aria-label="Conversation details" className="bot-details-summary flex size-full flex-col bg-background px-4 pb-5 pt-11">
       {bot ? (
         <Suspense
           fallback={<div aria-label="Loading bot details" className="size-full" role="status" />}
         >
+          <section className="bot-details-profile" aria-label="Bot profile">
+            <button aria-label="Edit Bot profile" onClick={() => onModeChange("settings")} type="button">
+              <BotAvatar bot={bot} size="lg" />
+            </button>
+            <div className="bot-details-name">{bot.name}</div>
+            <div className="bot-details-activity">Activity</div>
+          </section>
+          <section aria-label="Suggested">
+            <div className="bot-details-heading">Suggested</div>
+            <button className="bot-details-routine" type="button" onClick={() => {
+              setSelectedRoutineId(null);
+              onModeChange("routine");
+            }}><Clock3 className="size-4" /><span>Create a routine</span><ChevronRight className="size-4" /></button>
+          </section>
           <section aria-label="Computer preview">
-            <BotScreen
-              active={active}
-              bot={bot}
-              enabled={screenEnabled}
-              handoff={computerHandoff}
-              onEnable={() => onEnableScreen(bot.id)}
-              onHandoffFinished={onFinishComputerHandoff}
-              onRetry={() => onRetryBot(bot.id)}
-            />
-            <div className="mt-2 text-center text-[12px] leading-4 text-muted-foreground">
-              {bot.status === "provisioning"
-                ? `Starting ${bot.name}'s screen…`
-                : `${bot.name}'s screen`}
+            <div className="bot-details-heading">Computer</div>
+            <div className="bot-computer-card">
+              <div>Bot's computer<div className="text-foreground-secondary">{bot.status === "provisioning" ? "Starting…" : "Open computer"}</div></div>
+              <div className="bot-computer-preview">
+                <BotScreen active={active} bot={bot} enabled={screenEnabled} handoff={computerHandoff}
+                  onEnable={() => onEnableScreen(bot.id)} onHandoffFinished={onFinishComputerHandoff}
+                  onRetry={() => onRetryBot(bot.id)} />
+              </div>
             </div>
           </section>
           {/* <BotMemoryButton bot={bot} active={active} /> */}

@@ -272,10 +272,13 @@ details.animated-disclosure[open]::details-content {
   --sunken: #f4f4f4;
   --foreground-secondary: #14141499;
   --foreground-tertiary: #1414149c;
-  --message-user: #070707;
+  --message-user: #1c1c1c;
   --message-user-foreground: #fcfcfc;
-  --message-assistant: #eeeeee;
-  --message-assistant-foreground: #141414;
+  --message-assistant: #1c1c1c0f;
+  --message-assistant-foreground: #1c1c1c;
+  --message-specular: #ffffff29;
+  --message-user-specular: #ffffff0f;
+  --message-outline: #1c1c1c0f;
   --avatar-picker-outline-selected: #cfcfcf;
   --avatar-picker-outline-hover: #ededed;
   --avatar-picker-outline-inner: #ffffff;
@@ -372,7 +375,7 @@ html {
 }
 
 :root[data-theme="dark"] {
-  --background: #070707;
+  --background: #121212;
   --foreground: #fcfcfc;
   --card: #111111;
   --card-foreground: #fcfcfc;
@@ -402,10 +405,13 @@ html {
   --sunken: #151515;
   --foreground-secondary: #fcfcfc99;
   --foreground-tertiary: #fcfcfc8f;
-  --message-user: #5a5a5a;
+  --message-user: #106ed2;
   --message-user-foreground: #fcfcfc;
-  --message-assistant: #262626;
-  --message-assistant-foreground: #fcfcfc;
+  --message-assistant: #202020;
+  --message-assistant-foreground: #f5f5f5;
+  --message-specular: #ffffff05;
+  --message-user-specular: #ffffff03;
+  --message-outline: #f5f5f50a;
   --avatar-picker-outline-selected: #555555;
   --avatar-picker-outline-hover: #3a3a3a;
   --avatar-picker-outline-inner: #181818;
@@ -663,20 +669,23 @@ textarea,
 }
 
 .message-bubble {
-  max-width: min(88%, 640px, calc(100% - 82px));
-  border-radius: 18px;
+  max-width: min(88%, 560px, calc(100% - 82px));
+  border-radius: 20px;
   padding: 8px 12px;
   background: var(--message-assistant);
+  background-image: linear-gradient(to bottom, var(--message-specular), transparent);
+  box-shadow: inset 0 .5px 0 var(--message-specular), inset 0 -.5px 0 var(--message-specular), inset 0 0 0 .5px var(--message-outline);
   color: var(--message-assistant-foreground);
-  font-size: 14px;
-  font-weight: 420;
-  line-height: 20px;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 22px;
   letter-spacing: 0;
   overflow-wrap: anywhere;
 }
 
 .message-bubble[data-role="user"] {
-  background: var(--message-user);
+  background-color: var(--message-user);
+  background-image: linear-gradient(to bottom, var(--message-user-specular), transparent);
   color: var(--message-user-foreground);
 }
 
@@ -846,8 +855,8 @@ textarea,
 .bot-markdown {
   width: 100%;
   color: inherit;
-  font-size: 14px;
-  font-weight: 420;
+  font-size: 16px;
+  font-weight: 400;
   line-height: 22px;
   white-space: normal;
 }
@@ -1662,4 +1671,226 @@ textarea,
 :root[data-window-inactive] *::before,
 :root[data-window-inactive] *::after {
   animation-play-state: paused !important;
+}
+
+/* Desktop conversation chrome; transcript and composer horizontal gutters stay unchanged. */
+.desktop-conversation-header {
+  background: linear-gradient(var(--background), transparent);
+}
+.desktop-conversation-title {
+  justify-content: center;
+}
+.desktop-conversation-title h2 {
+  height: 40px;
+}
+.desktop-conversation-pill {
+  height: 40px;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: var(--message-assistant);
+  box-shadow: inset 0 0 0 0.5px var(--border);
+}
+.desktop-conversation-pill > span:nth-child(2) {
+  font-size: 15px;
+  font-weight: 400;
+}
+.desktop-conversation-pill > span:first-child {
+  width: 24px;
+  height: 24px;
+}
+.bot-details-summary {
+  overflow-y: auto;
+}
+.bot-details-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 24px;
+  padding-bottom: 30px;
+}
+.bot-details-profile button {
+  border-radius: 14px;
+  cursor: pointer;
+}
+.bot-details-name {
+  margin-top: 16px;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 500;
+}
+.bot-details-heading {
+  padding: 0 12px;
+  margin-bottom: 10px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--foreground-secondary);
+}
+.bot-computer-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--message-assistant);
+}
+.bot-computer-card > div:first-child {
+  flex: 1;
+  font-size: 14px;
+  line-height: 20px;
+}
+.bot-computer-preview {
+  width: 64px;
+  flex: none;
+}
+.bot-computer-preview > div {
+  margin-top: 0;
+  border: 0;
+  border-radius: 9px;
+}
+.bot-details-summary > section + section {
+  margin-top: 24px;
+}
+
+
+:root[data-theme] .message-bubble .bot-markdown a,
+:root[data-theme] .message-bubble .bot-markdown [data-streamdown="link"] {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+}
+.message-with-actions .permission-widget {
+  border-radius: 24px;
+  padding: 16px;
+  background: var(--message-assistant);
+}
+.message-with-actions .permission-widget p {
+  font-size: 16px;
+  line-height: 22px;
+}
+.permission-widget .widget-options {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+}
+.permission-widget .widget-option {
+  gap: 10px;
+  padding: 8px 0;
+}
+.permission-widget .widget-divider {
+  display: none;
+}
+.permission-widget .widget-option-key {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+}
+.permission-widget .widget-option-key > span {
+  font-size: 13px;
+}
+.permission-widget .widget-option-label {
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 400;
+}
+
+.bot-details-activity {
+  margin-top: 22px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--message-assistant);
+  font-size: 14px;
+  line-height: 20px;
+}
+.bot-details-routine {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: var(--message-assistant);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.bot-details-routine > span {
+  flex: 1;
+}
+.bot-details-routine > svg {
+  color: var(--foreground-secondary);
+}
+.bot-details-routine:hover {
+  background: var(--hover);
+}
+.bot-details-routine:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.bot-details-summary > section:first-child + section {
+  margin-top: 0;
+}
+
+.message-with-actions:has(.permission-widget) > div { max-width: 100%; }
+
+.message-with-actions[data-role="assistant"][data-group-position="middle"] .permission-widget,
+.message-with-actions[data-role="assistant"][data-group-position="last"] .permission-widget { border-start-start-radius: 6px; }
+.message-with-actions[data-role="assistant"][data-group-position="first"] .permission-widget,
+.message-with-actions[data-role="assistant"][data-group-position="middle"] .permission-widget { border-end-start-radius: 6px; }
+
+/* The reference chevron translates 6px over 140ms; file cards themselves do not lift. */
+.desktop-conversation-chevron {
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: transform 140ms cubic-bezier(.22, 1, .36, 1), opacity 140ms cubic-bezier(.22, 1, .36, 1);
+}
+.desktop-conversation-pill:is(:hover, :focus-visible) .desktop-conversation-chevron {
+  opacity: 1;
+  transform: translateX(0);
+}
+.openteam-table-preview {
+  min-height: 100%;
+  min-width: 100%;
+  width: max-content;
+  padding: 0;
+  color: var(--foreground);
+  background: var(--background);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.openteam-table-preview table { width: max-content; min-width: 100%; margin: 0; font-size: inherit; counter-reset: preview-row; }
+.openteam-table-preview tr { counter-increment: preview-row; }
+.openteam-table-preview td, .openteam-table-preview th, .openteam-table-preview tr::before {
+  min-width: 100px;
+  max-width: 360px;
+  height: 30px;
+  padding: 5px 10px;
+  border: .5px solid var(--border);
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.openteam-table-preview tr::before {
+  display: table-cell;
+  content: counter(preview-row);
+  position: sticky;
+  left: 0;
+  min-width: 44px;
+  width: 44px;
+  color: var(--foreground-secondary);
+  background: var(--card);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.openteam-table-preview tr:first-child { counter-reset: preview-row -1; }
+.openteam-table-preview tr:first-child::before { content: ""; }
+.openteam-table-preview tr:first-child td, .openteam-table-preview th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--card);
+  font-weight: 500;
 }

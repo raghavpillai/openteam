@@ -598,7 +598,7 @@ const MessageRow = memo(function MessageRow({
             )}
           {replyPreview && (
             <div
-              className={`flex max-w-[min(88%,640px,calc(100%-82px))] items-center gap-1.5 px-2 pb-0.5 text-xs text-muted-foreground ${
+              className={`flex max-w-[min(88%,560px,calc(100%-82px))] items-center gap-1.5 px-2 pb-0.5 text-xs text-muted-foreground ${
                 from === "user" ? "self-end" : hasAgentGutter ? "ml-[30px] self-start" : "self-start"
               }`}
             >
@@ -628,7 +628,7 @@ const MessageRow = memo(function MessageRow({
                   ? "max-w-[min(100%,560px,calc(100%-82px))]"
                   : display.richMessage && !isWidget
                   ? "max-w-[min(88%,520px,calc(100%-82px))]"
-                  : "max-w-[min(88%,640px,calc(100%-82px))]"
+                  : "max-w-[min(88%,560px,calc(100%-82px))]"
               )}>
                 {display.richMessage ? (
                   <RichMessage bot={senderBot} message={message} />

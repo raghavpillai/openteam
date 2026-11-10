@@ -6,9 +6,7 @@ Give bots files to work from, and get back files you can open and use.
 
 Use the attachment button in the message box to add up to **20 attachments** to one message. Files and images can be up to 25 MiB each; videos can be up to 200 MiB each.
 
-On iPhone or iPad, tap **+** and choose **Camera**, **Photos**, or **Files**. The photo tray lets you select photos and videos, then add your selection; **All Photos** opens the full library when nothing is selected. Its back control returns to the attachment menu. The photo and camera panels stay aligned with the chat when you rotate the device or resize the sidebar. Review the attachments in the message box and remove any you don't want before sending.
-
-After you send on iPhone or iPad, pending attachments appear in the outgoing message while they upload. Supported images and videos use local thumbnails; other files show a file preview. The pending message stays in the conversation until delivery is confirmed or you discard it. See [message delivery status](conversations.md#if-a-message-doesnt-send) if it fails or remains unconfirmed.
+On iPhone or iPad, tap **+** and choose **Camera**, **Photos**, or **Files**. Review the attachments in the message box and remove any you don't want before sending. If a message with attachments doesn't send, see [message delivery status](conversations.md#if-a-message-doesnt-send).
 
 The bot receives each attachment's filename and size, so you can refer to files by name. Large image collections may exceed what the model can see at once; the bot can still open the remaining attachments as files.
 

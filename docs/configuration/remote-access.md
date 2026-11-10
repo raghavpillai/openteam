@@ -29,7 +29,7 @@ To connect while you're away, put the host and your devices on a private VPN suc
 
 ## Tailscale HTTPS
 
-Choose **Tailscale HTTPS** in `openteam setup`, or use **Settings → Server → Remote access** in the desktop app on the server host. Setup recommends a detected eligible Tailscale route, but you explicitly review the connection choice and HTTPS port before applying it.
+Choose **Tailscale HTTPS** in `openteam setup`, or use **Settings → Server → Remote access** in the desktop app on the server host. Setup suggests it when it detects Tailscale; you review the choice and HTTPS port before applying it.
 
 You can also manage it directly on the server host:
 
@@ -44,15 +44,13 @@ All commands accept `--dir <installation-folder>` and `--json`. When connected t
 
 Install and sign in to Tailscale on the host and your devices. Enable MagicDNS and HTTPS certificates in your [tailnet DNS settings](https://login.tailscale.com/admin/dns). OpenTeam reports missing prerequisites and permission problems; it does not install Tailscale or sign in for you.
 
-OpenTeam creates a persistent private Serve mapping to its loopback backend, normally `http://127.0.0.1:8787`, and advertises `https://<machine>.<tailnet>.ts.net` (with a port suffix for custom ports). Both the API and screen-viewer host ports stay on loopback. Use the HTTPS address in your apps; the old LAN HTTP address stops working. Plugin sign-in uses the HTTPS server callback.
+OpenTeam adds a private Serve mapping to the server and gives you an address like `https://<machine>.<tailnet>.ts.net` (with a port suffix for a custom port). The API and screen ports stay on loopback, so the LAN HTTP address stops working. Reconnect your apps with the displayed HTTPS address and update any registered OAuth redirect URIs; plugin sign-in uses it too.
 
-Enabling or changing the connection restarts services and can interrupt tasks. OpenTeam checks DNS, endpoint health, and certificate trust/expiry before reporting success. Failed HTTPS configuration restores the previous server configuration and reports the error; it does not silently switch you to HTTP. After a successful change, reconnect your apps using the displayed URL and update any registered OAuth redirect URIs.
+Enabling or changing the connection restarts services and can interrupt tasks. OpenTeam checks that the HTTPS address works before reporting success. If it doesn't, the previous configuration is restored and the error is reported; it never silently switches you to HTTP.
 
-Matching private routes are reused. Other applications' routes, extra path handlers, foreground Serve sessions, and Funnel settings are preserved. OpenTeam never enables Funnel. If the chosen port conflicts, select another HTTPS port.
+OpenTeam keeps the rest of your Serve and Funnel configuration as it is, and never turns on Funnel. If the chosen port is taken, pick another HTTPS port. If you already have a matching route, OpenTeam reuses it. Disabling removes only mappings OpenTeam created and that haven't been changed since; **routes you set up yourself stay active** until you remove them. OpenTeam records the mappings it owns in `tailscale-routes.json` in the install directory, so keep that file with your [backups](../manage/backups.md).
 
-Mappings created by OpenTeam are recorded in `tailscale-routes.json` in the installation folder. Disabling switches a Tailscale-configured server to local access and removes only unchanged OpenTeam-managed mappings. **Reused user-managed mappings remain active** until you remove them yourself. If an owned mapping was changed externally, OpenTeam preserves it and reports the conflict. Keep this ownership file with installation backups.
-
-Serve mappings survive restarts. `openteam status`, `openteam doctor`, and `openteam tailscale status` detect missing or changed mappings. Run `openteam tailscale enable` to repair a missing mapping. If switching from Tailscale to bundled Caddy on the same port, disable the owned Serve mapping first.
+Serve mappings survive restarts. `openteam status`, `openteam doctor`, and `openteam tailscale status` detect missing or changed mappings; run `openteam tailscale enable` to repair a missing one. Before switching from Tailscale to automatic HTTPS on the same port, run `openteam tailscale disable`.
 
 ## Public domain with automatic HTTPS
 

@@ -4,71 +4,58 @@ Each bot has its own screen on the server's Linux computer, with a browser and a
 
 ## Watch a bot's screen
 
-Open a bot and choose the computer button at the top right of the conversation. Select the screen preview to open the bot's screen full size. After you've opened it once, the preview refreshes every few seconds while the panel is open.
+Open a bot and choose the computer button at the top right of the conversation.
 
-The full-size view is live, so you can click and type in it. Avoid doing so while the bot is mid-task, or you'll get in each other's way.
+On desktop, this opens a panel with a preview of the bot's screen. After you've opened it once, the preview refreshes every few seconds while the panel is open. Select the preview to open the screen full size. The full-size view gives you control: you can click and type, and the bot can't use its screen or browser until you close the view. Close it when you're done so the bot can carry on.
+
+On iPhone and iPad, the button opens the bot's screen full size, for watching only. To click and type, choose **Take control** from the **⋯** menu. The bot pauses until you choose **Give back control** or close the screen with **Done**.
 
 ## Take over when the bot needs you
 
-Some steps need a person. When that happens, the bot posts a card in the chat asking you to take over (**Take over the computer** on desktop).
+Some steps need a person. When that happens, the bot posts a card in the chat asking you to take over (**Take over the computer** on desktop, **Your help is needed** on iPhone).
 
 1. Choose **Take over** to open the bot's screen.
 2. Complete the step.
-3. Choose **I'm done, continue** to hand control back. Choose **Skip this step** if you can't or don't want to do it.
+3. Hand control back. On desktop, choose **I'm done, continue**, or **Skip this step** if you can't or don't want to do it. On iPhone, tap **Done** when you've finished.
 
-On iPhone, the card is titled **Your help is needed** and offers **Take over** and **Skip**. Tap **Done** when you've finished. To step in at other times, open the bot's screen and choose **Take control** from the **⋯** menu.
+To decline without opening the screen, choose **Skip** on the card.
 
 ## Sign in to websites
 
 Bots' browsers share sign-ins, so once you sign in to a site on one bot's screen, all your bots are signed in. Sign-ins that the site remembers last across restarts.
 
-There are two ways to sign a bot in:
+There are three ways to sign a bot in:
 
 - **Type it yourself.** Take over the bot's screen and sign in to the site directly. Never paste a password into the chat.
+- **Fill in a secure form.** When a page needs something you have to type, such as a login or a one-time code, the bot can show a form in the chat. Passwords and codes you enter there go straight into the page in the bot's browser; the bot never sees them.
 - **Use saved logins.** Add the **1Password** plugin with a read-only service account token. The bot looks up the matching login with the 1Password CLI and types it into the site. Values it reads appear in the conversation.
+
+On a Mac, a bot can also import your Chrome sign-ins; see [use your own computer](#use-your-own-computer).
 
 Some sites block automated browsers or ask for extra verification. If that happens, take over to finish the step, or ask the bot to find another way.
 
 ## Administrator commands
 
-Bots can use passwordless `sudo` to install system packages and change their Linux
-computer. This gives them access to all container files, including provider
-credentials. The container has all Linux capabilities, unrestricted seccomp and LSM
-profiles, writable kernel filesystems, an executable `/tmp`, and `/dev/net/tun` for
-VPN clients. Main, executor, computerUse and knowledgeWork workers can use sudo;
-video workers review supplied media without tools. This shares the
-Docker host kernel; it does not provide a separate VM security boundary.
-VPN applications may still need service configuration.
+Bots can use `sudo` without a password to install software and change their Linux computer. That also lets them read every file in the computer's container, including your provider credentials. The computer is a Docker container that shares the host's kernel, not a separate virtual machine. VPN apps can run there but may need extra setup.
 
 ## What restarts and updates keep
 
-When OpenTeam updates, or recreates the computer after a settings change, the computer starts again from a fresh image and keeps only these:
-
-- The bots' home folder and `/workspace`. This includes each bot's browser profile: sign-ins, history, bookmarks, settings and extension data. Tabs that were open aren't reopened.
-- `/usr/local`, where `sudo pip install`, `sudo npm install -g`, `make install` and hand-copied tools go.
-- apt packages. The computer records each package a bot installs, the apt sources and keys it added, and `.deb` files it installed, and reinstalls them in the background when it starts. Packages from Debian come back at the new image's version.
-- pip and npm packages, which are reinstalled or rebuilt when an update changes the Python or Node.js version.
-
-Everything else, such as `/tmp`, manual changes under `/etc`, and files in `/opt` or other folders, starts fresh. The image's own tools and libraries always come back as the image's version, so an update's fixes reach every bot. Commands bots add to `/usr/local/bin` or their home folder run by name, but a copy with the same name as one of the system's tools doesn't replace it, in login shells and `sudo` too; bots call such a copy by its full path.
-
-If a package can't come back (its apt source is gone, or it was installed from a `.deb` that wasn't kept), each bot is told once, and the computer tries again only after its image changes. Bots run `openteam-installs` to see what's recorded and `sudo openteam-installs forget NAME` to stop tracking a package: it isn't reinstalled at start and no bot is told about it, until it's removed and installed again. An apt source a bot removes stays removed. To start over with no installed software, stop OpenTeam and remove the `openteam_openteam_computer_local` volume.
+When OpenTeam updates, or recreates the computer after a settings change, the computer starts again from a fresh image. It keeps the bots' home folder and `/workspace`, including each bot's browser profile and sign-ins (open tabs aren't reopened). It also keeps everything under `/usr/local`, where `sudo pip install` and `sudo npm install -g` put software, and it reinstalls apt packages that bots installed. Everything else, such as `/tmp`, changes under `/etc` and files in `/opt`, starts fresh. If a package can't be reinstalled, the bots are told. To see what the computer reinstalls, ask a bot to run `openteam-installs`.
 
 ## Use your own computer
 
-The desktop app can connect your own computer to OpenTeam, so bots can work with local files and tools. The app makes an outgoing connection, so you don't need to open any ports.
+When you sign in to the desktop app, it connects that computer to OpenTeam, so bots can work with local files and tools. The app makes an outgoing connection, so you don't need to open any ports.
 
-With your permission, a bot can:
+A bot can:
 
 - Run commands on your computer (macOS and Linux only)
 - Read files on your computer
 - Copy files between your computer and its `/workspace`
-- On a Mac: read your contacts, read and send Messages, and import your Chrome sign-ins into its browser
+- On a Mac: import your Chrome sign-ins into its browser for the sites a task needs, and, if you turn on [Messages](#messages-on-a-mac), find your contacts and read and send texts
 
-Bots don't get a view of your screen or control of your mouse and keyboard. They work through commands and files.
+Bots don't get a view of your screen or control of your mouse and keyboard. They work through commands and files, and they run commands, file transfers and Chrome sign-in imports without asking first. Your computer may ask you to grant OpenTeam permissions, such as access to Contacts.
 
-Bots execute commands, transfers, and available native tools directly on enrolled computers. To stop access, disable the computer from its **…** menu under **Settings → Server → Manage devices** or close the desktop app.
-
-Your computer may ask you to grant OpenTeam permissions, such as access to Contacts.
+To stop access, quit the desktop app, or disable the computer from another device: open **Settings → Server → Manage devices** and choose **Disable** from the computer's **…** menu on desktop, or swipe its row on iPhone.
 
 ### Messages on a Mac
 
@@ -85,33 +72,18 @@ Keep the desktop app open while a bot works on your computer. When you give a ta
 
 ## Route computer traffic through a connected computer
 
-Applications on the bot computer can use an enrolled Mac or Linux computer's internet connection while they continue running on your server. This includes browsers, terminal commands and plugins running in that container. Websites see the selected computer's connection; browser profiles and sign-ins stay on the bot computer. Other server containers and the host keep their own networks.
+The bot computer can use the internet connection of a Mac or Linux computer running the desktop app, so websites see that computer's connection. Bots, browser profiles and sign-ins stay on your server, and sharing doesn't give bots that computer's files.
 
-1. Update the OpenTeam server, computer runtime, and desktop app together.
-2. On the computer that will provide the connection, open **Settings → Server** and find **Computer network**. Turn on **Share this computer’s connection**. Check the server address before allowing it. The computer automatically joins the saved connection priority.
-3. Drag connections by their handles, or focus a handle and use Space, arrow keys, then Space to drop (Escape cancels). Choose **Apply** to save a new order. The same priority applies across the bot computer.
+1. On the computer that will share its connection, open **Settings → Server** in the desktop app and turn on **Share this computer’s connection** under **Computer network**. Check the server address before allowing it. The computer joins the connection list.
+2. Drag the connections into the order you want, then choose **Apply**. On iPhone or iPad, open **Settings → Server**, reorder the **Browser network** list (or use **Move up** and **Move down**), then choose **Apply**.
 
-On iPhone or iPad, open **Settings → Server → Browser network** to manage the same list using drag handles or **Move up / Move down** actions, then choose **Apply** and confirm. The phone cannot provide a connection. **Server connection** can be placed anywhere in the list. OpenTeam uses the highest available connection: for example, **MacBook Air → Mac mini → Server connection**. A computer below the server will not be used while the server is available.
+OpenTeam uses the highest available connection. **Server connection** is always in the list; computers below it aren't used.
 
-The list shows connection availability and an **In use** label. On desktop, **(current)** identifies the computer you're using. **Exit IP** and **Location** show the active computer connection's public address and approximate location. Select each value to reveal or hide it. The lookup uses ipwho.is through ordinary bot-computer networking and runs only while these settings are open; results are cached for two minutes.
+Everything on the bot computer is routed, including its browser, terminal commands and plugins that run there. Model requests, web fetch and plugins in other containers keep the server's connection. Local and private network addresses are blocked, and UDP other than DNS isn't supported.
 
-**Protocols** shows IPv4 and IPv6 health for the active exit on desktop and iOS. A working IPv4-only connection is healthy; OpenTeam makes unavailable families fail promptly so apps can use a working family. Checks verify TLS through the exit and then through ordinary bot-computer networking, run in the background about once a minute, and reset when the exit changes. A previously working family gets a short confirmation check before being disabled. If both families fail, settings reports **No internet through…**. These checks do not change connection priority, switch public IPs, or replay requests.
+When a computer sleeps, quits the app or stops sharing, OpenTeam moves to the next connection. Switching drops open downloads and connections. Pages stay open, but nothing is replayed, so check whether an action went through before retrying it. **Connection test → Test** checks the active connection's speed, and **Exit IP** shows the address and approximate location websites see.
 
-Keep provider computers awake with OpenTeam running. Closing a MacBook's lid so it sleeps, quitting the app, losing its channel, or stopping sharing makes that computer unavailable. Ranked mode moves to the next available entry; if every computer is offline, it reaches the server's entry. A returning higher-priority computer must stay online for 30 seconds before taking over, to avoid repeated switches on an unstable connection. An unresponsive connection loses eligibility when its 6-second lease expires. Individual website failures do not trigger source hopping.
-
-Failover runs independently of the settings screen. If a computer cannot apply a new route within six seconds, OpenTeam disconnects that channel and tries the next ranked connection. Repeated short disconnects slow reconnect attempts until the connection stays stable. Your saved priority stays unchanged. Status labels can lag behind a route change.
-
-Use **Connection test → Test** in Server settings on desktop or iOS to check the active computer exit. It shows latency and approximate download/upload speed through the complete route to Cloudflare's public test endpoint, including relay overhead. It uses about 1.25 MiB of data, runs only when requested, and caches results for one minute. These small samples are estimates, not maximum-bandwidth measurements. A failed test does not change your ranking or retry website requests.
-
-To prefer the server, move **Server connection** to the top and apply. Closing only the desktop window may leave the app running and sharing active. Existing server/device selections migrate to a ranked list preserving their previous first choice, with the server included as fallback.
-
-Changing connections interrupts active downloads and website connections. Pages stay open. OpenTeam does not replay requests or submissions; check the outcome before retrying an action.
-
-The selected route applies to the bot computer's applications, including ordinary commands, browser uploads/downloads and website WebSockets. Model requests, WebFetch and plugins running in other containers keep those containers' connections. Device routing allows public TCP destinations; local/private destinations are blocked. DNS uses encrypted DNS-over-HTTPS through the selected exit. Other UDP and ICMP are unsupported. If the relay or routing interface fails, application traffic is blocked rather than escaping over the container's normal network. Narrow management connections remain available, and your explicit ranked server fallback still applies. Sharing does not provide access to the device's local files or import its browser cookies. Windows and phones cannot provide this connection yet.
-
-A VPN follows the selected computer's OS routing. Networks requiring an application-level proxy or PAC configuration may not work. Routing through your own connection does not remove website login requirements, CAPTCHAs, or automation restrictions.
-
-To stop sharing locally, turn off the sharing switch or quit the app. To revoke enrollment, open **Settings → Server → Manage devices** and disable the computer from its **…** menu. Turning sharing off keeps its saved position and advances to the next available entry. Enabling sharing again preserves that position. A new computer joins before a last-ranked server; a server you've moved higher keeps its priority.
+To stop sharing, turn off the switch or quit the app (on a Mac, closing the window leaves the app running). Windows computers and phones can't share a connection.
 
 ## If the screen won't load
 

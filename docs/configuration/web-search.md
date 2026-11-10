@@ -9,8 +9,8 @@ Out of the box, search is **off** and fetch uses OpenTeam's **built-in** reader.
 1. Open **Settings → Providers**. It shows the provider each tool is using, or **Off**.
 2. Choose **Search** or **Fetch**.
 3. Choose a provider and enter its API key. **Get a key** opens the provider's page for creating one.
-4. Choose **Check**. OpenTeam runs a real test search, or reads example.com, with the saved key. A check mark shows when it works. The result is saved, so you'll still see it next time you open Settings. Changing the key clears the check.
-5. Select the provider to use it.
+4. Choose **Check** (**Check connection** on iPhone). OpenTeam saves your changes, then runs a real test search, or reads example.com, with the key. A check mark shows when it works, and stays until you change the key.
+5. On desktop, select the provider and choose **Save**. On iPhone, tap the provider, or choose **Use for Search** or **Use for Fetch** on its page.
 
 If you use Exa or another provider for both tools, enter its key on each page.
 

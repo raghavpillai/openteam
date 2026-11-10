@@ -26,12 +26,12 @@ The database backup that `openteam update` makes is for rolling back a failed up
 Before each update, `openteam update` saves a copy of the database in the `backups` folder of your install directory, named `postgres-<old version>-before-<new version>-<time>-<UUID>.sql`. If the new version doesn't start, the updater restores the copy it just made and restarts the previous version.
 
 - **Database only.** Update backups don't include the Docker volumes (workspace files, browser sign-ins, attachments, software bots installed) and don't roll them back. The updater restores the previous `.env` and `compose.yaml` itself, from copies it holds during the update. Use [Make a backup](#make-a-backup) for everything else.
-- **The three newest registered dumps are kept by default**, plus the current rollback dump if outside those three. After a successful update, only older dumps explicitly registered by the updater are eligible for deletion; missing or empty dumps do not count as retained restore points. A failed update deletes nothing. Manual and unregistered legacy dumps and subdirectories stay untouched. Set `OPENTEAM_BACKUP_RETENTION_COUNT=0` in the install directory's `.env` before updating to disable deletion, or use a larger positive count to retain more. To keep a particular dump indefinitely, copy it to private off-host storage or a manual subdirectory under `backups/` before the next successful update. Its registered top-level copy remains eligible for deletion.
+- **The three newest are kept.** After each successful update, older update backups are deleted. To keep a different number, set `OPENTEAM_BACKUP_RETENTION_COUNT` in the install directory's `.env`; `0` turns deletion off. To keep a particular dump, copy it somewhere else.
 - **Private.** The copies include plugin sign-ins and saved keys. Only your user can read them.
 
 ## Make a backup
 
-These commands work in Bash or zsh on macOS and Linux. They pause your bots while the backup runs, so let active work finish first.
+These commands work in Bash or zsh on macOS and Linux. On a Windows host, adapt them for PowerShell; the install directory is `%LOCALAPPDATA%\OpenTeam`. They assume the default Compose project name, `openteam`; if you installed with `--project-name`, use your name in `oc()` and in the volume names (`<name>_openteam_<volume>`). They pause your bots while the backup runs, so let active work finish first.
 
 ```sh
 D=~/.openteam
@@ -51,8 +51,9 @@ for v in computer_home computer_local agent_data assets workspace box_store; do
     tar -czf "/backup/openteam_$v.tar.gz" -C /source .
 done
 
-# Back up the install directory
+# Back up the install directory, including Tailscale HTTPS route ownership if present
 cp "$D/.env" "$D/compose.yaml" "$D/installation.json" "$OUT/"
+[ -f "$D/tailscale-routes.json" ] && cp "$D/tailscale-routes.json" "$OUT/"
 
 openteam start
 ```
@@ -76,6 +77,7 @@ docker volume rm openteam_openteam_postgres
 
 # Put back the install directory, then restore the database
 cp "$OUT/.env" "$OUT/compose.yaml" "$OUT/installation.json" "$D/"
+[ -f "$OUT/tailscale-routes.json" ] && cp "$OUT/tailscale-routes.json" "$D/"
 oc up -d --wait postgres
 oc exec -T postgres pg_restore -U openteam -d openteam < "$OUT/postgres.dump"
 

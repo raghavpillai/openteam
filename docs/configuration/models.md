@@ -30,13 +30,11 @@ On a server without a screen, you can also sign in on the host with `openteam pr
 
 In **Settings → Model**, pick a model and reasoning effort, and choose **Apply**. The app saves your choice, then sends a short test message to check that the model works. Or run `openteam model` on the host for an interactive picker.
 
-The model picker shows recommendations and lets you search long model lists by name or model ID. On desktop, you can also search by model maker. Selecting a model in settings waits for **Apply** before saving.
+The picker shows recommendations, and you can search it by name or model ID (on desktop, also by maker). Nothing changes until you choose **Apply**.
 
 All bots use the same model. Changes apply to new messages; a task that's already running finishes with the settings it started with.
 
-New installations have no saved model. After connecting a provider, the model picker defaults to the first available model in its catalog. Save or apply the selection to use it for new tasks. Existing saved model choices are preserved, even when the provider changes its catalog order.
-
-Higher reasoning effort can give better results on hard tasks, but it's slower and uses more of your quota. A newly chosen model starts at medium when it supports it. Switching models keeps your effort when the new model supports it too. Some models don't support reasoning effort, and the setting is unavailable for them. Some require reasoning, so Off isn't offered for them.
+Higher reasoning effort can give better results on hard tasks, but it's slower and uses more of your quota. A newly chosen model starts at medium. Some models don't support reasoning effort, and some don't offer Off.
 
 If the test message fails, the app says why. Choose a different model, or a different reasoning effort in **Settings → Model**, and the app tests it again.
 
@@ -73,6 +71,6 @@ Choose **Test** in **Settings → Model** to send a short message to your model 
 
 If no model is connected, or the connection stops working, the app shows a warning with a shortcut to these settings. Bots can't reply until you fix it.
 
-If your sign-in expires, choose **Disconnect** and connect again in **Settings → Model**, or run `openteam provider login`.
+If your ChatGPT or Claude sign-in expires, choose **Sign in again** in desktop **Settings → Model**. On iPhone, choose **Disconnect** there and sign in again. On the host, run `openteam provider login`.
 
 Web search and voice transcription use their own credentials. See [web search](web-search.md) and [voice notes](transcription.md).

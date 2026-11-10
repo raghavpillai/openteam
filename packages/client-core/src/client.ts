@@ -377,6 +377,16 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/plugins/${encodeURIComponent(pluginKey)}/environment`,
         { method: "PUT", body: JSON.stringify({ values }) }
       ),
+    cancelPluginDeviceLink: (connectionId: string, sessionId: string) =>
+      transport.request(
+        `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/device-link/cancel`,
+        { method: "POST", body: JSON.stringify({ sessionId }) }
+      ),
+    pollPluginDeviceLink: (connectionId: string) =>
+      transport.request(
+        `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/device-link/poll`,
+        { method: "POST" }
+      ),
     connectPlugin: (connectionId: string) =>
       transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/connect`, {
         method: "POST",

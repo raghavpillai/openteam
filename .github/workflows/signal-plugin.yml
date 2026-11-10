@@ -1,0 +1,37 @@
+name: Signal plugin
+
+on:
+  pull_request:
+    paths:
+      - "packages/plugins/signal/**"
+      - "packages/plugins/scripts/**"
+      - "packages/plugin-sdk/**"
+      - "apps/computer/src/mcp-manager.ts"
+      - "apps/computer/src/plugin-package-cache.ts"
+      - "apps/server/src/services/plugin/**"
+      - "apps/server/src/services/plugin-service.ts"
+      - "apps/server/test/plugin/device-link*"
+      - ".github/workflows/signal-plugin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "25.0.5+8"
+      - run: bun install --frozen-lockfile --ignore-scripts --filter @openteam/plugins --filter @openteam/computer --filter @openteam/server
+      - run: bun run --filter @openteam/db db:generate
+      - run: bun run prepare:plugins
+      - name: Verify reproducible Java patch, protobuf deletion path, packaged runtime and connector regressions
+        run: bun packages/plugins/signal/connector/test/patch-ci.ts

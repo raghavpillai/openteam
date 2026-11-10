@@ -1,0 +1,1 @@
+Signal logo from https://signal.org/brand/bundles/Signal%20Logo.zip, Logo/PNG/Signal-Logo-Ultramarine.png, downloaded 2026-11-10. Proportionally scaled to 192 × 192. Brand guidelines: https://signal.org/brand/. Signal trademarks belong to Signal Technology Foundation. This connector is authored by OpenTeam and is not affiliated with Signal.

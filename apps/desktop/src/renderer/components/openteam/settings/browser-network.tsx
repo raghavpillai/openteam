@@ -16,6 +16,7 @@ import { SectionLabel, SettingsGroup, settingsPrimaryButton, settingsSecondaryBu
 
 import { browserNetworkLabel } from "../../../lib/browser-network-status";
 import { useWindowVisible } from "../../../hooks/use-window-active";
+import { NetworkProtocols } from "./network-protocols";
 
 export function BrowserNetworkSettings() {
   const visible = useWindowVisible();
@@ -224,6 +225,7 @@ export function BrowserNetworkSettings() {
             })}
           </ol>
         </DragDropProvider>
+        <NetworkProtocols view={view} />
         <div className="bn-egress" key={routeKey}>
           <span>Exit IP</span>
           {ready &&

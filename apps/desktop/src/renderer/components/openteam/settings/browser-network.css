@@ -184,6 +184,9 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+.bn-egress > span:first-child {
+  flex-shrink: 0;
+}
 .bn-egress-pending {
   color: var(--foreground-secondary);
 }
@@ -222,4 +225,41 @@
 }
 .bn-quality-values span {
   white-space: nowrap;
+}
+
+.bn-protocols {
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.bn-protocols summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding-block: 8px;
+  list-style: none;
+  cursor: pointer;
+  border-radius: 5px;
+}
+.bn-protocols summary::-webkit-details-marker { display: none; }
+.bn-protocols summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.bn-protocol-title, .bn-protocol-values, .bn-protocol { display: inline-flex; align-items: center; }
+.bn-protocol-title { gap: 4px; font-size: 13px; }
+.bn-protocol-title svg { color: var(--foreground-secondary); }
+.bn-protocols[open] .bn-protocol-title svg { transform: rotate(90deg); }
+.bn-protocol-values { gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+.bn-protocol { gap: 5px; white-space: nowrap; }
+.bn-protocol-state { color: var(--foreground-secondary); font-size: 11px; }
+.bn-protocol.working .bn-status-dot { background: #059669; }
+.bn-protocol-details { padding: 0 0 12px 16px; color: var(--foreground-secondary); line-height: 1.6; }
+.bn-protocol-details p { margin: 0 0 8px; }
+.bn-protocol-details dl { margin: 0; }
+.bn-protocol-details dl > div { display: flex; gap: 10px; }
+.bn-protocol-details dt { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.bn-protocol-details dd { margin: 0; }
+.bn-protocol-details .bn-protocol-checked { margin: 8px 0 0; font-size: 11px; }
+@media (max-width: 420px) {
+  .bn-protocols summary { align-items: flex-start; }
+  .bn-protocol-values { gap: 4px 12px; }
 }

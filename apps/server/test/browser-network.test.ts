@@ -242,12 +242,16 @@ async function fixture(
     cleanup.push(() => peer.stop());
     return peer;
   };
-  const select = async (id: string) => {
+  const select = async (id: string, waitForComputer = true) => {
     await until(async () =>
       (await service.view()).devices.some((d) => d.machineId === id && d.sharingAllowed)
     );
     await service.update({ expectedRevision: settings.revision, mode: "device", machineId: id });
-    await until(async () => (await service.view()).runtime.state === "ready");
+    await until(async () => {
+      const view = await service.view();
+      return view.runtime.state === "ready" && (!waitForComputer || (computer.available() &&
+        computer.route?.machineId === id && computer.route.epoch === view.runtime.routeEpoch));
+    });
   };
   return {
     service,
@@ -538,7 +542,7 @@ describe("connected device browser network", () => {
     peer.stop();
     await routed(f, "server");
     f.device("home");
-    await until(async () => (await f.service.view()).runtime.state === "ready");
+    await routed(f, "home");
     expect(f.getSettings().revision).toBe(revision);
     expect(f.computer.route!.epoch).not.toBe(epoch);
     expect((await roundTrip(f.computer, Buffer.from("reconnected"))).toString()).toBe(
@@ -672,7 +676,7 @@ describe("connected device browser network", () => {
         cert,
         key,
       });
-      await f.select("node-device");
+      await f.select("node-device", false);
       // The production worker checks the same TLS destination through the real device mux.
       // Only this isolated fixture maps ipwho.is to a local TLS server with a trusted test CA.
       const probeId = crypto.randomUUID();

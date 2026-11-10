@@ -161,7 +161,7 @@ try {
     await page.getByLabel("Estimated upload 9.2 megabits per second").isVisible(),
     "manual exit test shows upload estimate"
   );
-  await page.getByRole("checkbox", { name: "Route browser traffic through this computer" }).check();
+  await page.getByRole("checkbox", { name: "Share this computer’s connection" }).check();
   await page.locator('[data-network-source="home"]').waitFor();
   assert(
     await page
@@ -254,7 +254,7 @@ try {
     f.failProbe = true;
     f.view.settings.revision++;
   });
-  await page.getByText("Unavailable", { exact: true }).waitFor();
+  await page.locator(".bn-egress").getByText("Unavailable", { exact: true }).waitFor();
   assert(
     (await page.getByRole("button", { name: /Reveal exit/ }).count()) === 0,
     "failed probe never displays stale IP"
@@ -274,6 +274,51 @@ try {
     "fits narrow widths"
   );
   await page.screenshot({ path: resolve(output, "compact-component.png"), fullPage: true });
+  await page.reload();
+  await page.getByRole("list", { name: "Connection priority" }).waitFor();
+  const protocolRow = page.locator(".bn-protocols");
+  assert(!(await protocolRow.getAttribute("open")), "protocol details start collapsed");
+  for (const [ipv4, ipv6] of [["working", "unavailable"], ["working", "working"], ["unavailable", "working"], ["unavailable", "unavailable"], ["checking", "checking"]]) {
+    await page.evaluate(([ipv4, ipv6]) => { (window as any).networkFixture.protocols = [ipv4, ipv6]; }, [ipv4, ipv6]);
+    await page.waitForFunction(([ipv4, ipv6]) => {
+      const nodes = document.querySelectorAll(".bn-protocol");
+      return nodes[0]?.classList.contains(ipv4!) && nodes[1]?.classList.contains(ipv6!);
+    }, [ipv4, ipv6]);
+    for (const mode of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: mode });
+      await page.evaluate((mode) => document.documentElement.classList.toggle("dark", mode === "dark"), mode);
+      for (const width of [360, 760]) {
+        await page.setViewportSize({ width, height: 900 });
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `protocols fit ${width}px ${mode}`);
+        if (width === 360)
+          assert((await page.locator(".bn-egress > span:first-child").boundingBox())!.height < 25, "exit IP label stays on one line");
+        await page.screenshot({ path: resolve(output, `protocols-${ipv4}-${ipv6}-${mode}-${width}.png`), fullPage: true });
+        if (ipv4 === "working" && ipv6 === "unavailable")
+          await page.locator(".bn-network").screenshot({ path: resolve(output, `protocols-component-${mode}-${width}.png`) });
+      }
+    }
+  }
+  await page.evaluate(() => { (window as any).networkFixture.protocols = ["working", "unavailable"]; });
+  await page.waitForFunction(() => document.querySelectorAll(".bn-protocol")[1]?.classList.contains("unavailable"));
+  assert((await protocolRow.locator("summary").getAttribute("aria-label"))?.includes("IPv4 Working. IPv6 Unavailable."), "collapsed summary announces protocol health");
+  await protocolRow.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  assert(await protocolRow.getAttribute("open") !== null, "keyboard opens protocol details");
+  await protocolRow.getByText("The selected exit could not connect.").waitFor();
+  await page.screenshot({ path: resolve(output, "protocols-details-dark.png"), fullPage: true });
+  await page.setViewportSize({ width: 760, height: 1000 });
+  await page.evaluate(() => { document.body.style.zoom = "2"; });
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "protocols fit at 200 percent zoom");
+  await page.screenshot({ path: resolve(output, "protocols-zoom-200.png"), fullPage: true });
+  await page.evaluate(() => { document.body.style.zoom = "1"; });
+  await page.evaluate(() => { (window as any).networkFixture.staleProtocols = true; });
+  await page.waitForFunction(() => document.querySelectorAll(".bn-protocol.unknown").length === 2);
+  assert((await protocolRow.getByText("Not checked", { exact: true }).count()) === 2, "stale epoch health hidden");
+  await page.evaluate(() => {
+    const f = (window as any).networkFixture; f.staleProtocols = false; f.wrongProtocolSource = true;
+  });
+  await page.waitForTimeout(3200);
+  assert((await protocolRow.locator(".bn-protocol.unknown").count()) === 2, "different exit health hidden");
   assert(errors.length === 0, errors.join("\n"));
   console.log(JSON.stringify({ checks, output }));
 } finally {

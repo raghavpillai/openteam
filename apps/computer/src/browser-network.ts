@@ -1,4 +1,4 @@
-import type { NetworkEgress, NetworkQuality } from "@openteam/contracts/browser-network";
+import type { NetworkEgress, NetworkQuality, NetworkConnectivity } from "@openteam/contracts/browser-network";
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
@@ -53,7 +53,7 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
   const failProbes = () => {
     for (const kind of probes.keys()) failProbe(kind);
   };
-  let state = { ready: false, mode: null as string | null, activeConnections: 0 };
+  let state: { ready: boolean; mode: string | null; activeConnections: number; routeEpoch?: string; connectivity?: NetworkConnectivity } = { ready: false, mode: null, activeConnections: 0 };
   const ensureTun = async () => {
     if (!computerNetwork) return;
     if (!tun || tun.exitCode !== null || tun.signalCode !== null || !tun.pid) {
@@ -147,6 +147,8 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
                 ready: value.ready,
                 mode: value.mode ?? null,
                 activeConnections: value.activeConnections ?? 0,
+                routeEpoch: value.routeEpoch,
+                connectivity: value.connectivity,
               };
           } catch {
             /* Never forward potentially sensitive child output. */

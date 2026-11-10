@@ -660,6 +660,15 @@ export class AppService {
     return await response.json() as import("@openteam/contracts/browser-network").NetworkQuality;
   }
 
+  async browserNetworkConnectivity() {
+    const response = await this.computerFetch("/v1/browser-network", {
+      method: "GET", signal: AbortSignal.timeout(1500),
+    });
+    if (!response.ok) return undefined;
+    const status = await response.json() as { ready?: boolean; connectivity?: import("@openteam/contracts/browser-network").NetworkConnectivity };
+    return status.ready ? status.connectivity : undefined;
+  }
+
   async browserNetworkEgress() {
     const response = await this.computerFetch("/v1/browser-network/egress", { method: "POST", body: "{}" });
     if (!response.ok) throw new ApiError(503, "network_egress_unavailable", "Could not check browser exit connection");

@@ -69,3 +69,40 @@ final class BrowserNetworkTests: XCTestCase {
     XCTAssertEqual(view.status("removed"),"Unavailable")
   }
 }
+
+extension BrowserNetworkTests {
+  func connectivityView(_ ipv4: String, _ ipv6: String, epoch: String = "live", source: String = "air", runtimeState: String = "ready") throws -> BrowserNetworkView {
+    let value: JSON = .object([
+      "settings": .object(["mode": .string("ranked"), "revision": .number(1), "sourceOrder": .array([.string("air"), .string("server")])]),
+      "runtime": .object(["state": .string(runtimeState), "routeEpoch": .string("live"), "activeMachineId": .string("air"),
+        "connectivity": .object(["epoch": .string(epoch), "sourceId": .string(source), "checkedAt": .string("2026-11-10T03:15:00.000Z"),
+          "ipv4": .object(["state": .string(ipv4)]), "ipv6": .object(["state": .string(ipv6), "reason": .string("connect_failed")])])]),
+      "devices": .array([]),
+    ])
+    return try value.decode(BrowserNetworkView.self)
+  }
+  func testIPv4OnlyExitIsUsableAndDoesNotRequireIPv6() throws {
+    let health = try XCTUnwrap(connectivityView("working", "unavailable").connectivity)
+    XCTAssertEqual(health.ipv4.label, "Working")
+    XCTAssertEqual(health.ipv6.label, "Unavailable")
+    XCTAssertTrue(health.summary.hasPrefix("IPv4 is available."))
+    XCTAssertEqual(health.ipv6.detail, "The selected exit could not connect.")
+  }
+  func testProtocolStatesIncludeDualStackIPv6OnlyAndFailure() throws {
+    XCTAssertTrue(try connectivityView("working", "working").connectivity!.summary.hasPrefix("Both protocols"))
+    XCTAssertTrue(try connectivityView("unavailable", "working").connectivity!.summary.hasPrefix("IPv6 is available."))
+    XCTAssertTrue(try connectivityView("unavailable", "unavailable").connectivity!.summary.hasPrefix("Neither protocol"))
+    XCTAssertTrue(try connectivityView("unavailable", "unavailable").internetUnavailable)
+    XCTAssertTrue(try connectivityView("unavailable", "unavailable").summary.hasPrefix("No internet through"))
+    XCTAssertFalse(try connectivityView("working", "unavailable").internetUnavailable)
+    XCTAssertEqual(try connectivityView("checking", "checking").connectivity!.ipv6.label, "Checking…")
+  }
+  func testStaleAndDifferentExitMeasurementsAreHidden() throws {
+    XCTAssertNil(try connectivityView("working", "working", epoch: "old").connectivity)
+    XCTAssertNil(try connectivityView("working", "working", source: "mini").connectivity)
+    XCTAssertNil(try connectivityView("working", "working", runtimeState: "applying").connectivity)
+  }
+  func testOlderServersDecodeWithoutCapabilities() throws {
+    XCTAssertNil(try view().connectivity)
+  }
+}

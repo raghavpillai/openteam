@@ -1,10 +1,14 @@
-import type { BrowserNetworkView } from "@openteam/contracts/browser-network";
+import { currentConnectivity, type BrowserNetworkView } from "@openteam/contracts/browser-network";
 
 export function browserNetworkLabel(view: BrowserNetworkView) {
   const name =
     view.devices.find(
       (d) => d.machineId === (view.runtime.activeMachineId ?? view.settings.machineId)
     )?.label ?? "selected computer";
+  const health = currentConnectivity(view.runtime.connectivity, view.runtime.routeEpoch,
+    view.runtime.state === "server" ? "server" : view.runtime.activeMachineId);
+  if (["ready", "server"].includes(view.runtime.state) && health?.ipv4.state === "unavailable" && health.ipv6.state === "unavailable")
+    return `No internet through ${view.runtime.state === "server" ? "the server connection" : name}`;
   switch (view.runtime.state) {
     case "server":
       return view.settings.mode === "ranked"

@@ -39,7 +39,8 @@ export function PluginAccountRow({
   useEffect(() => setAlias(connection.alias), [connection.alias]);
   const ready = connection.status === "ready";
   const now = useVisibleNow(1_000, Boolean(connection.deviceLink));
-  const linkExpired = Boolean(connection.deviceLink && connection.deviceLink.expiresAt <= now);
+  const qrCodeDataUrl = connection.deviceLink && connection.deviceLink.expiresAt > now
+    ? connection.deviceLink.qrCodeDataUrl : null;
   const authorization = pluginAuthorization(connection);
   const status = connection.setupPhase === "provider_setup_required" ? "Setup needed" : connection.setupPhase === "authorization_pending" ? "Finish signing in" : connection.setupPhase === "ready_to_authorize" && connection.auth === "oauth" ? "Sign-in needed" : ready
     ? "Connected"
@@ -156,21 +157,21 @@ export function PluginAccountRow({
       {connection.deviceLink ? (
         <div className="px-3.5 pb-4 space-y-3">
           <p className="text-[13px]">{connection.deviceLink.instructions}</p>
-          {!linkExpired ? (
+          {qrCodeDataUrl ? (
             <img
-            src={connection.deviceLink.qrCodeDataUrl}
-            alt="Scan to link your account"
-            width={256}
-            height={256}
-            className="rounded-lg bg-white"
-          />
+              src={qrCodeDataUrl}
+              alt="Scan to link your account"
+              width={256}
+              height={256}
+              className="rounded-lg bg-white"
+            />
           ) : null}
           <p className="text-[12px] text-foreground-secondary">
-            {linkExpired ? (
-              "Code expired. Get a new code when you’re ready."
+            {!qrCodeDataUrl ? (
+              "Waiting for an updated code or phone approval. You can also get a new code."
             ) : (
               <>
-            Code expires at {new Date(connection.deviceLink.expiresAt).toLocaleTimeString()}.
+                Code expires at {new Date(connection.deviceLink.expiresAt).toLocaleTimeString()}.
                 Waiting for approval…
               </>
             )}

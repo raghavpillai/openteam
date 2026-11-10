@@ -50,7 +50,7 @@ struct PluginConnectionActions: View {
         Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
           .frame(maxWidth: 280).accessibilityLabel("Scan to link your account")
       } else {
-        Text("Code expired. Get a new code when you’re ready.")
+        Text("Waiting for an updated code or phone approval. You can also get a new code.")
           .font(.footnote).foregroundStyle(NativePalette.muted)
       }
       Text("Scan with the phone that has your account, or open OpenTeam on another screen.")
@@ -143,6 +143,11 @@ struct PluginConnectionActions: View {
       link["qrCodeDataUrl"].string.hasPrefix("data:image/png;base64,"),
       let data = Data(base64Encoded: String(link["qrCodeDataUrl"].string.dropFirst(22))) else { return nil }
     return UIImage(data: data)
+  }
+  private var hasActiveDeviceLink: Bool {
+    let link = connection["deviceLink"]
+    let deadline = link["sessionExpiresAt"].int > 0 ? link["sessionExpiresAt"].int : link["expiresAt"].int
+    return !link["sessionId"].string.isEmpty && Double(deadline) > now.timeIntervalSince1970 * 1000
   }
   private var manualInstructions: some View {
     NavigationStack {
@@ -274,7 +279,7 @@ struct PluginConnectionActions: View {
         try? await refresh()
         let reconciled =
           ((suffix == "/connect" || suffix == "/restart") &&
-            (connection["status"].string == "ready" || deviceLinkImage != nil))
+            (connection["status"].string == "ready" || hasActiveDeviceLink))
           || (suffix == "/authenticate/manual" && connection["status"].string == "ready")
           || (suffix == "/disconnect" && connection["status"].string == "disconnected")
           || (suffix == "/authenticate/cancel" && session == nil)

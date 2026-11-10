@@ -7,8 +7,8 @@ Validated on 2026-11-10 in the isolated `codex/signal-plugin-validation` worktre
 | Check | Result |
 | --- | --- |
 | Complete Signal connector suite, including real macOS ARM64 runtime, packaged MCP and Java protobuf checks | 124 passed; 401 assertions before the final view-once regression |
-| Combined CI entry point including the chaos suites | 328 passed; 1 provisioning test deliberately filtered; 3,842 assertions |
-| Complete server plugin suite with isolated PostgreSQL | 164 passed; 3 optional provider tests skipped; 2,080 assertions |
+| Combined CI entry point including the chaos suites | 354 passed; 1 provisioning test deliberately filtered; 3,957 assertions |
+| Complete server plugin suite with isolated PostgreSQL | 186 passed; 3 optional provider tests skipped; 2,183 assertions |
 | PostgreSQL lifecycle suite with actual synthetic MCP children, including pending-QR regeneration | 15 passed; 134 assertions |
 | Independent final recovery review | 64 passed; 290 assertions; no remaining finding |
 | Final view-once Java/storage regression group | 38 passed; 1 packaged-runtime check skipped in that invocation; 131 assertions |
@@ -16,7 +16,7 @@ Validated on 2026-11-10 in the isolated `codex/signal-plugin-validation` worktre
 | SDK browser, server, worker and computer bundles | Passed |
 | Marketplace ZIP round-trip | Passed, including binary icon and compatibility JAR/source |
 
-Counts overlap and must not be summed. The final iOS attempt compiled `PluginConnectionActions.swift`, but the full build is blocked by main's unrelated `HomeView.swift:976` use of `GeometryProxy.reservedRegions`, an iOS 27.1 API absent from the installed Xcode 26.6 SDK. An earlier pre-main simulator build passed; the current full iOS target is not claimed to pass.
+Counts overlap and must not be summed. The full iOS arm64 simulator target now builds successfully with the installed Xcode 27.3 toolchain, including the latest shared QR changes. Earlier attempts with Xcode 26.6 and 27.1 lacked APIs already used by main. This is build evidence, not an on-device iOS UI run.
 
 ## Authenticated phone checks
 
@@ -91,3 +91,15 @@ After the automated chaos checks, an operator-run experiment exercised commit `b
 Network denial was scoped to plugin Java descendants and required restarting that runtime under the sandbox; system networking and other apps were unchanged. Whole-MCP recovery above included an explicit manager restart/reconnect, whereas Java recovery was automatic within the same MCP process. This does not establish automatic recovery of every desktop/server failure or queued incoming-message delivery during an outage.
 
 Five deliberately labeled messages were sent only to Note to Self. The four normally returned send responses contained recipient result type SUCCESS; the intentionally withheld response produced the expected unknown ledger entry. Fault controls were disabled, owned processes stopped, and the same private account state restored to its original location. Local ignored evidence is under `private/physical-1794341794891/`, with an ignored operator harness at `output/signal-validation/physical-chaos.ts`. No keys, phone identifiers or unrelated messages are included here. The live view-once and current iOS SDK limitations above remain unchanged.
+
+## Shared infrastructure and final installation/update gates
+
+Coordinated the shared contract with the WhatsApp PR #269 owner before merging Signal first. Rotating providers can replace or invalidate a QR challenge within a fixed approval session. Public linking state stays present with a null image while bootstrap continues, so desktop and iOS keep polling. Session IDs, challenge generations, runtime generations and database revisions fence stale replacements/completions. Missing session IDs remain accepted only for legacy static providers; dynamic sessions require exact IDs. Explicit regeneration starts a new fenced session.
+
+Managed account names now use 32 hex characters, giving a 69-byte production state directory and an 80-byte `.send.sock` path. Synthetic real-filesystem/Unix-socket checks verify this bound, atomic legacy64-to32 migration, both-path/symlink rejection and offline removal. Existing Signal-specific unmanaged state roots are unchanged.
+
+The actual desktop settings UI, real routes/PostgreSQL and managed Signal runtime verified installation QR rendering, fresh-image/session regeneration, cancellation and five public messaging tools with lifecycle tools hidden. The existing linked account then passed the real released-package update path from a fixture version 1.0.0 to 1.0.1 with changed connector bundle bytes, retaining its send ledger and reconnecting in 2.089 seconds without another phone scan. A further disconnect/connect and browser status update passed with zero page errors. The fixture version change did not alter the shipped package version. Updates briefly restart collection; this is not a zero-downtime guarantee.
+
+Independent shared-infrastructure review found two additional prepare-path fencing defects (expired completion and foreign-session fallback completion); both were fixed and independently reproduced as blocked. The live view-once item remains an incomplete phone check, not a verified pass; actual pinned Java flag projection and durable exclusion/replay tests pass. It remains a documented validation limit.
+
+Final shared-contract validation: **71 focused host/PostgreSQL checks passed** (442 assertions), **354 combined CI-entry checks passed** (3,957 assertions; provisioning filtered), **186 complete server-plugin checks passed** (three optional provider skips; 2,183 assertions), and **23 computer state/package-cache checks passed**. Contracts/client/desktop/server/worker/computer TypeScript and the full iOS arm64 build passed. The final base includes main at `7330aed3`; its only change since the prior merge was landing-page blog content. No further shared-infrastructure blocker was identified by the WhatsApp owner.

@@ -81,7 +81,12 @@ export interface PluginRuntimeAsset {
   optional?: boolean;
   sources: Record<string, PluginRuntimeAssetSource>;
 }
-/** User-driven device approval through host-only MCP tools. */
+/** User-driven device approval through host-only MCP tools.
+ * Start returns sessionId/qrCodeDataUrl/expiresAt. Rotating providers also set
+ * sessionExpiresAt/challengeGeneration and return the same sessionId in status,
+ * with newer challenge generations (including null images for bootstrap).
+ * See docs/development/plugins.md for deadlines and lifecycle fencing.
+ */
 export interface PluginDeviceLink {
   startTool: string;
   finishTool: string;

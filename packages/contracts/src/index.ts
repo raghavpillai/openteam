@@ -770,8 +770,12 @@ export interface PluginCatalogItemView {
 
 export interface PluginDeviceLinkView {
   sessionId: string;
-  qrCodeDataUrl: string;
+  /** An active approval can temporarily have no displayable QR challenge. */
+  qrCodeDataUrl: string | null;
+  /** Expiry of the current image, independently of the approval session. */
   expiresAt: number;
+  sessionExpiresAt?: number;
+  challengeGeneration?: number;
   instructions: string;
 }
 

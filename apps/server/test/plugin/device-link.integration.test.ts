@@ -114,7 +114,7 @@ async function fixture() {
   const service = new PluginService(db, fetchComputer);
   const otherService = new PluginService(db, fetchComputer);
   const row = () => db.pluginConnection.findUniqueOrThrow({ where: { id } });
-  const marker = join(root, "accounts", createHash("sha256").update(id).digest("hex"), "synthetic-boots");
+  const marker = join(root, "accounts", createHash("sha256").update(id).digest("hex").slice(0, 32), "synthetic-boots");
   const close = async () => {
     await Promise.all([service.close(), otherService.close()]);
     await manager.closeAll();
@@ -464,5 +464,44 @@ integration("failed uninstall cleanup does not expose an interrupted QR through 
     expect(await f.db.pluginInstallation.findUnique({ where: { id: f.installation.id } })).toBeNull();
     expect(status.connections[0]!.deviceLink).toBeNull();
     expect(credentials).not.toHaveProperty("deviceLink");
+  } finally { await f.close(); }
+}, 15_000);
+
+integration("rotating challenge and image-free bootstrap survive a fresh host service without restarting approval", async () => {
+  const f = await fixture();
+  try {
+    await f.connect();
+    const row = await f.row();
+    const credentials = row.credentials as any;
+    const sessionId = credentials.deviceLink.sessionId;
+    const sessionExpiresAt = Date.now() + 180_000;
+    await f.db.pluginConnection.update({ where: { id: f.id }, data: { credentials: {
+      ...credentials, deviceLink: { ...credentials.deviceLink, sessionExpiresAt, challengeGeneration: 0 },
+    } } });
+    const statusPath = join(f.marker, "../status-override.json");
+    const qrCodeDataUrl = "data:image/png;base64,cm90YXRlZA==";
+    await writeFile(statusPath, JSON.stringify({ linked: false, linking: true, sessionId,
+      challenge: { generation: 1, qrCodeDataUrl, expiresAt: Date.now() + 60_000 } }));
+    await f.poll();
+    let status = await Effect.runPromise(f.service.pollConnectionStatuses([f.id]));
+    expect(status.connections[0]!.deviceLink).toMatchObject({ sessionId, qrCodeDataUrl, challengeGeneration: 1, sessionExpiresAt });
+    await writeFile(statusPath, JSON.stringify({ linked: false, linking: true, sessionId,
+      challenge: { generation: 2, qrCodeDataUrl: null, expiresAt: Date.now() + 60_000 } }));
+    await Effect.runPromise(f.otherService.pollDeviceLink(f.id));
+    status = await Effect.runPromise(f.otherService.pollConnectionStatuses([f.id]));
+    expect(status.connections[0]!.deviceLink).toMatchObject({ sessionId, qrCodeDataUrl: null, challengeGeneration: 2 });
+    const stored = await f.row();
+    await f.db.pluginConnection.update({ where: { id: f.id }, data: { credentials: {
+      ...(stored.credentials as any), deviceLink: { ...(stored.credentials as any).deviceLink, expiresAt: Date.now() - 1 },
+    } } });
+    await Effect.runPromise(f.otherService.pollDeviceLink(f.id));
+    expect((await f.row()).status).toBe("needs_auth");
+    expect(f.calls.filter(call => call.tool === "cancel_link")).toHaveLength(0);
+    await writeFile(statusPath, JSON.stringify({ linked: true, sessionId }));
+    await Effect.runPromise(f.otherService.pollDeviceLink(f.id));
+    expect((await f.row()).status).toBe("ready");
+    expect((await f.row()).credentials).not.toHaveProperty("deviceLink");
+    expect(await readFile(f.marker, "utf8")).toBe("boot\n");
+    expect(f.calls.filter(call => call.tool === "start_link")).toHaveLength(1);
   } finally { await f.close(); }
 }, 15_000);

@@ -101,7 +101,10 @@ public struct PluginConnectionPresentation {
     if connected {
       status = "Connected"
     } else if !connection["deviceLink"]["sessionId"].string.isEmpty {
-      status = "Scan to connect"
+      let link = connection["deviceLink"]
+      let hasImage = link["qrCodeDataUrl"].string.hasPrefix("data:image/png;base64,")
+        && Double(link["expiresAt"].int) > now.timeIntervalSince1970 * 1000
+      status = hasImage ? "Scan to connect" : "Waiting for approval"
     } else if connecting {
       status = "Connecting…"
     } else if let session = PluginAuthorizationSession(connection, now: now) {

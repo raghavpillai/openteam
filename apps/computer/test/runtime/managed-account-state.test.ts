@@ -4,6 +4,7 @@ import * as filesystem from "node:fs/promises";
 import { chmod, lstat, mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:net";
 import { StdioMcpManager } from "../../src/mcp-manager";
 import { McpRuntimeRouter } from "../../src/mcp-runtime-router";
 import type { PluginRuntimeAsset } from "@openteam/plugin-sdk";
@@ -19,7 +20,8 @@ const deferred = <T,>() => {
   const promise = new Promise<T>(done => { resolve = done; });
   return { promise, resolve };
 };
-const statePath = (root: string, id: string) => join(root, "accounts", createHash("sha256").update(id).digest("hex"));
+const statePath = (root: string, id: string) => join(root, "accounts", createHash("sha256").update(id).digest("hex").slice(0, 32));
+const legacyStatePath = (root: string, id: string) => join(root, "accounts", createHash("sha256").update(id).digest("hex"));
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), "synthetic-managed-account-")));
   directories.push(root);
@@ -195,6 +197,92 @@ test("repairs permissions of an existing real account state directory before lau
   await writeFile(join(directory, "synthetic-marker"), "synthetic-preserved");
   expect((await f.info("existing-state")).marker).toBe("synthetic-preserved");
   expect((await lstat(directory)).mode & 0o777).toBe(0o700);
+});
+
+test("legacy account directories migrate together without losing keys/history across restart", async () => {
+  const f = await fixture();
+  const id = "legacy-migration", legacy = legacyStatePath(f.root, id), current = statePath(f.root, id);
+  await mkdir(join(legacy, "wacli"), { recursive: true });
+  await writeFile(join(legacy, "synthetic-marker"), "synthetic-history");
+  await writeFile(join(legacy, "wacli", "session.db"), "synthetic-keys");
+  await chmod(legacy, 0o755);
+  const first = await f.info(id);
+  expect(first.directory).toBe(current);
+  expect(first.marker).toBe("synthetic-history");
+  await expect(lstat(legacy)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await readFile(join(current, "wacli", "session.db"), "utf8")).toBe("synthetic-keys");
+  expect((await lstat(current)).mode & 0o777).toBe(0o700);
+  await f.manager.closeAll();
+  const restarted = new StdioMcpManager(f.root, 5_000);
+  managers.push(restarted);
+  const result: any = await restarted.call(id, f.input, "state", {});
+  expect(JSON.parse(result.content[0].text).marker).toBe("synthetic-history");
+  expect(await readFile(join(current, "wacli", "session.db"), "utf8")).toBe("synthetic-keys");
+}, 15_000);
+
+test("migration refuses existing legacy/current pairs without merging or replacing either", async () => {
+  const f = await fixture();
+  const id = "migration-conflict", legacy = legacyStatePath(f.root, id), current = statePath(f.root, id);
+  await mkdir(legacy, { recursive: true });
+  await mkdir(current);
+  await writeFile(join(legacy, "synthetic-marker"), "synthetic-old");
+  await writeFile(join(current, "synthetic-marker"), "synthetic-new");
+  await expect(f.info(id)).rejects.toThrow("Both legacy and current account state exist");
+  expect(await readFile(join(legacy, "synthetic-marker"), "utf8")).toBe("synthetic-old");
+  expect(await readFile(join(current, "synthetic-marker"), "utf8")).toBe("synthetic-new");
+});
+
+test("legacy state symlinks fail closed and offline removal does not follow their targets", async () => {
+  const f = await fixture();
+  const id = "legacy-symlink", outside = join(f.root, "outside"), legacy = legacyStatePath(f.root, id);
+  await mkdir(outside);
+  await mkdir(join(f.root, "accounts"));
+  await writeFile(join(outside, "synthetic-marker"), "synthetic-outside");
+  await symlink(outside, legacy);
+  await expect(f.info(id, "must-not-write")).rejects.toThrow("Legacy account state must be a real directory");
+  await f.manager.forget(id, 1);
+  await expect(lstat(legacy)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await readFile(join(outside, "synthetic-marker"), "utf8")).toBe("synthetic-outside");
+});
+
+test("offline removal deletes both owned path versions without launching or touching another account", async () => {
+  const f = await fixture();
+  const id = "offline-legacy", legacy = legacyStatePath(f.root, id), current = statePath(f.root, id);
+  const other = legacyStatePath(f.root, "another-account");
+  for (const path of [legacy, current, other]) {
+    await mkdir(path, { recursive: true });
+    await writeFile(join(path, "synthetic-marker"), "synthetic-preserved");
+  }
+  await f.manager.forget(id, 1);
+  await expect(lstat(legacy)).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(lstat(current)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await readFile(join(other, "synthetic-marker"), "utf8")).toBe("synthetic-preserved");
+  expect(f.manager.status(id).state).toBe("stopped");
+});
+
+test("production state paths leave room for a real Unix send socket", async () => {
+  const manager = new StdioMcpManager("/agent-data/plugin-runtimes");
+  const production = (manager as any).accountStateDirectory("synthetic-socket-account");
+  const targetBytes = Buffer.byteLength(join(production, ".send.sock"));
+  expect(production).toMatch(/^\/agent-data\/plugin-runtimes\/accounts\/[a-f0-9]{32}$/);
+  expect(targetBytes).toBe(80);
+  expect(Buffer.byteLength(join(production, "wacli", ".send.sock"))).toBeLessThan(108);
+  const root = await realpath(await mkdtemp("/tmp/socket-"));
+  directories.push(root);
+  const directory = join(root, "x".repeat(targetBytes - Buffer.byteLength(root) - 12));
+  await mkdir(directory);
+  const socket = join(directory, ".send.sock");
+  expect(Buffer.byteLength(socket)).toBe(targetBytes);
+  const server = createServer();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socket, () => resolve());
+    });
+    expect((await lstat(socket)).isSocket()).toBe(true);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
 });
 
 test.each(["close", "closeAll", "forget"] as const)("%s joins pending state-directory creation before completing teardown", async (operation) => {

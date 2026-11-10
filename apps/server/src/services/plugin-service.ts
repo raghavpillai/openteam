@@ -1,5 +1,7 @@
 import {
   clearDeviceLinkState,
+  deviceLinkChallenge,
+  deviceLinkStatusMatches,
   deviceLinkDefinition,
   deviceLinkResult,
   publicDeviceLink,
@@ -867,12 +869,36 @@ export class PluginService {
     connection: Awaited<ReturnType<PluginService["connectionOrThrow"]>>,
     tools: PluginToolDefinition[]
   ) {
+    // Discovery updates status before reaching setup. Fence against that fresh
+    // snapshot, while rejecting an account restart/removal during discovery.
+    const current = await this.connectionOrThrow(connection.id);
+    if (current.runtimeGeneration !== connection.runtimeGeneration)
+      throw new ApiError(409, "plugin_connection_changed", "Account setup changed during discovery.");
+    this.assertAvailable(current);
+    connection = current;
     const definition = deviceLinkDefinition(connection)!;
     const status = deviceLinkResult(
       await this.transport.callHostTool(connection, definition.statusTool, {})
     );
+    const active = jsonObject(jsonObject(connection.credentials).deviceLink);
+    const activeDeadline = active.sessionExpiresAt ?? active.expiresAt;
+    if (active.sessionId && typeof activeDeadline === "number" && activeDeadline <= Date.now()) {
+      await this.transport.callHostTool(connection, definition.cancelTool, {
+        sessionId: active.sessionId,
+      }).catch(() => {});
+      await this.prisma.pluginConnection.updateMany({
+        where: { id: connection.id, runtimeGeneration: connection.runtimeGeneration,
+          updatedAt: connection.updatedAt },
+        data: { credentials: toJson(clearDeviceLinkState(connection.credentials)),
+          status: "needs_auth", connectedAt: null,
+          statusMessage: "Device approval expired. Connect again for a new code." },
+      });
+      return { id: connection.id, status: "needs_auth", toolCount: 0 };
+    }
+    if (!deviceLinkStatusMatches(active, status))
+      return { id: connection.id, status: "needs_auth", toolCount: 0 };
     if (status.linked === true) {
-      const ready = await this.markReady(connection, tools);
+      const ready = await this.markReady(connection, tools, "connection.ready", connection.updatedAt);
       return { id: ready.id, status: ready.status, toolCount: tools.length };
     }
     const prior = publicDeviceLink(connection.credentials);
@@ -894,8 +920,9 @@ export class PluginService {
       } catch {
         /* Preserve the original setup failure when status is unavailable. */
       }
-      if (recovered?.linked === true) {
-        const ready = await this.markReady(connection, tools);
+      if (recovered?.linked === true && deviceLinkStatusMatches(active, recovered) &&
+        (!active.sessionId || typeof activeDeadline !== "number" || activeDeadline > Date.now())) {
+        const ready = await this.markReady(connection, tools, "connection.ready", connection.updatedAt);
         return { id: ready.id, status: ready.status, toolCount: tools.length };
       }
       throw error;
@@ -905,11 +932,14 @@ export class PluginService {
       qrCodeDataUrl: link.qrCodeDataUrl,
       expiresAt: link.expiresAt,
       instructions: definition.instructions,
+      ...(link.sessionExpiresAt !== undefined ? { sessionExpiresAt: link.sessionExpiresAt } : {}),
+      ...(link.challengeGeneration !== undefined ? { challengeGeneration: link.challengeGeneration } : {}),
     };
-    if (!publicDeviceLink({ deviceLink: stored }) || link.expiresAt > Date.now() + 10 * 60_000)
+    if (!publicDeviceLink({ deviceLink: stored }) ||
+      (link.sessionExpiresAt ?? link.expiresAt) > Date.now() + 10 * 60_000)
       throw new Error("Connector returned an invalid device linking code.");
     const updated = await this.prisma.pluginConnection.updateMany({
-      where: { id: connection.id, runtimeGeneration: connection.runtimeGeneration },
+      where: { id: connection.id, runtimeGeneration: connection.runtimeGeneration, updatedAt: connection.updatedAt },
       data: {
         credentials: toJson({ ...clearDeviceLinkState(connection.credentials), deviceLink: stored }),
         status: "needs_auth",
@@ -967,13 +997,31 @@ export class PluginService {
     const status = deviceLinkResult(
       await this.transport.callHostTool(connection, definition.statusTool, {})
     );
-    if (status.linked === true) {
+    const deadline = link.sessionExpiresAt ?? link.expiresAt;
+    const expired = typeof deadline === "number" && deadline <= Date.now();
+    if (!expired && !deviceLinkStatusMatches(link, status))
+      return { linked: false, stale: true };
+    if (!expired && status.linked === true) {
       if (connection.status !== "ready" || recovering)
         await this.markReady(connection, toolSnapshot(connection.toolSnapshot),
           "connection.ready",
           connection.updatedAt
         );
       return { linked: true };
+    }
+    if (!expired && link.sessionId && status.linking !== false && !status.authorizationError) {
+      const next = deviceLinkChallenge(link, status);
+      if (next) {
+        const updated = await this.prisma.pluginConnection.updateMany({
+          where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration,
+            updatedAt: connection.updatedAt },
+          data: {
+            credentials: toJson({ ...jsonObject(connection.credentials), deviceLink: next }),
+            lastCheckedAt: new Date(),
+          },
+        });
+        if (!updated.count) return { linked: false, stale: true };
+      }
     }
     if (status.recovering === true && !link.sessionId) {
       await this.prisma.pluginConnection.updateMany({
@@ -996,7 +1044,6 @@ export class PluginService {
       });
       return { linked: false, recovering: true };
     }
-    const expired = typeof link.expiresAt === "number" && link.expiresAt <= Date.now();
     const interrupted = status.linking === false;
     if (expired || interrupted || status.authorizationError || connection.status === "ready" ||
       recovering
@@ -1330,7 +1377,8 @@ export class PluginService {
       const connection = await this.connectionOrThrow(connectionId);
       const updated = await this.prisma.pluginConnection.updateMany({
         where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
-        data: { runtimeGeneration: { increment: 1 } },
+        data: { runtimeGeneration: { increment: 1 },
+          credentials: toJson(clearDeviceLinkState(connection.credentials)) },
       });
       if (!updated.count) throw new ApiError(409, "plugin_connection_changed", "Connection setup changed while restarting");
       await this.stopRuntime(connectionId, connection.transport, connection.runtimeGeneration + 1);

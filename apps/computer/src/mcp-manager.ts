@@ -4,7 +4,7 @@ import { ResultSchema, ToolListChangedNotificationSchema, ToolSchema } from "@mo
 import { discoverAllTools, MCP_TOOL_CALL_TIMEOUT_MS, objectValue, repairedToolsPage, scopedProcessEnvironment } from "@openteam/plugin-sdk";
 import { join, sep } from "node:path";
 import { createHash } from "node:crypto";
-import { chmod, lstat, mkdir, realpath, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, realpath, rename, rm } from "node:fs/promises";
 import { PluginPackageCache } from "./plugin-package-cache";
 import { ManagedRuntimeCache } from "@openteam/plugin-sdk/runtime-assets";
 import type { PluginRuntimeAsset } from "@openteam/plugin-sdk";
@@ -170,6 +170,7 @@ export class StdioMcpManager {
       if (!parent.isDirectory()) throw new Error("Account state parent must remain a real owned directory");
       // fs.rm removes a final symlink itself; it never traverses its target.
       await rm(directory, { recursive: true, force: true });
+      await rm(this.legacyAccountStateDirectory(connectionId), { recursive: true, force: true });
     })();
     this.forgetting.set(connectionId, pending);
     try {
@@ -183,14 +184,40 @@ export class StdioMcpManager {
     return join(
       this.cacheDirectory,
       "accounts",
-      createHash("sha256").update(connectionId).digest("hex")
+      // 128 bits retain account isolation while leaving room for Unix sockets
+      // beneath the production /agent-data/plugin-runtimes/accounts parent.
+      createHash("sha256").update(connectionId).digest("hex").slice(0, 32)
     );
   }
 
-  private async prepareAccountState(directory: string) {
+  private legacyAccountStateDirectory(connectionId: string) {
+    return join(this.cacheDirectory, "accounts", createHash("sha256").update(connectionId).digest("hex"));
+  }
+
+  private async prepareAccountState(directory: string, legacy: string) {
     const parent = join(this.cacheDirectory, "accounts");
     await mkdir(parent, { recursive: true, mode: 0o700 });
     if (!(await lstat(parent)).isDirectory()) throw new Error("Account state parent must be a real directory");
+    const existing = async (path: string) => lstat(path).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    });
+    const [oldState, newState] = await Promise.all([existing(legacy), existing(directory)]);
+    if (oldState && !oldState.isDirectory()) throw new Error("Legacy account state must be a real directory");
+    if (newState && !newState.isDirectory()) throw new Error("Account state must be a real directory");
+    if (oldState && newState)
+      throw new Error("Both legacy and current account state exist. Resolve the conflict before reconnecting.");
+    if (oldState) {
+      try {
+        // A single rename preserves keys/history together and never merges data.
+        await rename(legacy, directory);
+      } catch (error) {
+        // Another manager may have completed this same migration. Accept only
+        // its complete destination, never a competing legacy/current pair.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || await existing(legacy) ||
+          !(await existing(directory))?.isDirectory()) throw error;
+      }
+    }
     await mkdir(directory, { recursive: true, mode: 0o700 });
     if (!(await lstat(directory)).isDirectory()) throw new Error("Account state must be a real directory");
     const [actualParent, actual] = await Promise.all([realpath(parent), realpath(directory)]);
@@ -271,7 +298,7 @@ export class StdioMcpManager {
       configuration.env = { ...configuration.env, ...runtimeEnvironment };
       if (objectValue(input).persistentState === true) {
         const stateDirectory = this.accountStateDirectory(connectionId);
-        managed.statePreparation = this.prepareAccountState(stateDirectory);
+        managed.statePreparation = this.prepareAccountState(stateDirectory, this.legacyAccountStateDirectory(connectionId));
         await managed.statePreparation;
         configuration.env.OPENTEAM_PLUGIN_STATE_DIR = stateDirectory;
       }

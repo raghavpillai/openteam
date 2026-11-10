@@ -99,7 +99,6 @@ function Fixture() {
           onSearch={noop}
           onSelect={noop}
           onNewBot={noop}
-          onNewGroup={noop}
           onOpenPlugins={noop}
           onOpenSettings={noop}
           onBotAction={noop}

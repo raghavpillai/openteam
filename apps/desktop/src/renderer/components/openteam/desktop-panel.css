@@ -1,0 +1,199 @@
+/* Values measured from the desktop reference. Keep panel surfaces independent
+ * of the conversation theme's more translucent fields and selected rows. */
+.desktop-parity-panel {
+  --panel-ink: #1c1c1c;
+  --panel-secondary: rgb(28 28 28 / 68%);
+  --panel-muted: rgb(28 28 28 / 56%);
+  --panel-border: rgb(28 28 28 / 12%);
+  --panel-divider: rgb(28 28 28 / 12%);
+  --panel-surface: #fff;
+  --panel-selected: rgb(28 28 28 / 8%);
+  --panel-hover: rgb(28 28 28 / 6%);
+  --panel-disabled: rgb(28 28 28 / 15%);
+  --panel-disabled-text: rgb(28 28 28 / 30%);
+  --panel-outline: #d4d4d4;
+  color: var(--panel-ink);
+  background: var(--panel-surface);
+  border-color: var(--panel-border);
+  font-size: 13px;
+  font-weight: 425;
+  line-height: 18px;
+  letter-spacing: -0.08px;
+}
+
+:root[data-theme="dark"] .desktop-parity-panel {
+  --panel-ink: #f5f5f5;
+  --panel-secondary: rgb(245 245 245 / 66%);
+  --panel-muted: rgb(245 245 245 / 54%);
+  --panel-border: rgb(245 245 245 / 10%);
+  --panel-divider: rgb(245 245 245 / 10%);
+  --panel-surface: #1f1f1f;
+  --panel-selected: rgb(245 245 245 / 8%);
+  --panel-hover: rgb(245 245 245 / 6%);
+  --panel-disabled: rgb(245 245 245 / 15%);
+  --panel-disabled-text: rgb(245 245 245 / 30%);
+  --panel-outline: #555;
+}
+
+.new-bot-dialog-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+  letter-spacing: -0.15px;
+}
+
+.new-bot-dialog-header,
+.new-bot-dialog-footer {
+  border-color: var(--panel-divider);
+}
+
+.new-bot-dialog-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 0;
+  color: var(--panel-secondary);
+}
+
+.new-bot-dialog-close:hover {
+  background: var(--panel-hover);
+}
+
+.new-bot-name {
+  margin: 4px 0;
+  color: var(--panel-ink);
+  border-color: var(--panel-border);
+  font-size: 13px;
+  font-weight: 425;
+  line-height: 18px;
+  letter-spacing: 0.195px;
+}
+
+.new-bot-name::placeholder {
+  color: var(--panel-muted);
+}
+
+.new-bot-character {
+  position: relative;
+  padding: 0;
+}
+
+.new-bot-color[aria-pressed="true"],
+.new-bot-color:hover {
+  border-color: var(--panel-outline);
+}
+
+.desktop-panel-button {
+  height: 32px;
+  gap: 4px;
+  border: 0;
+  padding: 6px 12px;
+  box-shadow: none;
+  font-size: 14px;
+  font-weight: 425;
+  line-height: 20px;
+  letter-spacing: 0.14px;
+}
+
+.desktop-panel-button-secondary {
+  color: var(--panel-ink);
+  background: var(--panel-hover);
+}
+
+.desktop-panel-button-primary {
+  color: var(--panel-surface);
+  background: var(--panel-ink);
+}
+
+.desktop-panel-button:disabled {
+  opacity: 1;
+  color: var(--panel-disabled-text);
+  background: var(--panel-disabled);
+}
+
+.desktop-panel-button-secondary:hover {
+  background: var(--panel-selected);
+}
+
+.desktop-panel-button-primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.desktop-search-input {
+  color: var(--panel-ink);
+  font-size: 22px;
+  font-weight: 425;
+  line-height: 28px;
+  letter-spacing: 0.22px;
+}
+
+.desktop-search-input::placeholder,
+.desktop-search-icon {
+  color: var(--panel-muted);
+}
+
+.desktop-search-section {
+  align-items: flex-start;
+  padding-top: 2px;
+  color: var(--panel-muted);
+  font-size: 12px;
+  font-weight: 425;
+  line-height: 16px;
+  letter-spacing: 0.12px;
+}
+
+.desktop-search-result {
+  font-size: 14px;
+  font-weight: 425;
+  line-height: 20px;
+  letter-spacing: 0.14px;
+}
+
+.desktop-search-title {
+  font-weight: 425;
+}
+
+.desktop-search-result[aria-selected="true"] {
+  background: var(--panel-selected);
+}
+
+.desktop-search-result:hover:not([aria-selected="true"]) {
+  background: var(--panel-hover);
+}
+
+.desktop-search-action-icon {
+  border-radius: 50%;
+  color: var(--panel-secondary);
+  background: var(--panel-hover);
+}
+
+.desktop-search-settings-prefix {
+  color: var(--panel-secondary);
+  font-weight: 425;
+}
+
+.desktop-search-breadcrumb {
+  gap: 8px;
+}
+
+.desktop-search-breadcrumb svg {
+  width: 8px;
+  height: 12px;
+  color: var(--panel-muted);
+}
+
+.desktop-search-description {
+  color: var(--panel-secondary);
+  font-weight: 425;
+  letter-spacing: 0.13px;
+}
+
+/* The reference uses an overlay scroll area. Native gutters must not shift
+ * the result text or right inset when the same panel starts overflowing. */
+.search-results-scroll {
+  scrollbar-width: none;
+}
+
+.search-results-scroll::-webkit-scrollbar {
+  display: none;
+}

@@ -44,8 +44,8 @@ export const moveSearchSection = (current: SearchSection, direction: -1 | 1): Se
 
 export const moveSearchSelection = (current: number, count: number, direction: -1 | 1) => {
   if (count === 0) return -1;
-  if (current < 0) return direction > 0 ? 0 : count - 1;
-  return (current + direction + count) % count;
+  if (current < 0) return 0;
+  return Math.max(0, Math.min(count - 1, current + direction));
 };
 
 export const normalizeClientSearch = (value: string) =>

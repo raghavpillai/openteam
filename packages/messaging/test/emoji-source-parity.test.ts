@@ -24,3 +24,7 @@ test("the source-backed version contains none of our experimental behavioral add
   for (const addition of ["A brief instruction update", "prefer a reaction if words add nothing", "Acknowledge a request once", "such as thanks or agreement"])
     expect(text).not.toContain(addition);
 });
+
+test("the complete respond rule matches the captured active-reaction branch", () => {
+  expect(PLATFORM_BASE_SYSTEM_PROMPT.split("\n")).toContain(captured.respondLine);
+});

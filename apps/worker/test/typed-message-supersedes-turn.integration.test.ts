@@ -126,8 +126,34 @@ const fixtureBot = async () => {
   const send = (content: string, clientId: string, thread?: { replyToMessageId: string }) =>
     Effect.runPromise(channels.sendDirectMessage(conversationId, { content, clientId, ...(thread ? { ...thread, isFork: true } : {}) }) as any) as Promise<{ run: { id: string }; message: { id: string } }>;
   const run = (runId: string) => db.run.findUniqueOrThrow({ where: { id: runId } });
-  return { botId, conversationId, claimedFor, startTurn, send, run };
+  return { botId, conversationId, channelId, claimedFor, startTurn, send, run };
 };
+
+test.skipIf(!databaseUrl)("reacting during active work queues feedback without interrupting the command, and retry/removal create no duplicate wake", async () => {
+  const bot = await fixtureBot();
+  const finished = join(root, `reaction-finished-${bot.botId}`);
+  await script({ firstReply: { role: "assistant", tool_calls: [{ index: 0, id: "reaction-shell", type: "function", function: {
+    name: "Shell", arguments: JSON.stringify({ command: `echo started; sleep 2; touch ${finished}`, block_until_ms: 60_000 }) } }] } });
+  const first = await bot.send("Run the check.", crypto.randomUUID());
+  const claimed = await bot.claimedFor(first.run.id, "reaction-active");
+  const turn = await bot.startTurn(claimed, claimed.content, null);
+  await waitUntil(() => turn.events.some((event) => event.type === "item.started" && JSON.stringify(event).includes("echo started")), "command to start");
+  const acknowledgement = await db.channelMessage.create({ data: {
+    channelId: bot.channelId, sender: "agent", senderBotId: bot.botId, sourceRunId: first.run.id, content: "Checking now.",
+  } });
+  const input = { emoji: "👍", clientId: crypto.randomUUID() };
+  const add = await Effect.runPromise(channels.reactToMessage(acknowledgement.id, input)) as any;
+  const retry = await Effect.runPromise(channels.reactToMessage(acknowledgement.id, input)) as any;
+  expect(add).toMatchObject({ reacted: true, removed: false });
+  expect(retry.runId).toBe(add.runId);
+  expect((await bot.run(first.run.id)).status).toBe("running");
+  const remove = await Effect.runPromise(channels.reactToMessage(acknowledgement.id, { ...input, clientId: crypto.randomUUID() })) as any;
+  expect(remove).toMatchObject({ reacted: false, removed: true, runId: null });
+  expect(await db.inboxEvent.count({ where: { botId: bot.botId, type: "user.reaction" } })).toBe(1);
+  await turn.done;
+  expect(turn.events.find((event) => event.type === "turn.completed")?.status).toBe("completed");
+  expect(existsSync(finished)).toBe(true);
+}, 30_000);
 
 test.skipIf(!databaseUrl)("a typed message during a running Shell cancels the turn, kills the command, and the new turn carries the unfinished-tasks reminder", async () => {
   const bot = await fixtureBot();

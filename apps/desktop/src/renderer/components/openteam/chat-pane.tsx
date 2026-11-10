@@ -163,7 +163,6 @@ interface ChatPaneProps {
   mutate: Mutate;
   threadContextMessageIds?: ReadonlySet<string>;
   searchContextMessageIds?: ReadonlySet<string>;
-  activityTruncated?: boolean;
   threadContextTruncated?: boolean;
   focusMessage: { messageId: string; nonce: number } | null;
   historyGeneration?: number;
@@ -216,7 +215,6 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.mutate === next.mutate &&
   previous.threadContextMessageIds === next.threadContextMessageIds &&
   previous.searchContextMessageIds === next.searchContextMessageIds &&
-  previous.activityTruncated === next.activityTruncated &&
   previous.threadContextTruncated === next.threadContextTruncated &&
   previous.focusMessage === next.focusMessage &&
   previous.historyGeneration === next.historyGeneration &&
@@ -927,7 +925,6 @@ export const ChatPane = memo(function ChatPane({
   mutate,
   threadContextMessageIds,
   searchContextMessageIds,
-  activityTruncated = false,
   threadContextTruncated = false,
   focusMessage,
   historyGeneration = 0,
@@ -1476,14 +1473,6 @@ export const ChatPane = memo(function ChatPane({
             className="max-w-none gap-1 px-4 pt-11"
             style={{ paddingBottom: `calc(${24 + restingThinkingSpace}px + var(--composer-overlap, 0px))` }}
           >
-            {activityTruncated && (
-              <div
-                className="mx-auto mb-2 w-full max-w-[640px] rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground"
-                role="status"
-              >
-                Older run details are summarized; active runs remain visible.
-              </div>
-            )}
             {threadContextTruncated && (
               <div
                 className="mx-auto mb-2 w-full max-w-[640px] rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground"

@@ -1464,9 +1464,6 @@ export default function App() {
                       >
                         <ChatPane
                           active={channelId === selectedId && !a2aExchangeChannel}
-                          activityTruncated={
-                            historyByChannel.get(channelId)?.activityTruncated ?? false
-                          }
                           threadContextTruncated={
                             historyByChannel.get(channelId)?.threadContextTruncated ?? false
                           }
@@ -1533,7 +1530,6 @@ export default function App() {
                       >
                         <ChatPane
                           activeRun={undefined}
-                          activityTruncated={false}
                           threadContextTruncated={false}
                           agentNameById={index.agentNameById}
                           botById={index.botById}

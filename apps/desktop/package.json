@@ -138,6 +138,7 @@
     "test:parity-edges": "bun scripts/test-desktop-parity-edges.ts",
     "test:widget-group-parity": "bun scripts/test-widget-group-parity.ts",
     "test:background-activity": "bun scripts/test-background-activity.ts",
+    "test:activity-history": "bun scripts/test-activity-history.ts",
     "test:window-activity": "bun scripts/test-window-activity.ts",
     "test:window-sync": "bun scripts/test-window-activity.ts --sync",
     "test:window-foreground": "bun scripts/test-window-foreground.ts",

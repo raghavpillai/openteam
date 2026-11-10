@@ -11,7 +11,7 @@ export function deviceLinkDefinition(connection: {
 }
 
 /** MCP lifecycle results stay host-only. Reject tool errors and malformed envelopes. */
-export function deviceLinkResult(result: unknown): Record<string, any> {
+export function deviceLinkResult(result: unknown): Record<string, unknown> {
   const envelope = jsonObject(result);
   if (envelope.isError === true) throw new Error("Device linking failed. Reconnect to try again.");
   const content = Array.isArray(envelope.content) ? envelope.content : [];
@@ -60,21 +60,54 @@ export function publicDeviceLink(credentials: unknown) {
 }
 
 /** Dynamic approvals require a session identifier; legacy static providers may omit it. */
-export function deviceLinkStatusMatches(link: Record<string, any>, status: Record<string, any>) {
+export function deviceLinkStatusMatches(
+  link: Record<string, unknown>,
+  status: Record<string, unknown>
+) {
   if (!link.sessionId) return true;
   if (status.sessionId !== undefined) return status.sessionId === link.sessionId;
   return link.sessionExpiresAt === undefined && link.challengeGeneration === undefined;
 }
 
+export type DeviceLinkTransition =
+  | { kind: "expired" | "stale" | "ready" }
+  | {
+      kind: "pending";
+      linking: boolean | undefined;
+      recovering: boolean;
+      authorizationError: boolean;
+    };
+
+/** One ordering for every status path: deadline, session fence, then readiness. */
+export function deviceLinkTransition(
+  link: Record<string, unknown>,
+  status: Record<string, unknown>,
+  now = Date.now()
+): DeviceLinkTransition {
+  const deadline = link.sessionExpiresAt ?? link.expiresAt;
+  if (typeof deadline === "number" && deadline <= now) return { kind: "expired" };
+  if (!deviceLinkStatusMatches(link, status)) return { kind: "stale" };
+  if (status.linked === true) return { kind: "ready" };
+  return {
+    kind: "pending",
+    linking: typeof status.linking === "boolean" ? status.linking : undefined,
+    recovering: status.recovering === true,
+    authorizationError: Boolean(status.authorizationError),
+  };
+}
+
 /** Challenge rotation never creates a session or extends its fixed approval deadline. */
-export function deviceLinkChallenge(link: Record<string, any>, status: Record<string, any>) {
+export function deviceLinkChallenge(
+  link: Record<string, unknown>,
+  status: Record<string, unknown>
+) {
   if (!Object.hasOwn(status, "challenge")) return;
   if (status.sessionId !== link.sessionId) return;
   const challenge = jsonObject(status.challenge);
   const generation = challenge.generation;
   if (typeof generation !== "number" || !Number.isSafeInteger(generation) || generation < 0)
     throw new Error("Connector returned an invalid device linking challenge.");
-  if (generation <= (link.challengeGeneration ?? 0)) return;
+  if (generation <= Number(link.challengeGeneration ?? 0)) return;
   const next = {
     ...link,
     sessionExpiresAt: link.sessionExpiresAt ?? link.expiresAt,

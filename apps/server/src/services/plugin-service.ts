@@ -1,7 +1,7 @@
 import {
   clearDeviceLinkState,
   deviceLinkChallenge,
-  deviceLinkStatusMatches,
+  deviceLinkTransition,
   deviceLinkDefinition,
   deviceLinkResult,
   publicDeviceLink,
@@ -881,8 +881,8 @@ export class PluginService {
       await this.transport.callHostTool(connection, definition.statusTool, {})
     );
     const active = jsonObject(jsonObject(connection.credentials).deviceLink);
-    const activeDeadline = active.sessionExpiresAt ?? active.expiresAt;
-    if (active.sessionId && typeof activeDeadline === "number" && activeDeadline <= Date.now()) {
+    const transition = deviceLinkTransition(active, status);
+    if (transition.kind === "expired") {
       await this.transport.callHostTool(connection, definition.cancelTool, {
         sessionId: active.sessionId,
       }).catch(() => {});
@@ -895,14 +895,14 @@ export class PluginService {
       });
       return { id: connection.id, status: "needs_auth", toolCount: 0 };
     }
-    if (!deviceLinkStatusMatches(active, status))
+    if (transition.kind === "stale")
       return { id: connection.id, status: "needs_auth", toolCount: 0 };
-    if (status.linked === true) {
+    if (transition.kind === "ready") {
       const ready = await this.markReady(connection, tools, "connection.ready", connection.updatedAt);
       return { id: ready.id, status: ready.status, toolCount: tools.length };
     }
     const prior = publicDeviceLink(connection.credentials);
-    if (prior && status.linking === true)
+    if (prior && transition.kind === "pending" && transition.linking === true)
       return { id: connection.id, status: "needs_auth", toolCount: 0 };
     let link: ReturnType<typeof deviceLinkResult>;
     try {
@@ -912,16 +912,15 @@ export class PluginService {
     } catch (error) {
       // Background recovery or another approval may complete after the first
       // status snapshot. Accept that success instead of requiring a second click.
-      let recovered: ReturnType<typeof deviceLinkResult> | undefined;
+      let recovered: ReturnType<typeof deviceLinkTransition> | undefined;
       try {
-        recovered = deviceLinkResult(
+        recovered = deviceLinkTransition(active, deviceLinkResult(
           await this.transport.callHostTool(connection, definition.statusTool, {})
-        );
+        ));
       } catch {
         /* Preserve the original setup failure when status is unavailable. */
       }
-      if (recovered?.linked === true && deviceLinkStatusMatches(active, recovered) &&
-        (!active.sessionId || typeof activeDeadline !== "number" || activeDeadline > Date.now())) {
+      if (recovered?.kind === "ready") {
         const ready = await this.markReady(connection, tools, "connection.ready", connection.updatedAt);
         return { id: ready.id, status: ready.status, toolCount: tools.length };
       }
@@ -935,8 +934,9 @@ export class PluginService {
       ...(link.sessionExpiresAt !== undefined ? { sessionExpiresAt: link.sessionExpiresAt } : {}),
       ...(link.challengeGeneration !== undefined ? { challengeGeneration: link.challengeGeneration } : {}),
     };
-    if (!publicDeviceLink({ deviceLink: stored }) ||
-      (link.sessionExpiresAt ?? link.expiresAt) > Date.now() + 10 * 60_000)
+    const projected = publicDeviceLink({ deviceLink: stored });
+    if (!projected ||
+      (projected.sessionExpiresAt ?? projected.expiresAt) > Date.now() + 10 * 60_000)
       throw new Error("Connector returned an invalid device linking code.");
     const updated = await this.prisma.pluginConnection.updateMany({
       where: { id: connection.id, runtimeGeneration: connection.runtimeGeneration, updatedAt: connection.updatedAt },
@@ -997,11 +997,10 @@ export class PluginService {
     const status = deviceLinkResult(
       await this.transport.callHostTool(connection, definition.statusTool, {})
     );
-    const deadline = link.sessionExpiresAt ?? link.expiresAt;
-    const expired = typeof deadline === "number" && deadline <= Date.now();
-    if (!expired && !deviceLinkStatusMatches(link, status))
+    const transition = deviceLinkTransition(link, status);
+    if (transition.kind === "stale")
       return { linked: false, stale: true };
-    if (!expired && status.linked === true) {
+    if (transition.kind === "ready") {
       if (connection.status !== "ready" || recovering)
         await this.markReady(connection, toolSnapshot(connection.toolSnapshot),
           "connection.ready",
@@ -1009,7 +1008,8 @@ export class PluginService {
         );
       return { linked: true };
     }
-    if (!expired && link.sessionId && status.linking !== false && !status.authorizationError) {
+    if (transition.kind === "pending" && link.sessionId &&
+      transition.linking !== false && !transition.authorizationError) {
       const next = deviceLinkChallenge(link, status);
       if (next) {
         const updated = await this.prisma.pluginConnection.updateMany({
@@ -1023,7 +1023,7 @@ export class PluginService {
         if (!updated.count) return { linked: false, stale: true };
       }
     }
-    if (status.recovering === true && !link.sessionId) {
+    if (transition.kind === "pending" && transition.recovering && !link.sessionId) {
       await this.prisma.pluginConnection.updateMany({
         where: {
           id: connectionId,
@@ -1044,8 +1044,10 @@ export class PluginService {
       });
       return { linked: false, recovering: true };
     }
-    const interrupted = status.linking === false;
-    if (expired || interrupted || status.authorizationError || connection.status === "ready" ||
+    const expired = transition.kind === "expired";
+    const interrupted = transition.kind === "pending" && transition.linking === false;
+    const failed = transition.kind === "pending" && transition.authorizationError;
+    if (expired || interrupted || failed || connection.status === "ready" ||
       recovering
     ) {
       if (link.sessionId)
@@ -1116,13 +1118,7 @@ export class PluginService {
       const disconnected = await tx.pluginConnection.update({
           where: { id: connectionId },
           data: {
-          credentials: toJson(
-            Object.fromEntries(
-              Object.entries(jsonObject(current.credentials)).filter(
-                ([key]) => key !== "deviceLink" && key !== "deviceRecoveryPending"
-              )
-            )
-          ),
+          credentials: toJson(clearDeviceLinkState(current.credentials)),
           status: "disconnected",
             statusMessage: null,
             connectedAt: null,
@@ -1290,9 +1286,7 @@ export class PluginService {
     const removing = await this.prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE id = ${connectionId}::uuid FOR UPDATE`;
       const current = await tx.pluginConnection.findUniqueOrThrow({ where: { id: connectionId } });
-      const credentials = { ...jsonObject(current.credentials), stateRemovalPending: true };
-      delete (credentials as Record<string, unknown>).deviceLink;
-      delete (credentials as Record<string, unknown>).deviceRecoveryPending;
+      const credentials = { ...clearDeviceLinkState(current.credentials), stateRemovalPending: true };
       return tx.pluginConnection.update({ where: { id: connectionId }, data: {
         runtimeGeneration: { increment: 1 }, credentials: toJson(credentials),
         status: "disconnected", connectedAt: null,
@@ -1460,13 +1454,7 @@ export class PluginService {
       const value = await tx.pluginConnection.update({
         where: { id: connection.id },
         data: {
-          credentials: toJson(
-            Object.fromEntries(
-              Object.entries(jsonObject(current.credentials)).filter(
-                ([key]) => key !== "deviceLink" && key !== "deviceRecoveryPending"
-              )
-            )
-          ),
+          credentials: toJson(clearDeviceLinkState(current.credentials)),
           status: "ready",
           statusMessage: null,
           connectedAt: new Date(),

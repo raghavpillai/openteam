@@ -55,7 +55,6 @@ export interface ChannelHistoryStatus {
   loadingNewer: boolean;
   loadedMessages: number;
   retainedBytes: number;
-  activityTruncated: boolean;
   threadContextTruncated: boolean;
 }
 
@@ -1054,7 +1053,6 @@ export function useOpenTeam() {
   const historyByChannel = useMemo(() => {
     const status = new Map<string, ChannelHistoryStatus>();
     for (const [channelId, history] of histories.current) {
-      const state = channelStates.current.get(channelId);
       const window = historyWindows.current.get(channelId) ?? emptyChannelMessageWindow();
       const context = window.context;
       status.set(channelId, {
@@ -1068,7 +1066,6 @@ export function useOpenTeam() {
         loadingNewer: context?.loadingDirection === "newer",
         loadedMessages: context ? history.searchContext.length : history.messages.length,
         retainedBytes: window.retainedBytes,
-        activityTruncated: state?.truncated ? Object.values(state.truncated).some(Boolean) : false,
         threadContextTruncated: context
           ? history.searchThreadContextTruncated
           : history.threadContextTruncated,

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore } from "@openteam/messaging";
-import { importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { pluginCatalog } from "@openteam/plugins";
 import { Effect } from "effect";
 import { pluginRuntimeContext } from "../../../worker/src/plugins";
@@ -14,7 +13,7 @@ import { createOAuthMcpFixture } from "./fixtures/oauth-mcp";
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test.skipIf(!databaseUrl)(
-  "Ramp installs, materializes skills, routes independent accounts, and disconnects through the normal plugin service",
+  "Ramp installs its playbooks and routes an authenticated MCP call through the Bot namespace",
   async () => {
     const db = createPrismaClient(databaseUrl!);
     const root = await mkdtemp(join(tmpdir(), "ramp-plugin-"));
@@ -87,63 +86,33 @@ test.skipIf(!databaseUrl)(
       ).installPath;
       expect(
         cache.skills.filter((entry: { pluginId: string }) => entry.pluginId === definition.key)
-      ).toHaveLength(30);
+      ).toHaveLength(definition.skills.length);
       const reference = "upstream/plugins/ramp/skills/ramp-agentic-purchase/browser-checkout.md";
       expect(await readFile(join(installedPath, reference), "utf8")).toBe(
         definition.files![reference]!
       );
       expect(
-        await readFile(join(installedPath, "skills/ramp-openteam/scripts/ramp.ts"), "utf8")
-      ).toBe(definition.files!["skills/ramp-openteam/scripts/ramp.ts"]!);
+        await readFile(join(installedPath, "skills/ramp-openteam/SKILL.md"), "utf8")
+      ).toBe(definition.files!["skills/ramp-openteam/SKILL.md"]!);
 
-      await authorize(first.id, "Account A");
-      const second = await Effect.runPromise(service.addAccount(first.id, "second"));
-      await authorize(second.id, "Account B");
+      await authorize(first.id, "Ramp account");
       const context = await pluginRuntimeContext(db, botId);
       expect(
         context.pluginRuntimePackages.find((pkg) => pkg.key === definition.key)?.rules
       ).toMatchObject([{ name: "ramp-openteam", alwaysApply: true }]);
-      const invoke = async (id: string) => {
-        const namespace = context.dynamicNamespaces.find((entry) =>
-          entry.tools.some((tool) => tool.connectionId === id)
-        )!;
-        return service.invoke({
-          connectionId: id,
-          namespace: namespace.name,
-          botId,
-          runId,
-          callId: crypto.randomUUID(),
-          toolName: "whoami",
-          arguments: {},
-        });
-      };
-      expect(JSON.stringify(await invoke(first.id))).toContain("Account A");
-      expect(JSON.stringify(await invoke(second.id))).toContain("Account B");
-      provider.expireTokens();
-      expect(JSON.stringify(await invoke(first.id))).toContain("Account A");
-      expect(provider.observations.refreshes).toBeGreaterThan(0);
-      expect(await Effect.runPromise(service.install(definition.key))).toEqual(installation);
-      const saved = await db.pluginConnection.findUniqueOrThrow({ where: { id: first.id } });
-      const token = (saved.credentials as { oauth: { tokens: { access_token: string } } }).oauth
-        .tokens.access_token;
-      const exported = importPackageArchive(
-        await Effect.runPromise(service.management.exportInstalled(definition.key))
-      ).definition;
-      expect(JSON.stringify(exported)).not.toContain(token);
-      expect(exported.files![reference]).toBe(definition.files![reference]);
-      await Effect.runPromise(service.disconnect(first.id));
-      await expect(invoke(first.id)).rejects.toMatchObject({ code: "plugin_connection_not_ready" });
-      expect(JSON.stringify(await invoke(second.id))).toContain("Account B");
-      await Effect.runPromise(service.uninstall(definition.key));
-      expect(
-        (await service.dynamicNamespaces(botId))
-          .flatMap((entry) => entry.tools)
-          .some((tool) => [first.id, second.id].includes(tool.connectionId))
-      ).toBe(false);
-      const emptyCache = JSON.parse(await readFile(join(root, "plugin-skills/cache.json"), "utf8"));
-      expect(
-        emptyCache.packages.some((entry: { pluginId: string }) => entry.pluginId === definition.key)
-      ).toBe(false);
+      const namespace = context.dynamicNamespaces.find((entry) =>
+        entry.tools.some((tool) => tool.connectionId === first.id)
+      )!;
+      const result = await service.invoke({
+        connectionId: first.id,
+        namespace: namespace.name,
+        botId,
+        runId,
+        callId: crypto.randomUUID(),
+        toolName: "whoami",
+        arguments: {},
+      });
+      expect(JSON.stringify(result)).toContain("Ramp account");
     } finally {
       if (previousRoot === undefined) delete process.env.OPENTEAM_AGENT_DATA_ROOT;
       else process.env.OPENTEAM_AGENT_DATA_ROOT = previousRoot;

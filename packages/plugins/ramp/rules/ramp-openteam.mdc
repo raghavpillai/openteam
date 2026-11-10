@@ -1,6 +1,6 @@
 ---
-description: Route Ramp playbooks through the selected OpenTeam MCP account or its separately authorized CLI.
+description: Route Ramp playbooks through the selected OpenTeam MCP account.
 alwaysApply: true
 ---
 
-For Ramp tasks, read the installed `ramp-openteam` skill before following a provider playbook. It explains account selection, current MCP tool names, upstream compatibility, and the CLI fallback. Use the selected account's live schemas and verify financial actions. CLI examples use the skill's `scripts/ramp.ts --account <OpenTeam-connection-id>` helper and require separate authorization. Match its `users me` identity to the intended account. Use OpenTeam's available browser capability for checkout and authentication.
+For Ramp tasks, read the installed `ramp-openteam` skill before following a provider playbook. Use the selected account's live MCP schemas and verify financial actions. Translate upstream CLI examples into MCP calls; do not install or invoke the Ramp CLI. Use the receipt upload-link workflow for local files and OpenTeam's available browser capability for checkout and authentication.

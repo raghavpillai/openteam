@@ -77,7 +77,7 @@ connectivity = startNetworkConnectivity({
   changed: () => { dnsExchange?.syncRoute(); console.log(JSON.stringify(statusView())); },
   failed: () => process.exit(1),
 });
-const proxy = createBrowserProxy((host, port) => client.open(host, port));
+const proxy = createBrowserProxy((host, port, signal) => client.open(host, port, signal));
 const port = await proxy.listen(config.port);
 dnsExchange = config.computerNetwork
   ? createDnsExchange(client, {

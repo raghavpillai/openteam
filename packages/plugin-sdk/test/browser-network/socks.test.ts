@@ -45,7 +45,7 @@ test("rejected connections release capacity instead of leaking slots", async () 
   }
 }, 15_000);
 
-test("Node SOCKS admission, TCP lifecycle and real timeout regressions", async () => {
+async function runNodeFixture(args: string[] = []) {
   const { mkdtemp, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -71,7 +71,7 @@ test("Node SOCKS admission, TCP lifecycle and real timeout regressions", async (
     ]);
     if (buildCode !== 0) throw new Error(buildErrors || buildOut);
     expect(buildCode).toBe(0);
-    const child = Bun.spawn([process.env.OPENTEAM_TEST_NODE ?? "node", bundle], {
+    const child = Bun.spawn([process.env.OPENTEAM_TEST_NODE ?? "node", bundle, ...args], {
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -84,8 +84,6 @@ test("Node SOCKS admission, TCP lifecycle and real timeout regressions", async (
     clearTimeout(timeout);
     if (code !== 0) throw new Error(stderr || stdout);
     const result = JSON.parse(stdout);
-    expect(result.passed).toBe(11);
-    expect(result.offeredConnections).toBeGreaterThan(3500);
     console.log(
       JSON.stringify({
         runtime: result.runtime,
@@ -93,9 +91,22 @@ test("Node SOCKS admission, TCP lifecycle and real timeout regressions", async (
         connections: result.offeredConnections,
       })
     );
+    return result;
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+test("Node SOCKS admission, TCP lifecycle and real timeout regressions", async () => {
+  const result = await runNodeFixture();
+  expect(result.passed).toBe(11);
+  expect(result.offeredConnections).toBeGreaterThan(3500);
+}, 60_000);
+
+test("Node SOCKS seeded faults, cancellation, backpressure and restart chaos", async () => {
+  const result = await runNodeFixture(["--chaos"]);
+  expect(result.passed).toBe(6);
+  expect(result.offeredConnections).toBeGreaterThan(6000);
 }, 60_000);
 
 test("abandoned half-open clients release their slot immediately", async () => {

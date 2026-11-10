@@ -1,11 +1,14 @@
 import { createConnection, createServer } from "node:net";
 import { createServer as httpServer } from "node:http";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, existsSync } from "node:fs";
 import type { Duplex } from "node:stream";
 import { createBrowserProxy } from "../../packages/plugin-sdk/src/browser-network/socks";
 import { startComputerDns, createDnsExchange } from "../../apps/computer/src/computer-network-dns";
 import { runOrdinaryProbe } from "../../apps/computer/src/computer-network-probe";
 import { startControlFixture } from "../../packages/plugin-sdk/test/browser-network/control-fixture";
+import { startNetworkConnectivity, probeNetworkFamily, applyNetworkFamilies } from "../../apps/computer/src/network-connectivity";
+import { probeComputerNetwork } from "../../apps/computer/src/computer-network-probe";
+import { createInterface } from "node:readline";
 import { startManagementDiscovery } from "../../apps/computer/src/computer-network-management";
 
 /** Test-only adapter to an existing SOCKS path; never opens a new app channel
@@ -58,7 +61,36 @@ async function upstream(host: string, port: number) {
   }
 }
 
-if (process.argv[2] === "discovery") {
+if (process.argv[2] === "--computer-network-probe") {
+  const lines = createInterface({ input: process.stdin });
+  for await (const line of lines) {
+    const value = JSON.parse(line);
+    console.log(JSON.stringify(await runOrdinaryProbe(value.kind, value.route)));
+    break;
+  }
+  process.exit(0);
+} else if (process.argv[2] === "capabilities") {
+  const route = { epoch: "local-fixture", sourceId: "local-fixture", mode: "device" as const,
+    machineId: "local-fixture", available: true, revision: 1, deploymentId: "fixture", sourceOrder: ["local-fixture"] };
+  const monitor = startNetworkConnectivity({
+    route: () => route,
+    probe: (family, signal) => probeNetworkFamily(async (host, port, life) => {
+      if (existsSync("/run/reject-ipv4") && !host.includes(":")) throw new Error("Injected exit failure");
+      return new Promise<Duplex>((resolve, reject) => {
+        const socket = createConnection({ host, port, signal: life });
+        socket.once("error", reject); socket.once("connect", () => resolve(socket));
+      });
+    }, family, signal),
+    verify: async (family, signal) => await probeComputerNetwork(family, route, signal) as any,
+    apply: applyNetworkFamilies,
+    changed: () => writeFileSync("/run/family-health.json", JSON.stringify(monitor.status())),
+    failed: () => { writeFileSync("/run/family-health-error", "failed"); process.exit(1); },
+    intervalMs: 1000, retryMs: 500,
+  });
+  monitor.sync();
+  setInterval(() => {}, 1000);
+  process.once("SIGTERM", () => { void monitor.close().then(() => { writeFileSync("/run/family-monitor-stopped", "stopped"); process.exit(0); }); });
+} else if (process.argv[2] === "discovery") {
   const discovery = startManagementDiscovery(
     "http://future-server:8787",
     () => writeFileSync("/run/discovery-started", "ready"),
@@ -102,6 +134,7 @@ if (process.argv[2] === "discovery") {
     : (host: string, port: number) =>
         new Promise((resolve, reject) => {
           writeFileSync("/run/relay-count", String(++count));
+          if (host.includes(":") && existsSync("/run/reject-ipv6")) { reject(new Error("IPv6 exit unavailable")); return; }
           const socket = createConnection({ host, port, allowHalfOpen: true });
           socket.once("error", reject);
           socket.once("connect", () => resolve(socket));

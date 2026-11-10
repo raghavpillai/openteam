@@ -11,6 +11,7 @@ public struct BrowserNetworkView: Decodable, Sendable {
     public let routeEpoch: String?
     public let state: String
     public let activeMachineId: String?
+    public let connectivity: BrowserNetworkConnectivity?
   }
   public struct Device: Decodable, Sendable, Identifiable {
     public let machineId: String
@@ -24,6 +25,12 @@ public struct BrowserNetworkView: Decodable, Sendable {
   public let settings: Settings
   public let runtime: Runtime
   public let devices: [Device]
+  public var connectivity: BrowserNetworkConnectivity? {
+    guard ["ready", "server"].contains(runtime.state), let value = runtime.connectivity,
+      value.epoch == runtime.routeEpoch,
+      value.sourceId == (runtime.state == "server" ? "server" : runtime.activeMachineId) else { return nil }
+    return value
+  }
   public var order: [String] {
     if settings.mode == "device", let id = settings.machineId { return [id, "server"] }
     return settings.sourceOrder.isEmpty ? ["server"] : settings.sourceOrder
@@ -43,7 +50,13 @@ public struct BrowserNetworkView: Decodable, Sendable {
     guard let device = devices.first(where: { $0.id == id }), device.enabled else { return false }
     return device.working ?? (device.connected && device.sharingAllowed)
   }
+  public var internetUnavailable: Bool {
+    connectivity?.ipv4.state == "unavailable" && connectivity?.ipv6.state == "unavailable"
+  }
   public var summary: String {
+    if internetUnavailable {
+      return "No internet through \(runtime.state == "server" ? "the server connection" : name(runtime.activeMachineId ?? ""))"
+    }
     switch runtime.state {
     case "server": return "Using the server connection"
     case "ready": return "Using \(name(runtime.activeMachineId ?? ""))"
@@ -52,6 +65,20 @@ public struct BrowserNetworkView: Decodable, Sendable {
     default: return "Browser network unavailable"
     }
   }
+}
+public struct BrowserNetworkConnectivity: Decodable, Sendable {
+  public struct Family: Decodable, Sendable {
+    public let state: String
+    public let reason: String?
+    public var label: String {
+      switch state { case "working": "Working"; case "unavailable": "Unavailable"; default: "Checking…" }
+    }
+  }
+  public let epoch: String
+  public let sourceId: String
+  public let checkedAt: String?
+  public let ipv4: Family
+  public let ipv6: Family
 }
 public enum BrowserNetworkRequest {
   public static let path = "/api/v0/server-settings/browser-network"

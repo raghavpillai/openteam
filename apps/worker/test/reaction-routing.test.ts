@@ -25,7 +25,7 @@ test("visible user messages still require delivery, even when they quote a hidde
   const turn = turnContentWithNotes({ origin: "user", inboxType: "message.user", runtimeProfile: "agent", notes: [] }, content);
   expect(turn).toStartWith("<system_reminder>\n");
   expect(turn).toContain("SendToUser");
-  expect(turn).toContain("ReactToMessage");
+  expect(turn).toContain("Plain assistant text is NEVER delivered");
   expect(turn).toEndWith(content);
 });
 

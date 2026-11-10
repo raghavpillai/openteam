@@ -47,7 +47,7 @@ describe("channel message interaction prompts", () => {
 
   test("uses the hidden reaction wrapper delivered to the authoring agent", () => {
     expect(formatUserReactionPrompt("❤️", "Nothing in the transcripts looks inbound.")).toBe(
-      "[SAND_HIDDEN_PROMPT][The user reacted ❤️ to your message: \"Nothing in the transcripts looks inbound.\". This is lightweight feedback, not a new typed request. Stay silent for a simple acknowledgement or approval of an answer already delivered; do not repeat it or thank the user for reacting. If the conversation explicitly made this reaction a signal to proceed, continue that work. For disagreement or confusion (for example 👎), recheck the quoted answer. Correct a concrete error with SendToUser; if the issue is unclear, ask one brief clarification. Do not repeat the original answer.][SAND_HIDDEN_PROMPT]"
+      "[SAND_HIDDEN_PROMPT][The user reacted ❤️ to your message: \"Nothing in the transcripts looks inbound.\". You don't need to reply; act on it only if it's useful (e.g. acknowledge, adjust, or continue).][SAND_HIDDEN_PROMPT]"
     );
   });
 

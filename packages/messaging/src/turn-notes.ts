@@ -1,6 +1,6 @@
 /** Per-turn notes ride in one <system_reminder> part ahead of the timestamped query, as in the reference. */
 export const USER_REPLY_REMINDER =
-  "Respond with an actual SendToUser call when the user needs words, or one suitable ReactToMessage tapback when acknowledgement alone is enough. Plain assistant text is private and never delivered. For simple thanks, agreement, jokes, or good news, prefer a reaction if words add nothing. A brief instruction update while requested work is already running can also get a tapback without a redundant text acknowledgement. Use end_turn only when you are done for now; otherwise keep working. Deliver requested answers and results with SendToUser, and use words for a new substantial task, a question, a blocker, or emotional support. Respect requests for no emoji or reactions.";
+  "Reply to this message by actually invoking the SendToUser tool. Make a real tool/function call, not text you write. Plain assistant text is NEVER delivered; only a real SendToUser tool invocation reaches the user, so if you don't invoke the tool they just see silence.";
 
 export const UNFINISHED_TASKS_REMINDER =
   "The user interrupted your work to send you a message. Follow the new message first. Complete any unfinished tasks from previous turns unless the user asked you to stop, halt, cancel, quit working, or otherwise end the work; in that case, do not continue or resume those tasks.";

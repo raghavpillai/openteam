@@ -44,10 +44,8 @@ export const reactionQuote = (content: string): string => {
 
 export const formatUserReactionPrompt = (emoji: string, content: string) =>
   `[SAND_HIDDEN_PROMPT][The user reacted ${emoji} to your message: ` +
-  `${JSON.stringify(reactionQuote(content))}. This is lightweight feedback, not a new typed request. ` +
-  `Stay silent for a simple acknowledgement or approval of an answer already delivered; do not repeat it or thank the user for reacting. ` +
-  `If the conversation explicitly made this reaction a signal to proceed, continue that work. ` +
-  `For disagreement or confusion (for example 👎), recheck the quoted answer. Correct a concrete error with SendToUser; if the issue is unclear, ask one brief clarification. Do not repeat the original answer.][SAND_HIDDEN_PROMPT]`;
+  `${JSON.stringify(reactionQuote(content))}. You don't need to reply; ` +
+  `act on it only if it's useful (e.g. acknowledge, adjust, or continue).][SAND_HIDDEN_PROMPT]`;
 
 export const xmlText = (value: string): string =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");

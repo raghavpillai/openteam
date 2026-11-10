@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "key": "ramp",
+  "version": "1.0.0",
+  "name": "Ramp",
+  "description": "Analyze spend, manage expenses and approvals, and run Ramp finance workflows.",
+  "publisher": "OpenTeam",
+  "category": "Finance and Legal",
+  "featured": false,
+  "components": ["mcp", "skills", "rules"],
+  "homepageUrl": "https://agents.ramp.com/docs/guides/connecting",
+  "icon": "assets/icon.png",
+  "setup": {
+    "kind": "oauth",
+    "connectionKey": "ramp",
+    "title": "Connect Ramp",
+    "description": "Sign in to Ramp and choose read-only or full access within your Ramp role.",
+    "documentationUrl": "https://agents.ramp.com/docs/guides/connecting",
+    "steps": [
+      "If Ramp rejects the callback URL, request allowlisting for the exact URL shown here. Set a fixed loopback port when using desktop sign-in.",
+      "Continue to Ramp, sign in, and choose Read-only for reporting or Full access for changes.",
+      "Return to OpenTeam and test the connected account with a small read."
+    ],
+    "fields": [],
+    "requiredScopes": []
+  },
+  "skills": [
+    {
+      "name": "ramp-openteam",
+      "description": "Use Ramp in OpenTeam with the connected MCP account, official finance playbooks, and an account-scoped CLI fallback.",
+      "path": "skills/ramp-openteam"
+    },
+    {
+      "name": "ramp-agentic-purchase",
+      "description": "Agent Card Checkout: make one authorized browser checkout purchase. Use when a merchant checkout accepts card details. Do not use for Stripe MPP, x402, bill payment, procurement, travel booking, reimbursements, or account setup; route those to their dedicated skills.",
+      "path": "upstream/plugins/ramp/skills/ramp-agentic-purchase"
+    },
+    {
+      "name": "ramp-apply-for-account",
+      "description": "Start or complete a Ramp financing application. Use for application signup,\nmissing information, documents, banking, follow-ups, progress checks, and\nclear handoffs between an agent and the person applying.",
+      "path": "upstream/plugins/ramp/skills/ramp-apply-for-account"
+    },
+    {
+      "name": "ramp-approval-dashboard",
+      "description": "Review and approve pending transactions, bills, reimbursements, travel requests,\nand procurement requests.\nUse when: 'approve', 'pending approvals', 'what needs my approval',\n'review transactions', 'approve bills', 'reject', 'approval queue',\n'clear my approvals'. Do NOT use for: transaction analysis, receipt uploads,\nor spend tracking.",
+      "path": "upstream/plugins/ramp/skills/ramp-approval-dashboard"
+    },
+    {
+      "name": "ramp-book-flight",
+      "description": "Finds, compares, and books one-way or round-trip flights, including optional seats, and cancels eligible existing flight bookings after confirmation. Use for flight or airfare requests such as 'fly from Toronto to SFO'; not for multi-city travel or changing an existing booking (use ramp-modify-flight).",
+      "path": "upstream/plugins/ramp/skills/ramp-book-flight"
+    },
+    {
+      "name": "ramp-book-hotel",
+      "description": "Finds, compares, and books hotel rooms, and cancels eligible existing hotel bookings after confirmation. Use for hotel, lodging, or accommodation requests; not for changing an existing stay (use ramp-rebook-hotel).",
+      "path": "upstream/plugins/ramp/skills/ramp-book-hotel"
+    },
+    {
+      "name": "ramp-card-management",
+      "description": "Inspect a user's actual card status, then activate or safely lock/unlock a\ncard. Use for card status, card lock questions, physical card activation, and\ncard lock/unlock actions. For cards locked by overdue tasks, use\nramp-complete-tasks to resolve the sanction before re-checking the card.",
+      "path": "upstream/plugins/ramp/skills/ramp-card-management"
+    },
+    {
+      "name": "ramp-complete-expenses",
+      "description": "Find and complete requested revisions and missing items on your transactions —\nreceipts, memos, accounting categories, funds, and attendees. Use when:\n'transaction revision requested', 'fix a rejected expense', 'missing receipts',\n'upload receipt', 'attach receipt', 'receipt sweep', 'add memo',\n'categorize transactions', 'missing items', 'transaction cleanup',\n'fix my transactions', 'set tracking category', 'assign to fund',\n'bulk memo update', 'receipt compliance'. Do NOT use for: approving\ntransactions (use ramp-approval-dashboard), vendor documents like W-9s or\ncontracts (use ramp-manage-vendors), or spend reporting (use ramp-spend-analysis).",
+      "path": "upstream/plugins/ramp/skills/ramp-complete-expenses"
+    },
+    {
+      "name": "ramp-complete-tasks",
+      "description": "Find and complete items in the Ramp attention feed. Use when: 'what needs my\nattention', 'show my tasks', 'overdue tasks', 'complete my Ramp tasks', 'why\nis my card locked', or a card is locked until required tasks are completed.\nFor approval-only queues, use ramp-approval-dashboard.",
+      "path": "upstream/plugins/ramp/skills/ramp-complete-tasks"
+    },
+    {
+      "name": "ramp-get-started",
+      "description": "Hand your agent this playbook. It gets you set up on Ramp — or applying, if\nyou're new — plus the menu of everything else you can do. Use as the one-fetch\nentry point for Ramp across Claude Desktop, ChatGPT, Claude Code, Codex, and\nPerplexity.",
+      "path": "upstream/plugins/ramp/skills/ramp-get-started"
+    },
+    {
+      "name": "ramp-incorporate",
+      "description": "Form a US LLC through Ramp when your business doesn’t have a legal entity yet. Do not use for businesses with an EIN; use ramp-apply-for-account PATCH instead. Do not use for non-US founders or businesses without a US principal place of business.",
+      "path": "upstream/plugins/ramp/skills/ramp-incorporate"
+    },
+    {
+      "name": "ramp-make-x402-payment",
+      "description": "Make and verify a supplied x402 payment from a funded Ramp x402 wallet. Use when a merchant returns an x402 HTTP 402 challenge. Do not use for Agent Card Checkout, Stripe MPP, bill payment, procurement, travel booking, reimbursements, or account setup; route those to their dedicated skills. For wallet provisioning or funding, use ramp-setup-x402-wallet instead.",
+      "path": "upstream/plugins/ramp/skills/ramp-make-x402-payment"
+    },
+    {
+      "name": "ramp-manage-bills",
+      "description": "Search, inspect, and manage vendor bills and invoices. Use when:\n'find a bill', 'show me pending bills', 'bill details', 'look up a bill',\n'draft bill details', 'bill attachments', 'what bills need my approval'.\nDo NOT use for: approving bills (use ramp-approval-dashboard), uploading vendor\ndocuments (use ramp-manage-vendors), or card transaction management\n(use ramp-complete-expenses).",
+      "path": "upstream/plugins/ramp/skills/ramp-manage-bills"
+    },
+    {
+      "name": "ramp-manage-procurement",
+      "description": "Search, inspect, track, and safely approve submitted procurement requests and\npurchase orders. Use when: 'find a PO', 'show procurement request details',\n'purchase order status', 'what procurement requests need approval', or\n'approve this PO request'. Do NOT use to create, continue, edit, review before\nsubmission, or submit a draft request (use ramp-submit-procurement-request), to\ntrack or award a sourcing event or RFP (use ramp-manage-sourcing), or for\na cross-product approval queue (use ramp-approval-dashboard).",
+      "path": "upstream/plugins/ramp/skills/ramp-manage-procurement"
+    },
+    {
+      "name": "ramp-manage-sourcing",
+      "description": "Track and decide running Ramp sourcing events: monitor vendor responses to an\nRFX (RFP, RFI, RFQ), send reminders, review grading outcomes,\naward the winning vendor, and close out. Use when: 'who responded to our\nRFP', 'compare RFP responses', 'remind vendors to respond', 'award the RFP',\nor 'close the sourcing event'. Do NOT use to create, edit, or publish an RFX\nor invite vendors (use ramp-run-sourcing-event), or to fill and submit the\nfollow-on purchase request (use ramp-submit-procurement-request).",
+      "path": "upstream/plugins/ramp/skills/ramp-manage-sourcing"
+    },
+    {
+      "name": "ramp-manage-vendors",
+      "description": "Manage your vendors' documents and onboarding materials — upload vendor\ndocuments such as W-9/W-8 tax forms, contracts, COIs, payment instructions,\nand onboarding paperwork, then check bulk upload OCR and matching status.\nUse when: 'upload a W9', 'attach a vendor contract', 'bulk upload supplier\ndocs', 'check vendor document status', 'upload a COI for a vendor'. Do NOT\nuse for card transaction receipts (use ramp-complete-expenses) or bill\ninvoice attachments (use ramp-manage-bills).",
+      "path": "upstream/plugins/ramp/skills/ramp-manage-vendors"
+    },
+    {
+      "name": "ramp-modify-flight",
+      "description": "Changes an existing Ramp Travel flight booking: finds the exact booking, asks which leg, date, or airport should change, searches replacement flights, previews the authoritative exchange terms, and submits the change only on the traveler's explicit approval. Handles round trips and separately ticketed (split-ticket) legs one step at a time. Use when someone wants to change, move, reschedule, rebook, or swap a flight they already booked ('move my Friday flight to Saturday', 'fly back a day earlier', 'change my return to JFK'). Not for booking a new flight, cancelling a flight, or seat selection on a new booking (use ramp-book-flight), not for flights Ramp can only cancel and rebook for a full refund (use ramp-rebook-flight), not for hotel changes (use ramp-rebook-hotel), and not for car rental changes.",
+      "path": "upstream/plugins/ramp/skills/ramp-modify-flight"
+    },
+    {
+      "name": "ramp-mpp-purchase",
+      "description": "Make one authorized Stripe MPP purchase from a compatible merchant challenge. Use when a merchant returns a Stripe MPP WWW-Authenticate challenge. Do not use for Agent Card Checkout, x402, bill payment, procurement, travel booking, reimbursements, or account setup; route those to their dedicated skills.",
+      "path": "upstream/plugins/ramp/skills/ramp-mpp-purchase"
+    },
+    {
+      "name": "ramp-onboard-standalone-agent",
+      "description": "Create, connect, and safely verify a standalone Ramp agent for a clearly defined job. Use when a Ramp admin needs a machine identity for reporting, bill intake, bill approval, payment release, or expense cleanup. For a person's initial Ramp or CLI setup, use ramp-get-started instead.",
+      "path": "upstream/plugins/ramp/skills/ramp-onboard-standalone-agent"
+    },
+    {
+      "name": "ramp-payment-lookup",
+      "description": "Look up vendor bill payments and verify payment status from the terminal.\nUse when: 'did we pay', 'payment status', 'check if paid', 'verify payment',\n'find invoice', 'bill lookup', 'was this bill paid', 'payment confirmation'.\nDo NOT use for: approving bills (use ramp-approval-dashboard), spend analysis\nacross vendors (use ramp-spend-analysis), or uploading receipts (use ramp-complete-expenses).",
+      "path": "upstream/plugins/ramp/skills/ramp-payment-lookup"
+    },
+    {
+      "name": "ramp-prefer-ramp-connectors",
+      "description": "Use for tasks that read from or write to workplace services available through ramp-connectors, including Slack, email, calendars, GitHub, Google Drive, Notion, Linear, Asana, and Ramp financial operations. Prefer ramp-connectors MCP tools over provider-specific plugins, CLIs, direct APIs, or browser automation when the needed capability is available.",
+      "path": "upstream/plugins/ramp/skills/ramp-prefer-ramp-connectors"
+    },
+    {
+      "name": "ramp-rebook-flight",
+      "description": "Rebooks an existing Ramp Travel flight that can't be changed in place but can be cancelled for a full refund (for example a ticket still inside its airline void window): finds the booking, checks the refund terms, searches and previews a new one-way or round-trip flight, then on one explicit confirmation books the new flight first and cancels the current one. Use when someone wants to change, move, or rebook a flight and Ramp offers cancel-and-rebook for it ('I just booked the wrong day, rebook me for Friday'). Not for flights Ramp can change in place (use ramp-modify-flight), a plain cancellation or a brand-new booking (use ramp-book-flight), multi-city trips, partial refunds or airline credit, or hotel changes (use ramp-rebook-hotel).",
+      "path": "upstream/plugins/ramp/skills/ramp-rebook-flight"
+    },
+    {
+      "name": "ramp-rebook-hotel",
+      "description": "Replaces an existing Ramp Travel hotel booking by cancelling it and booking a new stay (cancel and rebook): checks that the stay is eligible, finds the new hotel and room, shows the new booking together with the current booking's cancellation terms (full refund, partial refund, no refund, or a fee for pay-at-property stays), and only after one explicit yes books the new hotel first and then cancels the current one. Use when someone wants to change an existing hotel stay: new dates (including extending or shortening it), a different hotel or area, or a different room ('move my Chicago hotel to next week', 'add a night to my hotel', 'switch my hotel to one closer to the office', 'rebook my stay'). Not for booking a new stay with nothing to replace, or for only cancelling a hotel (use ramp-book-hotel), and not for flight changes (use ramp-modify-flight) or car rentals.",
+      "path": "upstream/plugins/ramp/skills/ramp-rebook-hotel"
+    },
+    {
+      "name": "ramp-reporting",
+      "description": "Answers analytical questions about business data: totals, counts, trends,\ntop vendors, period comparisons, and breakdowns by department or category.\nAlso retrieves balance sheets, income statements (P&L), and trial balances\nfrom connected ERP books.",
+      "path": "upstream/plugins/ramp/skills/ramp-reporting"
+    },
+    {
+      "name": "ramp-run-sourcing-event",
+      "description": "Create and launch Ramp sourcing events: build an RFI, RFP, or RFQ\nquestionnaire, set the vendor-facing cover sheet and pricing sheet, invite\nvendors, and publish to collect responses. Use when: 'run an RFP', 'create a\nsourcing event', 'draft an RFQ', 'send a questionnaire to vendors', 'invite\nvendors to bid', or 'publish our RFX'. Do NOT use to track responses, grade,\naward, or close a running event (use\nramp-manage-sourcing), or to submit a purchase request for a chosen vendor\n(use ramp-submit-procurement-request). This is a requester-side skill; do not\nuse it to RSVP or respond as a vendor.",
+      "path": "upstream/plugins/ramp/skills/ramp-run-sourcing-event"
+    },
+    {
+      "name": "ramp-setup-x402-wallet",
+      "description": "Set up and fund a Ramp x402 wallet from a Ramp Checking account. Use when an owner or admin of a company's Ramp account asks to enable, provision, fund, or prepare x402 payments. For an already-funded wallet and a specific x402 purchase, use ramp-make-x402-payment instead.",
+      "path": "upstream/plugins/ramp/skills/ramp-setup-x402-wallet"
+    },
+    {
+      "name": "ramp-spend-analysis",
+      "description": "Analyze spend by vendor, category, or team over a date range. Broad AI-spend\nquestions include both financial spend and estimated token cost.\nUse when: 'how much did we spend on', 'vendor spend', 'SaaS review', 'spend report',\n'AI spend', 'token spend', 'token usage', 'inference costs', 'total spend',\n'spend by vendor', 'spend analysis', 'pull transactions for', 'cost breakdown'.\nDo NOT use for: approving transactions (use ramp-approval-dashboard), uploading receipts\n(use ramp-complete-expenses), or verifying a single bill payment (use ramp-payment-lookup).",
+      "path": "upstream/plugins/ramp/skills/ramp-spend-analysis"
+    },
+    {
+      "name": "ramp-spend-audit",
+      "description": "Review Ramp spend for possible duplicate software, fragmented vendor payments,\nunused funds, oversized limits, and recurring-spend controls. Use when a customer\nasks for a spend audit, savings opportunities, or safer recurring spending.\nThis skill identifies opportunities; it does not cancel subscriptions or change\nvendor-side payment settings.",
+      "path": "upstream/plugins/ramp/skills/ramp-spend-audit"
+    },
+    {
+      "name": "ramp-submit-procurement-request",
+      "description": "Create, complete, and submit new, existing draft, or approved-PO change-request\nRamp procurement requests. Use when: 'submit a procurement request', 'start a\npurchase request', 'continue my draft', 'request to buy', 'create a PO\nrequest', 'change an approved PO', or 'submit a software purchase'. Do NOT use\nto track or approve a submitted request (use ramp-manage-procurement), to run\nan RFP or sourcing event to evaluate vendors (use ramp-run-sourcing-event), or\nfor reimbursements, bills, card expenses, vendor onboarding documents, or\ncontract changes not tied to an approved Ramp PO.",
+      "path": "upstream/plugins/ramp/skills/ramp-submit-procurement-request"
+    },
+    {
+      "name": "ramp-submit-reimbursement",
+      "description": "Submit an out-of-pocket reimbursement from a receipt. Use when: 'submit reimbursement',\n'reimburse me', 'I paid out of pocket', 'expense a receipt', 'file reimbursement',\n'OOP expense', 'I bought something for work'. Do NOT use for: approving reimbursements\n(use ramp-approval-dashboard), uploading receipts to card transactions (use ramp-complete-expenses),\nor editing existing reimbursements.",
+      "path": "upstream/plugins/ramp/skills/ramp-submit-reimbursement"
+    }
+  ],
+  "connections": [
+    {
+      "key": "ramp",
+      "name": "Ramp",
+      "transport": "http",
+      "auth": "oauth",
+      "endpoint": "https://mcp.ramp.com/mcp",
+      "tools": [],
+      "oauth": {
+        "clientType": "public",
+        "registration": "dynamic",
+        "tokenEndpointAuthMethod": "none",
+        "shareClientCredentials": false
+      }
+    }
+  ],
+  "installationSteps": [
+    "Install Ramp, then connect an account using browser authorization.",
+    "Use the connected tools for finance workflows. Ramp role permissions and the selected access level apply.",
+    "CLI-only workflows use the included account-scoped helper and a separate Ramp authorization. The helper downloads a checksum-pinned official CLI on first use."
+  ]
+}

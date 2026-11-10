@@ -215,6 +215,8 @@ describe("execute tells a computer outage from a reported failure", () => {
       pluginInstallation: { findMany: async () => [] },
       run: { update: async () => ({}), findUnique: async () => ({ status: "running" }) },
       subagent: { findUnique: async () => null },
+      // execute looks up the triggering message to detect a realtime voice turn; none exists here.
+      channelMessage: { findUnique: async () => null },
     };
     worker.agentData = {
       loadInferenceSettings: async () => ({

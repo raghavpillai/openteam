@@ -1,6 +1,7 @@
 import {
   BrainCircuit,
   CloudDownload,
+  AudioLines,
   Globe,
   Mic,
   Monitor,
@@ -28,6 +29,7 @@ const loadGeneralSettings = () => import("./general");
 const loadComputerSettings = () => import("./computer");
 const loadModelSettings = () => import("./model");
 const loadVoiceSettings = () => import("./transcription");
+const loadRealtimeVoiceSettings = () => import("./realtime-voice");
 const loadServerSettings = () => import("./server");
 const loadProvidersSettings = () => import("./providers");
 const loadUpdatesSettings = () => import("./updates");
@@ -36,6 +38,7 @@ const GeneralSettings = lazy(loadGeneralSettings);
 const ComputerSettings = lazy(loadComputerSettings);
 const ModelSettings = lazy(loadModelSettings);
 const VoiceSettings = lazy(loadVoiceSettings);
+const RealtimeVoiceSettings = lazy(loadRealtimeVoiceSettings);
 const ServerSettings = lazy(loadServerSettings);
 const ProvidersSettings = lazy(loadProvidersSettings);
 const UpdatesSettings = lazy(loadUpdatesSettings);
@@ -45,6 +48,7 @@ const sectionLoaders: Record<SettingsView, () => Promise<unknown>> = {
   computer: loadComputerSettings,
   model: loadModelSettings,
   voice: loadVoiceSettings,
+  "realtime-voice": loadRealtimeVoiceSettings,
   server: loadServerSettings,
   providers: loadProvidersSettings,
   updates: loadUpdatesSettings,
@@ -55,6 +59,7 @@ const sectionComponents = {
   computer: ComputerSettings,
   model: ModelSettings,
   voice: VoiceSettings,
+  "realtime-voice": RealtimeVoiceSettings,
   server: ServerSettings,
   providers: ProvidersSettings,
   updates: UpdatesSettings,
@@ -70,6 +75,7 @@ const navigation: Array<{
   { id: "computer", label: "Computer", icon: Monitor, available: true },
   { id: "model", label: "Model", icon: BrainCircuit, available: true },
   { id: "voice", label: "Voice notes", icon: Mic, available: true },
+  { id: "realtime-voice", label: "Realtime voice", icon: AudioLines, available: true },
   { id: "server", label: "Server", icon: Server, available: true },
   { id: "providers", label: "Providers", icon: Globe, available: true },
   { id: "updates", label: "Updates", icon: CloudDownload, available: true },

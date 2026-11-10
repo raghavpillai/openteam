@@ -53,7 +53,8 @@
     "./notification-presence": "./src/notification-presence.ts",
     "./tailscale": "./src/tailscale.ts",
     "./browser-network": "./src/browser-network.ts",
-    "./task-progress": "./src/task-progress.ts"
+    "./task-progress": "./src/task-progress.ts",
+    "./voice": "./src/voice.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",

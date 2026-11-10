@@ -49,7 +49,9 @@ export class InternalToolService {
     private readonly subagents: SubagentService,
     private readonly administration: AdministrationService,
     private readonly plugins: PluginService,
-    private readonly richMessages?: RichMessageService
+    private readonly richMessages?: RichMessageService,
+    private readonly onVisibleMessage?: (runId: string, messageId: string) => Promise<void>,
+    private readonly onSpeechChunk?: (runId: string, callId: string, text: string) => Promise<boolean>
   ) {}
 
   execute = (request: DynamicToolCallRequest, transfer: {upload?:import("@openteam/plugin-sdk/file-spool").StagedFile;stream?:boolean} = {}) =>
@@ -132,6 +134,24 @@ export class InternalToolService {
       if (request.tool === "AcknowledgeCardOutcomes") {
         await this.messaging.acknowledgeCardOutcomes(request.botId, (request.arguments as { receipts: Array<{ messageId: string; outcomeId: string }> }).receipts);
         return { acknowledged: true };
+      }
+      // Private to the computer: a finished sentence of a SendToUser message still being written, spoken at once.
+      if (request.tool === "VoiceSpeak") {
+        if (childIdentity || run.origin === "routine") throw new ApiError(403, "speech_unavailable", "Only the user-facing parent may speak");
+        const input = (request.arguments ?? {}) as { callId?: unknown; text?: unknown };
+        if (typeof input.callId !== "string" || typeof input.text !== "string" || !input.text.trim()) throw new ApiError(400, "invalid_speech", "A call id and text are required");
+        return { spoken: this.onSpeechChunk ? await this.onSpeechChunk(request.runId, input.callId, input.text.slice(0, 2_000)) : false };
+      }
+      // Private to the computer's narrator, never registered in any model catalog.
+      if (request.tool === "VoiceNarration") {
+        if (childIdentity || run.origin === "routine") throw new ApiError(403, "narration_unavailable", "Only the user-facing parent may narrate");
+        const text = (request.arguments as { text?: unknown } | null)?.text;
+        if (typeof text !== "string") throw new ApiError(400, "invalid_narration", "Narration text is required");
+        const { acknowledgement } = await this.messaging.sendNarration(context, text);
+        const messageId = typeof acknowledgement === "object" ? acknowledgement.message_id : undefined;
+        // The persisted chat message is authoritative; the voice session speaks it through the same path as an answer.
+        if (typeof messageId === "string" && this.onVisibleMessage) await this.onVisibleMessage(request.runId, messageId).catch(() => undefined);
+        return typeof acknowledgement === "object" ? acknowledgement : { sent: true };
       }
       if (request.tool === "RecordUserFormRemap" && !childIdentity && this.richMessages) {
         return this.richMessages.recordFormRemap(request.botId, request.arguments as import("@openteam/contracts").UserFormReceipt);
@@ -378,6 +398,8 @@ export class InternalToolService {
         }
         if (!input.channel) {
           result = await this.messaging.sendVisible(context, input);
+          const messageId = result && typeof result === "object" && "acknowledgement" in result && result.acknowledgement && typeof result.acknowledgement === "object" && "message_id" in result.acknowledgement && typeof result.acknowledgement.message_id === "string" ? result.acknowledgement.message_id : null;
+          if (messageId && this.onVisibleMessage) await this.onVisibleMessage(request.runId, messageId).catch(() => undefined);
         } else {
           const content = input.type === "text" ? input.content ?? "" : input.alt ?? "";
           const sources = input.type === "text" ? input.images ?? [] : input.type === "attachment" ? [{url:input.url!,alt:input.alt}] : [];

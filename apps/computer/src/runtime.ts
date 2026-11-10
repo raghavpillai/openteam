@@ -63,6 +63,8 @@ import { retryFirstOutputStalls, streamDeadlines, type StreamTimers } from "./ru
 import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
 import { endTurnHoldExtension } from "./runtime/end-turn-hold";
+import { VoiceNarrator, voiceNarrationExtension } from "./runtime/voice-narration";
+import { SendToUserSpeech, sendToUserSpeechExtension } from "./runtime/voice-stream";
 import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
 import { DiskPressureMonitor, reminderStepPersisted } from "./runtime/disk-pressure";
 import { INSTALL_NOTICE_TYPE, InstallNotice } from "./runtime/install-notice";
@@ -318,6 +320,18 @@ export class ComputerRuntime {
       readOnly: request.readOnly ?? false,
       attachmentTempDirectories: [],
     };
+    // Only the user-facing parent of a realtime voice call narrates.
+    if (request.voiceNarration && !active.subagentType && active.requestSource !== "automation") {
+      active.narrator = new VoiceNarrator(
+        active,
+        { model: request.voiceNarration.model, reasoning: request.voiceNarration.reasoning, userRequest: request.content },
+        { infer: (narration) => this.infer(narration), deliver: (text) => this.tools.narrate(active, text) }
+      );
+      active.speech = new SendToUserSpeech(async (callId, text) => {
+        await this.tools.speakChunk(active, callId, text);
+        active.narrator?.spoke("agent", text);
+      });
+    }
     this.activeByRun.set(active.runId, active);
     this.activeByContext.set(active.contextSessionId, active);
 
@@ -418,6 +432,7 @@ export class ComputerRuntime {
       queue.push({ type: "turn.started", turnId: active.turnId });
       const images = [...uploaded.images, ...attachments.images];
       const content = recordedInputIds.has(`input:${request.clientMessageId}`) ? RESUME_RECORDED_INPUT_PROMPT : request.content;
+      active.narrator?.begin();
       void this.execute(active, [content, uploaded.notice].filter(Boolean).join("\n"), images);
       return queue;
     } catch (error) {
@@ -529,6 +544,7 @@ export class ComputerRuntime {
     timeoutMs: number;
     model: string;
     reasoning: PiReasoningLevel;
+    maxTokens?: number;
     signal?: AbortSignal;
   }): Promise<string> {
     if (request.signal?.aborted) throw new Error("Memory inference canceled");
@@ -581,6 +597,7 @@ export class ComputerRuntime {
         {
           signal,
           ...inferenceReasoningOptions(model, request.reasoning),
+          ...(request.maxTokens ? { maxTokens: request.maxTokens } : {}),
           ...(connection?.sessionId ? {
             sessionId: connection.sessionId,
             // Reuse only the transport. "websocket" sends full input every time
@@ -740,6 +757,8 @@ export class ComputerRuntime {
         pluginComponentsExtension(active),
         untrustedResultsExtension(),
         endTurnHoldExtension(active),
+        ...(active.narrator ? [voiceNarrationExtension(active.narrator, active)] : []),
+        ...(active.speech ? [sendToUserSpeechExtension(active.speech)] : []),
         directDynamicToolsExtension({
           registered: () => active.session?.getActiveToolNames() ?? this.tools.directToolNames(active),
           cursor: () => this.tools.cursorToolNames(active),
@@ -939,6 +958,7 @@ export class ComputerRuntime {
     }
     await active.closePluginSession?.().catch(()=>console.warn("Plugin session cleanup failed"));
     active.pluginAbortController?.abort();
+    active.narrator?.stop();
     this.activeByRun.delete(active.runId);
     this.activeByContext.delete(active.contextSessionId);
     active.unsubscribe?.();

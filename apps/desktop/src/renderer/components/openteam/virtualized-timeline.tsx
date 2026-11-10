@@ -158,6 +158,7 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
       const entry = entries[index];
       if (!entry) return 72;
       if (entry.type === "a2a") return 40;
+      if (entry.type === "voice") return 44;
       if (entry.type === "thinking") return 36;
       if (entry.type === "context_gap") return 52;
       return 72;

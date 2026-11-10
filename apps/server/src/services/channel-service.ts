@@ -224,6 +224,7 @@ export class ChannelService {
               ...(input.richText ? { richText: input.richText } : {}),
               ...(input.isFork ? { branched: true } : {}),
               ...(input.timeZone ? { timeZone: input.timeZone } : {}),
+              ...(input.voice ? { voice: input.voice } : {}),
             },
           },
         });

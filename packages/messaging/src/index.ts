@@ -2722,6 +2722,12 @@ export class AgentMessaging {
         }
       }
       const address = await nextMessageAddress(tx, channel.id, "agent");
+      // Replies to a realtime voice turn carry the same marker as the spoken input
+      // so clients can fold the whole exchange into one voice conversation card.
+      // Interactive cards stay visible because the user must be able to answer them.
+      const voiceTurn = input.type === "text"
+        ? await tx.voiceTurn.findUnique({ where: { runId: context.runId }, select: { id: true, sessionId: true } })
+        : null;
       const message = await tx.channelMessage.create({
         data: {
           channelId: channel.id,
@@ -2732,6 +2738,7 @@ export class AgentMessaging {
           content,
           metadata: json({
             ...visibleInput,
+            ...(voiceTurn ? { voice: { sessionId: voiceTurn.sessionId, turnId: voiceTurn.id } } : {}),
             ...(channel.kind === "group" ? { content } : {}),
             ...(routineRootMessageId ? { routineRootMessageId } : {}),
             address,
@@ -2767,6 +2774,60 @@ export class AgentMessaging {
     });
     if (groupRoundId) await this.advanceRound(groupRoundId);
     return result;
+  }
+
+  /**
+   * Persists a spoken progress line for a realtime voice run. It reads like any bot
+   * message in the chat, but carries `type: "voice-narration"` so the worker never
+   * counts it as the run's answer and no push notification is sent for it.
+   */
+  async sendNarration(context: ToolContext, text: string): Promise<ToolResult> {
+    const content = text.trim().slice(0, 400);
+    if (!content) throw new ApiError(400, "invalid_narration", "Narration text is required");
+    return this.prisma.$transaction(async (tx) => {
+      const channel = await tx.channel.findFirst({
+        where: { id: context.channelId, kind: "bot_dm", archivedAt: null, members: { some: { botId: context.botId } } },
+        include: { members: { orderBy: { ordinal: "asc" } } },
+      });
+      if (!channel) throw new ApiError(409, "narration_unavailable", "Narration needs the bot's own chat");
+      const voiceTurn = await tx.voiceTurn.findUnique({ where: { runId: context.runId }, select: { id: true, sessionId: true } });
+      if (!voiceTurn) throw new ApiError(409, "narration_unavailable", "Only a realtime voice run can narrate");
+      const clientId = `narration:${context.callId}`;
+      const existing = await tx.channelMessage.findUnique({ where: { channelId_clientId: { channelId: channel.id, clientId } } });
+      if (existing) {
+        return {
+          acknowledgement: { sent: true, message_id: existing.id, message_address: (existing.metadata as { address: string }).address, duplicate: true },
+          interruptRunId: null,
+        };
+      }
+      const address = await nextMessageAddress(tx, channel.id, "agent");
+      const message = await tx.channelMessage.create({
+        data: {
+          channelId: channel.id,
+          sender: "agent",
+          senderBotId: context.botId,
+          sourceRunId: context.runId,
+          clientId,
+          content,
+          metadata: json({
+            kind: "send-message",
+            type: "voice-narration",
+            content,
+            voice: { sessionId: voiceTurn.sessionId, turnId: voiceTurn.id },
+            address,
+            timeZone: resolveTimeZone(context.timeZone ?? (await this.userTimeZone(tx))),
+          }),
+        },
+      });
+      await this.scheduleTranscriptProjection(tx, channel.members.map((member) => member.botId));
+      await tx.channel.update({ where: { id: channel.id }, data: { updatedAt: new Date() } });
+      // Clients refresh on any product event; no alert is published because the user is already in the call.
+      await tx.event.create({ data: { topic: "channel.message.created", entityId: message.id, payload: json({ channelId: channel.id, messageId: message.id }) } });
+      return {
+        acknowledgement: { sent: true, channel_id: channel.id, channel_type: channel.kind, message_id: message.id, message_address: address },
+        interruptRunId: null,
+      };
+    });
   }
 
   private async persistedVisibleInput(

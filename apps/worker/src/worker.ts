@@ -127,6 +127,14 @@ export class TranscriptFingerprintCache {
 export const transcriptEventsFingerprint = (events: unknown): string =>
   createHash("sha256").update(JSON.stringify(events)).digest("hex");
 
+/** Spoken progress lines are chat messages, but never the answer to the user's request. */
+export const isVoiceNarration = (metadata: unknown): boolean =>
+  Boolean(metadata) && typeof metadata === "object" && !Array.isArray(metadata) &&
+  (metadata as { type?: unknown }).type === "voice-narration";
+
+export const voiceTurnPrompt =
+  "[SAND_HIDDEN_PROMPT]This is a realtime voice conversation. The user hears your SendToUser messages spoken aloud. Keep each one short, warm and natural, as if talking, with no tables, code blocks or long lists. A separate voice narrator tells the user what you are doing while you work, so do not announce routine tool use yourself. Call SendToUser when you have a result, a question, or something genuinely new to say, and never repeat what the user has already heard. Begin a message with a brief first-person sentence such as \"I'm checking that now\" only when the work will take a while and the narrator has not already said so. This instruction is internal and must not be shown as a chat message.";
+
 class BotRunLeaseContended extends Error {}
 
 interface WakeData {
@@ -1402,6 +1410,22 @@ export class WakeWorker {
         missedMessages.push({ id: `input:${payload.clientId}`, content: `[SAND_HIDDEN_PROMPT]Earlier user input whose delivery was interrupted:\n${payload.content}`, images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments), budget) });
       }
       const instructions = platformPrompt.instructions;
+      const triggeringMessage = claimed.channelId
+        ? await this.prisma.channelMessage.findUnique({
+            where: { channelId_clientId: { channelId: claimed.channelId, clientId: claimed.clientId } },
+            select: { metadata: true },
+          })
+        : null;
+      const triggeringMetadata = triggeringMessage?.metadata && typeof triggeringMessage.metadata === "object" && !Array.isArray(triggeringMessage.metadata)
+        ? triggeringMessage.metadata as Record<string, unknown>
+        : null;
+      const voiceTurn = Boolean(triggeringMetadata?.voice && typeof triggeringMetadata.voice === "object" && !Array.isArray(triggeringMetadata.voice));
+      const voicePrompt = voiceTurn ? [{ id: `${claimed.clientId}:voice`, content: voiceTurnPrompt }] : [];
+      // Spoken progress uses the configured narration model, or the bot's own model, with reasoning off: at the lowest
+      // level some models still spend the whole token budget thinking and return no text.
+      const narrationSetting = voiceTurn && !claimed.subagentType && claimed.origin === "user"
+        ? (await this.prisma.voiceSettings.findUnique({ where: { id: "global" }, select: { narrationModel: true } }))?.narrationModel.trim() ?? ""
+        : null;
       // Subagents run on the parent run's recorded model and reasoning, so a
       // settings change mid-run never switches models inside one task tree.
       const inferenceParent = claimed.inferenceParentRunId
@@ -1431,7 +1455,7 @@ export class WakeWorker {
           notes: [platformPrompt.automationStatus, platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
           unfinishedTasks: await this.supersededUnfinishedRun(claimed),
         }, claimed.content),
-        prependMessages: [...missedMessages, ...(platformPrompt.ambientContext ? [{
+        prependMessages: [...missedMessages, ...voicePrompt, ...(platformPrompt.ambientContext ? [{
           id: `${claimed.clientId}:ambient`,
           content: `[SAND_HIDDEN_PROMPT]${platformPrompt.ambientContext}`,
         }] : [])],
@@ -1455,6 +1479,9 @@ export class WakeWorker {
         timeZone: await this.messaging.userTimeZone(),
         model: formatPiModelRef(selectedInference),
         reasoning: selectedInference.reasoning,
+        ...(narrationSetting !== null
+          ? { voiceNarration: { model: narrationSetting || formatPiModelRef(selectedInference), reasoning: "off" as const } }
+          : {}),
         fileAttachments: claimed.fileAttachments,
         attachmentOwnerBotId: claimed.attachmentOwnerBotId,
         dynamicNamespaces: pluginContext.dynamicNamespaces,
@@ -1824,7 +1851,7 @@ export class WakeWorker {
             },
           }),
         ]);
-        const lastMessage = channel
+        const lastVisible = channel
           ? await tx.channelMessage.findFirst({
               where: {
                 channelId: channel.id,
@@ -1835,6 +1862,13 @@ export class WakeWorker {
               orderBy: { sequence: "desc" },
             })
           : null;
+        // Spoken progress narration is not the run's answer, so it never satisfies the delivery owed.
+        const lastMessage = lastVisible && isVoiceNarration(lastVisible.metadata)
+          ? ((await tx.channelMessage.findMany({
+              where: { channelId: channel!.id, sourceRunId: claimed.runId, sender: "agent", senderBotId: current.botId },
+              orderBy: { sequence: "desc" },
+            })).find((message) => !isVoiceNarration(message.metadata)) ?? null)
+          : lastVisible;
         if (
           channel &&
           !lastMessage &&
@@ -1947,10 +1981,10 @@ export class WakeWorker {
           sender: "agent",
           senderBotId: claimed.botId,
         },
-        select: { content: true },
+        select: { content: true, metadata: true },
         orderBy: { sequence: "asc" },
       }),
-    ]);
+    ]).then(([inbox, messages, visible]) => [inbox, messages, visible.filter((message) => !isVoiceNarration(message.metadata))] as const);
     const payload =
       inbox?.payload && typeof inbox.payload === "object" && !Array.isArray(inbox.payload)
         ? (inbox.payload as Record<string, unknown>)

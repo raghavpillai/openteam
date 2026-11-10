@@ -20,6 +20,7 @@ export * from "./capabilities";
 export * from "./client-preferences";
 export * from "./inference";
 export * from "./transcription";
+export * from "./voice";
 export * from "./notification-content";
 export * from "./plugin-settings";
 export * from "./routine-types";
@@ -156,6 +157,7 @@ export const CreateBotInput = Schema.Struct({
   title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
   instructions: Schema.optional(Schema.String.pipe(Schema.maxLength(20_000))),
+  voice: Schema.optional(Schema.String.pipe(Schema.maxLength(200))),
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
@@ -169,6 +171,7 @@ export const UpdateBotInput = Schema.Struct({
   title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
   instructions: Schema.optional(Schema.String.pipe(Schema.maxLength(20_000))),
+  voice: Schema.optional(Schema.String.pipe(Schema.maxLength(200))),
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
@@ -281,6 +284,13 @@ export const SendMessageInput = Schema.Struct({
   isFork: Schema.optional(Schema.Boolean),
   attachments: Schema.optional(Schema.Array(AssetRef).pipe(Schema.maxItems(CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage))),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
+  voice: Schema.optional(Schema.Struct({
+    sessionId: Schema.String,
+    turnId: Schema.String,
+    durationMs: Schema.Number.pipe(Schema.int(), Schema.between(0, 60_000)),
+    provider: Schema.Literal("volcengine", "deepgram"),
+    language: Schema.optional(Schema.String.pipe(Schema.maxLength(40))),
+  })),
 }).pipe(
   Schema.filter(
     (input) =>
@@ -1331,6 +1341,10 @@ export const ComputerTurnRequest = Schema.Struct({
   images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(MAX_TURN_INLINE_IMAGES))),
   dynamicNamespaces: Schema.optional(Schema.Array(PluginDynamicNamespace)),
   pluginRuntimePackages: Schema.optional(Schema.Array(Schema.Unknown)),
+  /** Present only for realtime voice turns: the model that narrates slow tool work aloud. */
+  voiceNarration: Schema.optional(
+    Schema.Struct({ model: Schema.String, reasoning: Schema.Literal(...PI_REASONING_LEVELS) })
+  ),
 });
 export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
 
@@ -1426,6 +1440,8 @@ export interface BotView {
   title: string;
   description: string;
   instructions: string;
+  /** Provider-specific TTS voice identifier. Empty means use the server default. */
+  voice: string;
   icon: string;
   color: string;
   hasAvatar: boolean;

@@ -15,4 +15,5 @@ export interface RouteContext {
   path: string;
   authMode: ReturnType<typeof parseAuthMode>;
   authenticatedSessionId: string | null;
+  server?: any;
 }

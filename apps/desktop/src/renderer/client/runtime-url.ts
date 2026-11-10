@@ -46,3 +46,13 @@ export function resolveVncSocketUrl(apiBase: string, path: string, botId: string
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
+
+/** The voice ticket owns the authenticated WebSocket path and server version prefix. */
+export function resolveVoiceSocketUrl(apiBase: string, path: string): string {
+  if (!/^\/api\/v0\/voice\/sessions\/[^/]+\/stream$/.test(path)) {
+    throw new Error("Invalid voice endpoint");
+  }
+  const url = new URL(normalizeBaseUrl(apiBase) + path);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}

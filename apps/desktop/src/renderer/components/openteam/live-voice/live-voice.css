@@ -1,0 +1,438 @@
+/*
+ * Theme tokens in styles.css are complete color values (for example #070707),
+ * so they are used directly with var() / color-mix(), never wrapped in hsl().
+ */
+.live-voice-layer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 2.25rem;
+  padding: 0 0.75rem 0.35rem;
+}
+
+.live-voice-launcher {
+  color: var(--muted-foreground);
+}
+
+.live-voice-launcher:hover {
+  color: var(--foreground);
+}
+
+.live-voice-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--background) 55%, transparent);
+  backdrop-filter: blur(14px) saturate(1.1);
+}
+
+/* Phone panel */
+.live-voice-dialog {
+  position: relative;
+  display: flex;
+  width: min(26rem, 100%);
+  max-height: min(46rem, calc(100dvh - 2rem));
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 2rem;
+  background:
+    radial-gradient(120% 60% at 50% 0%, color-mix(in srgb, var(--control-accent) 12%, transparent), transparent 70%),
+    var(--popover);
+  box-shadow: 0 30px 90px rgb(0 0 0 / 35%);
+  color: var(--foreground);
+  padding: 1.5rem 1.5rem 1.75rem;
+}
+
+.live-voice-header {
+  position: relative;
+  display: grid;
+  width: 100%;
+  justify-items: center;
+  gap: 0.2rem;
+  padding-inline: 2.5rem;
+  text-align: center;
+}
+
+.live-voice-eyebrow {
+  color: var(--foreground-secondary);
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.live-voice-heading {
+  display: grid;
+  min-width: 0;
+  max-width: 100%;
+  justify-items: center;
+  text-align: center;
+}
+
+.live-voice-heading h2 {
+  max-width: 100%;
+  margin: 0.15rem 0 0;
+  overflow: hidden;
+  font-size: 1.35rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-voice-heading p {
+  max-width: 100%;
+  margin: 0.15rem 0 0;
+  overflow: hidden;
+  color: var(--foreground-secondary);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-voice-duration {
+  margin-top: 0.35rem;
+  color: var(--foreground-secondary);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.live-voice-minimize {
+  position: absolute;
+  top: -0.25rem;
+  right: 0;
+  color: var(--foreground-secondary);
+}
+
+/* Avatar with halo rings */
+.live-voice-main {
+  display: grid;
+  width: 100%;
+  justify-items: center;
+  gap: 0.9rem;
+}
+
+.live-voice-main > * {
+  min-width: 0;
+}
+
+.live-voice-avatar-column {
+  display: grid;
+  width: 100%;
+  justify-items: center;
+  gap: 0.9rem;
+}
+
+.live-voice-avatar-halo {
+  position: relative;
+  display: grid;
+  width: 11.5rem;
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--control-accent) 20%, transparent), transparent 68%);
+}
+
+.live-voice-avatar-halo::before,
+.live-voice-avatar-halo::after {
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--control-accent) 28%, transparent);
+  border-radius: 50%;
+  content: "";
+  inset: 12%;
+}
+
+.live-voice-avatar-halo::after {
+  border-color: color-mix(in srgb, var(--control-accent) 14%, transparent);
+  inset: 0;
+}
+
+.live-voice-avatar-halo[data-live-voice-speaking="true"]::before {
+  animation: live-voice-ripple 1.8s ease-out infinite;
+}
+
+.live-voice-avatar-halo[data-live-voice-speaking="true"]::after {
+  animation: live-voice-ripple 1.8s ease-out 0.6s infinite;
+}
+
+.live-voice-avatar {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 7.5rem;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 5px var(--popover), 0 12px 32px rgb(0 0 0 / 28%);
+}
+
+.live-voice-state {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: var(--foreground-secondary);
+  font-size: 0.82rem;
+}
+
+.live-voice-state-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--control-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--control-accent) 18%, transparent);
+}
+
+.live-voice-state-dot[data-live-voice-state-dot="connecting"],
+.live-voice-state-dot[data-live-voice-state-dot="processing"] {
+  background: #e0a526;
+  box-shadow: 0 0 0 4px rgb(224 165 38 / 18%);
+  animation: live-voice-pulse 1.1s ease-in-out infinite;
+}
+
+.live-voice-state-dot[data-live-voice-state-dot="speaking"] {
+  background: #32a66a;
+  box-shadow: 0 0 0 4px rgb(50 166 106 / 18%);
+  animation: live-voice-pulse 0.8s ease-in-out infinite;
+}
+
+.live-voice-state-dot[data-live-voice-state-dot="error"] {
+  background: var(--destructive);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--destructive) 18%, transparent);
+}
+
+/* Captions */
+.live-voice-captions {
+  display: flex;
+  width: 100%;
+  min-height: 5.5rem;
+  max-height: min(14rem, 28dvh);
+  flex-direction: column;
+  gap: 0.55rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.25rem 0.1rem;
+  scrollbar-width: thin;
+  text-align: center;
+  mask-image: linear-gradient(transparent, #000 0.75rem, #000 calc(100% - 0.75rem), transparent);
+}
+
+.live-voice-captions:focus-visible {
+  outline: none;
+}
+
+.live-voice-caption {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.live-voice-caption p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.live-voice-caption-label {
+  display: block;
+  margin-bottom: 0.1rem;
+  color: var(--foreground-tertiary);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.live-voice-caption-user {
+  color: var(--foreground-secondary);
+}
+
+.live-voice-caption-assistant {
+  color: var(--foreground);
+  font-size: 0.95rem;
+}
+
+.live-voice-caption-partial {
+  color: var(--control-accent);
+}
+
+.live-voice-empty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  align-content: center;
+  gap: 0.5rem;
+  color: var(--foreground-tertiary);
+  font-size: 0.82rem;
+}
+
+.live-voice-error {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+/* Round call controls */
+.live-voice-controls {
+  display: flex;
+  justify-content: center;
+  gap: clamp(1.5rem, 8vw, 2.75rem);
+  padding-top: 0.25rem;
+}
+
+.live-voice-control-group {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  color: var(--foreground-secondary);
+  font-size: 0.72rem;
+}
+
+.live-voice-control {
+  width: 3.5rem;
+  height: 3.5rem;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--field);
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+.live-voice-control:hover {
+  background: var(--selected);
+}
+
+.live-voice-control[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.live-voice-control-hangup,
+.live-voice-control-hangup:hover {
+  border-color: transparent;
+  background: #e64949;
+  color: #fff;
+}
+
+.live-voice-control-hangup:hover {
+  background: #d23a3a;
+}
+
+.live-voice-error-actions {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 9rem));
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+/* Minimized pill */
+.live-voice-minimized {
+  display: flex;
+  width: min(22rem, calc(100vw - 2rem));
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--popover);
+  box-shadow: 0 12px 35px rgb(0 0 0 / 24%);
+}
+
+.live-voice-mini-avatar {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.live-voice-mini-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 0.08rem;
+  overflow: hidden;
+  font-size: 0.72rem;
+}
+
+.live-voice-mini-copy strong,
+.live-voice-mini-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-voice-mini-copy span {
+  color: var(--foreground-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-voice-mini-button {
+  color: var(--foreground-secondary);
+}
+
+.live-voice-mini-stop {
+  color: var(--destructive);
+}
+
+@keyframes live-voice-ripple {
+  from {
+    opacity: 0.9;
+    transform: scale(0.88);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes live-voice-pulse {
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+
+@media (max-width: 480px) {
+  .live-voice-overlay {
+    padding: 0.5rem;
+  }
+
+  .live-voice-dialog {
+    max-height: calc(100dvh - 1rem);
+    border-radius: 1.5rem;
+  }
+
+  .live-voice-avatar-halo {
+    width: 9.5rem;
+  }
+
+  .live-voice-avatar {
+    width: 6rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-voice-avatar-halo::before,
+  .live-voice-avatar-halo::after,
+  .live-voice-state-dot {
+    animation: none !important;
+  }
+}

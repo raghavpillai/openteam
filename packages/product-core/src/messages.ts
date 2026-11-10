@@ -418,6 +418,47 @@ export const collapseA2ATimeline = <T extends { id: string; createdAt: string }>
   return collapsed;
 };
 
+/** Spoken turns carry `metadata.voice`; the server tags both the transcript and the bot's text replies. */
+export const voiceSessionIdFor = (message: ChannelMessageView): string | null => {
+  const voice = messageMetadata(message).voice;
+  if (!voice || typeof voice !== "object" || Array.isArray(voice)) return null;
+  const sessionId = (voice as Record<string, unknown>).sessionId;
+  return typeof sessionId === "string" ? sessionId : "";
+};
+
+export interface VoiceConversationEntry<T> {
+  type: "voice";
+  id: string;
+  createdAt: string;
+  entries: T[];
+  sessionId: string;
+}
+
+/** Folds each consecutive run of voice messages from one session into a single collapsed entry. */
+export const collapseVoiceTimeline = <T extends { id: string; createdAt: string }>(
+  entries: readonly T[],
+  messageFor: (entry: T) => ChannelMessageView | null
+): Array<T | VoiceConversationEntry<T>> => {
+  const collapsed: Array<T | VoiceConversationEntry<T>> = [];
+  let active: VoiceConversationEntry<T> | null = null;
+  for (const entry of entries) {
+    const message = messageFor(entry);
+    const sessionId = message ? voiceSessionIdFor(message) : null;
+    if (sessionId === null) {
+      active = null;
+      collapsed.push(entry);
+      continue;
+    }
+    if (active && active.sessionId === sessionId) {
+      active.entries.push(entry);
+      continue;
+    }
+    active = { type: "voice", id: `voice:${entry.id}`, createdAt: entry.createdAt, entries: [entry], sessionId };
+    collapsed.push(active);
+  }
+  return collapsed;
+};
+
 export const isBranchedMessage = (message: ChannelMessageView): boolean =>
   messageMetadata(message).branched === true;
 

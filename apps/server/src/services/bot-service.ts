@@ -90,6 +90,7 @@ export class BotService {
               title: input.title?.trim() ?? "",
               description: input.description?.trim() ?? "",
               instructions: input.instructions?.trim() ?? "",
+              voice: input.voice?.trim() ?? "",
               templateRecipe: recipe ? toJson(recipe) : undefined,
               icon: avatar.shape,
               color: avatar.color,
@@ -194,6 +195,7 @@ export class BotService {
             title: input.title?.trim(),
             description: input.description?.trim(),
             instructions: input.instructions?.trim(),
+            voice: input.voice?.trim(),
             icon: input.icon,
             color: input.color,
             avatarPath: input.icon !== undefined || input.color !== undefined ? null : undefined,
@@ -227,7 +229,8 @@ export class BotService {
             input.name !== undefined ||
             input.title !== undefined ||
             input.description !== undefined ||
-            input.instructions !== undefined,
+            input.instructions !== undefined ||
+            input.voice !== undefined,
           settingsChanged:
             input.notificationsEnabled !== undefined ||
             input.draftingDisabled !== undefined ||

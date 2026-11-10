@@ -9,7 +9,8 @@ describe("desktop packaging and content security policy", () => {
     expect(html).toContain("connect-src 'self' http: https:");
     expect(html).toContain("img-src 'self' data: blob: openteam-staged: http: https:");
     expect(html).toContain("frame-src http: https:");
-    expect(html).toContain("script-src 'self'");
+    expect(html).toContain("script-src 'self' 'wasm-unsafe-eval'");
+    expect(html).not.toContain("script-src 'self' 'unsafe-eval'");
     expect(html).not.toContain("script-src 'self' http:");
   });
 

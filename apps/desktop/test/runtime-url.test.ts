@@ -3,6 +3,7 @@ import {
   CONFIGURED_API_BASE_KEY,
   resolveApiBase,
   resolveConfiguredApiBase,
+  resolveVoiceSocketUrl,
   resolveVncSocketUrl,
   saveConfiguredApiBase,
 } from "../src/renderer/client/runtime-url";
@@ -65,6 +66,17 @@ describe("runtime URLs", () => {
       .toBe("ws://100.94.42.50:8787" + path);
     expect(resolveVncSocketUrl("https://server.ts.net:10000/team", path, "test-bot"))
       .toBe("wss://server.ts.net:10000/team" + path);
+  });
+  test("uses the authenticated voice ticket path, including HTTPS and path prefixes", () => {
+    const path = "/api/v0/voice/sessions/voice-session/stream";
+    expect(resolveVoiceSocketUrl("http://100.94.42.50:8787", path))
+      .toBe("ws://100.94.42.50:8787" + path);
+    expect(resolveVoiceSocketUrl("https://server.ts.net:10000/team", path))
+      .toBe("wss://server.ts.net:10000/team" + path);
+  });
+  test("rejects an invalid voice endpoint", () => {
+    expect(() => resolveVoiceSocketUrl("https://server.test", "/api/voice/sessions/session/stream")).toThrow();
+    expect(() => resolveVoiceSocketUrl("https://server.test", "/api/v0/voice/sessions/session/stream?token=secret")).toThrow();
   });
   test("rejects cross-server, cross-bot and credential-bearing grants", () => {
     for (const path of ["https://other.test/vnc", "//other.test/vnc", "/api/v0/bots/other/screen/vnc",

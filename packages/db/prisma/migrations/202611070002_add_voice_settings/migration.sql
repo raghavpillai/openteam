@@ -1,0 +1,20 @@
+CREATE TABLE "VoiceSettings" (
+  "id" TEXT NOT NULL DEFAULT 'global',
+  "enabled" BOOLEAN NOT NULL DEFAULT false,
+  "provider" TEXT NOT NULL DEFAULT 'volcengine',
+  "encryptedVolcengineApiKey" TEXT,
+  "volcengineBaseUrl" TEXT NOT NULL DEFAULT 'https://openspeech.bytedance.com',
+  "volcengineSttUrl" TEXT,
+  "volcengineTtsUrl" TEXT,
+  "volcengineSttResourceId" TEXT NOT NULL DEFAULT 'volc.seedasr.sauc.duration',
+  "volcengineTtsResourceId" TEXT NOT NULL DEFAULT 'seed-tts-2.0',
+  "encryptedDeepgramApiKey" TEXT,
+  "deepgramBaseUrl" TEXT NOT NULL DEFAULT 'https://api.deepgram.com',
+  "sttModel" TEXT NOT NULL DEFAULT 'nova-3',
+  "ttsModel" TEXT NOT NULL DEFAULT 'aura-2-thalia-en',
+  "voice" TEXT NOT NULL DEFAULT 'alloy',
+  "language" TEXT NOT NULL DEFAULT 'en-US',
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "VoiceSettings_pkey" PRIMARY KEY ("id")
+);

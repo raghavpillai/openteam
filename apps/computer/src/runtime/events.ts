@@ -164,6 +164,7 @@ export function routeEvent(
   }
 
   if (event.type === "tool_execution_start") {
+    active.narrator?.toolStarted(event.toolName);
     active.toolArgs.set(event.toolCallId, {
       toolName: event.toolName,
       args: event.args,

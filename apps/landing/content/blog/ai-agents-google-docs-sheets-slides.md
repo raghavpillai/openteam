@@ -3,6 +3,7 @@ title: AI agents that edit Google Docs, Sheets and Slides
 seoTitle: AI agent for Google Docs, Sheets and Slides: setup guide
 description: OpenTeam's self-hosted AI agents edit Google Docs, keep Sheets updated on a schedule and build Slides decks. Setup, example prompts, limits and fixes.
 date: 2026-10-17
+updated: 2026-11-10
 category: Guides
 image: /blog/images/openteam-sheets-routine-chat.png
 imageAlt: An OpenTeam chat in which the Operations bot reports its weekly update to a Google Sheet called Weekly metrics, with its Update weekly metrics routine open beside it, set to run every Monday at 8:00 AM
@@ -57,7 +58,7 @@ Open **Marketplace** and choose **Add** on **Google Docs**, **Google Sheets** or
 1. On the plugin's page, paste the client ID and secret, then choose **Save credentials and continue**.
 2. Sign in with Google. On an HTTP server, the browser ends on a page that doesn't load. Copy its address into **Paste the browser address here** and choose **Complete sign-in**.
 3. If Google warns that it hasn't verified the app, continue: it's the app you created.
-4. To check it, open your installed plugins in **Marketplace**, choose the plugin, open the account's settings, and run a tool such as `read_document` under **Test a tool**.
+4. To check it, open your installed plugins in **Marketplace**, choose the plugin, open **Advanced settings** under **Settings**, and run a tool such as `read_document` under **Test a tool**.
 
 Repeat for each plugin. Connected accounts are available to every bot.
 
@@ -121,7 +122,7 @@ A routine can have up to eight schedules and runs at most every five minutes. Th
 
 ## What it can't do yet
 
-- **No approval step for files.** Bots edit, share and trash files as soon as they decide to. Only email goes through a draft card. A bot's email appears in chat as **New email** or **Reply** for you to **Send** or **Discard**, unless you've allowed those recipients or turned drafts off for that bot. Google's [version history](https://support.google.com/docs/answer/190843) can restore an earlier version.
+- **No approval step for files.** Bots edit, share and trash files as soon as they decide to. Among Google tools, only Gmail goes through a draft card. A bot's email appears in chat as **New email** or **Reply** for you to **Send** or **Discard**, unless you've allowed those recipients or turned drafts off for that bot. Google's [version history](https://support.google.com/docs/answer/190843) can restore an earlier version.
 - **Shared accounts.** Every bot can use every connected account; there are no per-bot grants. Connect a separate Google account if yours reaches too much.
 - **Drive only changes files bots created**, and can't add files to your folders. Bots can't delete files permanently; trash keeps them for 30 days ([Google Drive Help](https://support.google.com/drive/answer/2375102)).
 - **API gaps.** Doc headers and footers are static, so no page numbers. Images the Docs and Slides tools insert must come from a public URL, as PNG, JPEG or GIF under 50 MB ([Docs API](https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request)). Charts are bar, column, line, area, scatter or pie; no pivot tables.

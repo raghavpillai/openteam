@@ -3,6 +3,7 @@ title: "n8n vs OpenTeam: workflows or a team of bots, and how to use both"
 seoTitle: "n8n vs OpenTeam: workflows or AI agents, tested side by side"
 description: We ran the same jobs in n8n and in OpenTeam, a self-hosted AI agent team, on one VM. Where each won, what broke, and two bridges that worked.
 date: 2026-10-27
+updated: 2026-11-10
 category: Comparisons
 image: /blog/images/n8n-vs-openteam-scorecard.png
 imageAlt: A results table comparing n8n and OpenTeam on building and running a Hacker News digest, cost per run, a JavaScript page with a login, what went wrong, and the bridges between them
@@ -29,7 +30,7 @@ n8n facts come from its [docs](https://docs.n8n.io/), [pricing page](https://n8n
 | Integrations | 500+ built-in, 2,000+ with partner and community nodes | 16 bundled plugins plus any MCP server |
 | Web browsing | HTTP requests; Browser Use is Cloud-only, in your own Chrome | A Chromium per bot that you can watch and take over |
 | Run history | Every node's input and output; retry from the failed step | Run history per routine, plus the bot's messages |
-| Approvals | Human review before AI tool calls; send-and-wait steps | Email drafts wait for your Send; nothing else |
+| Approvals | Human review before AI tool calls; send-and-wait steps | Email and Slack drafts and texts wait for your Send; nothing else |
 | People | Many users; SSO and roles on paid plans | One human account per server |
 | Apps | Web editor | macOS (Apple silicon), Linux x64, iPhone beta |
 
@@ -121,7 +122,7 @@ We tried to build one, but with our OpenRouter credential the builder's model li
 - **Cost and speed per run.** Our quotes job used no model at all, and the digest cost about half a cent in 8 seconds.
 - **Integrations and templates.** n8n has 500+ built-in [integrations](https://n8n.io/integrations/), 2,000+ with partner and community nodes, and more than 13,000 [templates](https://n8n.io/workflows/). OpenTeam bundles 16 plugins plus any MCP server.
 - **Scale.** [Queue mode](https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/enable-queue-mode) spreads executions across workers. OpenTeam runs on one server.
-- **People in the loop.** Approval steps are built in. OpenTeam has no approval engine; only email drafts wait for your Send, and bots can't send email themselves.
+- **People in the loop.** Approval steps are built in. OpenTeam has no approval engine; only email and Slack drafts and texts from your Mac wait for your Send, and bots can't send email themselves.
 - **Teams and maturity.** n8n supports many users, adds SSO, roles and Git on paid plans, and has a large community. OpenTeam is a young project with a small community and one human account per server.
 
 If any of those decides it, n8n is the better tool.
@@ -144,7 +145,7 @@ In OpenTeam, **Marketplace → Manage → Add custom MCP** takes the URL and an 
 
 **A bot posting to an n8n webhook.** We asked Scout to POST its latest digest as JSON to an n8n [Webhook node](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook) with curl from its terminal. n8n answered HTTP 200 and stored the digest, ready for its Slack, Gmail or Sheets nodes. Outside a test, add header auth.
 
-**n8n starting a bot's routine.** Routines can run on "any service that sends signed webhooks" through **Settings → Server → Automation event subscriptions**, which needs a public HTTPS address. OpenTeam's code expects JSON with `id`, `kind` and `text`, signed in an `x-openteam-signature-256` header as `sha256=` plus the hex HMAC-SHA256 of the raw body. n8n's Crypto node can compute that. We confirmed this in code and didn't run it.
+**n8n starting a bot's routine.** Routines can also run on signed webhooks from any service. That needs a public HTTPS address and a subscription created through the server's API; the apps have no screen for it. OpenTeam's code expects JSON with `id`, `kind` and `text`, signed in an `x-openteam-signature-256` header as `sha256=` plus the hex HMAC-SHA256 of the raw body. n8n's Crypto node can compute that. We confirmed this in code and didn't run it.
 
 ## Which should you use?
 
@@ -172,7 +173,7 @@ Yes. The AI Agent node runs a model with tools inside a workflow, and n8n Agents
 
 ### Can I use n8n and OpenTeam together?
 
-Yes. In our test, an n8n MCP Server Trigger worked as an OpenTeam custom MCP plugin, and a bot posted results to an n8n webhook. Signed webhooks from n8n can also start routines, given a public HTTPS address.
+Yes. In our test, an n8n MCP Server Trigger worked as an OpenTeam custom MCP plugin, and a bot posted results to an n8n webhook. Signed webhooks from n8n can also start routines, given a public HTTPS address and a subscription set up through the server's API.
 
 ### Is it safe to self-host n8n?
 

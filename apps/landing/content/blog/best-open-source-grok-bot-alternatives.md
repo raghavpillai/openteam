@@ -3,6 +3,7 @@ title: Open-source Grok Bot alternatives, tested on one Mac
 seoTitle: "Open-source Grok Bot alternatives: 6 installed and tested"
 description: We installed Rakazo, MausBot, Open Duet, OpenTeam and two more self-hosted Grok Bot alternatives, gave each the same task and model, and logged what broke.
 date: 2026-10-26
+updated: 2026-11-10
 category: Comparisons
 image: /blog/images/roundup-test-scorecard.png
 imageAlt: A results table for six self-hostable Grok Bot alternatives showing setup time, the research task and a two-bot handoff for Rakazo, MausBot, Open Duet and OpenTeam, and the sign-in walls that stopped nightly-labs OpenBot and CopilotKit OpenBot
@@ -25,7 +26,7 @@ Features come from each project's README and docs, checked October 26, 2026. Set
 | Computer per bot | Docker desktop, shared or private | Cloud, Docker VM, VPS or your Mac | Optional Docker computer, experimental | Embedded browser; computer use on your computer | Chromium container | Linux desktop |
 | Bots working together | Peers and subagents | Rooms, bot-to-bot messages | A lead delegates to a team | Agent-to-agent messages | Group channels | Group chats of up to 6, bot-to-bot messages |
 | Models | Many providers, local too | A model per bot via CLIs or OpenAI-compatible | Claude or Codex CLI; OpenRouter is chat-only | Many CLIs, local too | Your OpenAI-compatible endpoint | One per server, any provider, local too |
-| Approvals (default) | Asks before changes | New bots act without asking | Asks first | None per action | Policy gate on every action | Email and Slack drafts only |
+| Approvals (default) | Asks before changes | New bots act without asking | Asks first | None per action | Policy gate on every action | Email and Slack drafts and texts only |
 | Apps | Web, desktop, iPhone, Android | macOS, Windows, Ubuntu | Desktop, from source | Desktop, iPhone, web | Web, plus Slack and Teams | macOS, Linux, iPhone beta |
 | Always-on server | Yes | Paid cloud, or a VPS | Experimental | Yes | Yes | Yes |
 | Our setup time | About 3 min | About 6 min | About 2 min | Stopped at sign-in | Stopped at account | About 6 min |
@@ -111,7 +112,7 @@ OpenTeam is our project: open-source (GPL-3.0), self-hosted AI agents that run i
 
 ![The OpenTeam desktop app with Scout's chat: three saved Austin events, then a Messaged Ada marker, a Message from Ada marker and Scout's confirmation of the fourth event](/blog/images/openteam-two-bot-handoff.png "Scout asks Ada, Ada replies, and Scout reports back. Screenshot: OpenTeam running locally, Oct 26, 2026. Image: OpenTeam.")
 
-**Limits to know.** One model serves every bot, each server has one human account, and bots act without approval prompts apart from email and Slack drafts.
+**Limits to know.** One model serves every bot, each server has one human account, and bots act without approval prompts apart from email and Slack drafts and texts from your Mac.
 
 **Who it suits.** People who want an always-on server where every bot keeps its own desktop, with any provider including a local model.
 
@@ -146,7 +147,7 @@ Its license is PolyForm Noncommercial 1.0.0, so it's source-available, not open 
 ## Where the others beat OpenTeam
 
 - **Answer quality out of the box.** Rakazo, MausBot and Open Duet searched the web with no extra key and found real AI conferences. OpenTeam needs a search provider key, and without one its answer was weaker.
-- **Approvals.** Open Duet asks before writes and commands, Rakazo starts in Ask mode, and CopilotKit gates every action. OpenTeam has no approval step outside email and Slack drafts.
+- **Approvals.** Open Duet asks before writes and commands, Rakazo starts in Ask mode, and CopilotKit gates every action. OpenTeam has no approval step outside email and Slack drafts and texts.
 - **A model per bot.** MausBot, Open Duet and nightly-labs OpenBot let each bot use a different model. OpenTeam uses one model for every bot on a server.
 - **Platforms.** Rakazo has Android, iPhone and web apps, and MausBot runs on Windows and Intel Macs. OpenTeam's desktop apps are for macOS on Apple silicon and Linux only.
 - **Setup.** Rakazo and Open Duet reached a working chat faster, and our model-step bug cost several minutes.

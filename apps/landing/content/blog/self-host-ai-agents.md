@@ -3,6 +3,7 @@ title: How to self-host AI agents on a cloud VM or home server
 seoTitle: How to self-host AI agents on a VPS, Mac mini or home server
 description: Self-host AI agents with OpenTeam on a VPS, Mac mini or home server. One install command, then connect a model and create a first bot in the app.
 date: 2026-10-22
+updated: 2026-11-10
 category: Guides
 image: /blog/images/openteam-install-server-check.png
 imageAlt: The OpenTeam desktop app's first-run server check reading All systems go, with the server, database, task queue and bot computer all ready on a home server at 192.168.1.20:8787
@@ -21,7 +22,7 @@ The terminal installs the server and creates your account. The app then connects
 - **Docker** with Compose 2.20 or newer, running. That's [Docker Desktop](https://www.docker.com/products/docker-desktop/) on a Mac or Windows PC, or [Docker Engine](https://docs.docker.com/engine/install/) with the Compose plugin on Linux.
 - **8 GB of RAM and 8 GB of free disk**, recommended. Setup warns below either but doesn't stop you. Updates need 4 GB free.
 - **Ports** `8787` for the server (changeable) and `6200–6299` for bot screens, plus `80` and `443` for automatic HTTPS.
-- **An AI model:** an OpenAI, Anthropic or OpenRouter API key, or your own model server.
+- **An AI model:** a ChatGPT or Claude plan, an OpenAI, Anthropic or OpenRouter API key, or your own model server.
 - **An app:** the desktop app for macOS on Apple silicon or Linux x64, or the iPhone beta on TestFlight (iOS 18 or later). There's no Windows desktop app yet, so finish a Windows host's setup from a Mac, a Linux PC or an iPhone.
 
 ## Which machine should you use?
@@ -128,7 +129,7 @@ If a part is down, the screen says so and tells you to run `openteam doctor` on 
 
 ## Step 6: Connect your bots' AI model
 
-Choose **ChatGPT**, **Claude** or **OpenRouter**. For ChatGPT, pick **Use an OpenAI API key**; for Claude, **Use an Anthropic API key**. Each key screen links to the page where that provider issues keys.
+Choose **ChatGPT**, **Claude** or **OpenRouter**. For ChatGPT, pick **Sign in with ChatGPT** to use your Plus or Pro plan, or **Use an OpenAI API key**; for Claude, **Sign in with Claude** (Pro or Max) or **Use an Anthropic API key**. Each key screen links to the page where that provider issues keys.
 
 After you paste a key, the server connects to the provider, loads the models the key allows, and sends one short test message. If the provider refuses the key, the screen says so and you can paste another.
 
@@ -150,7 +151,7 @@ Then give it a small, checkable task, such as:
 
 > Create a checklist for moving apartments. Group it by timing, save it as a Markdown file, and attach it here.
 
-The work runs on the server, so you can close the app and check back later. To add bots, choose **New chat** in the sidebar, then **Create new Bot**.
+The work runs on the server, so you can close the app and check back later. To add bots, choose **+** at the top of the sidebar (**New Bot**) on desktop, or **+ → New Bot** on iPhone.
 
 ## Keep your self-hosted AI agents running
 
@@ -162,7 +163,7 @@ Run these on the host:
 | `openteam doctor` | Runs deeper checks, including one short request to your model, and says how to fix each failure |
 | `openteam update` | Updates the server and the CLI |
 | `openteam logs server --follow` | Streams the server's logs |
-| `openteam setup --advanced` | Changes the connection, API port, time zone or how many tasks run at once |
+| `openteam setup --advanced` | Changes the connection, API port or how many tasks run at once |
 
 **Updates roll back on failure.** `openteam update` checks the new release's signature, backs up the database and restarts on the new version. If it doesn't start, the updater restores the previous version and the database. Bots pause briefly while the server restarts. The desktop app can also start an update from **Settings → Updates**, on the host itself or over SSH ([update docs](/docs/manage/updates)).
 

@@ -1,0 +1,88 @@
+[
+  {
+    "name": "SIGNAL_CLI",
+    "sources": {
+      "linux-arm64": {
+        "url": "https://github.com/AsamK/signal-cli/releases/download/v0.14.10/signal-cli-0.14.10.tar.gz",
+        "sha256": "706a57d9faae7525cf732936efdabf210146e3c83f9e8ae7e4e62f5946121c33",
+        "bytes": 126454438,
+        "maxExtractedBytes": 536870912,
+        "format": "tar.gz",
+        "path": "signal-cli-0.14.10/bin/signal-cli",
+        "executable": true
+      },
+      "linux-x64": {
+        "url": "https://github.com/AsamK/signal-cli/releases/download/v0.14.10/signal-cli-0.14.10.tar.gz",
+        "sha256": "706a57d9faae7525cf732936efdabf210146e3c83f9e8ae7e4e62f5946121c33",
+        "bytes": 126454438,
+        "maxExtractedBytes": 536870912,
+        "format": "tar.gz",
+        "path": "signal-cli-0.14.10/bin/signal-cli",
+        "executable": true
+      },
+      "darwin-arm64": {
+        "url": "https://github.com/AsamK/signal-cli/releases/download/v0.14.10/signal-cli-0.14.10.tar.gz",
+        "sha256": "706a57d9faae7525cf732936efdabf210146e3c83f9e8ae7e4e62f5946121c33",
+        "bytes": 126454438,
+        "maxExtractedBytes": 536870912,
+        "format": "tar.gz",
+        "path": "signal-cli-0.14.10/bin/signal-cli",
+        "executable": true
+      }
+    }
+  },
+  {
+    "name": "JAVA",
+    "sources": {
+      "linux-arm64": {
+        "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jre_aarch64_linux_hotspot_25.0.5_8.tar.gz",
+        "bytes": 60517419,
+        "sha256": "963931723891302ebb2687178532c3d793d71e2577cd058061c7efb396140a86",
+        "maxExtractedBytes": 536870912,
+        "format": "tar.gz",
+        "path": "jdk-25.0.5+8-jre/bin/java",
+        "executable": true
+      },
+      "linux-x64": {
+        "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jre_x64_linux_hotspot_25.0.5_8.tar.gz",
+        "bytes": 61736206,
+        "sha256": "6fac98f0c8202efc3135a9e9e42aa61963ec42d1c5cbb40caf231e7b14a24ef6",
+        "maxExtractedBytes": 536870912,
+        "format": "tar.gz",
+        "path": "jdk-25.0.5+8-jre/bin/java",
+        "executable": true
+      },
+      "darwin-arm64": {
+        "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jre_aarch64_mac_hotspot_25.0.5_8.tar.gz",
+        "bytes": 56298727,
+        "sha256": "72ebd76b502c849e88dea39afae51baf5f82f2b5b1b6389c28ea707b20451bce",
+        "maxExtractedBytes": 536870912,
+        "format": "tar.gz",
+        "path": "jdk-25.0.5+8-jre/Contents/Home/bin/java",
+        "executable": true
+      }
+    }
+  },
+  {
+    "name": "LIBSIGNAL",
+    "sources": {
+      "linux-arm64": {
+        "url": "https://github.com/exquo/signal-libs-build/releases/download/libsignal_v0.106.1/libsignal_jni.so-v0.106.1-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "993a8ff27d4320864f336fe891320bfc3ce39c513a957a3d81b3cd9e426d190e",
+        "bytes": 10607267,
+        "maxExtractedBytes": 268435456,
+        "format": "tar.gz",
+        "path": "libsignal_jni.so"
+      },
+      "linux-x64": {
+        "url": "https://github.com/exquo/signal-libs-build/releases/download/libsignal_v0.106.1/libsignal_jni.so-v0.106.1-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "31e275a9b30e66362455379f71a2d8a26bb5c9af3b7c6b8fa64fc59d2cc23150",
+        "bytes": 10232145,
+        "maxExtractedBytes": 268435456,
+        "format": "tar.gz",
+        "path": "libsignal_jni.so"
+      }
+    },
+    "optional": true
+  }
+]

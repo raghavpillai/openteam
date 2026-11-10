@@ -37,6 +37,28 @@ final class AuthorizationPresentationTests: XCTestCase {
     XCTAssertFalse(PluginConnectionPresentation(connection).canReconnect)
     XCTAssertEqual(PluginConnectionPresentation(connection).status, "Sign-in needed")
   }
+  func testActiveDeviceApprovalKeepsPollingWhileItsChallengeIsInvalidatedOrExpired() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    var connection: JSON = .object([
+      "auth": .string("none"), "status": .string("needs_auth"),
+      "deviceLink": .object([
+        "sessionId": .string("active-session"),
+        "qrCodeDataUrl": .string("data:image/png;base64,aGVsbG8="),
+        "expiresAt": .number(1_030_000), "sessionExpiresAt": .number(1_300_000),
+      ]),
+    ])
+    let recovery = PluginConnectionRecovery()
+    XCTAssertEqual(PluginConnectionPresentation(connection, now: now).status, "Scan to connect")
+    connection["deviceLink"]["qrCodeDataUrl"] = .null
+    XCTAssertEqual(PluginConnectionPresentation(connection, now: now).status, "Waiting for approval")
+    XCTAssertTrue(recovery.shouldPoll(connection, now: now))
+    connection["deviceLink"]["qrCodeDataUrl"] = .string("data:image/png;base64,aGVsbG8=")
+    let later = now.addingTimeInterval(60)
+    XCTAssertEqual(PluginConnectionPresentation(connection, now: later).status, "Waiting for approval")
+    XCTAssertTrue(recovery.shouldPoll(connection, now: later))
+    connection["deviceLink"]["expiresAt"] = .number(1_100_000)
+    XCTAssertEqual(PluginConnectionPresentation(connection, now: later).status, "Scan to connect")
+  }
   func testGoogleProviderGuideMatchesSelectedMethod() {
     let old = ["Enable the API.", "Add test users.", "Create a Web application client."]
     for key in MobilePluginAuthorization.googlePluginKeys {

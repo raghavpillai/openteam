@@ -130,6 +130,8 @@ export class PluginConfiguration {
       const { connection, fields, plugin, connector } = await this.connection(id);
       const config = { ...jsonObject(connection.configuration) };
       const credentials = { ...jsonObject(connection.credentials) };
+      if (credentials.stateRemovalPending === true)
+        throw new ApiError(409, "plugin_account_removal_pending", "Account removal must finish before changing configuration.");
       if (input.values) {
         const validated = validateValues(fields, input.values, false);
         // Compact setup clients can submit an empty advanced scope field. Keep the
@@ -215,9 +217,13 @@ export class PluginConfiguration {
         endpoint !== connection.endpoint;
       if (changed) {
         delete credentials.oauth;
+        delete credentials.deviceLink;
+        delete credentials.deviceRecoveryPending;
         await this.stop(id, connection.transport);
-        await this.prisma.pluginConnection.update({
-          where: { id },
+        const updated = await this.prisma.pluginConnection.updateMany({
+          // Stop may await another service's removal/reconnect. Never overwrite
+          // its durable credentials or generation with the pre-stop snapshot.
+          where: { id, runtimeGeneration: connection.runtimeGeneration, installation: { status: "installed" } },
           data: {
             endpoint,
             configuration: toJson(config),
@@ -227,6 +233,8 @@ export class PluginConfiguration {
             statusMessage: null,
           },
         });
+        if (updated.count !== 1)
+          throw new ApiError(409, "plugin_configuration_stale", "This account changed while saving. Refresh its settings and try again.");
       }
       return { id, configured: connectionConfigured({ ...connection, configuration: config, credentials }, plugin) };
     });

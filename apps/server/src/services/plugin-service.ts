@@ -1,3 +1,11 @@
+import {
+  clearDeviceLinkState,
+  deviceLinkChallenge,
+  deviceLinkStatusMatches,
+  deviceLinkDefinition,
+  deviceLinkResult,
+  publicDeviceLink,
+} from "./plugin/device-link";
 import { createHash } from "node:crypto";
 import { equalOAuthState, validateDesktopCallback, parseManualCallback, oauthCallbackMode, MANUAL_OAUTH_REDIRECT, type PluginOAuthDesktopContext } from "../plugins/oauth-callback";
 import type { PluginOAuthCallbackInput } from "@openteam/contracts/plugin-management";
@@ -5,7 +13,7 @@ import { normalizeAccountLabel, pluginToolArguments } from "./plugin/tool-argume
 import { connectionNamespaces } from "@openteam/plugin-sdk";
 import type { ConfigurePluginConnectionInput, PluginTestInput, RunOrigin } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
-import type { Prisma, PrismaClient } from "@openteam/db";
+import { Prisma, type PrismaClient } from "@openteam/db";
 import type { AgentDataStore } from "@openteam/messaging";
 import { Effect, Either } from "effect";
 import { McpHttpClientManager } from "../plugins/mcp-client-manager";
@@ -121,7 +129,8 @@ export class PluginService {
       prisma,
       (key) => this.definition(key),
       () => this.syncFileCaches(),
-      (id, transport) => this.stopRuntime(id, transport)
+      (id, transport) => this.stopRuntime(id, transport),
+      (id) => this.removePersistentAccount(id)
     );
 
     this.configuration = new PluginConfiguration(prisma, this.publicUrl, (id, transport) =>
@@ -252,7 +261,7 @@ export class PluginService {
     const where = { scope_key: { scope, key } };
     const completedResponse = async (response: unknown) => ({
       ...jsonObject(response),
-      ...await this.connectionStatuses() as object,
+      ...((await this.connectionStatuses()) as object),
       ...(request.action === "InstallPlugin" ? {
         detail: await this.catalogDetail(String(pluginToolArguments(request.action, request.arguments).pluginKey)),
       } : {}),
@@ -778,7 +787,7 @@ export class PluginService {
     });
 
   private readonly connectionStarts = new Map<string, ReturnType<PluginService["beginConnect"]>>();
-  private readonly connectionStops = new Map<string, ReturnType<PluginService["disconnectConnection"]>>();
+  private readonly connectionStops = new Map<string, Promise<unknown>>();
 
   connect = (connectionId: string, sessionId: string | null = null) =>
     serviceEffect(async () => {
@@ -794,6 +803,8 @@ export class PluginService {
   private beginConnect = async (connectionId: string, sessionId: string | null) => {
     const connection = await this.connectionOrThrow(connectionId);
     this.assertAvailable(connection);
+    if (jsonObject(connection.credentials).stateRemovalPending === true)
+      throw new ApiError(409, "plugin_account_removal_pending", "Account removal is still pending. Retry removal before reconnecting.");
     this.validateConfiguration(connection);
     if (connection.authType === "oauth") {
       const oauth = jsonObject(jsonObject(connection.credentials).oauth);
@@ -850,9 +861,219 @@ export class PluginService {
         message
       );
     }
+    if (deviceLinkDefinition(connection)) return this.prepareDeviceLink(connection, tools);
     const updated = await this.markReady(connection, tools);
     return { id: updated.id, status: updated.status, toolCount: tools.length };
     };
+  private async prepareDeviceLink(
+    connection: Awaited<ReturnType<PluginService["connectionOrThrow"]>>,
+    tools: PluginToolDefinition[]
+  ) {
+    // Discovery updates status before reaching setup. Fence against that fresh
+    // snapshot, while rejecting an account restart/removal during discovery.
+    const current = await this.connectionOrThrow(connection.id);
+    if (current.runtimeGeneration !== connection.runtimeGeneration)
+      throw new ApiError(409, "plugin_connection_changed", "Account setup changed during discovery.");
+    this.assertAvailable(current);
+    connection = current;
+    const definition = deviceLinkDefinition(connection)!;
+    const status = deviceLinkResult(
+      await this.transport.callHostTool(connection, definition.statusTool, {})
+    );
+    const active = jsonObject(jsonObject(connection.credentials).deviceLink);
+    const activeDeadline = active.sessionExpiresAt ?? active.expiresAt;
+    if (active.sessionId && typeof activeDeadline === "number" && activeDeadline <= Date.now()) {
+      await this.transport.callHostTool(connection, definition.cancelTool, {
+        sessionId: active.sessionId,
+      }).catch(() => {});
+      await this.prisma.pluginConnection.updateMany({
+        where: { id: connection.id, runtimeGeneration: connection.runtimeGeneration,
+          updatedAt: connection.updatedAt },
+        data: { credentials: toJson(clearDeviceLinkState(connection.credentials)),
+          status: "needs_auth", connectedAt: null,
+          statusMessage: "Device approval expired. Connect again for a new code." },
+      });
+      return { id: connection.id, status: "needs_auth", toolCount: 0 };
+    }
+    if (!deviceLinkStatusMatches(active, status))
+      return { id: connection.id, status: "needs_auth", toolCount: 0 };
+    if (status.linked === true) {
+      const ready = await this.markReady(connection, tools, "connection.ready", connection.updatedAt);
+      return { id: ready.id, status: ready.status, toolCount: tools.length };
+    }
+    const prior = publicDeviceLink(connection.credentials);
+    if (prior && status.linking === true)
+      return { id: connection.id, status: "needs_auth", toolCount: 0 };
+    let link: ReturnType<typeof deviceLinkResult>;
+    try {
+      link = deviceLinkResult(
+        await this.transport.callHostTool(connection, definition.startTool, {})
+      );
+    } catch (error) {
+      // Background recovery or another approval may complete after the first
+      // status snapshot. Accept that success instead of requiring a second click.
+      let recovered: ReturnType<typeof deviceLinkResult> | undefined;
+      try {
+        recovered = deviceLinkResult(
+          await this.transport.callHostTool(connection, definition.statusTool, {})
+        );
+      } catch {
+        /* Preserve the original setup failure when status is unavailable. */
+      }
+      if (recovered?.linked === true && deviceLinkStatusMatches(active, recovered) &&
+        (!active.sessionId || typeof activeDeadline !== "number" || activeDeadline > Date.now())) {
+        const ready = await this.markReady(connection, tools, "connection.ready", connection.updatedAt);
+        return { id: ready.id, status: ready.status, toolCount: tools.length };
+      }
+      throw error;
+    }
+    const stored = {
+      sessionId: link.sessionId,
+      qrCodeDataUrl: link.qrCodeDataUrl,
+      expiresAt: link.expiresAt,
+      instructions: definition.instructions,
+      ...(link.sessionExpiresAt !== undefined ? { sessionExpiresAt: link.sessionExpiresAt } : {}),
+      ...(link.challengeGeneration !== undefined ? { challengeGeneration: link.challengeGeneration } : {}),
+    };
+    if (!publicDeviceLink({ deviceLink: stored }) ||
+      (link.sessionExpiresAt ?? link.expiresAt) > Date.now() + 10 * 60_000)
+      throw new Error("Connector returned an invalid device linking code.");
+    const updated = await this.prisma.pluginConnection.updateMany({
+      where: { id: connection.id, runtimeGeneration: connection.runtimeGeneration, updatedAt: connection.updatedAt },
+      data: {
+        credentials: toJson({ ...clearDeviceLinkState(connection.credentials), deviceLink: stored }),
+        status: "needs_auth",
+        statusMessage: "Scan the code with your phone to link this account.",
+        toolSnapshot: toJson(tools),
+        lastCheckedAt: new Date(),
+      },
+    });
+    if (!updated.count) throw new Error("Account setup changed during device linking.");
+    deviceLinkResult(
+      await this.transport.callHostTool(connection, definition.finishTool, {
+        sessionId: link.sessionId,
+      })
+    );
+    return { id: connection.id, status: "needs_auth", toolCount: 0 };
+  }
+
+  private readonly deviceLinkPolls = new Map<string, Promise<unknown>>();
+  pollDeviceLink = (connectionId: string) =>
+    serviceEffect(async () => {
+      const prior = this.deviceLinkPolls.get(connectionId);
+      if (prior) return prior;
+      const pending = this.pollDeviceLinkAccount(connectionId);
+      this.deviceLinkPolls.set(connectionId, pending);
+      try {
+        return await pending;
+      } finally {
+        if (this.deviceLinkPolls.get(connectionId) === pending)
+          this.deviceLinkPolls.delete(connectionId);
+      }
+    });
+
+  private async pollDeviceLinkAccount(connectionId: string) {
+    const connection = await this.connectionOrThrow(connectionId);
+    this.assertAvailable(connection);
+    const definition = deviceLinkDefinition(connection);
+    if (!definition || connection.status === "disconnected") return { pending: false };
+    const link = jsonObject(jsonObject(connection.credentials).deviceLink);
+    const recovering = jsonObject(connection.credentials).deviceRecoveryPending === true;
+    if (connection.status !== "ready" && !link.sessionId && !recovering) return { pending: false };
+    if (connection.status !== "ready") {
+      const runtime = await this.transport.stdioStatus(connectionId);
+      if (runtime.state === "stopped" || runtime.state === "error") {
+        const credentials = clearDeviceLinkState(connection.credentials);
+        await this.prisma.pluginConnection.updateMany({ where: { id: connectionId,
+          runtimeGeneration: connection.runtimeGeneration, updatedAt: connection.updatedAt }, data: {
+          credentials: toJson(credentials), status: "needs_auth", connectedAt: null,
+          statusMessage: recovering
+              ? "Connection interrupted. Connect again to continue."
+              : "Device linking was interrupted. Connect again for a new code.",
+        } });
+        return { linked: false, interrupted: true };
+      }
+    }
+    const status = deviceLinkResult(
+      await this.transport.callHostTool(connection, definition.statusTool, {})
+    );
+    const deadline = link.sessionExpiresAt ?? link.expiresAt;
+    const expired = typeof deadline === "number" && deadline <= Date.now();
+    if (!expired && !deviceLinkStatusMatches(link, status))
+      return { linked: false, stale: true };
+    if (!expired && status.linked === true) {
+      if (connection.status !== "ready" || recovering)
+        await this.markReady(connection, toolSnapshot(connection.toolSnapshot),
+          "connection.ready",
+          connection.updatedAt
+        );
+      return { linked: true };
+    }
+    if (!expired && link.sessionId && status.linking !== false && !status.authorizationError) {
+      const next = deviceLinkChallenge(link, status);
+      if (next) {
+        const updated = await this.prisma.pluginConnection.updateMany({
+          where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration,
+            updatedAt: connection.updatedAt },
+          data: {
+            credentials: toJson({ ...jsonObject(connection.credentials), deviceLink: next }),
+            lastCheckedAt: new Date(),
+          },
+        });
+        if (!updated.count) return { linked: false, stale: true };
+      }
+    }
+    if (status.recovering === true && !link.sessionId) {
+      await this.prisma.pluginConnection.updateMany({
+        where: {
+          id: connectionId,
+          runtimeGeneration: connection.runtimeGeneration,
+          updatedAt: connection.updatedAt,
+        },
+        data: {
+          credentials: toJson({
+            ...clearDeviceLinkState(connection.credentials),
+            deviceRecoveryPending: true,
+          }),
+          status: "error",
+          connectedAt: null,
+          lastCheckedAt: new Date(),
+          statusMessage:
+            "Connection interrupted. Reconnecting automatically; choose Connect if the device was revoked.",
+        },
+      });
+      return { linked: false, recovering: true };
+    }
+    const interrupted = status.linking === false;
+    if (expired || interrupted || status.authorizationError || connection.status === "ready" ||
+      recovering
+    ) {
+      if (link.sessionId)
+        await this.transport
+          .callHostTool(connection, definition.cancelTool, { sessionId: link.sessionId })
+          .catch(() => {});
+      const credentials = clearDeviceLinkState(connection.credentials);
+      await this.prisma.pluginConnection.updateMany({
+        where: {
+          id: connectionId,
+          runtimeGeneration: connection.runtimeGeneration,
+          updatedAt: connection.updatedAt,
+        },
+        data: {
+          credentials: toJson(credentials),
+          status: "needs_auth",
+          connectedAt: null,
+          statusMessage: expired
+            ? "The code expired. Connect again for a new code."
+            : interrupted
+              ? "Device linking was interrupted. Connect again for a new code."
+              : "Device linking is required. Connect again to continue.",
+        },
+      });
+    }
+    return { linked: false, expired };
+  }
+
   disconnect = (connectionId: string) => serviceEffect(async () => {
     const existing = this.connectionStops.get(connectionId);
     if (existing) return existing;
@@ -862,16 +1083,47 @@ export class PluginService {
     finally { if (this.connectionStops.get(connectionId) === pending) this.connectionStops.delete(connectionId); }
   });
 
-  private async disconnectConnection(connectionId: string) {
+  cancelDeviceLink = (connectionId: string, sessionId: string) =>
+    serviceEffect(async () => {
+      await this.connectionStops.get(connectionId);
+      const pending = this.disconnectConnection(connectionId, sessionId);
+      this.connectionStops.set(connectionId, pending);
+      try {
+        return await pending;
+      } finally {
+        if (this.connectionStops.get(connectionId) === pending)
+          this.connectionStops.delete(connectionId);
+      }
+    });
+
+  private async disconnectConnection(connectionId: string, expectedDeviceSession?: string) {
       const connection = await this.prisma.pluginConnection.findUnique({
         where: { id: connectionId },
       });
       if (!connection) throw new ApiError(404, "connection_not_found", "Connection not found");
       const generation = await this.prisma.$transaction(async (tx) => {
-        const disconnected = await tx.pluginConnection.update({
+      await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE id = ${connectionId}::uuid FOR UPDATE`;
+      const current = await tx.pluginConnection.findUniqueOrThrow({ where: { id: connectionId } });
+      if (
+        expectedDeviceSession &&
+        jsonObject(jsonObject(current.credentials).deviceLink).sessionId !== expectedDeviceSession
+      )
+        throw new ApiError(
+          409,
+          "plugin_connection_changed",
+          "A newer linking session replaced this code. Refresh account settings."
+        );
+      const disconnected = await tx.pluginConnection.update({
           where: { id: connectionId },
           data: {
-            status: "disconnected",
+          credentials: toJson(
+            Object.fromEntries(
+              Object.entries(jsonObject(current.credentials)).filter(
+                ([key]) => key !== "deviceLink" && key !== "deviceRecoveryPending"
+              )
+            )
+          ),
+          status: "disconnected",
             statusMessage: null,
             connectedAt: null,
             runtimeGeneration: { increment: 1 },
@@ -891,8 +1143,20 @@ export class PluginService {
       // New explicit connects wait for this stop; a timed-out old request no
       // longer occupies the shared-start slot and is fenced on the computer.
       this.connectionStarts.delete(connectionId);
+    try {
       await this.stopRuntime(connectionId, connection.transport, generation);
-      return { disconnected: true };
+    } catch (error) {
+      await this.prisma.pluginConnection.updateMany({
+        where: { id: connectionId, runtimeGeneration: generation },
+        data: {
+          status: "error",
+          statusMessage:
+            "Could not confirm the runtime stopped. Reconnect the computer and disconnect again.",
+        },
+      });
+      throw error;
+    }
+    return { disconnected: true };
   }
 
   addAccount = (connectionId: string, aliasValue: string, reviewedAccountId?: string) =>
@@ -1006,40 +1270,58 @@ export class PluginService {
 
   removeAccount = (connectionId: string) =>
     serviceEffect(async () => {
-      const connection = await this.connectionOrThrow(connectionId);
-      const siblings = await this.prisma.pluginConnection.count({
-        where: {
-          installationId: connection.installationId,
-          connectorKey: connection.connectorKey,
-        },
-      });
-      if (siblings <= 1) {
-        await this.stopRuntime(connectionId, connection.transport);
-        await this.prisma.pluginConnection.update({
-          where: { id: connectionId },
-          data: {
-            alias: "default",
-            credentials: toJson({}),
-            configuration: toJson(
-              Object.fromEntries(
-                Object.entries(jsonObject(connection.configuration)).filter(
-                  ([key]) => !["env", "headers", "clientSecret", "values"].includes(key)
-                )
-              )
-            ),
-            status: connection.authType === "none" ? "disconnected" : "needs_auth",
-            runtimeGeneration: { increment: 1 },
-            statusMessage:
-              connection.authType === "none" ? null : "Authentication has not been configured.",
-            connectedAt: null,
-          },
-        });
-        return { removed: true, reset: true };
+      await this.connectionStops.get(connectionId);
+      const pending = this.removeAccountNow(connectionId);
+      this.connectionStops.set(connectionId, pending);
+      try {
+        return await pending;
+      } finally {
+        if (this.connectionStops.get(connectionId) === pending)
+          this.connectionStops.delete(connectionId);
       }
-      await this.stopRuntime(connectionId, connection.transport);
-      await this.prisma.pluginConnection.delete({ where: { id: connectionId } });
-      return { removed: true };
     });
+
+  private async removeAccountNow(connectionId: string) {
+    const connection = await this.connectionOrThrow(connectionId);
+    const siblings = await this.prisma.pluginConnection.count({ where: {
+      installationId: connection.installationId, connectorKey: connection.connectorKey,
+    } });
+    // This durable gate covers other server instances and survives a failed cleanup.
+    const removing = await this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE id = ${connectionId}::uuid FOR UPDATE`;
+      const current = await tx.pluginConnection.findUniqueOrThrow({ where: { id: connectionId } });
+      const credentials = { ...jsonObject(current.credentials), stateRemovalPending: true };
+      delete (credentials as Record<string, unknown>).deviceLink;
+      delete (credentials as Record<string, unknown>).deviceRecoveryPending;
+      return tx.pluginConnection.update({ where: { id: connectionId }, data: {
+        runtimeGeneration: { increment: 1 }, credentials: toJson(credentials),
+        status: "disconnected", connectedAt: null,
+      } });
+    });
+    await this.stopRuntime(connectionId, connection.transport, removing.runtimeGeneration);
+    await this.removePersistentAccount(connectionId);
+    if (siblings <= 1) {
+      await this.prisma.pluginConnection.update({ where: { id: connectionId }, data: {
+        alias: "default", credentials: toJson({}),
+        configuration: toJson(Object.fromEntries(Object.entries(jsonObject(connection.configuration)).filter(
+          ([key]) => !["env", "headers", "clientSecret", "values"].includes(key)
+        ))),
+        status: connection.authType === "none" ? "disconnected" : "needs_auth",
+        statusMessage: connection.authType === "none" ? null : "Authentication has not been configured.", connectedAt: null,
+      } });
+      return { removed: true, reset: true };
+    }
+    await this.prisma.pluginConnection.delete({ where: { id: connectionId } });
+    return { removed: true };
+  }
+
+  private async removePersistentAccount(connectionId: string) {
+    const connection = await this.connectionOrThrow(connectionId);
+    const connector = definitionFromManifest(connection.installation.manifest)?.connections.find(c => c.key === connection.connectorKey);
+    if (!connector?.persistentState) return;
+    // Provider revocation may require the phone. Local deletion never launches a new process.
+    await this.transport.forgetRuntime(connectionId, connection.runtimeGeneration);
+  }
 
   setInstructions = (connectionId: string, instructionsValue: string) =>
     serviceEffect(async () => {
@@ -1095,7 +1377,8 @@ export class PluginService {
       const connection = await this.connectionOrThrow(connectionId);
       const updated = await this.prisma.pluginConnection.updateMany({
         where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
-        data: { runtimeGeneration: { increment: 1 } },
+        data: { runtimeGeneration: { increment: 1 },
+          credentials: toJson(clearDeviceLinkState(connection.credentials)) },
       });
       if (!updated.count) throw new ApiError(409, "plugin_connection_changed", "Connection setup changed while restarting");
       await this.stopRuntime(connectionId, connection.transport, connection.runtimeGeneration + 1);
@@ -1156,7 +1439,8 @@ export class PluginService {
       installation: { pluginKey: string };
     },
     tools: PluginToolDefinition[],
-    activityKind = "connection.ready"
+    activityKind = "connection.ready",
+    expectedUpdatedAt?: Date
   ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE id = ${connection.id}::uuid FOR UPDATE`;
@@ -1164,7 +1448,9 @@ export class PluginService {
         where: { id: connection.id },
         include: { installation: true },
       });
-      if (!current || current.runtimeGeneration !== connection.runtimeGeneration)
+      if (!current || current.runtimeGeneration !== connection.runtimeGeneration ||
+        (expectedUpdatedAt && current.updatedAt.getTime() !== expectedUpdatedAt.getTime())
+      )
         throw new ApiError(
           409,
           "plugin_connection_changed",
@@ -1174,6 +1460,13 @@ export class PluginService {
       const value = await tx.pluginConnection.update({
         where: { id: connection.id },
         data: {
+          credentials: toJson(
+            Object.fromEntries(
+              Object.entries(jsonObject(current.credentials)).filter(
+                ([key]) => key !== "deviceLink" && key !== "deviceRecoveryPending"
+              )
+            )
+          ),
           status: "ready",
           statusMessage: null,
           connectedAt: new Date(),
@@ -1259,7 +1552,12 @@ export class PluginService {
           OR: [
             { status: "ready" },
             { status: "error", statusMessage: { startsWith: "Local runtime unavailable:" } },
+            { status: "error", credentials: { path: ["deviceRecoveryPending"], equals: true } },
             { status: "needs_auth", statusMessage: { startsWith: "Local runtime starting:" } },
+            {
+              status: "needs_auth",
+              credentials: { path: ["deviceLink", "sessionId"], not: Prisma.DbNull },
+            },
           ],
         },
         include: { installation: true },
@@ -1269,6 +1567,10 @@ export class PluginService {
         // health check must not request access after the user locks the provider.
         if (jsonObject(connection.configuration).runtime === "desktop") continue;
         try {
+          if (deviceLinkDefinition(connection)) {
+            await Effect.runPromise(this.pollDeviceLink(connection.id));
+            continue;
+          }
           // Discovery can spawn an OAuth bridge and open a browser. Background
           // health checks only observe the existing runtime; retries are explicit.
           const runtime = await this.transport.stdioStatus(connection.id).catch(() => null);

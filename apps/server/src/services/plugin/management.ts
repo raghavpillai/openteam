@@ -455,6 +455,14 @@ export class PluginManagement {
           "The package changed; review the update again"
         );
       parsePluginDefinition(next);
+      if (installation.connections.some(account => jsonObject(account.credentials).stateRemovalPending === true))
+        throw new ApiError(409, "plugin_account_removal_pending", "Account removal must finish before updating this plugin.");
+      // Retiring the descriptor would make the old private directory unreachable
+      // from account removal. Uninstall is the explicit, fenced cleanup path.
+      if (previous.connections.some(connector => connector.persistentState &&
+        installation.connections.some(account => account.connectorKey === connector.key) &&
+        !next.connections.find(candidate => candidate.key === connector.key)?.persistentState))
+        throw new ApiError(409, "plugin_persistent_state_retired", "This update removes a connector's private storage. Uninstall the plugin to remove its account data, then install the new version.");
       await Promise.all(
         installation.connections.map((connection) => this.stop(connection.id, connection.transport))
       );
@@ -480,6 +488,12 @@ export class PluginManagement {
             "plugin_update_conflict",
             "This installation changed; review the update again"
           );
+        await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE "installationId" = ${installation.id}::uuid ORDER BY id FOR UPDATE`;
+        const currentAccounts = await tx.pluginConnection.findMany({ where: { installationId: installation.id } });
+        if (currentAccounts.length !== installation.connections.length || currentAccounts.some(account =>
+          jsonObject(account.credentials).stateRemovalPending === true ||
+          account.runtimeGeneration !== installation.connections.find(previous => previous.id === account.id)?.runtimeGeneration))
+          throw new ApiError(409, "plugin_update_conflict", "An account changed while updating. Finish account removal or refresh and review the update again.");
         for (const connector of next.connections) {
           const defaults = Object.fromEntries(
             fieldsForConnector(next, connector.key)

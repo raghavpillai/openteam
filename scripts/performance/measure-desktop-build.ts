@@ -455,7 +455,7 @@ const readLazyClosures = async () => {
       loadingOrb: ["node_modules/thinking-orbs/dist/index.es.js"],
       voiceMemo: ["src/renderer/components/openteam/voice-memo/voice-memo-layer.tsx"],
       routineEditor: ["src/renderer/components/openteam/routine-panel.tsx"],
-      newBot: ["src/renderer/components/openteam/new-bot-screen.tsx"],
+      newBot: ["src/renderer/components/openteam/new-bot-dialog.tsx"],
       onboarding: ["src/renderer/components/openteam/onboarding.tsx"],
       signIn: ["src/renderer/components/openteam/sign-in-flow.tsx"],
       pluginSettings: ["src/renderer/components/openteam/plugin-settings.tsx"],

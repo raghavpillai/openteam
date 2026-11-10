@@ -4,14 +4,22 @@ import { createPrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import { PluginService } from "../../src/services/plugin-service";
 
-const flags = new Set(process.argv.slice(2));
-if (!flags.has("--live") || [...flags].some((flag) => flag !== "--live")) {
-  console.error("Usage: bun apps/server/test/plugin/live-read.ts --live");
-  console.error(
-    "Reads the default connected accounts."
-  );
+const args = process.argv.slice(2);
+let live = false;
+let selectedPlugin: string | undefined;
+const usage = (): never => {
+  console.error("Usage: bun apps/server/test/plugin/live-read.ts --live [--plugin <plugin-key>]");
+  console.error("Reads the default connected accounts, optionally for one plugin.");
   process.exit(2);
+};
+for (let index = 0; index < args.length; index++) {
+  const arg = args[index];
+  if (arg === "--live" && !live) live = true;
+  else if (arg === "--plugin" && !selectedPlugin && args[index + 1] && !args[index + 1]!.startsWith("--"))
+    selectedPlugin = args[++index];
+  else usage();
 }
+if (!live) usage();
 for (const key of ["DATABASE_URL", "OPENTEAM_COMPUTER_URL", "OPENTEAM_CONTROL_TOKEN"]) {
   if (!process.env[key]) {
     console.error(`Missing server environment variable: ${key}`);
@@ -105,8 +113,25 @@ try {
     ["linear", "list_teams", { limit: 1 }],
     ["notion", "notion-get-users", { user_id: "self", page_size: 1 }],
     ["notion", "notion-search", { query: "OpenTeam", page_size: 1, max_highlight_length: 0 }],
+    ["ramp", "ramp_get_simplified_user_detail", { rationale: "Verify the connected Ramp identity" }],
+    [
+      "ramp",
+      "ramp_get_transactions",
+      {
+        rationale: "Verify Ramp transaction reads through OpenTeam MCP",
+        transactions_to_retrieve: "my_transactions",
+        page_size: 1,
+      },
+    ],
+    [
+      "ramp",
+      "ramp_list_unmatched_receipts",
+      { rationale: "Verify Ramp receipt discovery through OpenTeam MCP", page_size: 1 },
+    ],
   ];
-  for (const [plugin, tool, args] of checks) await check(plugin, tool, args);
+  const selected = selectedPlugin ? checks.filter(([plugin]) => plugin === selectedPlugin) : checks;
+  if (selected.length === 0) usage();
+  for (const [plugin, tool, args] of selected) await check(plugin, tool, args);
   console.log(JSON.stringify({ passed, failed }));
   process.exitCode = failed ? 1 : 0;
 } finally {

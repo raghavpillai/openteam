@@ -17,6 +17,14 @@ Upstream examples can lag the service. In particular, bill approval is available
 
 Use OpenTeam's available browser capability for checkout and sign-in. The `ramp-prefer-ramp-connectors` playbook applies to separately configured Ramp Router connectors; resolve the tools actually available in this session before following that preference.
 
+## Receipt uploads through MCP
+
+Receipt uploads use MCP; they do not require the Ramp CLI or a separate CLI login. Connect with Full access and check that the selected account exposes `ramp_request_receipt_upload_link`.
+
+For a receipt file available on the Bot computer, follow `ramp-complete-expenses`: confirm the transaction match, check `ramp_get_transaction_missing_items`, then request a link for that transaction only when its receipt is missing. Use the returned upload instructions to send the local file over HTTPS. Keep the single-use URL private and check its expiry. After HTTP 201, re-read the missing items and verify `missing_receipt` is false before reporting success. Never put receipt bytes or base64 into an MCP call.
+
+Use `ramp_open_receipt_uploader` only when the host actually renders its interactive upload card. A chat attachment must be available as a local file on the Bot computer for the upload-link path. For an out-of-pocket receipt, omit the transaction UUID and use the returned receipt UUID with the reimbursement workflow.
+
 ## CLI-only operations
 
 Vendor document uploads and some procurement/sourcing file uploads require the CLI. The account application, incorporation, standalone-agent onboarding, and reporting playbooks also declare CLI-only support. Follow the live schema and the relevant playbook for the specific operation.

@@ -5,22 +5,6 @@ workflow. GitHub Releases remains the download host used by `openteam.so/downloa
 and the install scripts; uploading locally built artifacts does not require GitHub
 Actions. The CLI installer workflow runs tests only.
 
-## v0.0.16 release preparation
-
-Prepare v0.0.16 from `8750be2343569743f7338ff9569c739e31d3d0b3`, with
-v0.0.15 (`6af6444c6be3b31588180ccca8518e2a5aa35436`) as the published baseline.
-Advance the root and workspace package versions, lockfile workspace versions,
-and native release metadata together. PR #258 repairs retention cleanup of
-obsolete digest-pulled Docker images on classic and containerd image stores.
-Verify deletion and partial-failure recovery with the real Docker harness while
-checking current/rollback stacks, containers, manual tags and other installations.
-
-Build 66 was unused in both Apple builds and uploads at preparation. Public build
-0.0.14 (64) remains verified approved and externally available. Build 65 is valid
-and available internally, with external review pending. Keep the public feed at
-the verified public build. Preserve committed native resources when regenerating
-only the version/build metadata. Native application sources match v0.0.15.
-
 ## Preparation checks
 
 Before every iOS upload, query App Store Connect builds **and build uploads**
@@ -77,13 +61,23 @@ to the app, not necessarily to the DMG container.
 for public installers. The maintainer's reusable local release skill lives in a
 private, gitignored `.agents/skills/openteam-macos-release/` folder.
 
+## Linux desktop
+
+Build on an x86_64 Linux machine from an isolated checkout prepared the same way.
+From `apps/desktop`, run `bun run typecheck` and `bun run package`. electron-builder
+builds for the current platform, so this writes `OpenTeam-<version>-linux-x86_64.AppImage`
+and `latest-linux.yml` to `apps/desktop/release/`, then checks package budgets. Sign the
+AppImage with `apps/cli/scripts/sign-release.ts` (it takes any file paths) so it ships with
+its `.sigstore.json` bundle, as published releases do.
+
 ## Publish artifacts
 
-Upload the verified DMG, ZIP, blockmaps, and `latest-mac.yml` from
-`apps/desktop/release/` to the intended release using `gh release upload <tag> <files>`.
-Do not replace existing assets unless that replacement is intended. Preserve other
-platforms' entries in `DESKTOP_SHA256SUMS`, add the hashes of the uploaded macOS files,
-and upload the merged checksum file. Download the published DMG and verify its hash.
+Upload the verified macOS DMG, ZIP, blockmaps, and `latest-mac.yml`, and the Linux
+AppImage and `latest-linux.yml`, from `apps/desktop/release/` to the intended release
+using `gh release upload <tag> <files>`. Do not replace existing assets unless that
+replacement is intended. Preserve other platforms' entries in `DESKTOP_SHA256SUMS`,
+add the hashes of the uploaded files, and upload the merged checksum file. Download
+each published installer and verify its hash.
 
 The download page selects `OpenTeam-<version>-mac-arm64.dmg` from the latest published
 GitHub release and caches lookups for five minutes. Verify the download page resolves

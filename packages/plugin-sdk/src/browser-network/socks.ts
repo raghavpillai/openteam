@@ -3,27 +3,40 @@ import type { Duplex } from "node:stream";
 import ipaddr from "ipaddr.js";
 
 /** Loopback-only SOCKS5 CONNECT gateway. It never chooses or falls back to a route. */
-export function createBrowserProxy(open: (host: string, port: number) => Promise<Duplex>) {
+export function createBrowserProxy(
+  open: (host: string, port: number, signal: AbortSignal) => Promise<Duplex>,
+  limit = 80
+) {
   const clients = new Set<Socket>();
   const server = createServer({ allowHalfOpen: true }, (client) => {
     client.setNoDelay(true);
+    const life = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined, upstream: Duplex | undefined;
+    // Release capacity before admission: a rejected connection must not stay in the
+    // set, because this set is the only capacity measure and, under computer-wide
+    // routing, every container connection fails once it is exhausted.
+    client.once("close", () => {
+      clearTimeout(timer);
+      life.abort();
+      clients.delete(client);
+      upstream?.destroy();
+    });
+    client.on("error", () => {});
     clients.add(client);
-    if (clients.size > 80) {
+    if (clients.size > limit) {
       client.destroy();
       return;
     }
     let stage = 0,
       bytes = Buffer.alloc(0),
-      busy = false,
-      upstream: Duplex | undefined;
-    const timer = setTimeout(() => client.destroy(), 30_000);
-    timer.unref();
-    client.on("error", () => {});
-    client.once("close", () => {
-      clearTimeout(timer);
-      clients.delete(client);
-      upstream?.destroy();
+      busy = false;
+    // Release abandoned handshakes. After a complete CONNECT, FIN may mean a
+    // valid request body has ended while its upstream is still being opened.
+    client.once("end", () => {
+      if (!upstream && !busy) client.destroy();
     });
+    timer = setTimeout(() => client.destroy(), 30_000);
+    timer.unref();
     const reject = (code = 1) => {
       client.end(Buffer.from([5, code, 0, 1, 0, 0, 0, 0, 0, 0]));
     };
@@ -92,25 +105,34 @@ export function createBrowserProxy(open: (host: string, port: number) => Promise
       busy = true;
       client.pause();
       client.off("data", data);
-      void open(host, port).then(
-        (socket) => {
-          upstream = socket;
-          clearTimeout(timer);
-          if (client.destroyed) {
-            socket.destroy();
-            return;
+      void Promise.resolve()
+        .then(() => {
+          life.signal.throwIfAborted();
+          return open(host, port, life.signal);
+        })
+        .then(
+          (socket) => {
+            upstream = socket;
+            if (client.destroyed) {
+              socket.destroy();
+              return;
+            }
+            socket.on("error", () => client.destroy());
+            socket.once("close", () => client.destroy());
+            if (socket.destroyed) {
+              reject(1);
+              return;
+            }
+            clearTimeout(timer);
+            client.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
+            if (pending.length) socket.write(pending);
+            client.pipe(socket).pipe(client);
+            client.resume();
+          },
+          () => {
+            if (!client.destroyed) reject(1);
           }
-          socket.on("error", () => client.destroy());
-          socket.once("close", () => client.destroy());
-          client.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
-          if (pending.length) socket.write(pending);
-          client.pipe(socket).pipe(client);
-          client.resume();
-        },
-        () => {
-          if (!client.destroyed) reject(1);
-        }
-      );
+        );
     };
     client.on("data", data);
   });

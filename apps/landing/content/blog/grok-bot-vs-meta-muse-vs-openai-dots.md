@@ -10,19 +10,19 @@ imageAlt: The OpenTeam desktop app showing a bot's chat, a live preview of its L
 related: meta-muse-not-available-in-your-country, claude-cowork-alternative, best-self-hosted-ai-agents
 ---
 
-**Grok Bot is for several bots that coordinate, from $30 a month with Cursor Premium. Meta Muse is for a free, phone-first agent, only in the US, Canada, Japan and Singapore. OpenAI dots is for ChatGPT Pro and Business Premium users who want one always-on agent. OpenTeam is the open-source Grok Bot alternative for running self-hosted AI agents on your own hardware, at the cost of more setup.**
+**Grok Bot is for several bots that coordinate, from $30 a month on The X Subscription's Premium plan. Meta Muse is for a free, phone-first agent, only in the US, Canada, Japan and Singapore. OpenAI dots is for ChatGPT Pro and Business Premium users who want one always-on agent. OpenTeam is the open-source Grok Bot alternative for running self-hosted AI agents on your own hardware, at the cost of more setup.**
 
 We build OpenTeam, an open-source (GPL-3.0) team of AI agents, so weigh our view accordingly. All three hosted products give an agent its own cloud computer that keeps working after you close the laptop. Every claim links to the vendor's own pages or to dated press, and we haven't run any of the three.
 
-> **Updated October 13, 2026:** Cursor replaced its plans on October 13. Grok Bot now comes with Cursor Premium ($30 a month) and higher plans, or Teams; the new $8 Plus plan doesn't include it ([Cursor](https://cursor.com/pricing)). The Grok Bot prices below reflect the change.
+> **Updated November 10, 2026:** On October 12, xAI replaced Cursor's plans for new customers with The X Subscription ([xAI](https://x.ai/news/x-subscription)). Grok Bot comes with its Premium plan ($30 a month) and higher tiers, or a Teams seat; the $8 Plus plan doesn't include it. Since this post first ran, dots can text you, Muse added voice and spaces, and Grok Bot's phone apps can use apps on your phone. The sections below note each change.
 
 ## Grok Bot vs Meta Muse vs OpenAI dots at a glance
 
-Facts as of October 9, 2026 (Grok Bot prices as of October 13), from each vendor's docs, plan pages and launch posts. "Not published" means the vendor hasn't said.
+Facts as of October 9, 2026 (Grok Bot prices, and the changes noted, as of November 10), from each vendor's docs, plan pages and launch posts. "Not published" means the vendor hasn't said.
 
 | | Grok Bot | Meta Muse | OpenAI dots | OpenTeam |
 |---|---|---|---|---|
-| Price and plan | Cursor Premium ($30/mo) and up, Cursor Teams, or a linked SuperGrok or X Premium+ plan | Free with a limit; Power $20/mo; Maximum $100/mo | ChatGPT Pro (from $100/mo) or a Business Premium seat | Free (GPL-3.0); you pay for hardware and model usage |
+| Price and plan | The X Subscription's Premium ($30/mo) and up, or a Teams seat; older Cursor plans and SuperGrok links still work | Free with a limit; Power $20/mo; Maximum $100/mo | ChatGPT Pro (from $100/mo) or a Business Premium seat | Free (GPL-3.0); you pay for hardware and model usage |
 | Where you can use it | Not published; its computers run in the US | US, Canada, Japan and, since October 27, Singapore | Pro: outside the EEA, UK and Switzerland. Business Premium: rolling out worldwide | Wherever your model provider works |
 | Model | Picked per request by Cursor; no picker | Muse Spark | GPT-6 Astra | One per server: OpenAI, Anthropic, OpenRouter or a compatible endpoint, including local |
 | Where the agent runs | One cloud computer per user, shared by your bots | A cloud Linux VM per person | Its own cloud computer; optional link to your laptop | Your machine: a Linux desktop per bot |
@@ -30,15 +30,15 @@ Facts as of October 9, 2026 (Grok Bot prices as of October 13), from each vendor
 | Approvals | Auto-review with "Ask first" rules | Sentinel gates actions and traffic | Auto-review plus Custom Rules | Cards for email, Slack and texts; handoffs for CAPTCHA, 2FA, payment |
 | Multiple agents | Many bots; group chats of 2–6; bot-to-bot messages | One Muse, with subagents | One dot for now, with background agents | Many bots; group chats of up to 6; bot-to-bot messages |
 | Connected apps | Plugins (count not published) plus any website | Dozens of partners plus Shopify | 4,000+ via plugins | Bundled plugins plus custom MCP servers |
-| Routines | Schedules and events | Reminders and recurring tasks | Recurring tasks and events | Schedules and events |
-| Platforms | macOS, Windows, Linux, iOS, Android | iOS, Android, web, Mac, WhatsApp | ChatGPT web, desktop, mobile; Slack; Teams | macOS (Apple silicon), Linux x64; iPhone beta |
+| Routines | Schedules and events | Reminders and recurring tasks | Recurring tasks and events | Schedules and incoming email |
+| Platforms | macOS, Windows, Linux, iOS, Android | iOS, Android, web, Mac, WhatsApp | ChatGPT web, desktop, mobile; Slack; Teams; texting (US Pro beta) | macOS (Apple silicon), Linux x64; iPhone beta |
 | Training on your data | Follows Cursor privacy settings | On by default, opt-out | Personal: your setting. Business: off by default | None by OpenTeam; provider terms apply |
 
 ## Grok Bot
 
 Grok Bot is xAI's app for "always-on agents" that "have their own computer," launched in beta on August 11, 2026 ([xAI](https://x.ai/news/introducing-grok-bot)).
 
-- **Price and plan:** Included with Cursor Premium ($30 a month), Super, Ultra and Teams, but not the $8 Plus plan ([Cursor](https://cursor.com/pricing)), or with a linked SuperGrok, SuperGrok Plus, SuperGrok Heavy or X Premium+ subscription ([Cursor Help](https://cursor.com/help/grok-bot/plans)). Until October 13 it came with Cursor Pro at $20. Plans include weekly usage, and the trial is a usage credit. Pages quoting a $200 or $300 minimum don't match Cursor's plans page.
+- **Price and plan:** Included with The X Subscription's Premium ($30 a month), Super and Ultra plans and every paid Teams seat, but not the $8 Plus plan ([xAI](https://docs.x.ai/x-subscription/pricing)). Usage comes from a weekly pool shared with Cursor and the Grok apps, and extra usage is paid from prepaid credit. Older Cursor plans, and linked SuperGrok, SuperGrok Plus, SuperGrok Heavy or X Premium+ subscriptions, still include it ([Cursor Help](https://cursor.com/help/grok-bot/plans)). Until October 12 it came with Cursor Pro at $20. The trial is a usage credit. Pages quoting a $200 or $300 minimum don't match Cursor's plans page.
 - **Where you can use it:** Not published. The bots' computers "run in the United States today" ([xAI](https://docs.x.ai/grok-bot/security)).
 - **Model:** Cursor picks a model per request, from xAI or third-party providers, with no model picker ([Cursor Help](https://cursor.com/help/grok-bot/models)).
 - **Where the agent runs:** One persistent cloud computer per user, a Firecracker microVM. All your bots share it, each on its own screen, and xAI says separate bots aren't a security boundary ([xAI](https://docs.x.ai/grok-bot/teams-and-enterprises)).
@@ -47,7 +47,7 @@ Grok Bot is xAI's app for "always-on agents" that "have their own computer," lau
 - **Multiple agents:** Many bots in parallel, group chats of two to six, and direct bot-to-bot messages ([xAI](https://docs.x.ai/grok-bot/chat-and-collaboration)). Team Bots give a team one shared bot in the app or Slack.
 - **Connected apps:** Plugins such as Gmail, Notion and Slack, plus the browser for everything else ([Cursor Help](https://cursor.com/help/grok-bot/connect-plugins)).
 - **Routines:** Schedules or events, up to 50 per bot, at least five minutes apart ([xAI](https://docs.x.ai/grok-bot/skills-routines-and-automations)).
-- **Platforms:** Desktop apps for macOS, Windows and Linux, plus iPhone, iPad and Android ([xAI](https://docs.x.ai/grok-bot/faq)).
+- **Platforms:** Desktop apps for macOS, Windows and Linux, plus iPhone, iPad and Android ([xAI](https://docs.x.ai/grok-bot/faq)). Since late October, the phone apps let a bot use your calendar, contacts, location and alarms, plus Reminders and Home on iPhone ([xAI](https://docs.x.ai/grok-bot/mobile)). On November 4, xAI said Grok Bot "can now make phone calls" ([Grok Bot on X](https://x.com/bot/status/2118043939592942052)).
 - **Training on your data:** Follows your Cursor privacy settings. Grok Bot needs cloud storage, so Cursor's Legacy Privacy Mode isn't supported.
 
 ![The Grok Bot desktop app with an orchestrator bot messaging other bots and creating a routine, and a sidebar list of specialist bots](/blog/images/grok-bot-multi-bot-handoff.jpg "An orchestrator bot handing work to other bots and creating a routine. Screenshot: Grok Bot guide, xAI.")
@@ -65,7 +65,7 @@ Meta launched Muse on September 8, 2026 as a personal agent that lives on its ow
 - **Multiple agents:** One Muse per person, which runs subagents. Meta hasn't described group chats of agents.
 - **Connected apps:** "Dozens of partners" plus the Shopify catalog at launch, with Walmart, Best Buy, Notion and GitHub announced at Connect ([Meta](https://about.fb.com/news/2026/09/the-biggest-news-from-connect-2026/)).
 - **Routines:** One-time reminders and recurring tasks you set by asking ([Meta Help Center](https://www.meta.com/help/artificial-intelligence/1484325780075655/)). Event triggers: not published.
-- **Platforms:** iOS, Android, the web, WhatsApp and a Mac app ([Muse](https://muse.ai/)).
+- **Platforms:** iOS, Android, the web, WhatsApp and a Mac app ([Muse](https://muse.ai/)). Since November 5, US users can talk to Muse by voice, with an avatar that reacts as it speaks ([Meta](https://about.fb.com/news/2026/11/introducing-muse-ai-voice-expressive-avatars/)). On November 6, Meta added spaces, custom views Muse builds in the app, such as a gift tracker, everywhere Muse is available ([Meta](https://about.fb.com/news/2026/11/introducing-spaces-customize-muse-app/)).
 - **Training on your data:** On by default. Meta strips key personal details first, and a settings switch opts you out. Muse data isn't shared with Meta's ad systems.
 
 ![Muse chat showing the agent selecting cinema seats in its own browser after the user says book for 2](/blog/images/meta-muse-browser-task.png "Muse booking tickets in its own browser. Screenshot: muse.ai, Meta.")
@@ -83,7 +83,7 @@ OpenAI launched dots on September 29, 2026: "always-on agents" in ChatGPT, power
 - **Multiple agents:** One dot for now, which splits work among background agents. OpenAI says it envisions "teams of dots" over time.
 - **Connected apps:** More than 4,000 apps through OpenAI's plugins.
 - **Routines:** Recurring tasks on a saved schedule, and event monitoring where a connected service supports it ([OpenAI](https://learn.chatgpt.com/docs/dots/tasks-and-memory)).
-- **Platforms:** ChatGPT on the web, desktop and mobile apps (not mobile web), plus Slack and Microsoft Teams.
+- **Platforms:** ChatGPT on the web, desktop and mobile apps (not mobile web), plus Slack and Microsoft Teams. Since October 28, Pro users in the US can text their dot over iMessage or RCS in a beta; it texts only you, and only you can text it ([OpenAI](https://learn.chatgpt.com/docs/dots/channels#texting)).
 - **Training on your data:** Business, Enterprise and Edu content isn't used by default. On personal plans, your ChatGPT data controls decide.
 
 ![A dot offering to fix a bug in chat while its cloud browser shows a release workspace](/blog/images/openai-dots-chat-and-cloud-computer.png "A dot working in its own cloud browser beside the chat. Screenshot: OpenAI dots launch post, OpenAI.")
@@ -105,7 +105,7 @@ OpenTeam is an open-source, self-hosted alternative to all three, and closest to
 - **Where you can use it.** Anywhere your model provider works.
 - **What it costs.** The software is free; you pay for the machine and the model usage.
 - **Teamwork.** Group chats of up to six bots take turns, with hard limits of 3 rounds and 10 bot messages per message you send. Bots also message each other directly and delegate to subagents.
-- **Routines** run on the server on a schedule or when an event arrives, so the apps can be closed. If the server is a laptop that sleeps, the bots stop until it wakes.
+- **Routines** run on the server on a schedule or when an email arrives, so the apps can be closed. If the server is a laptop that sleeps, the bots stop until it wakes.
 
 ![The OpenTeam desktop app with a bot's chat, a live preview of its screen and a weekday routine](/blog/images/openteam-desktop.png "Each bot has a chat, a live view of its own Linux desktop, and its routines. Image: OpenTeam.")
 
@@ -114,7 +114,7 @@ OpenTeam is an open-source, self-hosted alternative to all three, and closest to
 - **Setup.** You install an app and sign in. OpenTeam needs Docker, about 8 GB of RAM, a machine that stays on, and a model plan, key or local model server.
 - **Approvals.** All three check consequential actions before they run. OpenTeam asks only before sending email, Slack messages and texts; other actions run directly. Its other guardrails are the container, handoffs for CAPTCHAs, 2FA and payments, and password forms the model can't read.
 - **Managed isolation.** Grok Bot runs each user in a Firecracker microVM, and Muse routes all traffic through Sentinel; the vendors maintain both. OpenTeam's bots share one Docker container, with passwordless `sudo`, and one Unix user, on a machine you maintain.
-- **Apps and reach.** Grok Bot has Windows and Android apps, Muse works in WhatsApp, and dots works in Slack and Teams. OpenTeam's desktop apps are macOS (Apple silicon) and Linux x64 only, the iPhone app is a TestFlight beta, and there's no Android app.
+- **Apps and reach.** Grok Bot has Windows and Android apps, Muse works in WhatsApp, and dots works in Slack, Teams and, for US Pro users, texts. OpenTeam's desktop apps are macOS (Apple silicon) and Linux x64 only, the iPhone app is a TestFlight beta, and there's no Android app.
 - **Integrations.** dots reaches 4,000+ apps and Muse checks out with one-time cards. OpenTeam has a few bundled plugins plus custom MCP servers.
 - **People.** Team Bots and ChatGPT business plans serve whole teams. OpenTeam has one human account per server.
 
@@ -138,7 +138,7 @@ Yes. OpenTeam is an open-source (GPL-3.0), self-hosted Grok Bot alternative. Eac
 
 ### Is Grok Bot free?
 
-No, but you can try it. The trial is a usage credit with a 7-day window. After that, Grok Bot comes with Cursor plans from Premium at $30 a month, or a linked SuperGrok or X Premium+ subscription.
+No, but you can try it. The trial is a usage credit with a 7-day window. After that, Grok Bot comes with The X Subscription from Premium at $30 a month, or with an older Cursor plan or linked SuperGrok or X Premium+ subscription.
 
 ### Is Meta Muse available outside the US and Canada?
 

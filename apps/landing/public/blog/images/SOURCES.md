@@ -103,6 +103,54 @@ Diagrams for the n8n comparison use the same method. n8n facts come from its doc
 - `n8n-vs-openteam-scorecard.png`: what happened when n8n and OpenTeam got the same jobs.
 - `n8n-openteam-bridges.png`: three ways to connect n8n and OpenTeam, two tested end to end and one checked in code.
 
+Staged screenshots for the October 28 to November 10 posts use the same method: the desktop components of OpenTeam's current release rendered in a local browser fixture, captured at 2× on 2026-11-10 and scaled to 1600 px wide. Names, people, banks, figures and times are made up; where a caption says a reply is real, the bot's text is copied word for word from our test runs:
+
+- `openteam-imessage-catch-up-sent-card.png`: a bot replying in an existing conversation, with the Sent card the app records for an allowed text. Replaces `openteam-imessage-catch-up-chat.png` in the iMessage guide.
+- `openteam-messages-send-card.png`: a Send this message? card with Send, Always allow and Discard. Apple's Messages icon isn't included, so the app's fallback icon shows.
+- `openteam-messages-settings-allowed-recipients.png`: Settings, Computer, with Messages on and an Allowed recipients list.
+- `openteam-messages-permissions-dialog.png`: the macOS permissions window for Messages.
+- `openteam-research-bot-computer-routine.png`: a bot that signed in to a site and set up a weekly routine; the screen preview reuses `/screenshots/linux-dashboard.png`.
+- `openteam-marketplace-plugins.png`: the Marketplace, with its catalog built from the release's plugin manifests and icons.
+- `openteam-plaid-plugin-page.png`: the Plaid plugin's page, from the release's real manifest.
+- `openteam-plaid-secret-request.png`, `openteam-plaid-hosted-link-connected.png`, `openteam-plaid-spending-summary.png`: setting up Plaid and asking about spending, with an invented bank, invented figures and a placeholder link.
+- `openteam-terra-data-job-chat.png`: GPT-6.1 Terra's real reply to the data task.
+- `openteam-model-settings-gpt-6-1-terra.png`, `openteam-model-settings-fable-5-2-reasoning.png`: Settings, Model with OpenRouter; the model list is the test server's real OpenRouter list.
+- `openteam-fable-5-2-research-reply.png`: Claude Fable 5.2's real reply to the research task.
+- `openteam-gemini-4-carbon-hn-digest.png`: Gemini 4 Carbon's real routine replies and Test run digest.
+- `server-security-check-fix-list.png`: the security-check bot's real fix list.
+- `ai-agent-errands-bot-asks-first.png`: the child care bot's real messages and its real question card, with two progress updates left out; the other bots are sample data.
+- `openteam-qa-engineer-handoff.png`: the QA bot's real messages and handoff markers, with some progress messages left out; the other bots are sample data.
+
+Captures from our own test server for those posts, made on 2026-11-10 on a local OpenTeam server running the current release, with throwaway bots:
+
+- `fable-5-2-bot-penguins-chart.png`, `gemini-4-carbon-bot-penguins-chart.png`: the charts the bots saved for the data task, unmodified. The data is the Palmer Penguins dataset.
+- `server-security-check-bot-terminal.png`: a terminal on the test bot's own desktop, captured over Chrome DevTools and cropped.
+- `openteam-bot-computer-inspection.png`: the exact output of our read-only `docker inspect` and in-container commands, drawn as a terminal; nothing secret is shown.
+- `claude-code-backdoor-mac-checks.png`: real zsh output of the post's check commands, run against a throwaway home folder with fake placeholder files and no real keys.
+- `ai-agent-errands-bot-browser-texas.png`: a bot's own Chromium on the Texas HHS child care licensing record, captured read-only over Chrome DevTools during the run. The page is the State of Texas's, credited in the caption.
+- `ai-agent-errands-connection-reset.png`: the passport bot's browser failing to load travel.state.gov, captured the same way.
+- `openteam-research-bot-browser-mailgun.png`: a research bot's Chromium on Mailgun's public pricing page, captured the same way.
+- `ai-agent-errands-budget-chart.png`: the chart the budget bot made from our made-up bank export, only resized.
+- `ai-agent-errands-ds82-filled.png`: page 5 of the official DS-82 passport renewal form as the bot filled it for a fictional applicant, rendered and cropped. Nothing was submitted.
+
+Diagrams and charts for those posts use the diagram method above. Model results come from our six-task test on 2026-11-10, using OpenRouter's billed cost per call; OpenTeam facts come from its code and docs; other facts come from each company's own pages, linked in the posts:
+
+- `terra-sol-agent-scorecard.png`, `terra-sol-cost-per-task.png`, `glm-5-3-vs-sol-agent-scorecard.png`, `claude-fable-5-2-agent-scorecard.png`, `claude-fable-5-2-effort-cost-time.png`, `fable-carbon-sol-agent-scorecard.png`, `ai-agent-model-cost-time-per-task.png`: test results per model.
+- `openteam-bot-to-bot-message-guardrails.png`: how a bot treats a teammate's message, from the code.
+- `glm-5-3-api-vs-self-hosted-monthly-cost.png`, `self-host-glm-decision.png`: GLM-5.3 by API vs self-hosted, from our billed costs, Together AI's GPU prices and vLLM's recipes, read 2026-11-10.
+- `text-ai-agent-message-paths.png`: where a text to an OpenAI dot and to an OpenTeam bot goes.
+- `xai-bot-openteam-october-scorecard.png`, `xai-bot-october-timeline.png`: Grok Bot and OpenTeam on October 30, and Grok Bot's October.
+- `claude-code-extension-backdoor-timeline.png`, `claude-code-backdoor-where-it-runs.png`: the extension backdoor's timeline and where its payload ran.
+- `x-subscription-plans-table.png`, `x-subscription-vs-self-hosted-monthly-cost.png`: The X Subscription's plans and our monthly cost estimates.
+- `linux-root-bugs-bot-computer-boundary.png`, `linux-root-bugs-agent-host-checklist.png`: the layers of a bot computer, and a host checklist.
+- `server-security-check-scorecard.png`, `server-security-check-network-path.png`: what the security-check bot found, and how bot traffic reaches a target.
+- `claude-finance-bank-data-paths.png`: where bank data goes in Claude Personal Finance and with OpenTeam's Plaid plugin.
+- `compaction-design-v0.png` to `compaction-design-v6.png`, `compaction-design-today.png`: the compaction design built up step by step, from the code.
+- `compaction-measured-run.png`: one long task's prompt size and cost per model call, from the bot's session file.
+- `ai-agent-errands-scorecard.png`: what five errand bots finished, and what was left for a person.
+- `perplexity-teammates-vs-openteam-table.png`, `perplexity-teammates-jobs-on-openteam.png`: Perplexity Teammates and OpenTeam side by side, from Perplexity's own pages, and the four jobs we ran on OpenTeam.
+
+
 ## Third-party images
 
 **Repo license**: committed in the project's own repository under that license. **Vendor screenshot**: published by the vendor on its own site, with no stated license; used for commentary and credited in the caption.
@@ -128,3 +176,6 @@ Diagrams for the n8n comparison use the same method. n8n facts come from its doc
 | `eigent-workforce-task.png` | Eigent's Workforce view mid-task | [eigent.ai use case](https://www.eigent.ai/use-cases/kimi-k2-sales-performance-excel-html-report) | Eigent.AI | Vendor screenshot |
 | `mausbot-chat-roster.png` | MausBot's chat app with a roster of bots | [milind-soni/OpenMausBot README](https://github.com/milind-soni/OpenMausBot) | Milind Soni and contributors | Apache-2.0 |
 | `mausbot-computer-panel.png` | MausBot's Computer panel with a live screen preview | [milind-soni/OpenMausBot README](https://github.com/milind-soni/OpenMausBot) | Milind Soni and contributors | Apache-2.0 |
+| `anthropic-fable-5-2-frontiercode-cost-chart.png` | Anthropic's FrontierCode 2.0 chart of score against cost per task for Fable 5.2's effort levels | [Claude Fable 5.2 and Mythos 5.2 announcement](https://www.anthropic.com/claude-fable-and-mythos-5-2), captured 2026-11-10 | Anthropic | Vendor screenshot |
+| `cursor-pricing-page-x-subscription.png` | Cursor's pricing page with The X Subscription's plan cards, signed out, cookie banner rejected | [cursor.com/pricing](https://cursor.com/pricing), captured 2026-11-10 | Cursor | Vendor screenshot |
+| `perplexity-teammates-help-page.png` | Perplexity's help article "Get started with Perplexity teammates", cropped to the main column, with a floating assistant pop-up hidden | [Perplexity Help Center](https://www.perplexity.ai/help-center/en/articles/2026102601-perplexity-teammates), captured 2026-11-10 without signing in | Perplexity | Vendor screenshot |

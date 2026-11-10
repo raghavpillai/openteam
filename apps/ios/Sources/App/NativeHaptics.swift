@@ -14,6 +14,7 @@ import UIKit
 
   /// `intensity` scales impact effects (0…1); other effects ignore it.
   static func play(_ effect: HapticEffect, intensity: Double = 1, source: String) {
+    let intensity = intensity.isFinite ? min(1, max(0, intensity)) : 0
     let defaults = UserDefaults.standard
     let enabled = defaults.object(forKey: "haptics") == nil || defaults.bool(forKey: "haptics")
     let active = UIApplication.shared.applicationState == .active
@@ -34,6 +35,25 @@ import UIKit
     #if DEBUG
       record(effect, intensity: intensity, source: source, enabled: enabled, active: active, emitted: emitted)
     #endif
+  }
+
+  /// Prepare both swipe cues only while feedback can be emitted.
+  static func prepareSwipe() {
+    let defaults = UserDefaults.standard
+    let enabled = defaults.object(forKey: "haptics") == nil || defaults.bool(forKey: "haptics")
+    guard HapticPolicy.allows(enabled: enabled, active: UIApplication.shared.applicationState == .active)
+    else { return }
+    soft.prepare()
+    rigid.prepare()
+  }
+
+  /// Sending has two light pulses, shared by hold release and the Send button.
+  static func voiceSend(source: String) {
+    play(.light, source: source)
+    Task { @MainActor in
+      do { try await Task.sleep(for: .milliseconds(90)) } catch { return }
+      play(.light, source: source)
+    }
   }
 
   /// Keep the soft generator ready for the next distance-driven resistance pulse.

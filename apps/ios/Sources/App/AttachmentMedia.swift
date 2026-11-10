@@ -348,6 +348,7 @@ struct AttachmentView: View {
 struct NativePhotoGallery: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let items: [GalleryItem]
   @State private var selected: String
   @State private var files: [String: LoadedAttachment]
@@ -362,6 +363,10 @@ struct NativePhotoGallery: View {
   @State private var saving = false
   @State private var saved = false
   @State private var actionError: String?
+  @State private var controlsVisible = true
+  @State private var dismissalOffset: CGSize = .zero
+  @State private var dismissing = false
+  @State private var viewportMemory = PhotoViewportMemory()
   init(items: [GalleryItem], initialID: String, initialFile: LoadedAttachment?) {
     self.items = items
     _selected = State(initialValue: initialID)
@@ -370,7 +375,11 @@ struct NativePhotoGallery: View {
   }
   private var current: GalleryItem? { items.first { $0.id == selected } }
   var body: some View {
+    GeometryReader { safeGeometry in
+    let insets = safeGeometry.safeAreaInsets
+    GeometryReader { geometry in
     VStack(spacing: 0) {
+      if controlsVisible {
       HStack {
         ChromeButton(title: "Close", symbol: "xmark", darkTint: 0.06) { dismiss() }.accessibilityIdentifier("photo-close")
         Spacer()
@@ -389,11 +398,16 @@ struct NativePhotoGallery: View {
               enabled: files[selected]?.image != nil && !saving, action: { Task { await savePhoto() } }),
           ]).frame(width: 44, height: 44).nativeGlass(darkTint: 0.06)
       }.padding(.horizontal, 18).padding(.top, 6)
-      TabView(selection: $selected) {
+        .transition(.opacity)
+      }
+      ScrollView(.horizontal) {
+        LazyHStack(spacing: 0) {
         ForEach(items) { item in
           ZStack {
             if let image = files[item.id]?.image {
-              ZoomablePhoto(image: image).padding(.horizontal, 16)
+              ZoomablePhoto(image: image, viewport: viewportMemory.viewport(for: item.id), toggleControls: toggleControls,
+                onDismissDrag: { dismissalOffset = $0 }, onDismissEnd: finishDismissDrag)
+                .padding(.horizontal, controlsVisible ? 16 : 0)
                 .accessibilityLabel(item.caption.isEmpty ? item.asset.fileName : item.caption)
                 .accessibilityIdentifier("photo-image-" + item.asset.id)
             } else if let failure = failures[item.id] {
@@ -402,9 +416,15 @@ struct NativePhotoGallery: View {
                 Button("Retry") { Task { await load(item) } }.accessibilityIdentifier("photo-retry")
               }.padding(24)
             } else { LoadingOrb(theme: .dark, label: "Loading photo") }
-          }.padding(.bottom, 18).frame(maxWidth: .infinity, maxHeight: .infinity).tag(item.id).task { await load(item) }
+          }.padding(.bottom, controlsVisible ? 18 : 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .containerRelativeFrame(.horizontal).id(item.id).task { await load(item) }
         }
-      }.tabViewStyle(.page(indexDisplayMode: .never)).frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.scrollTargetLayout()
+      }.scrollIndicators(.hidden).scrollTargetBehavior(.paging)
+        .scrollPosition(id: Binding<String?>(get: { selected }, set: { if let id = $0 { selected = id } }))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      if controlsVisible {
       VStack(spacing: 20) {
         if let caption = current?.caption, !caption.isEmpty {
           Text(caption).font(.system(size: 15)).foregroundStyle(Color(white: 0.72))
@@ -417,21 +437,7 @@ struct NativePhotoGallery: View {
             ScrollView(.horizontal) {
               LazyHStack(spacing: 7) {
                 ForEach(items) { item in
-                  Button {
-                    NativeHaptics.play(.selection, source: "attachment.photo-selection")
-                    selected = item.id
-                  } label: {
-                    ZStack {
-                      Color(white: 0.15)
-                      if let image = thumbnails[item.id] { Image(uiImage: image).resizable().scaledToFill() }
-                      if item.id != selected { Color.black.opacity(0.48) }
-                    }.frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 9))
-                      .overlay { if item.id == selected { RoundedRectangle(cornerRadius: 9).stroke(.white, lineWidth: 2) } }
-                  }.buttonStyle(.plain).padding(.vertical, 2).id(item.id)
-                    .accessibilityLabel("Photo \((items.firstIndex { $0.id == item.id } ?? 0) + 1)")
-                    .accessibilityIdentifier("photo-thumbnail-" + item.asset.id)
-                    .accessibilityAddTraits(item.id == selected ? .isSelected : [])
-                    .task { await loadThumbnail(item) }
+                  thumbnailButton(for: item)
                 }
               }.padding(.horizontal, max(16, (geometry.size.width - 48) / 2))
             }.scrollIndicators(.hidden).frame(height: 52)
@@ -442,8 +448,22 @@ struct NativePhotoGallery: View {
           }.frame(height: 52)
         }
       }.fixedSize(horizontal: false, vertical: true).padding(.bottom, 8)
-    }.background(Color.black.ignoresSafeArea()).preferredColorScheme(.dark)
+        .transition(.opacity)
+      }
+    }.padding(controlsVisible ? insets : EdgeInsets())
+      .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+      .offset(x: dismissalOffset.width * 0.2, y: dismissalOffset.height)
+      .scaleEffect(1 - min(0.12, dismissalOffset.height / 2000))
+      .opacity(dismissing ? 0 : 1)
+    }.ignoresSafeArea(.container)
+    }
+      .background(Color.black.opacity(1 - min(0.6, dismissalOffset.height / 500)).ignoresSafeArea())
+      .presentationBackground(.clear)
+      .preferredColorScheme(.dark)
+      .statusBarHidden(!controlsVisible)
       .ignoresSafeArea(.keyboard)
+      .accessibilityAction(named: controlsVisible ? "Hide controls" : "Show controls", toggleControls)
+      .accessibilityAction(.escape) { dismiss() }
       .onAppear { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
       .onChange(of: selected) { _, id in
         if let item = items.first(where: { $0.id == id }) { Task { await load(item) } }
@@ -460,6 +480,43 @@ struct NativePhotoGallery: View {
         isPresented: Binding(get: { saved || actionError != nil }, set: { if !$0 { saved = false; actionError = nil } })) {
         Button("OK", role: .cancel) { saved = false; actionError = nil }
       } message: { Text(actionError ?? "") }
+  }
+  private func thumbnailButton(for item: GalleryItem) -> some View {
+    Button {
+      NativeHaptics.play(.selection, source: "attachment.photo-selection")
+      selected = item.id
+    } label: {
+      ZStack {
+        Color(white: 0.15)
+        if let image = thumbnails[item.id] { Image(uiImage: image).resizable().scaledToFill() }
+        if item.id != selected { Color.black.opacity(0.48) }
+      }.frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 9))
+        .overlay { if item.id == selected { RoundedRectangle(cornerRadius: 9).stroke(.white, lineWidth: 2) } }
+    }.buttonStyle(.plain).padding(.vertical, 2).id(item.id)
+      .accessibilityLabel("Photo \((items.firstIndex { $0.id == item.id } ?? 0) + 1)")
+      .accessibilityIdentifier("photo-thumbnail-" + item.asset.id)
+      .accessibilityAddTraits(item.id == selected ? .isSelected : [])
+      .task { await loadThumbnail(item) }
+  }
+  private func toggleControls() {
+    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+  }
+  private func finishDismissDrag(_ translation: CGSize, _ velocity: CGFloat, _ cancelled: Bool) {
+    guard !dismissing else { return }
+    if !cancelled && (translation.height > 100 || (translation.height > 24 && velocity > 900)) {
+      withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18), completionCriteria: .removed) {
+        dismissalOffset = CGSize(width: translation.width, height: max(900, translation.height))
+        dismissing = true
+      } completion: {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { dismiss() }
+      }
+    } else {
+      withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.9)) {
+        dismissalOffset = .zero
+      }
+    }
   }
   private func load(_ item: GalleryItem) async {
     // The inline preview opens immediately, then upgrades from the same local
@@ -538,16 +595,49 @@ private enum PhotoLibraryWriter {
   }
 }
 
+private final class PhotoViewport {
+  var zoomScale: CGFloat = 1
+  var fittedWidth: CGFloat = 0
+  var normalizedCenter = CGPoint(x: 0.5, y: 0.5)
+}
+
+private final class PhotoViewportMemory {
+  private var viewports: [String: PhotoViewport] = [:]
+  func viewport(for id: String) -> PhotoViewport {
+    if let viewport = viewports[id] { return viewport }
+    let viewport = PhotoViewport()
+    viewports[id] = viewport
+    return viewport
+  }
+}
+
 private struct ZoomablePhoto: UIViewRepresentable {
   let image: UIImage
-  func makeUIView(context: Context) -> PhotoScrollView { PhotoScrollView(image: image) }
-  func updateUIView(_ view: PhotoScrollView, context: Context) { view.updateImage(image) }
+  let viewport: PhotoViewport
+  let toggleControls: () -> Void
+  let onDismissDrag: (CGSize) -> Void
+  let onDismissEnd: (CGSize, CGFloat, Bool) -> Void
+  func makeUIView(context: Context) -> PhotoScrollView { PhotoScrollView(image: image, viewport: viewport) }
+  func updateUIView(_ view: PhotoScrollView, context: Context) {
+    view.photoInteractions.toggleControls = toggleControls
+    view.photoInteractions.onDrag = onDismissDrag
+    view.photoInteractions.onEnd = onDismissEnd
+    view.updateImage(image)
+  }
 }
 
 private final class PhotoScrollView: UIScrollView, UIScrollViewDelegate {
   private let photo: UIImageView
-  init(image: UIImage) {
+  private let viewport: PhotoViewport
+  private var laidOutSize: CGSize = .zero
+  private var needsViewportRestore = true
+  private var restoringViewport = false
+  private var capturesViewport: Bool
+  let photoInteractions = PhotoInteractions()
+  init(image: UIImage, viewport: PhotoViewport) {
     photo = UIImageView(image: image)
+    self.viewport = viewport
+    capturesViewport = UIApplication.shared.applicationState == .active
     super.init(frame: .zero)
     delegate = self
     minimumZoomScale = 1
@@ -562,28 +652,125 @@ private final class PhotoScrollView: UIScrollView, UIScrollViewDelegate {
     let doubleTap = UITapGestureRecognizer(target: self, action: #selector(toggleZoom(_:)))
     doubleTap.numberOfTapsRequired = 2
     addGestureRecognizer(doubleTap)
+    let tap = UITapGestureRecognizer(target: photoInteractions, action: #selector(PhotoInteractions.tap))
+    tap.require(toFail: doubleTap)
+    addGestureRecognizer(tap)
+    photoInteractions.scrollView = self
+    let dismissPan = UIPanGestureRecognizer(target: photoInteractions, action: #selector(PhotoInteractions.pan(_:)))
+    dismissPan.maximumNumberOfTouches = 1
+    dismissPan.delegate = photoInteractions
+    addGestureRecognizer(dismissPan)
+    panGestureRecognizer.require(toFail: dismissPan)
+    NotificationCenter.default.addObserver(self, selector: #selector(suspendViewportCapture),
+      name: UIApplication.willResignActiveNotification, object: nil)
+    NotificationCenter.default.addObserver(self, selector: #selector(resumeViewportCapture),
+      name: UIApplication.didBecomeActiveNotification, object: nil)
   }
+  deinit { NotificationCenter.default.removeObserver(self) }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   func updateImage(_ image: UIImage) {
     guard photo.image !== image else { return }
     photo.image = image
+    needsViewportRestore = true
     setNeedsLayout()
   }
   override func layoutSubviews() {
+    guard !restoringViewport else { super.layoutSubviews(); return }
+    let restore = needsViewportRestore || laidOutSize != bounds.size
+    restoringViewport = restore
     super.layoutSubviews()
-    if zoomScale == 1, let image = photo.image, bounds.width > 0, bounds.height > 0 {
-      let scale = min(bounds.width / image.size.width, bounds.height / image.size.height)
-      photo.frame = CGRect(origin: .zero, size: CGSize(width: image.size.width * scale, height: image.size.height * scale))
-      contentSize = photo.bounds.size
+    if restore, let image = photo.image, bounds.width > 0, bounds.height > 0 {
+      restoreViewport(image: image)
+      laidOutSize = bounds.size
+      needsViewportRestore = false
     }
+    centerPhoto()
+    restoringViewport = false
+    captureViewport()
+  }
+  private func centerPhoto() {
     photo.center = CGPoint(x: max(bounds.width, contentSize.width) / 2, y: max(bounds.height, contentSize.height) / 2)
   }
+  private func captureViewport() {
+    guard capturesViewport, !restoringViewport, !needsViewportRestore,
+      laidOutSize == bounds.size, photo.bounds.width > 0, photo.bounds.height > 0 else { return }
+    let center = photo.convert(CGPoint(x: bounds.midX, y: bounds.midY), from: self)
+    viewport.zoomScale = zoomScale
+    viewport.fittedWidth = photo.bounds.width
+    viewport.normalizedCenter = CGPoint(x: min(1, max(0, center.x / photo.bounds.width)),
+      y: min(1, max(0, center.y / photo.bounds.height)))
+  }
+  private func restoreViewport(image: UIImage) {
+    let scale = min(bounds.width / image.size.width, bounds.height / image.size.height)
+    let fittedSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+    // Preserve the displayed image size when chrome or window geometry changes.
+    // A photo at fit scale continues fitting the available space.
+    let zoom = viewport.zoomScale > 1.01 && viewport.fittedWidth > 0
+      ? viewport.zoomScale * viewport.fittedWidth / fittedSize.width : 1
+    setZoomScale(1, animated: false)
+    photo.frame = CGRect(origin: .zero, size: fittedSize)
+    contentSize = fittedSize
+    setZoomScale(min(maximumZoomScale, max(minimumZoomScale, zoom)), animated: false)
+    centerPhoto()
+    let center = photo.convert(CGPoint(x: viewport.normalizedCenter.x * photo.bounds.width,
+      y: viewport.normalizedCenter.y * photo.bounds.height), to: self)
+    setContentOffset(CGPoint(
+      x: min(max(0, contentSize.width - bounds.width), max(0, center.x - bounds.width / 2)),
+      y: min(max(0, contentSize.height - bounds.height), max(0, center.y - bounds.height / 2))), animated: false)
+  }
+  @objc private func suspendViewportCapture() {
+    captureViewport()
+    capturesViewport = false
+    needsViewportRestore = true
+  }
+  @objc private func resumeViewportCapture() {
+    DispatchQueue.main.async { [weak self] in
+      guard let self, UIApplication.shared.applicationState == .active else { return }
+      self.needsViewportRestore = true
+      self.setNeedsLayout()
+      self.layoutIfNeeded()
+      self.capturesViewport = true
+      self.captureViewport()
+    }
+  }
   func viewForZooming(in scrollView: UIScrollView) -> UIView? { photo }
+  func scrollViewDidZoom(_ scrollView: UIScrollView) {
+    centerPhoto()
+    captureViewport()
+  }
+  func scrollViewDidScroll(_ scrollView: UIScrollView) { captureViewport() }
   @objc private func toggleZoom(_ recognizer: UITapGestureRecognizer) {
     if zoomScale > 1 { setZoomScale(1, animated: true) }
     else {
       let point = recognizer.location(in: photo)
       zoom(to: CGRect(x: point.x - bounds.width / 4, y: point.y - bounds.height / 4, width: bounds.width / 2, height: bounds.height / 2), animated: true)
+    }
+  }
+}
+
+/// A downward pan belongs to dismissal only at fit scale. Zoomed photos keep
+/// their native panning, and horizontal drags continue to page the gallery.
+private final class PhotoInteractions: NSObject, UIGestureRecognizerDelegate {
+  weak var scrollView: UIScrollView?
+  var toggleControls: () -> Void = {}
+  var onDrag: (CGSize) -> Void = { _ in }
+  var onEnd: (CGSize, CGFloat, Bool) -> Void = { _, _, _ in }
+  @objc func tap() { toggleControls() }
+  func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let scrollView,
+      scrollView.zoomScale <= scrollView.minimumZoomScale + 0.01,
+      !scrollView.isZooming else { return false }
+    let velocity = pan.velocity(in: scrollView.window)
+    return velocity.y > 0 && velocity.y > abs(velocity.x) * 1.25
+  }
+  @objc func pan(_ recognizer: UIPanGestureRecognizer) {
+    let point = recognizer.translation(in: recognizer.view?.window)
+    let translation = CGSize(width: point.x, height: max(0, point.y))
+    switch recognizer.state {
+    case .began, .changed: onDrag(translation)
+    case .ended: onEnd(translation, recognizer.velocity(in: recognizer.view?.window).y, false)
+    case .cancelled, .failed: onEnd(.zero, 0, true)
+    default: break
     }
   }
 }

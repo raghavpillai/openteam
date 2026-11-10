@@ -1,0 +1,4 @@
+{
+  "origin": "openteam",
+  "description": "OpenTeam-authored connector for AsamK/signal-cli JSON-RPC. Separately downloaded runtimes are pinned in plugin.json and documented in THIRD-PARTY-NOTICES.md."
+}

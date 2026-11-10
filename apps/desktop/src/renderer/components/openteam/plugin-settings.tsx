@@ -145,14 +145,20 @@ export function PluginDialog({
   const statusRefresh = useMemo(
     () =>
       createCoalescedRefresh(
-        () => api.pluginConnectionStatuses(needsAuthConnectionIds),
+        async () => {
+          const pending = (data?.installs ?? [])
+            .flatMap((i) => i.connections)
+            .filter((c) => c.deviceLink);
+          await Promise.allSettled(pending.map((c) => api.pollPluginDeviceLink(c.id)));
+          return api.pluginConnectionStatuses(needsAuthConnectionIds);
+        },
         (statuses) => {
           setData((current) =>
             current ? mergePluginConnectionStatuses(current, statuses) : current
           );
         }
       ),
-    [needsAuthConnectionIds]
+    [needsAuthConnectionIds, data]
   );
   const reload = useCallback(async () => {
     setReloading(true);
@@ -288,6 +294,12 @@ export function PluginDialog({
     });
   };
   const cancelAuthentication = (connection: PluginConnectionView) => {
+    if (connection.deviceLink) {
+      void mutate(connection.id, () =>
+        api.cancelPluginDeviceLink(connection.id, connection.deviceLink!.sessionId)
+      );
+      return;
+    }
     const session = pluginAuthorization(connection);
     if (session)
       void mutate(connection.id, () =>

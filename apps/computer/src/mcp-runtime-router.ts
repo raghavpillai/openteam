@@ -21,6 +21,9 @@ export class McpRuntimeRouter {
   async close(id: string, generation?: number) {
     await this.computer.close(id, generation);
   }
+  async forget(id: string, generation?: number) {
+    await this.computer.forget(id, generation);
+  }
   status(id: string) {
     return this.computer.status(id);
   }

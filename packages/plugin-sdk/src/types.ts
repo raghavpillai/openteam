@@ -64,6 +64,37 @@ export interface PluginDraftSending {
   platform: "email";
   tool: string;
 }
+/** Large native prerequisites fetched and verified before the computer starts MCP. */
+export interface PluginRuntimeAssetSource {
+  url: string;
+  sha256: string;
+  bytes: number;
+  maxExtractedBytes: number;
+  format: "tar.gz" | "file";
+  path: string;
+  executable?: boolean;
+}
+export interface PluginRuntimeAsset {
+  /** Exposed to the connector as OPENTEAM_RUNTIME_<name>. */
+  name: string;
+  /** Optional assets may be absent on platforms that bundle this dependency already. */
+  optional?: boolean;
+  sources: Record<string, PluginRuntimeAssetSource>;
+}
+/** User-driven device approval through host-only MCP tools.
+ * Start returns sessionId/qrCodeDataUrl/expiresAt. Rotating providers also set
+ * sessionExpiresAt/challengeGeneration and return the same sessionId in status,
+ * with newer challenge generations (including null images for bootstrap).
+ * See docs/development/plugins.md for deadlines and lifecycle fencing.
+ */
+export interface PluginDeviceLink {
+  startTool: string;
+  finishTool: string;
+  statusTool: string;
+  cancelTool: string;
+  removeTool: string;
+  instructions: string;
+}
 export interface PluginConnectorDefinition {
   key: string;
   name: string;
@@ -75,6 +106,9 @@ export interface PluginConnectorDefinition {
   setup?: PluginSetup;
   events?: PluginEventPolling;
   drafts?: PluginDraftSending;
+  runtimeAssets?: PluginRuntimeAsset[];
+  deviceLink?: PluginDeviceLink;
+  persistentState?: boolean;
   oauth?: {
     clientType: "public" | "confidential";
     registration?: "dynamic" | "manual";

@@ -528,7 +528,7 @@ const server = Bun.serve({
 
       const clipboardMatch = url.pathname.match(/^\/v1\/screens\/([^/]+)\/clipboard$/);
       if (request.method === "POST" && clipboardMatch?.[1]) {
-        const body = await request.json() as { cwd?: string; input?: unknown };
+        const body = (await request.json()) as { cwd?: string; input?: unknown };
         const cwd = safePath(body.cwd ?? workspaceRoot);
         const input = Schema.decodeUnknownSync(ScreenClipboardInput)(body.input);
         return json(await screens.clipboard(clipboardMatch[1], cwd, input, request.signal));
@@ -563,7 +563,8 @@ const server = Bun.serve({
 
       const mcpDiscoverMatch = url.pathname.match(/^\/v1\/mcp\/connections\/([^/]+)\/discover$/);
       if (request.method === "POST" && mcpDiscoverMatch?.[1]) {
-        const body = (await request.json()) as { configuration?: unknown; runtimeGeneration?: number };
+        const body = (await request.json()) as { configuration?: unknown; runtimeGeneration?: number;
+        };
         return json({ tools: await stdioMcp.discover(mcpDiscoverMatch[1], body.configuration, body.runtimeGeneration) });
       }
 
@@ -587,6 +588,14 @@ const server = Bun.serve({
             body.runtimeGeneration
           ),
         });
+      }
+
+      const mcpForgetMatch = url.pathname.match(/^\/v1\/mcp\/connections\/([^/]+)\/state$/);
+      if (request.method === "DELETE" && mcpForgetMatch?.[1]) {
+        const generation = request.headers.get("x-openteam-mcp-generation");
+        if (generation === null) return json({ error: "Runtime generation required" }, 400);
+        await stdioMcp.forget(mcpForgetMatch[1], Number(generation));
+        return json({ ok: true });
       }
 
       const mcpConnectionMatch = url.pathname.match(/^\/v1\/mcp\/connections\/([^/]+)$/);

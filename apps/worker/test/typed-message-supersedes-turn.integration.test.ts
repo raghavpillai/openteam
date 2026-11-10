@@ -129,7 +129,7 @@ const fixtureBot = async () => {
   return { botId, conversationId, channelId, claimedFor, startTurn, send, run };
 };
 
-test.skipIf(!databaseUrl)("reacting during active work queues feedback without interrupting the command, and retry/removal create no duplicate wake", async () => {
+for (const emoji of ["👍", "👎"]) test.skipIf(!databaseUrl)("reacting " + emoji + " during active work queues feedback without interrupting the command, and retry/removal create no duplicate wake", async () => {
   const bot = await fixtureBot();
   const finished = join(root, `reaction-finished-${bot.botId}`);
   await script({ firstReply: { role: "assistant", tool_calls: [{ index: 0, id: "reaction-shell", type: "function", function: {
@@ -141,7 +141,7 @@ test.skipIf(!databaseUrl)("reacting during active work queues feedback without i
   const acknowledgement = await db.channelMessage.create({ data: {
     channelId: bot.channelId, sender: "agent", senderBotId: bot.botId, sourceRunId: first.run.id, content: "Checking now.",
   } });
-  const input = { emoji: "👍", clientId: crypto.randomUUID() };
+  const input = { emoji, clientId: crypto.randomUUID() };
   const add = await Effect.runPromise(channels.reactToMessage(acknowledgement.id, input)) as any;
   const retry = await Effect.runPromise(channels.reactToMessage(acknowledgement.id, input)) as any;
   expect(add).toMatchObject({ reacted: true, removed: false });

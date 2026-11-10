@@ -1,7 +1,6 @@
 import { ToolContent, integer, string, tool, type Args, type Tool } from "../../_shared/google";
 import { WhatsAppAccount } from "./account";
 import { attachmentPath, downloadPath } from "./process";
-import { pairingPng } from "./png";
 
 const chat = string("Exact chat JID returned by list_chats. Resolve ambiguous names first.", { minLength: 1, maxLength: 200, pattern: "^[0-9][0-9-]*@(s\\.whatsapp\\.net|g\\.us|lid|newsletter)$" });
 const id = string("Exact message ID returned by a message tool", { minLength: 1, maxLength: 200, pattern: "^[A-Za-z0-9_-]+$" });
@@ -22,24 +21,14 @@ export function whatsappTools(account: WhatsAppAccount): Tool[] {
   const read = (args: string[]) => account.read(args);
   const tools: Tool[] = [
     tool("connection_status", "Inspect this WhatsApp account's pairing, background sync, storage, and local history health. Connector availability does not prove WhatsApp is linked or current.", {}, [], () => account.status()),
-    tool("pair_device", "Start or retrieve the current linked-device pairing challenge. Returns a scannable QR image, or a code when phone is supplied. Ask the user to approve linking on their phone. Does not send messages. Repeated calls reuse the active attempt.", {
-      phone: string("Optional international phone number for code pairing instead of QR", { pattern: "^\\+?[1-9][0-9]{6,14}$", maxLength: 16 }),
-    }, [], async (a) => {
-      const pairing = await account.pair(a.phone);
-      if (!pairing) return { state: "starting_or_bootstrapping", instructions: "Check connection_status. If not authenticated, call pair_device again for the latest challenge." };
-      const instructions = pairing.kind === "qr"
-        ? "On your phone, open WhatsApp → Linked devices → Link a device and scan this QR. Use the linked-device scanner, not the QR beside your profile. This image is a snapshot: retrieve pair_device again if it expires or WhatsApp requests another scan."
-        : "On your phone, open WhatsApp → Linked devices → Link a device → Link with phone number instead, and enter this code.";
-      const rescanInstructions = pairing.rescanRequired
-        ? "WhatsApp refreshed the pairing secret after a scan. Scan this replacement QR under Linked devices → Link a device. The previous image is invalid, even if its displayed expiry has not passed. Keep the same pairing attempt running."
-        : instructions;
-      return new ToolContent([
-        { type: "text", text: JSON.stringify({ instructions: rescanInstructions, generation: pairing.generation, requires_rescan: pairing.rescanRequired, generated_at: new Date(pairing.generatedAt).toISOString(), expires_at: new Date(pairing.expiresAt).toISOString(),
-          ...(pairing.kind === "phone" ? { pairing_code: pairing.code } : {}) }) },
-        ...(pairing.kind === "qr" ? [{ type: "image" as const, data: pairingPng(pairing.code).toString("base64"), mimeType: "image/png" }] : []),
-      ]);
-    }, "write"),
-    tool("cancel_pairing", "Cancel a pending device-linking attempt. Does not revoke an already linked account.", {}, [], () => account.cancelPairing(), "write"),
+    ...[
+      tool("whatsapp_start_link", "Start QR approval in account settings.", {}, [], () => account.startLink(), "write"),
+      tool("whatsapp_finish_link", "Continue the background device approval.", { sessionId: text("Active approval session ID", 128) }, ["sessionId"], (a) => account.finishLink(a.sessionId), "write"),
+      tool("whatsapp_link_status", "Inspect device approval and collector readiness.", {}, [], () => account.linkStatus()),
+      tool("whatsapp_cancel_link", "Stop the matching device approval.", { sessionId: text("Active approval session ID", 128) }, ["sessionId"], (a) => account.cancelLink(a.sessionId), "write"),
+      tool("whatsapp_remove_account", "Stop account use before private state removal.", {}, [], () => account.removeAccount(), "destructive"),
+    ].map((entry) => ({ ...entry, _meta: { "openteam/hostOnly": true },
+      run: async (args: Args) => new ToolContent([{ type: "text", text: JSON.stringify(await entry.run(args)) }]) })),
     tool("restart_sync", "Restart this account's background sync after troubleshooting. Does not pair or send messages.", {}, [], () => account.restart(), "write"),
     tool("list_chats", "Find retained WhatsApp chats by name or number, and inspect unread, archive, pin, and mute state. Reads local data without marking messages read.", {
       query: text("Partial chat name or number"), limit, unread: bool("Only unread chats"), archived: bool("Only archived chats"),
@@ -96,7 +85,6 @@ export function whatsappTools(account: WhatsAppAccount): Tool[] {
     tool("backfill_history", "Request older history for one chat from the primary phone. Briefly pauses this account's sync and resumes it afterwards. Best-effort, bounded, and requires an online phone with the history still available.", {
       chat, requests: integer("Maximum backfill requests; defaults to 1", 3), count: integer("Messages requested per batch; defaults to 50", 100),
     }, ["chat"], (a) => account.backfill(["history", "backfill", "--chat", a.chat, "--requests", String(a.requests ?? 1), "--count", String(a.count ?? 50)]), "write"),
-    tool("logout_account", "Unlink this WhatsApp device and stop sync. Requires pairing again; retained local message history remains. Use only when the user asks to unlink this account.", {}, [], () => account.logout(), "destructive"),
   );
   return tools;
 }

@@ -112,3 +112,44 @@ test("explicit re-pairing archives only marked-revoked session files and preserv
   expect(await readFile(join(store, "wacli.db"), "utf8")).toBe("retained-history");
   expect(await readFile(join(store, "SESSION_REVOKED"), "utf8")).toBe("revoked");
 });
+
+test("managed storage uses the supplied root and atomically migrates complete legacy state", async () => {
+  const f = await fixture();
+  const managed = join(f.home, "managed", "account");
+  await mkdir(managed, { recursive: true });
+  for (const name of ["session.db", "session.db-wal", "wacli.db", "SESSION_REVOKED"])
+    await writeFile(join(f.configuration.store, name), `private-${name}`);
+  const configuration = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "account-a", OPENTEAM_PLUGIN_STATE_DIR: managed, WHATSAPP_MEDIA_ROOT: f.home }, f.home);
+  expect(configuration.store).toBe(managed);
+  await prepareStore(configuration);
+  for (const name of ["session.db", "session.db-wal", "wacli.db", "SESSION_REVOKED"])
+    expect(await readFile(join(managed, name), "utf8")).toBe(`private-${name}`);
+  expect(await Bun.file(join(f.configuration.store, "session.db")).exists()).toBe(false);
+  await prepareStore(configuration); // restart/update cannot import a second copy
+  await expect(attachmentPath(configuration, join(managed, "session.db"))).rejects.toThrow("session files");
+  await mkdir(f.configuration.store, { recursive: true });
+  await writeFile(join(f.configuration.store, "session.db"), "older-private");
+  await expect(attachmentPath(configuration, join(f.configuration.store, "session.db"))).rejects.toThrow("session files");
+  await expect(prepareStore(configuration)).rejects.toThrow("Both managed and legacy");
+  expect(await readFile(join(managed, "session.db"), "utf8")).toBe("private-session.db");
+});
+
+test("migration rejects active native writer locks and symlinks without moving provider state", async () => {
+  const f = await fixture();
+  const configuration = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "account-a", OPENTEAM_PLUGIN_STATE_DIR: join(f.home, "managed") }, f.home);
+  const { open } = await import("node:fs/promises");
+  const { dlopen, FFIType } = await import("bun:ffi");
+  const native = dlopen(process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } });
+  const lock = await open(join(f.configuration.store, "LOCK"), "a+");
+  try {
+    expect(native.symbols.flock(lock.fd, 2 | 4)).toBe(0);
+    await expect(prepareStore(configuration)).rejects.toThrow("in use");
+  } finally { native.symbols.flock(lock.fd, 8); native.close(); await lock.close(); }
+  const outside = join(f.home, "other"); await mkdir(outside);
+  await symlink(outside, join(f.configuration.store, "media"));
+  await expect(prepareStore(configuration)).rejects.toThrow("symlink");
+  await rm(join(f.configuration.store, "media"));
+  await symlink(outside, configuration.store);
+  await expect(prepareStore(configuration)).rejects.toThrow("symlink");
+  expect(() => settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "a", OPENTEAM_PLUGIN_STATE_DIR: "relative" }, f.home)).toThrow("absolute");
+});

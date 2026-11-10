@@ -6,11 +6,12 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { pluginCatalog } from "../../../src";
 import { WhatsAppAccount } from "../account";
-import { prepareStore, settings, WacliProcess } from "../process";
+import { installExecutable, prepareStore, settings, WacliProcess } from "../process";
 import { whatsappTools } from "../tools";
 
 // Explicit opt-in for a verified local release binary; never used by installed packages.
-const executable = process.env.WHATSAPP_TEST_NATIVE_EXECUTABLE;
+const executable = process.env.WHATSAPP_TEST_NATIVE_EXECUTABLE
+  ?? (process.platform === "linux" ? await installExecutable(new URL("../../", import.meta.url).pathname) : undefined);
 test.skipIf(!executable)("pinned native CLI initializes a store and serves real chat/search/context/cursor tools offline", async () => {
   const home = await mkdtemp("/tmp/wa-native-");
   const configuration = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "offline-native", WHATSAPP_MEDIA_ROOT: home }, home);
@@ -57,14 +58,14 @@ test.skipIf(process.platform !== "linux")("the packaged Linux entry point discov
     await mkdir(join(destination, ".."), { recursive: true });
     await writeFile(destination, Buffer.from(content, "base64"));
   }
-  const configuration = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "packaged-native", WHATSAPP_MEDIA_ROOT: home }, home);
+  const configuration = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "packaged-native", OPENTEAM_PLUGIN_STATE_DIR: join(home, "managed"), WHATSAPP_MEDIA_ROOT: home }, home);
   let stderr = "";
   try {
     for (const readOnly of [true, false]) {
       const transport = new StdioClientTransport({
         command: process.execPath,
         args: [join(packageRoot, "connector/server.mjs"), `--read-only=${readOnly}`, "--max-messages=1234"],
-        env: { HOME: home, OPENTEAM_PLUGIN_ACCOUNT_ID: configuration.accountId, WHATSAPP_MEDIA_ROOT: home },
+        env: { HOME: home, OPENTEAM_PLUGIN_ACCOUNT_ID: configuration.accountId, OPENTEAM_PLUGIN_STATE_DIR: configuration.store, WHATSAPP_MEDIA_ROOT: home },
         stderr: "pipe",
       });
       transport.stderr?.on("data", (chunk) => { stderr += chunk.toString(); });
@@ -92,7 +93,7 @@ test.skipIf(process.platform !== "linux")("the packaged Linux entry point discov
         if (!readOnly) {
           const send = await client.callTool({ name: "send_text", arguments: { to: "15551234567", message: "offline test" } });
           expect(send.isError).toBe(true);
-          expect(JSON.stringify(send)).toContain("pair_device first");
+          expect(JSON.stringify(send)).toContain("OpenTeam settings first");
         }
       } finally { await client.close(); }
     }

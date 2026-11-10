@@ -1,5 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { pairingPng } from "./png";
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
+import { createConnection } from "node:net";
 import type { Event, Execute, Running, Settings } from "./process";
 
 type Process = { execute: Execute; follow: (args: string[], onEvent: (event: Event) => void) => Running; close?: () => Promise<void>; resetRevokedSession?: () => Promise<void> };
@@ -11,6 +14,16 @@ export class WhatsAppAccount {
   private running?: Running;
   private mode?: "auth" | "sync";
   private pairing?: Pairing;
+  private link?: { sessionId: string; expiresAt: number; completed?: boolean; cancelled?: boolean; expired?: boolean };
+  private startingLink?: Promise<ReturnType<WhatsAppAccount["challenge"]> & { sessionId: string; sessionExpiresAt: number; challengeGeneration: number }>;
+  private invalidateChallenge() {
+    if (this.pairing) { this.pairing = undefined; ++this.generation; }
+  }
+  private challenge() {
+    return { qrCodeDataUrl: this.pairing && this.pairing.expiresAt > Date.now()
+      ? `data:image/png;base64,${pairingPng(this.pairing.code).toString("base64")}` : null,
+      expiresAt: Math.min(this.pairing?.expiresAt ?? Date.now(), this.link?.expiresAt ?? Date.now()) };
+  }
   private pairingDeadline?: ReturnType<typeof setTimeout>;
   private retryTimer?: ReturnType<typeof setTimeout>;
   private retries = 0;
@@ -64,8 +77,7 @@ export class WhatsAppAccount {
       }
     } else if (event.event === "connected") {
       this.connection = this.mode === "auth" ? "bootstrapping" : "connected";
-      this.pairing = undefined;
-      clearTimeout(this.pairingDeadline);
+      this.invalidateChallenge();
       this.revoked = false;
       this.retries = 0;
       this.lastError = undefined;
@@ -75,7 +87,7 @@ export class WhatsAppAccount {
     } else if (event.event === "logged_out") {
       this.connection = "logged_out";
       this.revoked = true;
-      this.pairing = undefined;
+      this.invalidateChallenge();
     } else if (event.event === "warning") {
       // Keep only machine codes; warning messages can contain message text, JIDs, or URLs.
       const code = event.data?.code;
@@ -83,7 +95,7 @@ export class WhatsAppAccount {
       this.record("warning", this.lastWarning);
       if (this.lastWarning === "auth_connect_retry") {
         // The old socket's challenge is no longer valid while wacli reconnects.
-        this.pairing = undefined;
+        this.invalidateChallenge();
         this.connection = "pairing_starting";
       }
     } else if (event.event === "error") {
@@ -115,10 +127,12 @@ export class WhatsAppAccount {
 
   private start(mode: "auth" | "sync", phone?: string) {
     if (this.running || this.closed) return;
+    clearTimeout(this.retryTimer); this.retryTimer = undefined;
     this.mode = mode;
     if (mode === "auth") {
       this.attempt++;
       this.generation = 0;
+      this.link = { sessionId: randomUUID(), expiresAt: Date.now() + 600000 };
       this.diagnostics = [];
       this.lastWarning = undefined;
     }
@@ -137,15 +151,15 @@ export class WhatsAppAccount {
     });
     this.running = running;
     if (mode === "auth") {
+      const session = this.link!;
       this.pairingDeadline = setTimeout(() => {
-        if (this.running === running && this.connection !== "bootstrapping") {
-          void this.exclusive(async () => {
-            if (this.running !== running) return;
-            await this.stop();
-            this.connection = "pairing_expired";
-          }).catch(() => {});
-        }
-      }, 600000);
+        void this.exclusive(async () => {
+          if (this.link !== session || session.completed || session.cancelled) return;
+          session.expired = true;
+          await this.stop();
+          this.connection = "pairing_expired";
+        }).catch(() => {});
+      }, Math.max(0, session.expiresAt - Date.now()));
     }
     void running.done.then((code) => {
       if (this.running !== running) return;
@@ -153,8 +167,7 @@ export class WhatsAppAccount {
       this.record(`${mode}_process_exited`);
       this.running = undefined;
       this.mode = undefined;
-      this.pairing = undefined;
-      clearTimeout(this.pairingDeadline);
+      this.invalidateChallenge();
       if (this.closed || this.revoked) return;
       if (mode === "auth" && code === 0) {
         void this.initialize().catch(() => { this.lastError = "Pairing finished, but sync could not restart. Use restart_sync."; });
@@ -162,22 +175,25 @@ export class WhatsAppAccount {
         this.connection = "stopped";
         this.lastError ??= code === 0 ? "Sync stopped. Check storage limits and restart_sync." : "Sync exited unexpectedly. Check connection_status; writes are never automatically retried.";
         if (mode === "sync" && code !== 0 && !this.terminalError && this.retries++ < 3)
-          this.retryTimer = setTimeout(() => { void this.initialize().catch(() => {}); }, 5000 * this.retries);
+          this.retryTimer = setTimeout(() => {
+            this.retryTimer = undefined;
+            void this.initialize().catch(() => { this.lastError = "WhatsApp recovery failed. Check connection status and reconnect."; });
+          }, 5000 * this.retries);
       }
     });
   }
   private async stop() {
     clearTimeout(this.pairingDeadline);
-    clearTimeout(this.retryTimer);
+    clearTimeout(this.retryTimer); this.retryTimer = undefined;
     const running = this.running;
     this.running = undefined;
     this.mode = undefined;
-    this.pairing = undefined;
+    this.invalidateChallenge();
     if (running) await running.stop();
   }
   async initialize() {
     return this.exclusive(async () => {
-      if (this.running || this.revoked) return;
+      if (this.running || this.revoked || this.link?.cancelled || this.link?.expired) return;
       const auth = await this.process.execute(["auth", "status"], true);
       if (auth.data?.authenticated) this.start("sync");
       else this.connection = "needs_pairing";
@@ -200,7 +216,89 @@ export class WhatsAppAccount {
       last_warning: this.lastWarning ?? null, last_error: this.lastError ?? null, local_health: doctor ?? null,
       history_scope: "retained_local_archive", instructions: authenticated
         ? "Read results describe retained local history. A running process or local doctor result does not certify freshness or complete history."
-        : "Use pair_device to link this account. Connector availability does not mean WhatsApp is paired." };
+        : "Open this account in OpenTeam settings to link WhatsApp. Connector availability does not mean WhatsApp is paired." };
+  }
+  startLink() {
+    if (this.startingLink) return this.startingLink;
+    const pending = (async () => {
+      try { await this.pair(); }
+      catch (error) {
+        // Reconnecting a persisted account may need a moment to open its sync
+        // delegate. The host's failed-start fallback rechecks linked readiness.
+        const auth = await this.process.execute(["auth", "status"], true);
+        if (auth.data?.authenticated && !this.revoked) {
+          const deadline = Date.now() + 10000;
+          while (this.running && Date.now() < deadline) {
+            if ((await this.linkStatus()).linked) break;
+            await pause(100);
+          }
+        }
+        throw error;
+      }
+      const session = this.link;
+      if (!session || session.cancelled || session.expired || session.expiresAt <= Date.now())
+        throw new Error("Device approval was interrupted. Connect again for a new code.");
+      if (!this.running) throw new Error(this.lastError ?? "Device approval stopped. Connect again for a new code.");
+      return { sessionId: session.sessionId, ...this.challenge(),
+        sessionExpiresAt: session.expiresAt, challengeGeneration: this.generation };
+    })();
+    this.startingLink = pending;
+    void pending.finally(() => { if (this.startingLink === pending) this.startingLink = undefined; }).catch(() => {});
+    return pending;
+  }
+  finishLink(sessionId: string) {
+    return this.exclusive(async () => {
+      const session = this.link;
+      if (!session || session.sessionId !== sessionId || session.cancelled || session.expired || session.expiresAt <= Date.now())
+        throw new Error("This device approval is no longer active.");
+      // Native auth already waits in the background; do not block the host poller.
+      return { sessionId, pending: !session.completed };
+    });
+  }
+  linkStatus() {
+    return this.exclusive(async () => {
+      const session = this.link;
+      const identity = session ? { sessionId: session.sessionId } : {};
+      if (session && !session.completed && session.expiresAt <= Date.now()) {
+        session.expired = true;
+        await this.stop(); this.connection = "pairing_expired";
+      }
+      if (session?.cancelled || session?.expired)
+        return { ...identity, linked: false, linking: false };
+      const auth = await this.process.execute(["auth", "status"], true);
+      const authenticated = auth.data?.authenticated === true && !this.revoked;
+      const ready = authenticated && await this.syncReady();
+      // The deadline includes initial history and the transition to send-capable sync.
+      if (session && !session.completed && session.expiresAt <= Date.now()) {
+        session.expired = true; await this.stop(); this.connection = "pairing_expired";
+        return { ...identity, linked: false, linking: false };
+      }
+      if (ready) {
+        if (session) session.completed = true;
+        clearTimeout(this.pairingDeadline);
+        return { ...identity, linked: true, linking: false };
+      }
+      if (this.pairing && this.pairing.expiresAt <= Date.now()) this.invalidateChallenge();
+      const linking = !!session && !session.completed && !!this.running && !this.revoked && !this.terminalError;
+      return { ...identity, linked: false, linking,
+        ...(linking ? { challenge: { generation: this.generation, ...this.challenge() } } : {}),
+        ...(authenticated && !linking && !this.terminalError && !this.revoked && (this.running || this.retryTimer)
+          ? { recovering: true } : {}),
+        ...(this.lastError && !linking ? { authorizationError: this.lastError } : {}) };
+    });
+  }
+  cancelLink(sessionId: string) {
+    return this.exclusive(async () => {
+      if (!this.link || this.link.sessionId !== sessionId) return { cancelled: false };
+      this.link.cancelled = true;
+      await this.stop(); this.connection = "needs_pairing";
+      return { cancelled: true };
+    });
+  }
+  async removeAccount() {
+    // Host deletion follows confirmed shutdown, including read-only accounts.
+    await this.close();
+    return { removed: true };
   }
   async pair(phone?: string) {
     await this.exclusive(async () => {
@@ -225,7 +323,8 @@ export class WhatsAppAccount {
     return this.exclusive(async () => {
       if (this.mode !== "auth") return { cancelled: false, reason: "No pairing is in progress." };
       const auth = await this.process.execute(["auth", "status"], true);
-      if (auth.data?.authenticated) throw new Error("Pairing already succeeded. Use restart_sync or logout_account.");
+      if (auth.data?.authenticated) throw new Error("Pairing already succeeded. Manage this account in OpenTeam settings.");
+      if (this.link) this.link.cancelled = true;
       await this.stop(); this.connection = "needs_pairing";
       return { cancelled: true };
     });
@@ -233,23 +332,37 @@ export class WhatsAppAccount {
   async restart() {
     return this.exclusive(async () => {
       const auth = await this.process.execute(["auth", "status"], true);
-      if (!auth.data?.authenticated || this.revoked) throw new Error("This account needs pairing. Use pair_device.");
+      if (!auth.data?.authenticated || this.revoked) throw new Error("This account needs pairing. Link this account in OpenTeam settings.");
       await this.stop(); this.retries = 0; this.lastError = undefined; this.terminalError = false; this.start("sync");
       return { restarting: true };
     });
   }
   read(args: string[]) { return this.process.execute(args, true); }
+  private async syncReady() {
+    const running = this.running;
+    if (!running || this.mode !== "sync" || this.connection !== "connected") return false;
+    const path = join(this.settings.store, ".send.sock");
+    if (!(await lstat(path).catch(() => null))?.isSocket()) return false;
+    // A crashed native process can leave a socket inode. Verify a live local
+    // listener without submitting any command or sending a WhatsApp message.
+    return new Promise<boolean>((resolve) => {
+      const probe = createConnection({ path });
+      const finish = (ready: boolean) => { probe.destroy(); resolve(ready); };
+      probe.setTimeout(500, () => finish(false));
+      probe.once("error", () => finish(false));
+      probe.once("connect", () => finish(this.running === running && this.connection === "connected"));
+    });
+  }
   private async readyToWrite() {
     if (this.settings.readOnly) throw new Error("This WhatsApp account is configured for read-only access.");
-    if (this.revoked) throw new Error("The linked device was logged out. Use pair_device.");
+    if (this.revoked) throw new Error("The linked device was logged out. Link this account in OpenTeam settings.");
     if (this.mode === "auth") throw new Error("Pairing or initial sync is still running. Check connection_status before sending.");
     const auth = await this.process.execute(["auth", "status"], true);
-    if (!auth.data?.authenticated) throw new Error("Link this account with pair_device first.");
+    if (!auth.data?.authenticated) throw new Error("Link this account in OpenTeam settings first.");
     if (!this.running) this.start("sync");
     const deadline = Date.now() + 10000;
     while (this.running && Date.now() < deadline) {
-      const socket = await lstat(join(this.settings.store, ".send.sock")).catch(() => null);
-      if (socket?.isSocket() && this.connection === "connected") return;
+      if (await this.syncReady()) return;
       await pause(100);
     }
     throw new Error("WhatsApp sync is not ready to send yet. No send was attempted. Check connection_status and try after startup finishes.");

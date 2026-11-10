@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { WhatsAppAccount } from "../account";
@@ -31,7 +31,7 @@ export class FakeProcess {
   };
 }
 
-async function fixture(authenticated = false, readOnly = false) {
+export async function fixture(authenticated = false, readOnly = false) {
   // Keep the Unix socket path below platform limits, including on macOS.
   const home = await mkdtemp("/tmp/wa-"); cleanup.push(() => rm(home, { recursive: true, force: true }));
   const configuration = settings({ OPENTEAM_PLUGIN_ACCOUNT_ID: "account", WHATSAPP_READ_ONLY: String(readOnly), WHATSAPP_MEDIA_ROOT: home }, home);
@@ -79,7 +79,7 @@ test("cancel stops unapproved pairing and remote logout never silently relinks",
   expect((await pending)?.kind).toBe("phone");
   expect(await f.account.cancelPairing()).toEqual({ cancelled: true });
   expect((await f.account.status()).pairing_available).toBe(false);
-  f.process.authenticated = true; await f.account.initialize();
+  f.process.authenticated = true; await f.account.restart();
   const sync = f.process.follows.at(-1)!; sync.emit({ event: "logged_out" }); sync.finish(0);
   await Bun.sleep(1); await f.account.initialize();
   expect(f.process.follows).toHaveLength(2);
@@ -212,4 +212,117 @@ test("unlinking an already revoked account does not attempt a remote logout", as
   const f = await fixture();
   const result = await f.account.logout(); expect(result.data.already_unlinked).toBe(true);
   expect(f.process.calls.some((call) => call.args.join(" ") === "auth logout")).toBe(false);
+});
+
+
+test("shared QR lifecycle rotates and invalidates within one fixed session, and waits through bootstrap", async () => {
+  const f = await fixture();
+  const pending = f.account.startLink(); await Bun.sleep(1);
+  const auth = f.process.follows[0]!;
+  auth.emit({ event: "qr_code", data: { code: "initial-qr" } });
+  const start = await pending;
+  expect(start.qrCodeDataUrl).toStartWith("data:image/png;base64,");
+  expect(start.sessionExpiresAt).toBeGreaterThan(start.expiresAt);
+  expect(start.sessionExpiresAt).toBeLessThanOrEqual(Date.now() + 600000);
+  expect(await f.account.finishLink(start.sessionId)).toEqual({ sessionId: start.sessionId, pending: true });
+  auth.emit({ event: "warning", data: { code: "auth_connect_retry" } });
+  const invalid = await f.account.linkStatus();
+  expect(invalid.sessionId).toBe(start.sessionId);
+  expect(invalid.linking).toBe(true);
+  expect(invalid.challenge?.qrCodeDataUrl).toBeNull();
+  expect(invalid.challenge!.generation).toBeGreaterThan(start.challengeGeneration);
+  auth.emit({ event: "qr_code", data: { code: "rotated-qr" } });
+  const rotated = await f.account.linkStatus();
+  expect(rotated.challenge!.generation).toBeGreaterThan(invalid.challenge!.generation);
+  expect(rotated.challenge!.qrCodeDataUrl).not.toBe(start.qrCodeDataUrl);
+  expect((await f.account.startLink()).sessionExpiresAt).toBe(start.sessionExpiresAt);
+  f.process.authenticated = true; auth.emit({ event: "connected" });
+  const bootstrap = await f.account.linkStatus();
+  expect(bootstrap.linked).toBe(false); expect(bootstrap.linking).toBe(true);
+  expect(bootstrap.challenge!.qrCodeDataUrl).toBeNull();
+  expect(bootstrap.challenge!.generation).toBeGreaterThan(rotated.challenge!.generation);
+  auth.finish(0);
+  for (let n = 0; n < 30 && f.process.follows.length < 2; n++) await Bun.sleep(1);
+  expect((await f.account.linkStatus()).linked).toBe(false);
+  await ready(f);
+  expect(await f.account.linkStatus()).toEqual({ sessionId: start.sessionId, linked: true, linking: false });
+  expect(JSON.stringify(await f.account.status())).not.toContain("data:image/png");
+});
+
+test("image expiry keeps approval alive and late bootstrap cannot complete past the session deadline", async () => {
+  const f = await fixture();
+  const pending = f.account.startLink(); await Bun.sleep(1);
+  const auth = f.process.follows[0]!; auth.emit({ event: "qr_code", data: { code: "short-lived-qr" } });
+  const start = await pending;
+  const clock = spyOn(Date, "now").mockReturnValue(start.expiresAt + 1);
+  try {
+    const expiredImage = await f.account.linkStatus();
+    expect(expiredImage.linking).toBe(true); expect(expiredImage.challenge!.qrCodeDataUrl).toBeNull();
+    expect(expiredImage.challenge!.generation).toBeGreaterThan(start.challengeGeneration);
+    f.process.authenticated = true; auth.emit({ event: "connected" });
+    clock.mockReturnValue(start.sessionExpiresAt + 1);
+    expect(await f.account.linkStatus()).toEqual({ sessionId: start.sessionId, linked: false, linking: false });
+    auth.finish(0); auth.emit({ event: "connected" }); await Bun.sleep(1);
+    await f.account.initialize();
+    expect(f.process.follows).toHaveLength(1);
+    await expect(f.account.finishLink(start.sessionId)).rejects.toThrow("no longer active");
+  } finally { clock.mockRestore(); }
+});
+
+test("stale finish/cancel and old process events cannot mutate a replacement approval", async () => {
+  const f = await fixture();
+  const p1 = f.account.startLink(); await Bun.sleep(1);
+  const old = f.process.follows[0]!; old.emit({ event: "qr_code", data: { code: "old" } });
+  const first = await p1;
+  await f.account.cancelLink(first.sessionId);
+  const p2 = f.account.startLink(); await Bun.sleep(1);
+  f.process.follows[1]!.emit({ event: "qr_code", data: { code: "current" } });
+  const current = await p2;
+  expect(current.sessionId).not.toBe(first.sessionId);
+  expect(await f.account.cancelLink(first.sessionId)).toEqual({ cancelled: false });
+  await expect(f.account.finishLink(first.sessionId)).rejects.toThrow("no longer active");
+  old.emit({ event: "connected" }); old.emit({ event: "logged_out" }); old.finish(0);
+  const status = await f.account.linkStatus();
+  expect(status.sessionId).toBe(current.sessionId); expect(status.linking).toBe(true);
+  expect(status.challenge!.qrCodeDataUrl).toBe(current.qrCodeDataUrl);
+});
+
+test("read-only host removal stops bootstrap and cannot restart account use", async () => {
+  const f = await fixture(false, true);
+  const pending = f.account.startLink(); await Bun.sleep(1);
+  f.process.follows[0]!.emit({ event: "qr_code", data: { code: "remove" } });
+  await pending;
+  f.process.authenticated = true; f.process.follows[0]!.emit({ event: "connected" });
+  expect(await f.account.removeAccount()).toEqual({ removed: true });
+  f.process.follows[0]!.finish(0); await Bun.sleep(1);
+  expect(f.process.follows).toHaveLength(1);
+  await expect(f.account.initialize()).rejects.toThrow("shutting down");
+});
+
+test("fast approval before start returns keeps the session visible without replaying a consumed QR", async () => {
+  const f = await fixture();
+  const pending = f.account.startLink(); await Bun.sleep(1);
+  const auth = f.process.follows[0]!;
+  auth.emit({ event: "qr_code", data: { code: "consumed-before-host-save" } });
+  f.process.authenticated = true; auth.emit({ event: "connected" });
+  const start = await pending;
+  expect(start.qrCodeDataUrl).toBeNull();
+  expect(start.sessionExpiresAt).toBeGreaterThan(Date.now());
+  expect((await f.account.linkStatus()).linking).toBe(true);
+  expect((await f.account.linkStatus()).sessionId).toBe(start.sessionId);
+});
+
+test("a stale send-socket inode cannot publish an authenticated collector ready", async () => {
+  const f = await fixture(true);
+  await f.account.initialize(); f.process.follows[0]!.emit({ event: "connected" });
+  const path = join(f.configuration.store, ".send.sock");
+  const child = Bun.spawn([process.execPath, "--eval", 'Bun.listen({unix:process.argv[1],socket:{data(){}}});console.log("ready");setInterval(()=>{},1000)', path], { stdout: "pipe", stderr: "pipe" });
+  try {
+    await child.stdout.getReader().read();
+    child.kill("SIGKILL"); await child.exited;
+    expect((await f.account.linkStatus()).linked).toBe(false);
+    await rm(path, { force: true });
+    await ready(f);
+    expect((await f.account.linkStatus()).linked).toBe(true);
+  } finally { child.kill(); await child.exited; }
 });

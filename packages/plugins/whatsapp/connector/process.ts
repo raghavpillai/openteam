@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { brotliDecompressSync } from "node:zlib";
 import { scopedProcessEnvironment } from "@openteam/plugin-sdk";
 import release from "./release.json";
@@ -18,8 +19,14 @@ export function settings(env: Record<string, string | undefined> = process.env, 
     throw new Error("Message storage limit must be between 1,000 and 1,000,000.");
   const mediaRoot = env.WHATSAPP_MEDIA_ROOT || "/workspace";
   if (!isAbsolute(mediaRoot)) throw new Error("The attachment folder must be an absolute path on the bot computer.");
-  const stateRoot = join(home, ".local", "share", "openteam", "whatsapp");
-  return { accountId, accountKey, store: join(stateRoot, accountKey), stateRoot,
+  const legacyRoot = join(home, ".local", "share", "openteam", "whatsapp");
+  const legacyStore = join(legacyRoot, accountKey);
+  const managed = env.OPENTEAM_PLUGIN_STATE_DIR;
+  if (managed !== undefined && (!managed || !isAbsolute(managed)))
+    throw new Error("The managed WhatsApp state directory must be absolute.");
+  const store = managed ? resolve(managed) : legacyStore;
+  const stateRoot = managed ? dirname(store) : legacyRoot;
+  return { accountId, accountKey, store, stateRoot, legacyRoot, legacyStore,
     mediaRoot: resolve(mediaRoot), readOnly: readOnly === "true", maxMessages,
     env: scopedProcessEnvironment(env, {
       WACLI_DEVICE_LABEL: "OpenTeam Plugin",
@@ -172,9 +179,68 @@ export class WacliProcess {
   }
 }
 
+async function ownedDirectory(path: string) {
+  const info = await lstat(path).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (info && (!info.isDirectory() || info.isSymbolicLink()))
+    throw new Error("WhatsApp state must be a directory without symlinks.");
+  return info;
+}
+async function noSymlinks(path: string): Promise<void> {
+  for (const entry of await readdir(path, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) throw new Error("Legacy WhatsApp state contains a symlink; migration refused.");
+    if (entry.isDirectory()) await noSymlinks(join(path, entry.name));
+  }
+}
+
 export async function prepareStore(configuration: Settings) {
+  await ownedDirectory(configuration.stateRoot);
+  await ownedDirectory(configuration.store);
+  if (configuration.store !== configuration.legacyStore) {
+    await ownedDirectory(configuration.legacyRoot);
+    if (await ownedDirectory(configuration.legacyStore)) {
+      // Keep SQLite databases, WALs, history, keys and native lock together. A
+      // held native writer lock refuses migration rather than forking a store.
+      const { dlopen, FFIType } = await import("bun:ffi");
+      const lock = await open(join(configuration.legacyStore, "LOCK"), constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+      let library: ReturnType<typeof dlopen<{ flock: { args: [typeof FFIType.i32, typeof FFIType.i32]; returns: typeof FFIType.i32 } }>> | undefined;
+      try {
+        library = dlopen(process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
+          flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+        });
+        if (library.symbols.flock(lock.fd, 2 | 4) !== 0)
+          throw new Error("The legacy WhatsApp store is in use. Stop its connector before updating.");
+        await noSymlinks(configuration.legacyStore);
+        if (await ownedDirectory(configuration.store)) {
+          if ((await readdir(configuration.store)).length)
+            throw new Error("Both managed and legacy WhatsApp stores exist; refusing an ambiguous migration.");
+        }
+        await mkdir(dirname(configuration.store), { recursive: true, mode: 0o700 });
+        // POSIX rename atomically replaces an empty host-created directory.
+        // Cross-filesystem migration fails closed without copying private keys.
+        await rename(configuration.legacyStore, configuration.store);
+      } finally {
+        library?.symbols.flock(lock.fd, 8);
+        library?.close(); await lock.close();
+      }
+    }
+  }
   await mkdir(configuration.store, { recursive: true, mode: 0o700 });
   await chmod(configuration.store, 0o700);
+}
+
+async function outsidePrivateState(configuration: Settings, path: string, message: string) {
+  for (const candidate of new Set([configuration.stateRoot, configuration.legacyRoot])) {
+    const privateRoot = await realpath(candidate).catch((error) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (!privateRoot) continue;
+    const rel = relative(privateRoot, path);
+    if (!rel || rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) throw new Error(message);
+  }
 }
 
 /** Resolve symlinks before checking boundaries. Session files are always excluded. */
@@ -184,10 +250,7 @@ export async function attachmentPath(configuration: Settings, path: string) {
   const file = await realpath(path);
   const rel = relative(root, file);
   if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error("The attachment must be inside the configured attachment folder.");
-  const privateRoot = await realpath(configuration.stateRoot);
-  const privateRel = relative(privateRoot, file);
-  if (!privateRel || privateRel !== ".." && !privateRel.startsWith(`..${sep}`) && !isAbsolute(privateRel))
-    throw new Error("WhatsApp session files cannot be sent as attachments.");
+  await outsidePrivateState(configuration, file, "WhatsApp session files cannot be sent as attachments.");
   const info = await lstat(file);
   if (!info.isFile() || info.size > 100 * 1024 * 1024) throw new Error("Attachments must be regular files no larger than 100 MiB.");
   return { path: file, size: info.size };
@@ -204,10 +267,7 @@ export async function downloadPath(configuration: Settings) {
   const resolved = await realpath(directory);
   const rel = relative(root, resolved);
   if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error("The WhatsApp download folder must remain inside the attachment folder.");
-  const privateRoot = await realpath(configuration.stateRoot);
-  const privateRel = relative(privateRoot, resolved);
-  if (!privateRel || privateRel !== ".." && !privateRel.startsWith(`..${sep}`) && !isAbsolute(privateRel))
-    throw new Error("Media cannot be downloaded into the WhatsApp session folder.");
+  await outsidePrivateState(configuration, resolved, "Media cannot be downloaded into the WhatsApp session folder.");
   // The caller never supplies a filename that can traverse the filesystem.
   return join(resolved, randomUUID());
 }

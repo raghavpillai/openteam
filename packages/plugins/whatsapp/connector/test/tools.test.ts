@@ -30,7 +30,7 @@ function fixture(readOnly = false) {
 
 test("read-only discovery removes remote changes while preserving setup and downloads", () => {
   const { tools } = fixture(true); const names = tools.map((t) => t.name);
-  expect(names).toContain("pair_device"); expect(names).toContain("download_media");
+  expect(names).toContain("whatsapp_start_link"); expect(names).toContain("download_media");
   for (const name of ["send_text", "send_file", "react_to_message", "edit_message", "update_chat", "backfill_history", "logout_account"]) expect(names).not.toContain(name);
 });
 
@@ -46,7 +46,7 @@ test("query option injection is prevented and pagination arguments survive", asy
 test("mutating tool arguments reject ambiguous names and unrelated receipt options", async () => {
   const f = fixture();
   await expect(f.call("send_text", { to: "Alice", message: "Hi" })).rejects.toThrow();
-  await expect(f.call("pair_device", { phone: "--help" })).rejects.toThrow();
+  await expect(f.call("whatsapp_cancel_link", { sessionId: "" })).rejects.toThrow();
   await expect(f.call("update_chat", { chat: "15551234567@s.whatsapp.net", action: "archive", receipts: true })).rejects.toThrow("mark-read");
   expect(f.calls).toHaveLength(0);
 });
@@ -101,19 +101,23 @@ test("real stdio transports preserve WhatsApp reads, QR images, errors, and pair
   try {
     await client.connect(transport);
     const inventory = await client.listTools();
-    expect(inventory.tools.some((entry) => entry.name === "pair_device")).toBe(true);
+    expect(inventory.tools.some((entry) => entry.name === "whatsapp_start_link")).toBe(true);
     expect(inventory.tools.some((entry) => entry.name === "send_text")).toBe(false);
     const query = "literal \"quotes\"\nand newlines";
     const read = await client.callTool({ name: "list_chats", arguments: { query } });
     expect(JSON.parse((read.content as Array<{ text: string }>)[0]!.text).data.arguments).toContain(query);
-    const pair = await client.callTool({ name: "pair_device", arguments: {} });
-    const image = (pair.content as Array<{ type: string; data?: string; mimeType?: string }>).find((part) => part.type === "image")!;
-    expect(image.mimeType).toBe("image/png");
-    expect(Buffer.from(image.data!, "base64").subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    const pair = await client.callTool({ name: "whatsapp_start_link", arguments: {} });
+    expect(pair.content).toHaveLength(1);
+    const approval = JSON.parse((pair.content as Array<{ text: string }>)[0]!.text);
+    expect(approval.qrCodeDataUrl).toStartWith("data:image/png;base64,");
+    expect(Buffer.from(approval.qrCodeDataUrl.split(",")[1], "base64").subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    expect(approval.sessionExpiresAt).toBeGreaterThan(approval.expiresAt);
+    const finish = await client.callTool({ name: "whatsapp_finish_link", arguments: { sessionId: approval.sessionId } });
+    expect(finish.isError).not.toBe(true);
     const status = await client.callTool({ name: "connection_status", arguments: {} });
     expect(JSON.parse((status.content as Array<{ text: string }>)[0]!.text).pairing_running).toBe(true);
     expect(JSON.stringify(status)).not.toContain("synthetic-stdio-pairing-challenge");
-    const cancelled = await client.callTool({ name: "cancel_pairing", arguments: {} });
+    const cancelled = await client.callTool({ name: "whatsapp_cancel_link", arguments: { sessionId: approval.sessionId } });
     expect(JSON.parse((cancelled.content as Array<{ text: string }>)[0]!.text).cancelled).toBe(true);
     const invalid = await client.callTool({ name: "list_chats", arguments: { limit: 1000 } });
     expect(invalid.isError).toBe(true);

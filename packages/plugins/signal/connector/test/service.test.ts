@@ -96,6 +96,35 @@ test("multiple local accounts fail closed before subscribing or exposing data", 
   expect(peer.calls.some((call) => call.method === "subscribeReceive")).toBe(false);
 });
 
+test("status notices phone revocation while the multi-account RPC process remains alive", async () => {
+  const { peer, service } = fake();
+  await service.connect();
+  peer.accounts = [];
+  expect(await service.status()).toMatchObject({
+    connected: true,
+    linked: false,
+    authorizationError: expect.stringContaining("no longer authorized"),
+  });
+  await expect(service.accountRequest("listContacts")).rejects.toThrow("Link a Signal account");
+  await expect(
+    service.send("after-revocation", { noteToSelf: true }, "must not send")
+  ).rejects.toThrow("Link a Signal account");
+  expect(peer.calls.some((call) => call.method === "send" || call.method === "listContacts")).toBe(
+    false
+  );
+  expect(await service.startLink()).toHaveProperty("sessionId");
+});
+
+test("status rejects replacement identities before permitting subsequent account-scoped work", async () => {
+  const { peer, service } = fake();
+  await service.connect();
+  peer.accounts = [{ aci: "replacement", number: self.number }];
+  await expect(service.status()).rejects.toThrow("identity changed");
+  await expect(service.accountRequest("listContacts")).rejects.toThrow();
+  expect(peer.calls.some((call) => call.method === "listContacts")).toBe(false);
+  expect(peer.connected).toBe(false);
+});
+
 test("numberless account requests use ACI", async () => {
   const { peer, service } = fake();
   peer.accounts = [{ aci: self.aci, number: null }];
@@ -168,7 +197,9 @@ test("link approval uses the exact server-issued URI and subscribes only after b
   expect(peer.calls.find((call) => call.method === "finishLink")!.params.deviceLinkUri).toBe(
     session.deviceLinkUri
   );
-  expect(peer.calls.find((call) => call.method === "finishLink")!.params.deviceName).toBe("OpenTeam Signal");
+  expect(peer.calls.find((call) => call.method === "finishLink")!.params.deviceName).toBe(
+    "OpenTeam Signal"
+  );
   expect(await service.status()).toMatchObject({ linked: true });
   await expect(service.startLink()).rejects.toThrow("already linked");
 });
@@ -304,7 +335,11 @@ test("a pending approval prevents provisioning a replacement session after expir
   expect(peer.calls.filter((call) => call.method === "finishLink")).toHaveLength(1);
 });
 
-test("an attachment deleted while its RPC read is pending stays unavailable", async () => {
+test.each([
+  "remote",
+  "sync-message",
+  "sync-attachment",
+])("an attachment deleted by %s while its RPC read is pending stays unavailable", async (kind) => {
   const { peer, service } = fake();
   await service.connect();
   service.store.capture({
@@ -331,10 +366,35 @@ test("an attachment deleted while its RPC read is pending stays unavailable", as
   while (!reading) await Bun.sleep(0);
   service.store.capture({
     account: self.aci,
-    envelope: {
-      sourceUuid: "sender",
-      dataMessage: { timestamp: 2000, remoteDelete: { timestamp: 1000 } },
-    },
+    envelope:
+      kind === "remote"
+        ? {
+            sourceUuid: "sender",
+            dataMessage: { timestamp: 2000, remoteDelete: { timestamp: 1000 } },
+          }
+        : {
+            sourceUuid: self.aci,
+            syncMessage: {
+              deleteForMe:
+                kind === "sync-message"
+                  ? {
+                      messageDeletes: [
+                        {
+                          conversation: { kind: "contact", id: "sender" },
+                          messages: [{ author: "sender", sentTimestamp: 1000 }],
+                        },
+                      ],
+                    }
+                  : {
+                      attachmentDeletes: [
+                        {
+                          conversation: { kind: "contact", id: "sender" },
+                          targetMessage: { author: "sender", sentTimestamp: 1000 },
+                        },
+                      ],
+                    },
+            },
+          },
   });
   deliver({ data: "c3ludGhldGlj" });
   await expect(pending).rejects.toThrow("Attachment is unavailable");

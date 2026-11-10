@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { SignalRpc, SignalRpcError } from "../rpc";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -25,6 +25,7 @@ function runtime() {
         ...(process.env.SIGNAL_TEST_JAVA_HOME
           ? { JAVA_HOME: process.env.SIGNAL_TEST_JAVA_HOME }
           : {}),
+        ...(process.env.SIGNAL_TEST_LIBSIGNAL ? { JAVA_OPTS: `-Djava.library.path=${dirname(process.env.SIGNAL_TEST_LIBSIGNAL)}` } : {}),
         XDG_CONFIG_HOME: directory,
       },
     }
@@ -103,6 +104,7 @@ real(
         OPENTEAM_PLUGIN_ACCOUNT_ID: "real-unlinked-test",
         SIGNAL_STATE_ROOT: root,
         SIGNAL_CLI_PATH: executable!,
+        ...(process.env.SIGNAL_TEST_LIBSIGNAL ? { OPENTEAM_RUNTIME_LIBSIGNAL: process.env.SIGNAL_TEST_LIBSIGNAL } : {}),
         ...(process.env.SIGNAL_TEST_JAVA_HOME
           ? { JAVA_HOME: process.env.SIGNAL_TEST_JAVA_HOME }
           : {}),

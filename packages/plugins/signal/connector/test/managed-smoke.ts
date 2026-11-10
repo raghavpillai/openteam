@@ -45,6 +45,7 @@ try {
       const value = JSON.parse((status.content as Array<{ text: string }>)[0]!.text);
       assert.equal(value.linked, false);
       assert.equal(value.runtimeVersion, "0.14.10");
+      assert.equal(value.runtimePatch, "0.14.10-ot.1");
       assert.equal((await client.callTool({ name: "list_contacts", arguments: {} })).isError, true);
       if (iteration === 0 && process.argv.includes("--provision")) {
         const result = await client.callTool({ name: "start_link", arguments: {} });

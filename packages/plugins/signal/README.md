@@ -29,7 +29,7 @@ Reuse the same request ID and content to inspect a send's recorded outcome. An `
 
 ## Privacy and removal
 
-The message index excludes disappearing and view-once content. Delivered edits and deletion events update the index; tombstones prevent replayed originals from restoring deleted messages. Some phone-side deletions do not reach this integration: the live Note to Self Delete for Everyone test produced an empty signal-cli sync event without a deletion target, leaving the collected copy readable. Do not rely on deleting a message on the phone to remove OpenTeam's copy. This remains a release blocker. The connector does not backfill history or provide a Signal backup.
+The message index excludes disappearing and view-once content. Delivered edits and deletion events update the index; tombstones prevent replayed originals from restoring deleted messages. The managed runtime includes an OpenTeam compatibility patch for phone deletion sync; a fresh Note to Self Delete for Everyone test passed through the packaged connector. Older empty events consumed by an unpatched runtime cannot be reconstructed. Whole-conversation deletion requires a locally observed anchor; a deletion without a matching anchor does not erase the conversation. Attachment-only deletion blocks all attachment references on the addressed message while preserving its text. The connector does not backfill history or provide a Signal backup.
 
 Signal cryptographic keys, downloaded files, the local index and the send ledger are stored in a private directory per OpenTeam account on the Bot computer. This is ordinary filesystem and SQLite storage, protected by permissions, not an encrypted database. Logical deletion is not secure erasure of SQLite free pages, WAL, provider files or external backups. Signal-cli can download attachments independently of whether the index retains their references.
 
@@ -41,7 +41,7 @@ Each MCP response must fit 75,000 encoded characters to remain intact through Op
 
 The manifest declares Linux ARM64, Linux x64 and macOS ARM64 runtimes. See [VALIDATION.md](VALIDATION.md) for platforms and scenarios actually tested. Other platforms fail with an unsupported-runtime error. The shared Bot computer normally runs Linux. Its runtime cache must permit execution; a `noexec` Java temporary directory can prevent native Signal libraries from loading. Native inbox triggers and Signal draft review are not provided by this version.
 
-Signal-cli is an unofficial client and requires frequent updates for Signal server changes. The package pins 0.14.10; runtime updates require a reviewed manifest change with new archive sizes and SHA-256 digests. Inspect [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for sources and licenses.
+Signal-cli is an unofficial client and requires frequent updates for Signal server changes. The package pins 0.14.10 with compatibility overlay 0.14.10-ot.1; runtime updates require reviewing/rebuilding the overlay and updating archive sizes and SHA-256 digests. See [runtime-patch/README.md](runtime-patch/README.md) for source and reproducible verification. Inspect [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for sources and licenses.
 
 ## Development and validation
 

@@ -19,7 +19,8 @@ try {
   if (
     roundtrip.definition.key !== "signal" ||
     !roundtrip.definition.files?.["connector/server.mjs"] ||
-    roundtrip.definition.binaryFiles?.["assets/icon.png"] !== definition.binaryFiles?.["assets/icon.png"]
+    roundtrip.definition.binaryFiles?.["assets/icon.png"] !== definition.binaryFiles?.["assets/icon.png"] ||
+    roundtrip.definition.binaryFiles?.["runtime-patch/signal-cli-0.14.10-ot.1.jar"] !== definition.binaryFiles?.["runtime-patch/signal-cli-0.14.10-ot.1.jar"]
   )
     throw new Error("Exported package failed verification");
   const output = resolve(process.argv[2] ?? "output/signal-validation/signal.zip");

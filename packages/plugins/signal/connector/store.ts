@@ -14,6 +14,13 @@ type Row = {
   revision: number;
 };
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+const messageId = (chat: string, sender: string, timestamp: number) =>
+  digest(JSON.stringify([chat, sender, timestamp]));
+const positiveTimestamp = (value: unknown): value is number =>
+  Number.isSafeInteger(value) && (value as number) > 0;
+const identifier = (value: unknown): value is string =>
+  typeof value === "string" && value.length > 0 && value.length <= 512;
+const entries = (value: unknown): any[] => (Array.isArray(value) ? value : []);
 
 /** Content is deliberately limited to ordinary messages. Ephemeral content is excluded. */
 export class MessageStore {
@@ -29,6 +36,19 @@ export class MessageStore {
         sender TEXT NOT NULL, timestamp INTEGER NOT NULL, body TEXT, attachments TEXT NOT NULL,
         deleted INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat, sequence);
+      CREATE TABLE IF NOT EXISTS message_revisions (
+        chat TEXT NOT NULL, sender TEXT NOT NULL, timestamp INTEGER NOT NULL,
+        original INTEGER NOT NULL, PRIMARY KEY(chat,sender,timestamp));
+      CREATE INDEX IF NOT EXISTS revisions_original ON message_revisions(chat,sender,original);
+      CREATE TABLE IF NOT EXISTS message_observations (
+        chat TEXT NOT NULL, sender TEXT NOT NULL, original INTEGER NOT NULL,
+        PRIMARY KEY(chat,sender,original));
+      CREATE TABLE IF NOT EXISTS attachment_redactions (
+        chat TEXT NOT NULL, sender TEXT NOT NULL, original INTEGER NOT NULL,
+        PRIMARY KEY(chat,sender,original));
+      INSERT OR IGNORE INTO message_revisions SELECT chat,sender,timestamp,timestamp FROM messages;
+      INSERT OR IGNORE INTO message_revisions SELECT chat,sender,revision,timestamp FROM messages;
+      INSERT OR IGNORE INTO message_observations SELECT chat,sender,timestamp FROM messages WHERE deleted=0;
       CREATE TABLE IF NOT EXISTS sends (request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,
         state TEXT NOT NULL, result TEXT);
     `);
@@ -59,49 +79,67 @@ export class MessageStore {
       return;
     const envelope = value.envelope;
     if (!envelope) return;
-    const sent = envelope.syncMessage?.sentMessage;
+    this.db.transaction(() => this.captureEnvelope(account, envelope)).immediate();
+  }
+
+  private canonical(value: string) {
+    return value === this.account?.number ? this.account.aci : value;
+  }
+
+  private captureEnvelope(account: SignalAccount, envelope: any) {
+    const sync = envelope.syncMessage;
+    const source = envelope.sourceUuid ?? envelope.sourceNumber ?? envelope.source;
+    // Upstream authenticates sync senders before constructing this event. Also
+    // reject an explicitly conflicting source at this storage boundary.
+    if (sync && source !== undefined && ![account.aci, account.number].includes(source)) return;
+    if (sync?.deleteForMe) this.captureDeletes(sync.deleteForMe);
+    const sent = sync?.sentMessage;
     const edit = sent?.editMessage ?? envelope.editMessage;
     const message = edit?.dataMessage ?? sent ?? envelope.dataMessage;
     if (!message) return;
-    const sender = sent
-      ? account.aci
-      : (envelope.sourceUuid ?? envelope.sourceNumber ?? envelope.source);
-    const destination =
+    const rawSender = sent ? account.aci : source;
+    const rawDestination =
       message.groupInfo?.groupId ??
       (sent
         ? (sent.destinationUuid ?? sent.destinationNumber ?? sent.destination ?? account.aci)
-        : sender);
-    const chat = `${message.groupInfo?.groupId ? "group" : "contact"}:${destination}`;
-    const timestamp = edit?.targetSentTimestamp ?? message.timestamp;
-    const revision = edit ? message.timestamp : timestamp;
+        : rawSender);
+    const target = edit?.targetSentTimestamp ?? message.timestamp;
+    const revision = edit ? message.timestamp : target;
     if (
-      typeof sender !== "string" ||
-      typeof destination !== "string" ||
-      !Number.isSafeInteger(timestamp) ||
-      timestamp <= 0 ||
-      !Number.isSafeInteger(revision)
+      !identifier(rawSender) ||
+      !identifier(rawDestination) ||
+      !positiveTimestamp(target) ||
+      !positiveTimestamp(revision)
     )
       return;
-    const id = digest(JSON.stringify([chat, sender, timestamp]));
+    const sender = this.canonical(rawSender);
+    const destination = message.groupInfo?.groupId
+      ? rawDestination
+      : this.canonical(rawDestination);
+    const chat = `${message.groupInfo?.groupId ? "group" : "contact"}:${destination}`;
+    const timestamp = this.linkRevision(chat, sender, target, revision);
+    const id = messageId(chat, sender, timestamp);
     if (message.adminDelete && message.groupInfo?.groupId) {
       const deleted = message.adminDelete;
       const author = deleted.targetAuthorUuid ?? deleted.targetAuthorNumber ?? deleted.targetAuthor;
       const target = deleted.targetTimestamp ?? deleted.targetSentTimestamp;
-      if (typeof author === "string" && Number.isSafeInteger(target) && target > 0)
-        this.tombstone(digest(JSON.stringify([chat, author, target])), chat, author, target);
+      if (identifier(author) && positiveTimestamp(target))
+        this.tombstone(chat, this.canonical(author), target);
       return;
     }
     const deletion = message.remoteDelete?.timestamp ?? message.remoteDelete?.targetSentTimestamp;
-    if (Number.isSafeInteger(deletion) && deletion > 0) {
-      this.tombstone(digest(JSON.stringify([chat, sender, deletion])), chat, sender, deletion);
+    if (positiveTimestamp(deletion)) {
+      this.tombstone(chat, sender, deletion);
       return;
     }
     if (message.viewOnce || message.expiresInSeconds > 0) {
-      this.tombstone(id, chat, sender, timestamp);
+      this.tombstone(chat, sender, timestamp);
       return;
     }
     if (message.isExpirationUpdate || message.isEndSession || message.isProfileKeyUpdate) return;
-    const attachments = (Array.isArray(message.attachments) ? message.attachments : [])
+    const attachments = (
+      this.attachmentsRedacted(chat, sender, timestamp) ? [] : entries(message.attachments)
+    )
       .map((attachment: any) => ({
         id: String(attachment.id ?? ""),
         contentType: attachment.contentType ?? "application/octet-stream",
@@ -110,6 +148,9 @@ export class MessageStore {
       }))
       .filter((attachment: any) => attachment.id);
     if (typeof message.message !== "string" && !attachments.length) return;
+    this.db
+      .query("INSERT OR IGNORE INTO message_observations VALUES (?,?,?)")
+      .run(chat, sender, timestamp);
     this.db
       .query(`INSERT INTO messages (id,chat,sender,timestamp,body,attachments,revision) VALUES (?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET body=excluded.body, attachments=excluded.attachments, revision=excluded.revision
@@ -125,7 +166,150 @@ export class MessageStore {
       );
   }
 
-  private tombstone(id: string, chat: string, sender: string, timestamp: number) {
+  private original(chat: string, sender: string, timestamp: number) {
+    return (
+      this.db
+        .query<{ original: number }, [string, string, number]>(
+          "SELECT original FROM message_revisions WHERE chat=? AND sender=? AND timestamp=?"
+        )
+        .get(chat, sender, timestamp)?.original ?? timestamp
+    );
+  }
+
+  /** Edits target the preceding revision, not necessarily the initial send. */
+  private linkRevision(chat: string, sender: string, target: number, revision: number) {
+    const original = this.original(chat, sender, target);
+    const other = this.original(chat, sender, revision);
+    if (other !== original) {
+      const rows = this.db
+        .query<Row, [string, string]>("SELECT * FROM messages WHERE id IN (?,?)")
+        .all(messageId(chat, sender, original), messageId(chat, sender, other));
+      if (rows.length) {
+        const keeper = rows.reduce((a, b) => (a.sequence < b.sequence ? a : b));
+        const latest = rows.reduce((a, b) => (a.revision > b.revision ? a : b));
+        const deleted = rows.some((row) => row.deleted) ? 1 : 0;
+        for (const row of rows)
+          if (row.sequence !== keeper.sequence)
+            this.db.query("DELETE FROM messages WHERE sequence=?").run(row.sequence);
+        const redacted =
+          this.attachmentsRedacted(chat, sender, original) ||
+          this.attachmentsRedacted(chat, sender, other);
+        this.db
+          .query(
+            `UPDATE messages SET id=?,timestamp=?,body=?,attachments=?,deleted=?,revision=? WHERE sequence=?`
+          )
+          .run(
+            messageId(chat, sender, original),
+            original,
+            deleted ? null : latest.body,
+            deleted || redacted ? "[]" : latest.attachments,
+            deleted,
+            latest.revision,
+            keeper.sequence
+          );
+      }
+      this.db
+        .query("UPDATE message_revisions SET original=? WHERE chat=? AND sender=? AND original=?")
+        .run(original, chat, sender, other);
+      const observed = this.db
+        .query("SELECT 1 FROM message_observations WHERE chat=? AND sender=? AND original=?")
+        .get(chat, sender, other);
+      if (observed) {
+        this.db
+          .query("INSERT OR IGNORE INTO message_observations VALUES (?,?,?)")
+          .run(chat, sender, original);
+        this.db
+          .query("DELETE FROM message_observations WHERE chat=? AND sender=? AND original=?")
+          .run(chat, sender, other);
+      }
+      if (this.attachmentsRedacted(chat, sender, other)) {
+        this.db
+          .query("INSERT OR IGNORE INTO attachment_redactions VALUES (?,?,?)")
+          .run(chat, sender, original);
+        this.db
+          .query("DELETE FROM attachment_redactions WHERE chat=? AND sender=? AND original=?")
+          .run(chat, sender, other);
+      }
+    }
+    const insert = this.db.query("INSERT OR IGNORE INTO message_revisions VALUES (?,?,?,?)");
+    insert.run(chat, sender, target, original);
+    insert.run(chat, sender, revision, original);
+    return original;
+  }
+
+  private captureDeletes(deletes: any) {
+    const chatFor = (conversation: any) => {
+      if (!["contact", "group"].includes(conversation?.kind) || !identifier(conversation?.id))
+        return;
+      return `${conversation.kind}:${conversation.kind === "contact" ? this.canonical(conversation.id) : conversation.id}`;
+    };
+    const address = (message: any) =>
+      identifier(message?.author) && positiveTimestamp(message?.sentTimestamp)
+        ? { sender: this.canonical(message.author), timestamp: message.sentTimestamp }
+        : undefined;
+    for (const group of entries(deletes.messageDeletes)) {
+      const chat = chatFor(group?.conversation);
+      if (!chat) continue;
+      for (const message of entries(group?.messages)) {
+        const target = address(message);
+        if (target) this.tombstone(chat, target.sender, target.timestamp);
+      }
+    }
+    for (const deletion of entries(deletes.attachmentDeletes)) {
+      const chat = chatFor(deletion?.conversation),
+        target = address(deletion?.targetMessage);
+      if (!chat || !target) continue;
+      const original = this.linkRevision(chat, target.sender, target.timestamp, target.timestamp);
+      // Upstream's normal attachment JSON lacks cross-device client UUID/digest
+      // identifiers. Block all attachments on this specific message, preserving
+      // its text, instead of guessing which local file matches the deleted one.
+      this.db
+        .query("INSERT OR IGNORE INTO attachment_redactions VALUES (?,?,?)")
+        .run(chat, target.sender, original);
+      this.db
+        .query("UPDATE messages SET attachments='[]' WHERE id=?")
+        .run(messageId(chat, target.sender, original));
+    }
+    for (const deletion of entries(deletes.conversationDeletes)) {
+      const chat = chatFor(deletion?.conversation);
+      if (!chat || typeof deletion?.isFullDelete !== "boolean") continue;
+      const anchors = [
+        ...entries(deletion.mostRecentMessages),
+        ...entries(deletion.mostRecentNonExpiringMessages),
+      ];
+      let sequence = 0;
+      for (const message of anchors) {
+        const target = address(message);
+        if (!target) continue;
+        const original = this.original(chat, target.sender, target.timestamp);
+        const row = this.db
+          .query<{ sequence: number }, [string]>(`SELECT m.sequence FROM messages m
+          JOIN message_observations o ON o.chat=m.chat AND o.sender=m.sender AND o.original=m.timestamp WHERE m.id=?`)
+          .get(messageId(chat, target.sender, original));
+        if (row) sequence = Math.max(sequence, row.sequence);
+      }
+      // Match official clients' observed local arrival anchor. Without an
+      // observed anchor, never guess a cutoff or wipe the entire conversation.
+      if (sequence)
+        this.db
+          .query(
+            "UPDATE messages SET body=NULL,attachments='[]',deleted=1 WHERE chat=? AND sequence<=?"
+          )
+          .run(chat, sequence);
+    }
+    // localOnlyConversationDeletes concern local metadata only; ordinary
+    // indexed messages are addressable and must never be removed by that path.
+  }
+
+  private attachmentsRedacted(chat: string, sender: string, original: number) {
+    return !!this.db
+      .query("SELECT 1 FROM attachment_redactions WHERE chat=? AND sender=? AND original=?")
+      .get(chat, sender, original);
+  }
+
+  private tombstone(chat: string, sender: string, target: number) {
+    const timestamp = this.linkRevision(chat, sender, target, target);
+    const id = messageId(chat, sender, timestamp);
     this.db
       .query(`INSERT INTO messages (id,chat,sender,timestamp,body,attachments,deleted,revision) VALUES (?,?,?,?,NULL,'[]',1,?)
       ON CONFLICT(id) DO UPDATE SET body=NULL, attachments='[]', deleted=1`)
@@ -165,7 +349,7 @@ export class MessageStore {
       })),
       nextCursor: rows.length > limit ? selected.at(-1)!.sequence : null,
       historyScope:
-        "Ordinary messages collected while connected. Disappearing and view-once messages are excluded. Phone-side deletions may not reach signal-cli, so collected copies can remain readable. Search is literal and case-sensitive.",
+        "Ordinary messages collected while connected. Disappearing and view-once messages are excluded. Delivered deletion events update collected copies; conversation deletion requires an observed anchor. Search is literal and case-sensitive.",
     };
   }
 

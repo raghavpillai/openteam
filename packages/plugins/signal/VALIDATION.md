@@ -92,3 +92,22 @@ Post-integration results:
 | Signal ZIP round-trip | Passed |
 
 Groups overlap and are not a unique-test total. The old-base management/catalog failures described earlier did not recur in the complete post-main server-plugin run. No claim is made about unrelated whole-repository suites or about untested live scenarios. Live phone deletion remains a release blocker despite the passing automated tests.
+
+## Deletion compatibility fix — live deletion passed
+
+Added OpenTeam compatibility overlay **0.14.10-ot.1** without changing the downloaded upstream runtime archives. The pinned library retains the original authenticated protobuf even though its high-level sync model omits DeleteForMe. The overlay projects only normalized deletion addressing into JSON, and the collector now applies own-device message deletions, durable attachment redaction and observed-anchor conversation deletions. Revision relationships handle chained edits and reordered deletes. See runtime-patch/README.md for corresponding GPL source, reproducible build and explicit compatibility limits.
+
+Validation after this change:
+
+- Full connector suite with real runtime and build/protocol/package checks: **120 passed, 0 failed, 387 assertions**, ten files.
+- Native Linux x64 on the production computer's pinned Bun runtime base: the JDK 25 rebuild matched macOS byte-for-byte (JAR SHA-256 `aa12eb434e487298e2207d5e4b74fde878dd6c44c32fcc72a974d600c191238e`), the real protobuf → authenticated content → manager → JSON test passed, and two exported patched MCP lifecycles passed. No linked account data was transferred; remote test files were removed.
+- Native Linux ARM64 on the same pinned runtime base also passed the byte-identical JDK build, actual protobuf pipeline and two exported patched MCP lifecycles. The patch itself is now exercised on every declared platform.
+- Independent review found no confirmed defects. It passed 60 focused checks plus three real Java/build/package checks, 24 three-edit arrival orders, 480 deletion/replay permutations, wrong upstream-version/missing-patched-class rejection and a rebuild under another timezone. These probes accessed no live data.
+- Pending attachment reads are rejected after either a synchronized message deletion or attachment-only deletion, in addition to the earlier remote-delete check.
+- A dedicated Linux CI workflow verifies the reproducible binary and real unlinked runtime. CI intentionally excludes provider provisioning and uses no live accounts.
+
+The linked local collector starts with the patched packaged entry point and reports runtimePatch 0.14.10-ot.1. **The fresh live phone Delete for Everyone check passed:** the tagged message was received, then disappeared from packaged MCP results after deletion on the phone. A read-only SQLite check confirmed its tombstone, null body and empty attachment references. Sanitized evidence is kept under ignored private/patched-phone-evidence.json. The earlier unpatched failures remain historical failures; consumed empty events cannot be replayed into their missing targets. Real attachments, ephemeral content, revocation/relinking and authenticated network recovery remain pending.
+
+Preparing revocation coverage exposed another status issue: the upstream account manager can close on authorization failure while the multi-account RPC process remains alive. Status now refreshes the selected account list, clears revoked identity state and fails closed on replacement identities; two additional regressions verify that subsequent sends and account reads cannot route to the rejected account. The final full connector count above includes them.
+
+The complete post-patch server plugin suite passed **156 tests**, with three optional provider tests skipped, zero failures and 2,041 assertions. SDK/server/worker/computer/desktop and standalone connector TypeScript checks passed. The CI entry point passed 117 checks before the final two status cases were added, filtering only the provisioning test that contacts Signal.

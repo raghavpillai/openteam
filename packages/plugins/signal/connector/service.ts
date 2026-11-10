@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { SignalRpc } from "./rpc";
 import { MessageStore, type SignalAccount } from "./store";
 
@@ -36,7 +37,8 @@ export class SignalService {
   constructor(
     readonly store: MessageStore,
     private readonly factory: RpcFactory,
-    private readonly reconnectMs = 1000
+    private readonly reconnectMs = 1000,
+    private readonly runtimePatch: string | null = null
   ) {
     this.reconnectDelay = reconnectMs;
   }
@@ -110,10 +112,39 @@ export class SignalService {
 
   async status() {
     await this.connect();
+    const rpc = this.rpc!;
+    const selected = this.account;
+    if (selected) {
+      // Revocation closes/removes the upstream account manager while the
+      // multi-account JSON-RPC process itself can remain alive.
+      const accounts = await rpc.request("listAccounts");
+      if (this.rpc === rpc && this.account === selected) {
+        if (
+          !Array.isArray(accounts) ||
+          accounts.length > 1 ||
+          (accounts[0] && accounts[0].aci !== selected.aci)
+        ) {
+          this.account = undefined;
+          await rpc.close();
+          throw new Error(
+            "Signal account identity changed. Remove this account and link it again."
+          );
+        }
+        if (!accounts.length) {
+          this.account = undefined;
+          this.linkError =
+            "This Signal linked device is no longer authorized. Link it again from account settings.";
+        } else {
+          this.store.bind(accounts[0]);
+          this.account = accounts[0];
+        }
+      }
+    }
     return {
       connected: this.rpc!.connected,
       linked: !!this.account,
       runtimeVersion: this.version,
+      runtimePatch: this.runtimePatch,
       recommendedVersion: "0.14.10",
       account: this.account ?? null,
       linking: !!this.finishingLink,
@@ -313,12 +344,26 @@ export function configuredService(environment = process.env) {
     throw new Error("SIGNAL_CLI_PATH must be an absolute executable path.");
   const store = new MessageStore(join(directory, "messages.sqlite"));
   chmodSync(join(directory, "messages.sqlite"), 0o600);
+  const java = environment.OPENTEAM_RUNTIME_JAVA;
+  const patched = !environment.SIGNAL_CLI_PATH && !!java;
+  const launcher = patched
+    ? [
+        java!,
+        "--enable-native-access=ALL-UNNAMED",
+        ...(environment.OPENTEAM_RUNTIME_LIBSIGNAL
+          ? [`-Djava.library.path=${dirname(environment.OPENTEAM_RUNTIME_LIBSIGNAL)}`]
+          : []),
+        "-classpath",
+        `${fileURLToPath(new URL("../runtime-patch/signal-cli-0.14.10-ot.1.jar", import.meta.url))}:${join(dirname(dirname(executable)), "lib/*")}`,
+        "org.asamk.signal.OpenTeamMain",
+      ]
+    : [executable];
   return new SignalService(
     store,
     (receive) =>
       new SignalRpc(
         [
-          executable,
+          ...launcher,
           "--data-dir",
           join(directory, "account"),
           "jsonRpc",
@@ -343,6 +388,8 @@ export function configuredService(environment = process.env) {
             XDG_CONFIG_HOME: join(directory, "config"),
           },
         }
-      )
+      ),
+    1000,
+    patched ? "0.14.10-ot.1" : null
   );
 }

@@ -284,3 +284,283 @@ test("a 10000-message stream remains deduplicated after complete replay", () => 
     value.db.query<{ count: number }, []>("SELECT count(*) AS count FROM messages").get()!.count
   ).toBe(10000);
 });
+
+const syncDelete = (deleteForMe: any, source: string | undefined = self.aci) => ({
+  account: self.aci,
+  envelope: { ...(source ? { sourceUuid: source } : {}), syncMessage: { deleteForMe } },
+});
+const conversation = { kind: "contact", id: "alice" };
+const targeted = (sentTimestamp: number, author = "alice", chat = conversation) => ({
+  messageDeletes: [{ conversation: chat, messages: [{ author, sentTimestamp }] }],
+});
+const edited = (
+  targetSentTimestamp: number,
+  timestamp: number,
+  message = "edit",
+  data: any = {}
+) => ({
+  account: self.aci,
+  envelope: {
+    sourceUuid: "alice",
+    editMessage: { targetSentTimestamp, dataMessage: { timestamp, message, ...data } },
+  },
+});
+
+test("phone sync deletions work without a sent-message envelope and remain scoped by chat and author", () => {
+  const value = store();
+  value.capture(incoming(1000, "direct"));
+  value.capture(incoming(1000, "group alice", { groupInfo: { groupId: "group" } }));
+  value.capture(
+    incoming(1000, "group bob", { groupInfo: { groupId: "group" } }, { sourceUuid: "bob" })
+  );
+  value.capture(syncDelete(targeted(1000, "alice", { kind: "group", id: "group" })));
+  expect(
+    value
+      .list()
+      .messages.map((m) => m.body)
+      .sort()
+  ).toEqual(["direct", "group bob"]);
+  value.capture(syncDelete(targeted(1000)));
+  expect(value.list().messages.map((m) => m.body)).toEqual(["group bob"]);
+});
+
+test("an explicitly foreign sync source cannot delete or forge synchronized messages", () => {
+  const value = store();
+  value.capture(incoming(1000));
+  const event = syncDelete(targeted(1000), "mallory");
+  (event.envelope.syncMessage as any).sentMessage = {
+    destinationUuid: "alice",
+    timestamp: 2000,
+    message: "forged",
+  };
+  value.capture(event);
+  expect(value.list().messages.map((m) => m.body)).toEqual(["hello"]);
+});
+
+test("own number aliases normalize to the linked account's ACI", () => {
+  const value = store();
+  value.capture({
+    account: self.aci,
+    envelope: {
+      sourceUuid: self.aci,
+      syncMessage: {
+        sentMessage: { destinationNumber: self.number, timestamp: 1000, message: "note" },
+      },
+    },
+  });
+  expect(value.list().messages[0]!.chat).toBe("contact:self");
+  value.capture(
+    syncDelete(targeted(1000, self.number, { kind: "contact", id: self.number }), self.number)
+  );
+  expect(value.list().messages).toHaveLength(0);
+});
+
+test("chained edits keep one stable original and deletion of any revision removes it", () => {
+  for (const target of [1000, 2000, 3000]) {
+    const value = store();
+    value.capture(incoming(1000, "original"));
+    const id = value.list().messages[0]!.id;
+    value.capture(edited(1000, 2000, "first edit"));
+    value.capture(edited(2000, 3000, "second edit"));
+    expect(value.list().messages).toHaveLength(1);
+    expect(value.list().messages[0]).toMatchObject({
+      id,
+      timestamp: 1000,
+      body: "second edit",
+      edited: true,
+    });
+    value.capture(syncDelete(targeted(target)));
+    value.capture(edited(2000, 3000, "replay"));
+    expect(value.list().messages).toHaveLength(0);
+  }
+});
+
+test("every arrival order of original, chained edits and revision deletion converges without revival", () => {
+  const frames = [
+    incoming(1000, "original"),
+    edited(1000, 2000, "first edit"),
+    edited(2000, 3000, "last edit"),
+    syncDelete(targeted(3000)),
+  ];
+  const permutations = (remaining: any[]): any[][] =>
+    remaining.length === 0
+      ? [[]]
+      : remaining.flatMap((frame, i) =>
+          permutations(remaining.filter((_, j) => i !== j)).map((rest) => [frame, ...rest])
+        );
+  for (const order of permutations(frames)) {
+    const value = store();
+    for (const frame of order) value.capture(frame);
+    for (const frame of frames.slice(0, 3)) value.capture(frame);
+    expect(value.list().messages).toHaveLength(0);
+    expect(
+      value.db
+        .query<{ count: number }, []>(
+          "SELECT count(*) AS count FROM messages WHERE body IS NOT NULL OR attachments!='[]'"
+        )
+        .get()!.count
+    ).toBe(0);
+  }
+});
+
+test("revision aliases and delete-first tombstones survive a database reopen", () => {
+  const directory = mkdtempSync(join(tmpdir(), "signal-revision-delete-"));
+  directories.push(directory);
+  const path = join(directory, "messages.sqlite"),
+    first = store(path);
+  first.capture(syncDelete(targeted(3000)));
+  first.capture(edited(2000, 3000));
+  first.close();
+  stores.pop();
+  const second = store(path);
+  second.capture(edited(1000, 2000));
+  second.capture(incoming(1000, "replayed original", { attachments: [{ id: "private" }] }));
+  expect(second.list().messages).toHaveLength(0);
+  expect(second.db.query("SELECT body,attachments FROM messages").all()).toEqual([
+    { body: null, attachments: "[]" },
+  ]);
+});
+
+test.each([
+  "remote",
+  "admin",
+])("ordinary %s deletes also resolve edited revision aliases", (kind) => {
+  const value = store(),
+    group = { groupInfo: { groupId: "group" } };
+  value.capture(incoming(1000, "original", group));
+  value.capture(edited(1000, 2000, "edited", group));
+  value.capture(
+    incoming(
+      3000,
+      null,
+      {
+        ...group,
+        ...(kind === "remote"
+          ? { remoteDelete: { timestamp: 2000 } }
+          : { adminDelete: { targetAuthorUuid: "alice", targetTimestamp: 2000 } }),
+      },
+      { sourceUuid: kind === "remote" ? "alice" : "admin" }
+    )
+  );
+  expect(value.list().messages).toHaveLength(0);
+});
+
+test("attachment deletion durably denies all attachments on only the addressed message while retaining text", () => {
+  const directory = mkdtempSync(join(tmpdir(), "signal-attachment-delete-"));
+  directories.push(directory);
+  const path = join(directory, "messages.sqlite"),
+    first = store(path);
+  const deletion = syncDelete({
+    attachmentDeletes: [
+      {
+        conversation,
+        targetMessage: { author: "alice", sentTimestamp: 2000 },
+        clientUuid: "cross-device-id",
+      },
+    ],
+  });
+  first.capture(incoming(1000, "retained text", { attachments: [{ id: "one" }, { id: "two" }] }));
+  first.capture(
+    edited(1000, 2000, "retained edit", { attachments: [{ id: "one" }, { id: "two" }] })
+  );
+  const id = first.list().messages[0]!.id;
+  first.capture(incoming(4000, "unrelated", { attachments: [{ id: "other" }] }));
+  first.capture(deletion);
+  expect(first.list().messages.find((m) => m.id === id)).toMatchObject({
+    body: "retained edit",
+    attachments: [],
+  });
+  expect(() => first.attachment(id, "one")).toThrow("unavailable");
+  expect(first.list().messages[0]!.attachments).toEqual([
+    { id: "other", contentType: "application/octet-stream", filename: null, size: null },
+  ]);
+  first.close();
+  stores.pop();
+  const second = store(path);
+  second.capture(edited(2000, 3000, "later edit", { attachments: [{ id: "one" }] }));
+  expect(second.list().messages.find((m) => m.id === id)).toMatchObject({
+    body: "later edit",
+    attachments: [],
+  });
+  expect(() => second.attachment(id, "one")).toThrow("unavailable");
+});
+
+test("attachment deletion preceding the message never admits its downloaded references", () => {
+  const value = store();
+  value.capture(
+    syncDelete({
+      attachmentDeletes: [
+        { conversation, targetMessage: { author: "alice", sentTimestamp: 1000 } },
+      ],
+    })
+  );
+  value.capture(incoming(1000, "text", { attachments: [{ id: "one" }] }));
+  expect(value.list().messages[0]).toMatchObject({ body: "text", attachments: [] });
+});
+
+test("conversation deletion uses known arrival anchors, preserves later messages, and survives replay", () => {
+  const value = store();
+  value.capture(incoming(9000, "old arrival with later clock"));
+  value.capture(incoming(1000, "anchor"));
+  value.capture(incoming(500, "new arrival with earlier clock"));
+  value.capture(incoming(600, "different chat", {}, { sourceUuid: "bob" }));
+  const deletion = syncDelete({
+    conversationDeletes: [
+      {
+        conversation,
+        mostRecentMessages: [{ author: "alice", sentTimestamp: 1000 }],
+        isFullDelete: true,
+      },
+    ],
+  });
+  value.capture(deletion);
+  value.capture(incoming(1000, "anchor replay"));
+  value.capture(deletion);
+  expect(
+    value
+      .list()
+      .messages.map((m) => m.body)
+      .sort()
+  ).toEqual(["different chat", "new arrival with earlier clock"]);
+});
+
+test("missing, malformed and merely tombstoned conversation anchors never cause broad wipes", () => {
+  const value = store();
+  value.capture(incoming(1000, "keep"));
+  value.capture(syncDelete(targeted(2000)));
+  for (const sentTimestamp of [2000, 3000, null, -1, Number.MAX_SAFE_INTEGER + 1])
+    value.capture(
+      syncDelete({
+        conversationDeletes: [
+          {
+            conversation,
+            mostRecentMessages: [{ author: "alice", sentTimestamp }],
+            isFullDelete: true,
+          },
+        ],
+      })
+    );
+  value.capture(syncDelete({ localOnlyConversationDeletes: [{ conversation }] }));
+  expect(value.list().messages.map((m) => m.body)).toEqual(["keep"]);
+});
+
+test("conversation non-expiring fallback anchors and edited revisions are recognized", () => {
+  const value = store();
+  value.capture(incoming(1000, "before"));
+  value.capture(incoming(2000, "anchor"));
+  value.capture(edited(2000, 2500));
+  value.capture(incoming(3000, "after"));
+  value.capture(
+    syncDelete({
+      conversationDeletes: [
+        {
+          conversation,
+          mostRecentMessages: [{ author: "alice", sentTimestamp: 9999 }],
+          mostRecentNonExpiringMessages: [{ author: "alice", sentTimestamp: 2500 }],
+          isFullDelete: false,
+        },
+      ],
+    })
+  );
+  expect(value.list().messages.map((m) => m.body)).toEqual(["after"]);
+});

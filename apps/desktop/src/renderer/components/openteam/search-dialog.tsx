@@ -10,6 +10,7 @@ import {
 import {
   Bot,
   Check,
+  ChevronRight,
   Clock3,
   CloudDownload,
   FileText,
@@ -40,6 +41,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 import { LoadingOrb } from "../ui/loading-orb";
 import { BotAvatar, ChannelAvatar } from "./avatar";
+import "./desktop-panel.css";
 
 const SEARCH_DEBOUNCE_MS = 50;
 const CACHE_TTL_MS = 15_000;
@@ -87,9 +89,48 @@ const documentSearchKeywords = (result: SearchResultView): string[] => {
 
 const resultTypeLabel = (result: DisplayResult) => {
   if (result.type === "action") return "Action";
-  if (result.value.kind === "channel") return "Group";
   return searchResultKindLabel(result.value.kind);
 };
+
+const resultSection = (result: DisplayResult) => {
+  if (result.type === "action") {
+    if (result.value.id.startsWith("settings:")) return "Settings";
+    if (result.value.id.startsWith("theme:")) return "Appearance";
+    return "Actions";
+  }
+  return {
+    bot: "Bots",
+    channel: "Chats",
+    message: "Messages",
+    file: "Files",
+    link: "Links",
+    routine: "Routines",
+  }[result.value.kind];
+};
+
+// Keep headings outside the selection model; arrow keys and Command+number
+// shortcuts use this same flattened order as the rendered groups.
+const groupResults = (results: DisplayResult[]) => {
+  const sections = new Map<string, DisplayResult[]>();
+  for (const result of results) {
+    const section = resultSection(result);
+    const items = sections.get(section) ?? [];
+    items.push(result);
+    sections.set(section, items);
+  }
+  return Array.from(sections.values()).flat();
+};
+
+const highlightText = (text: string, query: string) =>
+  paletteHighlightSegments(text, query).map((segment) =>
+    segment.isMatch ? (
+      <span className="font-semibold" data-search-highlight="" key={segment.start}>
+        {segment.text}
+      </span>
+    ) : (
+      segment.text
+    )
+  );
 
 const cacheKey = (query: string, category: SearchCategory) =>
   searchCacheKey("", category, normalizeSearchQuery(query));
@@ -111,16 +152,34 @@ function ResultIcon({
   channelById: ReadonlyMap<string, ChannelView>;
 }) {
   if (result.kind === "bot") {
-    return <BotAvatar bot={result.botId ? botById.get(result.botId) : undefined} size="sm" />;
+    return (
+      <BotAvatar
+        bot={result.botId ? botById.get(result.botId) : undefined}
+        className="size-7"
+        roster
+        size="sm"
+      />
+    );
   }
   if (result.kind === "channel" && result.channelId) {
     const channel = channelById.get(result.channelId);
-    if (channel) return <ChannelAvatar botById={botById} channel={channel} size="sm" />;
+    if (channel)
+      return (
+        <span className="grid size-7 shrink-0 place-items-center">
+          <ChannelAvatar botById={botById} channel={channel} roster size="sm" />
+        </span>
+      );
   }
   if (result.kind === "message") {
     const channel = result.channelId ? channelById.get(result.channelId) : undefined;
-    if (channel) return <ChannelAvatar botById={botById} channel={channel} size="sm" />;
-    if (result.botId) return <BotAvatar bot={botById.get(result.botId)} size="sm" />;
+    if (channel)
+      return (
+        <span className="grid size-7 shrink-0 place-items-center">
+          <ChannelAvatar botById={botById} channel={channel} roster size="sm" />
+        </span>
+      );
+    if (result.botId)
+      return <BotAvatar bot={botById.get(result.botId)} className="size-7" roster size="sm" />;
   }
   const Icon =
     result.kind === "message"
@@ -133,7 +192,7 @@ function ResultIcon({
             ? Clock3
             : Hash;
   return (
-    <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-subtle text-foreground-secondary">
+    <span className="desktop-search-action-icon grid size-7 shrink-0 place-items-center">
       <Icon className="size-3.5" />
     </span>
   );
@@ -165,7 +224,7 @@ function ActionIcon({ action }: { action: SearchAction }) {
                           ? ListRestart
                           : Settings2;
   return (
-    <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-subtle text-foreground-secondary">
+    <span className="desktop-search-action-icon grid size-7 shrink-0 place-items-center">
       <Icon className="size-3.5" />
     </span>
   );
@@ -209,12 +268,16 @@ function OpenSearchDialog({
     const element = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const selection = document.getSelection();
     const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-    return { element, range: range && element?.contains(range.commonAncestorContainer) ? range.cloneRange() : null };
+    return {
+      element,
+      range: range && element?.contains(range.commonAncestorContainer) ? range.cloneRange() : null,
+    };
   });
   const restoreFocusOnClose = useRef(true);
   const focusRestored = useRef(false);
   const restoreCallerFocus = () => {
-    if (!restoreFocusOnClose.current || focusRestored.current || !returnFocus.element?.isConnected) return;
+    if (!restoreFocusOnClose.current || focusRestored.current || !returnFocus.element?.isConnected)
+      return;
     focusRestored.current = true;
     returnFocus.element.focus({ preventScroll: true });
     if (returnFocus.range) {
@@ -341,9 +404,12 @@ function OpenSearchDialog({
         query
       ).map(({ result }) => result);
       const rankedResults = new Set(ranked);
-      return [...ranked, ...documentResults.filter((result) => !rankedResults.has(result))];
+      return groupResults([
+        ...ranked,
+        ...documentResults.filter((result) => !rankedResults.has(result)),
+      ]);
     }
-    return documentResults;
+    return groupResults(documentResults);
   }, [documents, hasQuery, matchingActions, query]);
 
   useEffect(() => setSelectedIndex(results.length > 0 ? 0 : -1), [results]);
@@ -363,11 +429,10 @@ function OpenSearchDialog({
     onOpenChange(false);
   };
 
-
   return (
     <Dialog onOpenChange={changeOpen} open={open}>
       <DialogContent
-        className="h-[min(456px,calc(100vh-48px))] max-w-[560px] grid-rows-[auto_1fr] gap-0 overflow-hidden rounded-[15px] border-border/80 bg-popover p-0 shadow-none"
+        className="desktop-parity-panel flex h-[min(562px,calc(100vh-32px))] max-w-[642px] flex-col gap-0 overflow-hidden rounded-[14px] border-foreground/[0.12] bg-white p-0 shadow-none dark:bg-[#1c1c1c]"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           inputRef.current?.focus({ preventScroll: true });
@@ -377,6 +442,7 @@ function OpenSearchDialog({
           restoreCallerFocus();
         }}
         showCloseButton={false}
+        surface="transparent"
       >
         <DialogTitle aria-hidden="true" className="sr-only">
           Search
@@ -384,8 +450,10 @@ function OpenSearchDialog({
         <DialogDescription aria-hidden="true" className="sr-only">
           Search messages, bots, groups, files, links, routines, and actions.
         </DialogDescription>
-        <div className="relative border-b border-border/70">
-          <Search className="pointer-events-none absolute left-4 top-1/2 size-[15px] -translate-y-1/2 text-foreground-tertiary" />
+        <div className="flex h-16 shrink-0 items-center gap-3.5 py-3.5 pl-5 pr-2.5">
+          <span className="pointer-events-none flex h-[22px] w-6 shrink-0 items-center pl-0.5">
+            <Search className="desktop-search-icon size-[18px]" strokeWidth={1.5} />
+          </span>
           <input
             aria-autocomplete="list"
             aria-controls="search-results"
@@ -396,8 +464,17 @@ function OpenSearchDialog({
             }
             aria-expanded={results.length > 0}
             aria-label="Search"
-            className="h-[54px] w-full bg-transparent pl-10 pr-4 text-[14px] outline-none placeholder:text-foreground-tertiary"
-            onChange={(event) => setQuery(event.target.value)}
+            className="desktop-search-input h-7 min-w-0 flex-1 bg-transparent p-0 text-[22px] leading-7 outline-none"
+            onChange={(event) => {
+              const nextQuery = event.target.value;
+              requestGate.invalidate();
+              setQuery(nextQuery);
+              // The previous query's rows must stop accepting Enter immediately,
+              // even while the next debounced request is still waiting to start.
+              setDocuments(freshCachedResults(cacheKey(nextQuery, "all")) ?? []);
+              setError(null);
+              setLoading(false);
+            }}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;
               if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
@@ -418,7 +495,7 @@ function OpenSearchDialog({
                 choose(results[selectedIndex]);
               }
             }}
-            placeholder="Search"
+            placeholder="Search Bots, Chats, Settings..."
             ref={inputRef}
             role="combobox"
             value={query}
@@ -426,7 +503,7 @@ function OpenSearchDialog({
         </div>
 
         <div
-          className="search-results-scroll min-h-0 overflow-y-auto p-2"
+          className="search-results-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-2"
           id="search-results"
           ref={listRef}
           aria-label="Results"
@@ -435,71 +512,111 @@ function OpenSearchDialog({
           {results.length > 0 ? (
             results.map((result, index) => {
               const key = result.type === "action" ? `action:${result.value.id}` : result.value.id;
-              const channel = result.type === "document" && result.value.channelId
-                ? channelById.get(result.value.channelId) : undefined;
-              const bot = result.type === "document" && result.value.botId
-                ? botById.get(result.value.botId) : undefined;
-              const description = result.type === "document" && result.value.kind === "bot"
-                ? bot?.description ?? result.value.subtitle
-                : result.type === "document" && result.value.kind === "channel" && channel
-                  ? channel.members.map((member) => botById.get(member.botId)?.name).filter(Boolean).join(", ")
-                  : result.value.subtitle;
-              const age = result.type === "document" && (result.value.kind === "message" || result.value.kind === "file")
-                ? searchTimeLabel(result.value.createdAt) : "";
+              const channel =
+                result.type === "document" && result.value.channelId
+                  ? channelById.get(result.value.channelId)
+                  : undefined;
+              const bot =
+                result.type === "document" && result.value.botId
+                  ? botById.get(result.value.botId)
+                  : undefined;
+              const description =
+                result.type === "document" && result.value.kind === "bot"
+                  ? (bot?.description ?? result.value.subtitle)
+                  : result.type === "document" && result.value.kind === "channel" && channel
+                    ? channel.members
+                        .map((member) => botById.get(member.botId)?.name)
+                        .filter(Boolean)
+                        .join(", ")
+                    : result.value.subtitle;
+              const age =
+                result.type === "document" &&
+                (result.value.kind === "message" || result.value.kind === "file")
+                  ? searchTimeLabel(result.value.createdAt)
+                  : "";
               const subtitle = [description, age].filter(Boolean).join(" · ");
-              const unread = result.type === "document" && (result.value.kind === "bot" || result.value.kind === "channel") && (channel?.unreadCount ?? 0) > 0;
+              const unread =
+                result.type === "document" &&
+                (result.value.kind === "bot" || result.value.kind === "channel") &&
+                (channel?.unreadCount ?? 0) > 0;
+              const section = resultSection(result);
+              const settingsTitle =
+                result.type === "action" && result.value.id.startsWith("settings:")
+                  ? result.value.title.replace(/^Settings:\s*/, "")
+                  : null;
               return (
-                <button
-                  aria-selected={selectedIndex === index}
-                  className={cn(
-                    "group flex min-h-[51px] w-full items-center gap-2.5 rounded-[10px] px-2.5 py-1.5 text-left outline-none",
-                    selectedIndex === index
-                      ? "bg-selected"
-                      : "hover:bg-hover"
+                <div key={key}>
+                  {(index === 0 || resultSection(results[index - 1]!) !== section) && (
+                    <div
+                      className="desktop-search-section flex h-[26px] items-center px-3 text-[12px] text-foreground-secondary"
+                      data-search-section={section}
+                    >
+                      {section}
+                    </div>
                   )}
-                  data-search-result-index={index}
-                  id={`search-result-${index}`}
-                  key={key}
-                  onClick={() => choose(result)}
-                  onMouseEnter={() => setSelectedIndex(index)}
-                  role="option"
-                  type="button"
-                >
-                  {result.type === "action" ? (
-                    <ActionIcon action={result.value} />
-                  ) : (
-                    <ResultIcon botById={botById} channelById={channelById} result={result.value} />
-                  )}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[14px] font-medium leading-[18px]">
-                      {paletteHighlightSegments(result.value.title, query).map((segment) =>
-                        segment.isMatch ? (
-                          <span className="font-semibold" key={segment.start}>
-                            {segment.text}
+                  <button
+                    aria-selected={selectedIndex === index}
+                    className={cn(
+                      "desktop-search-result group mb-0.5 flex h-14 w-full items-center gap-4 rounded-[14px] px-3 py-2 text-left outline-none",
+                      selectedIndex === index ? "bg-selected" : "hover:bg-hover"
+                    )}
+                    data-search-result-index={index}
+                    id={`search-result-${index}`}
+                    onClick={() => choose(result)}
+                    onMouseEnter={() => setSelectedIndex(index)}
+                    role="option"
+                    tabIndex={-1}
+                    type="button"
+                  >
+                    {result.type === "action" ? (
+                      <ActionIcon action={result.value} />
+                    ) : (
+                      <ResultIcon
+                        botById={botById}
+                        channelById={channelById}
+                        result={result.value}
+                      />
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="desktop-search-title block truncate text-[14px] leading-5">
+                        {settingsTitle !== null ? (
+                          <span className="desktop-search-breadcrumb flex items-center">
+                            <span className="desktop-search-settings-prefix">
+                              {highlightText("Settings", query)}
+                            </span>
+                            <ChevronRight className="size-3 text-foreground-secondary" />
+                            <span className="truncate">{highlightText(settingsTitle, query)}</span>
                           </span>
                         ) : (
-                          segment.text
-                        )
+                          highlightText(result.value.title, query)
+                        )}
+                      </span>
+                      {subtitle && result.type === "document" && (
+                        <span className="desktop-search-description block truncate text-[13px] leading-[18px]">
+                          {subtitle}
+                        </span>
                       )}
                     </span>
-                    {subtitle && <span className="block truncate text-[12px] leading-[17px] text-foreground-secondary">{subtitle}</span>}
-                  </span>
-                  {unread && <span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-[var(--control-accent)]" />}
-                  {commandHeld && index < 9 ? (
-                    <kbd className="h-[19px] min-w-[26px] shrink-0 rounded-[5px] bg-[#f3f3f3] px-[5px] py-0 text-center font-sans text-[10px] font-normal leading-[19px] text-[#626262] dark:bg-subtle dark:text-foreground-tertiary">
-                      ⌘{index + 1}
-                    </kbd>
-                  ) : result.type === "action" && result.value.current ? (
-                    <Check
-                      aria-label="Current"
-                      className="size-3.5 shrink-0 text-foreground-secondary"
-                    />
-                  ) : (
-                    <span className="sr-only">
-                      {resultTypeLabel(result)}
-                    </span>
-                  )}
-                </button>
+                    {unread && (
+                      <span
+                        aria-label="Unread"
+                        className="size-1.5 shrink-0 rounded-full bg-[var(--control-accent)]"
+                      />
+                    )}
+                    {commandHeld && index < 9 ? (
+                      <kbd className="h-[19px] min-w-[26px] shrink-0 rounded-[5px] bg-[#f3f3f3] px-[5px] py-0 text-center font-sans text-[10px] font-normal leading-[19px] text-[#626262] dark:bg-subtle dark:text-foreground-tertiary">
+                        ⌘{index + 1}
+                      </kbd>
+                    ) : result.type === "action" && result.value.current ? (
+                      <Check
+                        aria-label="Current"
+                        className="size-3.5 shrink-0 text-foreground-secondary"
+                      />
+                    ) : (
+                      <span className="sr-only">{resultTypeLabel(result)}</span>
+                    )}
+                  </button>
+                </div>
               );
             })
           ) : loading ? (
@@ -516,7 +633,9 @@ function OpenSearchDialog({
           ) : (
             <div className="grid h-full place-items-center px-8 text-center">
               <div>
-                <p className="text-[12px] text-foreground-secondary">{hasQuery ? "No results" : "Nothing here yet"}</p>
+                <p className="text-[12px] text-foreground-secondary">
+                  {hasQuery ? "No results" : "Nothing here yet"}
+                </p>
               </div>
             </div>
           )}

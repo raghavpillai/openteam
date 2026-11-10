@@ -828,7 +828,7 @@ const ChannelRow = memo(function ChannelRow({
   const content = (
     <Button
       className={cn(
-        "group flex h-[54px] w-full items-center gap-2 rounded-[10px] px-2 text-left font-normal outline-none transition-[transform,width,padding] duration-200 ease-[var(--ease-pane)] focus-visible:ring-2 focus-visible:ring-ring/30",
+        "group flex h-[54px] w-full items-center gap-[10px] rounded-[12px] px-2 text-left font-normal outline-none transition-[transform,width,padding] duration-200 ease-[var(--ease-pane)] focus-visible:ring-2 focus-visible:ring-ring/30",
         selected ? "bg-selected hover:bg-selected" : "hover:bg-hover"
       )}
       onClick={(event) => onSelect(channel.id, event.detail > 0)}
@@ -2193,7 +2193,7 @@ function CompactSidebarContent({
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              aria-label="New chat"
+              aria-label="New Bot"
               className="size-7 rounded-[7px] p-0 text-foreground-tertiary hover:bg-subtle hover:text-foreground-secondary"
               onClick={onNewBot}
               variant="ghost"
@@ -2201,7 +2201,7 @@ function CompactSidebarContent({
               <Plus className="size-5" strokeWidth={1.8} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">New chat</TooltipContent>
+          <TooltipContent side="top">New Bot</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -2249,7 +2249,6 @@ export const Sidebar = memo(function Sidebar({
   onSearch,
   onSelect,
   onNewBot,
-  onNewGroup,
   onOpenPlugins,
   onOpenSettings,
   onBotAction,
@@ -2273,7 +2272,6 @@ export const Sidebar = memo(function Sidebar({
   onSearch: () => void;
   onSelect: (id: string, focusComposer?: boolean) => void;
   onNewBot: () => void;
-  onNewGroup: () => void;
   onOpenPlugins: () => void;
   onOpenSettings: () => void;
   onBotAction: (bot: BotView, action: BotRowAction) => void;
@@ -2383,7 +2381,7 @@ export const Sidebar = memo(function Sidebar({
     let previousCompact: boolean | undefined;
     const syncVisibleWidth = (beforePaint = false) => {
       const visibleWidth = Math.round(sidebar.getBoundingClientRect().width);
-      // Keep the expanded search field shrinking with the pane until its rendered
+      // Keep the expanded toolbar shrinking with the pane until its rendered
       // width reaches the compact layout threshold, including interrupted snaps.
       const nextCompact = sidebar.clientWidth <= COMPACT_SIDEBAR_CONTENT_WIDTH;
       if (nextCompact !== previousCompact) {
@@ -2787,7 +2785,7 @@ export const Sidebar = memo(function Sidebar({
     <SidebarActivityProvider runs={activeRunByChannel} items={itemsByRun}>
     <aside
       className={cn(
-        "relative flex min-w-0 shrink-0 flex-col overflow-hidden bg-sidebar",
+        "relative flex min-w-0 shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar",
         (!sidebarResizing || sidebarSnapping) && "transition-[width] duration-[var(--motion-pane)] ease-[var(--ease-pane)]",
         forcedCompact && "!w-[88px]"
       )}
@@ -2829,28 +2827,17 @@ export const Sidebar = memo(function Sidebar({
         />
       ) : (
         <>
-          <div className="electron-drag flex h-[47px] shrink-0 items-center justify-end gap-0.5 px-[13px] pt-0.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button aria-label="New chat" className="electron-no-drag size-7 rounded-[7px] text-foreground-tertiary hover:bg-subtle hover:text-foreground dark:text-foreground-secondary" onClick={onNewBot} size="icon-sm" variant="ghost">
-                  <Plus className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">New chat</TooltipContent>
-            </Tooltip>
-          </div>
-          <div className="relative px-[12px] pb-[9px]">
-            <Search className="pointer-events-none absolute left-5 top-[10px] z-10 size-[14px] text-foreground-secondary" />
-            <button
-              aria-label="Search"
-              className="relative top-px flex h-[32px] w-full items-center rounded-[8px] bg-field pl-[26.5px] pr-2 text-left text-[13.5px] text-foreground-secondary shadow-[inset_0_0_0_0.5px_var(--input)] outline-none focus-visible:shadow-[inset_0_0_0_0.5px_var(--ring)]"
-              onClick={onSearch}
-              onFocus={onPreloadSearch}
-              onPointerEnter={onPreloadSearch}
-              type="button"
-            >
-              Search
-            </button>
+          <div className="electron-drag flex h-[60px] shrink-0 items-center justify-end gap-2 px-4 py-3" data-sidebar-toolbar="">
+            <Tooltip><TooltipTrigger asChild>
+              <Button aria-label="Search" className="sidebar-toolbar-button electron-no-drag size-9 rounded-full p-0" onClick={onSearch} onFocus={onPreloadSearch} onPointerEnter={onPreloadSearch} size="icon" variant="ghost">
+                <Search className="size-4" strokeWidth={1.8} />
+              </Button>
+            </TooltipTrigger><TooltipContent side="bottom">Search</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild>
+              <Button aria-label="New Bot" className="sidebar-toolbar-button electron-no-drag size-9 rounded-full p-0" onClick={onNewBot} size="icon" variant="ghost">
+                <Plus className="size-4" strokeWidth={1.8} />
+              </Button>
+            </TooltipTrigger><TooltipContent side="bottom">New Bot</TooltipContent></Tooltip>
           </div>
           <DragDropProvider
             sensors={sidebarSensors}
@@ -2959,7 +2946,7 @@ export const Sidebar = memo(function Sidebar({
           >
             <div className="relative flex min-h-0 flex-1">
               <nav
-                className="relative sidebar-roster bot-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto pl-[12px] pr-1"
+                className="relative sidebar-roster bot-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto pb-6 pl-3 pr-1 pt-1"
                 onScroll={scheduleUnreadJumpMeasure}
                 ref={sidebarScrollRef}
                 data-scroll-fade-top={sidebarTopFade}

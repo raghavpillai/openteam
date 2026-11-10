@@ -1312,8 +1312,27 @@ textarea,
   background-color: color-mix(in srgb, #fcfcfc 10%, transparent);
 }
 
+/* Match the reference toolbar's elevated circular controls in both themes. */
+.sidebar-toolbar-button {
+  border: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
+  background: #fff;
+  color: color-mix(in srgb, var(--foreground) 92%, transparent);
+}
+
+.sidebar-toolbar-button:hover {
+  background: var(--hover);
+}
+
+:root[data-theme="dark"] .sidebar-toolbar-button {
+  background: #1c1c1c;
+}
+
+:root[data-theme="dark"] .sidebar-toolbar-button:hover {
+  background: var(--hover);
+}
+
 /* Reserve the 8px scrollbar even for short lists. Together with 4px right
- * padding, rows retain the same 12px inset as the search field. */
+ * padding, rows retain symmetric 12px insets inside the sidebar divider. */
 .sidebar-roster {
   scrollbar-gutter: stable;
 }

@@ -148,6 +148,8 @@
     "test:message-send-motion": "bun scripts/test-message-send-motion.ts",
     "test:message-send-lifecycle": "bun scripts/test-message-send-lifecycle.ts",
     "test:sidebar-parity": "bun scripts/test-sidebar-parity.ts",
+    "test:panel-parity": "bun scripts/test-panel-parity.ts",
+    "test:search-parity": "bun scripts/test-search-parity.ts",
     "test:bot-actions": "bun scripts/test-bot-actions.ts",
     "test:provider-settings": "bun scripts/test-provider-settings.ts",
     "test:voice-settings": "bun scripts/test-voice-settings.ts",

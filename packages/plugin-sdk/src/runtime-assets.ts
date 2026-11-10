@@ -233,6 +233,7 @@ export class ManagedRuntimeCache {
     const signal = AbortSignal.any([cancellation, AbortSignal.timeout(300_000)]);
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const directory = await realpath(this.directory);
+    await this.pruneStaging(directory);
     const destination = join(directory, key);
     const cached = await this.verified(destination, source);
     if (cached) return cached;
@@ -314,6 +315,23 @@ export class ManagedRuntimeCache {
       return (await this.verified(destination, source))!;
     } finally {
       await rm(temporary, { recursive: true, force: true });
+    }
+  }
+
+  private async pruneStaging(directory: string) {
+    // Installs time out after five minutes. Leave recent staging alone across
+    // processes; reclaim abandoned partial downloads after a full day.
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const name of await readdir(directory)) {
+      if (!/^\.runtime-[A-Za-z0-9]{6}$/.test(name)) continue;
+      const path = join(directory, name);
+      try {
+        const entry = await lstat(path);
+        if (entry.isDirectory() && entry.mtimeMs < cutoff)
+          await rm(path, { recursive: true, force: true });
+      } catch {
+        // Cleanup is best effort and must not prevent a verified cache hit.
+      }
     }
   }
 }

@@ -6,7 +6,7 @@ Connect an existing Signal mobile account as a linked device. OpenTeam installs 
 
 1. Install **Signal** from the marketplace and choose **Connect**. The first connection downloads approximately 180–200 MB of verified runtime archives. Allow a few minutes on a slow network.
 2. On the phone with Signal, open **Settings → Linked Devices → Link New Device** and scan the code displayed by OpenTeam. Keep the code private. On mobile, display OpenTeam on a second screen to scan it.
-3. Wait for **Connected**. Reconnect after an expired or cancelled code to obtain a new one.
+3. Wait for **Connected**. Choose **Get new code** to replace a pending or expired code, or Connect again after cancellation.
 4. Start with a Note to Self test. Connected accounts are available to all bots in this OpenTeam installation.
 
 The computer must remain running and connected to collect new messages. This signal-cli integration does not currently import old phone history. Signal’s official apps offer a separate encrypted history-transfer flow; that flow is not implemented here. Keep Signal on the phone active and remove unused linked devices there.
@@ -35,6 +35,8 @@ Signal cryptographic keys, downloaded files, the local index and the send ledger
 
 Disconnect stops collection and retains account state for reconnection. **Remove account** and uninstall stop the runtime and delete that account's entire private directory. Removal fails visibly if the computer cannot confirm deletion. Also remove **OpenTeam** in Signal's Linked Devices settings to revoke the device on Signal; local deletion cannot guarantee remote revocation while offline. Verified shared runtime downloads contain no account data and remain cached.
 
+Collection is not an archival guarantee. A process failure before a received event commits, or a failed storage write, can leave a gap: the upstream stream has no acknowledgement tied to the local SQLite commit and no history replay API. Storage-failure tests verify atomic rollback and safe send outcomes; they do not establish automatic recovery of an uncommitted incoming event.
+
 ## Limits and compatibility
 
 Each MCP response must fit 75,000 encoded characters to remain intact through OpenTeam's result limits. Reduce message page size for long messages. Contacts and groups return bounded pages with `nextOffset`; continue until it is null. Directory changes can affect later pages. Individually oversized directory entries and attachments return a controlled size error; binary streaming and attachment uploads are not implemented.
@@ -51,6 +53,7 @@ Run from the repository root with Bun 1.4.2:
 bun run prepare:plugins
 bun test packages/plugins/signal/connector/test
 bun test packages/plugin-sdk/src/runtime-assets.test.ts packages/plugin-sdk/src/runtime-asset-definition.test.ts
+bun test packages/plugins/signal/connector/test/chaos*.test.ts packages/plugin-sdk/src/runtime-chaos.test.ts
 bun test apps/server/test/plugin/device-link.test.ts apps/computer/test/runtime/managed-account-state.test.ts
 bun packages/plugins/signal/connector/test/build.ts
 bun packages/plugins/signal/connector/test/managed-smoke.ts

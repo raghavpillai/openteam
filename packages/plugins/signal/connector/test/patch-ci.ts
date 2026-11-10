@@ -28,6 +28,7 @@ const child = Bun.spawn(
     "packages/plugins/signal/connector/test",
     "apps/server/test/plugin/device-link.test.ts",
     "packages/plugin-sdk/src/runtime-assets.test.ts",
+    "packages/plugin-sdk/src/runtime-chaos.test.ts",
     "packages/plugin-sdk/src/runtime-asset-definition.test.ts",
     "apps/computer/test/runtime/managed-account-state.test.ts",
     "--test-name-pattern",

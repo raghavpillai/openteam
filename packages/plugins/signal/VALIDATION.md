@@ -7,7 +7,7 @@ Validated on 2026-11-10 in the isolated `codex/signal-plugin-validation` worktre
 | Check | Result |
 | --- | --- |
 | Complete Signal connector suite, including real macOS ARM64 runtime, packaged MCP and Java protobuf checks | 124 passed; 401 assertions before the final view-once regression |
-| Combined CI entry point: connector, runtime assets, manifest, host linking and account state | 308 passed; 1 provisioning test deliberately filtered; 976 assertions |
+| Combined CI entry point including the chaos suites | 328 passed; 1 provisioning test deliberately filtered; 3,842 assertions |
 | Complete server plugin suite with isolated PostgreSQL | 164 passed; 3 optional provider tests skipped; 2,080 assertions |
 | PostgreSQL lifecycle suite with actual synthetic MCP children, including pending-QR regeneration | 15 passed; 134 assertions |
 | Independent final recovery review | 64 passed; 290 assertions; no remaining finding |
@@ -60,3 +60,18 @@ This integration collects messages from connection onward. Signal's official app
 The index excludes flagged ephemeral content; signal-cli separately maintains protocol state and downloaded files. Logical deletion does not erase SQLite free pages, WAL or backups. Account removal deletes its private directory only after stopping account use and reports deletion failures; verified shared runtimes stay cached. Intentionally daemonized descendants outside the owned process group are outside the process cleanup contract; upstream's launcher uses `exec` for Java.
 
 Live rate limiting, external-recipient/group messaging and cross-device identity changes remain unvalidated. Synthetic tests do not establish those outcomes. No claim is made about unrelated whole-repository suites or 100% coverage.
+
+## Chaos engineering
+
+Twenty new fault tests pass, with 2,866 assertions. The combined CI entry point above includes them, alongside the real unlinked runtime and protobuf checks. They use exported packages, actual subprocesses and SQLite, with synthetic peers and temporary state only; no additional phone interactions, live-account faults or external sends were performed.
+
+- 320 deterministic seeded histories reorder chained edits, deletions, duplicate events, attachment redactions, ephemeral flags and conversation anchors. Tombstones survive replay and database reopen, and unrelated chats remain intact.
+- Real SIGKILL boundaries verify committed deletion/WAL recovery, rollback of in-flight transactions, and durable unknown-send state. Packaged MCP restart after simulated provider acceptance, including 32 simultaneous retries, causes exactly one upstream send. A successful saved acknowledgement also survives a whole-process kill.
+- Six consecutive runtime crashes recover without provisioning or duplicate subscriptions. 128 concurrent requests tolerate fragmented UTF-8, out-of-order replies, duplicate/unknown IDs and receive notifications.
+- Two exported accounts isolate history, attachment authorization and identical send request IDs.
+- Real `SQLITE_FULL` refuses transmission before the unknown-send ledger can commit. A post-transmission confirmation-write failure remains unknown after reopening; retries never resend. A corrupted database fails without replacement.
+- 24 seeded cancellation storms with 32 callers each, six shared download-failure modes and 12 races between eight independent installers preserve verified runtime bytes and clean retry behavior. SIGKILL at three partial-download offsets never publishes incomplete bytes.
+
+One operational issue was found and fixed: SIGKILL bypasses installation cleanup and leaves partial staging directories. Subsequent runtime resolution now reclaims recognized staging directories older than 24 hours, well beyond the five-minute installation timeout. Regression checks preserve recent staging, symlinks, unrelated files and verified published runtimes; cleanup is best effort.
+
+The storage rollback tests also clarify a fundamental limit: upstream delivery is not acknowledged by the local database commit. A received event lost before commit is not guaranteed to replay. The collector cannot promise archival completeness or reconstruct an undelivered deletion target. These chaos checks do not remove that limitation or resolve the inconclusive live view-once test.

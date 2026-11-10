@@ -69,9 +69,24 @@ import XCTest
       assertChips(app, above: 0, below: 0)
       let initialFrame = row.frame
       let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-      start.press(forDuration: 0.05,
-        thenDragTo: start.withOffset(CGVector(dx: 0, dy: -initialFrame.height * 0.65)),
-        withVelocity: .slow, thenHoldForDuration: 0.5)
+      var frames = [initialFrame]
+      // Reach an observed partial row rather than assuming a native scroll's
+      // final offset from one drag. Correct an overshoot with another real drag.
+      for _ in 0..<6 {
+        let frame = row.frame
+        if frame.minY < initialFrame.minY && frame.maxY > initialFrame.minY { break }
+        let target = initialFrame.minY + initialFrame.height * 0.4
+        let limit = initialFrame.height * 0.25
+        let movement = max(-limit, min(limit, target - frame.maxY))
+        start.press(forDuration: 0.05,
+          thenDragTo: start.withOffset(CGVector(dx: 0, dy: movement)),
+          withVelocity: .slow, thenHoldForDuration: 0.5)
+        frames.append(row.frame)
+      }
+      let geometry = XCTAttachment(string: String(describing: frames))
+      geometry.name = "inbox-unread-partial-geometry-" + appearance
+      geometry.lifetime = .keepAlways
+      add(geometry)
       XCTAssertLessThan(row.frame.minY, initialFrame.minY)
       XCTAssertGreaterThan(row.frame.maxY, initialFrame.minY,
         "The unread row must still intersect the top of the viewport")

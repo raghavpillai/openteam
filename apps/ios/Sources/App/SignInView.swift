@@ -146,6 +146,8 @@ struct SignInView: View {
         NativeHaptics.play(.selection, source: "auth.install")
         withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .snappy) { showingInstall.toggle() }
       }
+      Link("Privacy policy", destination: URL(string: "https://openteam.so/privacy")!)
+        .font(.footnote).foregroundStyle(NativePalette.muted)
     }
   }
 

@@ -12,7 +12,9 @@ signing team are configured in `release.json`.
 
 ## Build and run
 
-Use macOS with Xcode 27.3 beta or later and Swift 6; the deployment target is iOS 18. Open
+For Siri AI preview development, use macOS with Xcode 27.3 beta or later and Swift 6.
+The deployment target is iOS 18. See App Store builds below for stable-toolchain
+archive instructions. Open
 `OpenTeamNative.xcodeproj`, select the `OpenTeamNative` scheme and an iOS simulator,
 and Run. Connect to your OpenTeam server using its reachable HTTP or HTTPS address.
 The native target has no Expo, React Native or CocoaPods runtime dependency. Its only
@@ -172,16 +174,29 @@ do not certify physical haptic feel, production APNs delivery, microphone/camera
 interruptions or iPhone frame rate. Historical screenshots/results remain local in
 repository `output/`; they are not bundled with the app.
 
+## App Store builds
+
+Use a stable Xcode toolchain accepted by App Store Connect for public releases.
+Xcode 27.1 builds the app with the standard iOS 18+ Shortcuts integration.
+The custom Siri preview conformances compile with Swift 6.4.2 and later.
+When archiving with an older stable SDK, pass
+`EXCLUDED_SOURCE_FILE_NAMES=Skills.skillsbundle` to omit the preview-only app
+skills resource. Xcode 27.3 beta remains available for internal Siri preview
+builds.
+
+Public App Store builds use the App Store for updates. The in-app TestFlight
+update notice is enabled for sandbox-receipt beta builds and Debug QA builds.
+The privacy policy is available before sign-in and in Settings.
+
 ## Release
 
 Increment `release.json`'s build number before each TestFlight upload, keep its
 version in sync with this workspace's `package.json`, then regenerate the project.
-The v0.0.16 release candidate selects build 66 after a read-only App Store
-Connect inventory on November 9, 2026 confirmed it unused in both builds and
-build uploads. Version 0.0.15 (65) is valid and available internally while waiting
-for external beta review. The latest verified approved public build is still
-0.0.14 (64), which the update feed advertises. Recheck both inventories immediately
-before upload and verify public approval before advancing the feed.
+The v0.0.16 App Store candidate uses build 67, archived with stable Xcode 27.1.
+A read-only inventory confirmed it unused in both builds and build uploads
+immediately before this submission task reserved it on November 10, 2026.
+Build 66 is valid and in external TestFlight testing. Recheck both inventories
+before another upload and verify public approval before advancing the beta feed.
 
 ### In-app update notice
 

@@ -139,6 +139,7 @@ struct TeamAppShortcuts: AppShortcutsProvider {
 // Scope the new marker conformance rather than the intent type itself. Existing
 // saved Shortcuts keep their identifiers and remain available back to iOS 18.
 // Messages-schema intents are already Siri tools; adding ToolIntent to those is invalid.
+#if compiler(>=6.4.2)
 @available(iOS 27.3, *)
 extension SendBotTaskIntent: ToolIntent {}
 @available(iOS 27.3, *)
@@ -151,6 +152,7 @@ extension OpenTeamBotIntent: ToolIntent {}
 extension OpenTeamConversationIntent: ToolIntent {}
 @available(iOS 27.3, *)
 extension OpenTeamMessageIntent: ToolIntent {}
+#endif
 
 struct SendTeamConversationMessageIntent: AppIntent {
   static let title: LocalizedStringResource = "Send a message to a conversation"
@@ -189,7 +191,9 @@ struct DraftTeamConversationMessageIntent: AppIntent {
   }
 }
 
+#if compiler(>=6.4.2)
 @available(iOS 27.3, *)
 extension SendTeamConversationMessageIntent: ToolIntent {}
 @available(iOS 27.3, *)
 extension DraftTeamConversationMessageIntent: ToolIntent {}
+#endif

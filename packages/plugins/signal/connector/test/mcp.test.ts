@@ -24,7 +24,9 @@ beforeAll(async () => {
   definition = (await discoverPackages(packageRoot))[0]!;
   const exported = exportPackageArchive(definition!);
   const imported = importPackageArchive(exported).definition;
-  expect(imported.binaryFiles?.["assets/icon.png"]).toBe(definition.binaryFiles?.["assets/icon.png"]);
+  expect(imported.binaryFiles?.["assets/icon.png"]).toBe(
+    definition.binaryFiles?.["assets/icon.png"]
+  );
   const installed = join(temporary, "installed server with spaces.mjs");
   writeFileSync(installed, imported.files!["connector/server.mjs"]!);
   const fake = join(temporary, "signal fixture with spaces.ts");
@@ -78,7 +80,7 @@ test("package roundtrip retains standalone MCP and omits synthetic fixtures", ()
 test("normal MCP discovery exposes ten tools with strict schemas and write annotations", async () => {
   const tools = (await client.listTools()).tools;
   expect(tools).toHaveLength(10);
-  expect(tools.filter(t => t._meta?.["openteam/hostOnly"] === true)).toHaveLength(5);
+  expect(tools.filter((t) => t._meta?.["openteam/hostOnly"] === true)).toHaveLength(5);
   expect(tools.every((tool) => tool.inputSchema.additionalProperties === false)).toBe(true);
   expect(tools.find((tool) => tool.name === "send_message")!.annotations!.readOnlyHint).toBe(false);
   expect(tools.some((tool) => tool.name === "register" || tool.name === "trust")).toBe(false);
@@ -95,6 +97,10 @@ test("standalone installed package executes status and account-scoped reads", as
 
 test.each([
   ["list_messages", { limit: 101 }],
+  ["list_contacts", { limit: 101 }],
+  ["list_contacts", { offset: -1 }],
+  ["list_contacts", { recipients: [] }],
+  ["list_groups", { groupIds: ["x"], account: "other" }],
   ["list_messages", { before: -1 }],
   ["list_contacts", { account: "other" }],
   ["signal_status", { unexpected: true }],

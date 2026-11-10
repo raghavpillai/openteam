@@ -40,6 +40,7 @@ process.stdin.on("data", chunk => {
   while ((boundary = buffer.indexOf("\n")) >= 0) {
     const request = JSON.parse(buffer.slice(0, boundary)); buffer = buffer.slice(boundary + 1);
     const reply = result => emit({jsonrpc:"2.0",id:request.id,result});
+    const params = request.params ?? {};
     switch (request.method) {
       case "version": reply({version:"0.14.10"}); break;
       case "listAccounts": reply([{aci:"synthetic-host-account",number:null}]); break;
@@ -47,6 +48,14 @@ process.stdin.on("data", chunk => {
         reply(0);
         for (let i=1; i<=10; i++) emit({jsonrpc:"2.0",method:"receive",params:{result:{account:"synthetic-host-account",envelope:{sourceUuid:"sender",dataMessage:{timestamp:i,message:"x".repeat(16000),attachments:[{id:"attachment",size:80000}]}}}}});
         break;
+      case "listContacts": {
+        const contacts=Array.from({length:240},(_,i)=>({uuid:"contact-"+String(i).padStart(3,"0"),name:"Synthetic contact "+i,note:"\\\"日本語".repeat(180)}));
+        reply(params.recipient ? contacts.filter(c=>params.recipient.includes(c.uuid)) : contacts); break;
+      }
+      case "listGroups": {
+        const groups=Array.from({length:80},(_,i)=>({id:"group-"+String(i).padStart(3,"0"),name:"Synthetic group "+i,description:"large group metadata ".repeat(70)}));
+        reply(params.groupId ? groups.filter(g=>params.groupId.includes(g.id)) : groups); break;
+      }
       case "getAttachment": reply({data:Buffer.alloc(80000,65).toString("base64")}); break;
       default: reply([]);
     }
@@ -57,11 +66,7 @@ process.stdin.on("data", chunk => {
   chmodSync(peer, 0o700);
   const connector = definition.connections[0]!;
   // Match the UI's partial-save path, which omits blank optional inputs.
-  const values = validateValues(
-    fieldsForConnector(definition, connector.key),
-    {},
-    false
-  );
+  const values = validateValues(fieldsForConnector(definition, connector.key), {}, false);
   const connection = {
     authType: connector.auth,
     connectorKey: connector.key,
@@ -73,7 +78,12 @@ process.stdin.on("data", chunk => {
   input = {
     ...config,
     command: process.execPath,
-    env: { ...config.env, SIGNAL_CLI_PATH: peer, HOME: temporary, OPENTEAM_PLUGIN_ACCOUNT_ID: "synthetic-host-account" },
+    env: {
+      ...config.env,
+      SIGNAL_CLI_PATH: peer,
+      HOME: temporary,
+      OPENTEAM_PLUGIN_ACCOUNT_ID: "synthetic-host-account",
+    },
     packageFiles: definition.files,
     packageBinaryFiles: definition.binaryFiles,
   };
@@ -119,4 +129,48 @@ test("large attachment responses return an intact MCP error before host truncati
   expect(bounded.isError).toBe(true);
   expect(bounded.content[0].text).toContain("75000-character");
   expect(bounded.content[0].text).not.toContain("[truncated]");
+});
+
+test.each([
+  ["list_contacts", "contacts", 240],
+  ["list_groups", "groups", 80],
+] as const)("host result bounding preserves every page of %s", async (tool, field, expected) => {
+  const records: any[] = [];
+  let offset: number | null = 0,
+    pages = 0;
+  while (offset !== null) {
+    const result = boundPluginResult(
+      await manager.call("synthetic-host-account", input, tool, { offset, limit: 100 })
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.content[0].text).not.toContain("[truncated]");
+    const page = JSON.parse(result.content[0].text);
+    expect(page.total).toBe(expected);
+    records.push(...page[field]);
+    offset = page.nextOffset;
+    pages++;
+    expect(pages).toBeLessThan(100);
+  }
+  expect(records).toHaveLength(expected);
+  expect(new Set(records.map((r) => r.uuid ?? r.id)).size).toBe(expected);
+  expect(pages).toBeGreaterThan(1);
+});
+
+test("directory lookups pass only explicit recipient/group filters to the bound account", async () => {
+  const contacts = await manager.call("synthetic-host-account", input, "list_contacts", {
+    recipients: ["contact-007"],
+  });
+  expect(JSON.parse(contacts.content[0].text)).toMatchObject({
+    contacts: [{ uuid: "contact-007", name: "Synthetic contact 7" }],
+    nextOffset: null,
+    total: 1,
+  });
+  const groups = await manager.call("synthetic-host-account", input, "list_groups", {
+    groupIds: ["group-004"],
+  });
+  expect(JSON.parse(groups.content[0].text)).toMatchObject({
+    groups: [{ id: "group-004", name: "Synthetic group 4" }],
+    nextOffset: null,
+    total: 1,
+  });
 });

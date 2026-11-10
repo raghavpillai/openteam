@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
 import QRCode from "qrcode";
+import { directoryPage } from "./directory";
 import { configuredService, type SignalService } from "./service";
 
 const string = (description: string, maximum = 256) => ({
@@ -75,11 +76,45 @@ export function signalTools(service: SignalService) {
       () => service.removeAccount(),
       false
     ),
-    tool("list_contacts", "List known contacts for this linked Signal account.", {}, [], () =>
-      service.accountRequest("listContacts")
+    tool(
+      "list_contacts",
+      "List known contacts for this linked account in bounded pages. Continue with nextOffset until null. Directory changes may affect later pages. Optionally look up specific recipients.",
+      {
+        offset: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+        recipients: {
+          type: "array",
+          minItems: 1,
+          maxItems: 100,
+          items: string("Phone number or ACI"),
+        },
+      },
+      [],
+      async (a) =>
+        directoryPage(
+          "contacts",
+          await service.accountRequest(
+            "listContacts",
+            a.recipients ? { recipient: a.recipients } : {}
+          ),
+          a
+        )
     ),
-    tool("list_groups", "List known groups for this linked Signal account.", {}, [], () =>
-      service.accountRequest("listGroups")
+    tool(
+      "list_groups",
+      "List known groups for this linked account in bounded pages. Continue with nextOffset until null. Directory changes may affect later pages. Optionally look up specific group IDs.",
+      {
+        offset: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+        groupIds: { type: "array", minItems: 1, maxItems: 100, items: string("Signal group ID") },
+      },
+      [],
+      async (a) =>
+        directoryPage(
+          "groups",
+          await service.accountRequest("listGroups", a.groupIds ? { groupId: a.groupIds } : {}),
+          a
+        )
     ),
     tool(
       "list_messages",

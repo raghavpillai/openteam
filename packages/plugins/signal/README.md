@@ -15,8 +15,8 @@ The computer must remain running and connected to collect new messages. Signal d
 
 | Tool | Behavior |
 | --- | --- |
-| `list_contacts` | Read known contacts in the linked account. |
-| `list_groups` | Read known groups. |
+| `list_contacts` | Read paginated contacts, optionally filtered by recipient. |
+| `list_groups` | Read paginated groups, optionally filtered by group ID. |
 | `list_messages` | Search collected ordinary messages, with arrival-based cursor pagination. |
 | `send_message` | Send text to one recipient, group, or Note to Self. A stable request ID prevents duplicate sends. |
 | `read_attachment` | Retrieve a downloaded attachment referenced by a collected message. |
@@ -37,7 +37,7 @@ Disconnect stops collection and retains account state for reconnection. **Remove
 
 ## Limits and compatibility
 
-Each MCP response must fit 75,000 encoded characters to remain intact through OpenTeam's result limits. Reduce message page size for long messages. Large contact/group listings and attachments return a controlled size error; binary streaming and attachment uploads are not implemented.
+Each MCP response must fit 75,000 encoded characters to remain intact through OpenTeam's result limits. Reduce message page size for long messages. Contacts and groups return bounded pages with `nextOffset`; continue until it is null. Directory changes can affect later pages. Individually oversized directory entries and attachments return a controlled size error; binary streaming and attachment uploads are not implemented.
 
 The manifest declares Linux ARM64, Linux x64 and macOS ARM64 runtimes. See [VALIDATION.md](VALIDATION.md) for platforms and scenarios actually tested. Other platforms fail with an unsupported-runtime error. The shared Bot computer normally runs Linux. Its runtime cache must permit execution; a `noexec` Java temporary directory can prevent native Signal libraries from loading. Native inbox triggers and Signal draft review are not provided by this version.
 

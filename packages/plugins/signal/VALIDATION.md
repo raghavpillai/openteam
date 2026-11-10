@@ -17,7 +17,8 @@ Validation takes place in `codex/signal-plugin-validation`, isolated from the di
 
 | Check | Result |
 | --- | --- |
-| Signal connector, including seven real unlinked-runtime tests | 84 passed; 204 assertions |
+| Signal connector, including seven real unlinked-runtime tests | 100 passed; 282 assertions |
+| Real phone message reception and synchronized edit through packaged MCP | Passed; message ID and original timestamp preserved |
 | Managed runtime/manifest and generic account/link unit regressions | 178 passed; 557 assertions |
 | Real PostgreSQL + actual synthetic MCP lifecycle | 8 passed; 98 assertions |
 | Native Linux x64 transport/service/store/durability/process-tree tests | 63 passed; 139 assertions |
@@ -42,7 +43,11 @@ The user approved a linked-device QR on their phone. The linked runtime starts a
 
 An own send does not necessarily echo to the same linked device. A temporary implementation synthesized outgoing index entries from contact expiration settings; it was removed because those settings are not authoritative message envelopes. Only provider receive/sync envelopes enter the message index. The persistent send ledger stores fingerprints and outcomes without outgoing bodies.
 
-Phone-to-plugin reception of the requested tagged message, real incoming attachment retrieval, edits, deletion, disappearing-message behavior, phone revocation, rate limits and authenticated network recovery still require live validation. Synthetic tests do not establish these properties end to end.
+The phone sent the requested tagged Note to Self message, which the collector received and stored. The packaged MCP connector then returned that message through `list_messages`. An edit made on the phone synchronized correctly: the message ID and original timestamp stayed unchanged, the body updated, and the result reported `edited: true`. The linked collector was also restarted as the packaged MCP entry point between these checks, preserving the collected message. Sanitized evidence is in ignored `private/live-phone-evidence.json`.
+
+Real incoming attachment retrieval, remote deletion, disappearing-message behavior, phone revocation/relinking, rate limits and authenticated network recovery still require live validation. Synthetic tests do not establish these properties end to end.
+
+A real directory lookup exposed a contact listing larger than the host response limit. Contacts and groups now use stable-ID sorting and bounded pages (`offset`, `limit`, `nextOffset`), with optional recipient/group filters for targeted lookups. No directory snapshots are persisted. New regressions reconstruct all 240 synthetic contacts and 80 groups through the host result-bounding path, preserve escaped Unicode fields, reject invalid parameters, and check targeted account-scoped lookups. The real linked account’s collected chat labels were then resolved successfully through the packaged MCP tools. Chat names and unrelated message contents are not included in this report.
 
 ## Platform limits
 

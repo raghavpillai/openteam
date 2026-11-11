@@ -15,9 +15,8 @@ import UIKit
 
   // MARK: Inline icons
 
-  /// A square icon for inline text, drawn at the text's size: a skeleton while
-  /// the site's icon loads, a globe when it has none. All hold the same space,
-  /// so the message never reflows.
+  /// Native links use a local globe. The drawing helper also supports icons
+  /// and loading states, all in the same inline space so text never reflows.
   static func inlineImage(_ state: State, size: CGFloat, fallback: UIColor) -> UIImage {
     let format = UIGraphicsImageRendererFormat()
     format.opaque = false

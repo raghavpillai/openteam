@@ -24,7 +24,7 @@ Select an attachment to preview it (most common file types can be previewed), or
 
 ## Open links
 
-Chat links open in the app's browser so you can return to the conversation. Desktop can display the site's icon beside a link. iPhone and iPad use a local globe without automatically downloading site icons.
+On iPhone and iPad, chat links open in the app's browser so you can return to the conversation. Desktop HTTPS links open in your default browser, and can display the site's icon beside a link. iPhone and iPad use a local globe without automatically downloading site icons.
 
 ## Find files in Library
 

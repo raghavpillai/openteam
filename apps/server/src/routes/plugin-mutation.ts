@@ -47,6 +47,22 @@ export async function pluginMutationRoutes(context: RouteContext): Promise<Respo
     }
     return json(await run(app.disconnectPlugin(connectionActionMatch[1])));
   }
+  const deviceLinkCancelMatch = path.match(
+    /^\/api\/plugin-connections\/([^/]+)\/device-link\/cancel$/
+  );
+  if (request.method === "POST" && deviceLinkCancelMatch?.[1]) {
+    const body = (await request.json()) as { sessionId?: unknown };
+    if (typeof body?.sessionId !== "string" || !body.sessionId || body.sessionId.length > 128)
+      throw new ApiError(
+        400,
+        "plugin_link_session_invalid",
+        "Refresh the linking code and try again."
+      );
+    return json(await run(app.plugins.cancelDeviceLink(deviceLinkCancelMatch[1], body.sessionId)));
+  }
+  const deviceLinkPollMatch = path.match(/^\/api\/plugin-connections\/([^/]+)\/device-link\/poll$/);
+  if (request.method === "POST" && deviceLinkPollMatch?.[1])
+    return json(await run(app.plugins.pollDeviceLink(deviceLinkPollMatch[1])));
   const connectionAccountMatch = path.match(/^\/api\/plugin-connections\/([^/]+)\/accounts$/);
   if (request.method === "POST" && connectionAccountMatch?.[1]) {
     const input = await parseBody(request, ConnectPluginInput);
@@ -74,7 +90,8 @@ export async function pluginMutationRoutes(context: RouteContext): Promise<Respo
     )));
   }
   if (request.method === "POST" && cancelAuthenticationMatch?.[1]) {
-    const input = await request.json().catch(() => null) as { state?: unknown; redirectUrl?: unknown } | null;
+    const input = (await request.json().catch(() => null)) as { state?: unknown; redirectUrl?: unknown;
+    } | null;
     if (typeof input?.state !== "string" || !input.state || input.state.length > 4096)
       throw new ApiError(400, "plugin_oauth_state_invalid", "The authorization session is missing. Refresh and try again.");
     return json(await run(app.plugins.cancelClientAuthentication(cancelAuthenticationMatch[1], input.state,

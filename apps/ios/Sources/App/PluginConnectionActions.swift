@@ -44,6 +44,24 @@ struct PluginConnectionActions: View {
         "This account is ready to use."
       )
       .font(.footnote).foregroundStyle(NativePalette.muted)
+    } else if !connection["deviceLink"]["sessionId"].string.isEmpty {
+      Text(connection["deviceLink"]["instructions"].string).font(.subheadline)
+      if let image = deviceLinkImage {
+        Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
+          .frame(maxWidth: 280).accessibilityLabel("Scan to link your account")
+      } else {
+        Text("Waiting for an updated code or phone approval. You can also get a new code.")
+          .font(.footnote).foregroundStyle(NativePalette.muted)
+      }
+      Text("Scan with the phone that has your account, or open OpenTeam on another screen.")
+        .font(.footnote).foregroundStyle(NativePalette.muted)
+      Button("Get new code") { Task { await command("/restart") } }
+        .disabled(operation.busy)
+      Button("Cancel linking", role: .cancel) {
+        let sessionId = connection["deviceLink"]["sessionId"].string
+        Task { await command("/device-link/cancel", body: .object(["sessionId": .string(sessionId)])) }
+      }
+        .disabled(operation.busy)
     } else if presentation.connecting {
       LoadingOrbLabel(title: "Connecting your account…")
     } else if presentation.canReconnect {
@@ -118,6 +136,18 @@ struct PluginConnectionActions: View {
           .disabled(operation.busy)
       }
     }
+  }
+  private var deviceLinkImage: UIImage? {
+    let link = connection["deviceLink"]
+    guard Double(link["expiresAt"].int) > now.timeIntervalSince1970 * 1000,
+      link["qrCodeDataUrl"].string.hasPrefix("data:image/png;base64,"),
+      let data = Data(base64Encoded: String(link["qrCodeDataUrl"].string.dropFirst(22))) else { return nil }
+    return UIImage(data: data)
+  }
+  private var hasActiveDeviceLink: Bool {
+    let link = connection["deviceLink"]
+    let deadline = link["sessionExpiresAt"].int > 0 ? link["sessionExpiresAt"].int : link["expiresAt"].int
+    return !link["sessionId"].string.isEmpty && Double(deadline) > now.timeIntervalSince1970 * 1000
   }
   private var manualInstructions: some View {
     NavigationStack {
@@ -198,6 +228,9 @@ struct PluginConnectionActions: View {
     }
   }
   private func refresh() async throws {
+    if !connection["deviceLink"]["sessionId"].string.isEmpty {
+      _ = try? await store.request(path + "/device-link/poll", method: "POST")
+    }
     let result = try await store.request(
       "/api/v0/plugin-connections/status", query: ["id": connection["id"].string])
     try Task.checkCancellation()
@@ -236,16 +269,17 @@ struct PluginConnectionActions: View {
   private func connect() async {
     // Connection settings may hold unsaved setup fields; connecting without them fails validation.
     if let beforeSignIn, !(await beforeSignIn()) { return }
-    await command("/connect")
+    await command(connection.object["deviceLink"] != nil ? "/restart" : "/connect")
   }
   private func command(_ suffix: String, body: JSON? = nil) async {
-    if suffix == "/connect" { recovery.begin() }
+    if suffix == "/connect" || suffix == "/restart" { recovery.begin() }
     else { recovery.cancel() }
     await operation.run {
       do { _ = try await store.request(path + suffix, method: "POST", body: body) } catch {
         try? await refresh()
         let reconciled =
-          (suffix == "/connect" && connection["status"].string == "ready")
+          ((suffix == "/connect" || suffix == "/restart") &&
+            (connection["status"].string == "ready" || hasActiveDeviceLink))
           || (suffix == "/authenticate/manual" && connection["status"].string == "ready")
           || (suffix == "/disconnect" && connection["status"].string == "disconnected")
           || (suffix == "/authenticate/cancel" && session == nil)

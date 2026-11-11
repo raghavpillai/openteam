@@ -2,8 +2,12 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ResultSchema, ToolListChangedNotificationSchema, ToolSchema } from "@modelcontextprotocol/sdk/types.js";
 import { discoverAllTools, MCP_TOOL_CALL_TIMEOUT_MS, objectValue, repairedToolsPage, scopedProcessEnvironment } from "@openteam/plugin-sdk";
-import { join } from "node:path";
+import { join, sep } from "node:path";
+import { createHash } from "node:crypto";
+import { chmod, lstat, mkdir, realpath, rename, rm } from "node:fs/promises";
 import { PluginPackageCache } from "./plugin-package-cache";
+import { ManagedRuntimeCache } from "@openteam/plugin-sdk/runtime-assets";
+import type { PluginRuntimeAsset } from "@openteam/plugin-sdk";
 import { SecretRedactor } from "@openteam/shell-jobs";
 import { McpDiagnostics } from "./mcp-diagnostics";
 
@@ -24,6 +28,7 @@ interface ManagedStdioClient {
   abort: AbortController;
   connected: Promise<ManagedStdioClient>;
   discovery?: Promise<unknown[]>;
+  statePreparation?: Promise<void>;
 }
 
 const normalized = (value: unknown): StdioMcpConfiguration => {
@@ -60,14 +65,17 @@ const fingerprintOf = (value: unknown): string => JSON.stringify(value, (_key, e
 export class StdioMcpManager {
   private readonly clients = new Map<string, ManagedStdioClient>();
   private readonly closing = new Map<string, Promise<void>>();
+  private readonly forgetting = new Map<string, Promise<void>>();
   private readonly generations = new Map<string, number>();
   private readonly packages: PluginPackageCache;
+  private readonly runtimes: ManagedRuntimeCache;
 
   constructor(
-    cacheDirectory = join(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data", "plugin-runtimes"),
+    private readonly cacheDirectory = join(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data", "plugin-runtimes"),
     private readonly startupTimeoutMs = 300_000
   ) {
     this.packages = new PluginPackageCache(cacheDirectory);
+    this.runtimes = new ManagedRuntimeCache(join(cacheDirectory, "managed"));
   }
 
   async discover(connectionId: string, input: unknown, generation = 0): Promise<unknown[]> {
@@ -123,7 +131,10 @@ export class StdioMcpManager {
     this.clients.delete(connectionId);
     if (!managed) return;
     managed.abort.abort(new Error("MCP connection was stopped"));
-    const pending = managed.client.close().catch(() => undefined);
+    const pending = Promise.all([
+      managed.client.close().catch(() => undefined),
+      managed.statePreparation?.catch(() => undefined),
+    ]).then(() => {});
     this.closing.set(connectionId, pending);
     try {
       await pending;
@@ -138,6 +149,82 @@ export class StdioMcpManager {
     );
   }
 
+  async forget(connectionId: string, generation?: number): Promise<void> {
+    const existing = this.forgetting.get(connectionId);
+    if (existing) {
+      await existing.catch(() => {});
+      return this.forget(connectionId, generation);
+    }
+    const pending = (async () => {
+      await this.close(connectionId, generation);
+      this.assertCurrentGeneration(
+        connectionId,
+        generation ?? this.generations.get(connectionId) ?? 0
+      );
+      const directory = this.accountStateDirectory(connectionId);
+      const parent = await lstat(join(this.cacheDirectory, "accounts")).catch(error => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (!parent) return;
+      if (!parent.isDirectory()) throw new Error("Account state parent must remain a real owned directory");
+      // fs.rm removes a final symlink itself; it never traverses its target.
+      await rm(directory, { recursive: true, force: true });
+      await rm(this.legacyAccountStateDirectory(connectionId), { recursive: true, force: true });
+    })();
+    this.forgetting.set(connectionId, pending);
+    try {
+      await pending;
+    } finally {
+      if (this.forgetting.get(connectionId) === pending) this.forgetting.delete(connectionId);
+    }
+  }
+
+  private accountStateDirectory(connectionId: string) {
+    return join(
+      this.cacheDirectory,
+      "accounts",
+      // 128 bits retain account isolation while leaving room for Unix sockets
+      // beneath the production /agent-data/plugin-runtimes/accounts parent.
+      createHash("sha256").update(connectionId).digest("hex").slice(0, 32)
+    );
+  }
+
+  private legacyAccountStateDirectory(connectionId: string) {
+    return join(this.cacheDirectory, "accounts", createHash("sha256").update(connectionId).digest("hex"));
+  }
+
+  private async prepareAccountState(directory: string, legacy: string) {
+    const parent = join(this.cacheDirectory, "accounts");
+    await mkdir(parent, { recursive: true, mode: 0o700 });
+    if (!(await lstat(parent)).isDirectory()) throw new Error("Account state parent must be a real directory");
+    const existing = async (path: string) => lstat(path).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    });
+    const [oldState, newState] = await Promise.all([existing(legacy), existing(directory)]);
+    if (oldState && !oldState.isDirectory()) throw new Error("Legacy account state must be a real directory");
+    if (newState && !newState.isDirectory()) throw new Error("Account state must be a real directory");
+    if (oldState && newState)
+      throw new Error("Both legacy and current account state exist. Resolve the conflict before reconnecting.");
+    if (oldState) {
+      try {
+        // A single rename preserves keys/history together and never merges data.
+        await rename(legacy, directory);
+      } catch (error) {
+        // Another manager may have completed this same migration. Accept only
+        // its complete destination, never a competing legacy/current pair.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || await existing(legacy) ||
+          !(await existing(directory))?.isDirectory()) throw error;
+      }
+    }
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    if (!(await lstat(directory)).isDirectory()) throw new Error("Account state must be a real directory");
+    const [actualParent, actual] = await Promise.all([realpath(parent), realpath(directory)]);
+    if (!actual.startsWith(actualParent + sep)) throw new Error("Account state escapes its owned directory");
+    await chmod(directory, 0o700);
+  }
+
   private validateGeneration(generation: number) {
     if (!Number.isSafeInteger(generation) || generation < 0) throw new Error("Invalid MCP runtime generation");
   }
@@ -149,6 +236,8 @@ export class StdioMcpManager {
   }
 
   private async get(connectionId: string, input: unknown, generation: number): Promise<ManagedStdioClient> {
+    const forgetting = this.forgetting.get(connectionId);
+    if (forgetting) await forgetting.catch(() => {});
     const closing = this.closing.get(connectionId);
     if (closing) await closing;
     this.assertCurrentGeneration(connectionId, generation);
@@ -200,6 +289,19 @@ export class StdioMcpManager {
     const diagnostics = new McpDiagnostics();
     try {
       const configuration = normalized(await this.packages.resolve(input));
+      managed.abort.signal.throwIfAborted();
+      const runtimeEnvironment = await this.runtimes.resolve(
+        objectValue(input).runtimeAssets as PluginRuntimeAsset[] | undefined,
+        managed.abort.signal
+      );
+      managed.abort.signal.throwIfAborted();
+      configuration.env = { ...configuration.env, ...runtimeEnvironment };
+      if (objectValue(input).persistentState === true) {
+        const stateDirectory = this.accountStateDirectory(connectionId);
+        managed.statePreparation = this.prepareAccountState(stateDirectory, this.legacyAccountStateDirectory(connectionId));
+        await managed.statePreparation;
+        configuration.env.OPENTEAM_PLUGIN_STATE_DIR = stateDirectory;
+      }
       managed.abort.signal.throwIfAborted();
       const { client } = managed;
       const transport = new StdioClientTransport({

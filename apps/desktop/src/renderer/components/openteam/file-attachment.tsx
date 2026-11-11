@@ -5,7 +5,7 @@ import {
   attachmentTextPreview,
 } from "@openteam/product-core/attachments";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { ChevronLeft, ChevronRight, Download, FileText, Maximize2, Music2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileText, Maximize2, Music2 } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -16,8 +16,9 @@ import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import { type AttachmentPreviewKind, attachmentPreviewKind } from "../../lib/attachment-preview";
 import { MessageResponse } from "../ai-elements/message";
 import { Button } from "../ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 import { LoadingOrb } from "../ui/loading-orb";
+import { AttachmentStage } from "./attachment-stage";
+import { ImageAttachmentPreview } from "./image-attachment";
 import { FileGlyph, fileGlyphVariant, formatAttachmentSize } from "./attachment-visuals";
 import {
   renderSanitizedDocumentProgressively,
@@ -440,7 +441,6 @@ function LoadedDocumentPreview({
 
 export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
   const [open, setOpen] = useState(false);
-  const kind = attachmentPreviewKind(attachment);
   const dot = attachment.fileName.lastIndexOf(".");
   const baseName = dot > 0 ? attachment.fileName.slice(0, dot) : attachment.fileName;
   const extension = dot > 0 ? attachment.fileName.slice(dot) : "";
@@ -475,62 +475,82 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
         </button>
       </article>
 
-      <Dialog onOpenChange={setOpen} open={open}>
-        <DialogContent
-          className="file-preview-dialog grid h-[calc(100vh-80px)] w-[min(1100px,calc(100vw-80px))] max-w-none grid-rows-[40px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[12px] border-[0.5px] border-black/10 bg-[#fcfcfc] p-0 shadow-[0_32px_80px_rgba(0,0,0,0.55)] dark:border-[#303030] dark:bg-[#070707]"
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          showCloseButton={false}
-          surface="transparent"
-        >
-          <DialogTitle className="sr-only">{attachment.fileName}</DialogTitle>
-          <DialogDescription className="sr-only">
-            Preview and download {attachment.fileName}
-          </DialogDescription>
-          <header className="flex min-w-0 items-center gap-3 border-b-[0.5px] border-black/[0.07] bg-[#f7f7f7] px-4 dark:border-white/[0.08] dark:bg-[#111111]">
-            <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">
-              {attachment.fileName}
-            </span>
-            <a
-              aria-label="Download file"
-              className="grid size-8 place-items-center rounded-full text-foreground-secondary hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
-              download={attachment.fileName}
-              href={api.assetUrl(attachment, true)}
-              onClick={(event) => {
-                event.preventDefault();
-                void downloadAttachments([attachment]).catch((error) =>
-                  toast.error(clientErrorMessage(error, "Couldn’t download file"))
-                );
-              }}
-            >
-              <Download className="size-4" />
-            </a>
-            {(kind === "video" || kind === "pdf") && (
-              <button
-                aria-label={
-                  kind === "video" ? "Open video full screen" : "Open preview full screen"
-                }
-                className="grid size-8 place-items-center rounded-full text-foreground-secondary hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
-                onClick={() => document.documentElement.requestFullscreen?.()}
-                type="button"
-              >
-                <Maximize2 className="size-4" />
-              </button>
-            )}
+      <FileAttachmentPreview attachment={attachment} open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
+export function FileAttachmentPreview({
+  attachment,
+  open,
+  onOpenChange,
+}: {
+  attachment: AssetRef;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const kind = attachmentPreviewKind(attachment);
+  if (attachment.kind === "image")
+    return (
+      <ImageAttachmentPreview
+        title={attachment.fileName}
+        images={[
+          {
+            url: api.assetUrl(attachment),
+            fileName: attachment.fileName,
+            alt: attachment.alt || attachment.fileName,
+            width: attachment.width,
+            height: attachment.height,
+          },
+        ]}
+        activeIndex={open ? 0 : null}
+        onActiveIndexChange={(next) =>
+          onOpenChange((typeof next === "function" ? next(open ? 0 : null) : next) !== null)
+        }
+      />
+    );
+  return (
+    <AttachmentStage
+      onOpenChange={onOpenChange}
+      open={open}
+      title={attachment.fileName}
+      actions={
+        <>
+          {(kind === "video" || kind === "pdf") && (
             <button
-              aria-label="Close preview"
-              className="grid size-8 place-items-center rounded-full text-foreground-secondary hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
-              onClick={() => setOpen(false)}
+              aria-label={kind === "video" ? "Open video full screen" : "Open preview full screen"}
+              className="desktop-elevated-control"
+              onClick={() => document.documentElement.requestFullscreen?.()}
               type="button"
             >
-              <X className="size-4" />
+              <Maximize2 className="size-4" />
             </button>
-          </header>
-          <div className="bot-scrollbar min-h-0 overflow-auto bg-[#fcfcfc] dark:bg-[#070707]">
-            <LoadedDocumentPreview attachment={attachment} kind={kind} open={open} />
+          )}
+          <button
+            aria-label="Download file"
+            className="desktop-elevated-control"
+            onClick={() =>
+              void downloadAttachments([attachment]).catch((error) =>
+                toast.error(clientErrorMessage(error, "Couldn’t download file"))
+              )
+            }
+            type="button"
+          >
+            <Download className="size-4" strokeWidth={1.8} />
+          </button>
+        </>
+      }
+    >
+      <div className="attachment-stage-document bot-scrollbar file-preview-dialog">
+        {kind === "table" && (
+          <div className="attachment-table-heading">
+            <span>Spreadsheet preview</span>
+            <span>Download to view the full workbook</span>
           </div>
-        </DialogContent>
-      </Dialog>
-    </>
+        )}
+        <LoadedDocumentPreview attachment={attachment} kind={kind} open={open} />
+      </div>
+    </AttachmentStage>
   );
 }
 

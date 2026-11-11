@@ -28,6 +28,7 @@ import type {
   BotMemoryList,
   ChannelClientState,
   ChannelHistoryPage,
+  ChannelLibraryPage,
   ChannelMessageContextOptions,
   ChannelMessageContextView,
   ChannelMessageView,
@@ -377,6 +378,16 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/plugins/${encodeURIComponent(pluginKey)}/environment`,
         { method: "PUT", body: JSON.stringify({ values }) }
       ),
+    cancelPluginDeviceLink: (connectionId: string, sessionId: string) =>
+      transport.request(
+        `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/device-link/cancel`,
+        { method: "POST", body: JSON.stringify({ sessionId }) }
+      ),
+    pollPluginDeviceLink: (connectionId: string) =>
+      transport.request(
+        `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/device-link/poll`,
+        { method: "POST" }
+      ),
     connectPlugin: (connectionId: string) =>
       transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/connect`, {
         method: "POST",
@@ -505,6 +516,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       ),
     uploadAsset,
     assetUrl,
+    channelLibrary: (channelId: string, before: string | null = null, signal?: AbortSignal) => {
+      const query = before ? `?before=${encodeURIComponent(before)}` : "";
+      return transport.request<ChannelLibraryPage>(`/api/v0/channels/${encodeURIComponent(channelId)}/library${query}`, { signal });
+    },
     search: (query: string, category: SearchCategory = "all", signal?: AbortSignal) => {
       const params = new URLSearchParams({ q: query, category });
       return transport.request<SearchResponse>(`/api/v0/search?${params}`, { signal });

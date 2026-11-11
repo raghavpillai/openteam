@@ -10,6 +10,8 @@ import {
 import { useAuthenticatedResource } from "../../../hooks/use-authenticated-resource";
 import { useResourceActive } from "../../../hooks/resource-activity";
 import { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
+import { LinkFavicon } from "./link-favicon";
+import { useLinkHoverPreview } from "./link-hover-preview";
 import { SANITIZED_MESSAGE_LINK_PREFIX, SANITIZED_OPENTEAM_LINK_PREFIX } from "./markdown-source";
 export { messageRemarkPlugins, prepareMessageMarkdown } from "./markdown-source";
 
@@ -115,15 +117,29 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
   }
 
   return (
+    <WebLink className={className} href={href} {...props}>
+      {children}
+    </WebLink>
+  );
+}
+
+/** A web link as in the reference: site icon, underlined label, address card on hover. */
+function WebLink({ children, className, href, ...props }: ComponentProps<"a">) {
+  const { anchor, handlers, preview } = useLinkHoverPreview(href);
+  return (
     <a
       className={className}
       data-streamdown="link"
       href={href}
+      ref={anchor}
       rel="noreferrer"
       target="_blank"
       {...props}
+      {...handlers}
     >
-      {children}
+      <LinkFavicon href={href} />
+      <span className="link-label">{children}</span>
+      {preview}
     </a>
   );
 }

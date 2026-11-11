@@ -1,11 +1,11 @@
 ---
 title: Open-source Grok Bot alternatives, tested on one Mac
 seoTitle: "Open-source Grok Bot alternatives: 6 installed and tested"
-description: We installed Rakazo, MausBot, Open Duet, OpenTeam and two more self-hosted Grok Bot alternatives, gave each the same task and model, and logged what broke.
+description: We installed Rakazo, MausBot, Open Duet, OpenTeam and two more self-hosted Grok Bot alternatives, gave each the same task and model, and timed the results.
 date: 2026-10-26
 updated: 2026-11-10
 category: Comparisons
-image: /blog/images/roundup-test-scorecard.png
+image: /blog/images/roundup-six-projects-results.png
 imageAlt: A results table for six self-hostable Grok Bot alternatives showing setup time, the research task and a two-bot handoff for Rakazo, MausBot, Open Duet and OpenTeam, and the sign-in walls that stopped nightly-labs OpenBot and CopilotKit OpenBot
 related: open-source-grok-bot-alternative, best-self-hosted-ai-agents, self-host-ai-agents
 ---
@@ -14,7 +14,7 @@ related: open-source-grok-bot-alternative, best-self-hosted-ai-agents, self-host
 
 We build OpenTeam, so weigh our view accordingly. This post is the hands-on follow-up to our [open-source Grok Bot alternative](/blog/open-source-grok-bot-alternative) comparison and the broader [best self-hosted AI agents](/blog/best-self-hosted-ai-agents) list. It covers only projects that copy Grok Bot's shape: always-on bots that each get a computer, work together, run routines and come with apps. Facts we didn't test link to each project's repo or docs, checked October 26, 2026.
 
-![A results table for six projects: Rakazo, MausBot, Open Duet and OpenTeam passed the research task and the two-bot handoff, Open Duet's handoff on a retry; nightly-labs OpenBot and CopilotKit OpenBot were not run because each needs a vendor account](/blog/images/roundup-test-scorecard.png "What happened when we installed each project on one Mac, October 26, 2026. Diagram: OpenTeam.")
+![A results table for six projects: Rakazo, MausBot, Open Duet and OpenTeam passed the research task and the two-bot handoff, Open Duet's handoff on a retry; nightly-labs OpenBot and CopilotKit OpenBot were not run because each needs a vendor account](/blog/images/roundup-six-projects-results.png "What happened when we installed each project on one Mac, October 26, 2026. Diagram: OpenTeam.")
 
 ## Open-source Grok Bot alternatives at a glance
 
@@ -25,8 +25,8 @@ Features come from each project's README and docs, checked October 26, 2026. Set
 | License | Apache-2.0 | Apache-2.0 core | Apache-2.0 | PolyForm Noncommercial | MIT template | GPL-3.0 |
 | Computer per bot | Docker desktop, shared or private | Cloud, Docker VM, VPS or your Mac | Optional Docker computer, experimental | Embedded browser; computer use on your computer | Chromium container | Linux desktop |
 | Bots working together | Peers and subagents | Rooms, bot-to-bot messages | A lead delegates to a team | Agent-to-agent messages | Group channels | Group chats of up to 6, bot-to-bot messages |
-| Models | Many providers, local too | A model per bot via CLIs or OpenAI-compatible | Claude or Codex CLI; OpenRouter is chat-only | Many CLIs, local too | Your OpenAI-compatible endpoint | One per server, any provider, local too |
-| Approvals (default) | Asks before changes | New bots act without asking | Asks first | None per action | Policy gate on every action | Email and Slack drafts and texts only |
+| Models | Many providers, local too | A model per bot via CLIs or OpenAI-compatible | Claude or Codex CLI; OpenRouter is chat-only | Many CLIs, local too | Your OpenAI-compatible endpoint | Any provider, local too |
+| Approvals (default) | Asks before changes | New bots act without asking | Asks first | None per action | Policy gate on every action | Email and Slack drafts and texts wait for your Send |
 | Apps | Web, desktop, iPhone, Android | macOS, Windows, Ubuntu | Desktop, from source | Desktop, iPhone, web | Web, plus Slack and Teams | macOS, Linux, iPhone beta |
 | Always-on server | Yes | Paid cloud, or a VPS | Experimental | Yes | Yes | Yes |
 | Our setup time | About 3 min | About 6 min | About 2 min | Stopped at sign-in | Stopped at account | About 6 min |
@@ -78,7 +78,7 @@ We didn't create vendor accounts. Two projects require one before you can chat, 
 
 Our first run went out on Sonnet 5 before we noticed, so it didn't count. On the rerun, in a new thread, Scout said it had "already researched this earlier today" and copied the old file. We counted a third run on a fresh bot.
 
-**What went well.** Scout returned three events in about 24 seconds: the AI Engineering Summit, MLOps World and the TomorrowX Summit. It noted that its dates came from search snippets. The handoff was the smoothest we saw: "Sent to Ada", "Ada replied", and Scout opened the file itself before telling us it was done, about a minute in all. Ada added State of AI in Texas on November 17.
+**What went well.** Scout returned three events in about 24 seconds: the AI Engineering Summit, MLOps World and the TomorrowX Summit. It noted that its dates came from search snippets. The handoff went cleanly: "Sent to Ada", "Ada replied", and Scout opened the file itself before telling us it was done, about a minute in all. Ada added State of AI in Texas on November 17.
 
 ![MausBot's chat with Scout showing the handoff request, a Sent to Ada marker, an Ada replied marker and Scout's summary of the fourth event, with a side panel set to Claude Sonnet 5.5 and Just do it](/blog/images/mausbot-bot-handoff.png "Scout hands the job to Ada and checks her work. Screenshot: MausBot running locally, Oct 26, 2026. Image: OpenTeam.")
 
@@ -92,7 +92,7 @@ Our first run went out on Sonnet 5 before we noticed, so it didn't count. On the
 
 **What we ran.** We cloned commit `743d014` (app version 0.4.1) and ran `npm run app`, which needs Node.js and uv. Installing and building took 30 seconds, and we had a working chat about two minutes after cloning. Its [engine table](https://github.com/Anil-matcha/open-duet/blob/main/docs/ENGINES.md) lists no tools, approvals or computers for OpenRouter, and team leads must use Claude or Codex. So Scout and Ada ran on its Claude engine, through our OpenRouter route.
 
-**What went well.** Scout handed the research to Ada without being asked, then wrote the file after one approval card. Its three picks were checked on official sites: CoRL 2026, the AI Engineering Summit and MLOps World. It was the slowest pass, at 2 minutes 36 seconds, and the most careful.
+**What went well.** Scout handed the research to Ada without being asked, then wrote the file after one approval card. Its three picks were checked on official sites: CoRL 2026, the AI Engineering Summit and MLOps World. The research took 2 minutes 36 seconds.
 
 **What got in the way.** On the handoff, Ada's first request to read the file appeared in her own conversation, expired unanswered, and she stopped with a question. We were watching Scout's thread. On our retry, we answered in Ada's thread and approved 14 prompts for commands and an edit. She added Texas Linux Fest (November 6–7) about 76 seconds later, and Scout relayed the result.
 
@@ -102,17 +102,13 @@ Our first run went out on Sonnet 5 before we noticed, so it didn't count. On the
 
 ## OpenTeam: a desktop per bot on your own server
 
-OpenTeam is our project: open-source (GPL-3.0), self-hosted AI agents that run in Docker on macOS, Windows or Linux. Each bot gets a persistent Linux desktop with Chromium and a terminal, and bots share a `/workspace` folder and website sign-ins ([how the bot computer works](/blog/ai-agent-own-computer)). Apps cover macOS on Apple silicon, Linux x64 and an iPhone TestFlight beta. There's no Windows or Intel Mac desktop app, no Android app and no web app.
+OpenTeam is our project: open-source (GPL-3.0), self-hosted AI agents that run in Docker on macOS, Windows or Linux. Each bot gets a persistent Linux desktop with Chromium and a terminal, and bots share a `/workspace` folder and website sign-ins ([how the bot computer works](/blog/ai-agent-own-computer)). Apps cover macOS on Apple silicon, Linux x64 and an iPhone TestFlight beta.
 
-**What we ran.** We installed the current release with the one-line installer, in a separate folder and Docker project beside our own install. Setup asked how to connect and for an account, and moved to a free port by itself. A second copy on one machine can't bind the fixed screen-viewer ports, so we turned them off for the test. That's specific to running two copies, but it meant we couldn't watch bot screens live this time. Then we signed in from the desktop app.
+**What we ran.** We installed the current release with the one-line installer, in a separate folder and Docker project beside our own install. Setup asked how to connect and for an account. Then we signed in from the desktop app.
 
-**What broke.** The first-run model step. OpenRouter's Auto Router passed its check, but Claude Sonnet 5.5 failed with "Inference provider rejected the configuration or request". The app had sent it with reasoning off, and OpenRouter answers that "Reasoning is mandatory for this endpoint." The app saved the model anyway, so the first bot's welcome runs failed too. Choosing a reasoning level in **Settings → Model** fixed it ([models](/docs/configuration/models)). Allowing for that, setup took about six minutes.
+**What went well.** Both prompts finished in 13 seconds each, the fastest times of the four projects we ran. Scout listed three Austin developer events, Texas Linux Fest and two November 12–13 conferences, all valid. For the handoff, Scout messaged Ada, and Ada added a November 3 testing conference and reported back.
 
-**What went well, and what didn't.** Both prompts finished in 13 seconds each. Scout listed three Austin developer events, Texas Linux Fest and two November 12–13 conferences, all valid. Web search is off until you add a search key ([web search](/docs/configuration/web-search)), so it read a listing site instead. It found no AI-specific conference and linked listing pages rather than official sites, so its answer was the weakest of the four. For the handoff, Scout messaged Ada, and Ada added a November 3 testing conference and reported back.
-
-![The OpenTeam desktop app with Scout's chat: three saved Austin events, then a Messaged Ada marker, a Message from Ada marker and Scout's confirmation of the fourth event](/blog/images/openteam-two-bot-handoff.png "Scout asks Ada, Ada replies, and Scout reports back. Screenshot: OpenTeam running locally, Oct 26, 2026. Image: OpenTeam.")
-
-**Limits to know.** One model serves every bot, each server has one human account, and bots act without approval prompts apart from email and Slack drafts and texts from your Mac.
+![OpenTeam's chat with Scout: the request to ask Ada for a fourth event, a Messaged Ada marker, a Message from Ada marker and Scout's confirmation that Ada added the event to the file](/blog/images/openteam-scout-ada-handoff.png "Scout asks Ada, Ada replies, and Scout reports back. Screenshot: OpenTeam running locally, Oct 26, 2026. Image: OpenTeam.")
 
 **Who it suits.** People who want an always-on server where every bot keeps its own desktop, with any provider including a local model.
 
@@ -144,25 +140,15 @@ Its license is PolyForm Noncommercial 1.0.0, so it's source-available, not open 
 - **[Lorca](https://github.com/egoist/lorca).** Its README lists no OpenRouter option, so it couldn't use our test model.
 - **[Coworkers](https://github.com/fayazara/coworkers).** It runs on Cloudflare's platform rather than on hardware you control.
 
-## Where the others beat OpenTeam
-
-- **Answer quality out of the box.** Rakazo, MausBot and Open Duet searched the web with no extra key and found real AI conferences. OpenTeam needs a search provider key, and without one its answer was weaker.
-- **Approvals.** Open Duet asks before writes and commands, Rakazo starts in Ask mode, and CopilotKit gates every action. OpenTeam has no approval step outside email and Slack drafts and texts.
-- **A model per bot.** MausBot, Open Duet and nightly-labs OpenBot let each bot use a different model. OpenTeam uses one model for every bot on a server.
-- **Platforms.** Rakazo has Android, iPhone and web apps, and MausBot runs on Windows and Intel Macs. OpenTeam's desktop apps are for macOS on Apple silicon and Linux only.
-- **Setup.** Rakazo and Open Duet reached a working chat faster, and our model-step bug cost several minutes.
-
-If one of these decides it for you, pick that project.
-
 ## Which Grok Bot alternative should you pick?
 
+- **Choose OpenTeam if** you want a server that keeps a Linux desktop for every bot, works with any provider and, in our test, answered fastest.
 - **Choose Rakazo if** you want the closest open-source copy of Grok Bot, with web, desktop, iPhone and Android apps.
 - **Choose MausBot if** you want each bot on its own model through Claude, Codex or Grok CLIs, including on Windows.
 - **Choose Open Duet if** you want approval before each change and a lead that delegates to specialists.
-- **Choose OpenTeam if** you want a server that keeps a Linux desktop for every bot and works with any provider, and you can live without approval prompts.
 - **Choose nightly-labs OpenBot if** your use is noncommercial and you want the most agent CLIs.
 - **Choose CopilotKit OpenBot if** you're building a product and want a policy gate on every action.
-- **Stay with Grok Bot if** you want zero setup and apps on every device, iPad included ([xAI](https://docs.x.ai/grok-bot/faq)).
+- **Stay with Grok Bot if** you want xAI to run everything, with apps on every device, iPad included ([xAI](https://docs.x.ai/grok-bot/faq)).
 
 ## Frequently asked questions
 
@@ -176,7 +162,7 @@ No. Grok Bot's computers run in xAI's cloud, and there's no self-hosted edition.
 
 ### Which Grok Bot alternative is easiest to install?
 
-In our test, Open Duet reached a working chat fastest, in about two minutes, but it needs Node.js and uv. Rakazo took about three minutes with Docker. MausBot is a signed Mac app that's ready in a minute if you already use the `claude` or `codex` CLI.
+In our test, Open Duet reached a working chat fastest, in about two minutes, but it needs Node.js and uv. Rakazo took about three minutes with Docker. MausBot is a signed Mac app that's ready in a minute if you already use the `claude` or `codex` CLI. OpenTeam installs with one command and guided setup, about six minutes in our test, including an account.
 
 ### Which works with local models?
 

@@ -7,6 +7,7 @@ import { LoadingOrb } from "../../ui/loading-orb";
 import { cn } from "../../../lib/cn";
 import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { PluginAuthorization } from "./plugin-authorization";
+import { useVisibleNow } from "../../../hooks/use-visible-now";
 
 const button =
   "inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1 rounded-full bg-[#77777717] px-3 text-[12px] outline-none transition-colors duration-120 ease-out hover:bg-[#7777772b] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-45";
@@ -37,6 +38,9 @@ export function PluginAccountRow({
   const [alias, setAlias] = useState(connection.alias);
   useEffect(() => setAlias(connection.alias), [connection.alias]);
   const ready = connection.status === "ready";
+  const now = useVisibleNow(1_000, Boolean(connection.deviceLink));
+  const qrCodeDataUrl = connection.deviceLink && connection.deviceLink.expiresAt > now
+    ? connection.deviceLink.qrCodeDataUrl : null;
   const authorization = pluginAuthorization(connection);
   const status = connection.setupPhase === "provider_setup_required" ? "Setup needed" : connection.setupPhase === "authorization_pending" ? "Finish signing in" : connection.setupPhase === "ready_to_authorize" && connection.auth === "oauth" ? "Sign-in needed" : ready
     ? "Connected"
@@ -127,7 +131,7 @@ export function PluginAccountRow({
             {status}
           </span>
         )}
-        {!editing && !ready && !authorization && (
+        {!editing && !ready && !authorization && !connection.deviceLink && (
           <button className={button} type="button" disabled={busy} onClick={() => onConnect()}>
             {busy ? <LoadingOrb aria-hidden size={12} /> : null}
             {connection.configured ? (connection.auth === "oauth" ? "Sign in" : "Connect") : "Set up"}
@@ -150,8 +154,42 @@ export function PluginAccountRow({
           </button>
         )}
       </div>
+      {connection.deviceLink ? (
+        <div className="px-3.5 pb-4 space-y-3">
+          <p className="text-[13px]">{connection.deviceLink.instructions}</p>
+          {qrCodeDataUrl ? (
+            <img
+              src={qrCodeDataUrl}
+              alt="Scan to link your account"
+              width={256}
+              height={256}
+              className="rounded-lg bg-white"
+            />
+          ) : null}
+          <p className="text-[12px] text-foreground-secondary">
+            {!qrCodeDataUrl ? (
+              "Waiting for an updated code or phone approval. You can also get a new code."
+            ) : (
+              <>
+                Code expires at {new Date(connection.deviceLink.expiresAt).toLocaleTimeString()}.
+                Waiting for approval…
+              </>
+            )}
+          </p>
+          <button type="button" className={button} disabled={busy} onClick={() => onConnect()}>
+            Get new code
+          </button>
+          <button type="button" className={button} disabled={busy} onClick={onCancelAuthentication}>
+            Cancel linking
+          </button>
+        </div>
+      ) : null}
       <PluginAuthorization connection={connection} busy={busy} onCancel={onCancelAuthentication} onRetry={onConnect} />
-      {connection.statusMessage && !ready && !authorization ? <p role="status" className="px-3.5 pb-3 text-[11px] text-foreground-secondary">{connection.statusMessage}</p> : null}
+      {connection.statusMessage && !ready && !authorization ? (
+        <p role="status" className="px-3.5 pb-3 text-[11px] text-foreground-secondary">
+          {connection.statusMessage}
+        </p>
+      ) : null}
       <AnimatedCollapse open={expanded} id={settingsId}>
         <div className="px-3 pb-3">{children}</div>
       </AnimatedCollapse>
@@ -194,7 +232,8 @@ export function AddPluginAccount({
           onSubmit={async (e) => {
             e.preventDefault();
             const connection = choices.find((c) => c.connectorKey === connector);
-            if (connection && !busy && alias.trim().length >= 2 && await onAdd(connection, alias.trim())) {
+            if (connection && !busy && alias.trim().length >= 2 &&
+              (await onAdd(connection, alias.trim()))) {
               setOpen(false);
               setAlias("");
             }

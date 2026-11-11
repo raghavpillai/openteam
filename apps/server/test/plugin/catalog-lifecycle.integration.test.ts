@@ -1,3 +1,4 @@
+import { StdioMcpManager } from "../../../computer/src/mcp-manager";
 import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -26,7 +27,18 @@ for (const catalog of pluginCatalog) {
       process.env.OPENTEAM_AGENT_DATA_ROOT = root;
       const prisma = createPrismaClient(databaseUrl!);
       const store = new AgentDataStore(prisma, { root, workspaceRoot: join(root, "workspace") });
-      const service = new PluginService(prisma, undefined, store);
+      const computer = new StdioMcpManager(join(root, "plugin-runtimes"));
+      const service = new PluginService(prisma, async (path, init) => {
+        const id = path.split("/")[4]!;
+        const generation = Number(new Headers(init?.headers).get("x-openteam-mcp-generation") ?? 0);
+        if (init?.method === "DELETE") {
+          if (path.endsWith("/state")) await computer.forget(id, generation);
+          else await computer.close(id, generation);
+          return Response.json({ ok: true });
+        }
+        if (init?.method === "GET") return Response.json(computer.status(id));
+        throw new Error("Catalog lifecycle tests never launch provider runtimes");
+      }, store);
       const botId = crypto.randomUUID();
       const conversationId = crypto.randomUUID();
       const contextSessionId = crypto.randomUUID();
@@ -137,6 +149,7 @@ for (const catalog of pluginCatalog) {
         ).toBe(0);
       } finally {
         await service.close();
+        await computer.closeAll();
         await prisma.pluginInstallation.deleteMany({ where: { pluginKey: catalog.key } });
         await prisma.bot.deleteMany({ where: { id: botId } });
         await prisma.$disconnect();

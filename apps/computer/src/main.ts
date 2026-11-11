@@ -363,6 +363,10 @@ const server = Bun.serve({
       }
 
       const agentStoreMatch = url.pathname.match(/^\/v1\/agent-stores\/([^/]+)$/);
+      if (request.method === "DELETE" && agentStoreMatch?.[1]) {
+        const removed = await agentStores.deleteAgent(agentStoreMatch[1]);
+        return json({ ok: true, removed });
+      }
       if (request.method === "PUT" && agentStoreMatch?.[1]) {
         const body = (await request.json().catch(() => ({}))) as { createdAt?: unknown };
         const createdAt =
@@ -612,7 +616,7 @@ const server = Bun.serve({
         const input = Schema.decodeUnknownSync(ComputerTurnRequest)(await request.json());
         safePath(input.cwd);
         await setBoxClock(input.timeZone);
-        const events = await runtime.run(input);
+        const events = await runtime.run(input, request.signal);
         const body = computerEventStream(events, undefined, {
           onCancel: async () => {
             // A disconnected worker must not leave tools or child tasks

@@ -1,49 +1,83 @@
-import { createHash } from "node:crypto";
-import { Readable, type Writable } from "node:stream";
+import { createHash, randomUUID } from "node:crypto";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { closeSync, openSync, unlinkSync, writeSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Readable } from "node:stream";
 import { spawnAgentProcess as spawn, agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 import { AGENT_FILE_IO_SCRIPT } from "./agent-file-io";
 import { nodeBinary } from "./node-runtime";
 
 type ReadPolicy = { protectedRoot: string } | { allowedRoots: string[]; excludedRoots: string[] };
+
+/** Bun 1.3.8's node:net wrapper and Subprocess finalizer both close extra stdio pipes.
+ * Use an unlinked inherited file instead; the parent owns its fd until child exit.
+ * Write the bounded receipt positionally before stdin EOF so the child cannot
+ * inspect an incomplete receipt, and its inherited read offset remains at zero. */
+function integrityReceipt() {
+  const path = join(tmpdir(), `openteam-transfer-receipt-${randomUUID()}`);
+  const fd = openSync(path, "wx+", 0o600);
+  try { unlinkSync(path); }
+  catch (error) { closeSync(fd); throw error; }
+  let closed = false;
+  return {
+    fd,
+    commit(value: { bytes: number; sha256: string }) {
+      const data = Buffer.from(JSON.stringify(value));
+      for (let offset = 0; offset < data.length;) {
+        const written = writeSync(fd, data, offset, data.length - offset, offset);
+        if (!written) throw new Error("File transfer receipt write made no progress");
+        offset += written;
+      }
+    },
+    close() { if (!closed) { closed = true; closeSync(fd); } },
+  };
+}
+
 function fileProcess(mode: "read" | "write", path: string, signal?: AbortSignal, policy?: ReadPolicy) {
-  const child = spawn(
-    nodeBinary(),
-    ["-e", AGENT_FILE_IO_SCRIPT, mode, path, String(Number.MAX_SAFE_INTEGER), "verify", ...(policy ? [JSON.stringify(policy)] : [])],
-    {
-      ...agentProcessIdentity(),
-      env: sanitizedAgentEnvironment(process.env),
-      stdio: ["pipe", "pipe", "pipe", "pipe"],
-      signal,
+  const receipt = mode === "write" ? integrityReceipt() : undefined;
+  const stdio: ["pipe", "pipe", "pipe", ...number[]] = receipt ? ["pipe", "pipe", "pipe", receipt.fd] : ["pipe", "pipe", "pipe"];
+  const child = (() => {
+    try {
+      // Node's overloads lose the known first three pipes when an inherited fd
+      // is appended, although stdin/stdout/stderr are all explicitly "pipe".
+      return spawn(
+        nodeBinary(),
+        ["-e", AGENT_FILE_IO_SCRIPT, mode, path, String(Number.MAX_SAFE_INTEGER), "verify", ...(policy ? [JSON.stringify(policy)] : [])],
+        { ...agentProcessIdentity(), env: sanitizedAgentEnvironment(process.env), stdio, signal }
+      ) as ChildProcessWithoutNullStreams;
+    } catch (error) {
+      receipt?.close();
+      throw error;
     }
-  );
+  })();
   let errorText = "";
   child.stderr.on("data", (data: Buffer) => {
     if (errorText.length < 8192) errorText += data.toString();
   });
   child.stdin.on("error", () => {});
-  const control = child.stdio[3] as Writable;
-  control.on("error", () => {});
   const done = new Promise<void>((resolve, reject) => {
     let processError: Error | undefined;
     child.once("error", (error) => {
       processError = error;
+      receipt?.close();
     });
-    child.once("close", (code) =>
+    child.once("close", (code) => {
+      receipt?.close();
       processError
         ? reject(processError)
         : code === 0
           ? resolve()
-          : reject(new Error(errorText || "File transfer interrupted"))
-    );
+          : reject(new Error(errorText || "File transfer interrupted"));
+    });
   });
   // Install a rejection handler immediately; callers still await and receive the original failure.
   void done.catch(() => {});
-  return { child, done, control };
+  return { child, done, receipt };
 }
 export function agentReadStream(path: string, signal?: AbortSignal, policy?: ReadPolicy) {
-  const { child, done, control } = fileProcess("read", path, signal, policy);
+  const { child, done } = fileProcess("read", path, signal, policy);
   child.stdin.end();
-  control.end();
   return { stream: child.stdout, done, cancel: () => child.kill() };
 }
 export async function agentWriteStream(
@@ -52,7 +86,7 @@ export async function agentWriteStream(
   signal?: AbortSignal
 ): Promise<number> {
   signal?.throwIfAborted();
-  const { child, done, control } = fileProcess("write", path, signal);
+  const { child, done, receipt } = fileProcess("write", path, signal);
   const hash = createHash("sha256");
   let bytes = 0;
   const reader = stream instanceof Readable ? undefined : stream.getReader();
@@ -89,8 +123,8 @@ export async function agentWriteStream(
       }
     }
     signal?.throwIfAborted();
+    receipt!.commit({ bytes, sha256: hash.digest("hex") });
     child.stdin.end();
-    control.end(JSON.stringify({ bytes, sha256: hash.digest("hex") }));
     await done;
     return bytes;
   } catch (error) {

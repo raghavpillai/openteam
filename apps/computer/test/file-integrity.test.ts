@@ -1,10 +1,9 @@
 import { expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Writable } from "node:stream";
 import { AGENT_FILE_IO_SCRIPT } from "../src/agent-file-io";
 import { nodeBinary } from "../src/node-runtime";
 
@@ -23,22 +22,28 @@ test("incomplete or altered pipe data cannot replace an existing destination", a
       original,
     ]) {
       await writeFile(path, "preserved");
-      const child = spawn(
-        nodeBinary(),
-        ["-e", AGENT_FILE_IO_SCRIPT, "write", path, "1048576", "verify"],
-        { stdio: ["pipe", "pipe", "pipe", "pipe"] }
-      );
-      const closed = new Promise<number | null>((resolve, reject) => {
-        child.once("error", reject);
-        child.once("close", resolve);
-      });
-      child.stderr.resume();
-      child.stdout.resume();
-      child.stdin.end(payload);
-      (child.stdio[3] as Writable).end(receipt);
-      expect(await closed).toBe(payload === original ? 0 : 1);
-      expect(await readFile(path, "utf8")).toBe(payload === original ? original : "preserved");
-      expect(await readdir(root)).toEqual(["destination"]);
+      const receiptFile = await open(join(root, "receipt"), "wx+", 0o600);
+      await unlink(join(root, "receipt"));
+      // Match the inherited receipt transport without an extra node:net Socket
+      // whose stale Bun finalizer could corrupt later tests' descriptors.
+      await receiptFile.write(receipt, 0, "utf8");
+      try {
+        const child = spawn(
+          nodeBinary(),
+          ["-e", AGENT_FILE_IO_SCRIPT, "write", path, "1048576", "verify"],
+          { stdio: ["pipe", "pipe", "pipe", receiptFile.fd] }
+        );
+        const closed = new Promise<number | null>((resolve, reject) => {
+          child.once("error", reject);
+          child.once("close", resolve);
+        });
+        child.stderr!.resume();
+        child.stdout!.resume();
+        child.stdin!.end(payload);
+        expect(await closed).toBe(payload === original ? 0 : 1);
+        expect(await readFile(path, "utf8")).toBe(payload === original ? original : "preserved");
+        expect(await readdir(root)).toEqual(["destination"]);
+      } finally { await receiptFile.close(); }
     }
   } finally {
     await rm(root, { recursive: true, force: true });

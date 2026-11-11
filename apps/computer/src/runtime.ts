@@ -71,7 +71,7 @@ import { PROCESS_NOTICE_TYPE, ProcessNotice } from "./runtime/process-notice";
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import {
   assertSessionPath,
-  disposableSessionPath,
+  resolvedDisposableSessionPath,
   existingContextSessionPath,
 } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
@@ -508,10 +508,10 @@ export class ComputerRuntime {
     await this.compaction.remove(contextSessionId);
     const recordedPath = sessionPath ?? await existingContextSessionPath(this.sessionsDir, contextSessionId);
     if (!recordedPath) return;
-    const removable = disposableSessionPath(this.sessionsDir, recordedPath);
+    const removable = await resolvedDisposableSessionPath(this.sessionsDir, recordedPath);
     if (!removable) {
       console.warn(
-        `context session ${contextSessionId} records a session path outside the session root; leaving ${recordedPath} untouched`
+        `context session ${contextSessionId} records an unavailable path or one outside the session root; leaving ${recordedPath} untouched`
       );
       return;
     }

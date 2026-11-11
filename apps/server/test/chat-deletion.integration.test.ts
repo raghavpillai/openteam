@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
@@ -237,5 +237,48 @@ test.skipIf(!databaseUrl)("a restarted worker retries failed runtime cleanup aft
     await prisma.bot.delete({ where: { id: bot.id } });
     await prisma.retiredAgent.deleteMany({ where: { id: bot.id } });
     await prisma.$disconnect();
+  }
+});
+
+
+test.skipIf(!databaseUrl || process.getuid?.() === 0 || process.platform === "win32")("worker retry disposes a permission-blocked directory after it has left the roster", async () => {
+  const prisma = createPrismaClient(databaseUrl!);
+  const root = await mkdtemp(join(tmpdir(), "openteam-retired-disposal-"));
+  const retiredRoot = join(root, "retired");
+  const stores = new BotAgentStore(join(root, "data"), retiredRoot);
+  const bot = await prisma.bot.create({ data: { name: "Delete me", defaultDirectory: root, status: "active" } });
+  try {
+    await stores.openForWake(bot.id);
+    const protectedDirectory = join(stores.agentDirectory(bot.id), "protected");
+    await mkdir(protectedDirectory);
+    await writeFile(join(protectedDirectory, "keep"), "runtime data");
+    await chmod(protectedDirectory, 0o500);
+    const computerFetch = async (path: string, init: RequestInit) => {
+      if (path.includes("agent-stores") && init.method === "DELETE") {
+        try { return Response.json({ ok: true, removed: await stores.deleteAgent(bot.id) }); }
+        catch (error) { return new Response(String(error), { status: 500 }); }
+      }
+      return Response.json({ ok: true });
+    };
+    const service = new BotService(prisma, {} as never, root, computerFetch, fakeFiles as never);
+    expect(await Effect.runPromise(service.archive(bot.id))).toEqual({ ok: true });
+    expect(await stores.listAgentDirectories()).toEqual([]);
+    expect(await prisma.retiredAgent.findUnique({ where: { id: bot.id } })).toMatchObject({ cleanupPending: true });
+    const residue = await readdir(retiredRoot);
+    expect(residue).toHaveLength(1);
+    await chmod(join(retiredRoot, residue[0]!, "protected"), 0o700);
+    await prisma.retiredAgent.update({ where: { id: bot.id }, data: { nextCleanupAt: new Date(0) } });
+    const worker = Object.create(WakeWorker.prototype) as any;
+    Object.assign(worker, { prisma, agentData: fakeFiles, computerFetch });
+    await worker.reconcileRetiredAgents();
+    expect(await readdir(retiredRoot)).toEqual([]);
+    expect(await prisma.retiredAgent.findUnique({ where: { id: bot.id } })).toMatchObject({ cleanupPending: false });
+  } finally {
+    for (const entry of await readdir(retiredRoot).catch(() => [])) await chmod(join(retiredRoot, entry, "protected"), 0o700).catch(() => {});
+    await stores.closeAll();
+    await prisma.bot.delete({ where: { id: bot.id } });
+    await prisma.retiredAgent.deleteMany({ where: { id: bot.id } });
+    await prisma.$disconnect();
+    await rm(root, { recursive: true, force: true });
   }
 });

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ComputerRuntime } from "../src/runtime";
@@ -60,4 +60,40 @@ test("an executing context must be settled before its files are deleted", async 
   await expect(f.runtime.deleteContextSession("context", path)).rejects.toThrow("active context session");
   expect(await readFile(path, "utf8")).toBe("session");
   expect(f.disposed).toEqual([]);
+});
+
+test("context cleanup never follows a legacy directory symlink outside the sessions tree", async () => {
+  const f = await fixture();
+  const outside = join(f.root, "outside");
+  await mkdir(outside);
+  const target = join(outside, "keep.jsonl");
+  await writeFile(target, "keep");
+  const legacy = join(f.root, "sessions", "legacy");
+  await symlink(outside, legacy);
+  await f.runtime.deleteContextSession("context", join(legacy, "keep.jsonl"));
+  expect(await readFile(target, "utf8")).toBe("keep");
+});
+
+test("an internal legacy-directory symlink is cleaned without deleting another session", async () => {
+  const f = await fixture();
+  const path = join(f.sessionsDir, "context.jsonl");
+  const unrelated = join(f.sessionsDir, "another.jsonl");
+  await writeFile(path, "session");
+  await writeFile(unrelated, "keep");
+  const legacy = join(f.root, "sessions", "legacy");
+  await symlink(f.sessionsDir, legacy);
+  await f.runtime.deleteContextSession("context", join(legacy, "context.jsonl"));
+  expect(await stat(path).catch(() => null)).toBeNull();
+  expect(await readFile(unrelated, "utf8")).toBe("keep");
+});
+
+test("a final-component symlink is unlinked while its external target is preserved", async () => {
+  const f = await fixture();
+  const target = join(f.root, "keep.jsonl");
+  await writeFile(target, "keep");
+  const link = join(f.sessionsDir, "context.jsonl");
+  await symlink(target, link);
+  await f.runtime.deleteContextSession("context", link);
+  expect(await stat(link).catch(() => null)).toBeNull();
+  expect(await readFile(target, "utf8")).toBe("keep");
 });

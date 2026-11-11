@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { readdir } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { readdir, realpath } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 export function assertSessionPath(sessionsDir: string, input: string): string {
   const candidate = resolve(input);
@@ -25,6 +25,26 @@ export function disposableSessionPath(sessionsDir: string, input: string): strin
   const traversal = relative(parent, candidate);
   if (traversal === "" || traversal.startsWith("..") || isAbsolute(traversal)) return null;
   return candidate;
+}
+
+/** Resolve parent directories so an old session-root symlink cannot redirect deletion outside sessions. */
+export async function resolvedDisposableSessionPath(sessionsDir: string, input: string): Promise<string | null> {
+  const candidate = disposableSessionPath(sessionsDir, input);
+  if (!candidate) return null;
+  try {
+    const [root, parent] = await Promise.all([
+      realpath(dirname(resolve(sessionsDir))),
+      realpath(dirname(candidate)),
+    ]);
+    const traversal = relative(root, parent);
+    if (traversal.startsWith("..") || isAbsolute(traversal)) return null;
+    // Use the resolved parent rather than traversing the original symlink again.
+    // The final component may itself be a symlink: rm unlinks it without following its target.
+    return join(parent, basename(candidate));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
 }
 
 /** The context's one Pi session file on disk, which the server may not have recorded yet. */

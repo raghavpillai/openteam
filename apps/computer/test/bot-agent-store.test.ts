@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -26,6 +27,60 @@ afterEach(async () => {
 });
 
 describe("OpenTeam-compatible agent SQLite stores", () => {
+  test("concurrent retirement is idempotent and preserves another agent's retired files", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-concurrent-delete-"));
+    const retiredRoot = join(root, "retired");
+    store = new BotAgentStore(join(root, "data"), retiredRoot);
+    await store.openForWake(agentId);
+    const unrelated = "10000000-0000-4000-8000-000000000001.previous-attempt";
+    await mkdir(join(retiredRoot, unrelated), { recursive: true });
+    await writeFile(join(retiredRoot, unrelated, "keep"), "another agent's data");
+    const results = await Promise.all(Array.from({ length: 20 }, () => store!.deleteAgent(agentId)));
+    expect(results.some(Boolean)).toBe(true);
+    expect(store.hasLiveHandle(agentId)).toBe(false);
+    expect(await store.listAgentDirectories()).toEqual([]);
+    expect(await readdir(retiredRoot)).toEqual([unrelated]);
+    expect(await readFile(join(retiredRoot, unrelated, "keep"), "utf8")).toBe("another agent's data");
+  });
+
+  test.skipIf(process.getuid?.() === 0 || process.platform === "win32")("failed disposal is reported and a retry removes residue outside the roster", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-disposal-"));
+    const retiredRoot = join(root, "retired");
+    store = new BotAgentStore(join(root, "data"), retiredRoot);
+    await store.openForWake(agentId);
+    const protectedDirectory = join(store.agentDirectory(agentId), "protected");
+    await mkdir(protectedDirectory);
+    await writeFile(join(protectedDirectory, "keep"), "runtime data");
+    await chmod(protectedDirectory, 0o500);
+    try {
+      await expect(store.deleteAgent(agentId)).rejects.toMatchObject({ code: "EACCES" });
+      expect(store.hasLiveHandle(agentId)).toBe(false);
+      expect(await store.listAgentDirectories()).toEqual([]);
+      const retired = await readdir(retiredRoot);
+      expect(retired).toHaveLength(1);
+      await chmod(join(retiredRoot, retired[0]!, "protected"), 0o700);
+      expect(await store.deleteAgent(agentId)).toBe(true);
+      expect(await readdir(retiredRoot)).toEqual([]);
+    } finally {
+      await chmod(protectedDirectory, 0o700).catch(() => {});
+      for (const entry of await readdir(retiredRoot).catch(() => [])) {
+        await chmod(join(retiredRoot, entry, "protected"), 0o700).catch(() => {});
+      }
+    }
+  });
+
+  test("a retry finds previously retired directories after the roster entry is already gone", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-residue-"));
+    const retiredRoot = join(root, "retired");
+    store = new BotAgentStore(join(root, "data"), retiredRoot);
+    const residue = join(retiredRoot, `${agentId}.previous-attempt`);
+    await mkdir(residue, { recursive: true });
+    await writeFile(join(residue, "store.db"), "runtime data");
+    expect(await store.deleteAgent(agentId)).toBe(true);
+    expect(await readdir(retiredRoot)).toEqual([]);
+    expect(await store.deleteAgent(agentId)).toBe(false);
+  });
+
   test("first wake leaves shared agent directories writable by the server group", async () => {
     root = await mkdtemp(join(tmpdir(), "openteam-agent-permissions-"));
     store = new BotAgentStore(root);

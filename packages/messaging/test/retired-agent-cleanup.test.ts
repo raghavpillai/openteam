@@ -39,3 +39,27 @@ for (const failure of ["turn", "context", "background", "screen", "store", "file
     expect(calls).toHaveLength(completedCalls);
   });
 }
+
+test("cleanup recovers from HTTP service errors and treats an already-stopped turn as success", async () => {
+  let online = false;
+  const retired = { cleanupPending: true, cleanupRunIds: ["run"] };
+  let contextExists = true;
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
+    if (!online) return new Response("temporarily unavailable", { status: 503 });
+    if (new URL(request.url).pathname.endsWith("/cancel")) return new Response("Run is not actively executing", { status: 400 });
+    return Response.json({ ok: true });
+  } });
+  const prisma: any = {
+    retiredAgent: { findUnique: async () => retired, update: async ({ data }: any) => Object.assign(retired, data) },
+    contextSession: { findMany: async () => contextExists ? [{ id: "context", runtimeSessionPath: null }] : [], deleteMany: async () => { contextExists = false; } },
+  };
+  try {
+    const computerFetch = (path: string, init: RequestInit) => fetch(new URL(path, server.url), init);
+    expect(await cleanupRetiredAgent(prisma, computerFetch, undefined, "bot")).toHaveLength(5);
+    expect(retired.cleanupPending).toBe(true);
+    online = true;
+    expect(await cleanupRetiredAgent(prisma, computerFetch, undefined, "bot")).toEqual([]);
+    expect(retired.cleanupPending).toBe(false);
+    expect(contextExists).toBe(false);
+  } finally { server.stop(true); }
+});

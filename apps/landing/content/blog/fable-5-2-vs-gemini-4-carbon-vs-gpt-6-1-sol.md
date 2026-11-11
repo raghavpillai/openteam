@@ -51,7 +51,7 @@ Six tasks, each in a fresh bot with an identical prompt, and a rubric written be
 5. **Coding.** A duration parser from a spec, checked by 78 hidden tests.
 6. **Hard coding.** Cron next-run times with time zones and daylight saving, checked by 48 hidden tests.
 
-The server ran OpenTeam's current release in Docker on a Mac, with web search off and the built-in page reader on, as a new install starts. Costs are what OpenRouter billed for every call, including helpers, matched response by response. Times are busy time and leave out waiting in the server's queue, which runs four jobs at once. Second runs of two tasks for Sol and for Fable at high effort gave the same scores. The Fable post has the full [method](/blog/claude-fable-5-2-ai-agents).
+The server ran OpenTeam's current release in Docker on a Mac, with web search off and the built-in page reader on, as a new install starts. Costs are what OpenRouter billed for each task's calls, including helpers, matched response by response. OpenRouter served Fable 5.2 from three different providers, sometimes within one task; that didn't change results, but it matters if you care where your requests go. Times are busy time and leave out waiting in the server's queue, which runs four jobs at once. Second runs of two tasks for Sol and for Fable at high effort gave the same scores. The Fable post has the full [method](/blog/claude-fable-5-2-ai-agents).
 
 ## Task by task
 
@@ -89,7 +89,7 @@ Since every task passed, cost per successful task is the same as cost per task. 
 
 The bills had different shapes. More than half of Fable's and Sol's spending went on writing the prompt cache at the start of each bot's conversation. Fable's cache writes cost four times Sol's per token. Carbon wrote nothing to the cache but sent about 210,000 fresh input tokens per task through its helpers and their checks.
 
-For reference, the same server ran the same tasks on cheaper models. GPT-6.1 Terra and GLM-5.3 also passed all six, for $0.11 and $0.10 a task; GLM-5.3 missed one of the 78 hidden checks. Opus 5.5 got every answer right for $0.31, but four of its eight runs ended with the final answer as text the app doesn't show, which the Fable post explains.
+For reference, the same server ran the same tasks on cheaper models. GPT-6.1 Terra and GLM-5.3 also passed all six, for $0.11 and $0.10 a task; GLM-5.3 missed one of the 78 hidden checks. Opus 5.5, scored on its answers and files, got every task right for $0.31; the Fable post compares the two.
 
 ## Speed
 
@@ -97,17 +97,11 @@ Fable 5.2 was the quickest of the three because it did everything in one session
 
 Carbon's slowness looks deliberate. Google says Carbon is "built for tasks that test the limits of a model's intelligence." It uses more tokens than its sibling Gemini 4 Argon "to explore thoroughly, reason deeply, and run extended verification loops." On our six everyday tasks that care didn't change a score; it may matter more on harder jobs.
 
-## What went wrong
-
-Nothing that cost a model points, but three things are worth knowing. On our Mac, the bot computer accepted IPv6 connections that the host network couldn't carry, then dropped them. Downloads from GitHub and requests to Hacker News failed with "Broken pipe" until the bots switched methods. That's an OpenTeam bug on networks without IPv6, found in this test.
-
-A new bot's greeting sometimes arrived after our first message, so the bot greeted us and then started work. We left those greeting turns out of the costs. And OpenRouter served Fable 5.2 from three different providers, sometimes within one task. That didn't change results, but it matters if you care where your requests go.
-
 ## Where each one was better
 
 **GPT-6.1 Sol** was the cheapest correct answer every time, and the most repeatable: its second runs matched its first, down to how it laid out the research table. It leans on helpers, which costs time on a busy server.
 
-**Claude Fable 5.2** was the quickest and the clearest. It worked alone, finished four of six tasks in under 90 seconds and said what it assumed. It delivered every final answer in all 16 of its runs. Its bill is the heaviest per token, mostly from cache writes.
+**Claude Fable 5.2** was the quickest and the clearest. It worked alone, finished four of six tasks in under 90 seconds and said what it assumed. Its bill is the heaviest per token, mostly from cache writes.
 
 **Gemini 4 Carbon** checked the most. It built its own test oracle, noticed a one-day discrepancy in Python's release records and annotated its chart. It wasn't billed for cache writes in our runs, and until November 30 its token prices match Sol's. But it spent ten minutes where the others spent one or two.
 

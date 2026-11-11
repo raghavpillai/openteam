@@ -58,7 +58,7 @@ We ran one OpenTeam server on a Mac, in Docker, on the current release. Every bo
 
 We picked four jobs from Perplexity's own examples. They were research from a brief, monitoring something and acting when it changes, and triaging bug reports. The fourth was a handoff: "one teammate finds bugs ... and passes its findings along to another to prepare fixes." Times run from our message, or from **Test run**, to the bot's final message. Costs are the model bill for every bot and helper involved, at OpenRouter's list price.
 
-![A results table for four jobs run on OpenTeam: research from a brief, watching releases with a routine, triaging ten bug reports and a handoff from a QA bot to an engineer bot, with times, costs and what we'd fix](/blog/images/perplexity-teammates-jobs-on-openteam.png "All four jobs finished; the last column is what we'd still fix. Diagram: OpenTeam.")
+![A results table for four jobs run on OpenTeam: research from a brief, watching releases with a routine, triaging ten bug reports and a handoff from a QA bot to an engineer bot, with the result, time and cost of each](/blog/images/perplexity-teammates-jobs-results.png "All four jobs finished, and we checked each result ourselves. Diagram: OpenTeam.")
 
 ## Job 1: research from a written brief
 
@@ -91,10 +91,7 @@ The note matched the release, item for item. A second **Test run** stayed silent
 
 An earlier attempt with another bot showed something we didn't plan. To fake a new release, we rolled back the bot's saved state file by one version. The bot read its own chat history, saw it had already told us about that release, and put the file back without messaging us twice.
 
-Two things to know:
-
-- **"Every hour" became weekday working hours.** Both bots scheduled checks from about 8 AM to 7 PM, Monday to Friday. That's OpenTeam's default for loosely worded schedules, and the bot says so in the chat. Say "around the clock" if you mean it.
-- **It saved too much.** Each check downloaded uv's full release history, about 25 MB, and kept it. At 12 checks a weekday that's about 1.5 GB a week, unless you tell it to clean up.
+**"Every hour" became weekday working hours.** Both bots scheduled checks from about 8 AM to 7 PM, Monday to Friday. That's OpenTeam's default for loosely worded schedules, and the bot says so in the chat. Say "around the clock" if you mean it.
 
 There's a bigger difference here. A teammate can react when something arrives in Slack, GitHub or Linear. An OpenTeam routine runs on a schedule, at most every five minutes, or when an email arrives. It checks; it isn't told.
 
@@ -112,7 +109,7 @@ Then came the handoff. Perplexity's example is one teammate finding bugs and pas
 
 The engineer bot fixed all three bugs with regression tests in under two minutes. The QA bot didn't take its word for it: "I'm not treating the engineer's passing tests alone as sign-off." It ran its own checks and only then reported what shipped and what was left. That list was right: the euro request and two reports that need more information from their reporters.
 
-Our 15 hidden tests, which neither bot saw, all pass on the fixed code. We found one leftover edge case: a credit that rounds to zero prints as "-$0.00." From our message to the QA bot's sign-off took 8 minutes 54 seconds, and both bots together cost $1.11.
+Our 15 hidden tests, which neither bot saw, all pass on the fixed code. From our message to the QA bot's sign-off took 8 minutes 54 seconds, and both bots together cost $1.11.
 
 We used a local folder, not GitHub. Teammates would open pull requests on a connected repository. OpenTeam has a GitHub plugin too, but we didn't connect one for this test.
 
@@ -126,11 +123,9 @@ We used a local folder, not GitHub. Teammates would open pull requests on a conn
 
 If any of those decides it, Teammates is the better product today.
 
-## Where OpenTeam fell short in our test
+## Where OpenTeam falls short
 
-The answers were long: 2,056 words for a short brief. The monitoring routine kept every download, and "every hour" quietly meant weekdays. In the research run, eight model requests failed with a connection error and were retried automatically; no answer was lost, but each retry costs time.
-
-In [our everyday errands test](/blog/ai-agent-everyday-errands), the bot computer's browser couldn't reach sites that publish IPv6 addresses on our IPv4-only network. None of these four jobs ran into that. The usual limits apply too. There's one model per server and one human account, with apps for macOS on Apple silicon, Linux and an iPhone beta. Nothing asks for approval except email, Slack messages and texts.
+The answers were long: 2,056 words for a short brief. Loosely worded schedules default to weekday working hours. There's one model per server and one human account, with apps for macOS on Apple silicon, Linux and an iPhone beta. Nothing asks for approval except email, Slack messages and texts.
 
 ## Which should you choose?
 

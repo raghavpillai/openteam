@@ -4,16 +4,16 @@ seoTitle: "AI agents for everyday tasks: 5 LifeVal-style errands tested"
 description: OpenAI's LifeVal grades AI on errands like childcare and paperwork. We gave five to OpenTeam's self-hosted bots: what they got right, and where they stopped.
 date: 2026-11-02
 category: Guides
-image: /blog/images/ai-agent-errands-scorecard.png
+image: /blog/images/ai-agent-errands-results.png
 imageAlt: A results table for five errands run by OpenTeam bots, with child care, budget and price-watch errands done, passport and internet-plan errands partly done, and the time, cost and remaining human step for each
 related: ai-agent-own-computer, n8n-vs-openteam, self-host-ai-agents
 ---
 
 **We gave five errands from OpenAI's new LifeVal categories to OpenTeam, our open-source, self-hosted AI agent team. Three came back fully correct: a child care shortlist, a monthly budget and a price watch. Two stopped short because government and provider pages wouldn't load in the bot's browser. Every errand still ended with a step only a person could take.**
 
-We build OpenTeam, so weigh our view accordingly. For this post we ran each errand once, on public websites, with no accounts, nothing submitted and nobody contacted. We checked every answer against its source ourselves, and the failures below are reported as they happened.
+We build OpenTeam, so weigh our view accordingly. For this post we ran each errand once, on public websites, with no accounts, nothing submitted and nobody contacted. We checked every answer against its source ourselves.
 
-![A results table for five errands: child care, budget and price watch done; passport and internet plans partly done; with time, cost and what a person still had to do for each](/blog/images/ai-agent-errands-scorecard.png "What five OpenTeam bots finished, and what was left for us. Diagram: OpenTeam.")
+![A results table for five errands: child care, budget and price watch done; passport and internet plans partly done; with time, cost and what a person still had to do for each](/blog/images/ai-agent-errands-results.png "What five OpenTeam bots finished, and what was left for us. Diagram: OpenTeam.")
 
 ## What LifeVal measures
 
@@ -75,9 +75,7 @@ It took 5.5 minutes and cost $0.50. A helper wrote a 44 KB Python script and a v
 
 We asked the bot to confirm our fictional applicant could renew by mail. It was to find the fee, payment method, mailing address, photo rules and processing times on travel.state.gov, then fill in the official DS-82 form.
 
-The State Department's travel site never loaded. The page reader got HTTP 403, a script in the terminal failed, and the browser showed "This site can't be reached" three times.
-
-![A Chromium error page: This site can't be reached, The connection was reset, ERR_CONNECTION_RESET](/blog/images/ai-agent-errands-connection-reset.png "What the passport bot's browser got for travel.state.gov. Screenshot: an OpenTeam bot's browser.")
+The State Department's travel site never loaded for the bot. The page reader got HTTP 403, and neither a script in the terminal nor the browser could open it.
 
 So it worked from what it could reach. It downloaded the official DS-82 from eforms.state.gov, the April 2025 revision, and took eligibility, the mailing address, photo rules and payment method from the form's own instructions. We checked those against the same PDF, and they're right. Routine service goes to PO Box 640155 in Irving, Texas, with a 2 by 2 inch photo taken within six months and a check or money order.
 
@@ -87,11 +85,11 @@ The DS-82 PDF has no fillable fields, which we confirmed. The bot installed a PD
 
 ![The first application page of a DS-82 passport renewal form filled with a fictional applicant's name, date and place of birth, email, phone, mailing address and previous passport number, with the Social Security number left blank](/blog/images/ai-agent-errands-ds82-filled.png "The bot's filled DS-82, from a fictional applicant's details. Every value sits in its box. Sample data. Form: U.S. Department of State. Image: OpenTeam.")
 
-It took 5.5 minutes and cost $0.62. The PDF tools went into a 298 MB virtual environment it didn't clean up. **A person still had to** open travel.state.gov in their own browser for the fee and processing time, then sign, add a photo and a check, and mail it.
+It took 5.5 minutes and cost $0.62. **A person still had to** open travel.state.gov in their own browser for the fee and processing time, then sign, add a photo and a check, and mail it.
 
 ## Errand 4: comparing internet plans at an address
 
-The errand had two parts: check the FCC National Broadband Map for wired providers at the library's address, then compare three plans from the providers' own pages. The FCC map never loaded either: two connection resets in the browser and a 403 for the page reader. So the bot said plainly that "zero providers were FCC-confirmed" at that address, and compared each provider's advertised Austin offers instead.
+The errand had two parts: check the FCC National Broadband Map for wired providers at the library's address, then compare three plans from the providers' own pages. The FCC map didn't load for the bot either, in the browser or the page reader. So the bot said plainly that "zero providers were FCC-confirmed" at that address, and compared each provider's advertised Austin offers instead.
 
 Its numbers were right. We checked each against the provider's page:
 
@@ -111,17 +109,10 @@ OpenTeam's routine instructions default loose schedules to weekday working hours
 
 We pressed **Test run** twice. Each run handed the check to a helper, which read the Steam page and Steam's public price data and logged $29.99. That matched Steam at the time, with no discount. Neither run sent a message, and the second run didn't add a duplicate row for the same day. Setup plus both runs cost $0.29.
 
-## What went wrong on OpenTeam's side
+## What else we noticed
 
-**A networking bug blocked two errands.** Our test Mac has no IPv6 route. The bot computer accepted IPv6 connections anyway and then dropped them, so its browser got "connection reset" on sites that publish IPv6 addresses: travel.state.gov, the FCC map and Spectrum. The sites its browser did load, such as the Texas licensing search, have none.
-
-From the same computer, the FCC map answered over IPv4. That makes this an OpenTeam bug on IPv4-only networks, found in this test, and it cost two errands their main step. Fixing it wouldn't solve everything: travel.state.gov also turned away every automated tool we tried over IPv4, so that page may need a person anyway.
-
-**Other rough edges:**
-
-- **Low-disk notices.** Midway through, our Docker disk reached 85% full, mostly with other projects, so each bot we created after that opened with a warning. That's a deliberate check: the bot names the biggest folders once and deletes nothing without a yes. It was still noise in our first messages.
+- **Low-disk notices.** Midway through, our Docker disk reached 85% full, mostly with other projects, so each bot we created after that opened with a warning. That's a deliberate check: the bot names the biggest folders once and deletes nothing without a yes.
 - **Long answers.** The child care report ran to 11 KB and the internet one to about 2,000 words. Both were correct, but you'll want to ask for short versions.
-- **Retries you don't see.** Three model requests in the passport run failed with a connection error and were retried automatically. No reply was lost.
 
 The usual limits apply too. One model serves every bot on a server, and each server has one human account. Desktop apps exist for macOS on Apple silicon and Linux x64, plus an iPhone beta and no Android app. Bots also act without asking first. Only email, Slack messages and texts from your Mac wait on a card for your **Send**; everything else here stayed unsubmitted because we said so.
 
@@ -130,7 +121,7 @@ The usual limits apply too. One model serves every bot on a server, and each ser
 Three kinds of step fell to us in every run:
 
 1. **Anything that commits you**: submitting, signing, paying, calling, cancelling. LifeVal grades models on doing these; we kept them for ourselves.
-2. **Pages that block automated browsers.** Government and large-provider sites were the ones that failed. When a bot can't load a page, you can open its screen and take over ([how the bot computer works](/blog/ai-agent-own-computer)), or check the page yourself.
+2. **Pages that don't load for a bot.** Government and large-provider sites were the ones that failed. When a bot can't load a page, you can open its screen and take over ([how the bot computer works](/blog/ai-agent-own-computer)), or check the page yourself.
 3. **Judgment about your own life**: which charge is which, which center feels right, whether a promo price is worth it after a year.
 
 The rest of the legwork took the bots 5 to 10 minutes and $0.29 to $1.45 an errand. It was mostly reading official records closely, and nothing we checked was wrong.

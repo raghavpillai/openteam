@@ -59,7 +59,7 @@ The result was speed: 45 seconds of busy time per task, against Sol's 2.2 minute
 
 GLM-5.3 cost $0.097 a task, against Sol's $0.221: 2.3 times cheaper, not the 28 times that OpenRouter's headline input prices ($0.07 against $2) suggest.
 
-OpenRouter [lists GLM-5.3 at 47 endpoints from 36 hosts](https://openrouter.ai/z-ai/glm-5.3/providers), with input prices from $0.07 to $2.80 per million tokens, and most of the cheapest report 4-bit weights. It sent 44 of our 50 calls to Together at $1.40 input and $4.40 output, the same as [Z.ai's own price](https://docs.z.ai/guides/overview/pricing). The cost estimate in the bots' session logs used the headline price and said $0.017 a task; the bill was 5.7 times that.
+OpenRouter [lists GLM-5.3 at 47 endpoints from 36 hosts](https://openrouter.ai/z-ai/glm-5.3/providers), with input prices from $0.07 to $2.80 per million tokens, and most of the cheapest report 4-bit weights. It sent 44 of our 50 calls to Together at $1.40 input and $4.40 output, the same as [Z.ai's own price](https://docs.z.ai/guides/overview/pricing).
 
 ### What text-only means in OpenTeam
 

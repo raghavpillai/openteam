@@ -548,8 +548,13 @@ const server = Bun.serve({
         const body = (await request.json()) as { cwd?: string; active?: unknown };
         if (!body.cwd) return json({ error: "cwd is required" }, 400);
         const cwd = safePath(body.cwd);
-        const input = Schema.decodeUnknownSync(ScreenTakeoverInput)({ active: body.active });
-        return json(await screens.takeover(takeoverMatch[1], cwd, input.active));
+        const raw = body as { renew?: unknown; activity?: unknown };
+        const input = Schema.decodeUnknownSync(ScreenTakeoverInput)({ active: body.active, renew: raw.renew });
+        // `activity` is reported only by the server's VNC proxy, never by end-user clients.
+        return json(await screens.takeover(takeoverMatch[1], cwd, input.active, {
+          renew: input.renew,
+          activity: raw.activity === true,
+        }));
       }
 
       const pauseMatch = url.pathname.match(/^\/v1\/screens\/([^/]+)\/pause$/);

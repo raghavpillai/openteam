@@ -65,6 +65,8 @@ const vnc = new ScreenVncProxy({
     ]);
     return bot?.status === "active" && Boolean(session);
   },
+  // Best effort: a missed report only lets the idle timer run slightly longer.
+  onActivity: (botId) => { void run(app.screenActivity(botId)).catch(() => undefined); },
 });
 
 const authorizedInternal = (request: Request): boolean => {

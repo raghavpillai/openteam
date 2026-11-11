@@ -7,6 +7,8 @@ import { ApiError } from "@openteam/contracts";
 // exact; every connection still requires its one-use authenticated ticket.
 const viewerOrigin = (origin: string | null) => origin === "file://" || origin === "null" ? null : origin;
 
+const ACTIVITY_REPORT_MS = 5_000;
+
 export interface VncIdentity { botId: string; sessionId: string | null }
 interface Ticket extends VncIdentity {
   origin: string | null;
@@ -20,6 +22,8 @@ export interface VncConnection {
   queued: Uint8Array[];
   queuedBytes: number;
   closed: boolean;
+  /** The RFB handshake finished: the client has sent its first FramebufferUpdateRequest. */
+  ready?: boolean;
   timer?: ReturnType<typeof setTimeout>;
   check?: ReturnType<typeof setInterval>;
 }
@@ -36,7 +40,26 @@ export class ScreenVncProxy {
     authorized: (identity: VncIdentity) => Promise<boolean>;
     now?: () => number;
     recheckMs?: number;
+    /** Called at most once per ACTIVITY_REPORT_MS per bot while a client sends key, pointer or clipboard input. */
+    onActivity?: (botId: string) => void;
   }) {}
+  private lastActivity = new Map<string, number>();
+
+  /**
+   * RFB client messages 4 (KeyEvent), 5 (PointerEvent) and 6 (ClientCutText) are user input.
+   * Only messages after the first FramebufferUpdateRequest (3) count, because handshake bytes
+   * such as the password response are arbitrary. A viewer in observation mode sends none of them.
+   */
+  private noteInput = (data: VncConnection, message: Uint8Array) => {
+    const type = message[0];
+    if (type === 3) data.ready = true;
+    if (!data.ready || (type !== 4 && type !== 5 && type !== 6)) return;
+    const now = (this.options.now ?? Date.now)();
+    const botId = data.ticket.botId;
+    if (now - (this.lastActivity.get(botId) ?? 0) < ACTIVITY_REPORT_MS) return;
+    this.lastActivity.set(botId, now);
+    this.options.onActivity?.(botId);
+  };
 
   async issue(botId: string, sessionId: string | null, origin: string | null) {
     const identity = { botId, sessionId };
@@ -136,6 +159,7 @@ export class ScreenVncProxy {
       const data = client.data;
       if (data.closed) return;
       if (typeof message === "string") { this.close(data, 1003); return; }
+      this.noteInput(data, message);
       if (data.upstream?.readyState === WebSocket.OPEN) {
         if (data.upstream.bufferedAmount + message.byteLength > 1024 * 1024) {
           this.close(data, 1013, "Computer input is congested");

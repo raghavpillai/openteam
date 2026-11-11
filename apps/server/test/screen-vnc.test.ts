@@ -9,6 +9,7 @@ function fixture() {
   let authorized = true;
   let now = Date.now();
   let upstreamCloses = 0;
+  const activity: string[] = [];
   const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0,
     fetch: (request, server) => server.upgrade(request) ? undefined : new Response(null, { status: 400 }),
     websocket: {
@@ -21,12 +22,14 @@ function fixture() {
     endpoint: async () => ({ url: `ws://127.0.0.1:${upstream.port}/websockify`, password: "vnc-test-only" }),
     authorized: async ({ botId, sessionId }) => authorized && botId === "bot-a" && sessionId === "session-a",
     now: () => now, recheckMs: 20,
+    onActivity: (botId) => { activity.push(botId); },
   });
   const server = Bun.serve<VncConnection>({ hostname: "127.0.0.1", port: 0, websocket: proxy.websocket,
     fetch: (request, server) => proxy.upgrade(request, server, new URL(request.url).pathname.slice(1)),
   });
   cleanups.push(() => { proxy.stop(); server.stop(true); upstream.stop(true); });
-  return { proxy, server, revoke: () => { authorized = false; }, expire: () => { now += 30_001; },
+  return { proxy, server, activity, advance: (ms: number) => { now += ms; },
+    revoke: () => { authorized = false; }, expire: () => { now += 30_001; },
     closes: () => upstreamCloses };
 }
 async function connect(f: ReturnType<typeof fixture>, protocols: string[], bot = "bot-a", origin?: string) {
@@ -63,6 +66,34 @@ test("VNC grants relay binary bytes bidirectionally and close the upstream", asy
   for (let n = 0; !f.closes() && n < 40; n++) await Bun.sleep(5);
   expect(f.closes()).toBe(1);
   await denied(await connect(f, grant.protocols));
+});
+
+test("only key, pointer and clipboard input after the handshake reports user activity, rate limited", async () => {
+  const f = fixture();
+  const grant = await f.proxy.issue("bot-a", "session-a", null);
+  const socket = await connect(f, grant.protocols);
+  await event(socket, "message");
+  const echoed = async (bytes: number[]) => {
+    const reply = event<MessageEvent<ArrayBuffer>>(socket, "message");
+    socket.send(new Uint8Array(bytes));
+    await reply;
+  };
+  // Handshake bytes (security response, ClientInit) can start with any value.
+  await echoed([4, 0, 0, 0]);
+  await echoed([1, 1]);
+  expect(f.activity).toEqual([]);
+  // A FramebufferUpdateRequest and SetEncodings alone are viewing, not input.
+  await echoed([3, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  await echoed([2, 0, 0, 1, 0, 0, 0, 0]);
+  expect(f.activity).toEqual([]);
+  await echoed([5, 0, 0, 10, 0, 10]);
+  expect(f.activity).toEqual(["bot-a"]);
+  await echoed([4, 1, 0, 0, 0, 0, 0, 97]);
+  await echoed([6, 0, 0, 0, 0, 0, 0, 0]);
+  expect(f.activity).toEqual(["bot-a"]);
+  f.advance(5_001);
+  await echoed([4, 1, 0, 0, 0, 0, 0, 97]);
+  expect(f.activity).toEqual(["bot-a", "bot-a"]);
 });
 
 test("missing, expired, wrong-bot, wrong-origin and revoked grants cannot connect", async () => {

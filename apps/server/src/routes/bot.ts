@@ -93,7 +93,7 @@ const routes = [
     "POST",
     /^\/api\/bots\/([^/]+)\/screen\/takeover$/,
     ScreenTakeoverInput,
-    ({ app }, id, input) => app.screenTakeover(id, input.active)
+    ({ app }, id, input) => app.screenTakeover(id, input.active, input.renew)
   ),
   bodyRoute(
     "POST",

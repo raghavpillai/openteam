@@ -1026,7 +1026,15 @@ export const ComputerUseInput = Schema.Struct({
 );
 export type ComputerUseInput = typeof ComputerUseInput.Type;
 
-export const ScreenTakeoverInput = Schema.Struct({ active: Schema.Boolean });
+/**
+ * `renew` marks a heartbeat: it extends a lease the user already holds and never acquires one,
+ * so a late heartbeat cannot revive a released or idle-expired lease. A heartbeat does not count
+ * as user activity; the computer releases the lease after five minutes without real input.
+ */
+export const ScreenTakeoverInput = Schema.Struct({
+  active: Schema.Boolean,
+  renew: Schema.optional(Schema.Boolean),
+});
 export type ScreenTakeoverInput = typeof ScreenTakeoverInput.Type;
 
 export const ScreenPauseInput = Schema.Struct({ paused: Schema.Boolean });

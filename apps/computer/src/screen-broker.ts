@@ -45,6 +45,17 @@ const VIEWER_PORT_BASE = 6200;
 const BROWSER_DEBUG_PORT_BASE = 9300;
 
 const TAKEOVER_TTL_MS = 45_000;
+/** A held lease with no user operation for this long is released so the bot can work again. */
+export const HUMAN_IDLE_RELEASE_MS = 5 * 60_000;
+
+/**
+ * The user holds the input lease while heartbeats keep it alive and they operated the computer
+ * within HUMAN_IDLE_RELEASE_MS. Heartbeats alone never keep a forgotten viewer in control.
+ */
+const humanHoldsLease = (session: Pick<ScreenSession, "humanTakeoverUntil" | "humanActiveAt">): boolean => {
+  const now = Date.now();
+  return session.humanTakeoverUntil > now && now - session.humanActiveAt < HUMAN_IDLE_RELEASE_MS;
+};
 const COMPUTER_SETTLE_MS = 500;
 
 const ENDPOINT_STARTUP_TIMEOUT_MS = 10_000;
@@ -127,6 +138,7 @@ export class ScreenBroker {
           state: "starting",
           error: null,
           humanTakeoverUntil: 0,
+          humanActiveAt: 0,
           agentInputPaused: false,
           destroyed: false,
           stopping: false,
@@ -192,6 +204,7 @@ export class ScreenBroker {
     const session = await this.readySession(botId, cwd);
     this.noteBrowserUse(botId);
     return this.withInput(session, actor, async (signal) => {
+      if (actor === "human" && humanHoldsLease(session)) session.humanActiveAt = Date.now();
       const env = environment(this.home, session);
       switch (input.action) {
         case "move":
@@ -245,8 +258,9 @@ export class ScreenBroker {
     externalSignal?.throwIfAborted();
     const session = await this.readySession(botId, cwd);
     return this.withInput(session, "human", async () => {
-      if (session.humanTakeoverUntil <= Date.now()) throw new Error("Take control before using the computer clipboard");
+      if (!humanHoldsLease(session)) throw new Error("Take control before using the computer clipboard");
       session.humanTakeoverUntil = Date.now() + TAKEOVER_TTL_MS;
+      session.humanActiveAt = Date.now();
       const signal = AbortSignal.any([AbortSignal.timeout(8_000), ...(externalSignal ? [externalSignal] : [])]);
       return performClipboardOperation(input, environment(this.home, session), signal, child => {
         session.processes.push(child);
@@ -342,10 +356,29 @@ export class ScreenBroker {
     return basename(session.profileDirectory);
   }
 
-  async takeover(botId: string, cwd: string, active: boolean): Promise<ScreenStatus> {
+  async takeover(
+    botId: string,
+    cwd: string,
+    active: boolean,
+    options: { renew?: boolean; activity?: boolean } = {}
+  ): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
-    session.humanTakeoverUntil = active ? Date.now() + TAKEOVER_TTL_MS : 0;
-    if (active) await this.interruptAgentInput(session);
+    const now = Date.now();
+    if (!active) {
+      session.humanTakeoverUntil = 0;
+    } else if (options.renew) {
+      // A heartbeat only extends a lease the user still holds. It never acquires one, so it
+      // cannot revive a lease that was released or expired from idleness.
+      if (humanHoldsLease(session)) {
+        session.humanTakeoverUntil = now + TAKEOVER_TTL_MS;
+        if (options.activity) session.humanActiveAt = now;
+      }
+    } else {
+      const acquiring = !humanHoldsLease(session);
+      session.humanTakeoverUntil = now + TAKEOVER_TTL_MS;
+      session.humanActiveAt = now;
+      if (acquiring) await this.interruptAgentInput(session);
+    }
     return this.statusFor(session);
   }
 
@@ -421,7 +454,7 @@ export class ScreenBroker {
 
   private assertAgentControl(session: ScreenSession): void {
     if (session.agentInputPaused) throw new Error("Agent graphical input is paused");
-    if (session.humanTakeoverUntil > Date.now()) {
+    if (humanHoldsLease(session)) {
       throw new Error("The user currently holds the graphical input lease");
     }
   }
@@ -792,7 +825,7 @@ export class ScreenBroker {
       display: session.display,
       viewerPort: session.viewerPort,
       viewerPassword: session.viewerPassword,
-      humanTakeover: session.humanTakeoverUntil > Date.now(),
+      humanTakeover: humanHoldsLease(session),
       agentInputPaused: session.agentInputPaused,
       apps: ["chromium", "thunar", "terminal"],
       browserProfileScope: "computer",

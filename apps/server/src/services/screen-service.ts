@@ -253,7 +253,12 @@ export class ScreenService {
       catch: ScreenService.toError,
     });
 
-  takeover = (botId: string, active: boolean) => this.updateControl(botId, "takeover", { active });
+  takeover = (botId: string, active: boolean, renew = false) =>
+    this.updateControl(botId, "takeover", { active, ...(renew ? { renew: true } : {}) });
+
+  /** The VNC proxy saw the user operate the computer; this resets the five-minute idle release. */
+  reportActivity = (botId: string) =>
+    this.updateControl(botId, "takeover", { active: true, renew: true, activity: true });
 
   pause = (botId: string, paused: boolean) => this.updateControl(botId, "pause", { paused });
 
@@ -318,7 +323,7 @@ export class ScreenService {
   private updateControl(
     botId: string,
     endpoint: "takeover" | "pause",
-    input: { active: boolean } | { paused: boolean }
+    input: { active: boolean; renew?: boolean; activity?: boolean } | { paused: boolean }
   ) {
     return Effect.tryPromise({
       try: async () => {

@@ -1,5 +1,5 @@
 import type { Prisma } from "@openteam/db";
 
-/** A Task must either commit before deletion takes its child snapshot, or see the retired parent. */
+/** New work commits before retirement takes its cancellation snapshot, or sees the retired owner. */
 export const lockAgentLifecycle = (tx: Prisma.TransactionClient, botId: string) =>
   tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-lifecycle:${botId}`}))`;

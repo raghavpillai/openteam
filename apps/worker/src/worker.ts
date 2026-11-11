@@ -1556,6 +1556,9 @@ export class WakeWorker {
       const completionFailure = turnCompletionFailure(completion);
       if (completionFailure) throw completionFailure;
       await this.prisma.$transaction(async (tx) => {
+        // Routine settlement may launch a follow-up. Acquire its owner gate before any run or
+        // inbox row, matching retirement and routine launch instead of inverting their order.
+        await lockAgentLifecycle(tx, claimed.botId);
         const completedAt = new Date();
         await tx.inboxEvent.update({
           where: { id: claimed.inboxId },
@@ -1811,6 +1814,7 @@ export class WakeWorker {
     } satisfies Prisma.InputJsonObject;
     let priorityInterrupted = false;
     await this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, claimed.botId);
       // Cancellation and failure settle the same run. Read its terminal state only after
       // taking the write lock, otherwise a late disconnect can undo a committed deletion.
       await tx.$executeRaw`SELECT id FROM "Run" WHERE id = ${claimed.runId}::uuid FOR NO KEY UPDATE`;

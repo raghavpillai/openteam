@@ -47,7 +47,7 @@ for (const kind of ["completion", "failure"] as const) {
       const deadline = Date.now() + 3000;
       let waiting = false;
       while (!archived && !waiting && Date.now() < deadline) {
-        const rows = await db.$queryRaw<any[]>`SELECT pid FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%Run%' AND query NOT LIKE '%pg_stat_activity%'`;
+        const rows = await db.$queryRaw<any[]>`SELECT pid FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND (query LIKE '%Run%' OR query LIKE '%pg_advisory_xact_lock%') AND query NOT LIKE '%pg_stat_activity%'`;
         waiting = rows.length > 0;
         if (!waiting && !archived) await Bun.sleep(2);
       }

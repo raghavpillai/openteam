@@ -311,12 +311,13 @@ export class SubagentService {
 
   /**
    * The user stopping a run, as the reference's agent-run interrupt: a worker's turn stops that
-   * worker (its shells end and it won't report back, as with StopSubagent); a bot's turn stops
-   * along with every subagent the bot has running.
+   * worker (its shells end and it won't report back, as with StopSubagent). An active bot turn
+   * stops all its subagents; a finished turn stops workers owned by its original request.
    */
   stopRun = (runId: string) =>
     serviceEffect(async () => {
-      const run = await this.prisma.run.findUnique({ where: { id: runId }, select: { botId: true, status: true, error: true, completedAt: true, requestStoppedAt: true } });
+      const run = await this.prisma.run.findUnique({ where: { id: runId }, select: { botId: true, status: true, error: true, completedAt: true, requestStoppedAt: true,
+        inboxEvents: { take: 1, select: { payload: true } } } });
       if (!run) throw new ApiError(404, "run_not_found", "Run not found");
       const callId = `user-stop:${runId}`;
       const worker = await this.prisma.subagent.findFirst({
@@ -331,10 +332,14 @@ export class SubagentService {
       const userCancelled = run.error && typeof run.error === "object" && !Array.isArray(run.error) &&
         (run.error as { code?: unknown }).code === "cancelled_by_user";
       const stoppedAt = run.status === "cancelled" && userCancelled ? run.completedAt ?? run.requestStoppedAt : null;
+      const requestRunId = (run.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined)?.taskContextRunId ?? runId;
       // A retry after a partial stop still owns its old workers, but must not
       // cancel a worker attached to a fresh request after the failed attempt.
-      const workerScope: Prisma.SubagentWhereInput | null = ["queued", "running"].includes(run.status) ? {}
-        : stoppedAt ? { OR: [{ parentRunId: runId }, { requestRun: { requestStoppedAt: { lte: stoppedAt } } }] } : null;
+      // A finished model turn may still own live delegated work. Stop that
+      // request's workers too, without reaching independent sibling requests.
+      const workerScope: Prisma.SubagentWhereInput = ["queued", "running"].includes(run.status) ? {}
+        : stoppedAt ? { OR: [{ parentRunId: runId }, { requestRunId }, { requestRun: { requestStoppedAt: { lte: stoppedAt } } }] }
+        : { OR: [{ parentRunId: runId }, { requestRunId }] };
       // A transport failure stopping the parent must not leave its workers
       // untouched or delay their stop, and child failures must reach the caller.
       const [cancellation, workers] = await Promise.all([
@@ -342,8 +347,7 @@ export class SubagentService {
           result => ({ ok: true as const, result }),
           error => ({ ok: false as const, error }),
         ),
-        workerScope !== null
-          ? this.stopRunningSubagents(run.botId, callId, workerScope) : Promise.resolve([]),
+        this.stopRunningSubagents(run.botId, callId, workerScope),
       ]);
       if (workers.some(worker => worker.outcome === "failed"))
         throw new ApiError(503, "bot_stop_incomplete", "Some work could not be stopped. Try Stop again.");

@@ -14,7 +14,7 @@ function fixture() {
   ];
   const matches = (row: any, where: any) => Object.entries(where).every(([key, value]: any) =>
     key === "OR" ? value.some((condition: any) => matches(row, condition)) :
-    value && typeof value === "object" && "in" in value ? value.in.includes(row[key]) : row[key] === value);
+    value && typeof value === "object" && "in" in value ? value.in.includes(row[key]) : (row[key] ?? null) === value);
   const events: any[] = [];
   const cancelled: string[] = [];
   const shellStops: string[] = [];
@@ -23,7 +23,8 @@ function fixture() {
     bot: { findUnique: async ({ where }: any) => (["bot", "idle-bot"].includes(where.id) ? { id: where.id } : null) },
     run: {
       findUnique: async ({ where }: any) => (runs[where.id] ? { ...runs[where.id], inboxEvents: [] } : null),
-      findMany: async ({ where }: any) => where.requestProgress ? [] : Object.values(runs).filter((row) => matches(row, where)).map(({ id }) => ({ id })),
+      findMany: async ({ where, select }: any) => where.requestProgress ? [] : Object.values(runs).filter((row) => matches(row, where)).map((row) => select?.inboxEvents ? { ...row, inboxEvents: [] } : { id: row.id }),
+      update: async ({ where, data }: any) => Object.assign(runs[where.id]!, data),
       count: async ({ where }: any) => Object.values(runs).filter(row => matches(row, where)).length,
     },
     subagent: {
@@ -37,6 +38,7 @@ function fixture() {
       },
     },
     subagentAttempt: { updateMany: async () => ({ count: 1 }) },
+    inboxEvent: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
     event: { create: async ({ data }: any) => events.push(data) },
   };
   db.$transaction = async (fn: any) => fn(db);
@@ -131,21 +133,23 @@ test("a parent cancellation waiting on its transport does not delay stopping its
   }
 });
 
-test("a stop of a bot's finished run leaves its subagents alone", async () => {
+test("a stop of a bot's finished run stops its remaining work and preserves independent workers", async () => {
   const f = fixture();
   f.runs.main!.status = "completed";
+  f.subagents[1]!.parentRunId = "independent-request";
   await Effect.runPromise(f.service.stopRun("main"));
-  expect(f.cancelled).toEqual(["main"]);
-  expect(f.subagents.map((row) => row.status)).toEqual(["running", "running"]);
+  expect(f.cancelled).toEqual(["main", "workerRun"]);
+  expect(f.subagents.map((row) => row.status)).toEqual(["stopped", "running"]);
 });
 
-test("stopping a naturally finished run remains harmless when request bookkeeping was already stopped", async () => {
+test("stopping a finished request with stopped bookkeeping still cancels its remaining worker", async () => {
   const f = fixture();
   f.runs.main!.status = "completed";
   f.runs.main!.requestStoppedAt = new Date();
+  f.subagents[1]!.status = "completed";
   await Effect.runPromise(f.service.stopRun("main"));
-  expect(f.cancelled).toEqual(["main"]);
-  expect(f.subagents.map(row => row.status)).toEqual(["running", "running"]);
+  expect(f.cancelled).toEqual(["main", "workerRun"]);
+  expect(f.subagents.map(row => row.status)).toEqual(["stopped", "completed"]);
 });
 
 test("a worker the worker process already recorded as stopped still counts as stopped", async () => {
@@ -171,7 +175,8 @@ test("stopping a bot stops its turn and every subagent it has running, without p
   expect(result).toEqual({ hadActiveRun: true });
   expect(f.cancelled).toEqual(["main", "workerRun", "otherRun"]);
   expect(f.subagents.map((row) => row.status)).toEqual(["stopped", "stopped"]);
-  expect(f.events.map((event) => event.topic)).toEqual(["subagent.stopped", "subagent.stopped"]);
+  expect(f.events.filter(event => event.topic === "subagent.stopped")).toHaveLength(2);
+  expect(f.runs.main!.requestStoppedAt).toBeInstanceOf(Date);
 });
 
 test("stopping a bot whose turn ended stops the subagents still working in the background", async () => {

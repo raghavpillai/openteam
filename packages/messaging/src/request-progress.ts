@@ -472,11 +472,31 @@ export async function stopRequestProgress(
   const context =
     (source?.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined)
       ?.taskContextRunId ?? runId;
+  let legacyOwners: string[] = [];
+  if (!context) {
+    // Older tasks may predate durable request progress. Discover their live
+    // owners without treating every finished historical turn as unfinished work.
+    const workers = await tx.subagent.findMany({
+      where: { parentBotId: botId, status: { in: [...openWorkers] } },
+      select: { requestRunId: true, parentRunId: true },
+    });
+    const active = await tx.run.findMany({
+      where: { botId, OR: [
+        { status: { in: ["queued", "running"] } },
+        { id: { in: workers.map(worker => worker.requestRunId ?? worker.parentRunId) } },
+      ] },
+      select: { id: true, inboxEvents: { take: 1, select: { payload: true } } },
+    });
+    legacyOwners = active.map(run =>
+      (run.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined)?.taskContextRunId ?? run.id);
+  }
   const roots = await tx.run.findMany({
     where: {
       botId,
-      ...(context ? { id: context } : {}),
-      requestProgress: { not: Prisma.DbNull },
+      ...(context ? { id: context } : { OR: [
+        { requestProgress: { not: Prisma.DbNull } },
+        { id: { in: legacyOwners } },
+      ] }),
       requestStoppedAt: null,
     },
     select: { id: true },

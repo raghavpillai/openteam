@@ -138,8 +138,9 @@ struct TeamAppShortcuts: AppShortcutsProvider {
 
 // Scope the new marker conformance rather than the intent type itself. Existing
 // saved Shortcuts keep their identifiers and remain available back to iOS 18.
+// Enable only with the Siri preview SDK; stable SDKs can share its compiler version.
 // Messages-schema intents are already Siri tools; adding ToolIntent to those is invalid.
-#if compiler(>=6.4.2)
+#if OPENTEAM_SIRI_AI_PREVIEW
 @available(iOS 27.3, *)
 extension SendBotTaskIntent: ToolIntent {}
 @available(iOS 27.3, *)
@@ -191,7 +192,7 @@ struct DraftTeamConversationMessageIntent: AppIntent {
   }
 }
 
-#if compiler(>=6.4.2)
+#if OPENTEAM_SIRI_AI_PREVIEW
 @available(iOS 27.3, *)
 extension SendTeamConversationMessageIntent: ToolIntent {}
 @available(iOS 27.3, *)

@@ -42,7 +42,16 @@ Ordinary messages, chat navigation, composer and state are native Swift views.
 
 ## Siri AI preview and app skills
 
-Build with Xcode 27.3 beta or later. App Shortcuts support iOS 18 and later, and
+Build with Xcode 27.3 beta or later and explicitly enable the preview SDK features:
+
+```sh
+xcodebuild -project apps/ios/OpenTeamNative.xcodeproj -scheme OpenTeamNative \
+  -destination 'generic/platform=iOS Simulator' \
+  'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) OPENTEAM_SIRI_AI_PREVIEW' \
+  EXCLUDED_SOURCE_FILE_NAMES= build
+```
+
+App Shortcuts support iOS 18 and later, and
 saved Shortcuts (such as a Bot assigned to Back Tap) are keyed to the existing intent
 identifiers. Custom Siri tools need iOS 27.3 and the Messages domain schemas need
 iOS 27; their `ToolIntent` conformances are availability-scoped extensions, so older
@@ -200,12 +209,11 @@ frame rate, or Siri's spoken phrase routing.
 ## App Store builds
 
 Use a stable Xcode toolchain accepted by App Store Connect for public releases.
-Xcode 27.1 builds the app with the standard iOS 18+ Shortcuts integration.
-The custom Siri preview conformances compile with Swift 6.4.2 and later.
-When archiving with an older stable SDK, pass
-`EXCLUDED_SOURCE_FILE_NAMES=Skills.skillsbundle` to omit the preview-only app
-skills resource. Xcode 27.3 beta remains available for internal Siri preview
-builds.
+The standard iOS 18+ Shortcuts integration remains enabled.
+Stable builds omit the preview-only `Skills.skillsbundle` resource and custom
+`ToolIntent` conformances by default. A compiler version check is insufficient:
+Xcode 27.2 ships Swift 6.4.2 without the preview's `ToolIntent` API. For internal
+Siri preview builds, use Xcode 27.3 beta and the explicit opt-in command above.
 
 Public App Store builds use the App Store for updates. The in-app TestFlight
 update notice is enabled for sandbox-receipt beta builds and Debug QA builds.
@@ -224,8 +232,9 @@ before choosing another build number.
 
 ### In-app update notice
 
-The home-screen Update badge and the notice at the top of Settings open the
-OpenTeam public beta in TestFlight, with the HTTPS invitation as a fallback.
+In TestFlight and Debug builds, the home-screen Update badge and the notice at
+the top of Settings open the OpenTeam public beta in TestFlight, with the HTTPS
+invitation as a fallback.
 The app checks `https://openteam.so/ios-update.json` on launch, on returning to
 the foreground (at most once every 15 minutes), and every six hours while active.
 It compares both the marketing version and build number, independently of the

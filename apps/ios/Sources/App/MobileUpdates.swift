@@ -11,9 +11,9 @@ final class MobileUpdates {
   private var checking = false
   private let usesTestFlightUpdates: Bool = {
     #if DEBUG
-      return true
+      return MobileRelease.usesTestFlightUpdates(isDebug: true, receiptURL: Bundle.main.appStoreReceiptURL)
     #else
-      return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+      return MobileRelease.usesTestFlightUpdates(isDebug: false, receiptURL: Bundle.main.appStoreReceiptURL)
     #endif
   }()
   private let cacheKey = "openteam.testflight-release"

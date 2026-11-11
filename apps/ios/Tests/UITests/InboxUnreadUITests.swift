@@ -114,7 +114,7 @@ import XCTest
       assertChips(app, above: above, below: below)
       XCTAssertTrue(app.buttons["channel-unread-\(id)"].isHittable)
     }
-    XCTAssertFalse(app.buttons["chat-back"].exists)
+    XCTAssertFalse(app.chatBackButton.exists)
     try await assertNoReadRequests()
   }
 

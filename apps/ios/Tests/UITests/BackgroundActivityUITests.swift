@@ -79,7 +79,7 @@ import XCTest
     let draft = "Draft survives refresh with background tasks"
     composer.tap()
     composer.typeText(draft)
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     try await control("__qa/control", ["subagents": [task("running")]])
 
     // Confirm reconciliation has consumed the task before measuring each swipe.
@@ -87,7 +87,7 @@ import XCTest
     let activity = app.descendants(matching: .any).matching(identifier: "bot-activity").firstMatch
     await waitForActivity(activity, visible: true)
     XCTAssertEqual(activity.label, "Working in the background")
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     await fulfillment(of: [expectation(for: NSPredicate(format: "hittable == true"),
       evaluatedWith: conversation)], timeout: 10)
     try await Task.sleep(for: .milliseconds(500))
@@ -102,13 +102,13 @@ import XCTest
         if after > before || app.alerts.firstMatch.exists { break }
         try await Task.sleep(for: .milliseconds(100))
       }
-      if after == before {
+      if after != before {
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.lifetime = .keepAlways
         add(screenshot)
       }
-      XCTAssertGreaterThan(after, before, "A swipe must finish bootstrap decoding and fetch settings")
-      XCTAssertFalse(app.alerts.firstMatch.exists, "Refreshing current task data must not present an error")
+      XCTAssertEqual(after, before, "Inbox pulls must not refresh settings while task data updates live")
+      XCTAssertFalse(app.alerts.firstMatch.exists, "Pulling the inbox with current task data must not present an error")
       XCTAssertTrue(conversation.exists)
       XCTAssertFalse(app.textFields["username-field"].exists)
     }
@@ -125,7 +125,7 @@ import XCTest
       if delivered { break }
       try await Task.sleep(for: .milliseconds(100))
     }
-    XCTAssertTrue(delivered, "The same authenticated session must still send after refreshing")
+    XCTAssertTrue(delivered, "The same authenticated session must still send after pulling the inbox")
     try await control("__qa/control", ["authExpired": true])
     XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 12),
       "A genuinely expired session must still require sign-in")

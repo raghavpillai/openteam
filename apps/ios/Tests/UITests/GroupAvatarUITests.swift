@@ -20,7 +20,7 @@ import XCTest
       capture("groups-list-" + appearance, app)
       for count in [2, 5, 12] {
         app.buttons["channel-visual-group-\(count)"].tap()
-        XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 8))
         let avatar = app.descendants(matching: .any).matching(
           identifier: "group-avatar-visual-group-\(count)"
         ).firstMatch
@@ -32,15 +32,15 @@ import XCTest
         assertHeaderCentered(app)
         try await Task.sleep(for: .seconds(1))
         capture("groups-header-\(count)-" + appearance, app)
-        app.buttons["chat-back"].tap()
+        app.chatBackButton.tap()
       }
       for name in ["short", "long"] {
         app.buttons["channel-visual-header-\(name)"].tap()
-        XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["Computer"].exists)
         assertHeaderCentered(app)
         capture("direct-header-\(name)-" + appearance, app)
-        app.buttons["chat-back"].tap()
+        app.chatBackButton.tap()
       }
       app.terminate()
     }
@@ -115,7 +115,7 @@ import XCTest
   }
   func assertHeaderCentered(_ app: XCUIApplication) {
     let pill = app.buttons["conversation-details"]
-    let back = app.buttons["chat-back"]
+    let back = app.chatBackButton
     XCTAssertTrue(pill.isHittable)
     XCTAssertEqual(
       pill.frame.midX, app.frame.midX, accuracy: 0.5,

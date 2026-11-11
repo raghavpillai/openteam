@@ -645,7 +645,7 @@ final class FunctionalFlowUITests: XCTestCase {
     XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 8))
     replace(app.textFields["profile-name"], "Renamed without reordering")
     app.buttons["profile-save"].tap()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 8))
     let after = try await state()
     let saved = try XCTUnwrap((after["channels"] as? [[String: Any]])?.first { $0["id"] as? String == id })
     XCTAssertEqual((saved["members"] as? [[String: Any]])?.compactMap { $0["botId"] as? String }, members.compactMap { $0["botId"] as? String })
@@ -744,7 +744,7 @@ final class FunctionalFlowUITests: XCTestCase {
       (groupData["channels"] as? [[String: Any]])?.first { $0["name"] as? String == "Native group" }
     )
     XCTAssertEqual((group["members"] as? [Any])?.count, 2)
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     plugins(app)
     app.buttons["Plugin workspace"].tap()
     app.buttons["Create skill"].tap()

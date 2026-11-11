@@ -75,7 +75,7 @@ final class MessagePerformanceUITests: XCTestCase {
     input.tap()
     input.typeText("Still responsive after scrolling")
     XCTAssertEqual(input.value as? String, "Still responsive after scrolling")
-    XCTAssertTrue(app.buttons["chat-back"].isHittable)
+    XCTAssertTrue(app.chatBackButton.isHittable)
     let capture = XCTAttachment(screenshot: app.screenshot())
     capture.name = "history-after-scroll-and-typing"
     capture.lifetime = .keepAlways
@@ -446,7 +446,7 @@ final class MessagePerformanceUITests: XCTestCase {
   func testSearchResultCanBrowseOlderAndNewerHistory() async throws {
     let app = try await history("performance-text", scrollGeometry: true)
     defer { app.terminate() }
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     app.buttons["search-button"].tap()
     let field = app.textFields["search-input"]
     XCTAssertTrue(field.waitForExistence(timeout: 5))
@@ -465,7 +465,7 @@ final class MessagePerformanceUITests: XCTestCase {
   func testUnloadedSearchResultCanBrowseBothPageBoundaries() async throws {
     let app = try await history("history-pages", scrollGeometry: true)
     defer { app.terminate() }
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     app.buttons["search-button"].tap()
     let field = app.textFields["search-input"]
     XCTAssertTrue(field.waitForExistence(timeout: 5))

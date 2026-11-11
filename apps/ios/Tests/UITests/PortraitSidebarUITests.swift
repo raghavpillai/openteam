@@ -7,7 +7,7 @@ import XCTest
     continueAfterFailure = false
     let app = launch()
     let hide = app.buttons["sidebar-toggle"]
-    let back = app.buttons["chat-back"]
+    let back = app.chatBackButton
     XCTAssertTrue(hide.waitForExistence(timeout: 20) || back.waitForExistence(timeout: 5))
     if back.exists {
       back.tap()

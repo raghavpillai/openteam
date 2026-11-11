@@ -99,7 +99,7 @@ import XCTest
       XCTAssertFalse(app.buttons["marketplace-button"].exists)
     }
     if !hasSidebar {
-      app.buttons["chat-back"].tap()
+      app.chatBackButton.tap()
       XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 5))
       verifyInboxControlPlacement(app)
     }
@@ -114,7 +114,7 @@ import XCTest
     await fulfillment(of: [selected], timeout: 8)
     let loading = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
     XCTAssertTrue(loading.waitForNonExistence(timeout: 20))
-    if !hasSidebar { app.buttons["chat-back"].tap() }
+    if !hasSidebar { app.chatBackButton.tap() }
     XCTAssertTrue(unread.waitForNonExistence(timeout: 8))
   }
   private func verifyInboxControlPlacement(_ app: XCUIApplication) {
@@ -431,14 +431,14 @@ import XCTest
     let app = try await launch("edge-text")
     let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
     input.tap(); input.typeText("Keep this unsent draft")
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     let research = app.buttons["channel-channel-research"]
     XCTAssertTrue(research.waitForExistence(timeout: 5))
     research.tap()
     XCTAssertTrue(input.waitForExistence(timeout: 5))
     XCTAssertEqual(input.value as? String, "Keep this unsent draft")
     capture("restored-chat-draft", app)
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     app.terminate()
     app.launch()
     XCTAssertTrue(input.waitForExistence(timeout: 20))

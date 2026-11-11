@@ -120,7 +120,7 @@ export class NativeToolExecutor {
     return this.machines ? this.machines.messagesAvailable(signal).catch(() => false) : Promise.resolve(false);
   }
   private readonly shellJobs: ShellJobRegistry;
-  private readonly liveShells = new Map<string, { scope: string; background: boolean; stop: () => void }>();
+  private readonly liveShells = new Map<string, { scope: string; channelId?: string; background: boolean; stop: () => void }>();
   private readonly terminalDir: string;
   private readonly hostBridgeUrl: string;
   private readonly machines?: MachineDirectory;
@@ -155,9 +155,11 @@ export class NativeToolExecutor {
     );
   }
 
-  /** A stopped subagent's background commands end with it, through the same stop as an interrupted call. */
-  stopBackgroundShells(scope: string): number {
-    const running = [...this.liveShells.values()].filter((shell) => shell.scope === scope && shell.background);
+  /** Retirement may name an agent or a room; room commands run under their member agents' scopes. */
+  stopBackgroundShells(ownerId: string): number {
+    const running = [...this.liveShells.values()].filter((shell) =>
+      shell.background && (shell.scope === ownerId || shell.channelId === ownerId)
+    );
     for (const shell of running) shell.stop();
     return running.length;
   }
@@ -229,7 +231,7 @@ export class NativeToolExecutor {
       detached: true,
       stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],
     });
-    environmentCapture.closeParent();
+    child.once("close", () => environmentCapture.closeParent());
     const command = redactSecrets(input.command, secrets);
     const title = input.description?.trim() ? redactSecrets(input.description, secrets) : undefined;
     const frontmatter = (status: TerminalStatus) => terminalFrontmatter({
@@ -291,7 +293,7 @@ export class NativeToolExecutor {
       terminate();
       stopped();
     };
-    const live = { scope, background: false, stop: abort };
+    const live = { scope, channelId: routing.channelId, background: false, stop: abort };
     this.liveShells.set(shellId, live);
     // Like the reference, no Shell command outlives a day, even in the background.
     let expired = false;

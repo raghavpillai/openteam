@@ -17,7 +17,7 @@ test("group deletion records a durable tombstone before removing the row and tol
       update: async ({ data }: any) => { Object.assign(retired, data); },
     },
     contextSession: { findMany: async () => [] },
-    run: { findMany: async () => [] },
+    run: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
     event: { create: async ({ data }: any) => { order.push(data.topic); } },
   };
   const prisma = { ...tx, $transaction: async (work: any) => work(tx) };

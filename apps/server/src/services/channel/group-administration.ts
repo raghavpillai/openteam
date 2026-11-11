@@ -8,7 +8,7 @@ import {
   type UpdateChannelProfileInput,
 } from "@openteam/contracts";
 import type { PrismaClient } from "@openteam/db";
-import { type AgentDataStore, type AgentMessaging, GROUP_MAX_MEMBERS, cleanupRetiredAgent } from "@openteam/messaging";
+import { type AgentDataStore, type AgentMessaging, GROUP_MAX_MEMBERS, cleanupRetiredAgent, lockGroupExecution } from "@openteam/messaging";
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
 import { provisionDirectories } from "../provision-directories";
@@ -189,6 +189,9 @@ export class GroupAdministration {
   deleteGroup = (channelId: string) =>
     serviceEffect(async (): Promise<{ deleted: true; channelId: string }> => {
       const { memberIds } = await this.prisma.$transaction(async (tx) => {
+        // Claims, room messages, and delivery completion take this lock before mutating run/inbox
+        // state. Deletion must use the same order instead of racing their opposite row-write order.
+        await lockGroupExecution(tx, channelId);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('root-file:groups'))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
         const channel = await tx.channel.findFirst({
@@ -229,6 +232,13 @@ export class GroupAdministration {
         }
         await tx.retiredAgent.upsert({
           where: { id: channelId }, create: { id: channelId, cleanupRunIds: runIds }, update: {},
+        });
+        // Runs are retained as history, while rounds and deliveries disappear with the room.
+        // Detach both references explicitly before cascading the room deletion, including runs
+        // just changed to cancelled in this transaction.
+        await tx.run.updateMany({
+          where: { channelId },
+          data: { channelId: null, deliveryId: null },
         });
         await tx.channel.delete({ where: { id: channelId } });
         await appendEvent(tx, "channel.deleted", channelId, {

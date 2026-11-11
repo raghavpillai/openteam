@@ -351,6 +351,12 @@ export class BotService {
         );
         const ownerIds = [botId, ...children.map((child) => child.childBotId)];
         await stopRequestProgress(tx, botId);
+        // stopRequestProgress holds the parent's claim lock. Fence each child's snapshot too,
+        // before changing its run/inbox rows, so a delayed claim cannot revive cancelled work
+        // or recreate contexts after runtime cleanup has finished.
+        for (const childBotId of children.map((child) => child.childBotId).sort()) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${childBotId}`}))`;
+        }
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-bot:${botId}`}))`;
         const deletedAt = new Date();
         // Persist cancellation before contacting the runtime. The worker heartbeat retries it if

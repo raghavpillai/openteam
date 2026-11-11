@@ -19,7 +19,7 @@ test("reply reminder and emoji-relevant turn clauses retain source wording", () 
   expect(DELEGATING_SECTION.split("\n")).toContain(captured.delegationAcknowledgement);
 });
 
-test("the source-backed version contains none of our experimental behavioral additions", () => {
+test("abandoned reaction experiments remain absent", () => {
   const text = [REACT_TO_MESSAGE_TOOL.description, USER_REPLY_REMINDER, PLATFORM_BASE_SYSTEM_PROMPT].join("\n");
   for (const addition of ["A brief instruction update", "prefer a reaction if words add nothing", "Acknowledge a request once", "such as thanks or agreement"])
     expect(text).not.toContain(addition);

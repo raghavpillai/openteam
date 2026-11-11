@@ -19,6 +19,8 @@ export function SiteFooter({ home = false }: { home?: boolean }) {
           <a href="/download">Download</a>
           <a href={`${GITHUB}/releases`}>Releases</a>
           <a href={`${GITHUB}/issues`}>Issues</a>
+          <Link href="/support">Support</Link>
+          <Link href="/privacy">Privacy</Link>
         </nav>
       </div>
       <div className="ot-footer-bottom">

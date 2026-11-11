@@ -113,7 +113,8 @@ struct SettingsView: View {
         }
         Section {
           NavigationLink("More preferences") { NativePreferencesView() }
-          Link("Help Center", destination: URL(string: "https://github.com/raghavpillai/openteam#readme")!)
+          Link("Help Center", destination: URL(string: "https://openteam.so/support")!)
+          Link("Privacy Policy", destination: URL(string: "https://openteam.so/privacy")!)
         }
         Section {
           Button(store.requiresAuthentication ? "Sign out" : "Disconnect", role: .destructive) {

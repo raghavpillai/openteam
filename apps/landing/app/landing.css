@@ -1948,6 +1948,7 @@
 }
 .ot-footer nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 26px;
   font-size: 12px;
   color: #7b7b7b;

@@ -155,7 +155,6 @@ export const CreateBotInput = Schema.Struct({
   name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
-  instructions: Schema.optional(Schema.String.pipe(Schema.maxLength(20_000))),
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
@@ -168,7 +167,6 @@ export const UpdateBotInput = Schema.Struct({
   }))),
   title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
-  instructions: Schema.optional(Schema.String.pipe(Schema.maxLength(20_000))),
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
@@ -768,7 +766,19 @@ export interface PluginCatalogItemView {
   setup: PluginSetupView | null;
 }
 
+export interface PluginDeviceLinkView {
+  sessionId: string;
+  /** An active approval can temporarily have no displayable QR challenge. */
+  qrCodeDataUrl: string | null;
+  /** Expiry of the current image, independently of the approval session. */
+  expiresAt: number;
+  sessionExpiresAt?: number;
+  challengeGeneration?: number;
+  instructions: string;
+}
+
 export interface PluginConnectionView {
+  deviceLink?: PluginDeviceLinkView | null;
   id: string;
   revision: string;
   pluginKey: string;
@@ -785,7 +795,8 @@ export interface PluginConnectionView {
   oauthRedirectUrl: string | null;
   oauthCallbackMode?: "desktop" | "server" | "manual";
   manualCallbackSupported?: boolean;
-  setupPhase?: "provider_setup_required" | "ready_to_authorize" | "ready_to_connect" | "authorization_pending" | "validation_failed" | "connected";
+  setupPhase?:
+    | "provider_setup_required" | "ready_to_authorize" | "ready_to_connect" | "authorization_pending" | "validation_failed" | "connected";
   oauthLoopbackPort?: number;
   canAuthenticate: boolean;
   configured: boolean;
@@ -828,6 +839,7 @@ export interface PluginSettingsView {
 }
 
 export interface PluginConnectionStatusView {
+  deviceLink?: PluginDeviceLinkView | null;
   oauthCallbackMode?: PluginConnectionView["oauthCallbackMode"];
   setupPhase?: PluginConnectionView["setupPhase"];
   id: string;
@@ -908,7 +920,8 @@ export const ScreenClipboardInput = Schema.Union(
   })
 );
 export type ScreenClipboardInput = typeof ScreenClipboardInput.Type;
-export interface ScreenClipboardView { text?: string }
+export interface ScreenClipboardView { text?: string;
+}
 
 const ComputerUseActionName = Schema.Literal(
   "screenshot",
@@ -1740,6 +1753,18 @@ export interface ChannelHistoryPage {
   beforeSequence: string | null;
   hasMore: boolean;
   revision: string;
+}
+
+export interface ChannelLibraryItem {
+  id: string;
+  messageId: string;
+  attachment: AssetRef;
+  createdAt: string;
+}
+
+export interface ChannelLibraryPage {
+  items: ChannelLibraryItem[];
+  nextCursor: string | null;
 }
 
 export interface ChannelClientState {

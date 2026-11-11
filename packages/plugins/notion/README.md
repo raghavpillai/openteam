@@ -11,9 +11,9 @@ from GitHub, verifies them, and saves an immutable installed snapshot under
 `upstream/`. Execution and unchanged-source updates reuse that snapshot. No
 workflow bodies are rewritten or replaced with OpenTeam-authored versions.
 
-Install or update in Plugins, connect an account, enable **Instructions and
-hooks** for a Bot, and grant the intended account. Shared runtime code resolves
-upstream tool names against discovered schemas and granted accounts. Existing
-account credentials and permissions survive the update.
+Install it from **Marketplace** and connect an account. Installed plugins and
+their connected accounts are available to all bots. Shared runtime code resolves
+upstream tool names against discovered schemas and connected accounts. Existing
+account credentials survive an update.
 
 See [the plugin guide](../../../docs/usage/plugins.md) for account setup and updates.

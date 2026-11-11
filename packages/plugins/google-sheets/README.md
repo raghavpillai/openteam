@@ -4,7 +4,7 @@ This package uses the public Google Sheets API v4 and a bundled MCP server on th
 
 See [Google setup](../../../docs/integrations/google.md) for UI setup, multiple accounts, scopes, and troubleshooting. Provider scopes and OAuth endpoints are declared in `plugin.json`; tools are implemented in `connector/server.ts`, with A1 parsing in `connector/a1.ts`, value rendering and write planning in `connector/values.ts`, and format/chart builders in `connector/format.ts`. Shared protocol and HTTP code lives in `../_shared/google.ts` relative to the package root. Catalog generation bundles the executable as `connector/server.mjs`, including dependencies.
 
-Configure secrets only in the installed account's UI. The connector reads `GOOGLE_ACCESS_TOKEN`; the host handles client credentials, PKCE, refresh tokens, and account isolation. Read tools default to allow and mutations default to approval. Provider errors are returned as MCP tool errors.
+Configure secrets only in the installed account's UI. The connector reads `GOOGLE_ACCESS_TOKEN`; the host handles client credentials, PKCE, refresh tokens, and account isolation. Connected tools run directly. Provider errors are returned as MCP tool errors.
 
 The 32 tools match the definitions pinned in `../_shared/reference/sheets.json`, plus `read_result`. The bundled skill in `skills/google-sheets/` is written against those definitions. Its text comes from `cursor/plugins` under the MIT license in `LICENSE`.
 

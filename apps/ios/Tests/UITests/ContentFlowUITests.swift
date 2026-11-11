@@ -14,7 +14,8 @@ import XCTest
     let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/__qa/state")!)
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
-  func launch(_ scene: String, required: Bool = false, dark: Bool = false) async throws
+  func launch(_ scene: String, required: Bool = false, dark: Bool = false, haptics: Bool = false,
+    slowFavicons: Bool = false) async throws
     -> XCUIApplication
   {
     continueAfterFailure = false
@@ -31,6 +32,8 @@ import XCTest
       "--ui-testing", "--server", base, "--appearance", dark ? "dark" : "light",
     ]
     if required { app.launchArguments.append("--show-login") }
+    if haptics { app.launchArguments.append("--haptic-audit") }
+    if slowFavicons { app.launchArguments.append("--slow-favicons") }
     app.launch()
     if required {
       waitForArrival(app.buttons["get-started"])
@@ -53,7 +56,17 @@ import XCTest
       }
       XCTAssertFalse(prompt.exists, "iOS password prompt did not dismiss")
     }
-    app.buttons["channel-channel-research"].tap()
+    // The list can still be settling when its rows first exist (iPhone Duo):
+    // wait until the row is tappable, then retry until the conversation opens.
+    let row = app.buttons["channel-channel-research"]
+    let opened = app.buttons.matching(
+      NSPredicate(format: "identifier == 'conversation-details' AND label == 'Research'")).firstMatch
+    waitForArrival(row)
+    for _ in 0..<3 {
+      if row.isHittable { row.tap() }
+      if opened.waitForExistence(timeout: 5) { break }
+    }
+    XCTAssertTrue(opened.exists, "The Research conversation did not open")
     return app
   }
   private func waitForArrival(_ element: XCUIElement) {
@@ -76,6 +89,125 @@ import XCTest
     XCTAssertTrue(app.webViews.staticTexts["Draft"].waitForExistence(timeout: 12))
     XCTAssertFalse(app.staticTexts["Unsafe script executed"].exists)
     capture("rich-markdown-light", app)
+  }
+  /// Chat links open in an in-app browser over the conversation, not in Safari.
+  /// Holding a link opens link actions; holding the rest of the message, message actions.
+  func testPlainMessageLinkOpensInAppBrowser() async throws {
+    let app = try await launch("plain-link", haptics: true)
+    let link = app.links["Wikipedia's random article page"]
+    XCTAssertTrue(link.waitForExistence(timeout: 12))
+    try await Task.sleep(for: .seconds(2))
+    capture("link-plain-chat", app)
+    // The text's last line starts with plain words at every width: the link
+    // ends on the first or second line ("Here's one: Wikipedia's random article page.").
+    // Scoped to the message: on iPad the sidebar's preview starts with the same words.
+    let text = app.descendants(matching: .any)["message-content-fixture"].staticTexts
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "Here's one")).firstMatch
+    XCTAssertTrue(text.exists)
+    try await assertLongPressShowsMessageActions(
+      app, text.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 1)).withOffset(CGVector(dx: 12, dy: -10)))
+    try await assertLongPressShowsLinkActions(
+      app, link, url: "https://en.wikipedia.org/wiki/Special:Random", name: "link-plain")
+    link.tap()
+    assertInAppBrowser(app, link, name: "link-plain-browser")
+  }
+  /// The dark-mode chat link and its link actions, for comparison with the reference design.
+  func testDarkLinkAppearance() async throws {
+    let app = try await launch("link-chat", dark: true)
+    let link = app.links["Wikipedia's random article page"]
+    XCTAssertTrue(link.waitForExistence(timeout: 12))
+    try await Task.sleep(for: .seconds(4))
+    capture("link-dark-chat", app)
+    link.press(forDuration: 1.2)
+    try await Task.sleep(for: .seconds(2))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "link-actions-url").firstMatch.exists)
+    capture("link-dark-actions", app)
+  }
+  /// A skeleton holds each link's icon space until the site's icon arrives.
+  func testLinkFaviconShowsSkeletonWhileLoading() async throws {
+    for scene in ["plain-link", "markdown"] {
+      let app = try await launch(scene, slowFavicons: true)
+      let link = scene == "markdown" ? app.webViews.links["safe link"] : app.links["Wikipedia's random article page"]
+      XCTAssertTrue(link.waitForExistence(timeout: 12))
+      capture("favicon-\(scene)-loading", app)
+      try await Task.sleep(for: .seconds(9))
+      capture("favicon-\(scene)-loaded", app)
+      app.terminate()
+    }
+  }
+  func testRichMarkdownLinkOpensInAppBrowser() async throws {
+    let app = try await launch("markdown", haptics: true)
+    let link = app.webViews.links["safe link"]
+    XCTAssertTrue(link.waitForExistence(timeout: 12))
+    try await assertLongPressShowsMessageActions(
+      app, app.webViews.staticTexts["Native document"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+    try await assertLongPressShowsLinkActions(app, link, url: "https://example.com/", name: "link-rich")
+    link.tap()
+    assertInAppBrowser(app, link, name: "link-rich-browser")
+  }
+  private func clearHaptics() async throws {
+    var request = URLRequest(url: URL(string: base + "/__qa/haptics")!)
+    request.httpMethod = "DELETE"
+    _ = try await URLSession.shared.data(for: request)
+  }
+  /// Opening a menu taps the phone: the audit records each haptic the app emits.
+  private func assertHaptic(_ source: String) async throws {
+    let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/__qa/haptics")!)
+    let events = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+    XCTAssertTrue(events.contains { ($0["source"] as? String) == source && ($0["emitted"] as? Bool) == true },
+      "No \(source) haptic: \(events.compactMap { $0["source"] as? String })")
+  }
+  private func dismissSheet(_ app: XCUIApplication, until element: XCUIElement) {
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+    XCTAssertTrue(element.waitForNonExistence(timeout: 5))
+  }
+  private func assertLongPressShowsMessageActions(_ app: XCUIApplication, _ point: XCUICoordinate) async throws {
+    try await clearHaptics()
+    point.press(forDuration: 1.2)
+    try await Task.sleep(for: .seconds(1.5))
+    try await assertHaptic("message.long-press")
+    XCTAssertTrue(app.buttons["Start a thread"].exists, "Holding message text did not open the message actions")
+    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "link-actions-url").firstMatch.exists)
+    dismissSheet(app, until: app.buttons["Start a thread"])
+  }
+  /// Holding a link opens link actions only: not the message actions, not
+  /// WebKit's link menu, and lifting the finger does not also follow the link.
+  /// Open from those actions shows the link in the in-app browser.
+  private func assertLongPressShowsLinkActions(
+    _ app: XCUIApplication, _ link: XCUIElement, url: String, name: String
+  ) async throws {
+    try await clearHaptics()
+    link.press(forDuration: 1.2)
+    try await Task.sleep(for: .seconds(2))
+    try await assertHaptic("link.long-press")
+    capture(name + "-long-press", app)
+    let address = app.descendants(matching: .any).matching(identifier: "link-actions-url").firstMatch
+    XCTAssertTrue(address.exists, "Holding a link did not open the link actions")
+    XCTAssertEqual(address.label, url)
+    for action in ["Open", "Copy Link", "Share"] { XCTAssertTrue(app.buttons[action].exists, action) }
+    XCTAssertFalse(app.buttons["Start a thread"].exists, "Holding a link opened the message actions")
+    XCTAssertFalse(app.buttons["Open Link"].exists, "WebKit's link menu appeared")
+    XCTAssertFalse(browserDone(app).exists, "Holding a link also followed it")
+    app.buttons["Open"].tap()
+    assertInAppBrowser(app, link, name: name + "-open")
+  }
+  /// SFSafariViewController's dismiss button: Done ("Close") on iPhone and iPad,
+  /// Cancel in iPhone Duo's side rail.
+  private func browserDone(_ app: XCUIApplication) -> XCUIElement {
+    app.buttons.matching(NSPredicate(format: "identifier IN {'Close', 'CancelBarItemButton'}")).firstMatch
+  }
+  private func assertInAppBrowser(_ app: XCUIApplication, _ link: XCUIElement, name: String) {
+    let done = browserDone(app)
+    XCTAssertTrue(done.waitForExistence(timeout: 10), "Link did not open the in-app browser")
+    XCTAssertTrue(app.buttons["OpenInSafariButton"].exists)
+    XCTAssertEqual(app.state, .runningForeground, "Link left the app")
+    Thread.sleep(forTimeInterval: 3)
+    capture(name, app)
+    done.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    Thread.sleep(forTimeInterval: 1.5)
+    capture(name + "-closed", app)
+    XCTAssertTrue(done.waitForNonExistence(timeout: 5), "Closing the in-app browser did not dismiss it")
+    XCTAssertTrue(link.waitForExistence(timeout: 5), "Closing the browser did not return to the chat")
   }
   func testCompletedWidgetKeepsLabeledCheckedRowsInBothThemes() async throws {
     for dark in [true, false] {

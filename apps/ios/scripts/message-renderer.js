@@ -21,6 +21,40 @@ function updateTableEdges(scroll){const hidden=scroll.scrollWidth-scroll.clientW
 // would make the table scroll. A table that scrolls anyway keeps readable prose.
 function fitTable(scroll){scroll.classList.remove('compact');if(scroll.scrollWidth>scroll.clientWidth+1){scroll.classList.add('compact');if(scroll.scrollWidth>scroll.clientWidth+1)scroll.classList.remove('compact')}updateTableEdges(scroll)}
 new ResizeObserver(()=>{for(const scroll of document.getElementById('message').querySelectorAll('.table-scroll'))fitTable(scroll);reportHeight()}).observe(document.getElementById('message'));
+// Native code opens link actions on a long press, so it needs the link under the
+// finger; the pressed link is shaded meanwhile. Lifting the finger after a long
+// press (the bubble's 0.45 s gesture) must not also follow the link.
+let touchStarted=0,touchOrigin=null,pressedLink=null;
+function linkChannel(body){window.webkit?.messageHandlers?.link?.postMessage(body)}
+function releaseLink(){if(!pressedLink)return;pressedLink.classList.remove('pressed');pressedLink=null;linkChannel({pressed:null})}
+document.addEventListener?.('touchstart',event=>{
+  touchStarted=Date.now();releaseLink();
+  const touch=event.touches[0],link=event.target.closest?.('a[href]');
+  touchOrigin=touch?{x:touch.clientX,y:touch.clientY}:null;
+  if(link&&event.touches.length===1){pressedLink=link;link.classList.add('pressed');linkChannel({pressed:link.href})}
+},{passive:true,capture:true});
+document.addEventListener?.('touchmove',event=>{const touch=event.touches[0];if(pressedLink&&touchOrigin&&touch&&Math.hypot(touch.clientX-touchOrigin.x,touch.clientY-touchOrigin.y)>10)releaseLink()},{passive:true,capture:true});
+document.addEventListener?.('touchend',()=>setTimeout(releaseLink,0),{passive:true,capture:true});
+document.addEventListener?.('touchcancel',releaseLink,{passive:true,capture:true});
+document.addEventListener?.('click',event=>{if(event.target.closest?.('a')&&Date.now()-touchStarted>=450)event.preventDefault()},true);
+// A site icon before each web link. The page loads no network images, so native
+// code supplies icons as data URLs. A pulsing skeleton holds the same space until
+// then, and a globe replaces it when the site has no icon.
+const faviconCache=new Map(),faviconBlank='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',faviconFallback="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='1.6'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z'/%3E%3C/svg%3E";
+function decorateLinks(root){
+  const missing=new Set();
+  for(const link of root.querySelectorAll('a[href]')){
+    let url;try{url=new URL(link.href)}catch{continue}
+    if(url.protocol!=='https:'&&url.protocol!=='http:')continue;
+    const host=url.hostname.toLowerCase(),icon=document.createElement('img');
+    icon.alt='';icon.dataset.host=host;showFavicon(icon,faviconCache.has(host)?faviconCache.get(host):undefined);link.prepend(icon);
+    if(!faviconCache.has(host))missing.add(host);
+  }
+  if(missing.size)linkChannel({favicons:[...missing]});
+}
+// undefined: still loading; null: the site has no icon.
+function showFavicon(icon,src){icon.className='favicon'+(src===undefined?' loading':src===null?' missing':'');icon.src=src===undefined?faviconBlank:src??faviconFallback}
+window.setFavicon=function(host,src){faviconCache.set(host,src);for(const icon of document.querySelectorAll('img.favicon'))if(icon.dataset.host===host)showFavicon(icon,src)};
 window.renderMessage=async function(source,dark,fontSize,colors,lease,delay=0){
   activeLease=lease;lastHeight=-1;lastWidth=-1;layoutReady=false;
   const version=++renderVersion,root=document.getElementById('message');
@@ -31,6 +65,7 @@ window.renderMessage=async function(source,dark,fontSize,colors,lease,delay=0){
   // Never trust model-produced HTML or links. Network requests are also disabled by CSP.
   mathTokens=[];
   root.innerHTML=DOMPurify.sanitize(marked.parse(source,{gfm:true,breaks:true}),{FORBID_TAGS:['style','iframe','form','input','img','video','audio','object','embed'],FORBID_ATTR:['style','src','srcset'],ALLOW_DATA_ATTR:false});
+  decorateLinks(root);
   for(const table of root.querySelectorAll('table'))layoutTable(table);
   for(const node of root.querySelectorAll('.math-placeholder')){const index=Number(Array.from(node.classList).find(c=>c.startsWith('math-index-'))?.slice(11)),token=mathTokens[index];if(token)katex.render(token.text,node,{displayMode:token.display,throwOnError:false,trust:false,strict:'warn',maxExpand:1000})}
 

@@ -36,7 +36,7 @@ Google's guide to [creating credentials](https://developers.google.com/workspace
    If Google warns that it hasn't verified the app, continue anyway; it's the app you just created.
 Installed plugins and their connected accounts are available to all bots.
 
-To check the account, open **Manage → Accounts and settings**, choose the account, and run one of these under **Test a tool**:
+To check the account, expand **Settings → Advanced settings** on the plugin's page, choose the account under **Connection / account**, and run one of these under **Test a tool**:
 
 | Plugin | Tool | Input |
 | --- | --- | --- |

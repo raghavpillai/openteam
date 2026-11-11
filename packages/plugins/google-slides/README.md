@@ -4,7 +4,7 @@ This package uses the public Google Slides API (`https://slides.googleapis.com/v
 
 See [Google setup](../../../docs/integrations/google.md) for UI setup, multiple accounts, scopes, and troubleshooting. The only scope is `https://www.googleapis.com/auth/presentations`; the connector calls no other Google API. Tools are implemented in `connector/server.ts` with layout, text-measurement, lint, HTML and contrast modules beside it. Shared protocol and HTTP code lives in `../_shared/google.ts` relative to the package root. Catalog generation bundles the executable as `connector/server.mjs`, including dependencies.
 
-Configure secrets only in the installed account's UI. The connector reads `GOOGLE_ACCESS_TOKEN`; the host handles client credentials, PKCE, refresh tokens, and account isolation. Read tools default to allow and mutations default to approval. Provider errors are returned as MCP tool errors.
+Configure secrets only in the installed account's UI. The connector reads `GOOGLE_ACCESS_TOKEN`; the host handles client credentials, PKCE, refresh tokens, and account isolation. Connected tools run directly. Provider errors are returned as MCP tool errors.
 
 The tool names, descriptions and inputs are pinned in `../_shared/reference/slides.json`, matching the bundled skill in `skills/google-slides/`, whose text comes from `cursor/plugins` under the MIT license in `LICENSE`. The 23 tools plus `read_result` cover:
 

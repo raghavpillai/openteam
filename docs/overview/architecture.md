@@ -12,7 +12,7 @@ Install it on any 64-bit machine that can run Docker: your laptop, a desktop tha
 
 Bots work in a Linux environment on the server, with a browser, a terminal, and a filesystem. Each bot has its own screen, so several bots can use their browsers at once. They share the `/workspace` folder and website sign-ins, so one bot can pick up another's files and you only sign in to a site once.
 
-This environment is separate from your own computer. Bots can't see your desktop or home folder unless you connect them through the desktop app. See [computer and browser](../usage/computer.md).
+This environment is separate from your own computer. Bots reach your own computer only through the desktop app, which connects the computer it's signed in on. See [computer and browser](../usage/computer.md#use-your-own-computer).
 
 ## What Docker runs
 
@@ -25,7 +25,7 @@ OpenTeam runs as a set of Docker containers, so you don't need to install its de
 | Computer | The bots' Linux environment |
 | PostgreSQL | The database |
 
-Each time you start OpenTeam, a few short setup jobs also run and then exit; `openteam status` lists them under **Setup jobs**. If you choose **Public domain with automatic HTTPS** in `openteam setup --advanced`, a small proxy also runs on ports 80 and 443 to manage the certificate.
+Each time you start OpenTeam, a few short setup jobs also run and then exit; `openteam status` lists them under **Setup jobs**. If you choose **Public domain with automatic HTTPS** in `openteam setup`, a small proxy also runs on ports 80 and 443 to manage the certificate.
 
 ## What needs to stay running
 

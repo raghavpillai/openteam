@@ -14,6 +14,7 @@ const mergeConnectionStatus = (
     revision: status.revision,
     status: status.status,
     statusMessage: status.statusMessage,
+    deviceLink: status.deviceLink ?? null,
     authorizationUrl: status.authorizationUrl,
     authorizationExpiresAt: status.authorizationExpiresAt,
     oauthCallbackMode: status.oauthCallbackMode ?? connection.oauthCallbackMode,

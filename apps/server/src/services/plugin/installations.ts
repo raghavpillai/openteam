@@ -9,7 +9,7 @@ import {
 } from "@openteam/plugin-sdk";
 import type { PrismaClient } from "@openteam/db";
 import { appendEvent, serviceEffect, toJson } from "../service-utils";
-import { definitionFromManifest, hasPlaceholder, manifestJson } from "./values";
+import { definitionFromManifest, hasPlaceholder, jsonObject, manifestJson } from "./values";
 import { resolveUpstreamPlugin } from "../../plugins/upstream-package";
 import { clearPluginEnvironment, storePluginEnvironment } from "../process-secrets";
 
@@ -45,7 +45,8 @@ export class PluginInstallations {
     private readonly prisma: PrismaClient,
     private readonly definition: (pluginKey: string) => Promise<PluginDefinition | undefined>,
     private readonly syncFileCaches: () => Promise<void>,
-    private readonly stopRuntime: (connectionId: string, transport: string) => Promise<void>
+    private readonly stopRuntime: (connectionId: string, transport: string) => Promise<void>,
+    private readonly removePersistentAccount?: (connectionId: string) => Promise<void>
   ) {}
   install = (pluginKey: string, values: Record<string, ConfigValue> = {}) =>
     serviceEffect(async () => {
@@ -333,9 +334,37 @@ export class PluginInstallations {
     serviceEffect(async () => {
       const installation = await this.prisma.pluginInstallation.findUnique({
         where: { pluginKey },
-        include: { connections: { select: { id: true, transport: true } } },
+        include: { connections: { select: { id: true, transport: true, credentials: true } } },
       });
       if (!installation) throw new ApiError(404, "plugin_not_installed", "Plugin not installed");
+      // Revoke availability and fence every in-flight launch before touching account files.
+      // A delayed RPC can arrive after uninstall; its old generation must stay rejected.
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "PluginInstallation" WHERE id = ${installation.id}::uuid FOR UPDATE`;
+        await tx.pluginInstallation.update({
+          where: { id: installation.id },
+          data: { status: "error" },
+        });
+        await tx.pluginConnection.updateMany({
+          where: { installationId: installation.id },
+          data: {
+            runtimeGeneration: { increment: 1 },
+            status: "disconnected",
+            connectedAt: null,
+          },
+        });
+        for (const connection of installation.connections) {
+          const credentials = { ...jsonObject(connection.credentials) }; delete credentials.deviceLink;
+          await tx.pluginConnection.update({ where: { id: connection.id }, data: { credentials: toJson(credentials) } });
+        }
+      });
+      await Promise.all(
+        installation.connections.map((connection) =>
+          this.stopRuntime(connection.id, connection.transport)
+        )
+      );
+      for (const connection of installation.connections)
+        await this.removePersistentAccount?.(connection.id);
       await Promise.all(
         installation.connections.map((connection) =>
           this.stopRuntime(connection.id, connection.transport)

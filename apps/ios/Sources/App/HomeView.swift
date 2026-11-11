@@ -2,8 +2,10 @@ import SwiftUI
 
 struct HomeView: View {
   @Environment(AppStore.self) private var store
+  @Environment(MobileUpdates.self) private var mobileUpdates
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.displayScale) private var displayScale
+  @Environment(\.scenePhase) private var scenePhase
   /// Rows are zoom sources for the first bot's chat after onboarding.
   @Namespace private var zoom
   /// The chat that opens with the zoom transition; kept until it's closed again.
@@ -32,6 +34,7 @@ struct HomeView: View {
   @State private var pendingRoutine: String?
   @State private var pendingOpen: (channel: String, message: String?)?
   @State private var contentWidth: CGFloat = 390
+  @State private var toolbarOnSide = false
   @State private var renamingSection: String?
   @State private var sectionName = ""
   @State private var deletingSection: JSON?
@@ -44,12 +47,34 @@ struct HomeView: View {
   @AppStorage("sidebarWidth") private var draggedSidebarWidth: Double = 0
   @State private var dragStartWidth: CGFloat?
   @Environment(\.horizontalSizeClass) private var sizeClass
+  @State private var swipedChannel: String?
+  @State private var viewportChannelIDs: Set<String> = []
+  @State private var pinnedStripVisible = false
+  private var pinnedChannels: [Channel] {
+    store.pins.compactMap { id in visible.first { $0.id == id } }
+  }
+  private var renderedChannels: [Channel] {
+    pinnedChannels + sections.flatMap { section in
+      section["collapsed"].bool ? [] : sortedRows(in: section["id"].string)
+    } + ((!sections.isEmpty && store.sidebar["unassignedCollapsed"].bool)
+      ? [] : sortedRows(in: ""))
+  }
+  private var unreadPosition: InboxUnreadPosition {
+    InboxUnreadPosition(orderedIDs: renderedChannels.map(\.id),
+      visibleIDs: viewportChannelIDs.subtracting(store.pins)
+        .union(pinnedStripVisible ? pinnedChannels.map(\.id) : []),
+      unreadIDs: Set(visible.filter { store.isUnread($0) }.map(\.id)))
+  }
   private var visible: [Channel] { store.channels.filter { $0.kind != "agent_dm" } }
   private var sections: [JSON] { store.sidebar["sections"].array }
   var body: some View {
     GeometryReader { geometry in
-      let split = sizeClass == .regular || (barRegions.hasHinge && geometry.size.width >= 650)
-      let portrait = split && geometry.size.height > geometry.size.width
+      // System background snapshots can temporarily report another size class.
+      // Keep the active navigation tree, including its presented media, intact.
+      let proposedSplit = sizeClass == .regular || (barRegions.hasHinge && geometry.size.width >= 650)
+      let split = scenePhase == .active ? proposedSplit : splitAvailable
+      let portrait = scenePhase == .active
+        ? split && geometry.size.height > geometry.size.width : portraitLayout
       let systemChrome = SideChrome(
         regions: barRegions, insets: geometry.safeAreaInsets, holdsAllControls: sizeClass == .compact)
       // In rotations without a right-hand system region, reserve a column so
@@ -65,19 +90,6 @@ struct HomeView: View {
         } else { stackLayout }
       }
       .onChange(of: split, initial: true) { _, value in splitAvailable = value }
-      .overlay(alignment: .topTrailing) {
-        if !split, barRegions.hasHinge, barRegions.sideEdge == nil {
-          HStack(spacing: 12) {
-            if splitAvailable { sidebarToggle }
-            searchControl
-            creationMenu().frame(width: 44, height: 44).nativeInboxGlass()
-            if !expandedReferenceSidebar, store.navigation.isEmpty {
-              MarketplaceShortcut { marketplace = true }
-              accountControl
-            }
-          }.padding(.trailing, 18).padding(.top, 6)
-        }
-      }
       .overlay(alignment: .topLeading) {
         if splitAvailable, listHidden, portrait || !barRegions.hasHinge, store.navigation.isEmpty {
           inboxHeader(isSidebar: false)
@@ -85,12 +97,12 @@ struct HomeView: View {
       }
       .modifier(SideChromeBar(top: EmptyView?.none, side: sideActions))
       .onPreferenceChange(ContextualSideControlsKey.self) { contextualSideControls = $0 }
-      .environment(\.sideChrome, chrome)
+      .environment(\.sideChrome, split ? chrome : nil)
       // Use the space beside Duo's status cluster instead of its full top band.
       .environment(\.topBarClearance, split && barRegions.hasHinge
         ? max(0, barRegions.top - SideChrome.topBarPadding)
         : SideChrome.topBarClearance(barRegions, insets: geometry.safeAreaInsets))
-      .environment(\.usesTopToolbarGuide, !(split && barRegions.hasHinge))
+      .environment(\.usesTopToolbarGuide, split && !barRegions.hasHinge)
       .environment(\.leadingChatTitle, portrait)
       .environment(\.topBarTrailingInset, portrait && barRegions.hasHinge
         ? max(systemChrome?.width ?? 0, SideChrome.topStatusWidth) : 0)
@@ -205,6 +217,8 @@ struct HomeView: View {
     @Bindable var store = store
     return NavigationStack(path: $store.navigation) {
       conversationList()
+        .inboxNavigationChrome(showsBottomBar: true)
+        .toolbar { inboxToolbar }
         .navigationDestination(for: String.self) { id in
           if id == zoomChannel {
             conversation(id).navigationTransition(.zoom(sourceID: id, in: zoom))
@@ -308,12 +322,13 @@ struct HomeView: View {
                 }.padding(.top, 4).padding(.bottom, 8)
               }
               if !store.pins.isEmpty {
+                Color.clear.frame(height: 1).id("inbox-pinned-start").accessibilityHidden(true)
                 ScrollView(.horizontal) {
                   HStack(alignment: .top, spacing: 20) {
                     ForEach(store.pins.compactMap { id in visible.first { $0.id == id } }) { channel in
                       ConversationLink(id: channel.id, highlightsSelection: false) {
                         VStack(spacing: 7) {
-                          ChannelAvatar(channel: channel, size: 80)
+                          ChannelAvatar(channel: channel, size: 80, showsInboxActivity: true)
                           Text(channel.name).font(.subheadline).foregroundStyle(NativePalette.muted)
                             .lineLimit(1)
                         }.frame(width: 100).contentShape(Rectangle())
@@ -327,6 +342,7 @@ struct HomeView: View {
                     }
                   }.padding(.vertical, 15)
                 }.scrollIndicators(.hidden)
+                  .onScrollVisibilityChange(threshold: 0.001) { pinnedStripVisible = $0 }
               }
               ForEach(sections, id: \.self) { section in
                 sectionView(
@@ -358,19 +374,30 @@ struct HomeView: View {
                   .accessibilityIdentifier("empty-conversations")
               }
             }
-            .padding(.leading, isSidebar ? SidebarMetrics.rowLeading : 20)
-            .padding(.trailing, isSidebar ? SidebarMetrics.rowTrailing : 20)
+            .padding(.top, !isSidebar && toolbarOnSide ? 4 : 0)
+            .padding(.leading, isSidebar ? SidebarMetrics.rowLeading : 22)
+            .padding(.trailing, isSidebar ? SidebarMetrics.rowTrailing : (toolbarOnSide ? 10 : 22))
             .padding(.top, isSidebar && barRegions.hasHinge && !portraitLayout
               ? SidebarMetrics.landscapeTopClearance : 0)
             .padding(.bottom, isSidebar ? 94 : 30)
           }.background(isSidebar ? SidebarFooterFade.canvas : NativePalette.background)
             .scrollIndicators(.hidden)
+            .ignoresSafeArea(.container, edges: !isSidebar && toolbarOnSide ? .top : [])
+            .contentMargins(.top, 0, for: .scrollContent)
+            .accessibilityIdentifier("inbox-scroll")
+            .onScrollPhaseChange { _, phase in
+              if phase == .interacting { swipedChannel = nil }
+            }
+            .onChange(of: store.navigation) { _, _ in swipedChannel = nil }
+            .onGeometryChange(for: Bool.self) {
+              $0.safeAreaInsets.trailing > $0.safeAreaInsets.leading + 44
+            } action: { toolbarOnSide = $0 }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .padding(.trailing, !isSidebar && sizeClass == .compact && barRegions.hasHinge && barRegions.sideEdge != nil && barRegions.sideEdge != .trailing
               ? SideChrome.rightColumnWidth : 0)
             .fadingTopBar(canvas: isSidebar ? SidebarFooterFade.canvas : NativePalette.background,
               showsFade: portraitLayout || !barRegions.hasHinge) {
-              if portraitLayout || !barRegions.hasHinge { inboxHeader(isSidebar: isSidebar) }
+              if splitAvailable && (portraitLayout || !barRegions.hasHinge) { inboxHeader(isSidebar: isSidebar) }
             }
             .mask {
               if isSidebar {
@@ -384,30 +411,20 @@ struct HomeView: View {
                 }
               } else { Color.black }
             }
-            .refreshable {
-              // SwiftUI can cancel its refresh action when sync state redraws
-              // the inbox. Let the store finish its account-scoped refresh.
-              await Task { await store.refresh() }.value
-            }
+
           if isSidebar {
             SidebarFooterFade().frame(height: 132 + clearance).ignoresSafeArea(edges: .bottom)
             accountFooter.padding(.bottom, clearance)
           }
         }
-        .overlay(alignment: .bottom) {
-          if !unreadChannels.isEmpty {
-            UnreadPill(count: unreadChannels.count, isSidebar: isSidebar) {
-              let ids = unreadChannels.map(\.id)
-              let next = lastUnread.flatMap { ids.firstIndex(of: $0) }.map { ($0 + 1) % ids.count } ?? 0
-              let id = ids[next]
-              lastUnread = id
-              Task {
-                await revealUnread(id)
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo(id, anchor: .center) }
-              }
-            }.padding(.bottom, isSidebar ? SidebarMetrics.unreadBottom + clearance : 12)
-              .accessibilityIdentifier("inbox-unread")
+        .overlay {
+          InboxUnreadOverlay(position: unreadPosition, usesSideToolbar: !isSidebar && toolbarOnSide) { id in
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+              proxy.scrollTo(store.pins.contains(id) ? "inbox-pinned-start" : id,
+                anchor: store.pins.contains(id) ? .top : .center)
+            }
           }
+          .padding(.bottom, isSidebar ? SidebarMetrics.unreadBottom + clearance : 0)
         }
         .background {
           (isSidebar ? SidebarFooterFade.canvas : NativePalette.background).ignoresSafeArea()
@@ -542,7 +559,7 @@ struct HomeView: View {
   }
   /// Shared by the list and chat so Duo's sidebar toggle stays on the right.
   @ViewBuilder private var sideActions: some View {
-    if !contextualSideControls {
+    if splitAvailable && !contextualSideControls {
       VStack(spacing: 12) {
         if splitAvailable { sidebarToggle }
         Spacer(minLength: 12)
@@ -563,6 +580,80 @@ struct HomeView: View {
         .init(title: "New Bot", action: { if !store.syncingState { creation = .bot } }),
         .init(title: "New Group Chat", action: { if !store.syncingState { creation = .group } }),
       ]).disabled(store.syncingState)
+  }
+
+  @ToolbarContentBuilder private var inboxToolbar: some ToolbarContent {
+    if toolbarOnSide {
+      creationToolbarItem
+      if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
+      searchToolbarItem
+    } else {
+      searchToolbarItem
+      if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
+      creationToolbarItem
+    }
+    if store.syncingState {
+      ToolbarItem(id: InboxChrome.title, placement: .principal) {
+        HStack(spacing: 8) {
+          ProgressView().controlSize(.regular).tint(NativePalette.muted)
+            .scaleEffect(0.8)
+            .frame(width: 16, height: 16).accessibilityHidden(true)
+          Text("Syncing state").font(.body.weight(.semibold)).lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("syncing-state")
+      }.inboxHorizontalTitle()
+    }
+    if mobileUpdates.availableRelease != nil {
+      ToolbarItem(id: "inbox.update", placement: .topBarTrailing) { MobileUpdateBadge() }
+    }
+    if toolbarOnSide {
+      pluginsToolbarItem
+      if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .bottomBar) }
+      profileToolbarItem
+    } else {
+      profileToolbarItem
+      ToolbarItem(id: "inbox.bottom-space", placement: .bottomBar) { Spacer() }
+      pluginsToolbarItem
+    }
+  }
+  private var searchToolbarItem: some ToolbarContent {
+    ToolbarItem(id: InboxChrome.secondaryAction, placement: .topBarTrailing) {
+      Button { search = true } label: {
+        Image(uiImage: InboxChrome.searchImage).foregroundStyle(NativePalette.text)
+      }.accessibilityLabel("Search").accessibilityIdentifier("search-button")
+    }
+  }
+  private var creationToolbarItem: some ToolbarContent {
+    ToolbarItem(id: InboxChrome.primaryAction, placement: .topBarTrailing) {
+      Menu {
+        Button("New Bot") { creation = .bot }
+        Button("New Group Chat") { creation = .group }
+      } label: {
+        Label("New conversation", systemImage: "plus").labelStyle(.iconOnly)
+          .font(.system(size: 20, weight: .regular))
+          .symbolRenderingMode(.monochrome).foregroundStyle(NativePalette.text)
+      }.disabled(store.syncingState).accessibilityIdentifier("new-button")
+    }
+  }
+  private var profileToolbarItem: some ToolbarContent {
+    ToolbarItem(id: "inbox.profile", placement: .bottomBar) {
+      Button { settings = SettingsSheet() } label: {
+        let initials = AccountMark(name: store.accountDisplayName).initials
+        Text(initials.isEmpty ? "OT" : initials)
+          .font(.system(size: 15, weight: .medium))
+          .foregroundStyle(Color(uiColor: .secondaryLabel))
+          .frame(width: 36, height: 36)
+          .background(NativePalette.muted.opacity(0.13), in: Circle())
+      }.accessibilityLabel("Settings").accessibilityIdentifier("settings-button")
+    }.inboxVerticalAction()
+  }
+  private var pluginsToolbarItem: some ToolbarContent {
+    ToolbarItem(id: "inbox.plugins", placement: .bottomBar) {
+      Button { marketplace = true } label: {
+        Image(uiImage: InboxChrome.pluginsImage).foregroundStyle(NativePalette.text)
+      }.accessibilityLabel("Plugins").accessibilityIdentifier("plugins-button")
+    }.inboxVerticalAction()
   }
 
   func sectionView(id: String, name: String, collapsed: Bool, showsHeading: Bool = true, isSidebar: Bool = false)
@@ -608,7 +699,9 @@ struct HomeView: View {
         }
         ForEach(sorted) { channel in
           ConversationSwipeRow(
+            id: channel.id, openRow: $swipedChannel, unread: store.isUnread(channel),
             pinned: store.pins.contains(channel.id),
+            toggleUnread: { Task { await toggleUnread(channel) } },
             pin: { Task { await store.togglePin(channel.id) } }
           ) {
             ConversationLink(id: channel.id, isSidebar: isSidebar) {
@@ -621,6 +714,11 @@ struct HomeView: View {
               } preview: {
                 conversationPreview(channel)
               }
+          }
+          .id(channel.id)
+          .onScrollVisibilityChange(threshold: 0.001) { isVisible in
+            if isVisible { viewportChannelIDs.insert(channel.id) }
+            else { viewportChannelIDs.remove(channel.id) }
           }
           .modifier(
             LandingArrival(
@@ -716,6 +814,11 @@ struct HomeView: View {
   }
   func markUnread(_ id: String) async {
     await store.markUnread(id)
+  }
+  private func toggleUnread(_ channel: Channel) async {
+    if store.isUnread(channel) {
+      await store.markRead(channel.id, through: store.latestMessage(channel.id)?.sequence ?? "0", fromInbox: true)
+    } else { await store.markUnread(channel.id) }
   }
 }
 
@@ -1123,11 +1226,12 @@ struct ChannelRow: View {
   var body: some View {
     HStack(spacing: isSidebar ? SidebarMetrics.avatarGap : 16) {
       ChannelAvatar(
-        channel: channel, size: isSidebar ? SidebarMetrics.avatarSize : 46,
-        artworkScale: isSidebar ? SidebarMetrics.avatarArtworkScale : 1)
-      VStack(alignment: .leading, spacing: 3) {
-        HStack(alignment: .firstTextBaseline) {
-          Text(channel.name).font(isSidebar ? .system(size: 18, weight: .medium) : .body.weight(.medium)).foregroundStyle(NativePalette.text)
+        channel: channel, size: isSidebar ? SidebarMetrics.avatarSize : 44,
+        artworkScale: isSidebar ? SidebarMetrics.avatarArtworkScale : 1.35,
+        showsInboxActivity: true)
+      VStack(alignment: .leading, spacing: 6) {
+        HStack(alignment: .center) {
+          Text(channel.name).font(isSidebar ? .system(size: 18, weight: .medium) : .system(size: 17, weight: .medium)).tracking(isSidebar ? 0 : 0.5).foregroundStyle(NativePalette.text)
             .lineLimit(1)
           if channel.showsGroupLabel {
             Text("Group").font(.system(size: 12)).foregroundStyle(NativePalette.muted)
@@ -1137,37 +1241,39 @@ struct ChannelRow: View {
           }
           Spacer(minLength: 8)
           if let date = last?.date {
-            Text(dateLabel(date)).font(.system(size: 13)).foregroundStyle(NativePalette.faint)
+            Text(InboxPresentation.dateLabel(date)).font(.system(size: 13)).foregroundStyle(NativePalette.chatFaint).fixedSize()
           }
         }
-        HStack {
-          if last?.isAttachmentOnly == true {
-            Image(systemName: "paperclip").font(.system(size: 13))
+        HStack(spacing: 6) {
+          if let last, let symbol = InboxPresentation.previewSymbol(last) {
+            if symbol == "checklist" { InboxQuestionGlyph().accessibilityHidden(true) }
+            else { Image(systemName: symbol).font(.system(size: 13)).frame(width: 14).accessibilityHidden(true) }
           }
-          Text(preview).font(.system(size: 15)).lineLimit(1).frame(
+          Text(preview).font(.system(size: 15)).tracking(isSidebar ? 0 : 0.2).lineLimit(1).truncationMode(.tail).frame(
             maxWidth: .infinity, alignment: .leading)
-          if unread { Circle().fill(NativePalette.link).frame(width: 10, height: 10) }
-        }.foregroundStyle(NativePalette.muted)
+          if unread { Circle().fill(NativePalette.inboxUnread).frame(width: 10, height: 10).accessibilityLabel("Unread") }
+        }.foregroundStyle(NativePalette.chatMuted)
       }
     }.frame(minHeight: isSidebar ? SidebarMetrics.rowHeight : 80).contentShape(Rectangle()).accessibilityElement(children: .combine)
   }
   var preview: String {
-    if !store.activeRuns(channel.id).isEmpty { return "Working…" }
-    if let last { return last.previewText }
+    if let last { return InboxPresentation.preview(last) }
     return store.bot(for: channel)?.description ?? channel.description
   }
-  func dateLabel(_ date: Date) -> String {
-    if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
-    let f = DateFormatter()
-    let recent =
-      (Calendar.current.dateComponents(
-        [.day], from: Calendar.current.startOfDay(for: date),
-        to: Calendar.current.startOfDay(for: Date())
-      ).day ?? 8)
-    f.dateFormat =
-      Calendar.current.isDateInToday(date)
-      ? "h:mm a" : (recent > 0 && recent < 7 ? "EEEE" : (isSidebar ? "MMM d" : "M/d/yy"))
-    return f.string(from: date)
+}
+
+private struct InboxQuestionGlyph: View {
+  var body: some View {
+    Path { path in
+      for y: CGFloat in [1, 6, 11] {
+        path.move(to: CGPoint(x: 0.5, y: y + 1))
+        path.addLine(to: CGPoint(x: 1.7, y: y + 2.2))
+        path.addLine(to: CGPoint(x: 4, y: y - 0.5))
+        path.move(to: CGPoint(x: 7, y: y + 1))
+        path.addLine(to: CGPoint(x: 13, y: y + 1))
+      }
+    }.stroke(style: StrokeStyle(lineWidth: 1.1, lineCap: .round, lineJoin: .round))
+      .frame(width: 14, height: 14)
   }
 }
 
@@ -1380,7 +1486,6 @@ struct CreateConversationView: View {
 struct SearchView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
-  @Environment(\.openURL) private var openURL
   var onSelect: (String, String?, String?) -> Void
   @State private var query = ""
   @State private var category = "all"
@@ -1430,9 +1535,8 @@ struct SearchView: View {
         ForEach(resultsKey == searchKey ? results : []) { result in
           Button {
             if result.kind == "link", let raw = result.url, let url = URL(string: raw),
-              ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "")
+              InAppBrowser.open(url)
             {
-              openURL(url)
               return
             }
             if let channel = result.channelId
@@ -1545,53 +1649,121 @@ struct SearchView: View {
   }
 }
 
-/// The inbox is a free-scrolling stack, so List-only swipeActions cannot receive
-/// its gestures. Allow pinning with a rightward swipe.
+/// Track the finger directly, then settle using release velocity. One shared
+/// selection closes the previous row when another conversation is swiped.
 private struct ConversationSwipeRow<Content: View>: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.canvasColor) private var canvas
+  let id: String
+  @Binding var openRow: String?
+  let unread: Bool
   let pinned: Bool
+  let toggleUnread: () -> Void
   let pin: () -> Void
   @ViewBuilder let content: () -> Content
   @State private var offset: CGFloat = 0
-  @State private var origin: CGFloat = 0
   @State private var dragging = false
+  @State private var swipe = InboxSwipeGesture()
+  @State private var tension = InboxSwipeTensionFeedback()
+  @State private var width: CGFloat = 320
+  private var motion: Animation? { reduceMotion ? nil : .interactiveSpring(response: 0.34, dampingFraction: 0.86) }
+  private var unreadTitle: String { unread ? "Mark read" : "Mark unread" }
   var body: some View {
     ZStack {
       HStack {
-        swipeButton(pinned ? "Unpin" : "Pin", "pin.fill", NativePalette.warning, action: pin)
-          .opacity(offset > 0 ? 1 : 0).allowsHitTesting(offset > 0).accessibilityHidden(offset <= 0)
-        Spacer()
+        if offset > 0 {
+          actionButton(unreadTitle, unread ? "checkmark.circle.fill" : "bubble.fill",
+            NativePalette.link, leading: true, action: toggleUnread)
+        }
+        Spacer(minLength: 0)
+        if offset < 0 {
+          actionButton(pinned ? "Unpin" : "Pin", pinned ? "pin.slash" : "pin",
+            .orange, leading: false, action: pin)
+        }
       }.padding(.horizontal, 8)
-      content().background(canvas).offset(x: offset)
-        .gesture(
-          MessageReplyGesture(
-            allowsLeftward: true,
-            onChanged: { translation in
-              if !dragging {
-                origin = offset
-                dragging = true
-              }
-              offset = min(82, max(0, origin + translation.width))
-            },
-            onEnded: { _, velocity, cancelled in
-              dragging = false
-              let target: CGFloat = cancelled ? 0 : offset >= 40 ? 76 : 0
-              withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { offset = target }
-            }))
+      content()
+        .background(canvas)
+        .overlay {
+          if offset != 0 && !dragging {
+            Color.clear.contentShape(Rectangle()).onTapGesture { close() }
+          }
+        }
+        .offset(x: offset)
+        .gesture(MessageReplyGesture(allowsLeftward: true,
+          onChanged: { translation in
+            if !dragging {
+              swipe.begin(at: Double(offset), width: Double(width))
+              dragging = true
+              openRow = id
+              tension.begin(at: Double(offset), leadingTarget: swipe.activationDistance,
+                trailingTarget: swipe.activationDistance)
+              NativeHaptics.prepareSwipe()
+            }
+            updateDrag(translation.width)
+          }, onEnded: { translation, velocity, cancelled in
+            guard dragging else { return }
+            if !cancelled { updateDrag(translation.width) }
+            dragging = false
+            let result = swipe.release(velocity: Double(velocity), cancelled: cancelled)
+            tension.reset()
+            switch result {
+            case .commit(let side):
+              perform(side == .unread ? toggleUnread : pin, alreadySignalled: true)
+            case .settle(let target):
+              withAnimation(motion) { offset = CGFloat(target) }
+              if target == 0 { openRow = nil }
+            }
+            swipe.reset()
+          }))
     }
+    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    .clipped()
+    .onChange(of: openRow) { _, value in if value != id { close() } }
+    .onDisappear { offset = 0; dragging = false; swipe.reset(); tension.reset() }
+    .accessibilityAction(named: unreadTitle) { perform(toggleUnread) }
+    .accessibilityAction(named: pinned ? "Unpin" : "Pin") { perform(pin) }
   }
-  private func swipeButton(
-    _ title: String, _ icon: String, _ color: Color, action: @escaping () -> Void
-  ) -> some View {
-    Button {
-      withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { offset = 0 }
-      NativeHaptics.play(.light, source: "conversation.swipe-action")
-      action()
-    } label: {
-      Image(systemName: icon).font(.body.weight(.semibold)).foregroundStyle(.white)
-        .frame(width: 44, height: 44).background(color, in: Circle()).contentShape(Circle())
-    }.buttonStyle(.plain).accessibilityLabel(title).accessibilityIdentifier(
-      "conversation-swipe-" + title.lowercased())
+  private func updateDrag(_ translation: CGFloat) {
+    let proposed = swipe.origin + Double(translation)
+    let newlyArmed = swipe.move(to: proposed)
+    let now = ProcessInfo.processInfo.systemUptime
+    let strength = tension.move(proposed, at: now)
+    if newlyArmed {
+      // Preview activation now, not after the finger is lifted. Retreat cancels.
+      NativeHaptics.play(.rigid, source: "conversation.swipe-arm")
+      tension.quiet(at: now)
+    } else if let strength {
+      NativeHaptics.play(.soft, intensity: strength, source: "conversation.swipe-tension")
+    }
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction) { offset = CGFloat(swipe.offset) }
+  }
+  private func close() {
+    dragging = false
+    swipe.reset()
+    tension.reset()
+    withAnimation(motion) { offset = 0 }
+    if openRow == id { openRow = nil }
+  }
+  private func perform(_ action: () -> Void, alreadySignalled: Bool = false) {
+    close()
+    if !alreadySignalled { NativeHaptics.play(.rigid, source: "conversation.swipe-action") }
+    action()
+  }
+  private func actionButton(_ title: String, _ icon: String, _ color: Color,
+    leading: Bool, action: @escaping () -> Void) -> some View {
+    let distance = leading ? offset : -offset
+    return Button { perform(action) } label: {
+      Image(systemName: icon).font(.system(size: 18, weight: .medium)).foregroundStyle(.white)
+        .scaleEffect(swipe.armed == (leading ? .unread : .pin) ? 1.15 : 1)
+        .animation(reduceMotion ? nil : .spring(response: 0.22, dampingFraction: 0.65), value: swipe.armed)
+        .frame(width: min(max(44, width - 16), max(44, distance - 16)), height: 44)
+        .background(color, in: Capsule()).contentShape(Capsule())
+    }.buttonStyle(.plain)
+      .scaleEffect(min(1, max(0.01, distance / 52)), anchor: leading ? .leading : .trailing)
+      .opacity(distance > 0 ? 1 : 0).allowsHitTesting(distance > 0)
+      .accessibilityHidden(distance <= 0).accessibilityLabel(title)
+      .accessibilityIdentifier("conversation-swipe-" + title.lowercased().replacingOccurrences(of: " ", with: "-"))
   }
 }

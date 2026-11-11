@@ -16,6 +16,7 @@ struct ChatView: View {
   @Environment(\.conversationListVisible) private var conversationListVisible
   @Environment(\.topBarTrailingInset) private var topBarTrailingInset
   let channel: Channel
+  private var usesNativeInboxChrome: Bool { leadingControl == nil && sideChrome == nil }
   @State private var details = false
   @State private var replyFocusRequest = UUID()
   @State private var computerBot: Bot?
@@ -183,7 +184,9 @@ struct ChatView: View {
     .nativeCanvas()
     .chatFloatingBars(top: {
       VStack(spacing: 0) {
-        if sideChrome?.holdsAllControls == true { titleBar } else { header }
+        if !usesNativeInboxChrome {
+          if sideChrome?.holdsAllControls == true { titleBar } else { header }
+        }
         MessageRefreshStatus(channelID: channel.id).padding(.horizontal, 20)
       }
     }, bottom: {
@@ -197,6 +200,13 @@ struct ChatView: View {
     .nativeCanvas()
     .modifier(SideChromeBar(top: EmptyView?.none, side: sideControls))
     .toolbar(.hidden, for: .navigationBar).background(NativeBackGesture().frame(width: 0, height: 0))
+    .nativeInboxNavigationChrome(enabled: usesNativeInboxChrome, backIdentifier: "chat-back")
+    .toolbar {
+      if usesNativeInboxChrome {
+        ToolbarItem(id: InboxChrome.title, placement: .principal) { titleButton }.inboxHorizontalTitle()
+        ToolbarItem(id: InboxChrome.secondaryAction, placement: .topBarTrailing) { moreMenu }
+      }
+    }
     .navigationDestination(isPresented: $details) {
       ConversationDetails(channelID: channel.id)
     }
@@ -408,6 +418,7 @@ struct ChatView: View {
   /// text does in system bars, and its buttons move to the region.
   private var titleBar: some View {
     HStack {
+      Spacer(minLength: 0)
       titleButton
       Spacer(minLength: 0)
     }.padding(.horizontal, 14).modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
@@ -420,9 +431,18 @@ struct ChatView: View {
       } else if sideChrome?.holdsAllControls == true || leadingControl != nil {
         leadingButton
       }
-      computerButton
+      if !usesNativeInboxChrome { moreMenu.frame(width: 44, height: 44).nativeChatGlass() }
       Spacer(minLength: 12)
     }.foregroundStyle(NativePalette.text)
+  }
+  private var moreMenu: some View {
+    Menu {
+      Button("Conversation details", systemImage: "info.circle") { details = true }
+      if let bot = store.computerBot(for: channel) {
+        Button("Computer", systemImage: "display") { computerBot = bot }
+      }
+    } label: { Image(systemName: "ellipsis").font(.system(size: 20, weight: .regular)) }
+      .accessibilityLabel("More").accessibilityIdentifier("chat-more")
   }
   @ViewBuilder private var computerButton: some View {
     if let bot = store.computerBot(for: channel) {
@@ -447,10 +467,12 @@ struct ChatView: View {
   @ViewBuilder var header: some View {
     if leadingChatTitle {
       HStack(spacing: 8) {
-        if !conversationListVisible { leadingButton }
-        titleButton
-        Spacer(minLength: 0)
-        computerButton
+        Group {
+          if !conversationListVisible { leadingButton }
+          else { Color.clear.accessibilityHidden(true) }
+        }.frame(width: 44, height: 44)
+        titleButton.frame(maxWidth: .infinity)
+        moreMenu.frame(width: 44, height: 44)
       }.padding(.horizontal, 14).padding(.trailing, topBarTrailingInset)
         .modifier(TopBarClearance(SideChrome.topBarPadding)).padding(.bottom, 6)
         .foregroundStyle(NativePalette.text)
@@ -466,8 +488,8 @@ struct ChatView: View {
         // without a Computer action. Long names truncate within the middle slot.
         // Beside a side region, Computer sits in it, below the status bar.
         Group {
-          if sideChrome == nil, store.computerBot(for: channel) != nil {
-            computerButton
+          if sideChrome == nil {
+            moreMenu
           } else {
             Color.clear.accessibilityHidden(true)
           }
@@ -579,9 +601,20 @@ struct MessageArrival<Content: View>: View {
   }
 }
 
+/// Uses the same generated palette as desktop, independently of the app accent.
+struct OutgoingMessageColors {
+  var background = NativePalette.user
+  let foreground = NativePalette.userText
+  init(botColor: String?, enabled: Bool) {
+    guard enabled, let colors = MessageBubblePalette.colors(for: botColor) else { return }
+    background = NativePalette.color(colors.light, colors.dark)
+  }
+}
+
 struct MessageRow: View {
   @Environment(MessageModalPresenter.self) private var modals
-  @AppStorage("accent") private var accent = "black"
+  @Environment(\.colorScheme) private var colorScheme
+  @AppStorage("useBotMessageColors") private var useBotMessageColors = false
   @Environment(AppStore.self) private var store
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let message: Message
@@ -603,6 +636,10 @@ struct MessageRow: View {
   private var speaker: Bot? {
     guard viewOnly || channel.isGroup, !message.isUser else { return nil }
     return speakerOverride ?? store.bots.first { $0.id == message.senderBotId }
+  }
+  private var outgoingColors: OutgoingMessageColors {
+    OutgoingMessageColors(botColor: store.bot(for: channel)?.color,
+      enabled: useBotMessageColors && store.bot(for: channel)?.hasAvatar != true)
   }
   var body: some View {
     Group {
@@ -659,21 +696,23 @@ struct MessageRow: View {
           if !message.displayContent.isEmpty, !["external-draft", "imessage-send"].contains(message.metadata["type"].string) {
             Group {
               if RichMarkdownView.required(message.displayContent) {
-                RichMarkdownView(source: message.displayContent, forceDark: message.isUser).frame(
+                RichMarkdownView(source: message.displayContent, forceDark: message.isUser,
+                  messageTextColor: message.isUser ? (colorScheme == .dark ? "#f5f5f5" : "#ffffff") : nil)
+                  .frame(
                   maxWidth: .infinity)
               } else {
                 BubbleText {
                   MarkdownText(source: message.displayContent,
-                    textColor: message.isUser ? .white : NativePalette.text, ownMessage: message.isUser)
+                    textColor: message.isUser ? outgoingColors.foreground : NativePalette.text, ownMessage: message.isUser)
                     .font(.body).lineSpacing(1.5)
                 }
               }
             }
             .padding(.horizontal, 14).padding(.vertical, 9)
-            .foregroundStyle(message.isUser ? Color.white : NativePalette.text)
+            .foregroundStyle(message.isUser ? outgoingColors.foreground : NativePalette.text)
             .background(
               message.isUser
-                ? (accent == "blue" ? NativePalette.link : NativePalette.user)
+                ? outgoingColors.background
                 : NativePalette.assistant,
               in: RoundedRectangle(cornerRadius: 24))
           }
@@ -760,6 +799,20 @@ struct MessageRow: View {
   }
   private func openActions() {
     guard modals.sheet == nil, !viewOnly else { return }
+    if let url = LinkPress.shared.current {
+      NativeHaptics.play(.medium, source: "link.long-press")
+      modals.sheet = .init(content: AnyView(LinkActionsView(
+        url: url,
+        onOpen: { modals.dismissSheet { InAppBrowser.open(url) } },
+        onCopy: {
+          UIPasteboard.general.url = url
+          NativeHaptics.play(.light, source: "message.copy")
+          modals.dismissSheet()
+        },
+        onShare: { modals.dismissSheet { InAppBrowser.share(url) } }
+      )))
+      return
+    }
     NativeHaptics.play(.medium, source: "message.long-press")
     modals.sheet = .init(content: AnyView(MessageActionsView(
       onReply: {
@@ -927,27 +980,29 @@ struct MessageActionsView: View {
 struct MarkdownText: View {
   let source: String
   var textColor: Color = NativePalette.text
-  /// Received links stay blue even with the monochrome app accent. Your own
-  /// links use the bubble's text color; underlines distinguish links in both.
+  /// Links keep the bubble's text color in every message; the site icon before
+  /// each link and a faint underline mark it, as in the reference design.
   var ownMessage = false
   func inline(_ block: String) -> AttributedString {
-    Self.underliningLinks(MessageTextCache.inline(block))
+    Self.underliningLinks(MessageTextCache.inline(block), color: textColor)
   }
-  static func underliningLinks(_ text: AttributedString) -> AttributedString {
+  static func underliningLinks(_ text: AttributedString, color: Color) -> AttributedString {
     var text = text
     for range in text.runs.filter({ $0.link != nil }).map(\.range) {
-      text[range].underlineStyle = .single
+      text[range].underlineStyle = Text.LineStyle(pattern: .solid, color: color.opacity(0.35))
     }
     return text
   }
   var body: some View {
-    if RichMarkdownView.required(source) {
-      RichMarkdownView(source: source)
-    } else if IdentifierMessageText.requiresNativeWrapping(source) {
-      IdentifierMessageText(source: source, color: textColor)
-    } else {
-      blocks.tint(ownMessage ? textColor : NativePalette.link)
-    }
+    Group {
+      if RichMarkdownView.required(source) {
+        RichMarkdownView(source: source)
+      } else if IdentifierMessageText.requiresNativeWrapping(source) {
+        IdentifierMessageText(source: source, color: textColor)
+      } else {
+        blocks.tint(textColor)
+      }
+    }.environment(\.openURL, InAppBrowser.action)
   }
   private var blocks: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -959,11 +1014,63 @@ struct MarkdownText: View {
             Text(code).font(.system(.footnote, design: .monospaced)).padding(12)
           }.background(NativePalette.code, in: RoundedRectangle(cornerRadius: 8))
         } else {
-          Text(inline(block))
-            .font(.body).fixedSize(horizontal: false, vertical: true)
+          LinkedText(text: inline(block))
         }
       }
     }
+  }
+}
+
+/// Inline Markdown with a site icon before each link. Long-pressing a link opens
+/// link actions: the text reports where its links are drawn and shades the pressed one.
+struct LinkedText: View {
+  let text: AttributedString
+  @State private var region = LinkRegion()
+  @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 17
+  private var links: [URL] {
+    var seen: [URL] = []
+    for run in text.runs { if let url = run.link, seen.last != url { seen.append(url) } }
+    return seen
+  }
+  var body: some View {
+    let links = links
+    if links.isEmpty {
+      Text(text).font(.body).fixedSize(horizontal: false, vertical: true)
+    } else {
+      let pressed = LinkPress.shared.current.flatMap { links.contains($0) ? $0 : nil }
+      composed
+        .font(.body).fixedSize(horizontal: false, vertical: true)
+        .textRenderer(LinkGeometryRenderer(region: region, pressed: pressed,
+          highlight: NativePalette.muted.opacity(0.28)))
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { region.update(frame: $0) }
+        .onAppear {
+          LinkPress.shared.register(region)
+          LinkPress.shared.installTracker()
+        }
+        .onDisappear { region.update(frame: .null) }
+    }
+  }
+  private var composed: Text {
+    var result = Text(verbatim: "")
+    var previous: URL?
+    for run in text.runs {
+      let piece = Text(AttributedString(text[run.range]))
+      guard let url = run.link else {
+        result = result + piece
+        previous = nil
+        continue
+      }
+      let tag = LinkRunTag(url: url)
+      if url != previous {
+        let icon = FaviconStore.inlineImage(FaviconStore.shared.state(for: url), size: iconSize,
+          fallback: UIColor(NativePalette.muted))
+        result = result + Text(Image(uiImage: icon)).baselineOffset(-iconSize * 0.16).customAttribute(tag)
+          + Text(verbatim: "\u{2009}").customAttribute(tag)
+      }
+      result = result + piece.customAttribute(tag)
+      previous = url
+    }
+    return result
   }
 }
 
@@ -1019,11 +1126,16 @@ struct MessageReplyQuote: View {
 }
 
 struct PendingMessageView: View {
-  @AppStorage("accent") private var accent = "black"
+  @Environment(\.colorScheme) private var colorScheme
+  @AppStorage("useBotMessageColors") private var useBotMessageColors = false
   @Environment(AppStore.self) private var store
   let pending: PendingSend
   var showsReplyContext = true
   var onReplyContext: ((String) -> Void)?
+  private var outgoingColors: OutgoingMessageColors {
+    let bot = store.channels.first { $0.id == pending.channelId }.flatMap { store.bot(for: $0) }
+    return OutgoingMessageColors(botColor: bot?.color, enabled: useBotMessageColors && bot?.hasAvatar != true)
+  }
   var body: some View {
     HStack(alignment: .bottom, spacing: 0) {
       Spacer(minLength: 44)
@@ -1037,18 +1149,19 @@ struct PendingMessageView: View {
           if !pending.input.content.isEmpty {
             Group {
               if RichMarkdownView.required(pending.input.content) {
-                RichMarkdownView(source: pending.input.content, forceDark: true).frame(
+                RichMarkdownView(source: pending.input.content, forceDark: true,
+                  messageTextColor: colorScheme == .dark ? "#f5f5f5" : "#ffffff").frame(
                   maxWidth: .infinity)
               } else {
                 BubbleText {
-                  MarkdownText(source: pending.input.content, textColor: .white, ownMessage: true)
+                  MarkdownText(source: pending.input.content, textColor: outgoingColors.foreground, ownMessage: true)
                     .font(.body).lineSpacing(1.5)
                 }
               }
             }.padding(.horizontal, 14).padding(
               .vertical, 9
-            ).foregroundStyle(.white).background(
-              accent == "blue" ? NativePalette.link : NativePalette.user,
+            ).foregroundStyle(outgoingColors.foreground).background(
+              outgoingColors.background,
               in: RoundedRectangle(cornerRadius: 24))
           }
           if !(pending.stagedFiles ?? []).isEmpty || !pending.input.attachments.isEmpty {

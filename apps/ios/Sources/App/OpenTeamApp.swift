@@ -116,10 +116,14 @@ struct ChannelAvatar: View {
   var groupStyle: GroupAvatarLayout.Style = .cluster
   var showsActivity = true
   var animatesWhenInactive = false
+  var showsInboxActivity = false
   @State private var photo: UIImage?
   var body: some View {
     let bot = store.bot(for: channel)
     let runs = store.activeRuns(channel.id)
+    let inboxRuns = (store.state.bootstrap?.activeRuns ?? []).filter { run in
+      run.channelId == channel.id || (run.channelId == nil && (run.botId == bot?.id || channel.members.contains { $0.botId == run.botId }))
+    }
     func motion(_ botID: String?) -> RobotAvatarMode {
       guard showsActivity, store.activeChannel == channel.id || animatesWhenInactive, let botID,
         channel.members.contains(where: { $0.botId == botID })
@@ -141,7 +145,25 @@ struct ChannelAvatar: View {
           .scaleEffect(artworkScale)
       }
     }.overlay(alignment: .bottomTrailing) {
-      if showsActivity, size <= 30, !runs.isEmpty, !channel.isGroup {
+      if showsInboxActivity {
+        let activity = InboxPresentation.activity(latest: store.latestMessage(channel.id), runs: inboxRuns, messages: store.messages(channel.id))
+        if activity != .idle {
+          let diameter = activity == .needsAnswer
+            ? min(22, max(13, size * 0.36)) : min(22, max(12, size * 0.273))
+          Circle().fill(activity == .needsAnswer ? Color(hex: "FF9500") : Color(hex: "3FA264"))
+            .frame(width: diameter, height: diameter)
+            .overlay {
+              if activity == .needsAnswer {
+                Image(systemName: "star.fill").font(.system(size: diameter * 0.48, weight: .semibold))
+                  .foregroundStyle(.white)
+              }
+            }
+            .background(NativePalette.background, in: Circle().inset(by: -2))
+            .offset(x: 2, y: 2)
+            .accessibilityLabel(activity == .needsAnswer ? "Waiting for your answer" : "Working")
+            .accessibilityIdentifier("channel-activity-" + channel.id)
+        }
+      } else if showsActivity, size <= 30, !runs.isEmpty, !channel.isGroup {
         Circle().fill(Color(hex: "29A665")).frame(width: 9, height: 9)
           .overlay(Circle().stroke(NativePalette.background, lineWidth: 1))
           .offset(x: 1, y: 1).accessibilityHidden(true)

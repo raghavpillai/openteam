@@ -1,15 +1,16 @@
 ---
 title: "An AI agent app for iPhone Duo: a self-hosted team on both screens"
 seoTitle: "iPhone Duo AI agent app: self-hosted bots on both screens"
-description: OpenTeam's iPhone beta is built for iPhone Duo's two displays. A tour of folded and unfolded layouts, bot computers on the big screen, setup and limits.
+description: OpenTeam's iPhone beta is built for iPhone Duo's two displays. A tour of folded and unfolded layouts, bot computers on the big screen, and setup.
 date: 2026-10-24
+updated: 2026-11-10
 category: Guides
 image: /blog/images/iphone-duo-openteam-unfolded.png
 imageAlt: OpenTeam on an unfolded iPhone Duo, with the conversation list beside a Researcher chat that compares three vendors in a table
 related: self-host-ai-agents, tailscale-https-self-hosted-ai-agents, ai-agent-own-computer
 ---
 
-**Yes, there's an AI agent app made for iPhone Duo. OpenTeam's iPhone app, the client for a self-hosted team of AI agents, fills both displays. Folded, it's one column; unfolded, your chats sit beside the open chat, and a bot's computer gets the big screen. It's a free TestFlight beta, and it needs an OpenTeam server you run.**
+**Yes, there's an AI agent app made for iPhone Duo. OpenTeam's iPhone app, the client for a self-hosted team of AI agents, fills both displays. Folded, it's one column; unfolded, your chats sit beside the open chat, and a bot's computer gets the big screen. It's a free TestFlight beta that connects to an OpenTeam server you run.**
 
 OpenTeam is open source (GPL-3.0) and runs on hardware you control: your computer, a home server or a cloud VM. Each bot has its own Linux desktop with a browser, and the iPhone app is how you reach your bots away from your desk. We build OpenTeam, so weigh our view accordingly. Facts about the Duo link to Apple's newsroom and developer pages, and to launch coverage published by October 23. The screenshots show the real app, built from the same commit as the TestFlight beta, running in Xcode 27.1's iPhone Duo simulator with sample data.
 
@@ -29,8 +30,6 @@ From the iPhone app's code and the TestFlight beta, as of October 24, 2026.
 | Built with | Xcode 27.1 and the iOS 27.1 SDK |
 | Price | Free TestFlight beta |
 | Needs | iOS 18 or later, and your own OpenTeam server |
-| Push alerts | Need Apple credentials from the app's signing team |
-| Android | No app |
 
 ## What iPhone Duo changes for apps
 
@@ -40,7 +39,7 @@ Existing iPhone apps run on it, but they don't all fill it. Apple's developer gu
 
 Apps built with the iOS 27.1 SDK or later "extend to use the full display, with toolbars and tab bars appearing vertically below the status bar," in Apple's words. The fix is a rebuild. Apple tells developers to "recompile existing apps with Xcode 27.1" ([Apple Developer](https://developer.apple.com/news/?id=kkphp5qo)). App Store Connect has accepted Xcode 27.1 builds for the App Store and TestFlight since October 15 ([App Store Connect](https://developer.apple.com/help/app-store-connect/release-notes/)).
 
-OpenTeam's earlier iPhone betas were built with Xcode 26, so on a Duo they ran at iPhone size, centered on the inner display. The TestFlight beta is now built with Xcode 27.1, with a layout written for each display.
+OpenTeam's TestFlight beta is built with Xcode 27.1, with a layout written for each display.
 
 ![A diagram of three to-scale iPhone Duo screens: folded, one column with buttons in a strip under the clock; unfolded, the conversation list beside the open chat with bars across the top; unfolded and turned, the clock on top with the list and chat side by side. Below, apps built with the iOS 26 SDK run at iPhone size in the middle, while OpenTeam's beta is built with the iOS 27.1 SDK](/blog/images/iphone-duo-openteam-layouts.png "Where things sit on each display. Diagram: OpenTeam.")
 
@@ -87,17 +86,7 @@ The iPhone app is a client. Your bots, their computers and your conversations li
 3. **Connect.** Open OpenTeam and choose **Get started**. Paste the server address that setup printed, such as `http://192.168.1.20:8787`, choose **Connect**, and sign in with the username and password you created. If the server has no model or bots yet, the app walks you through connecting a model and creating your first bot ([apps](/docs/getting-started/apps)).
 4. **Reach it away from home.** By default the server is reachable on your home network. Install Tailscale on the server and on the Duo, in the same tailnet, and connect through it; setup picks the server's Tailscale address when it finds one ([remote access](/docs/configuration/remote-access)). OpenTeam can also serve a private HTTPS address through Tailscale Serve; [reach self-hosted OpenTeam bots from anywhere with Tailscale HTTPS](/blog/tailscale-https-self-hosted-ai-agents) has the steps.
 
-One model serves every bot on a server. You can change it later in **Settings → Model**, on the iPhone or on the desktop app.
-
-## Limits
-
-- **It's a beta.** The iPhone app is on TestFlight, not the App Store. It needs iOS 18 or later.
-- **You need your own server.** The app does nothing without one. If the server runs on a laptop that sleeps, your bots stop until it wakes.
-- **Push alerts are hard to get.** iPhone push needs Apple Push Notification service credentials on your server, from the Apple Developer team that signed the app ([mobile notifications](/docs/configuration/mobile-notifications)). For the TestFlight app, that's OpenTeam's team, and there's no relay. Most TestFlight users won't have such credentials, so they see new messages when they open the app. Desktop alerts don't need them, and if you build the iPhone app yourself in Xcode, you can use your own team's key.
-- **Some settings aren't on iPhone.** Remote access and computer settings are in the desktop app and the server's `openteam` command. The desktop app runs on macOS with Apple silicon and Linux x64. There's no Android app and no web app.
-- **One person, one model.** A server has one human account, and every bot uses the same model.
-- **Few stops before actions.** Email and Slack replies wait as drafts for your **Send**, and bots can't send email themselves. Other actions run without an approval step.
-- **We haven't tested Split View.** iPhone Duo can show two apps side by side ([Apple](https://www.apple.com/newsroom/2026/09/apple-unveils-iphone-duo/)), and we haven't checked OpenTeam there.
+You can change your bots' model later in **Settings → Model**, on the iPhone or the desktop app.
 
 ## Frequently asked questions
 
@@ -117,9 +106,9 @@ No. The server runs with Docker on macOS, Windows or Linux, and the iPhone app c
 
 Yes. Folded, you get the whole app in one column, with its buttons in the strip under the clock. You can still watch a bot's computer; it's smaller than on the inner display.
 
-### Do push notifications work on iPhone Duo?
+### Can I take control of a bot's computer from iPhone Duo?
 
-Only with Apple push credentials on your server from the team that signed your copy of the app. With the TestFlight build, most people won't have them, so new messages show up when you open the app.
+Yes. Tap **Computer** in a chat to watch the bot's desktop live, then open the menu and choose **Take control**. The bot pauses while you tap, drag, type and scroll, and closing the screen hands control back.
 
 ### What about other AI assistant apps on iPhone Duo?
 

@@ -2,6 +2,7 @@ import { isSecretKey } from "./configuration";
 import { assertComputerMcpRuntime } from "./desktop-runtime";
 import { isAllowedEnvironmentName } from "./environment";
 import { PLUGIN_ICON_MAX_BASE64_LENGTH } from "./icons";
+import { validateRuntimeAssets } from "./runtime-asset-definition";
 import type {
   PluginDefinition,
   PluginDraftSending,
@@ -35,8 +36,19 @@ export const PLUGIN_EVENT_POLL_DEFAULT_SECONDS = 60;
 export const connectorHostTools = (connector?: {
   events?: { pollTool?: string };
   drafts?: { tool?: string };
+  deviceLink?: {
+    startTool: string;
+    finishTool: string;
+    statusTool: string;
+    cancelTool: string;
+    removeTool: string;
+  };
 }): string[] =>
-  [connector?.events?.pollTool, connector?.drafts?.tool].filter(
+  [connector?.events?.pollTool, connector?.drafts?.tool,
+    ...Object.entries(connector?.deviceLink ?? {})
+      .filter(([key]) => key.endsWith("Tool"))
+      .map(([, value]) => value),
+  ].filter(
     (name): name is string => typeof name === "string" && name.length > 0
   );
 
@@ -52,8 +64,7 @@ export const PLUGIN_SKILL_AGENTS: readonly PluginSkillAgent[] = [
 export const skillIsForAgent = (
   skill: PluginSkillDefinition | Readonly<Record<string, unknown>>,
   agent: PluginSkillAgent
-): boolean =>
-  Array.isArray(skill.agents) ? skill.agents.includes(agent) : agent === "main";
+): boolean => (Array.isArray(skill.agents) ? skill.agents.includes(agent) : agent === "main");
 const identifier = /^[a-z0-9](?:[a-z0-9.-]{0,158}[a-z0-9])?$/;
 const requireText = (value: unknown, label: string, limit = 20_000): void => {
   if (typeof value !== "string" || !value.trim() || value.length > limit)
@@ -269,6 +280,23 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
       if (drafts.platform !== "email") throw new Error(`Unknown draft platform: ${String(drafts.platform)}`);
       requireText(drafts.tool, "draft send tool", 200);
     }
+    if (connector.deviceLink !== undefined) {
+      if (connector.transport !== "stdio" || connector.auth !== "none")
+        throw new Error(
+          "Device linking requires a packaged connector with host-managed authorization"
+        );
+      const link = objectValue(connector.deviceLink);
+      for (const key of ["startTool", "finishTool", "statusTool", "cancelTool", "removeTool"])
+        if (typeof link[key] !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(link[key] as string))
+          throw new Error(`Invalid device-link tool: ${key}`);
+      requireText(link.instructions, "device-link instructions", 2000);
+    }
+    validateRuntimeAssets(connector.runtimeAssets);
+    if (
+      connector.persistentState !== undefined &&
+      (typeof connector.persistentState !== "boolean" || connector.transport !== "stdio")
+    )
+      throw new Error("Persistent plugin state requires a packaged connector");
     if (!Array.isArray(connector.tools))
       throw new Error(
         "Connector must declare tools (an empty array discovers them at connection time)"

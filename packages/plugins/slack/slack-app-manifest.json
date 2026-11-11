@@ -6,7 +6,7 @@
   },
   "oauth_config": {
     "redirect_urls": [
-      "https://YOUR-OPENTEAM-SERVER/api/v0/plugin-oauth/callback?connectionId=YOUR-CONNECTION-ID"
+      "https://YOUR-OPENTEAM-SERVER/api/v0/plugin-oauth/callback"
     ],
     "scopes": {
       "user": [

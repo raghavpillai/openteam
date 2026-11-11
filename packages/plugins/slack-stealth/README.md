@@ -17,8 +17,8 @@ The two plugins have independent accounts and can be installed together.
    its `xoxc-` browser token and `xoxd-` session cookie (the cookie named `d`).
 3. Enter them in **Slack browser token** and **Slack session cookie**, save, and
    choose **Connect**. Never send these login credentials in a conversation.
-4. Test `channels_me` or `channels_list` and verify the intended workspace.
-5. Use the account's tool settings to control the operations available to bots.
+4. Run `channels_me` or `channels_list` with **Test a tool**, on the plugin's page under
+   **Settings → Advanced settings**, and verify the intended workspace.
 
 OpenTeam stores these values as account secrets and passes them to the process in
 memory. They are not included in plugin exports or written to the package.
@@ -33,8 +33,10 @@ Use **Add Another Account** for another workspace or user; credentials are indep
 
 The package explicitly registers these nine upstream tools. It does not claim
 the managed plugin's canvas, list, or file-upload coverage. Workspace access
-remains limited to the signed-in user's access. OpenTeam discovers tool schemas
-and applies its normal account and tool controls.
+remains limited to the signed-in user's access. OpenTeam discovers the tool
+schemas when the account connects. Sends run directly through
+`conversations_add_message`; the review cards that Slack (managed) uses don't
+apply to this plugin.
 
 ## Runtime and provenance
 
@@ -66,25 +68,3 @@ app OAuth integration. Sessions may expire or be revoked, and workspace
 security policies can prevent access. If authentication fails, replace both
 secret fields from the current session and reconnect. There is no OAuth refresh flow.
 Stealth describes app-free setup; it does not promise invisible activity.
-
-## Validation
-
-The precompiled executables were built twice from the pinned upstream source
-using Go 1.25.9; executable and compressed-archive digests matched across builds.
-Source and test fixtures are not included in this package.
-
-The exported package ran in an offline Linux arm64 OpenTeam computer container
-with `/tmp` mounted `noexec`.
-The smoke fixture used upstream's demo authentication to exercise the actual
-launcher, stdio initialization, discovery of all nine tools, write annotations,
-invalid-argument rejection, shutdown, and private-directory cleanup. Linux x64
-integrity was checked; execution on x64 was not tested.
-
-A prior live browser-session test of the same upstream version, using its release
-binaries, in YC W2024 on the OpenTeam computer discovered all
-nine tools and returned channel data through `channels_list`. The subsequent
-`channels_me` read failed, and the browser session was logged out. This Enterprise
-workspace did not sustain the session for further testing. Message search,
-history, thread reads, and write operations remain unverified live. No messages
-or reactions were sent. App-free connectivity is demonstrated; reliable operation
-in this workspace is not established.

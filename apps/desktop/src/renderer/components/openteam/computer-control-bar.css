@@ -116,10 +116,10 @@
   z-index: -1;
   pointer-events: none;
 }
-.computer-control-bar[data-owned="true"] .computer-control-action {
+.computer-control-bar[data-owned="true"][data-handoff="false"] .computer-control-action {
   color: #ffffffd9;
 }
-.computer-control-bar[data-owned="true"] .computer-control-action-skin {
+.computer-control-bar[data-owned="true"][data-handoff="false"] .computer-control-action-skin {
   background: #ffffff12;
 }
 .computer-control-action:hover .computer-control-action-skin {

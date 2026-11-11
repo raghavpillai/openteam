@@ -411,7 +411,7 @@ export function BotScreen({
               {handoff ? (
                 <>
                   <span className="mr-auto min-w-0 basis-full py-2 text-[13px] leading-4 text-white/85 md:flex-1 md:basis-0 md:py-0">
-                    {controlLabel + " · " + (handoff.reason || "Complete the requested step")}
+                    {handoff.reason || "Complete the requested step"}
                   </span>
                   <Button
                     className="electron-no-drag text-white/70 hover:bg-white/[0.055] hover:text-white"
@@ -421,14 +421,6 @@ export function BotScreen({
                     variant="ghost"
                   >
                     Skip this step
-                  </Button>
-                  <Button
-                    className="electron-no-drag bg-white text-black hover:bg-white/90"
-                    disabled={handoffPending}
-                    onClick={() => void finishHandoff("complete")}
-                    size="sm"
-                  >
-                    I'm done, continue
                   </Button>
                 </>
               ) : null}
@@ -519,11 +511,16 @@ export function BotScreen({
               <ComputerControlBar
                 label={controlLabel}
                 controlling={controlling}
-                pending={controlPending || screen?.controlPending === true}
+                pending={handoffPending || controlPending || screen?.controlPending === true}
                 available={viewerReady}
                 anotherDevice={!controlling && screen?.humanTakeover === true}
                 hint={watchHint}
-                onChange={() => void changeControl(!controlling)}
+                handoff={Boolean(handoff)}
+                onChange={() =>
+                  void (handoff && controlling
+                    ? finishHandoff("complete")
+                    : changeControl(!controlling))
+                }
                 onResume={() => void resumeBot()}
               />
             </footer>

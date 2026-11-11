@@ -20,7 +20,7 @@ Some steps need a person. When that happens, the bot posts a card in the chat as
 
 1. Choose **Take over** to open the bot's screen.
 2. Complete the step.
-3. Hand control back. On desktop, choose **I'm done, continue**, or **Skip this step** if you can't or don't want to do it. On iPhone, tap **Done** when you've finished.
+3. Choose **I'm done** below the screen to complete the requested step, return control, and let the bot continue. If you can't or don't want to do the step, use **Skip** on the request card or **Skip this step** in the desktop viewer.
 
 To decline without opening the screen, choose **Skip** on the card.
 

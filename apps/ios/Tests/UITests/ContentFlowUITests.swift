@@ -397,6 +397,28 @@ import XCTest
     app.buttons["Done"].tap()
     XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.waitForExistence(timeout: 12))
   }
+  func testComputerHandoffControlBarCompletesRequest() async throws {
+    let app = try await launch("handoff", dark: true)
+    app.buttons["Take over"].tap()
+    let done = app.buttons["I'm done"]
+    XCTAssertTrue(done.waitForExistence(timeout: 12))
+    XCTAssertTrue(done.isHittable)
+    XCTAssertGreaterThanOrEqual(done.frame.height, 44)
+    XCTAssertFalse(app.buttons["Give back control"].exists, "A requested step completes the handoff rather than only releasing input")
+    capture("computer-handoff-control-bar", app)
+    let path = "POST /api/v0/channel-messages/content-fixture/computer-handoff"
+    try await control("/__qa/control", ["failures": [path: ["status": 503]]])
+    done.tap()
+    XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "try again shortly")).firstMatch.waitForExistence(timeout: 12))
+    XCTAssertTrue(done.isHittable, "A failed completion keeps the viewer open for retry")
+    done.tap()
+    let closed = expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: app.buttons["conversation-details"])
+    await fulfillment(of: [closed], timeout: 12)
+    let data = try await state()
+    let receipts = data["contentReceipts"] as? [[String: Any]] ?? []
+    XCTAssertEqual(receipts.filter { $0["action"] as? String == "complete" }.count, 1)
+    XCTAssertEqual((data["screen"] as? [String: Any])?["humanTakeover"] as? Bool, false)
+  }
   /// Input delivery is covered against an actual VNC desktop in VNCValidationUITests.
   /// This fixture verifies handoff lifecycle even if the viewer cannot connect.
   func testComputerHandoffFailureAndReturnControl() async throws {

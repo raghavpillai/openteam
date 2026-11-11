@@ -53,7 +53,9 @@ export class BotService {
       return bots.map(toBotView);
     });
 
-  create = (input: CreateBotInput, recipe?: BotRecipe) =>
+  // Legacy template and agent-administration callers still carry durable guidance.
+  // HTTP profile schemas deliberately omit this retired editor field.
+  create = (input: CreateBotInput & { instructions?: string }, recipe?: BotRecipe) =>
     serviceEffect(async () => {
       const scope = "bot:create";
       const requestHash = hashRequest(recipe ? { ...input, recipe } : input);
@@ -159,7 +161,7 @@ export class BotService {
       return toBotView(bot);
     });
 
-  update = (botId: string, input: UpdateBotInput) =>
+  update = (botId: string, input: UpdateBotInput & { instructions?: string }) =>
     serviceEffect(async () => {
       const name = input.name?.trim();
       if (name === "") throw new ApiError(400, "invalid_bot_name", "Bot name must not be blank");
@@ -174,7 +176,6 @@ export class BotService {
       ) {
         fileTargets.push("profile");
       }
-      if (input.instructions !== undefined) fileTargets.push("instructions");
       if (input.icon !== undefined || input.color !== undefined) fileTargets.push("avatar");
       if (input.notificationsEnabled !== undefined) {
         fileTargets.push("settings");

@@ -81,6 +81,7 @@ import {
   turnInterruptedEventFor,
 } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
+import { botMessageColorStyle, readBotMessageColors, subscribeBotMessageColors } from "../../lib/message-colors";
 import {
   desktopDurableSendController,
   discardDesktopDeliveryStages,
@@ -330,6 +331,7 @@ const messageImages = (message: ChannelMessageView) =>
     .filter((attachment) => attachment.kind === "image")
     .map((attachment) => ({
       url: api.assetUrl(attachment),
+      fileName: attachment.fileName,
       alt: attachment.alt ?? attachment.fileName,
       width: attachment.width,
       height: attachment.height,
@@ -425,6 +427,7 @@ const MessageRow = memo(function MessageRow({
     ...messageImages(message),
     ...stagedImageAttachments.map((attachment) => ({
       url: attachment.previewUri as string,
+      fileName: attachment.fileName,
       alt: attachment.alt ?? attachment.fileName,
       ...(attachment.width && attachment.height
         ? { width: attachment.width, height: attachment.height }
@@ -598,7 +601,7 @@ const MessageRow = memo(function MessageRow({
             )}
           {replyPreview && (
             <div
-              className={`flex max-w-[min(88%,640px,calc(100%-82px))] items-center gap-1.5 px-2 pb-0.5 text-xs text-muted-foreground ${
+              className={`flex max-w-[min(80%,560px,calc(100%-82px))] items-center gap-1.5 px-2 pb-0.5 text-xs text-muted-foreground ${
                 from === "user" ? "self-end" : hasAgentGutter ? "ml-[30px] self-start" : "self-start"
               }`}
             >
@@ -628,7 +631,9 @@ const MessageRow = memo(function MessageRow({
                   ? "max-w-[min(100%,560px,calc(100%-82px))]"
                   : display.richMessage && !isWidget
                   ? "max-w-[min(88%,520px,calc(100%-82px))]"
-                  : "max-w-[min(88%,640px,calc(100%-82px))]"
+                  : from === "user"
+                  ? "max-w-[min(80%,560px,calc(100%-82px))]"
+                  : "max-w-[min(100%,560px,calc(100%-82px))]"
               )}>
                 {display.richMessage ? (
                   <RichMessage bot={senderBot} message={message} />
@@ -1235,6 +1240,7 @@ export const ChatPane = memo(function ChatPane({
     },
     [onReactMessage]
   );
+  const useBotColors = useSyncExternalStore(subscribeBotMessageColors, readBotMessageColors);
   const pluginMentions = usePluginMentions(selectedBot?.id ?? channel.members[0]?.botId, active);
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const bots =
@@ -1460,6 +1466,7 @@ export const ChatPane = memo(function ChatPane({
           "chat-composer-overlap"
       )}
       data-chat-drop-target=""
+      style={botMessageColorStyle(useBotColors, channel.kind === "bot_dm" ? selectedBot?.color : undefined, selectedBot?.hasAvatar)}
       ref={fileDropTargetRef}
     >
       {active && (

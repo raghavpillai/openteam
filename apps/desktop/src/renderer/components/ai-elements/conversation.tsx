@@ -299,7 +299,7 @@ export const ConversationTopDivider = () => {
     <div
       aria-hidden="true"
       className={cn(
-        "pointer-events-none absolute inset-x-0 top-11 z-20 h-px bg-border transition-opacity duration-150 ease-out motion-reduce:transition-none",
+        "pointer-events-none absolute inset-x-0 top-11 z-20 h-6 bg-gradient-to-b from-background/60 to-transparent transition-opacity duration-150 ease-out motion-reduce:transition-none",
         visible ? "opacity-100" : "opacity-0"
       )}
     />

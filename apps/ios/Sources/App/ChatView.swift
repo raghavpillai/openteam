@@ -601,9 +601,20 @@ struct MessageArrival<Content: View>: View {
   }
 }
 
+/// Uses the same generated palette as desktop, independently of the app accent.
+struct OutgoingMessageColors {
+  var background = NativePalette.user
+  let foreground = NativePalette.userText
+  init(botColor: String?, enabled: Bool) {
+    guard enabled, let colors = MessageBubblePalette.colors(for: botColor) else { return }
+    background = NativePalette.color(colors.light, colors.dark)
+  }
+}
+
 struct MessageRow: View {
   @Environment(MessageModalPresenter.self) private var modals
-  @AppStorage("accent") private var accent = "black"
+  @Environment(\.colorScheme) private var colorScheme
+  @AppStorage("useBotMessageColors") private var useBotMessageColors = false
   @Environment(AppStore.self) private var store
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let message: Message
@@ -625,6 +636,10 @@ struct MessageRow: View {
   private var speaker: Bot? {
     guard viewOnly || channel.isGroup, !message.isUser else { return nil }
     return speakerOverride ?? store.bots.first { $0.id == message.senderBotId }
+  }
+  private var outgoingColors: OutgoingMessageColors {
+    OutgoingMessageColors(botColor: store.bot(for: channel)?.color,
+      enabled: useBotMessageColors && store.bot(for: channel)?.hasAvatar != true)
   }
   var body: some View {
     Group {
@@ -681,21 +696,23 @@ struct MessageRow: View {
           if !message.displayContent.isEmpty, !["external-draft", "imessage-send"].contains(message.metadata["type"].string) {
             Group {
               if RichMarkdownView.required(message.displayContent) {
-                RichMarkdownView(source: message.displayContent, forceDark: message.isUser).frame(
+                RichMarkdownView(source: message.displayContent, forceDark: message.isUser,
+                  messageTextColor: message.isUser ? (colorScheme == .dark ? "#f5f5f5" : "#ffffff") : nil)
+                  .frame(
                   maxWidth: .infinity)
               } else {
                 BubbleText {
                   MarkdownText(source: message.displayContent,
-                    textColor: message.isUser ? .white : NativePalette.text, ownMessage: message.isUser)
+                    textColor: message.isUser ? outgoingColors.foreground : NativePalette.text, ownMessage: message.isUser)
                     .font(.body).lineSpacing(1.5)
                 }
               }
             }
             .padding(.horizontal, 14).padding(.vertical, 9)
-            .foregroundStyle(message.isUser ? Color.white : NativePalette.text)
+            .foregroundStyle(message.isUser ? outgoingColors.foreground : NativePalette.text)
             .background(
               message.isUser
-                ? (accent == "blue" ? NativePalette.link : NativePalette.user)
+                ? outgoingColors.background
                 : NativePalette.assistant,
               in: RoundedRectangle(cornerRadius: 24))
           }
@@ -1109,11 +1126,16 @@ struct MessageReplyQuote: View {
 }
 
 struct PendingMessageView: View {
-  @AppStorage("accent") private var accent = "black"
+  @Environment(\.colorScheme) private var colorScheme
+  @AppStorage("useBotMessageColors") private var useBotMessageColors = false
   @Environment(AppStore.self) private var store
   let pending: PendingSend
   var showsReplyContext = true
   var onReplyContext: ((String) -> Void)?
+  private var outgoingColors: OutgoingMessageColors {
+    let bot = store.channels.first { $0.id == pending.channelId }.flatMap { store.bot(for: $0) }
+    return OutgoingMessageColors(botColor: bot?.color, enabled: useBotMessageColors && bot?.hasAvatar != true)
+  }
   var body: some View {
     HStack(alignment: .bottom, spacing: 0) {
       Spacer(minLength: 44)
@@ -1127,18 +1149,19 @@ struct PendingMessageView: View {
           if !pending.input.content.isEmpty {
             Group {
               if RichMarkdownView.required(pending.input.content) {
-                RichMarkdownView(source: pending.input.content, forceDark: true).frame(
+                RichMarkdownView(source: pending.input.content, forceDark: true,
+                  messageTextColor: colorScheme == .dark ? "#f5f5f5" : "#ffffff").frame(
                   maxWidth: .infinity)
               } else {
                 BubbleText {
-                  MarkdownText(source: pending.input.content, textColor: .white, ownMessage: true)
+                  MarkdownText(source: pending.input.content, textColor: outgoingColors.foreground, ownMessage: true)
                     .font(.body).lineSpacing(1.5)
                 }
               }
             }.padding(.horizontal, 14).padding(
               .vertical, 9
-            ).foregroundStyle(.white).background(
-              accent == "blue" ? NativePalette.link : NativePalette.user,
+            ).foregroundStyle(outgoingColors.foreground).background(
+              outgoingColors.background,
               in: RoundedRectangle(cornerRadius: 24))
           }
           if !(pending.stagedFiles ?? []).isEmpty || !pending.input.attachments.isEmpty {

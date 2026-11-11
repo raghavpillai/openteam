@@ -94,6 +94,9 @@ export default defineConfig({
       "/api": { target: process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787", ws: true },
     },
   },
+  // These parsers load inside one-shot preview workers. Discovering them on the
+  // first file open restarts Vite's dependency graph and strands that worker.
+  optimizeDeps: { include: ["mammoth", "xlsx"] },
   worker: { format: "es" },
   build: {
     manifest: "manifest.json",

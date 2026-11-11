@@ -213,7 +213,6 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       app.createBot({
         clientRequestId: "create-durable-0001",
         name: "Durable",
-        instructions: "Keep continuity",
         icon: "D",
         color: "#4f7cff",
       })
@@ -222,7 +221,6 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       app.createBot({
         clientRequestId: "create-durable-0001",
         name: "Durable",
-        instructions: "Keep continuity",
         icon: "D",
         color: "#4f7cff",
       })
@@ -471,7 +469,6 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       app.createBot({
         clientRequestId: "create-peer-0002",
         name: "Peer",
-        instructions: "Reply to useful direct messages.",
         icon: "P",
         color: "#7c3aed",
       })
@@ -481,7 +478,6 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       app.createBot({
         clientRequestId: "create-reviewer-0003",
         name: "Reviewer",
-        instructions: "Add a concise independent view in groups.",
         icon: "R",
         color: "#059669",
       })

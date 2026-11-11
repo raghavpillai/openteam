@@ -1234,7 +1234,6 @@ export class AgentMessaging {
     const profile = [
       bot.title ? `Title: ${bot.title}` : "",
       bot.description ? `Description: ${bot.description}` : "",
-      bot.instructions ? `Durable instructions are already configured.` : "",
     ]
       .filter(Boolean)
       .join("\n");
@@ -2144,7 +2143,6 @@ export class AgentMessaging {
       ? (await this.prisma.routineExecution.findUnique({ where: { runId: context.scopeId }, select: { routineId: true } }))?.routineId
       : null;
     const frozen = await this.agentData.preparePlatformSections(botId, contextSessionId, agentPrompt.compactionEpoch, {
-      agent_instructions: bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
       automations: "",
       agent_directory: `## Teammates and groups\n${teammates ? TEAMMATES_POINTER : NO_TEAMMATES_SECTION}`,
       mcp_instructions: connectorInstructions,
@@ -2157,7 +2155,6 @@ export class AgentMessaging {
       renderPlatformBaseSystemPrompt({ ...(automation ? { automationRun: AUTOMATION_RUN_INSTRUCTIONS } : {}) }),
       [agentPrompt.profileSection, renderAgentProfileFiles({ agentDataRoot: this.agentData.root, botId })].join("\n"),
       USER_IDENTITY_LINE,
-      frozen.sections.agent_instructions,
       automation ? AUTOMATION_DELEGATING_SECTION : DELEGATING_SECTION,
       renderWorkerTimeSection(timeZone),
       agentPrompt.memory.policy,

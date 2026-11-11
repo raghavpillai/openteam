@@ -26,7 +26,6 @@ const promptStore = (snapshotValue: ReturnType<typeof snapshot>) => {
         name: "Bot",
         title: "",
         description: "Description",
-        instructions: "",
       }),
     },
     contextSession: { findFirstOrThrow: async () => ({ id: "context-1", botId: "bot-1", compactionEpoch: 7 }) },

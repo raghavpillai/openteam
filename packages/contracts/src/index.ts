@@ -555,7 +555,6 @@ export interface RichMessageCloudAgent {
   name: string;
   title?: string;
   description?: string;
-  instructions?: string;
   icon?: string;
   color: string;
   status: "draft" | "published";
@@ -1438,7 +1437,6 @@ export interface BotView {
   name: string;
   title: string;
   description: string;
-  instructions: string;
   icon: string;
   color: string;
   hasAvatar: boolean;

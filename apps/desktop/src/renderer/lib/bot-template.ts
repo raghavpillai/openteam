@@ -10,14 +10,13 @@ const scheduleSummary = (routine: RoutineView) =>
     : describeRoutineSchedules(routineScheduleDrafts(routine));
 
 /**
- * A bot's shareable template: profile, instructions and routines, as the iPhone app's
+ * A bot's shareable template: profile and routines, as the iPhone app's
  * Share as template builds it. Account data, memories and connector credentials stay out.
  */
 export function botTemplateRecipe(
-  bot: Pick<BotView, "name" | "description" | "instructions" | "color" | "icon">,
+  bot: Pick<BotView, "name" | "description" | "color" | "icon">,
   routines: readonly RoutineView[]
 ): BotRecipe {
-  const hasInstructions = bot.instructions.trim().length > 0;
   return {
     profile: {
       name: bot.name,
@@ -28,15 +27,7 @@ export function botTemplateRecipe(
     visibility: "team",
     memory: [],
     plugins: [],
-    skills: hasInstructions
-      ? [
-          {
-            name: "Instructions",
-            description: "Bot instructions",
-            content: `# Instructions\n\n${bot.instructions}`,
-          },
-        ]
-      : [],
+    skills: [],
     routines: routines.map((routine) => {
       const summary = scheduleSummary(routine);
       return {
@@ -46,7 +37,6 @@ export function botTemplateRecipe(
         content: `Schedule: ${summary}\nTime zone: ${routine.timezone}\n\n${routine.prompt}`,
       };
     }),
-    ...(hasInstructions ? { gettingStarted: { skill: "Instructions" } } : {}),
   };
 }
 

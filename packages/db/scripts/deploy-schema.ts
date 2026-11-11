@@ -34,6 +34,22 @@ BEGIN
     -- Frozen memory from the old prompt layout re-renders once.
     UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory';
   END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+      AND table_name = 'Bot' AND column_name = 'instructions') THEN
+    -- Retire the old trigger before removing a field its function still references.
+    -- applyRawSchema installs the description-only projection after db push.
+    DROP TRIGGER IF EXISTS "Bot_search_refresh" ON "Bot";
+    IF to_regclass('"SearchDocument"') IS NOT NULL THEN
+      UPDATE "SearchDocument" AS search SET "content" = bot."description"
+        FROM "Bot" AS bot WHERE search."sourceType" = 'bot' AND search."sourceId" = bot."id";
+    END IF;
+    ALTER TABLE "Bot" DROP COLUMN "instructions";
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+      AND table_name = 'ContextPromptSnapshot' AND column_name = 'promptSections') THEN
+    UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'agent_instructions'
+      WHERE "promptSections" ? 'agent_instructions';
+  END IF;
   IF to_regclass('"Subagent"') IS NOT NULL THEN
     UPDATE "Subagent" SET "subagentType" = 'computerUse' WHERE "subagentType" = 'browserUse';
     UPDATE "Subagent" SET "taskConfiguration" = "taskConfiguration" - 'combinedComputerUse'

@@ -19,7 +19,6 @@ const routine = (overrides: Partial<RoutineView>): RoutineView =>
 const bot = {
   name: "Scout",
   description: "",
-  instructions: "Reply in English.",
   color: "#A47952",
   icon: "classic",
 };
@@ -33,14 +32,8 @@ describe("bot template export", () => {
       avatarColor: "#A47952",
       avatarShape: "classic",
     });
-    expect(recipe.skills).toEqual([
-      {
-        name: "Instructions",
-        description: "Bot instructions",
-        content: "# Instructions\n\nReply in English.",
-      },
-    ]);
-    expect(recipe.gettingStarted).toEqual({ skill: "Instructions" });
+    expect(recipe.skills).toEqual([]);
+    expect(recipe.gettingStarted).toBeUndefined();
     expect(recipe.routines).toHaveLength(1);
     expect(recipe.routines[0]?.slug).toBe("r1");
     expect(recipe.routines[0]?.content).toStartWith("Schedule: ");
@@ -48,9 +41,9 @@ describe("bot template export", () => {
     expect(parseBotRecipe(JSON.parse(JSON.stringify(recipe)))).toBeTruthy();
   });
 
-  test("leaves out the instructions skill when there are none", () => {
+  test("keeps profile descriptions and event routines", () => {
     const recipe = botTemplateRecipe(
-      { ...bot, description: "Research", instructions: "  " },
+      { ...bot, description: "Research" },
       [routine({ scheduleKind: "event" })]
     );
     expect(recipe.profile.description).toBe("Research");

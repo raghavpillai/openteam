@@ -157,7 +157,6 @@ interface Claimed {
   images: RuntimeInlineImage[];
   clientId: string;
   cwd: string;
-  instructions: string;
   sessionPath: string | null;
   channelId: string;
   deliveryId: string | null;
@@ -1355,7 +1354,6 @@ export class WakeWorker {
           images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments)),
           clientId: payload.clientId,
           cwd: this.workspaceRoot,
-          instructions: inbox.bot.instructions,
           sessionPath: contextSession.runtimeSessionPath,
           channelId: inbox.run.channelId ?? String(payload.channelId ?? ""),
           deliveryId: inbox.run.deliveryId,

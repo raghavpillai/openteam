@@ -1159,8 +1159,26 @@ export class WakeWorker {
             run: { include: { channel: true } },
           },
         });
+        // Feedback has no ChannelDelivery, so room-delivery validation below
+        // cannot protect it. Recheck the destination at claim, after serializing
+        // with membership edits; sort locks when feedback spans several chats.
+        const feedbackChannels = [...new Set(pendingCandidates
+          .filter(candidate => candidate.type === "user.reaction")
+          .flatMap(candidate => candidate.run.channelId ? [candidate.run.channelId] : []))].sort();
+        for (const channelId of feedbackChannels)
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
         const candidates = [];
         for (const candidate of pendingCandidates) {
+          if (candidate.type === "user.reaction" && (!candidate.run.channelId ||
+              !await tx.channel.findFirst({ where: {
+                id: candidate.run.channelId, archivedAt: null, members: { some: { botId } },
+              }, select: { id: true } }))) {
+            const completedAt = new Date();
+            const error = { code: "reaction_channel_unavailable" };
+            await tx.inboxEvent.update({ where: { id: candidate.id }, data: { status: "completed", completedAt, error } });
+            await tx.run.update({ where: { id: candidate.runId }, data: { status: "cancelled", completedAt, error } });
+            continue;
+          }
           if (candidate.run.origin === "user" || await requestWakeAllowed(tx, candidate)) candidates.push(candidate);
           else {
             const settledAt = new Date();

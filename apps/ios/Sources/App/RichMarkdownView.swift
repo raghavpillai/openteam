@@ -137,6 +137,7 @@ private struct MarkdownDocument: UIViewRepresentable {
     context.coordinator.view = view
     context.coordinator.armTimeout()
     view.configuration.userContentController.add(context.coordinator, name: "height")
+    view.configuration.userContentController.add(context.coordinator, name: "link")
     view.navigationDelegate = context.coordinator
     context.coordinator.ready = view.rendererReady
     if !view.rendererReady {
@@ -159,6 +160,8 @@ private struct MarkdownDocument: UIViewRepresentable {
     view.onWindow = nil
     view.navigationDelegate = nil
     view.configuration.userContentController.removeScriptMessageHandler(forName: "height")
+    view.configuration.userContentController.removeScriptMessageHandler(forName: "link")
+    if LinkPress.shared.current != nil { LinkPress.shared.touchEnded() }
     if view.rendererReady {
       view.evaluateJavaScript("++renderVersion; activeLease=''; document.getElementById('message').replaceChildren()")
       DocumentPool.shared.recycle(view)
@@ -297,6 +300,10 @@ private struct MarkdownDocument: UIViewRepresentable {
     func userContentController(
       _ controller: WKUserContentController, didReceive message: WKScriptMessage
     ) {
+      if message.name == "link" {
+        documentLink(message)
+        return
+      }
       if let value = message.body as? [String: Any], value["lease"] as? String == renderToken,
         value["ready"] as? Bool == true,
         let height = value["height"] as? Double, let width = value["width"] as? Double,
@@ -335,12 +342,30 @@ private struct MarkdownDocument: UIViewRepresentable {
       decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
     ) {
       if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url {
-        if ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "") {
-          UIApplication.shared.open(url)
-        }
+        InAppBrowser.open(url)
         decisionHandler(.cancel)
       } else {
         decisionHandler(navigationAction.request.url?.scheme == "about" ? .allow : .cancel)
+      }
+    }
+    /// The document reports its pressed link (for long-press link actions) and
+    /// asks for site icons; its page cannot load network images itself.
+    private func documentLink(_ message: WKScriptMessage) {
+      guard let value = message.body as? [String: Any] else { return }
+      if value.keys.contains("pressed") {
+        LinkPress.shared.setDocumentLink((value["pressed"] as? String).flatMap(URL.init(string:)))
+      }
+      if let hosts = value["favicons"] as? [String] {
+        weak var webView = message.webView
+        Task { @MainActor in
+          for host in Set(hosts.prefix(20)) {
+            // Null tells the page the site has no icon, so it swaps its skeleton for a globe.
+            let dataURL: Any = await FaviconStore.shared.dataURL(host) ?? NSNull()
+            guard let arguments = try? JSONSerialization.data(withJSONObject: [host, dataURL]),
+              let json = String(data: arguments, encoding: .utf8) else { continue }
+            _ = try? await webView?.evaluateJavaScript("setFavicon(..." + json + ")")
+          }
+        }
       }
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -408,6 +433,9 @@ private struct MarkdownDocument: UIViewRepresentable {
     backgroundColor = .clear
     scrollView.backgroundColor = .clear
     scrollView.isScrollEnabled = false
+    // The message card owns long-press: it opens the message actions. WebKit's
+    // link menu would stack on top of them, and its Open Link would leave the app.
+    allowsLinkPreview = false
     clipsToBounds = true
     isInspectable = false
   }

@@ -25,6 +25,7 @@ import {
   net,
   protocol,
   powerMonitor,
+  session,
   shell,
   systemPreferences,
 } from "electron";
@@ -43,6 +44,7 @@ import {
 } from "./data-url-file";
 import { discardDeliveryFiles, readDeliveryFile, stageDeliveryFile } from "./delivery-file-stage";
 import { DurableSendJournalStore } from "./durable-send-journal-store";
+import { createLinkFavicons, LINK_FAVICON_SCHEME } from "./link-favicons";
 import { startHostBridge } from "./host/bridge";
 import { HostCapabilities } from "./host/capabilities";
 import { NativeActionReceipts } from "./host/action-receipts";
@@ -103,6 +105,7 @@ protocol.registerSchemesAsPrivileged([
     scheme: "openteam-staged",
     privileges: { standard: true, secure: true, supportFetchAPI: true },
   },
+  { scheme: LINK_FAVICON_SCHEME, privileges: { standard: true, secure: true } },
 ]);
 
 let desktopUpdateSnapshot: DesktopUpdateSnapshot = {
@@ -1148,6 +1151,14 @@ if (!hasSingleInstanceLock) {
           return new Response("Not found", { status: 404 });
         }
       });
+      // Site icons for chat links. Fetched in a cookie-less in-memory session, so
+      // the request carries nothing from the user's other browsing in the app.
+      const faviconSession = session.fromPartition("openteam-link-favicons");
+      const linkFavicons = createLinkFavicons({
+        cacheDir: join(app.getPath("userData"), "link-favicons"),
+        fetch: (url, init) => faviconSession.fetch(url, init),
+      });
+      await protocol.handle(LINK_FAVICON_SCHEME, (request) => linkFavicons.serve(request));
       computerSettings = createComputerSettingsStore(
         join(app.getPath("userData"), "computer-settings.json")
       );

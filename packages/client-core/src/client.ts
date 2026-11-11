@@ -28,6 +28,7 @@ import type {
   BotMemoryList,
   ChannelClientState,
   ChannelHistoryPage,
+  ChannelLibraryPage,
   ChannelMessageContextOptions,
   ChannelMessageContextView,
   ChannelMessageView,
@@ -515,6 +516,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       ),
     uploadAsset,
     assetUrl,
+    channelLibrary: (channelId: string, before: string | null = null, signal?: AbortSignal) => {
+      const query = before ? `?before=${encodeURIComponent(before)}` : "";
+      return transport.request<ChannelLibraryPage>(`/api/v0/channels/${encodeURIComponent(channelId)}/library${query}`, { signal });
+    },
     search: (query: string, category: SearchCategory = "all", signal?: AbortSignal) => {
       const params = new URLSearchParams({ q: query, category });
       return transport.request<SearchResponse>(`/api/v0/search?${params}`, { signal });

@@ -187,24 +187,24 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   await pause(450);
   const bounds = card(first.id).getBoundingClientRect();
   const available = 745 - 32 - (kind === "group" ? 30 : 0);
-  const expected = Math.min(available * 0.88, 640, available - 82);
+  const expected = Math.min(available * 0.88, 560, available - 82);
   check(
     Math.abs(bounds.width - expected) < 1,
     `${kind} ${theme}: widget width ${bounds.width}, expected ${expected}`
   );
   const entrance = animationEvents.filter((item) => item.id === first.id);
   check(
-    entrance.length === 1 && entrance[0]!.name === "rich-message-card-enter",
+    entrance.length === 1 && entrance[0]!.name === "message-row-enter",
     `Widget has layered entrances: ${JSON.stringify(entrance)}`
   );
   const style = getComputedStyle(card(first.id));
   check(
-    style.animationDuration === "0.32s" &&
-      style.padding === "12px" &&
+    style.animationDuration === "0s" &&
+      style.padding === "16px" &&
       style.borderTopLeftRadius === "6px" &&
-      style.borderTopRightRadius === "18px" &&
-      style.borderBottomLeftRadius === "18px" &&
-      style.borderBottomRightRadius === "18px",
+      style.borderTopRightRadius === "24px" &&
+      style.borderBottomLeftRadius === "24px" &&
+      style.borderBottomRightRadius === "24px",
     "Widget card motion/geometry mismatch"
   );
   console.log(`WIDGET_CAPTURE ${theme}-${kind}-pending`);

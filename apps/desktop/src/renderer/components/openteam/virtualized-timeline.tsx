@@ -536,7 +536,19 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
   useLayoutEffect(() => {
     void totalSize;
     const anchor = pendingScrollAnchor.current;
-    if (!anchor || anchor.pageKey === pageKey) return;
+    if (!anchor) return;
+    if (anchor.pageKey === pageKey) {
+      // A large scrollbar jump can start a page request before its virtual
+      // rows are measured. Keep the settled position the reader actually sees
+      // while waiting, rather than restoring the earlier estimated offset.
+      const viewport = scrollRef.current;
+      const row = Array.from(contentRef.current?.querySelectorAll<HTMLElement>("[data-virtual-timeline-key]") ?? [])
+        .find((candidate) => candidate.dataset.virtualTimelineKey === anchor.key);
+      if (viewport && row) {
+        anchor.viewportOffset = row.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+      }
+      return;
+    }
     const anchorIndex = entries.findIndex((entry) => `${entry.type}:${entry.id}` === anchor.key);
     if (anchorIndex < 0) {
       anchor.survived = false;

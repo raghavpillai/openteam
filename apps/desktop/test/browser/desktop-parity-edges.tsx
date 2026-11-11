@@ -241,7 +241,16 @@ async function chatScenario(theme: string, kind: "bot_dm" | "group") {
   const bubbleFor = (index: number) =>
     document.querySelector<HTMLElement>('[data-message-bubble-id="' + messages[index]!.id + '"]')!;
   const width = bubbleFor(3).getBoundingClientRect().width;
-  check(Math.abs(width - 713 * 0.88) < 1, "Long user bubble width " + width + ", expected 627.44");
+  check(
+    Math.abs(width - 560) < 1,
+    "Long user bubble width " + width + ", expected reference cap 560"
+  );
+  const bubbleStyle = getComputedStyle(bubbleFor(3));
+  check(
+    bubbleStyle.fontSize === "15px" && bubbleStyle.fontWeight === "425",
+    "Message typography differs from the reference"
+  );
+  check(bubbleStyle.padding === "7px 12px", "Message padding differs from the reference");
   const actions = bubbleFor(3).parentElement!.querySelector<HTMLElement>("[data-message-actions]")!;
   const rowBounds = bubbleFor(3).closest(".message-row")!.getBoundingClientRect();
   const actionBounds = actions.getBoundingClientRect();
@@ -272,18 +281,16 @@ async function chatScenario(theme: string, kind: "bot_dm" | "group") {
     };
   });
   greeting.style.textRendering = "";
-  runs = bots
-    .slice(0, kind === "group" ? 3 : 1)
-    .map(
-      (bot, index) =>
-        ({
-          id: "run-" + index,
-          botId: bot.id,
-          channelId: channel.id,
-          status: kind === "group" ? "queued" : "running",
-          createdAt: new Date().toISOString(),
-        }) as RunView
-    );
+  runs = bots.slice(0, kind === "group" ? 3 : 1).map(
+    (bot, index) =>
+      ({
+        id: "run-" + index,
+        botId: bot.id,
+        channelId: channel.id,
+        status: kind === "group" ? "queued" : "running",
+        createdAt: new Date().toISOString(),
+      }) as RunView
+  );
   drawChat();
   await pause(250);
   check(document.querySelector("[data-bot-thinking] svg"), "Thinking does not render our avatar");
@@ -339,27 +346,46 @@ async function narrowScenario(theme: string) {
 }
 async function captionActionsScenario(theme: string) {
   newChat(theme + "-caption", "bot_dm");
-  const images = [
+  const previousAssetUrl = api.assetUrl;
+  api.assetUrl = () =>
+    "data:image/svg+xml," +
+    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300"/>');
+  const attachments = [
     {
-      url:
-        "data:image/svg+xml," +
-        encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300"/>'),
+      assetId: "a".repeat(64),
+      fileName: "wide-image.png",
+      kind: "image",
+      mimeType: "image/png",
+      byteSize: 100,
       width: 600,
       height: 300,
     },
   ];
   messages = [
-    { ...message(channel.id, 0, "go find and tl;dr this email", "user"), metadata: { images } },
-    { ...message(channel.id, 1, "Here it is"), metadata: { images } },
+    { ...message(channel.id, 0, "Short caption", "user"), metadata: { attachments } },
+    { ...message(channel.id, 1, "Here it is"), metadata: { attachments } },
   ];
   drawChat();
   await pause(300);
   for (const row of document.querySelectorAll<HTMLElement>("[data-message-id]")) {
     const user = row.dataset.role === "user";
     const caption = row.querySelector<HTMLElement>(".message-bubble")!.getBoundingClientRect();
-    const stack = row.querySelector<HTMLElement>("[data-message-bubble-id]")!.getBoundingClientRect();
-    const actions = row.querySelector<HTMLElement>("[data-message-actions]")!.getBoundingClientRect();
-    check(stack.width - caption.width > 100, "Caption fixture is not narrower than its image");
+    const stack = row
+      .querySelector<HTMLElement>("[data-message-bubble-id]")!
+      .getBoundingClientRect();
+    const actions = row
+      .querySelector<HTMLElement>("[data-message-actions]")!
+      .getBoundingClientRect();
+    check(
+      stack.width - caption.width > 100,
+      "Caption fixture is not narrower than its image: " +
+        JSON.stringify({
+          user,
+          stack: stack.width,
+          caption: caption.width,
+          text: row.querySelector(".message-bubble")?.textContent,
+        })
+    );
     const gap = user ? caption.left - actions.right : actions.left - caption.right;
     check(gap >= 0 && gap <= 8, "Hover actions are not beside the caption: gap " + gap);
     check(
@@ -368,6 +394,7 @@ async function captionActionsScenario(theme: string) {
     );
   }
   reports.push({ theme, scenario: "hover actions beside caption under a wider image" });
+  api.assetUrl = previousAssetUrl;
   render(null);
   await pause(50);
 }

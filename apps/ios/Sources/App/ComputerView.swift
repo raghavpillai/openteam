@@ -487,13 +487,12 @@ private struct ComputerControlPill: View {
     Button(action: changeControl) {
       Text(actionTitle).font(.subheadline.weight(.medium))
         .contentTransition(.opacity)
-        .padding(.horizontal, 16).frame(minHeight: 44)
+        .padding(.horizontal, 16).frame(minWidth: 64, minHeight: 44)
         .foregroundStyle(controlling ? Color.white : Color.black)
         .background {
           ComputerControlShape(progress: reduceMotion ? 0 : controlling ? 1 : 0)
             .fill(controlling ? Color.white.opacity(0.1) : Color.white)
         }
-        .frame(minWidth: 108, minHeight: 44)
         .contentShape(Capsule())
     }.buttonStyle(ComputerControlPressStyle(reduceMotion: reduceMotion))
       .disabled(pending || !available)

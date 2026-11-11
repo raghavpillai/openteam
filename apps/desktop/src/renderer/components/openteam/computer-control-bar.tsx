@@ -96,6 +96,8 @@ export function ComputerControlBar({
     let width = 0;
     const positions = new Map<HTMLElement, number>();
     const movements = new Map<HTMLElement, Animation>();
+    let actionWidth = 0;
+    let actionMotion: Animation | undefined;
     const resize = () => {
       const target = Math.min(
         inside.getBoundingClientRect().width,
@@ -106,7 +108,8 @@ export function ComputerControlBar({
       for (const node of inside.querySelectorAll<HTMLElement>(
         ":scope > .computer-control-status, :scope > button"
       )) {
-        const left = node.offsetLeft;
+        // Anchor buttons at their center as their intrinsic width changes.
+        const left = node.offsetLeft + (node.tagName === "BUTTON" ? node.offsetWidth / 2 : 0);
         const previous = positions.get(node);
         const transform = getComputedStyle(node).transform;
         const translated = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m41;
@@ -131,6 +134,22 @@ export function ComputerControlBar({
         }
         positions.set(node, left);
       }
+      const action = inside.querySelector<HTMLElement>(".computer-control-action")!;
+      const backplate = action.querySelector<HTMLElement>(".computer-control-action-skin")!;
+      const nextActionWidth = action.offsetWidth;
+      const matrix = getComputedStyle(backplate).transform;
+      const currentScale = matrix === "none" ? 1 : new DOMMatrixReadOnly(matrix).m11;
+      actionMotion?.cancel();
+      if (actionWidth && !preference.matches) {
+        actionMotion = backplate.animate(
+          [
+            { transform: `scaleX(${(actionWidth * currentScale) / nextActionWidth})` },
+            { transform: "scaleX(1)" },
+          ],
+          { duration: 600, easing: spring }
+        );
+      }
+      actionWidth = nextActionWidth;
       const from = skin.current!.getBoundingClientRect().width;
       motion?.cancel();
       element.style.width = `${target}px`;
@@ -149,6 +168,7 @@ export function ComputerControlBar({
     observer.observe(inside);
     const changed = () => {
       motion?.cancel();
+      actionMotion?.cancel();
       for (const movement of movements.values()) movement.cancel();
       resize();
     };
@@ -158,6 +178,7 @@ export function ComputerControlBar({
       for (const movement of movements.values()) movement.cancel();
       observer.disconnect();
       motion?.cancel();
+      actionMotion?.cancel();
       preference.removeEventListener("change", changed);
     };
   }, []);

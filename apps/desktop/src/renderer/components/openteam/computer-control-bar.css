@@ -2,7 +2,7 @@
   --control-spring: cubic-bezier(0.22, 1.35, 0.36, 1);
   position: relative;
   max-width: 100%;
-  min-height: 50px;
+  min-height: 48px;
   border-radius: 28px;
   color: white;
   font-size: 14px;
@@ -25,7 +25,7 @@
 .computer-control-content {
   width: max-content;
   max-width: calc(100vw - 64px);
-  min-height: 50px;
+  min-height: 48px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -95,9 +95,9 @@
   flex-shrink: 0;
   isolation: isolate;
 }
-/* A stable hit target; only the visible liquid backplate contracts to Stop. */
+/* The backplate fills the actual button, so both states keep the same rim inset. */
 .computer-control-action {
-  min-width: 108px;
+  min-width: 64px;
   color: #202020;
   transition: color 240ms ease;
 }
@@ -111,9 +111,8 @@
   border-radius: 24px;
   background: #f7f7f7;
   transition:
-    width 600ms var(--control-spring),
     background-color 300ms ease,
-    transform 180ms var(--control-spring);
+    scale 180ms var(--control-spring);
   z-index: -1;
   pointer-events: none;
 }
@@ -121,14 +120,13 @@
   color: #ffffffd9;
 }
 .computer-control-bar[data-owned="true"] .computer-control-action-skin {
-  width: 64px;
   background: #ffffff12;
 }
 .computer-control-action:hover .computer-control-action-skin {
   filter: brightness(1.1);
 }
 .computer-control-action:active .computer-control-action-skin {
-  transform: scale(0.94, 0.9);
+  scale: 0.94 0.9;
 }
 .computer-control-action:disabled,
 .computer-control-resume:disabled {

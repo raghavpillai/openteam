@@ -333,6 +333,11 @@ import XCTest
       app.buttons["Take control"].tap()
       XCTAssertTrue(app.buttons["Give back control"].waitForExistence(timeout: 12))
       try await Task.sleep(for: .milliseconds(1200))
+      let stopFrame = app.buttons["Give back control"].frame
+      let barFrame = app.descendants(matching: .any).matching(identifier: "computer-control-bar").firstMatch.frame
+      XCTAssertEqual(stopFrame.width, 64, accuracy: 2, "Stop must not retain Take control’s invisible layout slot")
+      XCTAssertEqual(barFrame.maxX - stopFrame.maxX, 6, accuracy: 2, "Stop keeps the same trailing rim inset")
+      XCTAssertEqual(barFrame.midY, stopFrame.midY, accuracy: 1, "Stop is vertically centered in the capsule")
       app.buttons["Give back control"].tap()
       XCTAssertTrue(app.buttons["Take control"].waitForExistence(timeout: 12))
       try await Task.sleep(for: .milliseconds(1200))

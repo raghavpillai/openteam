@@ -72,9 +72,6 @@ export const AUTOMATION_RECONCILE_BATCH_SIZE = 8;
 export const TRANSCRIPT_FINGERPRINT_TTL_MS = 5_000;
 export const TRANSCRIPT_FINGERPRINT_CACHE_MAX_ENTRIES = 1_024;
 
-/** Events that retire a chat for good: an id carrying one of them is never adopted back. */
-export const RETIRED_AGENT_EVENT_TOPICS = ["channel.deleted", "bot.archived"] as const;
-
 export const computerEventQueuesPushNotification = (event: ComputerEvent): boolean =>
   event.type === "turn.completed";
 
@@ -583,11 +580,11 @@ export class WakeWorker {
   /** Ids the owner already deleted; their directory residue must never become a chat again. */
   private async retiredAgentIds(ids: readonly string[]): Promise<Set<string>> {
     if (ids.length === 0) return new Set();
-    const retired = await this.prisma.event.findMany({
-      where: { entityId: { in: [...ids] }, topic: { in: [...RETIRED_AGENT_EVENT_TOPICS] } },
-      select: { entityId: true },
+    const retired = await this.prisma.retiredAgent.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true },
     });
-    return new Set(retired.flatMap(({ entityId }) => (entityId ? [entityId] : [])));
+    return new Set(retired.map(({ id }) => id));
   }
 
   private async reconcileAgentStores(backfill = true): Promise<number> {
@@ -642,7 +639,7 @@ export class WakeWorker {
     // A durable directory is roster authority, but a chat the owner deleted must never be adopted
     // back from the residue a failed cleanup left behind: deleting a chat is final.
     const retired = await this.retiredAgentIds([
-      ...agentRecords.filter(({ id }) => !existingBotIds.has(id)).map(({ id }) => id),
+      ...agentRecords.map(({ id }) => id),
       ...groupRecords.filter(({ id }) => !existingChannelIds.has(id)).map(({ id }) => id),
     ]);
     for (const record of agentRecords) {
@@ -730,19 +727,21 @@ export class WakeWorker {
       if (created) adopted += 1;
     }
 
+    // Retry failed retirement even when discovery returns the same ETag. A failed DELETE does
+    // not change the directory inventory, so otherwise a 304 would suppress cleanup forever.
+    for (const record of directories.filter(({ id }) => retired.has(id))) {
+      try {
+        const response = await this.computerFetch(COMPUTER_API_PATHS.agentStore(record.id), {
+          method: "DELETE", signal: AbortSignal.timeout(10_000),
+        });
+        if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+      } catch (error) {
+        pending.set(record.id, record);
+        console.warn(`retired agent store ${record.id} could not be discarded: ${String(error)}`);
+      }
+    }
     this.pendingAgentStoreRecords = pending;
     if (responseEtag) this.agentStoreEtag = responseEtag;
-
-    // The chat is gone from PostgreSQL, so its durable directory is unreachable residue. Asking the
-    // computer to retire it closes the SQLite handles first, which is what makes removal stick.
-    for (const id of retired) {
-      await this.computerFetch(COMPUTER_API_PATHS.agentStore(id), {
-        method: "DELETE",
-        signal: AbortSignal.timeout(10_000),
-      }).catch((error) =>
-        console.warn(`retired agent store ${id} could not be discarded: ${String(error)}`)
-      );
-    }
 
     if (!backfill) return adopted;
 

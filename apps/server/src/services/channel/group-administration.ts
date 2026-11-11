@@ -228,6 +228,9 @@ export class GroupAdministration {
             },
           });
         }
+        await tx.retiredAgent.upsert({
+          where: { id: channelId }, create: { id: channelId }, update: {},
+        });
         await tx.channel.delete({ where: { id: channelId } });
         await appendEvent(tx, "channel.deleted", channelId, {
           channelId,

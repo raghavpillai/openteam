@@ -345,59 +345,18 @@ export class BotService {
       const activeChildren = children.filter((child) =>
         ["provisioning", "queued", "running", "waiting"].includes(child.status)
       );
-      await Promise.all(
-        activeChildren.flatMap((child) =>
-          child.currentRunId
-            ? [
-                this.computerFetch(COMPUTER_API_PATHS.turnCancel(child.currentRunId), {
-                  method: "POST",
-                  signal: AbortSignal.timeout(5_000),
-                }).catch(() => undefined),
-              ]
-            : []
-        )
-      );
-      await Promise.all(
-        children.map((child) =>
-          this.computerFetch(`/v1/screens/${child.childBotId}`, {
-            method: "DELETE",
-            signal: AbortSignal.timeout(5_000),
-          }).catch(() => undefined)
-        )
-      );
-      await this.prisma.$transaction(tx => stopRequestProgress(tx, botId));
-      const contextSessions = await this.prisma.contextSession.findMany({
-        where: { botId: { in: [botId, ...children.map((child) => child.childBotId)] } },
-        select: { id: true, runtimeSessionPath: true },
-      });
-      // Runtime cleanup is best effort: a chat must never stay undeletable because a session file,
-      // a screen, or a stale session path could not be discarded on the computer.
+      const ownerIds = [botId, ...children.map((child) => child.childBotId)];
       const cleanupWarnings: string[] = [];
-      await Promise.all(
-        contextSessions.map((contextSession) =>
-          this.computerFetch(`/v1/context-sessions/${contextSession.id}`, {
-            method: "DELETE",
-            body: JSON.stringify({ sessionPath: contextSession.runtimeSessionPath }),
-            signal: AbortSignal.timeout(10_000),
-          }).then(async (response) => {
-            if (!response.ok) {
-              cleanupWarnings.push(
-                `context session ${contextSession.id}: ${response.status} ${await response.text()}`
-              );
-            }
-          })
-        )
-      );
-      const screenResponse = await this.computerFetch(`/v1/screens/${botId}`, {
-        method: "DELETE",
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!screenResponse.ok) {
-        cleanupWarnings.push(`screen ${botId}: ${screenResponse.status} ${await screenResponse.text()}`);
-      }
-      await this.prisma.$transaction(async (tx) => {
+      await this.prisma.$transaction(tx => stopRequestProgress(tx, botId));
+      const activeRunIds = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-bot:${botId}`}))`;
         const deletedAt = new Date();
+        // Persist cancellation before contacting the runtime. The worker heartbeat retries it if
+        // the computer is temporarily unavailable, and archived bots cannot claim another wake.
+        const activeRuns = await tx.run.findMany({
+          where: { botId: { in: ownerIds }, status: { in: ["queued", "running"] } },
+          select: { id: true },
+        });
         for (const child of activeChildren) {
           const attempt = child.currentRunId
             ? await tx.subagentAttempt.findUnique({
@@ -456,6 +415,15 @@ export class BotService {
             reason: "parent_archived",
           });
         }
+        await tx.run.updateMany({
+          where: { botId: { in: ownerIds }, status: { in: ["queued", "running"] } },
+          data: { status: "cancelled", completedAt: deletedAt,
+            error: { code: "bot_archived", message: "The agent was archived" } },
+        });
+        await tx.inboxEvent.updateMany({
+          where: { botId: { in: ownerIds }, status: { in: ["pending", "processing"] } },
+          data: { status: "completed", completedAt: deletedAt, error: { code: "bot_archived" } },
+        });
         const childBotIds = children.map((child) => child.childBotId);
         await tx.bot.updateMany({
           where: { id: { in: childBotIds } },
@@ -482,13 +450,57 @@ export class BotService {
           where: { directKey: `bot:${botId}` },
           data: { archivedAt: deletedAt },
         });
-        // The runtime no longer owns these sessions; keeping the rows would point an archived chat
-        // at deleted files and keep a stale session path replayable.
-        await tx.contextSession.deleteMany({
-          where: { botId: { in: [botId, ...childBotIds] } },
+        await tx.retiredAgent.createMany({
+          data: ownerIds.map((id) => ({ id })),
+          skipDuplicates: true,
         });
         await appendEvent(tx, "bot.archived", botId, { botId });
+        return activeRuns.map(({ id }) => id);
       });
+      await Promise.all(activeRunIds.map(async (runId) => {
+        try {
+          const response = await this.computerFetch(COMPUTER_API_PATHS.turnCancel(runId), {
+            method: "POST",
+            body: JSON.stringify({ reason: "stop", recovery: true }),
+            signal: AbortSignal.timeout(10_000),
+          });
+          if (!response.ok) cleanupWarnings.push(`turn ${runId}: ${response.status} ${await response.text()}`);
+        } catch (error) {
+          cleanupWarnings.push(`turn ${runId}: ${String(error)}`);
+        }
+      }));
+      const contextSessions = await this.prisma.contextSession.findMany({
+        where: { botId: { in: ownerIds } },
+        select: { id: true, runtimeSessionPath: true },
+      });
+      // Retain bookkeeping for a session the runtime still owns. A delayed cancellation must not
+      // leave its final context events pointing at a row we have already deleted.
+      await Promise.all(contextSessions.map(async (contextSession) => {
+        try {
+          const response = await this.computerFetch(`/v1/context-sessions/${contextSession.id}`, {
+            method: "DELETE",
+            body: JSON.stringify({ sessionPath: contextSession.runtimeSessionPath }),
+            signal: AbortSignal.timeout(10_000),
+          });
+          if (!response.ok) {
+            cleanupWarnings.push(`context session ${contextSession.id}: ${response.status} ${await response.text()}`);
+            return;
+          }
+          await this.prisma.contextSession.deleteMany({ where: { id: contextSession.id } });
+        } catch (error) {
+          cleanupWarnings.push(`context session ${contextSession.id}: ${String(error)}`);
+        }
+      }));
+      await Promise.all(ownerIds.map(async (id) => {
+        try {
+          const response = await this.computerFetch(`/v1/screens/${id}`, {
+            method: "DELETE", signal: AbortSignal.timeout(10_000),
+          });
+          if (!response.ok) cleanupWarnings.push(`screen ${id}: ${response.status} ${await response.text()}`);
+        } catch (error) {
+          cleanupWarnings.push(`screen ${id}: ${String(error)}`);
+        }
+      }));
       // Retire the durable stores before the shared directories: an open SQLite store is what makes
       // the recursive delete fail, and a surviving directory is adopted back as a live chat.
       await Promise.all(
@@ -508,8 +520,10 @@ export class BotService {
           });
         })
       );
+      await this.agentData.repairActiveAgentAfterDeletion(botId).catch((error) => {
+        cleanupWarnings.push(`active agent repair: ${String(error)}`);
+      });
       for (const warning of cleanupWarnings) console.warn(`bot archive cleanup: ${warning}`);
-      await this.agentData.repairActiveAgentAfterDeletion(botId);
       return { ok: true };
     });
 

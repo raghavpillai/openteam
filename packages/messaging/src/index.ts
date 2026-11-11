@@ -2494,6 +2494,15 @@ export class AgentMessaging {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`reaction-call:${context.botId}:${context.callId}`}))`;
+      const existing = await tx.idempotencyRecord.findUnique({
+        where: { scope_key: { scope, key: context.callId } },
+      });
+      if (existing) {
+        if (existing.requestHash !== requestHash) throw new Error("This reaction call id was already used with different arguments");
+        if (existing.response) return existing.response as Record<string, unknown>;
+        throw new Error("This reaction call is already being applied");
+      }
       await tx.idempotencyRecord.create({
         data: {
           scope,
@@ -2503,6 +2512,8 @@ export class AgentMessaging {
         },
       });
       const addressed = await resolveMessageAddress(tx, context.channelId!, input.message_address);
+      if (addressed?.sender === "user")
+        await tx.$queryRaw`SELECT id FROM "ChannelMessage" WHERE id = ${addressed.id}::uuid FOR UPDATE`;
       const message = addressed?.sender === "user" ? await tx.channelMessage.findFirst({
         where:{id:addressed.id,channel:{members:{some:{botId:context.botId}}}},
         include:{channel:{include:{members:{select:{botId:true}}}}}

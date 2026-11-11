@@ -2,6 +2,7 @@ import { nextMessageAddress, lockGroupExecution, supersedeGroupUserTurns } from 
 import {
   ApiError,
   type ReactToChannelMessageInput,
+  type ReactToChannelMessageView,
   type RenameChannelInput,
   type SendMessageInput,
 } from "@openteam/contracts";
@@ -419,7 +420,7 @@ export class ChannelService {
           });
           if (!message) throw new ApiError(404, "message_not_found", "Message was not found");
           return {
-            ...(serialize(existing.response) as Record<string, unknown>),
+            ...(serialize(existing.response) as Omit<ReactToChannelMessageView, "message">),
             message: channelMessageView(message),
           };
         }
@@ -427,6 +428,10 @@ export class ChannelService {
       }
 
       const response = await this.prisma.$transaction(async (tx) => {
+        // Serialize the read/toggle/write and receipt check for this message.
+        // Two different taps must not overwrite metadata; a retried tap must
+        // return its original receipt rather than toggle again or hit P2002.
+        await tx.$queryRaw`SELECT id FROM "ChannelMessage" WHERE id = ${messageId}::uuid FOR UPDATE`;
         const message = await tx.channelMessage.findUnique({
           where: { id: messageId },
           include: {
@@ -436,6 +441,16 @@ export class ChannelService {
         });
         if (!message || message.channel.archivedAt) {
           throw new ApiError(404, "message_not_found", "Message was not found");
+        }
+        const receipt = await tx.idempotencyRecord.findUnique({
+          where: { scope_key: { scope, key: input.clientId } },
+        });
+        if (receipt) {
+          if (receipt.requestHash !== requestHash)
+            throw new ApiError(409, "idempotency_conflict", "Reaction idempotency key changed");
+          if (!receipt.response)
+            throw new ApiError(409, "request_in_progress", "This reaction is already being applied");
+          return { ...(serialize(receipt.response) as Omit<ReactToChannelMessageView, "message">), message: channelMessageView(message) };
         }
         await tx.idempotencyRecord.create({
           data: {

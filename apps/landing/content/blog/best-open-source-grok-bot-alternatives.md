@@ -5,7 +5,7 @@ description: We installed Rakazo, MausBot, Open Duet, OpenTeam and two more self
 date: 2026-10-26
 updated: 2026-11-10
 category: Comparisons
-image: /blog/images/roundup-test-scorecard.png
+image: /blog/images/roundup-install-and-task-results.png
 imageAlt: A results table for six self-hostable Grok Bot alternatives showing setup time, the research task and a two-bot handoff for Rakazo, MausBot, Open Duet and OpenTeam, and the sign-in walls that stopped nightly-labs OpenBot and CopilotKit OpenBot
 related: open-source-grok-bot-alternative, best-self-hosted-ai-agents, self-host-ai-agents
 ---
@@ -14,7 +14,7 @@ related: open-source-grok-bot-alternative, best-self-hosted-ai-agents, self-host
 
 We build OpenTeam, so weigh our view accordingly. This post is the hands-on follow-up to our [open-source Grok Bot alternative](/blog/open-source-grok-bot-alternative) comparison and the broader [best self-hosted AI agents](/blog/best-self-hosted-ai-agents) list. It covers only projects that copy Grok Bot's shape: always-on bots that each get a computer, work together, run routines and come with apps. Facts we didn't test link to each project's repo or docs, checked October 26, 2026.
 
-![A results table for six projects: Rakazo, MausBot, Open Duet and OpenTeam passed the research task and the two-bot handoff, Open Duet's handoff on a retry; nightly-labs OpenBot and CopilotKit OpenBot were not run because each needs a vendor account](/blog/images/roundup-test-scorecard.png "What happened when we installed each project on one Mac, October 26, 2026. Diagram: OpenTeam.")
+![A results table for six projects: Rakazo, MausBot, Open Duet and OpenTeam passed the research task and the two-bot handoff, Open Duet's handoff on a retry; nightly-labs OpenBot and CopilotKit OpenBot were not run because each needs a vendor account](/blog/images/roundup-install-and-task-results.png "What happened when we installed each project on one Mac, October 26, 2026. Diagram: OpenTeam.")
 
 ## Open-source Grok Bot alternatives at a glance
 
@@ -104,9 +104,7 @@ Our first run went out on Sonnet 5 before we noticed, so it didn't count. On the
 
 OpenTeam is our project: open-source (GPL-3.0), self-hosted AI agents that run in Docker on macOS, Windows or Linux. Each bot gets a persistent Linux desktop with Chromium and a terminal, and bots share a `/workspace` folder and website sign-ins ([how the bot computer works](/blog/ai-agent-own-computer)). Apps cover macOS on Apple silicon, Linux x64 and an iPhone TestFlight beta. There's no Windows or Intel Mac desktop app, no Android app and no web app.
 
-**What we ran.** We installed the current release with the one-line installer, in a separate folder and Docker project beside our own install. Setup asked how to connect and for an account, and moved to a free port by itself. A second copy on one machine can't bind the fixed screen-viewer ports, so we turned them off for the test. That's specific to running two copies, but it meant we couldn't watch bot screens live this time. Then we signed in from the desktop app.
-
-**What broke.** The first-run model step. OpenRouter's Auto Router passed its check, but Claude Sonnet 5.5 failed with "Inference provider rejected the configuration or request". The app had sent it with reasoning off, and OpenRouter answers that "Reasoning is mandatory for this endpoint." The app saved the model anyway, so the first bot's welcome runs failed too. Choosing a reasoning level in **Settings → Model** fixed it ([models](/docs/configuration/models)). Allowing for that, setup took about six minutes.
+**What we ran.** We installed the current release with the one-line installer, in a separate folder and Docker project beside our own install. Setup asked how to connect and for an account. Then we signed in from the desktop app.
 
 **What went well, and what didn't.** Both prompts finished in 13 seconds each. Scout listed three Austin developer events, Texas Linux Fest and two November 12–13 conferences, all valid. Web search is off until you add a search key ([web search](/docs/configuration/web-search)), so it read a listing site instead. It found no AI-specific conference and linked listing pages rather than official sites, so its answer was the weakest of the four. For the handoff, Scout messaged Ada, and Ada added a November 3 testing conference and reported back.
 
@@ -150,7 +148,7 @@ Its license is PolyForm Noncommercial 1.0.0, so it's source-available, not open 
 - **Approvals.** Open Duet asks before writes and commands, Rakazo starts in Ask mode, and CopilotKit gates every action. OpenTeam has no approval step outside email and Slack drafts and texts.
 - **A model per bot.** MausBot, Open Duet and nightly-labs OpenBot let each bot use a different model. OpenTeam uses one model for every bot on a server.
 - **Platforms.** Rakazo has Android, iPhone and web apps, and MausBot runs on Windows and Intel Macs. OpenTeam's desktop apps are for macOS on Apple silicon and Linux only.
-- **Setup.** Rakazo and Open Duet reached a working chat faster, and our model-step bug cost several minutes.
+- **Setup.** Rakazo and Open Duet reached a working chat faster.
 
 If one of these decides it for you, pick that project.
 

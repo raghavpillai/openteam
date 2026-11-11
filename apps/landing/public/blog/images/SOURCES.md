@@ -96,11 +96,11 @@ Diagrams for the iPhone Duo guide and the Meta Muse safety explainer use the sam
 - `iphone-duo-openteam-layouts.png`: where the iPhone app's controls sit folded, unfolded and unfolded in portrait.
 - `meta-muse-what-it-can-reach.png`: what Muse's cloud VM holds and what it can reach once connected.
 - `meta-muse-vs-self-hosted-data.png`: where data goes with Muse and with a self-hosted OpenTeam server.
-- `roundup-test-scorecard.png`: the results of the 2026-10-26 install and task test, from our test logs.
+- `roundup-install-and-task-results.png`: the results of the 2026-10-26 install and task test, from our test logs.
 
 Diagrams for the n8n comparison use the same method. n8n facts come from its docs, pricing page and repository, checked in late October 2026; results come from our test logs:
 
-- `n8n-vs-openteam-scorecard.png`: what happened when n8n and OpenTeam got the same jobs.
+- `n8n-vs-openteam-results.png`: what happened when n8n and OpenTeam got the same jobs.
 - `n8n-openteam-bridges.png`: three ways to connect n8n and OpenTeam, two tested end to end and one checked in code.
 
 Staged screenshots for the October 28 to November 10 posts use the same method: the desktop components of OpenTeam's current release rendered in a local browser fixture, captured at 2× on 2026-11-10 and scaled to 1600 px wide. Names, people, banks, figures and times are made up; where a caption says a reply is real, the bot's text is copied word for word from our test runs:
@@ -124,18 +124,17 @@ Staged screenshots for the October 28 to November 10 posts use the same method: 
 Captures from our own test server for those posts, made on 2026-11-10 on a local OpenTeam server running the current release, with throwaway bots:
 
 - `fable-5-2-bot-penguins-chart.png`, `gemini-4-carbon-bot-penguins-chart.png`: the charts the bots saved for the data task, unmodified. The data is the Palmer Penguins dataset.
-- `server-security-check-bot-terminal.png`: a terminal on the test bot's own desktop, captured over Chrome DevTools and cropped.
+- `server-security-check-bot-terminal-trivy.png`: a terminal on the test bot's own desktop, captured from its screen and cropped to the Trivy counts.
 - `openteam-bot-computer-inspection.png`: the exact output of our read-only `docker inspect` and in-container commands, drawn as a terminal; nothing secret is shown.
 - `claude-code-backdoor-mac-checks.png`: real zsh output of the post's check commands, run against a throwaway home folder with fake placeholder files and no real keys.
 - `ai-agent-errands-bot-browser-texas.png`: a bot's own Chromium on the Texas HHS child care licensing record, captured read-only over Chrome DevTools during the run. The page is the State of Texas's, credited in the caption.
-- `ai-agent-errands-connection-reset.png`: the passport bot's browser failing to load travel.state.gov, captured the same way.
 - `openteam-research-bot-browser-mailgun.png`: a research bot's Chromium on Mailgun's public pricing page, captured the same way.
 - `ai-agent-errands-budget-chart.png`: the chart the budget bot made from our made-up bank export, only resized.
 - `ai-agent-errands-ds82-filled.png`: page 5 of the official DS-82 passport renewal form as the bot filled it for a fictional applicant, rendered and cropped. Nothing was submitted.
 
 Diagrams and charts for those posts use the diagram method above. Model results come from our six-task test on 2026-11-10, using OpenRouter's billed cost per call; OpenTeam facts come from its code and docs; other facts come from each company's own pages, linked in the posts:
 
-- `terra-sol-agent-scorecard.png`, `terra-sol-cost-per-task.png`, `glm-5-3-vs-sol-agent-scorecard.png`, `claude-fable-5-2-agent-scorecard.png`, `claude-fable-5-2-effort-cost-time.png`, `fable-carbon-sol-agent-scorecard.png`, `ai-agent-model-cost-time-per-task.png`: test results per model.
+- `terra-sol-agent-scorecard.png`, `terra-sol-cost-per-task.png`, `glm-5-3-vs-sol-agent-scorecard.png`, `claude-fable-5-2-vs-opus-5-5-task-scores.png`, `claude-fable-5-2-effort-cost-and-time.png`, `fable-carbon-sol-agent-scorecard.png`, `ai-agent-model-cost-time-per-task.png`: test results per model.
 - `openteam-bot-to-bot-message-guardrails.png`: how a bot treats a teammate's message, from the code.
 - `glm-5-3-api-vs-self-hosted-monthly-cost.png`, `self-host-glm-decision.png`: GLM-5.3 by API vs self-hosted, from our billed costs, Together AI's GPU prices and vLLM's recipes, read 2026-11-10.
 - `text-ai-agent-message-paths.png`: where a text to an OpenAI dot and to an OpenTeam bot goes.
@@ -143,12 +142,12 @@ Diagrams and charts for those posts use the diagram method above. Model results 
 - `claude-code-extension-backdoor-timeline.png`, `claude-code-backdoor-where-it-runs.png`: the extension backdoor's timeline and where its payload ran.
 - `x-subscription-plans-table.png`, `x-subscription-vs-self-hosted-monthly-cost.png`: The X Subscription's plans and our monthly cost estimates.
 - `linux-root-bugs-bot-computer-boundary.png`, `linux-root-bugs-agent-host-checklist.png`: the layers of a bot computer, and a host checklist.
-- `server-security-check-scorecard.png`, `server-security-check-network-path.png`: what the security-check bot found, and how bot traffic reaches a target.
+- `server-security-check-scorecard.png`, `server-security-check-bot-traffic.png`: what the security-check bot found, and how bot traffic reaches a target.
 - `claude-finance-bank-data-paths.png`: where bank data goes in Claude Personal Finance and with OpenTeam's Plaid plugin.
 - `compaction-design-v0.png` to `compaction-design-v6.png`, `compaction-design-today.png`: the compaction design built up step by step, from the code.
-- `compaction-measured-run.png`: one long task's prompt size and cost per model call, from the bot's session file.
-- `ai-agent-errands-scorecard.png`: what five errand bots finished, and what was left for a person.
-- `perplexity-teammates-vs-openteam-table.png`, `perplexity-teammates-jobs-on-openteam.png`: Perplexity Teammates and OpenTeam side by side, from Perplexity's own pages, and the four jobs we ran on OpenTeam.
+- `compaction-prompt-growth-run.png`: one long task's prompt size and cost per model call, from the bot's session file.
+- `ai-agent-errands-results.png`: what five errand bots finished, and what was left for a person.
+- `perplexity-teammates-vs-openteam-table.png`, `perplexity-teammates-jobs-results.png`: Perplexity Teammates and OpenTeam side by side, from Perplexity's own pages, and the four jobs we ran on OpenTeam.
 
 
 ## Third-party images

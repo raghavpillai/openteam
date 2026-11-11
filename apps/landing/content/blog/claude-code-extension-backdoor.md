@@ -143,7 +143,7 @@ It doesn't make a supply-chain attack harmless. The bot computer has its own val
 - **Installs that persist.** Software under `/usr/local` and apt packages bots install come back after updates, by design. So would a bad one.
 - **A shared kernel.** The computer is a container that shares the host's kernel, not a separate virtual machine.
 
-Your laptop is also reachable if you connect it. Signing in to the desktop app connects that computer, and bots can then run commands and copy files there without asking first. In OpenTeam's code, those commands go out from the bot computer, through the server, using a token stored in the bot computer. Anything running as root there could, in principle, use the same route. We read this in the code; we didn't try it.
+Your laptop is also reachable if you connect it. Signing in to the desktop app connects that computer, and bots can then run commands and copy files there without asking first.
 
 ## What to install on your laptop, and what on a bot's computer
 

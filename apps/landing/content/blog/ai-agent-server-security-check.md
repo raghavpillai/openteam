@@ -63,11 +63,7 @@ We also asked it to save raw output for every check and to say which findings it
 
 ## Pass 1: what the bot did from the outside
 
-The bot handed the work to a helper and posted progress while it ran. The container name didn't resolve, so it used the IP we'd given and nothing else. It installed Lynis from Debian's repository but not nmap, and wrote its own Python scanner for all 65,535 TCP ports at 150 connections a second.
-
-Its first scan reported every port as open. Instead of passing that on, the bot stopped the scan and wrote a second one that waits 150 milliseconds for data after connecting. That split the ports into 65,531 that closed at once and four that stayed open: 53, 80, 443 and 8080. It then traced port 53 to a redirect on its own computer, not a service on the target. Both quirks come from how OpenTeam routes bot traffic, covered below.
-
-![A terminal on the bot's own Linux desktop showing its saved evidence: 65,531 ports accepted then closed, 4 stayed silent, candidate ports 53, 80, 443 and 8080 with a caveat that 53 was redirected locally, and Trivy's severity counts for the nginx:1.18.0 base image.](/blog/images/server-security-check-bot-terminal.png "The bot's own summary, in a terminal on its own screen. Port 53 is flagged as a local redirect, not a target service. Screenshot: OpenTeam.")
+The bot handed the work to a helper and posted progress while it ran. It used the IP we'd given and nothing else. It installed Lynis from Debian's repository but not nmap, and wrote its own Python scanner for all 65,535 TCP ports at 150 connections a second. It reported three open ports on the target: 80, 443 and 8080.
 
 For the web checks it used `curl` and `openssl` against a list of common paths. It found `/.env` and `/.git/HEAD` answering with 200 while a made-up path returned 404. It read only the headers, not the files, because they might hold real secrets. It confirmed TLS 1.0 and 1.1, the self-signed certificate with no subject alternative name, the open staff page, the missing HTTPS redirect, the missing headers and the `nginx/1.18.0` banner.
 
@@ -96,6 +92,8 @@ It read `/.env` and rebuilt the Git repository from the exposed `.git` folder in
 
 For Trivy it downloaded version 0.76.2 from Aqua Security's GitHub release and checked it against the release's SHA-256 checksums, though not its signature. That matters: in March, attackers published a malicious Trivy 0.69.4 and rewrote tags of its GitHub Actions ([GHSA-69fq-xp46-6x23](https://github.com/advisories/GHSA-69fq-xp46-6x23)). The scan found the base image on Debian 10.9, past end of life, with 423 package matches covering 278 CVEs: 42 critical, 147 high, 180 medium, 45 low and 9 unknown.
 
+![A terminal on the bot's own Linux desktop listing Trivy's vulnerability records for the nginx:1.18.0 base image: 42 critical, 147 high, 180 medium, 45 low and 9 unknown, with a note that the scope is the base image only and not proof of exploitability](/blog/images/server-security-check-bot-terminal-trivy.png "The bot's Trivy counts, in a terminal on its own screen. Screenshot: OpenTeam.")
+
 The bot didn't take that number at face value. It checked six of the critical and high matches against installed versions, then explained why most needed a code path this static site never uses. It flagged a mismatch, too: the only CVE Trivy tied to the nginx package is about an OpenResty Lua module this build doesn't have. Pass 2 took 11 minutes and cost $1.37.
 
 ![The bot's revised fix list in the OpenTeam desktop app: replace the end-of-life base and allowlist public files, block sensitive routes, remove the OpenSSL downgrade and build-time key, remove the staff listener, add headers and runtime restrictions, and a list of corrections to its first pass.](/blog/images/server-security-check-fix-list.png "The bot's revised fix list, word for word, staged in the desktop app. The other chats are sample data. Image: OpenTeam.")
@@ -112,12 +110,10 @@ Its final fix list put the base image and the file allowlist first, then denying
 
 ## What OpenTeam does to a bot's network traffic
 
-Every command a bot runs leaves its computer through one tunnel, which explains both scan quirks. If you point a bot at your own servers, these are the rules we found in testing and in the code.
+Every command a bot runs leaves its computer through one tunnel. If you point a bot at your own servers, these are the rules we found in testing and in the code.
 
-![A diagram of a bot's network path: shell commands go through a TCP-only tunnel that accepts connections before dialing, then out through the server's connection, which reached a private address in our test, or a shared computer's connection, which allows public addresses only. Notes: container names don't resolve, and closed ports and port 53 mislead connect scans.](/blog/images/server-security-check-network-path.png "How a bot's commands reach your server. The shared-connection rule is from the code; we tested only the server's own connection. Diagram: OpenTeam.")
+![A diagram of a bot's network path: shell commands go through a TCP-only tunnel, then out through the server's connection, which reached a private address in our test, or a shared computer's connection, which allows public addresses only. A note says the built-in web fetch tool refuses private addresses.](/blog/images/server-security-check-bot-traffic.png "How a bot's commands reach your server. The shared-connection rule is from the code; we tested only the server's own connection. Diagram: OpenTeam.")
 
-- **Names.** Bot DNS goes over HTTPS to a public resolver, so Docker container names and other local-only names don't resolve. Use IP addresses, or let the bot add an `/etc/hosts` entry.
-- **Ports.** The tunnel completes every TCP handshake before it tries the real host, so closed ports look open and then reset. A connect scan has to wait for a response, as this bot's second scan did. Any TCP connection to port 53 reaches the computer's own resolver.
 - **Protocols.** Only TCP leaves, plus DNS. There's no ping and no UDP scanning.
 - **Private addresses.** With the server's own connection, the bot reached our test server's private address. When the bot computer uses a connection shared from a Mac or Linux desktop, OpenTeam's code refuses local and private destinations, so a bot can't scan the network your laptop is on.
 - **WebFetch.** The built-in web fetch tool refuses private addresses outright, so the bot needs its terminal for anything on your own network.

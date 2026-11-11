@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { UNFINISHED_TASKS_REMINDER } from "@openteam/messaging";
 import { ChannelService } from "../../server/src/services/channel-service";
-import { turnCompletionFailure, turnContentWithNotes, WakeWorker } from "../src/worker";
+import { TurnStoppedError, turnCompletionFailure, turnContentWithNotes, WakeWorker } from "../src/worker";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
@@ -235,3 +235,30 @@ test.skipIf(!databaseUrl)("a message that arrives before the turn dispatched que
   const claimedNext = await other.claimedFor(next.run.id, "worker-next");
   expect(await worker.supersededUnfinishedRun(claimedNext)).toBe(false);
 }, 60_000);
+
+for (const origin of ["agent", "connector", "background_revival"] as const)
+  for (const stopRecorded of [true, false]) test.skipIf(!databaseUrl)(`an explicit Stop wins over an earlier typed interruption of a ${origin} wake${stopRecorded ? " after its durable cancellation" : " before cancellation is recorded"}`, async () => {
+    const bot = await fixtureBot();
+    const { botId, channelId } = bot;
+    const clientId = `stop-redrive:${botId}`;
+    const wake = await db.$transaction((tx: any) => worker.messaging.enqueueWake(tx, {
+      botId, channelId, origin, type: origin === "agent" ? "agent.message" : origin === "connector" ? "channel.inbound" : "subagent.completed",
+      content: "[SAND_HIDDEN_PROMPT]Check the previously authorized result.", clientId, priority: 200, wrapUserContent: false,
+    }));
+    await db.run.update({ where: { id: wake.run.id }, data: { status: "running", inputDeliveredAt: new Date() } });
+    const claimed = await bot.claimedFor(wake.run.id, crypto.randomUUID());
+    const typed = await db.$transaction((tx: any) => worker.messaging.acceptDirectUserMessage(tx, {
+      botId, channelId, content: "Look at this instead.", clientId: crypto.randomUUID(),
+    }));
+    expect(typed.interruptRunId).toBe(wake.run.id);
+    // Stop arrives after that typed message but before the old runtime settles.
+    if (stopRecorded) await db.run.update({ where: { id: wake.run.id }, data: {
+      status: "cancelled", error: { code: "cancelled_by_user", message: "The user stopped this turn" },
+    } });
+    await worker.fail({ ...claimed, instructions: "" }, stopRecorded
+      ? new Error("Computer turn ended with status interrupted")
+      : new TurnStoppedError("Computer turn ended with status cancelled"), true);
+    expect(await db.inboxEvent.findUnique({ where: { idempotencyKey: `${clientId}:redrive:1` } })).toBeNull();
+    expect((await db.run.findUniqueOrThrow({ where: { id: wake.run.id } })).error).toMatchObject({ code: "cancelled_by_user" });
+    expect(await worker.supersededUnfinishedRun({ botId, interruptedRunId: wake.run.id })).toBe(false);
+  });

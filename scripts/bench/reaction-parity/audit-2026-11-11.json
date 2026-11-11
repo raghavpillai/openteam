@@ -95,21 +95,19 @@
       {
         "name": "prompt-runtime",
         "files": [
-          "packages/messaging/test/emoji-source-parity.test.ts",
           "packages/messaging/test/platform-system-prompt.test.ts",
           "apps/computer/test/runtime/reaction-end-turn.test.ts",
           "apps/computer/test/runtime/prompt-context.test.ts",
           "apps/worker/test/context-routing.test.ts"
         ],
         "exit": 0,
-        "pass": 54,
+        "pass": 59,
         "fail": 0,
         "failures": []
       },
       {
         "name": "delivery",
         "files": [
-          "apps/computer/test/runtime/end-turn-siblings.test.ts",
           "apps/computer/test/runtime/parity-loop.test.ts",
           "apps/computer/test/runtime/delivery-failure.test.ts",
           "apps/computer/test/runtime/delivery-batch.test.ts",
@@ -123,14 +121,13 @@
       {
         "name": "async-progress-stop",
         "files": [
-          "apps/server/test/late-completion-delivery.integration.test.ts",
+          "apps/server/test/request-stop.integration.test.ts",
           "apps/server/test/request-progress.integration.test.ts",
           "apps/server/test/subagent-stop-resume.integration.test.ts",
-          "apps/worker/test/explicit-stop-redrive.integration.test.ts",
           "apps/server/test/reaction-concurrency.integration.test.ts"
         ],
         "exit": 0,
-        "pass": 92,
+        "pass": 98,
         "fail": 0,
         "failures": []
       },
@@ -140,17 +137,15 @@
           "apps/server/test/channel/message-format.test.ts",
           "apps/server/test/channel/reaction-response.test.ts",
           "apps/server/test/reaction-wake.integration.test.ts",
-          "apps/server/test/legacy-request-stop.integration.test.ts",
           "apps/server/test/subagent/user-stop.test.ts",
           "apps/server/test/task-progress.integration.test.ts",
           "apps/worker/test/reaction-claim-availability.integration.test.ts",
-          "apps/worker/test/reaction-routing.test.ts",
           "apps/worker/test/typed-message-supersedes-turn.integration.test.ts",
           "packages/messaging/test/message-address.integration.test.ts",
           "packages/product-core/test/client-sharing.test.ts"
         ],
         "exit": 0,
-        "pass": 89,
+        "pass": 78,
         "fail": 0,
         "failures": []
       },
@@ -443,5 +438,19 @@
       "tier": "long",
       "category": "long-final-delivery-then-feedback"
     }
-  ]
+  ],
+  "testConsolidation": {
+    "previousLayoutCommit": "da1d54bb69afc8c448fc1df5caa569fa6dddab74",
+    "testFilesRemovedNet": 5,
+    "casesRemoved": 0,
+    "productSourceChanges": false,
+    "changes": [
+      "Captured source wording checks now live in the existing platform prompt suite.",
+      "Hidden reaction framing now lives in the existing worker context-routing suite.",
+      "Sibling closing-call cases share the existing offline Pi-loop suite and model.",
+      "Explicit Stop/redrive cases reuse the typed-interruption suite worker, queues, claim helper, bot factory and cleanup.",
+      "Legacy cancellation and stale completion delivery share one request-stop suite and fixture."
+    ],
+    "validation": "All 379 Bun tests rerun after consolidation, plus architecture checks and messaging/worker/server/computer typechecks. Unchanged desktop/iOS client checks and other package typechecks retain the earlier results recorded above."
+  }
 }

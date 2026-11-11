@@ -69,7 +69,11 @@ import { INSTALL_NOTICE_TYPE, InstallNotice } from "./runtime/install-notice";
 import { PROCESS_NOTICE_TYPE, ProcessNotice } from "./runtime/process-notice";
 
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
-import { assertSessionPath, existingContextSessionPath } from "./runtime/session-path";
+import {
+  assertSessionPath,
+  disposableSessionPath,
+  existingContextSessionPath,
+} from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
 import { pluginComponentsExtension } from "./runtime/plugin-components";
 import type { ActiveTurn, RuntimeImage, TurnStatus } from "./runtime/types";
@@ -502,9 +506,15 @@ export class ComputerRuntime {
     }
     this.providerConnections.dispose(contextSessionId);
     await this.compaction.remove(contextSessionId);
-    if (sessionPath) {
-      await rm(assertSessionPath(this.sessionsDir, sessionPath), { force: true });
+    if (!sessionPath) return;
+    const removable = disposableSessionPath(this.sessionsDir, sessionPath);
+    if (!removable) {
+      console.warn(
+        `context session ${contextSessionId} records a session path outside the session root; leaving ${sessionPath} untouched`
+      );
+      return;
     }
+    await rm(removable, { force: true });
   }
 
   private bindTurnStop(active: ActiveTurn, session: AgentSession): void {

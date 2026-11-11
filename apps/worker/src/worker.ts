@@ -72,6 +72,9 @@ export const AUTOMATION_RECONCILE_BATCH_SIZE = 8;
 export const TRANSCRIPT_FINGERPRINT_TTL_MS = 5_000;
 export const TRANSCRIPT_FINGERPRINT_CACHE_MAX_ENTRIES = 1_024;
 
+/** Events that retire a chat for good: an id carrying one of them is never adopted back. */
+export const RETIRED_AGENT_EVENT_TOPICS = ["channel.deleted", "bot.archived"] as const;
+
 export const computerEventQueuesPushNotification = (event: ComputerEvent): boolean =>
   event.type === "turn.completed";
 
@@ -577,6 +580,16 @@ export class WakeWorker {
     }
   }
 
+  /** Ids the owner already deleted; their directory residue must never become a chat again. */
+  private async retiredAgentIds(ids: readonly string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set();
+    const retired = await this.prisma.event.findMany({
+      where: { entityId: { in: [...ids] }, topic: { in: [...RETIRED_AGENT_EVENT_TOPICS] } },
+      select: { entityId: true },
+    });
+    return new Set(retired.flatMap(({ entityId }) => (entityId ? [entityId] : [])));
+  }
+
   private async reconcileAgentStores(backfill = true): Promise<number> {
     const directoryResponse = await this.computerFetch(COMPUTER_API_PATHS.agentStores, {
       method: "GET",
@@ -615,8 +628,25 @@ export class WakeWorker {
             })
           ).map(({ id }) => id)
     );
+    const groupRecords = directories.filter(({ kind }) => kind === "group");
+    const existingChannelIds = new Set(
+      groupRecords.length === 0
+        ? []
+        : (
+            await this.prisma.channel.findMany({
+              where: { id: { in: groupRecords.map(({ id }) => id) } },
+              select: { id: true },
+            })
+          ).map(({ id }) => id)
+    );
+    // A durable directory is roster authority, but a chat the owner deleted must never be adopted
+    // back from the residue a failed cleanup left behind: deleting a chat is final.
+    const retired = await this.retiredAgentIds([
+      ...agentRecords.filter(({ id }) => !existingBotIds.has(id)).map(({ id }) => id),
+      ...groupRecords.filter(({ id }) => !existingChannelIds.has(id)).map(({ id }) => id),
+    ]);
     for (const record of agentRecords) {
-      if (existingBotIds.has(record.id)) continue;
+      if (existingBotIds.has(record.id) || retired.has(record.id)) continue;
       const created = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`adopt-agent:${record.id}`}))`;
         if (await tx.bot.findUnique({ where: { id: record.id } })) return false;
@@ -651,18 +681,9 @@ export class WakeWorker {
       if (created) adopted += 1;
     }
 
-    const groupRecords = directories.filter(({ kind }) => kind === "group");
-    const existingChannelIds = new Set(
-      groupRecords.length === 0
-        ? []
-        : (
-            await this.prisma.channel.findMany({
-              where: { id: { in: groupRecords.map(({ id }) => id) } },
-              select: { id: true },
-            })
-          ).map(({ id }) => id)
+    const missingGroupRecords = groupRecords.filter(
+      ({ id }) => !existingChannelIds.has(id) && !retired.has(id)
     );
-    const missingGroupRecords = groupRecords.filter(({ id }) => !existingChannelIds.has(id));
     const candidateGroupMemberIds = [
       ...new Set(missingGroupRecords.flatMap(({ memberIds }) => memberIds.slice(0, 6))),
     ];
@@ -681,7 +702,7 @@ export class WakeWorker {
           ).map(({ id }) => id)
     );
     for (const record of groupRecords) {
-      if (existingChannelIds.has(record.id)) continue;
+      if (existingChannelIds.has(record.id) || retired.has(record.id)) continue;
       const memberIds = [...new Set(record.memberIds)].slice(0, 6);
       if (memberIds.length === 0) continue;
       if (memberIds.some((memberId) => !activeGroupMemberIds.has(memberId))) {
@@ -711,6 +732,17 @@ export class WakeWorker {
 
     this.pendingAgentStoreRecords = pending;
     if (responseEtag) this.agentStoreEtag = responseEtag;
+
+    // The chat is gone from PostgreSQL, so its durable directory is unreachable residue. Asking the
+    // computer to retire it closes the SQLite handles first, which is what makes removal stick.
+    for (const id of retired) {
+      await this.computerFetch(COMPUTER_API_PATHS.agentStore(id), {
+        method: "DELETE",
+        signal: AbortSignal.timeout(10_000),
+      }).catch((error) =>
+        console.warn(`retired agent store ${id} could not be discarded: ${String(error)}`)
+      );
+    }
 
     if (!backfill) return adopted;
 

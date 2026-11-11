@@ -369,6 +369,9 @@ export class BotService {
         where: { botId: { in: [botId, ...children.map((child) => child.childBotId)] } },
         select: { id: true, runtimeSessionPath: true },
       });
+      // Runtime cleanup is best effort: a chat must never stay undeletable because a session file,
+      // a screen, or a stale session path could not be discarded on the computer.
+      const cleanupWarnings: string[] = [];
       await Promise.all(
         contextSessions.map((contextSession) =>
           this.computerFetch(`/v1/context-sessions/${contextSession.id}`, {
@@ -377,7 +380,9 @@ export class BotService {
             signal: AbortSignal.timeout(10_000),
           }).then(async (response) => {
             if (!response.ok) {
-              throw new ApiError(503, "context_cleanup_failed", await response.text());
+              cleanupWarnings.push(
+                `context session ${contextSession.id}: ${response.status} ${await response.text()}`
+              );
             }
           })
         )
@@ -387,7 +392,7 @@ export class BotService {
         signal: AbortSignal.timeout(10_000),
       });
       if (!screenResponse.ok) {
-        throw new ApiError(503, "screen_cleanup_failed", await screenResponse.text());
+        cleanupWarnings.push(`screen ${botId}: ${screenResponse.status} ${await screenResponse.text()}`);
       }
       await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-bot:${botId}`}))`;
@@ -476,13 +481,33 @@ export class BotService {
           where: { directKey: `bot:${botId}` },
           data: { archivedAt: deletedAt },
         });
+        // The runtime no longer owns these sessions; keeping the rows would point an archived chat
+        // at deleted files and keep a stale session path replayable.
+        await tx.contextSession.deleteMany({
+          where: { botId: { in: [botId, ...childBotIds] } },
+        });
         await appendEvent(tx, "bot.archived", botId, { botId });
       });
+      // Retire the durable stores before the shared directories: an open SQLite store is what makes
+      // the recursive delete fail, and a surviving directory is adopted back as a live chat.
       await Promise.all(
-        [botId, ...children.map((child) => child.childBotId)].map((id) =>
-          this.agentData.deleteAgentFiles(id)
-        )
+        [botId, ...children.map((child) => child.childBotId)].map(async (id) => {
+          const retired = await this.computerFetch(COMPUTER_API_PATHS.agentStore(id), {
+            method: "DELETE",
+            signal: AbortSignal.timeout(10_000),
+          }).catch((error) => {
+            cleanupWarnings.push(`agent store ${id}: ${String(error)}`);
+            return null;
+          });
+          if (retired && !retired.ok) {
+            cleanupWarnings.push(`agent store ${id}: ${retired.status} ${await retired.text()}`);
+          }
+          await this.agentData.deleteAgentFiles(id).catch((error) => {
+            cleanupWarnings.push(`agent files ${id}: ${String(error)}`);
+          });
+        })
       );
+      for (const warning of cleanupWarnings) console.warn(`bot archive cleanup: ${warning}`);
       await this.agentData.repairActiveAgentAfterDeletion(botId);
       return { ok: true };
     });

@@ -244,10 +244,31 @@ export class GroupAdministration {
           }).catch(() => undefined)
         )
       );
-      if (this.agentData) {
-        await this.agentData.deleteAgentFiles(channelId);
-        for (const botId of memberIds) await this.agentData.writeGroupFilesForBot(botId);
+      // The channel row is gone; everything left is cleanup. A single failed step must not fail the
+      // request: a leftover agent directory is the computer's roster authority and would be adopted
+      // straight back into a new group with the same id.
+      const warnings: string[] = [];
+      const retired = await this.computerFetch(COMPUTER_API_PATHS.agentStore(channelId), {
+        method: "DELETE",
+        signal: AbortSignal.timeout(10_000),
+      }).catch((error) => {
+        warnings.push(`agent store ${channelId}: ${String(error)}`);
+        return null;
+      });
+      if (retired && !retired.ok) {
+        warnings.push(`agent store ${channelId}: ${retired.status} ${await retired.text()}`);
       }
+      if (this.agentData) {
+        await this.agentData.deleteAgentFiles(channelId).catch((error) => {
+          warnings.push(`agent files ${channelId}: ${String(error)}`);
+        });
+        for (const botId of memberIds) {
+          await this.agentData.writeGroupFilesForBot(botId).catch((error) => {
+            warnings.push(`group files ${botId}: ${String(error)}`);
+          });
+        }
+      }
+      for (const warning of warnings) console.warn(`group delete cleanup: ${warning}`);
       return { deleted: true, channelId };
     });
 

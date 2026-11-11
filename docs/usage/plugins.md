@@ -20,6 +20,8 @@ Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. 
 | Notion | Work with pages for documents, research, meetings, and tasks |
 | Granola | Use meeting notes, decisions, and action items |
 | Plaid | Connect banks with your own Plaid keys and query balances, transactions, investments, and loans |
+| Signal | Read collected messages and contacts, and send text through a linked Signal account |
+| WhatsApp | Search messages, send messages and files, and manage chats through a linked WhatsApp account |
 | Ramp | Analyze spend, manage expenses and approvals, and run Ramp finance workflows |
 | 1Password | Sign in to websites with saved logins and one-time codes from vaults shared with a service account |
 
@@ -40,6 +42,16 @@ Then try it in chat:
 > List my five most recently updated GitHub repositories.
 
 All bots can use installed plugins and connected accounts. To check which account is connected, [test a tool](../integrations/accounts.md#check-the-connected-account).
+
+## Link Signal or WhatsApp
+
+Add the plugin from **Marketplace**, open its account settings, and choose **Connect**. Scan the live QR code using **Linked Devices** in Signal or **Linked devices → Link a device** in WhatsApp on your phone. If you use OpenTeam on that phone, display the code on another screen. Use **Get new code** when a code expires.
+
+Both plugins run on the bot computer and need it online to collect messages. They use unofficial linked-device clients. Signal installs verified Java and signal-cli runtimes on first connection; WhatsApp includes its Linux client. These plugins make tools available to bots; incoming messages do not create OpenTeam conversations automatically.
+
+Signal collects new messages after linking and does not import old phone history. WhatsApp can search its local message store and request bounded history backfill; it is not a complete backup. Their send tools do not use OpenTeam's editable email/Slack draft cards. Review the task and connected account before asking a bot to send.
+
+**Disconnect** keeps account state for reconnection. **Remove account** deletes its local account data after stopping the connector. Remove the linked device in the phone app too to revoke it there. See the [Signal guide](../../packages/plugins/signal/README.md) and [WhatsApp guide](../../packages/plugins/whatsapp/README.md) for supported tools, storage, uncertain sends, and limits.
 
 ## Connect more than one account
 

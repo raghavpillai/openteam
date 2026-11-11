@@ -138,6 +138,11 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
           (await p.locator(".media-stage-caption").innerText()) === "image-0.png",
         "Library image title and caption use filename"
       );
+      // Opening a warm preview transitions the composer to its viewer tone.
+      await p.waitForFunction(() => {
+        const surface = document.querySelector("[data-prompt-surface]");
+        return surface && getComputedStyle(surface).backgroundColor === "rgb(31, 31, 31)";
+      }, undefined, { timeout: 2000 });
       check(
         (await p
           .locator("[data-prompt-surface]")
@@ -266,7 +271,7 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
       .getByRole("button", { name: /Other bot/ })
       .first()
       .evaluate((e) => e.click());
-    await p.getByText("A different conversation.", { exact: true }).waitFor();
+    await p.locator("[data-message-id]").getByText("A different conversation.", { exact: true }).waitFor();
     await p.locator("[data-attachment-stage]").waitFor({ state: "hidden" });
     check(true, "programmatic chat switching closes a warm conversation viewer");
     phase = "file formats";

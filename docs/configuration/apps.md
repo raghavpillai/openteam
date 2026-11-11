@@ -16,7 +16,9 @@ Some settings apply to one device, some to one bot, and some to your whole serve
 
 **Model**, **Voice notes**, **Server**, and **Providers** settings apply to every bot and every app connected to your server; changing the model there changes it for all bots. **Timezone** and the iPhone-alerts switch in **General** are shared too. Theme, microphone, the current computer's name, and Messages access apply only to the device you're using. The bot screen size, computer network priority, and list of connected computers live in **Server** and apply to your whole server. Permission to [share a computer's internet connection](../usage/computer.md#route-computer-traffic-through-a-connected-computer) is granted locally on that computer.
 
-Each bot also has its own settings. Open the bot and select its name at the top of the conversation to change its name, label, avatar, and description. **Instructions** holds up to 20,000 characters on how the bot should work, and the bot always follows them. iPhone has the same fields in the bot's profile.
+Each bot also has its own settings. Open the bot and select its name at the top of the conversation to change its name, label, avatar, and description. iPhone has the same fields in the bot's profile. The standalone bot **Instructions** field has been removed. Give a bot direction in chat, or use [skills](../usage/skills.md) for reusable methods. Updating removes the retired Instructions storage; save any text you need before updating.
+
+On desktop, **Settings → General → Use bot colors for messages** colors your sent messages with the bot's color. It is off by default.
 
 ## iPhone settings
 

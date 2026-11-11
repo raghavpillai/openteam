@@ -22,6 +22,14 @@ Ask for a specific format, such as Markdown or CSV, and ask the bot to attach it
 
 Select an attachment to preview it (most common file types can be previewed), or download it to open it in another app.
 
+## Open links
+
+Chat links open in the app's browser so you can return to the conversation. Desktop can display the site's icon beside a link. iPhone and iPad use a local globe without automatically downloading site icons.
+
+## Find files in Library
+
+On desktop, open a conversation's **Library** to browse its attachments. Select a file to preview it, choose **Download** to save it, and close the preview to return to Library. Pins keep selected files near the top on that device. Library lists attachments from that conversation; it does not browse everything in the server workspace.
+
 ## The shared workspace
 
 Each bot works in a Linux environment with a `/workspace` folder. Files there stay between tasks and restarts, and every bot can read and write them. That makes the workspace the place for bots to share work in progress.

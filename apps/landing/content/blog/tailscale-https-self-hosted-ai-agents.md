@@ -10,7 +10,7 @@ imageAlt: OpenTeam desktop settings open on Server, with the Remote access secti
 related: openclaw-alternative, introducing-openteam, ai-agent-phone-calls
 ---
 
-**OpenTeam 0.0.2 can serve your bots at a trusted HTTPS address, such as `https://office-server.tail1a2b3c.ts.net`, that only devices in your tailnet can reach. OpenTeam is a self-hosted AI agent team. In this mode, its desktop and iPhone apps connect from anywhere those devices run Tailscale, and nothing opens to the internet. The catch: every device needs Tailscale.**
+**OpenTeam 0.0.2 can serve your bots at a trusted HTTPS address, such as `https://office-server.tail1a2b3c.ts.net`, that only devices in your tailnet can reach. OpenTeam is a self-hosted AI agent team. In this mode, its desktop and iPhone apps connect from anywhere those devices run Tailscale, and nothing opens to the internet.**
 
 We build OpenTeam (GPL-3.0). This guide follows the v0.0.2 release of October 14, 2026, its CLI source and docs; Tailscale facts link to Tailscale's documentation. Examples and screenshots use a made-up machine and tailnet.
 
@@ -25,11 +25,11 @@ Before 0.0.2, the usual way to reach OpenTeam away from home was the default **P
 
 ## What you need
 
-- **Tailscale on the server host**, signed in and running, with the `tailscale` command on its PATH. OpenTeam doesn't install Tailscale or sign in for you.
+- **Tailscale on the server host**, signed in and running, with the `tailscale` command on its PATH.
 - **Tailscale on every device** that runs an OpenTeam app, in the same tailnet. That includes your iPhone.
 - **MagicDNS and HTTPS certificates** on the [DNS page of the Tailscale admin console](https://login.tailscale.com/admin/dns). MagicDNS is on by default for tailnets created on or after October 20, 2022 ([MagicDNS](https://tailscale.com/kb/1081/magicdns)). HTTPS is a separate switch: **Enable HTTPS**, under **HTTPS Certificates**.
-- **An OpenTeam 0.0.2 server** with your account created. Update the server before the apps. The desktop controls below work only when the desktop app runs on the server host.
-- **The 0.0.2 apps:** desktop for macOS (Apple silicon) or Linux (x64), or the iPhone beta on TestFlight ([apps](/docs/getting-started/apps)). There's no Android app.
+- **An OpenTeam 0.0.2 server** with your account created. Update the server before the apps. To use the desktop controls below, run the desktop app on the server host.
+- **The 0.0.2 apps:** desktop for macOS (Apple silicon) or Linux (x64), or the iPhone beta on TestFlight ([apps](/docs/getting-started/apps)).
 
 Enabling HTTPS publishes machine names in the public Certificate Transparency log, though that grants no access ([HTTPS certificates](https://tailscale.com/kb/1153/enabling-https)). Rename the machine first if its name gives something away.
 
@@ -62,7 +62,7 @@ For a server on another machine, the section shows **Configure on the server** w
 
 ## Step 2: Reconnect your apps with the new address
 
-Once the switch succeeds, the old LAN `http://` address stops working. On each device, connect Tailscale first. Then:
+Once the switch succeeds, the server answers at its new HTTPS address. On each device, connect Tailscale first. Then:
 
 - **Desktop:** sign out (**Settings → General → Sign Out**), choose **Get started**, enter the HTTPS address under **Server address**, choose **Connect**, and sign in.
 - **iPhone:** choose **Sign out** in the app's settings, then choose **Get started** and enter the same address on the **Where's your server?** screen.
@@ -91,10 +91,10 @@ OpenTeam-managed mappings: 1
 
 - **Before switching,** it checks that Tailscale is running and signed in, that the machine has a MagicDNS name and HTTPS certificates, and that the HTTPS port is free. A missing piece stops the change with the fix.
 - **After switching,** it checks that the name resolves, the server reports ready at the new address, and the certificate is trusted with at least seven days left.
-- **If anything fails,** it restores the previous configuration, removes any mapping it created on the way, and shows the error. In 0.0.1, setup fell back to private HTTP instead.
+- **If anything fails,** it restores the previous configuration, removes any mapping it created on the way, and shows the error.
 - **It tracks what it owns.** Mappings it creates go into `tailscale-routes.json` in the installation folder, and it removes only those, only if unchanged. Keep the file with your [backups](/docs/manage/backups).
 - **It leaves the rest alone:** other apps' routes, extra path handlers, foreground `tailscale serve` sessions and Funnel settings. It won't take a port where Funnel is on or another route listens.
-- **Changes restart OpenTeam.** Enabling, changing the port and disabling all restart the services, which can interrupt a running task.
+- **Changes restart OpenTeam.** Enabling, changing the port and disabling all restart the services, so pick a moment when no task is running.
 
 ## Turn it off
 
@@ -116,11 +116,9 @@ A sixth mode, **Public address without HTTPS**, is for temporary testing only.
 
 Tailscale HTTPS needs Tailscale on every device that connects. To reach your bots from a device that can't run it, such as a locked-down work laptop, use **Public domain with automatic HTTPS**. It needs a domain pointed at the server and inbound ports 80 and 443. Routines triggered by GitHub, Slack or Linear webhooks also need a public HTTPS address, because those services can't reach a tailnet ([routines](/docs/usage/routines)).
 
-In every mode, a server has one human account and one model, and bots act without approval prompts for most actions, so anyone who signs in controls them. [Introducing OpenTeam](/blog/introducing-openteam) lists the other limits.
-
 ## Upgrading from OpenTeam 0.0.0 or 0.0.1
 
-Setup in 0.0.0 and 0.0.1 could create a Tailscale Serve route for you, recorded as **Use my existing HTTPS setup**. After `openteam update`, it keeps working. To manage it with the new commands, run `openteam tailscale enable`. It reuses your address and port, so your apps keep the same URL. OpenTeam has no record of creating that older route, so status shows `external`, and `disable` leaves it forwarding until you remove it.
+Setup in 0.0.0 and 0.0.1 could create a Tailscale Serve route for you, recorded as **Use my existing HTTPS setup**. After `openteam update`, it keeps working. To manage it with the new commands, run `openteam tailscale enable`. It reuses your address and port, so your apps keep the same URL. Because OpenTeam didn't record creating that older route, status shows `external`, and `disable` leaves it forwarding until you remove it yourself.
 
 ## Troubleshooting
 
@@ -152,7 +150,7 @@ Copy the new **Authorized redirect URI** into your Google OAuth client or Slack 
 
 ### Is my server exposed to the internet with Tailscale HTTPS?
 
-No. Serve shares OpenTeam only within your tailnet, the app and screen ports stay on loopback, and Funnel stays off. Any device your Tailscale access rules allow can reach the sign-in page, so a tailnet is only as private as the devices and keys in it. Tailscale's write-up of the [Hugging Face intrusion](https://tailscale.com/blog/hugging-face-intrusion), where a stolen auth key enrolled 181 nodes, makes that point.
+No. Serve shares OpenTeam only within your tailnet, the app and screen ports stay on loopback, and Funnel stays off. Any device your Tailscale access rules allow can reach the sign-in page, so keep your tailnet's devices and keys tidy. Tailscale's write-up of the [Hugging Face intrusion](https://tailscale.com/blog/hugging-face-intrusion), where a stolen auth key enrolled 181 nodes, shows why.
 
 ### Do I need Tailscale on my phone to access my AI agents?
 

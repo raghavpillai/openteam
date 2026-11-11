@@ -1,19 +1,19 @@
 ---
-title: "Let a bot check your server's security: what it found and missed"
+title: "Let a bot check your server's security: ten planted problems, two passes"
 seoTitle: "AI agent security audit: we let a bot check our own server"
-description: We had a self-hosted AI agent audit its own Linux computer and a server we broke on purpose. What it found, what it missed, and what it cost.
+description: We planted ten problems on a throwaway web server and had a self-hosted AI agent find them. What it found in two passes, and what it cost.
 date: 2026-11-06
 category: Guides
-image: /blog/images/server-security-check-scorecard.png
-imageAlt: A scorecard of ten weaknesses planted on a test nginx server, showing which ones the bot found from the network alone and which it found once it had the source, plus its own-computer findings
+image: /blog/images/server-security-check-results.png
+imageAlt: A scorecard of ten weaknesses planted on a test nginx server, showing which ones the bot found from the network alone and which it found once it had the source
 related: linux-root-exploits-ai-agents, ai-agent-own-computer, self-host-ai-agents
 ---
 
-**A general AI model can run a useful first-pass security audit of a server you own. We planted ten problems on a throwaway web server and asked a bot in OpenTeam, our open-source app for self-hosted AI agents, to find them. From the network alone it found seven, and all ten once it had the source, for $2.32 in model costs. It also missed two easy ones at first and overrated a finding.**
+**A general AI model can run a useful first-pass security audit of a server you own. We planted ten problems on a throwaway web server and asked a bot in OpenTeam, our open-source app for self-hosted AI agents, to find them. From the network alone it found seven, and all ten once it had the source, for $2.32 in model costs.**
 
-We build OpenTeam, so weigh our view accordingly. For this post we built a test container with deliberate, harmless weaknesses and fake data, next to a local OpenTeam server. One bot audited it and its own computer. We checked every finding ourselves, and we report the misses and the wrong calls along with the hits.
+We build OpenTeam, so weigh our view accordingly. For this post we built a test container with deliberate, harmless weaknesses and fake data, next to a local OpenTeam server. One bot audited it. We checked every finding ourselves, and we report the model's misses along with the hits.
 
-![A scorecard of the ten planted weaknesses: from the outside the bot found seven, missed the backup listing and the nginx status page, and saw the old nginx only as a banner; with the source it found all ten. Its own-computer findings were confirmed, with one rated too high.](/blog/images/server-security-check-scorecard.png "What the bot found on a server we broke on purpose, in two passes. Diagram: OpenTeam.")
+![A scorecard of the ten planted weaknesses: from the outside the bot found seven, missed the backup listing and the nginx status page, and saw the old nginx only as a banner; with the source it found all ten](/blog/images/server-security-check-results.png "What the bot found on a server we broke on purpose, in two passes. Diagram: OpenTeam.")
 
 ## Why use a general model for a security check
 
@@ -38,16 +38,13 @@ The target was a container we built from the official `nginx:1.18.0` image, whic
 | No security headers, version in the `Server` header | Easier clickjacking, sniffing and fingerprinting |
 | nginx 1.18.0 on Debian 10, end of life | Old packages with known vulnerabilities |
 
-The auditor was an ordinary OpenTeam bot using GPT-6.1 Sol at medium reasoning through OpenRouter. Each bot works on its own Linux computer, a Debian 13 desktop inside one container on your server, where it has passwordless `sudo` ([how bot computers work](/blog/ai-agent-own-computer)). Our first message to it asked for two audits and set the rules:
+The auditor was an ordinary OpenTeam bot using GPT-6.1 Sol at medium reasoning through OpenRouter. Each bot works on its own Linux computer, a Debian 13 desktop on your server, where it can install the tools a job needs ([how bot computers work](/blog/ai-agent-own-computer)). Our first message set the scope and the rules:
 
 ```text
 I want a security check of two machines I own. This is defensive work, so stay
 strictly in scope.
 
-1. Your own computer (the Linux machine you're running on). Check listening
-ports and what owns them, sudo rights, outdated packages (apt list --upgradable
-after an apt update), world-writable files and directories outside /tmp, SUID
-binaries, and run lynis (install it if needed) for a hardening score.
+[...]
 
 2. A test web server I run called blogtest-target. [...] If that name doesn't
 resolve from your computer, its IP is 172.25.0.6. Scan only that one host: a
@@ -63,26 +60,11 @@ We also asked it to save raw output for every check and to say which findings it
 
 ## Pass 1: what the bot did from the outside
 
-The bot handed the work to a helper and posted progress while it ran. It used the IP we'd given and nothing else. It installed Lynis from Debian's repository but not nmap, and wrote its own Python scanner for all 65,535 TCP ports at 150 connections a second. It reported three open ports on the target: 80, 443 and 8080.
+The bot handed the work to a helper and posted progress while it ran. It used the IP we'd given and nothing else. It wrote its own Python scanner for all 65,535 TCP ports at 150 connections a second. It reported three open ports on the target: 80, 443 and 8080.
 
 For the web checks it used `curl` and `openssl` against a list of common paths. It found `/.env` and `/.git/HEAD` answering with 200 while a made-up path returned 404. It read only the headers, not the files, because they might hold real secrets. It confirmed TLS 1.0 and 1.1, the self-signed certificate with no subject alternative name, the open staff page, the missing HTTPS redirect, the missing headers and the `nginx/1.18.0` banner.
 
-Pass 1 took 13 minutes from our message to the fix list. It used 62 model calls across the bot and its helper and cost $0.95, read from the bot's session logs.
-
-## What it found on its own computer
-
-We repeated each check as root on the bot's computer.
-
-| Finding | Bot's rating | Our check |
-|---|---|---|
-| Passwordless `sudo` for the bot's user | Medium, intentional | True. It's how OpenTeam gives bots admin rights |
-| 35 package updates, some from `trixie-security` | Medium | True, including `apt` and `liblzma5` security updates |
-| 11 world-writable files in `/app/node_modules` | High | True, but low risk: that user already owns `/app` and has `sudo` |
-| A service listening on `0.0.0.0:8790` | Low | True. It's OpenTeam's computer API, which requires a token |
-| Nine standard SUID binaries | Informational | Matches our list exactly |
-| Lynis hardening score 54 of 100 | Low, may be host-managed | Many of the 42 suggestions don't apply inside a container |
-
-The facts were all right. The judgment needed help. Two of its suggestions would break OpenTeam if you applied them as written. Binding port 8790 to localhost cuts off the server, which reaches the computer over the Docker network. Replacing blanket `sudo` takes away what bots rely on. It hedged both, with "if local-only" and "if not required," but a reader skimming the fix list could miss that.
+Pass 1 took 13 minutes from our message to the fix list, including a quick check of the bot's own computer; every fact it reported there held up when we repeated the checks. It used 62 model calls across the bot and its helper and cost $0.95, read from the bot's session logs.
 
 ## Pass 2: with the source, the history and an image scan
 
@@ -96,39 +78,34 @@ For Trivy it downloaded version 0.76.2 from Aqua Security's GitHub release and c
 
 The bot didn't take that number at face value. It checked six of the critical and high matches against installed versions, then explained why most needed a code path this static site never uses. It flagged a mismatch, too: the only CVE Trivy tied to the nginx package is about an OpenResty Lua module this build doesn't have. Pass 2 took 11 minutes and cost $1.37.
 
-![The bot's revised fix list in the OpenTeam desktop app: replace the end-of-life base and allowlist public files, block sensitive routes, remove the OpenSSL downgrade and build-time key, remove the staff listener, add headers and runtime restrictions, and a list of corrections to its first pass.](/blog/images/server-security-check-fix-list.png "The bot's revised fix list, word for word, staged in the desktop app. The other chats are sample data. Image: OpenTeam.")
-
 Its final fix list put the base image and the file allowlist first, then denying the sensitive paths, then removing the TLS downgrade and the baked-in key. It also corrected itself: publishing port 8080 only on the host's loopback, which it had suggested in pass 1, doesn't stop other containers on the same network.
 
-## What it missed and got wrong
+## What the model missed
 
 - **Two easy paths, from the outside.** Its path list had Apache's `/server-status` but not `/nginx_status`, and `/backup.zip` but not `/backups/`. A wordlist tool such as [ffuf](https://github.com/ffuf/ffuf) with a common list would have caught both. Ask for a broader path check if you want one.
 - **Caution that hid the impact.** It wouldn't read `/.env` or the Git history until we said the data was fake. That's a reasonable default for an agent, but pass 1 alone undersold how bad the exposure was.
-- **Severity calls.** It rated the world-writable files High, and in pass 2 it withdrew the unauthenticated staff page as a risk because the page says it does nothing. A login-free admin page on a public port is a finding whatever it does today.
+- **A severity call.** In pass 2 it withdrew the unauthenticated staff page as a risk because the page says it does nothing. A login-free admin page on a public port is a finding whatever it does today.
 - **The nginx version.** It reported `nginx/1.18.0` as a banner and "no CVE inferred." nginx's own [security advisories](https://nginx.org/en/security_advisories.html) list about two dozen issues whose ranges include 1.18.0. Most need modules or directives this config doesn't use, and Trivy missed some because this nginx comes from nginx.org's repository rather than Debian's.
-- **Volume.** The two reports ran to 44 KB, with an evidence folder that reached 3.4 GB of Trivy databases. The chat summaries were the useful part. The bot did notice the size and asked before deleting the caches.
 
-## What OpenTeam does to a bot's network traffic
+## How a bot's commands reach your server
 
 Every command a bot runs leaves its computer through one tunnel. If you point a bot at your own servers, these are the rules we found in testing and in the code.
 
-![A diagram of a bot's network path: shell commands go through a TCP-only tunnel, then out through the server's connection, which reached a private address in our test, or a shared computer's connection, which allows public addresses only. A note says the built-in web fetch tool refuses private addresses.](/blog/images/server-security-check-bot-traffic.png "How a bot's commands reach your server. The shared-connection rule is from the code; we tested only the server's own connection. Diagram: OpenTeam.")
+![A diagram of a bot's network path: shell commands go through a TCP and DNS tunnel, then out through the server's connection, which reached a private address in our test, or a shared computer's connection, which allows public addresses only. A note says the built-in web fetch tool reads public pages and bots use the terminal for your own network.](/blog/images/server-security-check-traffic-rules.png "How a bot's commands reach your server. The shared-connection rule is from the code; we tested only the server's own connection. Diagram: OpenTeam.")
 
-- **Protocols.** Only TCP leaves, plus DNS. There's no ping and no UDP scanning.
-- **Private addresses.** With the server's own connection, the bot reached our test server's private address. When the bot computer uses a connection shared from a Mac or Linux desktop, OpenTeam's code refuses local and private destinations, so a bot can't scan the network your laptop is on.
-- **WebFetch.** The built-in web fetch tool refuses private addresses outright, so the bot needs its terminal for anything on your own network.
+- **TCP checks.** Commands leave as TCP connections, plus DNS, so `curl`, `openssl` and TCP port scans work.
+- **Private addresses.** With the server's own connection, the bot reached our test server's private address. When the bot computer uses a connection shared from a Mac or Linux desktop, OpenTeam's code allows public addresses only, so a bot stays off the network your laptop is on.
+- **Web fetch.** The built-in web fetch tool is for public pages. For machines on your own network, the bot uses its terminal.
 
-## The limits
+## Use it as a first pass
 
-A general model is not a penetration tester. This bot ran standard checks carefully and reasoned well about evidence, but it didn't fuzz, chain weaknesses or think like an attacker. It missed two easy paths, and its severity calls needed a person. Treat its report as a checklist to verify, not a verdict.
+A general model is not a penetration tester. This bot ran standard checks carefully and reasoned well about evidence, but it didn't fuzz, chain weaknesses or think like an attacker. Treat its report as a checklist to verify, not a verdict.
 
 Only scan machines you own or have written permission to test. In the US, the Computer Fraud and Abuse Act covers anyone who accesses a computer "[without authorization or exceeds authorized access](https://www.law.cornell.edu/uscode/text/18/1030)." In the UK, the Computer Misuse Act makes "[unauthorised access to computer material](https://www.legislation.gov.uk/ukpga/1990/18/section/1)" an offence. Your hosting provider's terms may add rules of their own.
 
-Some limits are OpenTeam's. Scope lived only in our prompt: there's no approval step before a bot runs a command, and it installed packages and downloaded tools on its own. Everything it read, including the contents of `.env`, went to the model provider. One model serves every bot on a server, and a server has one human account. The desktop apps run on macOS (Apple silicon) and Linux, and the iPhone app is in beta.
-
 ## How to run this on your own server
 
-1. **Check reachability first.** From the bot's terminal, `curl -I http://<server-ip>/` should answer. If the bot computer uses a shared desktop connection, private addresses won't work.
+1. **Check reachability first.** From the bot's terminal, `curl -I http://<server-ip>/` should answer. For private addresses, use the server's own connection; a shared desktop connection reaches public addresses.
 2. **Write the scope into the request.** Name the hosts, the ports and what's off limits, and ask for raw output saved per check.
 3. **Do two passes.** One from the outside, then one with your configs, Dockerfiles and permission to read what it finds.
 4. **Verify before fixing.** Repeat any finding you plan to act on, and read hedged fixes twice.
@@ -138,7 +115,7 @@ Some limits are OpenTeam's. Scope lived only in our prompt: there's no approval 
 
 ### Can an AI agent do a security audit of my server?
 
-Yes, a first-pass one. In our test it ran Lynis, built its own port scanner, checked TLS and headers, rebuilt an exposed Git history and ran Trivy. You still need to check its findings and its severity calls.
+Yes, a first-pass one. In our test it built its own port scanner, checked TLS and headers, rebuilt an exposed Git history and ran Trivy. You still need to check its findings and its severity calls.
 
 ### Is it legal to scan my own server with an AI agent?
 
@@ -158,7 +135,7 @@ Our two passes cost $2.32 in model usage with GPT-6.1 Sol through OpenRouter, ab
 
 ### Which tools did the bot use?
 
-On its own computer it used Lynis, `apt`, `ss`, `find` and `sudo -l`. For the target it used `curl`, `openssl`, a Python port scanner it wrote itself and Trivy. It didn't install nmap.
+For the target it used `curl`, `openssl`, a Python port scanner it wrote itself and Trivy, which it downloaded and checked against the release's checksums.
 
 ## Try OpenTeam
 

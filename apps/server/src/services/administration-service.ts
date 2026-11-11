@@ -49,7 +49,6 @@ export class AdministrationService {
         clientRequestId: `agent-tool:${parentBotId}:${callId}`,
         name: input.name,
         description: input.description,
-        instructions: input.description,
       })
     );
     if (input.section_id) await this.agentData.assignAgentSection(bot.id, input.section_id);
@@ -73,7 +72,7 @@ export class AdministrationService {
       );
     }
     const bot = await Effect.runPromise(
-      this.bots.update(input.agent_id, { name, description, instructions: description })
+      this.bots.update(input.agent_id, { name, description })
     );
     await this.prisma.$transaction((tx) =>
       appendEvent(tx, "agent.profile_updated_by_agent", bot.id, {

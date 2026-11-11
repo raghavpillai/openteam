@@ -54,7 +54,6 @@ export const toBotView = (bot: BotWithConversation): BotView => {
     name: bot.name,
     title: bot.title,
     description: bot.description,
-    instructions: bot.instructions,
     icon: avatar.shape,
     color: avatar.color,
     hasAvatar: Boolean(bot.avatarPath),

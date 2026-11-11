@@ -93,7 +93,7 @@ const fixtureBot = async () => {
     return {
       inboxId: inbox.id, inboxType: inbox.type, runId, botId, contextSessionId: "context", runChannelId: channelId,
       screenBotId: botId, pluginBotId: botId, conversationId, ownerId, content: payload.content, images: [],
-      clientId: payload.clientId, cwd: root, instructions: "", sessionPath: null, channelId, deliveryId: null,
+      clientId: payload.clientId, cwd: root, sessionPath: null, channelId, deliveryId: null,
       origin: inbox.run.origin, runtimeProfile: "agent", subagentType: null, readOnly: false, inferenceParentRunId: null,
       taskConfiguration: null, fileAttachments: [], attachmentOwnerBotId: botId,
       interruptedRunId: payload.interruptedRunId ?? null,

@@ -161,7 +161,7 @@ export class SharedTemplateService {
       const recipe = parseBotRecipe(metadataRecord(metadataRecord(message.metadata).template).recipe);
       const bot = await Effect.runPromise(this.bots.create({
         clientRequestId: `template:${messageId}:${input.clientId}`, name: recipe.profile.name,
-        description: recipe.profile.description, instructions: recipe.profile.description,
+        description: recipe.profile.description,
       }, recipe));
       return { accepted: true, message: toChannelMessageView(message), runId: null, botId: bot.id };
     }

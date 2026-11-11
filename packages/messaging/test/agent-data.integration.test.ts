@@ -243,7 +243,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
         name: "Filesystem Bot",
         title: "Research",
         description: "Initial description",
-        instructions: "",
         icon: "●",
         color: "#4f7cff",
         namedBy: "user",

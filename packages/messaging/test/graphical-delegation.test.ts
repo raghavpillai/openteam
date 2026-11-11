@@ -89,7 +89,6 @@ describe("main-agent graphical delegation instructions", () => {
             findUniqueOrThrow: async () => ({
               id: "child",
               name: "Worker",
-              instructions: "Child-only instructions",
               defaultDirectory: "/workspace",
               subagentIdentity: { parentBotId: "parent", subagentType, readOnly: false },
               todos: [],
@@ -172,7 +171,7 @@ describe("main-agent graphical delegation instructions", () => {
     Object.assign(messaging, {
       userTimeZone: async () => "UTC",
       agentData: { renderWorkerSkillCatalog: async () => "" },
-      prisma: { bot: { findUniqueOrThrow: async () => ({ id: "child", name: "Worker", instructions: "", defaultDirectory: "/workspace",
+      prisma: { bot: { findUniqueOrThrow: async () => ({ id: "child", name: "Worker", defaultDirectory: "/workspace",
         subagentIdentity: { parentBotId: "parent", subagentType: "executor", readOnly: true }, todos: [] }) } },
     });
     const prompt = await AgentMessaging.prototype.platformPrompt.call(messaging as unknown as AgentMessaging, "child", "child-context", "");

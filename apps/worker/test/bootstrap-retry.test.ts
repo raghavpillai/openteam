@@ -16,7 +16,6 @@ const claimed = {
   images: [],
   clientId: "bot:bot:bootstrap:v1",
   cwd: "/workspace",
-  instructions: "",
   sessionPath: null,
   channelId: "channel",
   deliveryId: null,

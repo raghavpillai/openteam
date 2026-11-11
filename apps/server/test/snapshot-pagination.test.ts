@@ -585,7 +585,6 @@ describe("snapshot pagination", () => {
       name: "Profile bot",
       title: "Performance engineer",
       description: "Keeps the original profile fields",
-      instructions: "Measure first",
       icon: "●",
       color: "#336699",
       notificationsEnabled: false,

@@ -160,7 +160,7 @@ import XCTest
     let state = try await request("/__qa/state", method: "GET")
     let bots = try XCTUnwrap(state["bots"] as? [[String: Any]])
     XCTAssertEqual(bots.first?["description"] as? String, "Keep it concise.")
-    XCTAssertEqual(bots.first?["instructions"] as? String, "")
+    XCTAssertNil(bots.first?["instructions"])
     let requests = state["requests"] as? [[String: Any]] ?? []
     XCTAssertFalse(requests.contains { ($0["path"] as? String ?? "").contains("/memories") })
   }

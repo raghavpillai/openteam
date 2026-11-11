@@ -616,7 +616,7 @@ const server = Bun.serve({
         const input = Schema.decodeUnknownSync(ComputerTurnRequest)(await request.json());
         safePath(input.cwd);
         await setBoxClock(input.timeZone);
-        const events = await runtime.run(input);
+        const events = await runtime.run(input, request.signal);
         const body = computerEventStream(events, undefined, {
           onCancel: async () => {
             // A disconnected worker must not leave tools or child tasks

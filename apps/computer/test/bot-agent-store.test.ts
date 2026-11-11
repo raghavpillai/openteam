@@ -53,7 +53,8 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
     await writeFile(join(protectedDirectory, "keep"), "runtime data");
     await chmod(protectedDirectory, 0o500);
     try {
-      await expect(store.deleteAgent(agentId)).rejects.toMatchObject({ code: "EACCES" });
+      const failures = await Promise.allSettled(Array.from({ length: 20 }, () => store!.deleteAgent(agentId)));
+      expect(failures.every((result) => result.status === "rejected" && result.reason.code === "EACCES")).toBe(true);
       expect(store.hasLiveHandle(agentId)).toBe(false);
       expect(await store.listAgentDirectories()).toEqual([]);
       const retired = await readdir(retiredRoot);

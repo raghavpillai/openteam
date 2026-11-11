@@ -68,6 +68,7 @@ const ensureSharedAgentDirectory = async (directory: string): Promise<void> => {
  * conversation envelopes and prompt snapshots exposed by the bot host.
  */
 export class BotAgentStore {
+  private readonly retiring = new Map<string, Promise<boolean>>();
   private readonly directories: AgentDirectoryInventory;
 
   private readonly root: string;
@@ -655,6 +656,18 @@ export class BotAgentStore {
    */
   async deleteAgent(agentId: string): Promise<boolean> {
     safeId(agentId);
+    const existing = this.retiring.get(agentId);
+    if (existing) return existing;
+    // API retries and worker replicas can retire the same id simultaneously. Share one physical
+    // close/rename/disposal operation so recursive removals cannot race each other on the same tree.
+    const pending = this.deleteAgentDirectory(agentId).finally(() => {
+      if (this.retiring.get(agentId) === pending) this.retiring.delete(agentId);
+    });
+    this.retiring.set(agentId, pending);
+    return pending;
+  }
+
+  private async deleteAgentDirectory(agentId: string): Promise<boolean> {
     await this.closeAgent(agentId);
     const directory = this.agentDirectory(agentId);
     const present = await stat(directory).catch((error: NodeJS.ErrnoException) => {

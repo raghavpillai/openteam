@@ -31,6 +31,7 @@ import {
 import { createPrismaClient, Prisma, type PrismaClient } from "@openteam/db";
 import {
   appendAgentTimelineEvent,
+  lockAgentLifecycle,
   cleanupRetiredAgent,
   RETIRED_AGENT_CLEANUP_RETRY_MS,
   AgentDataStore,
@@ -670,6 +671,8 @@ export class WakeWorker {
       if (existingBotIds.has(record.id) || retired.has(record.id)) continue;
       const created = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`adopt-agent:${record.id}`}))`;
+        await lockAgentLifecycle(tx, record.id);
+        if (await tx.retiredAgent.findUnique({ where: { id: record.id } })) return false;
         if (await tx.bot.findUnique({ where: { id: record.id } })) return false;
         await tx.bot.create({
           data: {
@@ -732,6 +735,10 @@ export class WakeWorker {
       }
       const created = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`adopt-group:${record.id}`}))`;
+        // The bulk lookup is only a snapshot. Another worker may have adopted this room and
+        // the owner deleted it while we waited; serialize with deleteGroup and recheck its marker.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${record.id}`}))`;
+        if (await tx.retiredAgent.findUnique({ where: { id: record.id } })) return false;
         if (await tx.channel.findUnique({ where: { id: record.id } })) return false;
         await tx.channel.create({
           data: {

@@ -6,12 +6,12 @@ import {
   planImageRow,
 } from "../src/renderer/components/openteam/attachment-visuals";
 
-// Sizes measured in the reference app's chat column (728 wide) on 2026-11-02.
+// Sizes measured in the reference app's chat column (728 wide) and single-photo height remeasured in Grok Bot 0.79.3 on 2026-11-10.
 describe("photo rows", () => {
   const column = imageRowWidth(728);
 
   test("a single photo stands at the full row height", () => {
-    expect(planImageRow([{ width: 800, height: 534 }], column)).toEqual({ height: 192, widths: [288], foldedCount: 0 });
+    expect(planImageRow([{ width: 800, height: 534 }], column)).toEqual({ height: 200, widths: [300], foldedCount: 0 });
   });
 
   test("twenty photos fold to three tiles counting the rest on the last", () => {
@@ -33,7 +33,7 @@ describe("photo rows", () => {
   });
 
   test("a photo without a size is laid out as 4:3", () => {
-    expect(planImageRow([undefined], column)).toEqual({ height: 192, widths: [256], foldedCount: 0 });
+    expect(planImageRow([undefined], column)).toEqual({ height: 200, widths: [267], foldedCount: 0 });
   });
 });
 

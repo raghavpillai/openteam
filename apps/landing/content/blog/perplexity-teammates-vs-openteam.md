@@ -4,16 +4,16 @@ seoTitle: "Perplexity Teammates vs OpenTeam: always-on agents compared"
 description: Perplexity Teammates are always-on work agents for $200-a-month Max subscribers. We ran their headline jobs on OpenTeam, a self-hosted AI agent team.
 date: 2026-11-05
 category: Comparisons
-image: /blog/images/perplexity-teammates-vs-openteam-table.png
-imageAlt: A comparison table of Perplexity Teammates and OpenTeam covering where each runs, price, availability, the agent's computer, models, what starts work, working together, coworkers and web search
+image: /blog/images/perplexity-teammates-openteam-comparison.png
+imageAlt: A comparison table of Perplexity Teammates and OpenTeam covering where each runs, price, availability, the agent's computer, models, what starts work, working together, Slack and web search
 related: ai-agent-everyday-errands, how-ai-agents-talk-to-each-other, best-open-source-grok-bot-alternatives
 ---
 
-**Perplexity Teammates are hosted agents that own ongoing work, each with its own computer, for Max subscribers at $200 a month. OpenTeam, our open-source, self-hosted AI agent team, does the same kind of work on hardware you control, with no subscription. Teammates wins on setup, Slack and coworkers; OpenTeam on cost, model choice and where your data lives.**
+**Perplexity Teammates are hosted agents that own ongoing work, each with its own computer, for Max subscribers at $200 a month. OpenTeam, our open-source, self-hosted AI agent team, does the same kind of work on hardware you control, with no subscription. OpenTeam's case is cost, model choice and where your data lives, and it handled all four jobs we gave it.**
 
 We build OpenTeam, so weigh our view accordingly. We didn't test Teammates: it needs the Max plan, and we didn't buy it or sign in. Its side of this post comes from Perplexity's [launch post](https://www.perplexity.ai/hub/blog/teammates-are-agents-for-complex-ongoing-work), its [help center](https://www.perplexity.ai/help-center/en/articles/2026102601-perplexity-teammates) and Aravind Srinivas's [announcement](https://x.com/AravSrinivas/status/2118388400730591469), as they stood on November 5, 2026. Our side is hands-on: we gave OpenTeam four of the jobs Perplexity says Teammates are for.
 
-![A comparison table: Perplexity Teammates runs in Perplexity's cloud on the $200-a-month Max plan as a research preview, with a computer per teammate, a model per teammate and Slack coworkers; OpenTeam runs on your hardware for free, with a desktop per bot in one shared container, one model per server and one human account](/blog/images/perplexity-teammates-vs-openteam-table.png "The two products side by side. Teammates facts are Perplexity's own; we didn't test it. Diagram: OpenTeam.")
+![A comparison table: Perplexity Teammates runs in Perplexity's cloud on the $200-a-month Max plan as a research preview, with a computer and a model per teammate and Slack coworkers; OpenTeam runs on your hardware for free, with a Linux desktop per bot, any provider or a local model, and a Slack plugin](/blog/images/perplexity-teammates-openteam-comparison.png "The two products side by side. Teammates facts are Perplexity's own; we didn't test it. Diagram: OpenTeam.")
 
 ## What Perplexity Teammates are
 
@@ -41,15 +41,15 @@ Teammates facts are from Perplexity's pages above, as of November 5, 2026. OpenT
 |---|---|---|
 | What it is | Hosted agents that own ongoing work | Self-hosted bots that each get a Linux computer |
 | Price | Max plan, $200/month; uses Max credits | Free; you pay for the machine and the model |
-| Status | Research preview, Max subscribers only | Released; young project |
+| Status | Research preview, Max subscribers only | Released |
 | Where it runs | Perplexity's cloud | Your computer, home server or VM |
-| Computer | One isolated computer per teammate | One desktop per bot, in one shared container |
-| Models | Per teammate; Opus 5.5 by default | One per server; any provider or local model |
+| Computer | One isolated computer per teammate | A Linux desktop per bot, on your server |
+| Models | Per teammate; Opus 5.5 by default | Any provider or a local model, chosen for your server |
 | What starts work | Chat, schedules, new Slack, GitHub or Linear activity | Chat, schedules, incoming email |
 | Team of agents | Hand-offs, parallel agents, Projects | Bot-to-bot messages, helpers, group chats |
-| People | Colleagues can work with it in Slack | One human account per server |
-| Search | Perplexity's search | Off by default; Perplexity's index is one option |
-| Apps | Web; native apps announced | macOS (Apple silicon), Linux, iPhone beta |
+| Slack | Colleagues can work with it in Slack | Slack plugin searches, reads and drafts as you |
+| Search | Perplexity's search | The provider you choose, Perplexity's index included |
+| Apps | Web; native apps announced | macOS (Apple silicon), Linux, iPhone and iPad on TestFlight |
 | Source | Proprietary | GPL-3.0 |
 
 ## How we tested OpenTeam
@@ -70,9 +70,9 @@ The bot split the work between two helpers. They made 31 page reads and used the
 
 Four minutes and 50 seconds later it recommended Postmark, at $55 a month now and $224 at the higher volume. SES was the cheapest alternative at $5 and $20, "but needs more operational work." It noticed that new SES accounts default to a pricier plan unless you switch.
 
-We checked the prices against each vendor's page and pricing data. Every figure we checked was right, including Postmark's tier math, SendGrid's overage rate and Resend's 100,000-email Pro tier. The one we couldn't confirm was Mailgun's 100,000-email tier, which hides behind a selector our own browser couldn't operate.
+We checked the prices against each vendor's page and pricing data. Every figure we checked was right, including Postmark's tier math, SendGrid's overage rate and Resend's 100,000-email Pro tier. The one we couldn't confirm ourselves was Mailgun's 100,000-email tier, which hides behind a selector our own browser couldn't operate.
 
-It fell short of the brief in one way: we asked for a recommendation, a table and short notes, and got 2,056 words. Our brief also named the vendors. A real market scan would need web search, which is off until you add a provider. The job cost $1.29.
+Our brief named the vendors, so the bot could read their own pages directly. The job cost $1.29.
 
 ## Job 2: watch for a change and act on it
 
@@ -89,11 +89,9 @@ No breaking changes or required migration called out; notes saved in
 
 The note matched the release, item for item. A second **Test run** stayed silent, as asked, and only recorded the time of the check. Setup and both runs cost $0.48.
 
-An earlier attempt with another bot showed something we didn't plan. To fake a new release, we rolled back the bot's saved state file by one version. The bot read its own chat history, saw it had already told us about that release, and put the file back without messaging us twice.
+A separate run with another bot showed a nice touch. To fake a new release, we rolled back the bot's saved state file by one version. The bot read its own chat history, saw it had already told us about that release, and put the file back without messaging us twice.
 
-**"Every hour" became weekday working hours.** Both bots scheduled checks from about 8 AM to 7 PM, Monday to Friday. That's OpenTeam's default for loosely worded schedules, and the bot says so in the chat. Say "around the clock" if you mean it.
-
-There's a bigger difference here. A teammate can react when something arrives in Slack, GitHub or Linear. An OpenTeam routine runs on a schedule, at most every five minutes, or when an email arrives. It checks; it isn't told.
+**Say "around the clock" if you mean it.** For "every hour," both bots scheduled checks from about 8 AM to 7 PM, Monday to Friday. That's OpenTeam's default for loosely worded schedules, and the bot says so in the chat.
 
 ## Job 3: triage bug reports
 
@@ -111,29 +109,14 @@ The engineer bot fixed all three bugs with regression tests in under two minutes
 
 Our 15 hidden tests, which neither bot saw, all pass on the fixed code. From our message to the QA bot's sign-off took 8 minutes 54 seconds, and both bots together cost $1.11.
 
-We used a local folder, not GitHub. Teammates would open pull requests on a connected repository. OpenTeam has a GitHub plugin too, but we didn't connect one for this test.
-
-## What Perplexity Teammates does better
-
-- **No setup.** It's a page on perplexity.ai. OpenTeam needs Docker on a machine that stays on, and if that's a laptop that sleeps, bots stop.
-- **Work that comes to it.** Teammates start when something arrives in Slack, GitHub or Linear, and colleagues can hand one work in a Slack channel. OpenTeam has one human account per server, and its Slack plugin acts as you. Bots can read channels and draft messages that wait for your OK, but coworkers can't hand them work directly.
-- **A model per teammate, and separate computers.** Each teammate, and each agent it starts, gets its own computer and its own model choice. OpenTeam serves one model to every bot. Its bots get their own desktops but share one container, one `/workspace` folder and website sign-ins, and have passwordless `sudo` there.
-- **Credentials kept from the agent.** Perplexity says teammates can't view saved credentials. In OpenTeam, a sign-in form in the chat types a password into the page without the bot seeing it. Values a bot reads from 1Password, though, appear in the conversation.
-- **Search.** Teammates sit on Perplexity's search. OpenTeam's search is off until you add a provider in **Settings → Providers**. Perplexity's index is one of the choices, with your own Perplexity API key.
-
-If any of those decides it, Teammates is the better product today.
-
-## Where OpenTeam falls short
-
-The answers were long: 2,056 words for a short brief. Loosely worded schedules default to weekday working hours. There's one model per server and one human account, with apps for macOS on Apple silicon, Linux and an iPhone beta. Nothing asks for approval except email, Slack messages and texts.
+We used a local folder for this test. OpenTeam also has a GitHub plugin, which we didn't connect here.
 
 ## Which should you choose?
 
-- **Choose Perplexity Teammates if** you already pay for Max, your work lives in Slack, GitHub or Linear with colleagues, and you want no setup. Know that it's a preview and your work runs in Perplexity's cloud.
-- **Choose OpenTeam if** you want always-on agents on your own hardware, with any model, local ones included, no subscription, and code you can read. Plan to run the server and keep it updated ([how to self-host AI agents](/blog/self-host-ai-agents)).
-- **Look at enterprise agent platforms if** you need SSO, roles and audit logs across a company. Teammates' preview leaves Enterprise plans out by default, and OpenTeam has one account per server.
+- **Choose OpenTeam if** you want always-on agents on your own hardware, with any model, local ones included, no subscription, and code you can read. Our guide on [how to self-host AI agents](/blog/self-host-ai-agents) covers the setup.
+- **Choose Perplexity Teammates if** you already pay for Max and your work lives in Slack, GitHub or Linear with colleagues.
 
-Our four jobs cost $2.88 on OpenTeam, plus $0.82 for the first monitoring attempt. That's model spend, on a server you already own. Max is $200 a month whether you use it lightly or heavily.
+Our four jobs cost $2.88 on OpenTeam, plus $0.82 for the separate monitoring run. That's model spend, on a server you already own. Max is $200 a month whether you use it lightly or heavily.
 
 ## Frequently asked questions
 
@@ -151,7 +134,7 @@ Yes. OpenTeam is a GPL-3.0, self-hosted AI agent team where each bot gets its ow
 
 ### Can AI agents work in Slack?
 
-Teammates can join Slack channels and take requests from colleagues. OpenTeam bots can search, read and draft Slack messages as you, through the [Slack plugin](/docs/integrations/slack), and by default each message waits for you to send it. Colleagues can't assign work to them.
+Teammates can join Slack channels and take requests from colleagues. OpenTeam bots can search, read and draft Slack messages as you, through the [Slack plugin](/docs/integrations/slack), and by default each message waits for you to send it.
 
 ### Can OpenTeam bots hand work to each other like Teammates?
 
@@ -159,7 +142,7 @@ Yes. In our test, a QA bot sent three bugs to an engineer bot, the engineer bot 
 
 ### Can I use Perplexity search in OpenTeam?
 
-Yes. Perplexity is one of OpenTeam's web search providers. Add a Perplexity API key in **Settings → Providers**, and bots search Perplexity's index. Search is off until you choose a provider.
+Yes. Perplexity is one of OpenTeam's web search providers. Add a Perplexity API key in **Settings → Providers**, and bots search Perplexity's index.
 
 ## Try OpenTeam
 

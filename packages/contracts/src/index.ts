@@ -155,7 +155,6 @@ export const CreateBotInput = Schema.Struct({
   name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
-  instructions: Schema.optional(Schema.String.pipe(Schema.maxLength(20_000))),
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
@@ -168,7 +167,6 @@ export const UpdateBotInput = Schema.Struct({
   }))),
   title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
-  instructions: Schema.optional(Schema.String.pipe(Schema.maxLength(20_000))),
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
@@ -1755,6 +1753,18 @@ export interface ChannelHistoryPage {
   beforeSequence: string | null;
   hasMore: boolean;
   revision: string;
+}
+
+export interface ChannelLibraryItem {
+  id: string;
+  messageId: string;
+  attachment: AssetRef;
+  createdAt: string;
+}
+
+export interface ChannelLibraryPage {
+  items: ChannelLibraryItem[];
+  nextCursor: string | null;
 }
 
 export interface ChannelClientState {

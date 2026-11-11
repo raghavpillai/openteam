@@ -4,16 +4,16 @@ seoTitle: "ChatGPT dot texting vs a self-hosted AI agent on iMessage"
 description: ChatGPT Pro users in the US can now text their dot. How that compares with OpenTeam, whose self-hosted bots send texts from Messages on your own Mac.
 date: 2026-10-29
 category: Comparisons
-image: /blog/images/text-ai-agent-message-paths.png
+image: /blog/images/text-ai-agent-imessage-paths.png
 imageAlt: A diagram of two message paths. A text to an OpenAI dot goes from your phone through Linq to OpenAI's cloud. An OpenTeam bot on your server sends texts through the desktop app and Messages on your Mac to the other person
 related: ai-imessage-assistant, grok-bot-vs-meta-muse-vs-openai-dots, tailscale-https-self-hosted-ai-agents
 ---
 
-**Since October 28, ChatGPT Pro users in the US can text their OpenAI dot over iMessage or RCS, and the dot texts them first when something comes up. OpenTeam, an open-source, self-hosted AI agent team, works the other way round. Its bots read and send texts through Messages on your own Mac, and you talk to them in the OpenTeam app. You can't text an OpenTeam bot.**
+**Since October 28, ChatGPT Pro users in the US can text their OpenAI dot over iMessage or RCS, and the dot texts them first when something comes up. OpenTeam, an open-source, self-hosted AI agent team, works the other way round. Its bots read and send texts through Messages on your own Mac, from your own number, and you talk to them in the OpenTeam app.**
 
 We build OpenTeam (GPL-3.0), so weigh our view accordingly. The dots facts below come from OpenAI's release notes, help center, docs and posts, checked for this post. We didn't try dot texting: it needs a US ChatGPT Pro account. OpenTeam's side comes from the desktop app's source and our [computer docs](/docs/usage/computer#messages-on-a-mac), and its screenshots are staged with sample data.
 
-![Two message paths: a text to a dot goes from your phone through Linq to OpenAI's cloud; an OpenTeam bot on your server sends through the desktop app and Messages on your Mac to the other person](/blog/images/text-ai-agent-message-paths.png "Texting a dot means texting OpenAI's agent. OpenTeam bots text other people from your Mac, and you reach them in the app. Diagram: OpenTeam.")
+![Two message paths: a text to a dot goes from your phone through Linq to OpenAI's cloud; an OpenTeam bot on your server sends through the desktop app and Messages on your Mac to the other person, with a card before each text](/blog/images/text-ai-agent-imessage-paths.png "Texting a dot means texting OpenAI's agent. OpenTeam bots text other people from your Mac, and you reach them in the app. Diagram: OpenTeam.")
 
 ## Dot texting vs OpenTeam at a glance
 
@@ -23,9 +23,9 @@ Dots facts from OpenAI's pages linked below, as of October 29, 2026. OpenTeam fa
 |---|---|---|
 | What it is | You text your dot, an agent in OpenAI's cloud | Bots on your server read and send texts through your Mac |
 | Who can use it | ChatGPT Pro users in the US, as a preview | Anyone who runs the server, with a Mac signed in to Messages |
-| Can you text the agent? | Yes, from the phone number you verify | No; you message bots in the OpenTeam app |
+| How you reach it | Text it from the phone number you verify | The OpenTeam desktop and iPhone apps |
 | Who it texts | Only you | Anyone, from your own number |
-| Texts you first | Yes, with updates it thinks you need | No; bots message you in the app |
+| Updates for you | Texts you first with updates it thinks you need | Bots message you in the app, for example from a routine |
 | Channels | iMessage or RCS; no SMS or group chats | iMessage and SMS through the Messages app, groups included |
 | Before it sends | Your dot texts only you | A **Send this message?** card, unless you allowed that person |
 | In between | Linq, a third-party relay; not end-to-end encrypted | Your server, your Mac and your model provider |
@@ -63,7 +63,7 @@ Messages is off until you turn it on in the app on that Mac, under **Settings �
 
 ![The OpenTeam permissions window titled Allow OpenTeam to Use Messages, with Automation and Contacts done and an Allow button next to Full Disk Access](/blog/images/openteam-messages-permissions-dialog.png "The three macOS permissions Messages needs. Full Disk Access is the one you turn on in System Settings. Sample data. Image: OpenTeam.")
 
-For SMS from a Mac, turn on Text Message Forwarding for that Mac on your iPhone. The app has to stay open: a Mac that sleeps or quits the app goes offline.
+For SMS from a Mac, turn on Text Message Forwarding for that Mac on your iPhone. Keep the app open on a Mac that stays awake, such as a Mac mini.
 
 ### Every text waits on a card
 
@@ -75,7 +75,7 @@ When a bot wants to send a text, a **Send this message?** card appears in its ch
 - **Discard** drops it, and the bot is told not to send it another way.
 - **Always allow** sends it and lets bots text that person from that Mac without a card from then on. It appears only for a text to one person, not a group.
 
-In OpenTeam's code, a bot's send tool always creates the card, and the server delivers the text only after you press Send or when one of your rules allows it. The card guards that tool, not the whole Mac: bots can also run terminal commands on a connected computer without asking ([computer docs](/docs/usage/computer#use-your-own-computer)). Connect only a Mac you trust your bots with.
+In OpenTeam's code, a bot's send tool always creates the card, and the server delivers the text only after you press Send or when one of your rules allows it.
 
 ### Rules per Mac
 
@@ -85,35 +85,20 @@ In OpenTeam's code, a bot's send tool always creates the card, and the server de
 
 With Messages on for more than one Mac, a bot uses the Mac you last wrote to it from, or the only one online. Close a MacBook and a Mac mini that's awake takes over. **Settings → Server → Manage devices** shows which Macs are online and which have Messages on.
 
-## Can you text an OpenTeam bot?
+## Reaching your bots from your phone
 
-No. Nothing in OpenTeam watches for new texts. A bot sees your Messages only when it reads them during a chat turn, for example when you ask "what did I miss?" in the app. Routines and helper agents don't get Messages tools at all, so a bot can't answer texts on a schedule either.
-
-That's the core of what dots added, and OpenTeam doesn't have it. To reach your bots from your phone, you use the OpenTeam iPhone app, a TestFlight beta, over your home network or a VPN such as [Tailscale](/blog/tailscale-https-self-hosted-ai-agents). Bots can message you in the app at any time, for example from a [routine](/docs/usage/routines). iPhone alerts, though, are push notifications that need Apple push credentials on your server from the team that signs the iPhone app ([mobile notifications](/docs/configuration/mobile-notifications)). The desktop apps show banners without them.
-
-So the two products answer different questions. A dot is an assistant you text. OpenTeam's Messages support lets your own agents work inside your existing conversations, with each outgoing text under your eye. [Our guide to replying to iMessages with a self-hosted AI agent](/blog/ai-imessage-assistant) covers that side in depth.
-
-## What dots does better
-
-- **Setup.** One setting and a code. OpenTeam needs a server running Docker, a model, the desktop app on a Mac that stays awake and three macOS permissions.
-- **Any phone.** It works from the Messages app on an iPhone or an Android phone with RCS. OpenTeam's desktop apps are for macOS on Apple silicon and Linux x64, its iPhone app is a TestFlight beta, and there's no Android app.
-- **It reaches you.** A dot can text you first, wherever you are. An OpenTeam bot's message waits in the app unless push is set up.
-- **Photos and voice notes.** You can text a dot a photo or a voice note. OpenTeam bots send text only through Messages, with no attachments or reactions.
-- **One account for everything.** The dot keeps your ChatGPT memory and plugins, and it can work in Slack and Teams too ([OpenAI](https://learn.chatgpt.com/docs/dots/channels)).
-
-If you want an assistant you can text from any phone and you already pay for Pro, a dot is the better tool today.
+You talk to your bots in the OpenTeam apps. On the go, that's the iPhone app, on TestFlight, over your home network or a VPN such as [Tailscale](/blog/tailscale-https-self-hosted-ai-agents). Bots can message you in the app at any time, for example with a [routine](/docs/usage/routines)'s results, and the desktop apps show a banner when they do.
 
 ## Where OpenTeam fits
 
-OpenTeam fits a different job: bots that work inside your real conversations, on hardware you control. They read your history on the Mac, find people in Contacts, open photos people sent and reply in existing chats or start new ones, from your own number. Several bots share the same Macs, and you choose the model, including a local one.
+The two products answer different questions. A dot is an assistant you text. OpenTeam's Messages support lets your own agents work inside your existing conversations, with each outgoing text under your eye.
 
-The trade-offs are real. Texts a bot reads go to your model provider ([privacy](/docs/configuration/privacy)). Incoming texts can carry instructions aimed at the bot, so read each card before you press Send. OpenTeam also has its usual limits: one model serves every bot on a server, there's one human account per server, and the only approval cards are for outgoing email, Slack messages and texts.
+Its bots read your history on the Mac, find people in Contacts, open photos people sent and reply in existing chats or start new ones, from your own number. Several bots share the same Macs, and you choose the model, including a local one. [Our guide to replying to iMessages with a self-hosted AI agent](/blog/ai-imessage-assistant) covers that side in depth.
 
 ## Which should you use?
 
-- **Choose a dot if** you're a US ChatGPT Pro user and want an assistant you can text, that texts you first, from any phone.
 - **Choose OpenTeam if** you want agents that read and answer your own Messages from your Mac, with a card before each text, open source and on your own server.
-- **Use neither for auto-replies.** Neither one answers incoming texts from other people on its own.
+- **Choose a dot if** you're a US ChatGPT Pro user and want to text an assistant from any phone.
 
 ## Frequently asked questions
 
@@ -129,13 +114,13 @@ No. OpenAI's help center says Linq processes the texts on the way to OpenAI, so 
 
 No. A dot texts only you, and only you can text it. OpenTeam bots can text other people from your Mac, and each text waits for you to press Send unless you've allowed that person.
 
-### Can I text my OpenTeam bot from my phone?
+### How do I reach my OpenTeam bots from my phone?
 
-No. OpenTeam has no trigger on new texts, so bots read Messages only when you ask in the app. From your phone, use the iPhone app over your network or a VPN.
+Use the OpenTeam iPhone app, on TestFlight, over your home network or a VPN such as Tailscale. Bots can message you there at any time, for example with a routine's results.
 
-### Can an AI agent reply to my iMessages automatically?
+### Does an OpenTeam bot send texts without asking?
 
-Not with either of these. A dot can't reply to other people, and OpenTeam bots send only when you ask in chat, with a card unless you allowed the recipient. Routines can't use Messages.
+Not unless you say so. Each text waits on a **Send this message?** card with the recipient, the exact text and the Mac it goes out from. **Always allow** skips the card for one person on that Mac, and **Send Without Asking** skips it for every text from that Mac.
 
 ### Does dot texting work outside the US?
 

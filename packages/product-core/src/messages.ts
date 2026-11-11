@@ -43,7 +43,7 @@ export const parseAssetRef = (candidate: unknown): AssetRef | null => {
     mimeType.length > 120 ||
     typeof byteSize !== "number" ||
     !Number.isSafeInteger(byteSize) ||
-    byteSize < 1 ||
+    byteSize < 0 ||
     byteSize > 200 * 1024 * 1024 ||
     typeof kind !== "string" ||
     !ASSET_KINDS.has(kind as AssetKind) ||

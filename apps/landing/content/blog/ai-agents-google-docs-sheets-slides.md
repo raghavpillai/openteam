@@ -1,7 +1,7 @@
 ---
 title: AI agents that edit Google Docs, Sheets and Slides
 seoTitle: AI agent for Google Docs, Sheets and Slides: setup guide
-description: OpenTeam's self-hosted AI agents edit Google Docs, keep Sheets updated on a schedule and build Slides decks. Setup, example prompts, limits and fixes.
+description: OpenTeam's self-hosted AI agents edit Google Docs, keep Sheets updated on a schedule and build Slides decks. Setup, example prompts and fixes.
 date: 2026-10-17
 updated: 2026-11-10
 category: Guides
@@ -10,13 +10,13 @@ imageAlt: An OpenTeam chat in which the Operations bot reports its weekly update
 related: ai-agent-memory, ai-agent-phone-calls, introducing-openteam
 ---
 
-**Yes, AI agents can now edit Google Docs, Sheets and Slides in place. OpenTeam is a self-hosted AI agent team, and v0.0.3 added Docs, Sheets and Slides plugins plus an office worker for decks. Bots can edit any doc, sheet or deck your Google account can edit, without asking first. Only email goes through a draft card.**
+**Yes, AI agents can now edit Google Docs, Sheets and Slides in place. OpenTeam is a self-hosted AI agent team, and v0.0.3 added Docs, Sheets and Slides plugins plus an office worker for decks. Bots can edit any doc, sheet or deck your Google account can edit, and keep a sheet updated on a schedule.**
 
 We build OpenTeam (GPL-3.0), so weigh our view accordingly. This guide follows the v0.0.3 release notes, the plugin source and our [Google setup docs](/docs/integrations/google); v0.0.4 didn't change the Google plugins. Screenshots are staged with sample data.
 
 ## What OpenTeam bots can do in Docs, Sheets, Slides and Drive
 
-Each Google service is a separate plugin with its own sign-in. Docs, Sheets and Slides edit existing files, not only new ones, but their tools take a file ID.
+Each Google service is a separate plugin with its own sign-in. Docs, Sheets and Slides edit existing files, not only new ones.
 
 Capabilities as of v0.0.4, from each plugin's tool list.
 
@@ -25,14 +25,14 @@ Capabilities as of v0.0.4, from each plugin's tool list.
 | Google Docs | Insert, replace, delete and style text; lists, tables, images, page breaks, headers and footers | Any doc your account can edit |
 | Google Sheets | Write, append and clear values; format cells; charts, filters, validation, conditional formatting, sorting | Any sheet your account can edit |
 | Google Slides | Add, arrange and fill slides; text, shapes, images, tables; render a slide as an image | Any deck your account can edit |
-| Google Drive | Search, read and export files; move, rename, share and trash; read, add and reply to comments | Only files bots created through Drive |
+| Google Drive | Search, read and export files; move, rename, share and trash; read, add and reply to comments | Files bots created through Drive |
 
 Drive writes use Google's `drive.file` scope, which covers files an app created or opened ([Drive API scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)). Its `drive.readonly` scope lets bots read every file your account can see.
 
 ## What you need
 
 - An OpenTeam server on 0.0.3 or later, and the desktop app for macOS (Apple silicon) or Linux (x64), or the iPhone beta on TestFlight.
-- A model that handles tool calls well. One model serves every bot, set in **Settings → Model**.
+- A model that handles tool calls well, set in **Settings → Model**.
 - A Google account that can create a Google Cloud project. On Workspace, an administrator may need to allow your app ([Control which apps access Google Workspace data](https://knowledge.workspace.google.com/admin/apps/control-which-apps-access-google-workspace-data)).
 - Your server address: `https://` needs a **Web application** OAuth client, `http://` a **Desktop app** client. See our [Tailscale HTTPS guide](/blog/tailscale-https-self-hosted-ai-agents) for a private HTTPS address.
 
@@ -56,7 +56,7 @@ Open **Marketplace** and choose **Add** on **Google Docs**, **Google Sheets** or
 ### Step 3: Connect the account and test a tool
 
 1. On the plugin's page, paste the client ID and secret, then choose **Save credentials and continue**.
-2. Sign in with Google. On an HTTP server, the browser ends on a page that doesn't load. Copy its address into **Paste the browser address here** and choose **Complete sign-in**.
+2. Sign in with Google. On an HTTP server, copy the address the browser ends on into **Paste the browser address here** and choose **Complete sign-in**.
 3. If Google warns that it hasn't verified the app, continue: it's the app you created.
 4. To check it, open your installed plugins in **Marketplace**, choose the plugin, open **Advanced settings** under **Settings**, and run a tool such as `read_document` under **Test a tool**.
 
@@ -88,7 +88,7 @@ You approve an outline, pick one of two designs, and get a native Google Slides 
 
 > Read the open comments on the Q4 pricing proposal doc, make the edits the reviewers asked for, and tell me which comments still need me.
 
-Bots can read comments on any file your account can see, and the Docs tools make the edits. They can reply to, resolve or add comments only on files they created through Drive. Google shows API comments as unanchored, attached to the file rather than a passage ([Manage comments](https://developers.google.com/workspace/drive/api/guides/manage-comments)).
+Bots can read comments on any file your account can see, and the Docs tools make the edits.
 
 ## How OpenTeam builds a Google Slides deck
 
@@ -118,23 +118,15 @@ A [routine](/docs/usage/routines) is a saved instruction that a bot runs on a sc
 
 Put the file, tabs and rules in the instruction rather than relying on what the bot remembers; our post on [AI agent memory](/blog/ai-agent-memory) explains what bots keep.
 
-A routine can have up to eight schedules and runs at most every five minutes. The server must be on, but the apps can be closed. Sheets has no edit check, so the last write wins: schedule runs for when nobody is editing. If your Google app is in **Testing**, a weekly routine fails once the seven-day sign-in expires.
+A routine can have up to eight schedules and runs at most every five minutes. It runs on the server, so the apps can be closed. Schedule runs for when nobody is editing the sheet. For a weekly routine, publish your Google app **In production**, since sign-ins for apps in **Testing** last seven days (see troubleshooting below).
 
-## What it can't do yet
-
-- **No approval step for files.** Bots edit, share and trash files as soon as they decide to. Among Google tools, only Gmail goes through a draft card. A bot's email appears in chat as **New email** or **Reply** for you to **Send** or **Discard**, unless you've allowed those recipients or turned drafts off for that bot. Google's [version history](https://support.google.com/docs/answer/190843) can restore an earlier version.
-- **Shared accounts.** Every bot can use every connected account; there are no per-bot grants. Connect a separate Google account if yours reaches too much.
-- **Drive only changes files bots created**, and can't add files to your folders. Bots can't delete files permanently; trash keeps them for 30 days ([Google Drive Help](https://support.google.com/drive/answer/2375102)).
-- **API gaps.** Doc headers and footers are static, so no page numbers. Images the Docs and Slides tools insert must come from a public URL, as PNG, JPEG or GIF under 50 MB ([Docs API](https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request)). Charts are bar, column, line, area, scatter or pie; no pivot tables.
-- **Size caps.** Downloads and exports stop at 10 MB, Google's export limit ([files.export](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/export)); other file operations at 64 MB.
-- **Deck previews** can show a substitute font, since the bot's computer has few fonts.
-- **OpenTeam limits.** One model and one human account per server. Desktop apps for macOS (Apple silicon) and Linux (x64) only, the iPhone app is a TestFlight beta, and there's no Android app. [Introducing OpenTeam](/blog/introducing-openteam) covers the rest.
+Google's [version history](https://support.google.com/docs/answer/190843) can restore an earlier version of any doc, sheet or deck, and files a bot trashes stay in Drive's trash for 30 days ([Google Drive Help](https://support.google.com/drive/answer/2375102)).
 
 ## Troubleshooting
 
 ### "API has not been used in project … or it is disabled"
 
-The tool call fails with `Google API 403` and this message. Sign-in doesn't check which APIs are on, so a connected account can still fail here. Enable the API in your OAuth client's project, wait a few minutes, and retry.
+The tool call returns `Google API 403` with this message, which means the API is off in your Google Cloud project. Enable the API in your OAuth client's project, wait a few minutes, and retry.
 
 ### The account shows "Sign-in needed" every week
 
@@ -142,7 +134,7 @@ That's Google's **Testing** status: "authorizations by a test user will expire s
 
 ### "The caller does not have permission"
 
-The connected account can't edit that file. Share it with the account as an Editor ([Share files from Google Drive](https://support.google.com/drive/answer/2494822)), or tell the bot which account to use if you connected several. When Drive refuses a move, share, trash or comment, OpenTeam adds that it can only change files it created. Make that change in Drive yourself, or ask for a new file.
+The connected account can't edit that file. Share it with the account as an Editor ([Share files from Google Drive](https://support.google.com/drive/answer/2494822)), or tell the bot which account to use if you connected several. Drive moves, shares, trashes and comments work on files bots created through Drive; for other files, make that change in Drive yourself, or ask for a new file.
 
 ## Frequently asked questions
 
@@ -160,7 +152,7 @@ Yes. Ask for a deck and name Google Slides. The bot outlines it, offers two desi
 
 ### Can the bots see all my Google Drive files?
 
-Yes, for reading, through Google's `drive.readonly` scope. Drive changes are limited to files bots created, but Docs, Sheets and Slides can edit any file the account can.
+Yes, for reading, through Google's `drive.readonly` scope. Docs, Sheets and Slides can edit any file the account can edit.
 
 ### Does it work with Word, Excel and PowerPoint files?
 

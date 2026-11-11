@@ -6,6 +6,7 @@ import WebKit
 struct RichMarkdownView: View {
   let source: String
   var forceDark = false
+  var messageTextColor: String? = nil
   @Environment(\.colorScheme) private var scheme
   @ScaledMetric(relativeTo: .body) private var fontSize = 17.0
   @State private var height: CGFloat = 40
@@ -24,7 +25,7 @@ struct RichMarkdownView: View {
           ?? measured
       } content: {
         MarkdownDocument(
-          source: source, forceDark: forceDark, dark: dark,
+          source: source, forceDark: forceDark, dark: dark, messageTextColor: messageTextColor,
           fontSize: fontSize, height: $height
         )
         .id(Self.usesDiagrams(source))
@@ -122,6 +123,7 @@ private struct MarkdownDocument: UIViewRepresentable {
   let source: String
   let forceDark: Bool
   let dark: Bool
+  let messageTextColor: String?
   let fontSize: CGFloat
   @Binding var height: CGFloat
   func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -267,7 +269,7 @@ private struct MarkdownDocument: UIViewRepresentable {
       render(webView)
     }
     func render(_ view: WKWebView) {
-      let next = "\(parent.dark)-\(parent.fontSize)-" + parent.source
+      let next = "\(parent.dark)-\(parent.fontSize)-\(parent.messageTextColor ?? "")-" + parent.source
       guard ready, next != key else { return }
       key = next
       renderToken = UUID().uuidString
@@ -284,11 +286,16 @@ private struct MarkdownDocument: UIViewRepresentable {
       if SuspendedDocumentFixture.hanging { delay = 60_000 }
       if ProcessInfo.processInfo.arguments.contains("--ui-testing-stall-document") { delay = 12000 }
       #endif
+      var colors = NativePalette.documentColors(dark: parent.dark)
+      if let text = parent.messageTextColor {
+        colors["text"] = text
+        colors["link"] = text
+      }
       view.callAsyncJavaScript(
         "await window.renderMessage(source,dark,fontSize,colors,lease,delay); return true;",
         arguments: [
           "source": parent.source, "dark": parent.dark, "fontSize": parent.fontSize,
-          "colors": NativePalette.documentColors(dark: parent.dark), "lease": token, "delay": delay,
+          "colors": colors, "lease": token, "delay": delay,
         ],
         in: nil, in: .page
       ) { [weak self, weak view] result in

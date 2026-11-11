@@ -86,10 +86,18 @@ describe("API contracts", () => {
     const value = Schema.decodeUnknownSync(CreateBotInput)({
       clientRequestId: "create-researcher-0001",
       name: "Researcher",
-      instructions: "Keep notes in the shared workspace.",
       color: "#4f7cff",
     });
     expect(value.name).toBe("Researcher");
+  });
+
+  test("drops the retired Instructions profile input while retaining title and description", () => {
+    const input = { clientRequestId: "retired-instructions-1", title: "Research", description: "Find sources", instructions: "Retired editor value" };
+    const value = Schema.decodeUnknownSync(CreateBotInput)(input);
+    expect(value).not.toHaveProperty("instructions");
+    expect(value.title).toBe("Research");
+    expect(value.description).toBe("Find sources");
+    expect(Schema.decodeUnknownSync(UpdateBotInput)(input)).not.toHaveProperty("instructions");
   });
 
   test("accepts a zero-configuration bot creation request", () => {

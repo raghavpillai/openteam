@@ -3,11 +3,12 @@ import { PrivateSettingValue } from "./private-value";
 import { SmartNotificationSettings } from "./smart-notifications";
 import { TimeZoneSettings } from "./time-zone";
 import { Copy } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, useSyncExternalStore } from "react";
 import { signOut } from "../../../client/auth";
 import { API_BASE } from "../../../client/http";
 import { useAuthSession } from "../../../hooks/use-auth-session";
 import { accountPresentation } from "../../../lib/account";
+import { readBotMessageColors, setBotMessageColors, subscribeBotMessageColors } from "../../../lib/message-colors";
 import {
   normalizeThemePreference,
   readThemePreference,
@@ -16,7 +17,7 @@ import {
 } from "../../../lib/theme";
 import { Select, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import type { MicrophoneControlProps } from "./microphone";
-import { SectionLabel, SettingsGroup, SettingsRow, settingsSelect, settingsSecondaryButton } from "./ui";
+import { InteractiveSwitch, SectionLabel, SettingsGroup, SettingsRow, settingsSelect, settingsSecondaryButton } from "./ui";
 const MicrophoneSettings = lazy(() => import("./microphone").then(module => ({ default: module.MicrophoneSettings })));
 
 
@@ -38,6 +39,7 @@ export default function GeneralSettings() {
   const [signingOut, setSigningOut] = useState(false);
   const [accountCopied, setAccountCopied] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>(readThemePreference);
+  const useBotColors = useSyncExternalStore(subscribeBotMessageColors, readBotMessageColors);
 
   const changeTheme = (value: string) => {
     const preference = normalizeThemePreference(value);
@@ -122,6 +124,11 @@ export default function GeneralSettings() {
             </Select>
           }
           title="Theme"
+        />
+        <SettingsRow
+          title="Use bot colors for messages"
+          description="Color your sent messages with the bot’s color. Off keeps them gray."
+          control={<InteractiveSwitch label="Use bot colors for messages" checked={useBotColors} onChange={setBotMessageColors} />}
         />
       </SettingsGroup>
 

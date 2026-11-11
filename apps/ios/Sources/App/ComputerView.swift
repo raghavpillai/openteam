@@ -96,10 +96,14 @@ struct ComputerView: View {
           controlling: takeover,
           pending: working,
           available: status["state"].string == "ready" || takeover,
-          anotherDevice: !takeover && status["humanTakeover"].bool
+          anotherDevice: !takeover && status["humanTakeover"].bool,
+          handoff: handoffID != nil
         ) {
           keyboard = false
-          Task { await setTakeover(!takeover) }
+          Task {
+            if handoffID != nil && takeover { await close() }
+            else { await setTakeover(!takeover) }
+          }
         }
         .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 0)
         if watchHint && !takeover && !status["humanTakeover"].bool {
@@ -144,7 +148,9 @@ struct ComputerView: View {
         Button("OK", role: .cancel) {}
       } message: {
         Text(
-          "Choose Take control below the screen to pause the bot’s desktop input and interact. Tap to click, drag to move, or hold to right-click. Use two fingers to scroll. Choose Stop to give back control when you finish. Your control is preserved if the connection drops."
+          "Choose Take control below the screen to pause the bot’s desktop input and interact. Tap to click, drag to move, or hold to right-click. Use two fingers to scroll. "
+          + (handoffID != nil ? "Choose I’m done to complete the requested step and continue with the bot. " : "Choose Stop to give back control when you finish. ")
+          + "Your control is preserved if the connection drops."
         )
       }
       .onChange(of: takeover) { _, active in
@@ -439,8 +445,9 @@ private struct ComputerControlPill: View {
   let pending: Bool
   let available: Bool
   let anotherDevice: Bool
+  let handoff: Bool
   let changeControl: () -> Void
-  private var actionTitle: String { controlling ? "Stop" : anotherDevice ? "Take control here" : "Take control" }
+  private var actionTitle: String { controlling ? (handoff ? "I'm done" : "Stop") : anotherDevice ? "Take control here" : "Take control" }
   var body: some View {
     ViewThatFits(in: .horizontal) {
       HStack(spacing: 12) {
@@ -488,17 +495,17 @@ private struct ComputerControlPill: View {
       Text(actionTitle).font(.subheadline.weight(.medium))
         .contentTransition(.opacity)
         .padding(.horizontal, 16).frame(minWidth: 64, minHeight: 44)
-        .foregroundStyle(controlling ? Color.white : Color.black)
+        .foregroundStyle(controlling && !handoff ? Color.white : Color.black)
         .background {
           ComputerControlShape(progress: reduceMotion ? 0 : controlling ? 1 : 0)
-            .fill(controlling ? Color.white.opacity(0.1) : Color.white)
+            .fill(controlling && !handoff ? Color.white.opacity(0.1) : Color.white)
         }
         .contentShape(Capsule())
     }.buttonStyle(ComputerControlPressStyle(reduceMotion: reduceMotion))
       .disabled(pending || !available)
       .opacity(pending || !available ? 0.5 : 1)
-      .accessibilityLabel(controlling ? "Give back control" : actionTitle)
-      .accessibilityHint(controlling ? "Returns computer input to the bot." : "Lets you click and type on this computer.")
+      .accessibilityLabel(controlling && !handoff ? "Give back control" : actionTitle)
+      .accessibilityHint(controlling ? (handoff ? "Completes the requested step and continues with the bot." : "Returns computer input to the bot.") : "Lets you click and type on this computer.")
   }
 }
 

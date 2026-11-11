@@ -48,6 +48,7 @@ export function ComputerControlBar({
   available,
   anotherDevice,
   hint,
+  handoff = false,
   onChange,
   onResume,
 }: {
@@ -57,6 +58,7 @@ export function ComputerControlBar({
   available: boolean;
   anotherDevice: boolean;
   hint: boolean;
+  handoff?: boolean;
   onChange: () => void;
   onResume: () => void;
 }) {
@@ -182,7 +184,13 @@ export function ComputerControlBar({
       preference.removeEventListener("change", changed);
     };
   }, []);
-  const action = controlling ? "Stop" : anotherDevice ? "Take control here" : "Take control";
+  const action = controlling
+    ? handoff
+      ? "I'm done"
+      : "Stop"
+    : anotherDevice
+      ? "Take control here"
+      : "Take control";
   return (
     <div
       ref={root}
@@ -190,6 +198,7 @@ export function ComputerControlBar({
       aria-label="Computer control"
       className="computer-control-bar"
       data-owned={controlling}
+      data-handoff={handoff}
       style={{ "--control-spring": spring } as CSSProperties}
     >
       <div ref={skin} className="computer-control-skin" aria-hidden="true" />
@@ -208,7 +217,7 @@ export function ComputerControlBar({
         <button
           type="button"
           className="computer-control-action"
-          aria-label={controlling ? "Give back control" : action}
+          aria-label={controlling && !handoff ? "Give back control" : action}
           disabled={pending || (!controlling && !available)}
           onClick={onChange}
         >

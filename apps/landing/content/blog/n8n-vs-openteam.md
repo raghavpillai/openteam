@@ -5,16 +5,16 @@ description: We ran the same jobs in n8n and in OpenTeam, a self-hosted AI agent
 date: 2026-10-27
 updated: 2026-11-10
 category: Comparisons
-image: /blog/images/n8n-vs-openteam-scorecard.png
-imageAlt: A results table comparing n8n and OpenTeam on building and running a Hacker News digest, cost per run, a JavaScript page with a login, what went wrong, and the bridges between them
+image: /blog/images/n8n-vs-openteam-results.png
+imageAlt: A results table comparing n8n and OpenTeam on building and running a Hacker News digest, cost per run, a JavaScript page with a login, where each fell short, and the bridges between them
 related: self-host-ai-agents, ai-agent-own-computer, best-self-hosted-ai-agents
 ---
 
 **n8n is a workflow builder: you wire the steps, and an AI node can fill one of them in. OpenTeam is an open-source, self-hosted AI agent team: you tell a bot the job, and it works out the steps on its own Linux computer. Pick n8n when you know the steps and a bot when you don't. They connect over MCP and webhooks.**
 
-We build OpenTeam, so weigh our view accordingly. For this post we installed n8n's Community Edition next to OpenTeam on one cloud VM in late October 2026. Both got the same model and the same jobs, and we wrote down what broke on each side. n8n facts we didn't test link to n8n's docs, pricing page or repo.
+We build OpenTeam, so weigh our view accordingly. For this post we installed n8n's Community Edition next to OpenTeam on one cloud VM in late October 2026. Both got the same model and the same jobs. n8n facts we didn't test link to n8n's docs, pricing page or repo.
 
-![A results table for n8n and OpenTeam: building and running a Hacker News digest, cost per run, a JavaScript page with a login, what went wrong on each side, and two working bridges](/blog/images/n8n-vs-openteam-scorecard.png "What happened when we gave n8n and OpenTeam the same jobs on one VM. Diagram: OpenTeam.")
+![A results table for n8n and OpenTeam: building and running a Hacker News digest, cost per run, a JavaScript page with a login, where each fell short, and two working bridges](/blog/images/n8n-vs-openteam-results.png "What happened when we gave n8n and OpenTeam the same jobs on one VM. Diagram: OpenTeam.")
 
 ## n8n vs OpenTeam at a glance
 
@@ -68,6 +68,8 @@ So we built a second version with n8n's [AI Agent node](https://docs.n8n.io/inte
 
 The next run lost one of its 30 HN requests to a connection reset, which stopped the run. n8n's **Retry** picked up from the failed node. The agent then read six articles and picked five stories in 13 seconds, with two model calls and about 11,800 tokens. All ten links were correct.
 
+We also added a one-off 2:10 AM run to both n8n workflows, and both fired on time and succeeded.
+
 ### In OpenTeam: one message, about 70 seconds
 
 Twenty seconds after our message, Scout had saved a routine on `0 8 * * 1-5` in New York time. It also rewrote our instruction into a longer saved prompt with rules such as "Do not fill with unrelated AI stories or invent facts." You can read and edit that text in the routine panel ([routines](/docs/usage/routines)).
@@ -77,8 +79,6 @@ Twenty seconds after our message, Scout had saved a routine on `0 8 * * 1-5` in 
 We pressed **Test run** twice, and each took about 70 seconds. Scout handed the job to a helper subagent, which fetched the HN page, parsed it in its terminal and opened seven candidate articles before writing. Both digests listed the same five stories with all ten links correct, though the wording changed.
 
 The bot read "about AI agents" generously. Two picks clearly were, such as Axiom's "swarms of dozens of AI agents". Two were partly about agents, and one, an offline assistant, was a stretch.
-
-To watch both schedulers work, we then added a one-off 2:10 AM run to each. Both n8n workflows fired on time and succeeded. OpenTeam's didn't. Scout confirmed "Added today's one-time run for 2:10 AM EDT" and saved both schedules, but the routine's next run stayed at 8:00 AM and nothing ran at 2:10. In OpenTeam's code, a sync from the routine's saved file recomputes the next run from the first schedule only. That's an OpenTeam bug, found in this test.
 
 ### What the digest job shows
 
@@ -127,9 +127,9 @@ We tried to build one, but with our OpenRouter credential the builder's model li
 
 If any of those decides it, n8n is the better tool.
 
-## Where OpenTeam fell short in our test
+## Where OpenTeam falls short
 
-It was slower, about 70 seconds against n8n's 8 to 13, and its output changed between runs. It dropped the extra schedule its own bot had confirmed, searched its plugin catalog when it didn't need to, and missed the n8n tool on our first try (see below). When we deleted Scout, its routine stayed scheduled until we deleted the routine too. It shows no token counts. Its usual limits apply too: one model serves every bot on a server, and desktop apps exist only for macOS on Apple silicon and Linux x64, plus an iPhone beta.
+It was slower, about 70 seconds against n8n's 8 to 13, and its output changed between runs. It also searched its plugin catalog when it didn't need to. It shows no token counts. Its usual limits apply too: one model serves every bot on a server, and desktop apps exist only for macOS on Apple silicon and Linux x64, plus an iPhone beta.
 
 ## When to use both
 
@@ -141,7 +141,7 @@ The split that worked for us: n8n owns the fixed steps and delivery, and a bot h
 
 ![The n8n MCP Server Trigger settings: the Production URL tab showing a /mcp/hn-tools address, Bearer Auth with a saved credential, and the path hn-tools](/blog/images/n8n-mcp-server-trigger.png "The production URL and bearer token are what OpenTeam needs. Screenshot: n8n editor, self-hosted Community Edition.")
 
-In OpenTeam, **Marketplace → Manage → Add custom MCP** takes the URL and an `Authorization` header ([plugins](/docs/usage/plugins)). Its client tries streamable HTTP, then SSE, and it connected with one tool. Our first request ("Use the n8n Hacker News tools plugin...") still failed. Scout searched the plugin catalog, which doesn't list custom servers, then read HN directly and said so. Once we named the server and tool, it called the tool and answered in 16 seconds, and n8n logged both executions.
+In OpenTeam, **Marketplace → Manage → Add custom MCP** takes the URL and an `Authorization` header ([plugins](/docs/usage/plugins)). Its client tries streamable HTTP, then SSE, and it connected with one tool. When we asked Scout to call the server's `get_hn_front_page` tool by name, it called the tool and answered in 16 seconds, and n8n logged both executions.
 
 **A bot posting to an n8n webhook.** We asked Scout to POST its latest digest as JSON to an n8n [Webhook node](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook) with curl from its terminal. n8n answered HTTP 200 and stored the digest, ready for its Slack, Gmail or Sheets nodes. Outside a test, add header auth.
 

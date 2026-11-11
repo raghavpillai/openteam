@@ -761,12 +761,13 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/bots/${encodeURIComponent(botId)}/screen/clipboard`,
         { method: "POST", body: JSON.stringify(input), signal }
       ),
-    setScreenTakeover: (botId: string, active: boolean) =>
+    /** `renew` is a heartbeat: it extends a held lease and never acquires one. */
+    setScreenTakeover: (botId: string, active: boolean, renew = false) =>
       transport.request<ScreenStatusView>(
         `/api/v0/bots/${encodeURIComponent(botId)}/screen/takeover`,
         {
           method: "POST",
-          body: JSON.stringify({ active }),
+          body: JSON.stringify(renew ? { active, renew } : { active }),
         }
       ),
     routines: (ownerId: string, ownerKind: "bot" | "group" = "bot") =>

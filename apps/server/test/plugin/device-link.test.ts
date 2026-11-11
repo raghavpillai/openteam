@@ -220,6 +220,52 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
   });
 
   test.each([
+    { state: "ready", recovering: false }, { state: "stopped", recovering: false },
+    { state: "ready", recovering: true }, { state: "stopped", recovering: true },
+  ])("a previously ready account resumes after a computer outage (%j) without provisioning", async ({ state, recovering }) => {
+    const f = fixture();
+    f.connection.status = "error";
+    f.connection.statusMessage = "Local runtime unavailable: The computer is not reachable.";
+    f.runtime.state = state;
+    f.runtime.linked = true;
+    if (recovering) f.connection.credentials.deviceRecoveryPending = true;
+    await (f.service as any).refreshLocalConnections();
+    expect(f.connection.status).toBe("ready");
+    expect(f.toolCalls("link_status")).toHaveLength(1);
+    expect(f.toolCalls("start_link")).toHaveLength(0);
+    expect(f.toolCalls("finish_link")).toHaveLength(0);
+    expect(f.connection.credentials.deviceLink).toBeUndefined();
+    expect(f.connection.credentials.deviceRecoveryPending).toBeUndefined();
+  });
+
+  test("outage recovery waits through collector startup and does not provision an unlinked account", async () => {
+    const f = fixture();
+    f.connection.status = "error";
+    f.connection.statusMessage = "Local runtime unavailable: The computer is not reachable.";
+    f.runtime.onCall = async name => name === "link_status" ? envelope({ linked: false, recovering: true }) : undefined;
+    await f.poll();
+    expect(f.connection.credentials.deviceRecoveryPending).toBe(true);
+    f.runtime.onCall = async name => name === "link_status" ? envelope({ linked: false, linking: false }) : undefined;
+    await f.poll();
+    expect(f.connection.status).toBe("needs_auth");
+    expect(f.connection.credentials.deviceRecoveryPending).toBeUndefined();
+    expect(f.toolCalls("start_link")).toHaveLength(0);
+  });
+
+  test("an outage-labelled error cannot resume an interrupted approval", async () => {
+    const f = fixture();
+    f.connection.status = "error";
+    f.connection.statusMessage = "Local runtime unavailable: The computer is not reachable.";
+    f.connection.credentials.deviceLink = { ...qr(), instructions: "Scan" };
+    f.runtime.state = "stopped";
+    f.runtime.linked = true;
+    await f.poll();
+    expect(f.connection.status).toBe("needs_auth");
+    expect(f.toolCalls("link_status")).toHaveLength(0);
+    expect(f.toolCalls("start_link")).toHaveLength(0);
+  });
+
+  test.each([
     "stopped",
     "error",
   ])("recovery polling observes %s runtimes without starting them", async (state) => {
@@ -234,10 +280,14 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
     expect(f.connection.status).toBe("needs_auth");
   });
 
-  test("disconnect clears recovery state and fences a delayed recovered status", async () => {
+  test.each(["collector", "computer"])("disconnect clears %s recovery state and fences a delayed recovered status", async mode => {
     const f = fixture();
     f.connection.status = "error";
-    f.connection.credentials.deviceRecoveryPending = true;
+    if (mode === "collector") f.connection.credentials.deviceRecoveryPending = true;
+    else {
+      f.connection.statusMessage = "Local runtime unavailable: The computer is not reachable.";
+      f.runtime.state = "stopped";
+    }
     const entered = deferred<void>(),
       release = deferred<unknown>();
     f.runtime.onCall = async (name) => {

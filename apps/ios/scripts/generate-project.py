@@ -34,6 +34,7 @@ def configs(name, settings):
     for mode in ['Debug', 'Release']:
         build = dict(settings)
         if name == 'app':
+            build['EXCLUDED_SOURCE_FILE_NAMES'] = 'Skills.skillsbundle'
             build.update(APP_DISPLAY_NAME='OpenTeam Swift' if mode == 'Debug' else 'OpenTeam', APP_URL_SCHEME='openteam-swift' if mode == 'Debug' else 'openteam')
             build['ENABLE_TESTABILITY'] = 'YES' if mode == 'Debug' else 'NO'
         if name == 'share':

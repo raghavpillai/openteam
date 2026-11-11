@@ -1,0 +1,447 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-11",
+  "kind": "Recorded validation evidence, not an executable evaluation harness or universal parity claim.",
+  "liveTestedCommit": "bfd3c57edf5bec074ada71d0ce907bed8e8d847e",
+  "reviewCodeCommit": "ecb486084f47153adcbc9f840cbb58992ffcfade",
+  "reviewTreeChange": "Unrelated file-transfer fixes excluded; agent interaction/runtime/client sources are unchanged from the live-tested tree.",
+  "sourceProvenance": {
+    "reactionFixture": "packages/messaging/test/fixtures/grok-emoji-guidance-2026-11-02.json",
+    "meaning": "Text/schema equality to the captured active variant; current private Grok instructions, model and feature gates are not authenticated.",
+    "localEmojiClarificationWords": 34
+  },
+  "liveTrialProtocol": {
+    "distinctScenarios": 50,
+    "primaryAttempts": 100,
+    "primaryConfirmedContexts": 100,
+    "primaryFinishedObservationProcedures": 96,
+    "primaryInfrastructureIncomplete": 4,
+    "freshInfrastructureOnlySupplements": 4,
+    "totalCreatedContexts": 104,
+    "finishedProceduresAcrossSeparatePhases": 100,
+    "all50InputsExercisedOnBothEngines": true,
+    "supplementsPooledIntoPrimaryScores": false,
+    "caseLanesPerEngine": 5,
+    "tiersPerEngine": {
+      "short": 20,
+      "medium": 20,
+      "long": 10
+    },
+    "longPlannedStagesSeconds": [
+      300,
+      360,
+      420
+    ],
+    "longObservationCapSeconds": 900,
+    "note": "Controlled file work plus deliberate wait/review stages; not continuous computation. Completed procedure can include an observed failure."
+  },
+  "primaryObservedStyle": {
+    "plannedOptionalKeys": 32,
+    "pairedObserved": 29,
+    "missingPrimaryKeys": 3,
+    "comparableIdleOrActiveTaskPairs": 23,
+    "sameResponseModeComparable": 21,
+    "bothNativeComparablePairs": 16,
+    "sameNativeEmojiComparable": 14,
+    "otherEarlyOrMismatchedPairs": 6,
+    "sameModeOtherPairs": 4,
+    "limits": "Correlated observations; missing/other contexts are retained separately, not treated as zero or folded into a universal accuracy score."
+  },
+  "localTaskOutcomes": {
+    "casesObserved": 50,
+    "awaitedResultsWithinDeclaredWindow": 23,
+    "awaitedResultsObserved": 23,
+    "manualStopOutcomes": 10,
+    "gateCases": 5,
+    "statusExecutionsVerified": 5,
+    "frozenCorePassed": 532,
+    "frozenCoreTotal": 535,
+    "coreFalseInterpretation": "Three flags for one late original-start status in a feedback interval; actual feedback run completed silently.",
+    "frozenLocalProofPassed": 86,
+    "frozenLocalProofTotal": 87,
+    "proofFalseInterpretation": "Native Read criterion missed; successful Python byte reads/assertions verified actual report/result before delivery.",
+    "recoveredFailedToolCalls": 18,
+    "additionalEvaluatorArtifacts": "Four inherited gate-native-ack diagnostics incorrectly forbid permitted typed acknowledgments or recount old pills."
+  },
+  "referenceTaskOutcomes": {
+    "primaryFinishedProcedures": 46,
+    "exercisedAwaitedResults": 22,
+    "withinDeclaredWindow": 17,
+    "missedWindowCases": [
+      "B21",
+      "B26",
+      "B32",
+      "B39",
+      "B48"
+    ],
+    "lateExactResultSeconds": {
+      "B32": 523.392
+    },
+    "missingByFreezeCases": [
+      "B21",
+      "B26",
+      "B39",
+      "B48"
+    ],
+    "cause": "Unverified; do not infer forgetting, stalling or specific model strategy.",
+    "limits": "Remote file bytes, hidden tool execution, reaction processing and OS termination are not authenticated. Raw evaluator scope artifacts and infrastructure gaps were preserved."
+  },
+  "knownFollowups": [
+    "Earlier isolated physically successful cancellation lacked a final visible confirmation; it did not recur in three targeted repeats or ten broad stop outcomes. This remains unreproduced, not fixed or erased.",
+    "Optional prose/reaction choice and emoji identity still differ in some contexts; no additional case rules were added to force those choices."
+  ],
+  "automatedValidation": {
+    "bunGroups": [
+      {
+        "name": "prompt-runtime",
+        "files": [
+          "packages/messaging/test/emoji-source-parity.test.ts",
+          "packages/messaging/test/platform-system-prompt.test.ts",
+          "apps/computer/test/runtime/reaction-end-turn.test.ts",
+          "apps/computer/test/runtime/prompt-context.test.ts",
+          "apps/worker/test/context-routing.test.ts"
+        ],
+        "exit": 0,
+        "pass": 54,
+        "fail": 0,
+        "failures": []
+      },
+      {
+        "name": "delivery",
+        "files": [
+          "apps/computer/test/runtime/end-turn-siblings.test.ts",
+          "apps/computer/test/runtime/parity-loop.test.ts",
+          "apps/computer/test/runtime/delivery-failure.test.ts",
+          "apps/computer/test/runtime/delivery-batch.test.ts",
+          "packages/messaging/test/reactions.test.ts"
+        ],
+        "exit": 0,
+        "pass": 113,
+        "fail": 0,
+        "failures": []
+      },
+      {
+        "name": "async-progress-stop",
+        "files": [
+          "apps/server/test/late-completion-delivery.integration.test.ts",
+          "apps/server/test/request-progress.integration.test.ts",
+          "apps/server/test/subagent-stop-resume.integration.test.ts",
+          "apps/worker/test/explicit-stop-redrive.integration.test.ts",
+          "apps/server/test/reaction-concurrency.integration.test.ts"
+        ],
+        "exit": 0,
+        "pass": 92,
+        "fail": 0,
+        "failures": []
+      },
+      {
+        "name": "feedback-ownership",
+        "files": [
+          "apps/server/test/channel/message-format.test.ts",
+          "apps/server/test/channel/reaction-response.test.ts",
+          "apps/server/test/reaction-wake.integration.test.ts",
+          "apps/server/test/legacy-request-stop.integration.test.ts",
+          "apps/server/test/subagent/user-stop.test.ts",
+          "apps/server/test/task-progress.integration.test.ts",
+          "apps/worker/test/reaction-claim-availability.integration.test.ts",
+          "apps/worker/test/reaction-routing.test.ts",
+          "apps/worker/test/typed-message-supersedes-turn.integration.test.ts",
+          "packages/messaging/test/message-address.integration.test.ts",
+          "packages/product-core/test/client-sharing.test.ts"
+        ],
+        "exit": 0,
+        "pass": 89,
+        "fail": 0,
+        "failures": []
+      },
+      {
+        "name": "tool-progress",
+        "files": [
+          "apps/computer/test/runtime/dynamic-dispatch.test.ts",
+          "apps/computer/test/runtime/untrusted-results.test.ts",
+          "apps/computer/test/runtime/task-progress.test.ts",
+          "packages/contracts/test/task-progress.test.ts"
+        ],
+        "exit": 0,
+        "pass": 31,
+        "fail": 0,
+        "failures": []
+      }
+    ],
+    "bunPassed": 379,
+    "bunFailed": 0,
+    "desktopReactionOrder": {
+      "passed": 24,
+      "total": 24,
+      "command": "bun apps/desktop/scripts/test-reaction-order.ts"
+    },
+    "iosCore": {
+      "passed": 275,
+      "failed": 0,
+      "command": "swift test --package-path apps/ios -c release",
+      "toolchain": "Xcode 27.3 beta"
+    },
+    "architecture": "pass",
+    "packageTypechecks": {
+      "packages/contracts-typecheck": true,
+      "packages/messaging-typecheck": true,
+      "packages/product-core-typecheck": true,
+      "apps/server-typecheck": true,
+      "apps/worker-typecheck": true,
+      "apps/computer-typecheck": true,
+      "apps/desktop-typecheck": true
+    }
+  },
+  "scenarios": [
+    {
+      "id": "B01",
+      "tier": "short",
+      "category": "bare-ping-and-acknowledgments"
+    },
+    {
+      "id": "B02",
+      "tier": "short",
+      "category": "celebration-without-request"
+    },
+    {
+      "id": "B03",
+      "tier": "short",
+      "category": "frustrated-professional-no-emoji"
+    },
+    {
+      "id": "B04",
+      "tier": "short",
+      "category": "formal-without-explicit-emoji-ban"
+    },
+    {
+      "id": "B05",
+      "tier": "short",
+      "category": "thanks-plus-new-substantive-question"
+    },
+    {
+      "id": "B06",
+      "tier": "short",
+      "category": "strict-json-without-extra-prose"
+    },
+    {
+      "id": "B07",
+      "tier": "short",
+      "category": "strict-multiline-output"
+    },
+    {
+      "id": "B08",
+      "tier": "short",
+      "category": "literal-flag-emoji-as-text"
+    },
+    {
+      "id": "B09",
+      "tier": "short",
+      "category": "explicit-native-celebration-only"
+    },
+    {
+      "id": "B10",
+      "tier": "short",
+      "category": "native-reaction-plus-needed-answer"
+    },
+    {
+      "id": "B11",
+      "tier": "short",
+      "category": "remove-native-reaction-from-earlier-user-message"
+    },
+    {
+      "id": "B12",
+      "tier": "short",
+      "category": "replace-native-reaction-on-earlier-target"
+    },
+    {
+      "id": "B13",
+      "tier": "short",
+      "category": "one-turn-emoji-exception-then-resume-ban"
+    },
+    {
+      "id": "B14",
+      "tier": "short",
+      "category": "allow-then-permanent-emoji-ban"
+    },
+    {
+      "id": "B15",
+      "tier": "short",
+      "category": "idle-positive-feedback-replace-and-remove"
+    },
+    {
+      "id": "B16",
+      "tier": "short",
+      "category": "negative-feedback-rechecks-correct-answer"
+    },
+    {
+      "id": "B17",
+      "tier": "short",
+      "category": "muted-negative-feedback-then-unmuted"
+    },
+    {
+      "id": "B18",
+      "tier": "short",
+      "category": "exact-code-output-without-fences"
+    },
+    {
+      "id": "B19",
+      "tier": "short",
+      "category": "thanks-plus-edit-request"
+    },
+    {
+      "id": "B20",
+      "tier": "short",
+      "category": "tense-user-declines-cheerful-reactions"
+    },
+    {
+      "id": "B21",
+      "tier": "medium",
+      "category": "natural-background-completion"
+    },
+    {
+      "id": "B22",
+      "tier": "medium",
+      "category": "thumb-only-new-task"
+    },
+    {
+      "id": "B23",
+      "tier": "medium",
+      "category": "heart-only-new-task"
+    },
+    {
+      "id": "B24",
+      "tier": "medium",
+      "category": "exactly-one-text-opening"
+    },
+    {
+      "id": "B25",
+      "tier": "medium",
+      "category": "silent-exact-output-background"
+    },
+    {
+      "id": "B26",
+      "tier": "medium",
+      "category": "ordinary-acks-plus-side-math"
+    },
+    {
+      "id": "B27",
+      "tier": "medium",
+      "category": "warm-ack-and-explicit-status"
+    },
+    {
+      "id": "B28",
+      "tier": "medium",
+      "category": "formal-background-acknowledgments"
+    },
+    {
+      "id": "B29",
+      "tier": "medium",
+      "category": "emoji-ban-after-work-starts"
+    },
+    {
+      "id": "B30",
+      "tier": "medium",
+      "category": "background-preference-reversal"
+    },
+    {
+      "id": "B31",
+      "tier": "medium",
+      "category": "positive-feedback-during-background-work"
+    },
+    {
+      "id": "B32",
+      "tier": "medium",
+      "category": "negative-feedback-on-older-answer-while-working"
+    },
+    {
+      "id": "B33",
+      "tier": "medium",
+      "category": "typed-checkpoint-approval"
+    },
+    {
+      "id": "B34",
+      "tier": "medium",
+      "category": "native-checkpoint-approval"
+    },
+    {
+      "id": "B35",
+      "tier": "medium",
+      "category": "blocked-input-repair"
+    },
+    {
+      "id": "B36",
+      "tier": "medium",
+      "category": "ack-plus-new-side-file-action"
+    },
+    {
+      "id": "B37",
+      "tier": "medium",
+      "category": "stop-then-authorized-same-worker-resume"
+    },
+    {
+      "id": "B38",
+      "tier": "medium",
+      "category": "scoped-stop-preserves-independent-job"
+    },
+    {
+      "id": "B39",
+      "tier": "medium",
+      "category": "corrected-followup-preserves-background-request"
+    },
+    {
+      "id": "B40",
+      "tier": "medium",
+      "category": "repeated-checkins-with-spacing"
+    },
+    {
+      "id": "B41",
+      "tier": "long",
+      "category": "long-staged-work-with-checkins"
+    },
+    {
+      "id": "B42",
+      "tier": "long",
+      "category": "long-formal-work-and-late-status"
+    },
+    {
+      "id": "B43",
+      "tier": "long",
+      "category": "long-native-only-acknowledgments"
+    },
+    {
+      "id": "B44",
+      "tier": "long",
+      "category": "long-late-stop-after-preparation"
+    },
+    {
+      "id": "B45",
+      "tier": "long",
+      "category": "scoped-stop-preserves-independent-job"
+    },
+    {
+      "id": "B46",
+      "tier": "long",
+      "category": "long-typed-checkpoint-approval"
+    },
+    {
+      "id": "B47",
+      "tier": "long",
+      "category": "long-blocked-input-repair"
+    },
+    {
+      "id": "B48",
+      "tier": "long",
+      "category": "long-interleaved-questions-and-tone-change"
+    },
+    {
+      "id": "B49",
+      "tier": "long",
+      "category": "long-warmth-then-no-emoji-preference"
+    },
+    {
+      "id": "B50",
+      "tier": "long",
+      "category": "long-final-delivery-then-feedback"
+    }
+  ]
+}

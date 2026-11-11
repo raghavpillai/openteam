@@ -314,7 +314,10 @@ struct ComputerView: View {
     guard let api = store.api, takeover, !busy else { return }
     let revision = controlRevision
     do {
-      let next = try await api.request(path + "/takeover", method: "POST", body: .object(["active": .bool(true)]))
+      // A heartbeat extends a held lease only. It must not re-acquire one the computer
+      // released after five idle minutes.
+      let next = try await api.request(
+        path + "/takeover", method: "POST", body: .object(["active": .bool(true), "renew": .bool(true)]))
       guard revision == controlRevision, scenePhase == .active else {
         if desiredControl == false || scenePhase != .active {
           _ = try? await api.request(path + "/takeover", method: "POST", body: .object(["active": .bool(false)]))

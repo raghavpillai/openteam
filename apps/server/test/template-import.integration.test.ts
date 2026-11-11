@@ -17,7 +17,7 @@ test('template import materializes memories, skills and setup workflows once, ac
  try {
   const recipe = parseBotRecipe({ profile: { name: 'Reusable research', description: 'Research with citations' }, memory: [{ content: 'Cite primary sources', kind: 'profile' }], skills: [{ name: 'Research', description: 'Research a question', content: 'Collect sources and compare their evidence.' }], routines: [{ slug: 'check-in', description: 'Check a user-selected source', content: 'Ask for the source, destination, and cadence. Monitor for changes.' }], plugins: [{ pluginId: 'search-provider' }], gettingStarted: { skill: 'Research' } });
   const input = { clientRequestId, name: recipe.profile.name, description: recipe.profile.description };
-  const created = await Effect.runPromise(service.create(input, recipe)); botId = created.id; expect(created).not.toHaveProperty("instructions");
+  const created = await Effect.runPromise(service.create(input, recipe)); botId = created.id; expect(created.instructions).toBe("");
   const retry = await Effect.runPromise(service.create(input, recipe)); expect(retry.id).toBe(botId);
   const skills = await prisma.savedSkill.findMany({ where: { slug: { startsWith: `template-${botId}-` } } });
   expect(skills).toHaveLength(1);
@@ -27,7 +27,7 @@ test('template import materializes memories, skills and setup workflows once, ac
   const bot = await prisma.bot.findUniqueOrThrow({ where: { id: botId } }); expect(bot.templateRecipe).toBeNull(); const setup = await prisma.memoryFact.findFirstOrThrow({ where: { namespace: `agent:${botId}`, fact: { contains: 'On the first conversation' } } }); expect(setup.fact).toContain('Research');
   expect(await prisma.routine.count({ where: { botId } })).toBe(0);
   // Reinitializing after user edits must not replay the seed over the live state.
-  const updated = await Effect.runPromise(service.update(botId, { title: 'Researcher', description: 'Updated profile' })); expect(updated.title).toBe('Researcher'); expect(updated).not.toHaveProperty('instructions');
+  const updated = await Effect.runPromise(service.update(botId, { title: 'Researcher', description: 'Updated profile' })); expect(updated.title).toBe('Researcher'); expect(updated.instructions).toBe('');
   const restarted = new AgentDataStore(prisma, { root: join(root, 'data'), workspaceRoot: root }); await restarted.initializeBot(botId);
   expect((await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).description).toBe('Updated profile'); expect(await prisma.memoryFact.count({ where: { namespace: `agent:${botId}` } })).toBe(5);
  } finally {

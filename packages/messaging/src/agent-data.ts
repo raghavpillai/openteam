@@ -1059,22 +1059,33 @@ export class AgentDataStore {
             scope: "agent", tier: memory.kind ?? "profile", fact: memory.content, at: date,
           }, { source: "template" });
         }
-        const skillPaths: string[] = [];
+        const setupFacts: string[] = [];
         for (const [index, skill] of recipe.skills.entries()) {
           const slug = `template-${botId}-${index}`;
           const input = { slug, name: skill.name, description: skill.description || `Reusable ${skill.name} workflow`, body: skill.content };
-          const written = await writeSkillFile(this.workflowsDirectory(), input);
+          await writeSkillFile(this.workflowsDirectory(), input);
           await tx.savedSkill.upsert({ where: { slug }, create: { ...input, botId: null }, update: {} });
-          skillPaths.push(`${skill.name}: ${written.path}`);
+          setupFacts.push(`Imported skill ${JSON.stringify(skill.name)} is available in the shared skills library.`);
         }
-        const routinePaths: string[] = [];
         for (const [index, routine] of recipe.routines.entries()) {
           const path = join(directory, "template-routines", `${index}-${slugify(routine.slug, "routine")}.md`);
           await atomicWrite(path, `# ${routine.name || routine.slug}\n\n${routine.description}\n\n${routine.content}\n`);
-          routinePaths.push(path);
+          setupFacts.push(`Proposed routine ${JSON.stringify(routine.name || routine.slug)} is in this Bot's template-routines/${index}-${slugify(routine.slug, "routine")}.md. It is not scheduled; configure its destinations and trigger with the user before enabling it.`);
         }
-        const additions = [skillPaths.length ? `Imported skills:\n${skillPaths.join("\n")}` : "", routinePaths.length ? `Proposed routines (not scheduled):\n${routinePaths.join("\n")}\nRead each workflow and configure its destinations and trigger with the user before enabling it.` : "", recipe.plugins.length ? `Plugin requirements (no account access granted by import): ${recipe.plugins.map((item) => item.pluginId).join(", ")}` : "", recipe.gettingStarted ? `On the first conversation, read the imported skill ${JSON.stringify(recipe.gettingStarted.skill)} and use it to guide setup with the user.` : ""].filter(Boolean).join("\n\n");
-        await tx.bot.update({ where: { id: botId }, data: { templateRecipe: Prisma.DbNull, instructions: [bot.instructions, additions].filter(Boolean).join("\n\n") } });
+        for (const plugin of recipe.plugins) {
+          setupFacts.push(`Template plugin requirement: ${plugin.pluginId}. Import grants no account access.`);
+        }
+        if (recipe.gettingStarted) {
+          setupFacts.push(`On the first conversation, read the imported skill ${JSON.stringify(recipe.gettingStarted.skill)} and use it to guide setup with the user.`);
+        }
+        // Template setup uses the existing memory path, not a private bot-instructions field.
+        // Keep each bounded recipe item separate so memory normalization cannot truncate later notes.
+        for (const fact of setupFacts) {
+          await this.insertMemoryFact(tx, botId, {
+            scope: "agent", tier: "profile", fact, at: bot.createdAt,
+          }, { source: "template" });
+        }
+        await tx.bot.update({ where: { id: botId }, data: { templateRecipe: Prisma.DbNull } });
       }
     });
   }

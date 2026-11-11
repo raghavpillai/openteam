@@ -55,9 +55,7 @@ export class BotService {
       return bots.map(toBotView);
     });
 
-  // Legacy template and agent-administration callers still carry durable guidance.
-  // HTTP profile schemas deliberately omit this retired editor field.
-  create = (input: CreateBotInput & { instructions?: string }, recipe?: BotRecipe) =>
+  create = (input: CreateBotInput, recipe?: BotRecipe) =>
     serviceEffect(async () => {
       const scope = "bot:create";
       const requestHash = hashRequest(recipe ? { ...input, recipe } : input);
@@ -93,7 +91,6 @@ export class BotService {
               name,
               title: input.title?.trim() ?? "",
               description: input.description?.trim() ?? "",
-              instructions: input.instructions?.trim() ?? "",
               templateRecipe: recipe ? toJson(recipe) : undefined,
               icon: avatar.shape,
               color: avatar.color,
@@ -163,7 +160,7 @@ export class BotService {
       return toBotView(bot);
     });
 
-  update = (botId: string, input: UpdateBotInput & { instructions?: string }) =>
+  update = (botId: string, input: UpdateBotInput) =>
     serviceEffect(async () => {
       const name = input.name?.trim();
       if (name === "") throw new ApiError(400, "invalid_bot_name", "Bot name must not be blank");
@@ -196,7 +193,6 @@ export class BotService {
             name,
             title: input.title?.trim(),
             description: input.description?.trim(),
-            instructions: input.instructions?.trim(),
             icon: input.icon,
             color: input.color,
             avatarPath: input.icon !== undefined || input.color !== undefined ? null : undefined,
@@ -229,8 +225,7 @@ export class BotService {
           profileChanged:
             input.name !== undefined ||
             input.title !== undefined ||
-            input.description !== undefined ||
-            input.instructions !== undefined,
+            input.description !== undefined,
           settingsChanged:
             input.notificationsEnabled !== undefined ||
             input.draftingDisabled !== undefined ||

@@ -105,7 +105,7 @@ BEGIN
     ) VALUES (
       'bot:' || NEW."id", 'bot', 'bot', NEW."id", NEW."id"::text, NEW."id",
       NEW."name", coalesce(NULLIF(NEW."title", ''), ''),
-      concat_ws(' ', NEW."description", NEW."instructions"),
+      NEW."description",
       NEW."createdAt", NEW."updatedAt"
     );
   END IF;

@@ -26,7 +26,7 @@ enum SavedBotDirectory {
   }
 
   /// A missing or corrupt cache falls back to live resolution. Do not decode
-  /// message history, drafts, Bot instructions, or attachments for a Bot picker.
+  /// message history, drafts, or attachments for a Bot picker.
   static func entities(for values: [String]) throws -> [TeamBotEntity]? {
     let session = try SystemIntentClient.savedSession()
     let scope = SystemEntityID.scope(server: session.server, userID: session.userID)

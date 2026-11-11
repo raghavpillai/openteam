@@ -97,11 +97,9 @@ const bot = {
   status: "active",
   title: "",
   description: "",
-  instructions: "",
 } as BotView;
 if (new URLSearchParams(location.search).has("legacy-profile")) {
   bot.title = "Existing internal title";
-  bot.instructions = "Existing workflow guidance";
 }
 Object.defineProperty(window, "desktopStyleProfile", { get: () => ({ ...bot }) });
 const channel = {

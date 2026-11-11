@@ -41,7 +41,6 @@ describe("OpenTeam deep-link routing parity", () => {
       name: "Research Bot",
       title: "research",
       description: "Finds primary sources.",
-      instructions: "Cite every claim.",
       icon: "leaf",
       color: "#10b981",
       notificationsEnabled: true,

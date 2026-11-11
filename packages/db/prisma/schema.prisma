@@ -230,7 +230,6 @@ model Bot {
   name             String
   title            String       @default("")
   description      String       @default("")
-  instructions     String       @default("")
   templateRecipe   Json?
   icon             String       @default("●")
   color            String       @default("#4f7cff")

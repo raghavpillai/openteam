@@ -22,7 +22,6 @@ function fixture(): ClientSnapshot {
       {
         id: "bot-1",
         name: "Bot",
-        instructions: "Be useful.",
         icon: "●",
         color: "#2f8cff",
         defaultDirectory: "/workspace/bots/bot",

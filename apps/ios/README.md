@@ -108,7 +108,7 @@ never create one.
 The **Siri and Spotlight** switch in Settings gates on-screen message annotations and
 the on-device index (`Sources/App/SystemDiscovery.swift`). The protected index holds
 at most 30 conversations, 20 messages per conversation and 200 messages in total, and
-excludes archived Bots' conversations, drafts, pending sends and Bot instructions.
+excludes archived Bots' conversations, drafts and pending sends.
 Turning the switch off, signing out, re-authenticating or changing accounts clears
 donated content. Entity IDs include the server and account, so an old Shortcut can't
 resolve into another account. Message queries can search the server beyond the

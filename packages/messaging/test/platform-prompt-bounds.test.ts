@@ -124,7 +124,6 @@ describe("bounded teammates roster", () => {
             return {
               id: "main",
               name: "Main",
-              instructions: "",
               hiddenFromSidebar: false,
               notificationsEnabled: true,
               defaultDirectory: "/workspace",

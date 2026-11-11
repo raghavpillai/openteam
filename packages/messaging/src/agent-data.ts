@@ -206,7 +206,7 @@ const ensureEditableBotDirectory = async (directory: string): Promise<void> => {
   if ((mode & 0o070) !== 0o070) await chmod(directory, mode | 0o070);
 };
 
-export type BotFileTarget = "profile" | "settings" | "instructions" | "avatar";
+export type BotFileTarget = "profile" | "settings" | "avatar";
 
 export type MemoryInferenceRequest = Omit<ComputerInferenceRequest, "model" | "reasoning"> & {
   signal?: AbortSignal;
@@ -1075,14 +1075,13 @@ export class AgentDataStore {
         }
         const additions = [skillPaths.length ? `Imported skills:\n${skillPaths.join("\n")}` : "", routinePaths.length ? `Proposed routines (not scheduled):\n${routinePaths.join("\n")}\nRead each workflow and configure its destinations and trigger with the user before enabling it.` : "", recipe.plugins.length ? `Plugin requirements (no account access granted by import): ${recipe.plugins.map((item) => item.pluginId).join(", ")}` : "", recipe.gettingStarted ? `On the first conversation, read the imported skill ${JSON.stringify(recipe.gettingStarted.skill)} and use it to guide setup with the user.` : ""].filter(Boolean).join("\n\n");
         await tx.bot.update({ where: { id: botId }, data: { templateRecipe: Prisma.DbNull, instructions: [bot.instructions, additions].filter(Boolean).join("\n\n") } });
-        await this.writeBotFilesInTransaction(tx, botId, ["instructions"]);
       }
     });
   }
 
   async writeBotFiles(
     botId: string,
-    targets: BotFileTarget[] = ["profile", "settings", "instructions", "avatar"]
+    targets: BotFileTarget[] = ["profile", "settings", "avatar"]
   ): Promise<void> {
     await this.initializeBot(botId);
     await this.withFileMutation(botId, "bot-files", (tx) =>
@@ -1150,9 +1149,6 @@ export class AgentDataStore {
       }
       delete value.hiddenFromSidebar;
       await writeEditableBotFile(path, jsonFile({ ...value, ...settingsDocument(bot) }));
-    }
-    if (targets.includes("instructions")) {
-      await rm(join(directory, "instructions.md"), { force: true });
     }
     if (targets.includes("avatar")) {
       const existing = await this.avatarFiles(botId);
@@ -1765,22 +1761,6 @@ export class AgentDataStore {
         },
       });
       await this.trackFile(tx, botId, "settings", path, text, message);
-    }
-  }
-
-  private async reconcileInstructions(tx: Tx, botId: string, warnings: string[]): Promise<void> {
-    const path = join(this.botDirectory(botId), "instructions.md");
-    try {
-      const text = await readText(path, 200_000);
-      await tx.bot.update({
-        where: { id: botId },
-        data: { instructions: text?.trim() ?? "" },
-      });
-      await this.trackFile(tx, botId, "instructions", path, text);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      warnings.push(`instructions.md: ${message}`);
-      await this.trackFile(tx, botId, "instructions", path, null, message);
     }
   }
 

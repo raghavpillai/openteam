@@ -9,6 +9,7 @@ struct SettingsView: View {
   @Environment(\.dismiss) private var dismiss
   @AppStorage("appearance") private var appearance = "system"
   @AppStorage("accent") private var accent = "black"
+  @AppStorage("useBotMessageColors") private var useBotMessageColors = false
   @AppStorage("haptics") private var haptics = true
   @State private var signOut = false
   @State private var path: [SettingsRoute]
@@ -101,6 +102,13 @@ struct SettingsView: View {
                 + " · " + accent.capitalized
             ).frame(maxWidth: .infinity).contentShape(Rectangle())
           }.accessibilityIdentifier("appearance-picker").foregroundStyle(NativePalette.text)
+          Toggle(isOn: $useBotMessageColors) {
+            VStack(alignment: .leading, spacing: 3) {
+              Text("Use bot colors for messages")
+              Text("Color your sent messages with the bot’s color. Off keeps them gray.")
+                .font(.system(size: 13)).foregroundStyle(NativePalette.muted)
+            }
+          }.tint(NativePalette.toggle).accessibilityIdentifier("bot-message-colors")
           Toggle("App haptics", isOn: $haptics).tint(NativePalette.toggle)
         }
         Section {
@@ -341,7 +349,7 @@ struct ServerStatusSections: View {
 }
 
 struct ConversationDetails: View {
-  private enum ProfileField: Hashable { case name, title, description, instructions }
+  private enum ProfileField: Hashable { case name, description }
   @FocusState private var focusedProfile: ProfileField?
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
@@ -349,14 +357,12 @@ struct ConversationDetails: View {
   let channelID: String
   @State private var name = ""
   @State private var description = ""
-  @State private var instructions = ""
   @State private var members: Set<String> = []
   @State private var resetAvatar = false
   @State private var deleting = false
   @State private var saving = false
   @State private var color = "#A47952"
   @State private var icon = "chip"
-  @State private var title = ""
   @State private var initialized = false
   @State private var failure: String?
   @State private var addingRoutine = false
@@ -391,10 +397,7 @@ struct ConversationDetails: View {
             TextField("Name", text: $name).accessibilityIdentifier("profile-name")
               .focused($focusedProfile, equals: .name)
               .font(.title3.weight(.semibold)).multilineTextAlignment(.center)
-            if bot != nil {
-              TextField("Label (optional)", text: $title).accessibilityIdentifier("profile-title")
-                .focused($focusedProfile, equals: .title).multilineTextAlignment(.center)
-            } else {
+            if bot == nil {
               TextField("Description", text: $description, axis: .vertical).lineLimit(2...5)
                 .accessibilityIdentifier("profile-description").focused(
                   $focusedProfile, equals: .description)
@@ -426,17 +429,13 @@ struct ConversationDetails: View {
                     TextField("Description", text: $description, axis: .vertical).lineLimit(2...5)
                       .accessibilityIdentifier("profile-description")
                   }
-                  Section("Instructions") {
-                    TextEditor(text: $instructions).frame(minHeight: 220)
-                      .accessibilityIdentifier("profile-instructions")
-                  }
-                }.navigationTitle("Instructions").navigationBarTitleDisplayMode(.inline)
+                }.navigationTitle("Description").navigationBarTitleDisplayMode(.inline)
                   .scrollDismissesKeyboard(.interactively)
               } label: {
                 HStack(spacing: 14) {
                   Image(systemName: "doc.text").font(.system(size: 17))
                     .foregroundStyle(NativePalette.muted).frame(width: 20)
-                  Text("Instructions")
+                  Text("Description")
                 }
               }
             }.listRowBackground(NativePalette.assistant)
@@ -549,10 +548,8 @@ struct ConversationDetails: View {
           initialized = true
           name = channel?.name ?? ""
           description = bot?.description ?? channel?.description ?? ""
-          instructions = bot?.instructions ?? ""
           icon = bot?.icon ?? "chip"
           color = bot?.color ?? "#A47952"
-          title = bot?.title ?? ""
           members = Set(channel?.members.map(\.botId) ?? [])
         }
         .alert("Save changes?", isPresented: $confirmingExit) {
@@ -626,14 +623,13 @@ struct ConversationDetails: View {
     initialized
       && (name != (channel?.name ?? "")
         || description != (bot?.description ?? channel?.description ?? "")
-        || instructions != (bot?.instructions ?? "") || title != (bot?.title ?? "")
         || icon != (bot?.icon ?? "chip") || color != (bot?.color ?? "#A47952")
         || resetAvatar || members != Set(channel?.members.map(\.botId) ?? []))
   }
   private var canSaveProfile: Bool {
     !saving && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      && !(channel?.isGroup == true && name.count > 80) && title.count <= 120
-      && description.count <= 2_000 && instructions.count <= 20_000
+      && !(channel?.isGroup == true && name.count > 80)
+      && description.count <= 2_000
       && !(channel?.isGroup == true && (members.isEmpty || members.count > 6))
   }
   private func mayLeaveProfile() -> Bool {
@@ -665,8 +661,7 @@ struct ConversationDetails: View {
     if let bot {
       var fields: [String: JSON] = [
         "name": .string(name.trimmingCharacters(in: .whitespacesAndNewlines)),
-        "description": .string(description), "instructions": .string(instructions),
-        "title": .string(title),
+        "description": .string(description),
       ]
       if resetAvatar || icon != bot.icon || color.lowercased() != bot.color.lowercased() {
         fields["icon"] = .string(icon)

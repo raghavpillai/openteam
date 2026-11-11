@@ -222,7 +222,6 @@ const lazyBudgets: Record<string, number> = {
   a2aExchange: 5_000,
   asyncTasks: 20_000,
   desktopDialogs: 25_000,
-  groupForm: 25_000,
   inspector: 150_000,
   avatarPicker: 20_000,
   botScreen: 20_000,

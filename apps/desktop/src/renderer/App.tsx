@@ -34,6 +34,7 @@ import { VersionMismatchBanner } from "./components/openteam/version-mismatch-ba
 import { Button } from "./components/ui/button";
 import { LoadingOrb } from "./components/ui/loading-orb";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { AttachmentStageChannel } from "./hooks/attachment-stage-channel";
 import { type InspectorMode, useBotRowActions } from "./hooks/use-bot-row-actions";
 import { useChannelSelection } from "./hooks/use-channel-selection";
 import { useRecentChannels } from "./hooks/use-recent-channels";
@@ -1315,6 +1316,7 @@ export default function App() {
           />
 
           <section className="relative flex min-w-0 flex-1 flex-col" data-workspace-main="">
+            <AttachmentStageChannel value={selected?.id ?? null}>
             {!pendingBot && !landing && (
               <DesktopHeader
                 agentNameById={index.agentNameById}
@@ -1330,6 +1332,7 @@ export default function App() {
                 onShowSummary={() =>
                   setInspectorMode(inspectorMode === "routine" ? routineReturnMode : "summary")
                 }
+                onShowSettings={() => setInspectorMode("settings")}
                 exchange={
                   a2aExchange && a2aExchangeChannel
                     ? {
@@ -1501,20 +1504,15 @@ export default function App() {
                   className={cn(
                     "shrink-0 overflow-hidden bg-inspector opacity-100",
                     detailsOverlay && "absolute inset-y-0 right-0 z-20 shadow-2xl",
-                    !inspectorResizing && "transition-[width] duration-300 ease-[var(--ease-pane)] motion-reduce:transition-none",
-                    !visibleDetailsOpen && "pointer-events-none opacity-0"
+                    !inspectorResizing && "transition-[width] duration-300 ease-[var(--ease-details)] motion-reduce:transition-none",
+                    !visibleDetailsOpen && "pointer-events-none"
                   )}
                   inert={!visibleDetailsOpen}
                   ref={inspectorPanelRef}
                   style={{ width: visibleDetailsOpen ? renderedInspectorWidth : 0 }}
                 >
                   <div
-                    className={cn(
-                      "relative h-full",
-                      visibleDetailsOpen
-                        ? "[transform:translateX(0)] opacity-100 transition-[transform,opacity] duration-[var(--motion-reveal)] ease-[var(--ease-pane)]"
-                        : "[transform:translateX(40px)] opacity-0"
-                    )}
+                    className="relative h-full"
                     ref={inspectorContentRef}
                     style={{ width: renderedInspectorWidth }}
                   >
@@ -1594,6 +1592,7 @@ export default function App() {
                             active
                             botById={index.botById}
                             channel={selected}
+                            libraryRevision={index.messagesByChannel.get(selected.id)?.at(-1)?.id}
                             computerHandoff={
                               computerHandoff?.botId === selected.members[0]?.botId
                                 ? computerHandoff
@@ -1645,6 +1644,7 @@ export default function App() {
                 )}
               </div>
             )}
+            </AttachmentStageChannel>
           </section>
 
           {newBotPicker && (

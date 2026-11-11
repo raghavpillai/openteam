@@ -1,6 +1,16 @@
 import type { BotView, ChannelView, UpdateBotInput } from "@openteam/contracts";
 import { Clock3, ChevronRight, Plus, Share, Trash2, X } from "lucide-react";
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,23 +52,22 @@ const RoutinesSummary = lazy(() =>
 const GroupAvatarEditor = lazy(() =>
   import("./group-avatar-editor").then((module) => ({ default: module.GroupAvatarEditor }))
 );
+const ChannelLibrary = lazy(() =>
+  import("./channel-library").then((module) => ({ default: module.ChannelLibrary }))
+);
 
 type InspectorMode = "summary" | "settings" | "routine";
 
 interface ProfileDraft {
   name: string;
-  title: string;
   description: string;
-  instructions: string;
   icon: string;
   color: string;
 }
 
 const draftOf = (bot: BotView): ProfileDraft => ({
   name: bot.name,
-  title: bot.title,
   description: bot.description,
-  instructions: bot.instructions,
   icon: bot.icon,
   color: bot.color,
 });
@@ -110,9 +119,7 @@ function BotSettings({
       try {
         await onUpdate({
           ...(next.name.trim() ? { name: next.name.trim() } : {}),
-          title: next.title,
           description: next.description,
-          instructions: next.instructions,
           ...(includeAvatar ? { icon: next.icon, color: next.color } : {}),
         });
         if (requestRevision === revision.current) setSaveState("saved");
@@ -157,9 +164,7 @@ function BotSettings({
       void updateRef
         .current({
           ...(next.name.trim() ? { name: next.name.trim() } : {}),
-          title: next.title,
           description: next.description,
-          instructions: next.instructions,
         })
         .catch(() => undefined);
     },
@@ -210,24 +215,6 @@ function BotSettings({
         <div className="grid gap-[2px]">
           <Label
             className="pl-2 text-[12px] font-normal leading-[18px] text-muted-foreground"
-            htmlFor={`settings-title-${bot.id}`}
-          >
-            Label (optional)
-          </Label>
-          <Input
-            aria-label="Bot label"
-            className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:border-ring dark:focus-visible:border-ring focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
-            id={`settings-title-${bot.id}`}
-            maxLength={120}
-            onBlur={flush}
-            onChange={(event) => queue({ ...draft, title: event.target.value })}
-            placeholder="Research, marketing, admin"
-            value={draft.title}
-          />
-        </div>
-        <div className="grid gap-[2px]">
-          <Label
-            className="pl-2 text-[12px] font-normal leading-[18px] text-muted-foreground"
             htmlFor={`settings-description-${bot.id}`}
           >
             Description
@@ -243,29 +230,13 @@ function BotSettings({
             value={draft.description}
           />
         </div>
-        <div className="grid gap-[2px]">
-          <Label
-            className="pl-2 text-[12px] font-normal leading-[18px] text-muted-foreground"
-            htmlFor={`settings-instructions-${bot.id}`}
-          >
-            Instructions
-          </Label>
-          <Textarea
-            aria-label="Bot instructions"
-            className="min-h-32 resize-y rounded-[7px] border-[#d9d9d9] px-2.5 py-2 text-[14px] shadow-none focus-visible:border-ring dark:focus-visible:border-ring focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
-            id={`settings-instructions-${bot.id}`}
-            maxLength={20_000}
-            onBlur={flush}
-            onChange={(event) => queue({ ...draft, instructions: event.target.value })}
-            placeholder="How this Bot should work"
-            value={draft.instructions}
-          />
-        </div>
         {saveState === "error" && (
           <p className="text-xs text-destructive">Could not save. Your draft is still here.</p>
         )}
       </div>
-      <Suspense fallback={<div aria-label="Loading routines" className="mt-6 h-16" role="status" />}>
+      <Suspense
+        fallback={<div aria-label="Loading routines" className="mt-6 h-16" role="status" />}
+      >
         <RoutinesSummary
           active={active}
           embedded
@@ -429,6 +400,65 @@ function GroupSettings({
   );
 }
 
+function BotProfileName({
+  bot,
+  onUpdate,
+}: {
+  bot: BotView;
+  onUpdate: (input: UpdateBotInput) => Promise<BotView>;
+}) {
+  const [name, setName] = useState(bot.name);
+  const [failed, setFailed] = useState(false);
+  const editing = useRef(false);
+  const cancelBlur = useRef(false);
+  const revision = useRef(0);
+  useEffect(() => {
+    if (!editing.current) setName(bot.name);
+  }, [bot.name]);
+  return (
+    <>
+      <input
+        aria-label="Bot name"
+        className="bot-details-name"
+        maxLength={80}
+        onBlur={(event) => {
+          editing.current = false;
+          if (cancelBlur.current) {
+            cancelBlur.current = false;
+            return;
+          }
+          const next = event.currentTarget.value.trim() || bot.name;
+          setName(next);
+          if (next === bot.name) return;
+          const request = ++revision.current;
+          setFailed(false);
+          void onUpdate({ name: next }).catch(() => {
+            if (revision.current === request) setFailed(true);
+          });
+        }}
+        onChange={(event) => setName(event.target.value)}
+        onFocus={() => {
+          editing.current = true;
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            cancelBlur.current = true;
+            setName(bot.name);
+            event.currentTarget.blur();
+          } else if (event.key === "Enter" && !event.nativeEvent.isComposing)
+            event.currentTarget.blur();
+        }}
+        value={name}
+      />
+      {failed && (
+        <p className="text-xs text-destructive" role="alert">
+          Could not save name. Edit it to retry.
+        </p>
+      )}
+    </>
+  );
+}
+
 export const Inspector = memo(function Inspector({
   channel,
   computerHandoff,
@@ -447,6 +477,7 @@ export const Inspector = memo(function Inspector({
   onUpdateGroupProfile,
   onBotAction,
   routineOpenRequest,
+  libraryRevision,
 }: {
   channel: ChannelView;
   computerHandoff?: { botId: string; messageId: string } | null;
@@ -468,6 +499,7 @@ export const Inspector = memo(function Inspector({
     description: string
   ) => Promise<ChannelView>;
   routineOpenRequest?: { routineId: string; nonce: number } | null;
+  libraryRevision?: string;
   onBotAction?: (bot: BotView, action: BotSettingsAction) => void;
 }) {
   const members = useMemo(
@@ -480,6 +512,9 @@ export const Inspector = memo(function Inspector({
     [botById, channel.members]
   );
   const bot = channel.kind === "bot_dm" ? members[0] : undefined;
+  const [summaryTab, setSummaryTab] = useState<"activity" | "library">("activity");
+  const tabId = useId();
+  useEffect(() => setSummaryTab("activity"), [channel.id]);
   const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
   const [memberMutationPending, setMemberMutationPending] = useState(false);
   const [memberMutationError, setMemberMutationError] = useState<string | null>(null);
@@ -570,162 +605,270 @@ export const Inspector = memo(function Inspector({
     );
   }
 
+  const tabs = (
+    <div
+      aria-label="Conversation details"
+      className="bot-details-tabs"
+      role="tablist"
+      onKeyDown={(event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const tab =
+          event.key === "Home"
+            ? "activity"
+            : event.key === "End"
+              ? "library"
+              : summaryTab === "activity"
+                ? "library"
+                : "activity";
+        setSummaryTab(tab);
+        document.getElementById(`${tabId}-${tab}`)?.focus();
+      }}
+    >
+      {(["activity", "library"] as const).map((tab) => (
+        <button
+          aria-controls={`${tabId}-panel`}
+          aria-selected={summaryTab === tab}
+          className="bot-details-tab"
+          id={`${tabId}-${tab}`}
+          key={tab}
+          onClick={() => setSummaryTab(tab)}
+          role="tab"
+          tabIndex={summaryTab === tab ? 0 : -1}
+          type="button"
+        >
+          {tab === "activity" ? "Activity" : "Library"}
+        </button>
+      ))}
+    </div>
+  );
+  const library = (
+    <Suspense
+      fallback={
+        <div className="bot-library-empty" role="status">
+          Loading Library…
+        </div>
+      }
+    >
+      <ChannelLibrary
+        active={active && summaryTab === "library"}
+        channelId={channel.id}
+        key={channel.id}
+        revision={libraryRevision}
+      />
+    </Suspense>
+  );
+
   return (
-    <aside aria-label="Conversation details" className="bot-details-summary flex size-full flex-col bg-background px-4 pb-5 pt-11">
+    <aside
+      aria-label="Conversation details"
+      className="bot-details-summary flex size-full flex-col bg-background px-4 pb-5 pt-11"
+    >
       {bot ? (
         <Suspense
           fallback={<div aria-label="Loading bot details" className="size-full" role="status" />}
         >
           <section className="bot-details-profile" aria-label="Bot profile">
-            <button aria-label="Edit Bot profile" onClick={() => onModeChange("settings")} type="button">
+            <button
+              aria-label="Edit Bot profile"
+              onClick={() => onModeChange("settings")}
+              type="button"
+            >
               <BotAvatar bot={bot} size="lg" />
             </button>
-            <div className="bot-details-name">{bot.name}</div>
-            <div className="bot-details-activity">Activity</div>
+            <BotProfileName
+              bot={bot}
+              key={bot.id}
+              onUpdate={(input) => onUpdateBot(bot.id, input)}
+            />
+            {tabs}
           </section>
-          <section aria-label="Suggested">
-            <div className="bot-details-heading">Suggested</div>
-            <button className="bot-details-routine" type="button" onClick={() => {
-              setSelectedRoutineId(null);
-              onModeChange("routine");
-            }}><Clock3 className="size-4" /><span>Create a routine</span><ChevronRight className="size-4" /></button>
-          </section>
-          <section aria-label="Computer preview">
-            <div className="bot-details-heading">Computer</div>
-            <div className="bot-computer-card">
-              <div>Bot's computer<div className="text-foreground-secondary">{bot.status === "provisioning" ? "Starting…" : "Open computer"}</div></div>
-              <div className="bot-computer-preview">
-                <BotScreen active={active} bot={bot} enabled={screenEnabled} handoff={computerHandoff}
-                  onEnable={() => onEnableScreen(bot.id)} onHandoffFinished={onFinishComputerHandoff}
-                  onRetry={() => onRetryBot(bot.id)} />
-              </div>
-            </div>
-          </section>
-          {/* <BotMemoryButton bot={bot} active={active} /> */}
-          <RoutinesSummary
-            active={active}
-            ownerId={bot.id}
-            ownerKind="bot"
-            onOpen={(routineId) => {
-              setSelectedRoutineId(routineId);
-              onModeChange("routine");
-            }}
-          />
+          <div
+            aria-labelledby={`${tabId}-${summaryTab}`}
+            id={`${tabId}-panel`}
+            role="tabpanel"
+            className="bot-details-tabpanel"
+          >
+            {summaryTab === "library" ? (
+              library
+            ) : (
+              <>
+                <section aria-label="Suggested">
+                  <div className="bot-details-heading">Suggested</div>
+                  <button
+                    className="bot-details-routine"
+                    type="button"
+                    onClick={() => {
+                      setSelectedRoutineId(null);
+                      onModeChange("routine");
+                    }}
+                  >
+                    <Clock3 className="size-4" />
+                    <span>Create a routine</span>
+                    <ChevronRight className="size-4" />
+                  </button>
+                </section>
+                <section aria-label="Computer preview">
+                  <div className="bot-details-heading">Computer</div>
+                  <BotScreen
+                    active={active}
+                    bot={bot}
+                    enabled={screenEnabled}
+                    handoff={computerHandoff}
+                    presentation="card"
+                    onEnable={() => onEnableScreen(bot.id)}
+                    onHandoffFinished={onFinishComputerHandoff}
+                    onRetry={() => onRetryBot(bot.id)}
+                  />
+                </section>
+                {/* <BotMemoryButton bot={bot} active={active} /> */}
+                <RoutinesSummary
+                  active={active}
+                  ownerId={bot.id}
+                  ownerKind="bot"
+                  onOpen={(routineId) => {
+                    setSelectedRoutineId(routineId);
+                    onModeChange("routine");
+                  }}
+                />
+              </>
+            )}
+          </div>
         </Suspense>
       ) : (
         <>
-          <section aria-label="Members" className="sand-group-members-section">
-            <div className="px-2 text-[12px] leading-5 text-foreground-secondary">Members</div>
-            <div className="mt-1">
-              {members.map((member) => (
-                <div
-                  className="sand-group-member-row group flex h-10 items-center rounded-[9px] px-1 hover:bg-accent"
-                  key={member.id}
-                >
-                  <button
-                    aria-label={`Open ${member.name}'s chat`}
-                    className="sand-group-member-open flex min-w-0 flex-1 items-center gap-2.5 rounded-[8px] px-1.5 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-                    onClick={() => onOpenTeam(member.id)}
-                    type="button"
-                  >
-                    <BotAvatar bot={member} size="sm" />
-                    <span className="sand-group-member-name min-w-0 flex-1 truncate text-[13px]">
-                      {member.name}
-                    </span>
-                  </button>
-                  <button
-                    aria-label={`Remove ${member.name}`}
-                    className="mr-1 grid size-6 shrink-0 place-items-center rounded-[7px] text-foreground-secondary opacity-0 outline-none transition-opacity hover:bg-black/[0.055] hover:text-foreground focus:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/35 group-hover:opacity-100 disabled:pointer-events-none dark:hover:bg-white/[0.08]"
-                    disabled={members.length <= 1 || memberMutationPending}
-                    onClick={() => setRemoveMemberTarget(member)}
-                    type="button"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-              ))}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="sand-group-member-add-row sand-group-member-add mt-0.5 flex h-9 w-full items-center gap-2 rounded-[9px] px-2 text-left text-[13px] text-foreground-secondary outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35 disabled:pointer-events-none disabled:opacity-45"
-                    disabled={
-                      members.length >= 6 || addableMembers.length === 0 || memberMutationPending
-                    }
-                    type="button"
-                  >
-                    <Plus className="size-4" strokeWidth={1.7} />
-                    <span>Add Member</span>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  className="max-h-[300px] w-[260px] overflow-y-auto rounded-[12px] p-1.5"
-                >
-                  {addableMembers.map((candidate) => (
-                    <DropdownMenuItem
-                      className="h-10 gap-2.5 rounded-[9px] px-2 text-[13px]"
-                      disabled={memberMutationPending}
-                      key={candidate.id}
-                      onSelect={() =>
-                        void setMembers(
-                          [...memberIds, candidate.id],
-                          "Adding failed. Check your connection and try again."
-                        )
-                      }
-                    >
-                      <BotAvatar bot={candidate} size="sm" mode="idle" />
-                      <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            {memberMutationError && (
-              <p className="mt-1 px-2 text-[11px] text-destructive">{memberMutationError}</p>
-            )}
-          </section>
-          <Suspense fallback={<div aria-label="Loading group routines" className="mt-4 h-16" />}>
-            <RoutinesSummary
-              active={active}
-              ownerId={channel.id}
-              ownerKind="group"
-              onOpen={(routineId) => {
-                setSelectedRoutineId(routineId);
-                onModeChange("routine");
-              }}
-            />
-          </Suspense>
-          <AlertDialog
-            onOpenChange={(open) => !open && setRemoveMemberTarget(null)}
-            open={Boolean(removeMemberTarget)}
+          {tabs}
+          <div
+            aria-labelledby={`${tabId}-${summaryTab}`}
+            id={`${tabId}-panel`}
+            role="tabpanel"
+            className="bot-details-tabpanel"
           >
-            <AlertDialogContent aria-describedby={undefined}>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  Remove {removeMemberTarget?.name} from this conversation?
-                </AlertDialogTitle>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  disabled={memberMutationPending}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    const targetId = removeMemberTarget?.id;
-                    if (!targetId || memberIds.length <= 1) return;
-                    void setMembers(
-                      memberIds.filter((id) => id !== targetId),
-                      "Removing failed. Check your connection and try again."
-                    ).then((updated) => {
-                      if (updated) setRemoveMemberTarget(null);
-                    });
-                  }}
+            {summaryTab === "library" ? (
+              library
+            ) : (
+              <>
+                <section aria-label="Members" className="sand-group-members-section">
+                  <div className="px-2 text-[12px] leading-5 text-foreground-secondary">
+                    Members
+                  </div>
+                  <div className="mt-1">
+                    {members.map((member) => (
+                      <div
+                        className="sand-group-member-row group flex h-10 items-center rounded-[9px] px-1 hover:bg-accent"
+                        key={member.id}
+                      >
+                        <button
+                          aria-label={`Open ${member.name}'s chat`}
+                          className="sand-group-member-open flex min-w-0 flex-1 items-center gap-2.5 rounded-[8px] px-1.5 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+                          onClick={() => onOpenTeam(member.id)}
+                          type="button"
+                        >
+                          <BotAvatar bot={member} size="sm" />
+                          <span className="sand-group-member-name min-w-0 flex-1 truncate text-[13px]">
+                            {member.name}
+                          </span>
+                        </button>
+                        <button
+                          aria-label={`Remove ${member.name}`}
+                          className="mr-1 grid size-6 shrink-0 place-items-center rounded-[7px] text-foreground-secondary opacity-0 outline-none transition-opacity hover:bg-black/[0.055] hover:text-foreground focus:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/35 group-hover:opacity-100 disabled:pointer-events-none dark:hover:bg-white/[0.08]"
+                          disabled={members.length <= 1 || memberMutationPending}
+                          onClick={() => setRemoveMemberTarget(member)}
+                          type="button"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          className="sand-group-member-add-row sand-group-member-add mt-0.5 flex h-9 w-full items-center gap-2 rounded-[9px] px-2 text-left text-[13px] text-foreground-secondary outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35 disabled:pointer-events-none disabled:opacity-45"
+                          disabled={
+                            members.length >= 6 ||
+                            addableMembers.length === 0 ||
+                            memberMutationPending
+                          }
+                          type="button"
+                        >
+                          <Plus className="size-4" strokeWidth={1.7} />
+                          <span>Add Member</span>
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        className="max-h-[300px] w-[260px] overflow-y-auto rounded-[12px] p-1.5"
+                      >
+                        {addableMembers.map((candidate) => (
+                          <DropdownMenuItem
+                            className="h-10 gap-2.5 rounded-[9px] px-2 text-[13px]"
+                            disabled={memberMutationPending}
+                            key={candidate.id}
+                            onSelect={() =>
+                              void setMembers(
+                                [...memberIds, candidate.id],
+                                "Adding failed. Check your connection and try again."
+                              )
+                            }
+                          >
+                            <BotAvatar bot={candidate} size="sm" mode="idle" />
+                            <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                  {memberMutationError && (
+                    <p className="mt-1 px-2 text-[11px] text-destructive">{memberMutationError}</p>
+                  )}
+                </section>
+                <Suspense
+                  fallback={<div aria-label="Loading group routines" className="mt-4 h-16" />}
                 >
-                  {memberMutationPending ? "Removing..." : "Remove"}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+                  <RoutinesSummary
+                    active={active}
+                    ownerId={channel.id}
+                    ownerKind="group"
+                    onOpen={(routineId) => {
+                      setSelectedRoutineId(routineId);
+                      onModeChange("routine");
+                    }}
+                  />
+                </Suspense>
+                <AlertDialog
+                  onOpenChange={(open) => !open && setRemoveMemberTarget(null)}
+                  open={Boolean(removeMemberTarget)}
+                >
+                  <AlertDialogContent aria-describedby={undefined}>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        Remove {removeMemberTarget?.name} from this conversation?
+                      </AlertDialogTitle>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        disabled={memberMutationPending}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          const targetId = removeMemberTarget?.id;
+                          if (!targetId || memberIds.length <= 1) return;
+                          void setMembers(
+                            memberIds.filter((id) => id !== targetId),
+                            "Removing failed. Check your connection and try again."
+                          ).then((updated) => {
+                            if (updated) setRemoveMemberTarget(null);
+                          });
+                        }}
+                      >
+                        {memberMutationPending ? "Removing..." : "Remove"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
+            )}
+          </div>
         </>
       )}
     </aside>

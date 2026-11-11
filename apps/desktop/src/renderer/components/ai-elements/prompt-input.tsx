@@ -799,7 +799,7 @@ export function PromptInput({
         />
         <div
           className={cn(
-            "relative box-border flex min-h-11 flex-col rounded-[22px] border-[0.5px] border-solid border-[#14141426] bg-[#fcfcfc] px-1 py-1 shadow-[0_2px_8px_-1px_#0000000d,0_1px_2px_#00000008,0_0_0_1px_#e4e4e40a] hover:border-[#1414144d] focus-within:border-[#1414144d] dark:border-[#fcfcfc26] dark:bg-[#202020] dark:hover:border-[#fcfcfc4d] dark:focus-within:border-[#fcfcfc4d]",
+            "relative box-border flex min-h-11 flex-col rounded-[22px] border-[0.5px] border-solid border-[#14141426] bg-[#fcfcfc] px-1 py-1 shadow-[0_2px_8px_-1px_#0000000d,0_1px_2px_#00000008,0_0_0_1px_#e4e4e40a] hover:border-[#1414144d] focus-within:border-[#1414144d] dark:border-[#fcfcfc26] dark:bg-[#1f1f1f] dark:hover:border-[#fcfcfc4d] dark:focus-within:border-[#fcfcfc4d]",
             expanded ? "rounded-[18px] px-3 pb-[7px] pt-[9px]" : "rounded-[22px] px-1 py-1",
             "overflow-hidden transition-[height,border-radius,padding,border-color,background-color,box-shadow,transform] duration-[300ms,300ms,300ms,150ms,150ms,150ms,150ms] ease-[var(--ease-composer),var(--ease-composer),var(--ease-composer),ease,ease,ease,ease]",
             disabled && "opacity-70",
@@ -990,7 +990,7 @@ export function PromptInput({
               <div className="relative">
                 <MentionEditor
                   className={cn(
-                    "max-h-40 min-h-8 flex-1 resize-none bg-transparent px-1 py-1.5 text-[16px] leading-[22px] outline-none placeholder:text-[#b7b7b7] dark:placeholder:text-[#6d6d6d]",
+                    "max-h-40 min-h-8 flex-1 resize-none bg-transparent px-1 py-1.5 text-[14px] font-[425] leading-5 outline-none placeholder:text-[#b7b7b7] dark:placeholder:text-[#6d6d6d]",
                     "absolute left-0 w-full",
                     expanded
                       ? "top-0 min-h-5 px-0 py-0"

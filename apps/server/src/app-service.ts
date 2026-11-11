@@ -30,6 +30,7 @@ import { RichMessageService } from "./services/rich-message-service";
 import { RunService } from "./services/run-service";
 import { ScreenService } from "./services/screen-service";
 import { SearchService } from "./services/search-service";
+import { ChannelLibraryService } from "./services/channel-library";
 import { forwardServiceMethod, serviceEffect } from "./services/service-utils";
 import { WebProviderSettingsService } from "./services/web-provider-settings";
 import { SettingsService } from "./services/settings-service";
@@ -72,6 +73,7 @@ export class AppService {
   readonly runs: RunService;
   readonly screens: ScreenService;
   readonly searchIndex: SearchService;
+  readonly library: ChannelLibraryService;
   readonly snapshots: SnapshotService;
   readonly assets: AssetStore;
   readonly notifications: NotificationService;
@@ -125,6 +127,7 @@ export class AppService {
       this.computerUrl
     );
     this.searchIndex = new SearchService(this.prisma);
+    this.library = new ChannelLibraryService(this.prisma);
     this.assets = new AssetStore({
       root: this.agentData.assetRoot,
       agentDataRoot: this.agentData.root,
@@ -633,6 +636,7 @@ export class AppService {
   markChannelRead = forwardServiceMethod(() => this.notifications.markChannelRead);
 
   search = forwardServiceMethod(() => this.searchIndex.search);
+  channelLibrary = forwardServiceMethod(() => this.library.list);
 
   health = forwardServiceMethod(() => this.snapshots.health);
 

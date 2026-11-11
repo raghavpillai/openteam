@@ -3,11 +3,11 @@ import { cn } from "../../lib/cn";
 
 /**
  * How a message's photos share one row, as in the reference: every photo keeps
- * its shape at one height (at most 192, the shortest photo's own height when
+ * its shape at one height (at most 200, the shortest photo's own height when
  * smaller, never under 64). When they don't fit, the row folds to at most three
  * tiles and the last one counts the photos left over.
  */
-export const IMAGE_ROW = { height: 192, minHeight: 64, gap: 6, maxFoldedTiles: 3, defaultAspect: 4 / 3 } as const;
+export const IMAGE_ROW = { height: 200, minHeight: 64, gap: 6, maxFoldedTiles: 3, defaultAspect: 4 / 3 } as const;
 
 export interface ImageRowPlan {
   height: number;

@@ -30,13 +30,14 @@ struct ComputerView: View {
   @State private var inputControls = false
   @State private var help = false
   @State private var watchHint = false
+  @State private var showReconnect = false
   private var viewerFailure: String? { statusFailure ?? vnc.failure }
   @SceneStorage("openteam.computer-control.viewer") private var controlID = UUID().uuidString
   private var controlGeneration: Int { status["controlSession"]["generation"].int }
   private var takeover: Bool { ComputerControl.owns(status, viewerID: controlID) }
   private var controlLabel: String {
-    if busy || status["controlPending"].bool { return "Changing control…" }
-    if takeover { return vnc.connected ? "You’re in control" : "Reconnecting — your control is reserved" }
+    if status["controlPending"].bool { return "Changing control…" }
+    if takeover { return !showReconnect ? "You’re in control" : "Reconnecting — your control is reserved" }
     return status["humanTakeover"].bool ? "Controlled on another device" : "Watching"
   }
   private var working: Bool { busy || pendingInputs > 0 || status["controlPending"].bool }
@@ -152,6 +153,13 @@ struct ComputerView: View {
         vnc.setControl(active && vnc.connected && !paused && scenePhase == .active)
       }
       .interactiveDismissDisabled(takeover)
+      .task(id: "control-connection-\(takeover)-\(vnc.connected)") {
+        guard takeover, !vnc.connected else { showReconnect = false; return }
+        // A grant reconnects VNC with its generation. Keep the ownership title steady
+        // through that short handshake; input remains gated by the real connection.
+        do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+        showReconnect = true
+      }
       .task(id: scenePhase) {
         guard scenePhase == .active else { return }
         await refreshStatus()
@@ -424,6 +432,8 @@ private struct ComputerToolButton: View {
 /// The same status/action capsule as desktop, rendered with native adaptive glass.
 private struct ComputerControlPill: View {
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @VoiceMotionPreference private var reduceMotion
+  @State private var showPending = false
   let label: String
   let controlling: Bool
   let pending: Bool
@@ -442,19 +452,33 @@ private struct ComputerControlPill: View {
         controlButton
       }.padding(12)
     }
-    .modifier(ComputerControlGlass(reduceTransparency: reduceTransparency))
+    .background {
+      ComputerControlSurface(progress: controlling ? 1 : 0,
+        reduceTransparency: reduceTransparency, reduceMotion: reduceMotion)
+    }
+    .animation(VoiceMemoController.motion(reduceMotion: reduceMotion), value: controlling)
+    .animation(VoiceMemoController.motion(reduceMotion: reduceMotion), value: label)
+    .animation(VoiceMemoController.motion(reduceMotion: reduceMotion), value: showPending)
+    .task(id: pending) {
+      guard pending else { showPending = false; return }
+      // Disable input immediately; avoid a loading-label flash for a quick acknowledgement.
+      do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+      showPending = true
+    }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("computer-control-bar")
   }
   private var statusLabel: some View {
     HStack(spacing: 8) {
-      if pending {
+      if showPending {
         ProgressView().controlSize(.small).tint(.white)
       } else {
         Image(systemName: controlling ? "cursorarrow.click" : "eye")
+          .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
           .accessibilityHidden(true)
       }
-      Text(label).fixedSize(horizontal: false, vertical: true)
+      Text(showPending ? "Changing control…" : label)
+        .contentTransition(.opacity).fixedSize(horizontal: false, vertical: true)
     }.font(.subheadline).foregroundStyle(.white.opacity(0.75))
       .accessibilityElement(children: .combine)
       .accessibilityIdentifier("computer-control-status")
@@ -462,11 +486,16 @@ private struct ComputerControlPill: View {
   private var controlButton: some View {
     Button(action: changeControl) {
       Text(actionTitle).font(.subheadline.weight(.medium))
+        .contentTransition(.opacity)
         .padding(.horizontal, 16).frame(minHeight: 44)
         .foregroundStyle(controlling ? Color.white : Color.black)
-        .background(controlling ? Color.white.opacity(0.1) : Color.white, in: Capsule())
+        .background {
+          ComputerControlShape(progress: reduceMotion ? 0 : controlling ? 1 : 0)
+            .fill(controlling ? Color.white.opacity(0.1) : Color.white)
+        }
+        .frame(minWidth: 108, minHeight: 44)
         .contentShape(Capsule())
-    }.buttonStyle(.plain)
+    }.buttonStyle(ComputerControlPressStyle(reduceMotion: reduceMotion))
       .disabled(pending || !available)
       .opacity(pending || !available ? 0.5 : 1)
       .accessibilityLabel(controlling ? "Give back control" : actionTitle)
@@ -474,17 +503,68 @@ private struct ComputerControlPill: View {
   }
 }
 
-private struct ComputerControlGlass: ViewModifier {
+/// One animatable path owns the rim, using the voice composer's shared spring.
+/// Text and hit targets never pass through a blur or a stretching transform.
+private struct ComputerControlShape: Shape {
+  var progress: Double
+  var animatableData: Double {
+    get { progress }
+    set { progress = newValue }
+  }
+  func path(in rect: CGRect) -> Path {
+    let radius = min(28, rect.height / 2)
+    let bend = sin(min(1, max(0, progress)) * .pi) * 2.5
+    let x = rect.minX, y = rect.minY, w = rect.width, h = rect.height
+    var p = Path()
+    p.move(to: CGPoint(x: x + radius, y: y))
+    p.addQuadCurve(to: CGPoint(x: x + w - radius, y: y),
+      control: CGPoint(x: x + w / 2, y: y + bend * 2))
+    p.addQuadCurve(to: CGPoint(x: x + w, y: y + radius), control: CGPoint(x: x + w, y: y))
+    p.addLine(to: CGPoint(x: x + w, y: y + h - radius))
+    p.addQuadCurve(to: CGPoint(x: x + w - radius, y: y + h), control: CGPoint(x: x + w, y: y + h))
+    p.addQuadCurve(to: CGPoint(x: x + radius, y: y + h),
+      control: CGPoint(x: x + w / 2, y: y + h - bend * 2))
+    p.addQuadCurve(to: CGPoint(x: x, y: y + h - radius), control: CGPoint(x: x, y: y + h))
+    p.addLine(to: CGPoint(x: x, y: y + radius))
+    p.addQuadCurve(to: CGPoint(x: x + radius, y: y), control: CGPoint(x: x, y: y))
+    p.closeSubpath()
+    return p
+  }
+}
+
+private struct ComputerControlSurface: View, @preconcurrency Animatable {
+  var progress: Double
   let reduceTransparency: Bool
-  func body(content: Content) -> some View {
+  let reduceMotion: Bool
+  var animatableData: Double {
+    get { progress }
+    set { progress = newValue }
+  }
+  private var shape: ComputerControlShape { ComputerControlShape(progress: reduceMotion ? 0 : progress) }
+  var body: some View {
+    surface.allowsHitTesting(false).accessibilityHidden(true)
+  }
+  @ViewBuilder private var surface: some View {
     if reduceTransparency {
-      content.background(Color(white: 0.14), in: RoundedRectangle(cornerRadius: 28))
-        .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(.white.opacity(0.16), lineWidth: 0.5))
+      shape.fill(Color(white: 0.14))
+        .overlay(shape.stroke(.white.opacity(0.16), lineWidth: 0.5))
     } else if #available(iOS 26, *) {
-      content.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 28))
+      Color.clear.glassEffect(.regular.interactive(), in: shape)
+        .transaction(value: progress) { $0.animation = nil }
     } else {
-      content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28))
-        .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+      shape.fill(.regularMaterial)
+        .overlay(shape.stroke(.white.opacity(0.12), lineWidth: 0.5))
     }
+  }
+}
+
+private struct ComputerControlPressStyle: ButtonStyle {
+  let reduceMotion: Bool
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .scaleEffect(configuration.isPressed && !reduceMotion ? 0.95 : 1)
+      .opacity(configuration.isPressed ? 0.85 : 1)
+      .animation(reduceMotion ? .easeOut(duration: 0.15)
+        : .interactiveSpring(response: 0.18, dampingFraction: 0.86), value: configuration.isPressed)
   }
 }

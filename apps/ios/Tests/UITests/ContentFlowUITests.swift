@@ -15,7 +15,7 @@ import XCTest
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
   func launch(_ scene: String, required: Bool = false, dark: Bool = false, haptics: Bool = false,
-    slowFavicons: Bool = false, largeText: Bool = false) async throws
+    slowFavicons: Bool = false, largeText: Bool = false, reducedMotion: Bool = false) async throws
     -> XCUIApplication
   {
     continueAfterFailure = false
@@ -33,6 +33,7 @@ import XCTest
     ]
     if required { app.launchArguments.append("--show-login") }
     if haptics { app.launchArguments.append("--haptic-audit") }
+    if reducedMotion { app.launchArguments.append("--qa-reduce-motion") }
     if slowFavicons { app.launchArguments.append("--slow-favicons") }
     if largeText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
     app.launch()
@@ -317,8 +318,34 @@ import XCTest
   func testComputerControlBarWithAccessibilityText() async throws {
     try await exerciseComputerControlBar(largeText: true)
   }
-  private func exerciseComputerControlBar(largeText: Bool) async throws {
-    let app = try await launch("plain-link", dark: true, largeText: largeText)
+  func testComputerControlMotion() async throws {
+    let app = try await launch("plain-link", dark: true)
+    defer { app.terminate() }
+    if !app.buttons["Computer"].exists {
+      app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.tap()
+    }
+    app.buttons["Computer"].tap()
+    XCTAssertTrue(app.buttons["Take control"].waitForExistence(timeout: 12))
+    try await Task.sleep(for: .seconds(2))
+    print("COMPUTER_CONTROL_MOTION_START")
+    try await Task.sleep(for: .seconds(1))
+    for _ in 0..<3 {
+      app.buttons["Take control"].tap()
+      XCTAssertTrue(app.buttons["Give back control"].waitForExistence(timeout: 12))
+      try await Task.sleep(for: .milliseconds(1200))
+      app.buttons["Give back control"].tap()
+      XCTAssertTrue(app.buttons["Take control"].waitForExistence(timeout: 12))
+      try await Task.sleep(for: .milliseconds(1200))
+    }
+    print("COMPUTER_CONTROL_MOTION_END")
+    let final = try await state()
+    XCTAssertEqual((final["screen"] as? [String: Any])?["humanTakeover"] as? Bool, false)
+  }
+  func testComputerControlReducedMotion() async throws {
+    try await exerciseComputerControlBar(largeText: false, reducedMotion: true)
+  }
+  private func exerciseComputerControlBar(largeText: Bool, reducedMotion: Bool = false) async throws {
+    let app = try await launch("plain-link", dark: true, largeText: largeText, reducedMotion: reducedMotion)
     defer { app.terminate() }
     if !app.buttons["Computer"].exists {
       app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.tap()

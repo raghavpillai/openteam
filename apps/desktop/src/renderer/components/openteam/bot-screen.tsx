@@ -10,7 +10,7 @@ import {
 } from "@openteam/client-core";
 import type { BotView, ScreenStatusView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { Eye, LoaderCircle, Minimize2, Monitor, SquareMousePointer, RefreshCw } from "lucide-react";
+import { Minimize2, Monitor, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { API_BASE } from "../../client/http";
@@ -30,6 +30,7 @@ import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import VncComputer from "./vnc-computer";
 import { BotAvatar } from "./avatar";
+import { ComputerControlBar } from "./computer-control-bar";
 
 const statusRequests = createKeyedRequestCoordinator();
 
@@ -212,6 +213,15 @@ export function BotScreen({
   const controlling = ownsComputerControl(screen, controlId);
   const [controlPending, setControlPending] = useState(false);
   const [viewerConnected, setViewerConnected] = useState(false);
+  const [showReconnect, setShowReconnect] = useState(false);
+  useEffect(() => {
+    if (!controlling || viewerConnected) {
+      setShowReconnect(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowReconnect(true), 500);
+    return () => window.clearTimeout(timer);
+  }, [controlling, viewerConnected]);
   const [watchHint, setWatchHint] = useState(false);
   useEffect(() => {
     setWatchHint(false);
@@ -278,16 +288,15 @@ export function BotScreen({
     if (open && handoff && screen?.controlSession?.id === `handoff:${handoff.messageId}`)
       void changeControl(true);
   }, [open, handoff, screen?.controlSession?.id, changeControl]);
-  const controlLabel =
-    controlPending || screen?.controlPending
-      ? "Changing control…"
-      : controlling
-        ? viewerConnected
-          ? "You’re in control"
-          : "Reconnecting — your control is reserved"
-        : screen?.humanTakeover
-          ? "Controlled on another device"
-          : "Watching";
+  const controlLabel = screen?.controlPending
+    ? "Changing control…"
+    : controlling
+      ? !showReconnect
+        ? "You’re in control"
+        : "Reconnecting — your control is reserved"
+      : screen?.humanTakeover
+        ? "Controlled on another device"
+        : "Watching";
   const viewerReady = screen?.state === "ready";
   const frameSource = useAuthenticatedResource(
     enabled && active && screen?.state === "ready" && !open
@@ -507,65 +516,16 @@ export function BotScreen({
               </div>
             </main>
             <footer className="electron-no-drag flex shrink-0 justify-center px-4 pb-4 pt-2">
-              <div
-                aria-label="Computer control"
-                role="group"
-                className="flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-[28px] border border-white/[0.08] bg-[#242424]/90 py-1.5 pl-4 pr-1.5 text-[14px] shadow-[0_4px_24px_#0003] backdrop-blur-xl"
-              >
-                <span
-                  aria-live="polite"
-                  role="status"
-                  className="flex min-w-0 items-center gap-2 text-white/70"
-                >
-                  {controlPending || screen?.controlPending ? (
-                    <LoaderCircle
-                      aria-hidden="true"
-                      className="size-4 shrink-0 motion-safe:animate-spin"
-                    />
-                  ) : controlling ? (
-                    <SquareMousePointer aria-hidden="true" className="size-4 shrink-0" />
-                  ) : (
-                    <Eye aria-hidden="true" className="size-4 shrink-0" />
-                  )}
-                  <span>
-                    {controlLabel}
-                    {watchHint && !controlling && !screen?.humanTakeover && (
-                      <span className="ml-2 text-white/45">Take control to click and type</span>
-                    )}
-                  </span>
-                </span>
-                <button
-                  aria-label={
-                    controlling
-                      ? "Give back control"
-                      : screen?.humanTakeover
-                        ? "Take control here"
-                        : "Take control"
-                  }
-                  className={`min-h-9 shrink-0 rounded-full px-3.5 text-[14px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#242424] disabled:cursor-wait disabled:opacity-45 ${controlling ? "bg-white/[0.07] text-white/85 hover:bg-white/[0.14]" : "bg-[#f7f7f7] text-[#202020] hover:bg-white"}`}
-                  disabled={
-                    controlPending || screen?.controlPending || (!controlling && !viewerReady)
-                  }
-                  onClick={() => void changeControl(!controlling)}
-                  type="button"
-                >
-                  {controlling
-                    ? "Stop"
-                    : screen?.humanTakeover
-                      ? "Take control here"
-                      : "Take control"}
-                </button>
-                {!controlling && screen?.humanTakeover && (
-                  <button
-                    type="button"
-                    className="min-h-9 rounded-full px-3 text-white/75 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:opacity-45"
-                    disabled={controlPending || screen?.controlPending}
-                    onClick={() => void resumeBot()}
-                  >
-                    Resume bot
-                  </button>
-                )}
-              </div>
+              <ComputerControlBar
+                label={controlLabel}
+                controlling={controlling}
+                pending={controlPending || screen?.controlPending === true}
+                available={viewerReady}
+                anotherDevice={!controlling && screen?.humanTakeover === true}
+                hint={watchHint}
+                onChange={() => void changeControl(!controlling)}
+                onResume={() => void resumeBot()}
+              />
             </footer>
           </div>,
           document.body

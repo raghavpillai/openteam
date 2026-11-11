@@ -1,0 +1,195 @@
+.computer-control-bar {
+  --control-spring: cubic-bezier(0.22, 1.35, 0.36, 1);
+  position: relative;
+  max-width: 100%;
+  min-height: 50px;
+  border-radius: 28px;
+  color: white;
+  font-size: 14px;
+  isolation: isolate;
+}
+.computer-control-skin {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid #ffffff14;
+  background: #242424ed;
+  backdrop-filter: blur(24px);
+  box-shadow:
+    0 4px 24px #0003,
+    inset 0 1px 0 #ffffff05;
+  transform-origin: 50% 70%;
+  z-index: -1;
+  pointer-events: none;
+}
+.computer-control-content {
+  width: max-content;
+  max-width: calc(100vw - 64px);
+  min-height: 50px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 12px;
+  padding: 6px 6px 6px 16px;
+}
+.computer-control-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffffb3;
+}
+.computer-control-symbol {
+  position: relative;
+  width: 16px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.computer-control-symbol svg {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 1px;
+  opacity: 0;
+  transform: translateY(5px) scale(0.65) rotate(-18deg);
+  transition:
+    opacity 160ms ease-out,
+    transform 420ms var(--control-spring);
+}
+.computer-control-symbol svg[data-shown="true"] {
+  opacity: 1;
+  transform: none;
+}
+.computer-control-symbol .computer-control-spinner[data-shown="true"] {
+  animation: computer-control-spin 800ms linear infinite;
+}
+.computer-control-caption {
+  position: relative;
+  display: inline-grid;
+  white-space: nowrap;
+}
+.computer-control-caption > span {
+  grid-area: 1 / 1;
+}
+.computer-control-caption-out {
+  position: absolute;
+  inset: 0;
+  animation: computer-control-word-out 180ms ease-in both;
+  pointer-events: none;
+}
+.computer-control-caption-in {
+  animation: computer-control-word-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.computer-control-hint {
+  color: #ffffff73;
+}
+.computer-control-action,
+.computer-control-resume {
+  position: relative;
+  min-height: 36px;
+  border-radius: 24px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  isolation: isolate;
+}
+/* A stable hit target; only the visible liquid backplate contracts to Stop. */
+.computer-control-action {
+  min-width: 108px;
+  color: #202020;
+  transition: color 240ms ease;
+}
+.computer-control-action-skin {
+  position: absolute;
+  height: 36px;
+  width: 100%;
+  left: 50%;
+  top: 0;
+  translate: -50% 0;
+  border-radius: 24px;
+  background: #f7f7f7;
+  transition:
+    width 600ms var(--control-spring),
+    background-color 300ms ease,
+    transform 180ms var(--control-spring);
+  z-index: -1;
+  pointer-events: none;
+}
+.computer-control-bar[data-owned="true"] .computer-control-action {
+  color: #ffffffd9;
+}
+.computer-control-bar[data-owned="true"] .computer-control-action-skin {
+  width: 64px;
+  background: #ffffff12;
+}
+.computer-control-action:hover .computer-control-action-skin {
+  filter: brightness(1.1);
+}
+.computer-control-action:active .computer-control-action-skin {
+  transform: scale(0.94, 0.9);
+}
+.computer-control-action:disabled,
+.computer-control-resume:disabled {
+  cursor: wait;
+}
+.computer-control-action:disabled .computer-control-caption {
+  opacity: 0.6;
+}
+.computer-control-action:focus-visible,
+.computer-control-resume:focus-visible {
+  outline: 2px solid #fffc;
+  outline-offset: 3px;
+}
+.computer-control-resume {
+  color: #ffffffbf;
+}
+.computer-control-resume:hover {
+  background: #ffffff12;
+}
+@keyframes computer-control-word-in {
+  from {
+    opacity: 0;
+    translate: 0 5px;
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    filter: blur(0);
+  }
+}
+@keyframes computer-control-word-out {
+  from {
+    opacity: 0.7;
+    translate: 0 0;
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    translate: 0 -5px;
+    filter: blur(3px);
+  }
+}
+@keyframes computer-control-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .computer-control-bar *,
+  .computer-control-bar *::before {
+    animation: none !important;
+    transition:
+      opacity 150ms ease,
+      color 150ms ease,
+      background-color 150ms ease !important;
+  }
+  .computer-control-symbol svg {
+    transform: none;
+  }
+  .computer-control-caption-out {
+    display: none;
+  }
+}

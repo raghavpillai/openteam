@@ -1,4 +1,4 @@
-import { settleTaskProgress, dispatchTaskContinuations, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, requestWakeAllowed, taskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
+import { settleTaskProgress, dispatchTaskContinuations, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, requestWakeAllowed, requestIsStopped, taskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
 import {
   publishMessageNotification,
   turnOwesReplyReminder,
@@ -201,8 +201,9 @@ const REQUEST_SOURCE_BY_ORIGIN = {
   broadcast: "broadcast",
 } as const satisfies Record<RunOrigin, RuntimeRequestSource>;
 
-export const runtimeRequestSourceForOrigin = (origin: RunOrigin): RuntimeRequestSource =>
-  REQUEST_SOURCE_BY_ORIGIN[origin];
+export const runtimeRequestSourceForOrigin = (origin: RunOrigin, inboxType?: string): RuntimeRequestSource =>
+  // Feedback keeps user queue priority, but does not require a new visible reply.
+  origin === "user" && inboxType === "user.reaction" ? "event" : REQUEST_SOURCE_BY_ORIGIN[origin];
 
 /** Interrupted wakes that run again, and how often: agent messages up to 3 times, the rest once. */
 export const WAKE_REDRIVE_LIMITS: Partial<Record<RunOrigin, number>> = {
@@ -320,6 +321,9 @@ const revivalBatchContent = <T extends RevivalWake>(claimed: T, pending: readonl
 export const turnContentWithNotes = (
   input: {
     origin: RunOrigin;
+    inboxType?: string;
+    /** The captured assembler adds the reply reminder only when explicitly requested. */
+    appendReplyReminder?: boolean;
     runtimeProfile: "agent" | "subagent";
     notes: ReadonlyArray<string | null | undefined>;
     unfinishedTasks?: boolean;
@@ -329,7 +333,8 @@ export const turnContentWithNotes = (
   withTurnSystemReminder(
     turnSystemReminder(input.notes, {
       unfinishedTasks: input.unfinishedTasks,
-      reply: input.runtimeProfile === "agent" && turnOwesReplyReminder(input.origin, content),
+      reply: input.appendReplyReminder === true && input.runtimeProfile === "agent" &&
+        turnOwesReplyReminder(input.origin, content, input.inboxType),
     }),
     content
   );
@@ -1215,8 +1220,34 @@ export class WakeWorker {
             run: { include: { channel: true } },
           },
         });
+        // Feedback has no ChannelDelivery, so room-delivery validation below
+        // cannot protect it. Recheck the destination at claim, after serializing
+        // with membership edits; sort locks when feedback spans several chats.
+        // Room deletion takes execution before membership. A mixed queue can
+        // select a delivery after inspecting feedback, so take all candidate
+        // execution locks first, in one order, before any membership lock.
+        const executionChannels = [...new Set(pendingCandidates
+          .filter(candidate => candidate.run.deliveryId ||
+            (candidate.type === "user.reaction" && candidate.run.channel?.kind === "group"))
+          .flatMap(candidate => candidate.run.channelId ? [candidate.run.channelId] : []))].sort();
+        for (const channelId of executionChannels) await lockGroupExecution(tx, channelId);
+        const feedbackChannels = [...new Set(pendingCandidates
+          .filter(candidate => candidate.type === "user.reaction")
+          .flatMap(candidate => candidate.run.channelId ? [candidate.run.channelId] : []))].sort();
+        for (const channelId of feedbackChannels)
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
         const candidates = [];
         for (const candidate of pendingCandidates) {
+          if (candidate.type === "user.reaction" && (!candidate.run.channelId ||
+              !await tx.channel.findFirst({ where: {
+                id: candidate.run.channelId, archivedAt: null, members: { some: { botId } },
+              }, select: { id: true } }))) {
+            const completedAt = new Date();
+            const error = { code: "reaction_channel_unavailable" };
+            await tx.inboxEvent.update({ where: { id: candidate.id }, data: { status: "completed", completedAt, error } });
+            await tx.run.update({ where: { id: candidate.runId }, data: { status: "cancelled", completedAt, error } });
+            continue;
+          }
           if (candidate.run.origin === "user" || await requestWakeAllowed(tx, candidate)) candidates.push(candidate);
           else {
             const settledAt = new Date();
@@ -1487,6 +1518,7 @@ export class WakeWorker {
         sessionPath: claimed.sessionPath,
         content: turnContentWithNotes({
           origin: claimed.origin,
+          inboxType: claimed.inboxType,
           runtimeProfile: claimed.runtimeProfile,
           notes: [platformPrompt.automationStatus, platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
           unfinishedTasks: await this.supersededUnfinishedRun(claimed),
@@ -1505,7 +1537,7 @@ export class WakeWorker {
         agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
         todoUpdate: platformPrompt.todoUpdate,
         resetSelfSummaryCount: wakeResetsSelfSummaryCount(claimed.inboxType),
-        requestSource: runtimeRequestSourceForOrigin(claimed.origin),
+        requestSource: runtimeRequestSourceForOrigin(claimed.origin, claimed.inboxType),
         channelId: claimed.channelId,
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,
@@ -1753,9 +1785,9 @@ export class WakeWorker {
     if (!claimed.interruptedRunId) return false;
     const run = await this.prisma.run.findFirst({
       where: { id: claimed.interruptedRunId, botId: claimed.botId },
-      select: { status: true, inputDeliveredAt: true },
+      select: { status: true, inputDeliveredAt: true, error: true, requestStoppedAt: true },
     });
-    return Boolean(run?.inputDeliveredAt && ["cancelled", "interrupted"].includes(run.status));
+    return Boolean(run?.inputDeliveredAt && !requestIsStopped(run) && ["cancelled", "interrupted"].includes(run.status));
   }
 
   /** A wake cut off by a typed or priority message runs again after it, a bounded number of times. */
@@ -1827,9 +1859,16 @@ export class WakeWorker {
         where: { botId: claimed.botId, payload: { path: ["interruptedRunId"], equals: claimed.runId } },
         select: { id: true },
       });
-      priorityInterrupted = currentError?.code === "priority_peer_interrupt" ||
-        (Boolean(supersededByUser) && current?.status !== "failed");
-      const failureDetails = (priorityInterrupted || current?.status === "cancelled") && currentError ? currentError : details;
+      // A later explicit Stop wins over an older typed-message interruption.
+      // The computer can confirm that stop before the cancel API records it.
+      const stoppedByRuntime = error instanceof TurnStoppedError && current?.status !== "failed";
+      const explicitlyStopped = stoppedByRuntime ||
+        (current?.status === "cancelled" && currentError?.code !== "priority_peer_interrupt");
+      priorityInterrupted = !explicitlyStopped && (currentError?.code === "priority_peer_interrupt" ||
+        (Boolean(supersededByUser) && current?.status !== "failed"));
+      const failureDetails = stoppedByRuntime && (!currentError || currentError.code === "priority_peer_interrupt")
+        ? { code: "cancelled_by_user", message: error.message }
+        : (priorityInterrupted || current?.status === "cancelled") && currentError ? currentError : details;
       const finalStatus =
         current?.status === "cancelled" || (error instanceof TurnStoppedError && current?.status !== "failed")
           ? "cancelled"

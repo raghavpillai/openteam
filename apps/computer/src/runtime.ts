@@ -318,6 +318,7 @@ export class ComputerRuntime {
       lastStopReason: null,
       lastErrorMessage: null,
       sentMessageCount: 0,
+      userAcknowledged: false,
       initialUserStarted: false,
       initialUserClientId: request.clientMessageId,
       pluginNamespaces: request.dynamicNamespaces ?? [],

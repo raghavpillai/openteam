@@ -30,8 +30,13 @@ export const turnSystemReminder = (
 };
 
 /** Only a typed, visible user message is owed the reply reminder; hidden host prompts are not. */
-export const turnOwesReplyReminder = (origin: string, content: string): boolean =>
-  origin === "user" && !content.startsWith("[SAND_HIDDEN_PROMPT]");
+export const turnOwesReplyReminder = (origin: string, content: string, inboxType?: string): boolean => {
+  if (origin !== "user" || inboxType === "user.reaction") return false;
+  // Legacy callers can lack event metadata. Unwrap only the host's full canonical envelope;
+  // an addressed user message quoting a hidden marker still requires a response.
+  const query = /^<timestamp>[^<\n]*<\/timestamp>\n<user_query>\n([\s\S]*)\n<\/user_query>$/.exec(content)?.[1] ?? content;
+  return !query.startsWith("[SAND_HIDDEN_PROMPT]");
+};
 
 export const withTurnSystemReminder = (reminder: string | null, content: string): string =>
   reminder ? `${reminder}\n${content}` : content;

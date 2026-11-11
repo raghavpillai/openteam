@@ -1,4 +1,4 @@
-import { initialTaskProgress, taskProgress, taskScopeUpdates, ensureRequestForTask, stopRequestProgress, lockAgentLifecycle } from "@openteam/messaging";
+import { initialTaskProgress, taskProgress, taskScopeUpdates, ensureRequestForTask, stopRequestProgress, requestIsStopped, lockAgentLifecycle } from "@openteam/messaging";
 import {
   ApiError,
   formatPiModelRef,
@@ -311,12 +311,13 @@ export class SubagentService {
 
   /**
    * The user stopping a run, as the reference's agent-run interrupt: a worker's turn stops that
-   * worker (its shells end and it won't report back, as with StopSubagent); a bot's turn stops
-   * along with every subagent the bot has running.
+   * worker (its shells end and it won't report back, as with StopSubagent). An active bot turn
+   * stops all its subagents; a finished turn stops workers owned by its original request.
    */
   stopRun = (runId: string) =>
     serviceEffect(async () => {
-      const run = await this.prisma.run.findUnique({ where: { id: runId }, select: { botId: true, status: true } });
+      const run = await this.prisma.run.findUnique({ where: { id: runId }, select: { botId: true, status: true, error: true, completedAt: true, requestStoppedAt: true,
+        inboxEvents: { take: 1, select: { payload: true } } } });
       if (!run) throw new ApiError(404, "run_not_found", "Run not found");
       const callId = `user-stop:${runId}`;
       const worker = await this.prisma.subagent.findFirst({
@@ -328,9 +329,30 @@ export class SubagentService {
         return { ok: true, status: current?.status ?? "cancelled" };
       }
       await this.prisma.$transaction(tx => stopRequestProgress(tx, run.botId, ["queued", "running"].includes(run.status) ? undefined : runId));
-      const result = await Effect.runPromise(this.runs.cancel(runId));
-      if (["queued", "running"].includes(run.status)) await this.stopRunningSubagents(run.botId, callId);
-      return result;
+      const userCancelled = run.error && typeof run.error === "object" && !Array.isArray(run.error) &&
+        (run.error as { code?: unknown }).code === "cancelled_by_user";
+      const stoppedAt = run.status === "cancelled" && userCancelled ? run.completedAt ?? run.requestStoppedAt : null;
+      const requestRunId = (run.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined)?.taskContextRunId ?? runId;
+      // A retry after a partial stop still owns its old workers, but must not
+      // cancel a worker attached to a fresh request after the failed attempt.
+      // A finished model turn may still own live delegated work. Stop that
+      // request's workers too, without reaching independent sibling requests.
+      const workerScope: Prisma.SubagentWhereInput = ["queued", "running"].includes(run.status) ? {}
+        : stoppedAt ? { OR: [{ parentRunId: runId }, { requestRunId }, { requestRun: { requestStoppedAt: { lte: stoppedAt } } }] }
+        : { OR: [{ parentRunId: runId }, { requestRunId }] };
+      // A transport failure stopping the parent must not leave its workers
+      // untouched or delay their stop, and child failures must reach the caller.
+      const [cancellation, workers] = await Promise.all([
+        Effect.runPromise(this.runs.cancel(runId)).then(
+          result => ({ ok: true as const, result }),
+          error => ({ ok: false as const, error }),
+        ),
+        this.stopRunningSubagents(run.botId, callId, workerScope),
+      ]);
+      if (workers.some(worker => worker.outcome === "failed"))
+        throw new ApiError(503, "bot_stop_incomplete", "Some work could not be stopped. Try Stop again.");
+      if (!cancellation.ok) throw cancellation.error;
+      return cancellation.result;
     });
 
   /**
@@ -350,6 +372,13 @@ export class SubagentService {
       await Promise.allSettled(runs.map((run) => Effect.runPromise(this.stopRun(run.id))));
       const requests = await this.prisma.$transaction(tx => stopRequestProgress(tx, botId));
       const workers = await this.stopRunningSubagents(botId, `user-stop:bot:${botId}`);
+      // Stop is best effort across all targets, but success must not hide a
+      // failed cancellation. A turn that finished during the attempt is fine.
+      const remaining = runs.length ? await this.prisma.run.count({
+        where: { id: { in: runs.map(run => run.id) }, status: { in: ["queued", "running"] } },
+      }) : 0;
+      if (remaining || workers.some(worker => worker.outcome === "failed"))
+        throw new ApiError(503, "bot_stop_incomplete", "Some work could not be stopped. Try Stop again.");
       return { hadActiveRun: runs.length > 0 || workers.length > 0 || requests > 0 };
     });
 
@@ -417,9 +446,9 @@ export class SubagentService {
     return { stopped_all: true, stopped: of("stopped"), already_finished: of("finished"), failed: of("failed"), delegated };
   }
 
-  private async stopRunningSubagents(parentBotId: string, callId: string) {
+  private async stopRunningSubagents(parentBotId: string, callId: string, scope: Prisma.SubagentWhereInput = {}) {
     const running = await this.prisma.subagent.findMany({
-      where: { parentBotId, status: { in: [...OPEN_STATUSES] } },
+      where: { ...scope, parentBotId, status: { in: [...OPEN_STATUSES] } },
       orderBy: { createdAt: "asc" },
     });
     return Promise.all(running.map(async (subagent) => {
@@ -714,7 +743,7 @@ export class SubagentService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openteam-subagent-capacity'))`;
       await assertSubagentCapacity(context.botId, type, tx);
       const priorRequest = subagent.requestRunId ? await tx.run.findUnique({ where: { id: subagent.requestRunId } }) : null;
-      const inheritedRequestId = priorRequest && priorRequest.channelId === context.channelId && !priorRequest.requestStoppedAt && priorRequest.status !== "cancelled" && taskProgress(priorRequest.requestProgress)?.state !== "complete" ? priorRequest.id : undefined;
+      const inheritedRequestId = priorRequest && priorRequest.channelId === context.channelId && !requestIsStopped(priorRequest) && taskProgress(priorRequest.requestProgress)?.state !== "complete" ? priorRequest.id : undefined;
       const requestRunId = await ensureRequestForTask(tx, context.botId, context.runId, input.request_run_id ?? inheritedRequestId);
       const current = await tx.subagent.findUniqueOrThrow({ where: { id: subagent.id } });
       if (current.currentRunId !== subagent.currentRunId || !["completed", "failed", "stopped", "waiting"].includes(current.status)) throw new ApiError(409, "subagent_not_resumable", "The task already continued; inspect its current state before dispatching again");

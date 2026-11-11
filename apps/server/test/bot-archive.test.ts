@@ -16,7 +16,7 @@ const fixture = (failure?: "context-network" | "screen-network" | "active-contex
   const tx = {
     $executeRaw: async () => 0,
     run: {
-      findMany: async ({ where }: any) => where.requestStoppedAt === null ? [] : [{ id: "parent-run", botId: "bot" }],
+      findMany: async ({ where }: any) => where.requestStoppedAt === null ? [] : [{ id: "parent-run", botId: "bot", inboxEvents: [] }],
       updateMany: async ({ data }: any) => { runStatus = data.status; },
     },
     bot: {

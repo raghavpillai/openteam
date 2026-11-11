@@ -1,14 +1,16 @@
 import { expect, test } from "bun:test";
 import { RuntimeTools } from "../../src/runtime/tools";
+import { ComputerRuntime } from "../../src/runtime";
+import { communicationReminder } from "../../src/runtime/prompt-context";
 
-function fixture(response: Record<string, unknown>) {
+function fixture(response: Record<string, unknown> | ((name: string) => Record<string, unknown>)) {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
-  const active: any = { runId: "fixture", botId: "fixture", screenBotId: "fixture", sentMessageCount: 0, queue: { push() {} } };
+  const active: any = { runId: "fixture", botId: "fixture", screenBotId: "fixture", sentMessageCount: 0, userAcknowledged: false, queue: { push() {} } };
   const calls: any[] = [];
   tools.callControlPlaneTool = async (turn: any, id: string, name: string, args: any) => {
     const originalFetch = globalThis.fetch;
     try {
-      globalThis.fetch = (async () => { calls.push({ id, name, args }); return Response.json(response); }) as any;
+      globalThis.fetch = (async () => { calls.push({ id, name, args }); return Response.json(typeof response === "function" ? response(name) : response); }) as any;
       return await tools.callControlPlaneToolRequest(turn, id, name, args);
     } finally { globalThis.fetch = originalFetch; }
   };
@@ -26,12 +28,56 @@ test("a reaction with end_turn is the whole reply: it counts as delivery and end
   await expect(call("shell", { command: "true" }, "Shell")).rejects.toThrow("turn has ended");
 });
 
-test("a reaction without end_turn keeps the turn open and owes a reply", async () => {
-  const { active, call } = fixture({ reacted: true, removed: false });
+test("a reaction without end_turn acknowledges the user while allowing background work to continue", async () => {
+  const { active, call } = fixture((name) => name === "ReactToMessage" ? { reacted: true, removed: false } : { sent: true });
   const result = await call("react", { message_address: "t3u", emoji: "👍" });
   expect(result.terminate).toBeUndefined();
   expect(active.endTurnRequested).toBeUndefined();
+  expect(active.sentMessageCount).toBe(1);
+  expect(active.userAcknowledged).toBe(true);
+  await call("next", { type: "text", content: "The result is 391.", end_turn: true }, "SendToUser");
+  expect(active.endTurnRequested).toBe(true);
+  expect(active.sentMessageCount).toBe(2);
+});
+
+for (const type of ["attachment", "widget"] as const) test(`a delivered ${type} is output but is not an opening acknowledgement`, async () => {
+  const { active, call } = fixture({ sent: true });
+  Object.assign(active, { requestSource: "turn", subagentType: null });
+  const args = type === "attachment"
+    ? { type, url: "https://example.invalid/result.txt" }
+    : { type, widget: { prompt: "Continue?", options: [{ label: "Yes", value: "yes" }] } };
+  await call("send", args, "SendToUser");
+  expect(active.sentMessageCount).toBe(1);
+  expect(active.userAcknowledged).toBe(false);
+  const messages: any[] = [
+    { role: "user", content: "Please check the files." },
+    { role: "assistant", content: [{ type: "toolCall", id: "send", name: "SendToUser", arguments: { type } }] },
+    { role: "toolResult", toolCallId: "send", isError: false, content: [] },
+    ...["one", "two"].map(id => ({ role: "assistant", content: [{ type: "toolCall", id, name: "Read", arguments: {} }] })),
+  ];
+  expect(communicationReminder(messages, active)?.kind).toBe("ack");
+});
+
+test("an invalid reaction cannot discharge the delivery obligation", async () => {
+  const { active, call } = fixture({ reacted: false, removed: false });
+  await call("react", { message_address: "t9u", emoji: "👍" });
   expect(active.sentMessageCount).toBe(0);
+  expect(active.userAcknowledged).toBe(false);
+  expect(active.endTurnRequested).toBeUndefined();
+});
+
+test("an invalid tapback does not silence the opening-ack reminder while work continues", async () => {
+  const { active, call } = fixture({ reacted: false, removed: false, note: "No user message t9u in this chat." });
+  Object.assign(active, { requestSource: "turn", subagentType: null });
+  const result = await call("react", { message_address: "t9u", emoji: "👍" });
+  const messages: any[] = [
+    { role: "user", content: "Please check the files." },
+    { role: "assistant", content: [{ type: "toolCall", id: "react", name: "ReactToMessage", arguments: { message_address: "t9u", emoji: "👍" } }] },
+    { role: "toolResult", toolCallId: "react", ...result },
+    { role: "assistant", content: [{ type: "toolCall", id: "read", name: "Read", arguments: {} }] },
+  ];
+  expect(active.sentMessageCount).toBe(0);
+  expect(communicationReminder(messages, active)?.kind).toBe("ack");
 });
 
 test("a failed reaction never ends the turn", async () => {
@@ -39,4 +85,22 @@ test("a failed reaction never ends the turn", async () => {
   await call("react", { message_address: "t3u", emoji: "👍", end_turn: true }).catch(() => undefined);
   expect(active.endTurnRequested).toBeUndefined();
   expect(active.sentMessageCount).toBe(0);
+});
+
+test("settling after a successful background tapback does not inject a text-delivery nudge", async () => {
+  const { active, call } = fixture({ reacted: true, removed: false });
+  const runtime = new ComputerRuntime() as any;
+  const prompts: string[] = [];
+  runtime.compaction = { beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {} };
+  runtime.cleanup = async () => {};
+  Object.assign(active, {
+    requestSource: "turn", subagentType: null, turnId: "t", contextSessionId: "c", attachmentTempDirectories: [],
+    session: { messages: [], prompt: async (text: string) => {
+      prompts.push(text);
+      await call("react", { message_address: "t3u", emoji: "👍" });
+    } }, queue: { push() {}, end() {} },
+  });
+  await runtime.execute(active, "Keep the final answer short.", []);
+  expect(prompts).toEqual(["Keep the final answer short."]);
+  expect(active.endTurnRequested).toBeUndefined();
 });

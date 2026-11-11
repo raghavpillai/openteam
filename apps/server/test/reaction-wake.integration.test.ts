@@ -10,7 +10,7 @@ import { ChannelService } from "../src/services/channel-service";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
-test("a user reaction wakes the authoring Bot as priority user input", async () => {
+for (const emoji of ["👍", "👎"]) test("a " + emoji + " reaction wakes the authoring Bot as priority user input", async () => {
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
@@ -77,7 +77,7 @@ test("a user reaction wakes the authoring Bot as priority user input", async () 
 
     const added = await Effect.runPromise(
       service.reactToMessage(messageId, {
-        emoji: "👍",
+        emoji,
         clientId: `reaction-${randomUUID()}`,
         timeZone: "Asia/Jerusalem",
       })
@@ -89,13 +89,19 @@ test("a user reaction wakes the authoring Bot as priority user input", async () 
       include: { messages: true, inboxEvents: true },
     });
     expect(run.origin).toBe("user");
-    expect(run.messages[0]?.content).toContain("The user reacted 👍");
+    expect(run.messages[0]?.content).toContain("The user reacted " + emoji);
+    if (emoji === "👎") {
+      expect(run.messages[0]?.content).toContain("Deliver your response with SendToUser");
+      expect(run.messages[0]?.content).not.toContain("You don't need to reply");
+    } else {
+      expect(run.messages[0]?.content).toContain("You don't need to reply");
+    }
     expect(run.inboxEvents[0]).toMatchObject({ type: "user.reaction", priority: 300 });
     expect(run.inboxEvents[0]?.payload).toMatchObject({ origin: "user" });
 
     const removed = await Effect.runPromise(
       service.reactToMessage(messageId, {
-        emoji: "👍",
+        emoji,
         clientId: `reaction-${randomUUID()}`,
         timeZone: "Asia/Jerusalem",
       })

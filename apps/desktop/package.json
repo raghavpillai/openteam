@@ -140,6 +140,7 @@
     "test:background-activity": "bun scripts/test-background-activity.ts",
     "test:activity-history": "bun scripts/test-activity-history.ts",
     "test:window-activity": "bun scripts/test-window-activity.ts",
+    "test:reaction-order": "bun scripts/test-reaction-order.ts",
     "test:window-sync": "bun scripts/test-window-activity.ts --sync",
     "test:window-foreground": "bun scripts/test-window-foreground.ts",
     "test:resource-lifecycle": "bun scripts/test-resource-lifecycle.ts",

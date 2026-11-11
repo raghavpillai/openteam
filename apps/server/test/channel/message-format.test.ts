@@ -57,6 +57,17 @@ describe("channel message interaction prompts", () => {
     expect(prompt).not.toContain("x".repeat(80));
   });
 
+  test.each(["👎", "👎🏽", "👎️"])("treats %s as feedback needing a delivered correction or clarification", (emoji) => {
+    const prompt = formatUserReactionPrompt(emoji, "17 × 23 = 391");
+    expect(prompt).toContain("The user reacted " + emoji);
+    expect(prompt).toContain(JSON.stringify("17 × 23 = 391"));
+    expect(prompt).toContain("Re-check it");
+    expect(prompt).toContain("correction");
+    expect(prompt).toContain("what the user wants changed");
+    expect(prompt).toContain("Deliver your response with SendToUser");
+    expect(prompt).not.toContain("You don't need to reply");
+  });
+
   test("formats a rename as one hidden user-role wake with profile and event layers", () => {
     const prompt = formatChannelRenamePrompt({ name: "a2a", description: "" });
     const token = prompt.match(/SAND_AGENT_PROFILE_UPDATE:v1:([^>]+)>>/)?.[1];

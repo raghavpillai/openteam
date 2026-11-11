@@ -32,5 +32,5 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("delivery addresses survive
   expect(await db.$transaction(tx=>resolveMessageAddress(tx,channelId,"t99s1"))).toBeNull();
   const replay=await messaging().sendVisible({...context,callId:"reply"},{type:"text",content:"Threaded",reply_to:"t0u"});
   expect(replay.acknowledgement).toMatchObject({duplicate:true,message_address:"t0s6"});
- }finally{await db.idempotencyRecord.deleteMany({where:{scope:`reaction:${botId}`}});await db.channel.deleteMany({where:{id:{in:[channelId,groupId]}}});await db.bot.deleteMany({where:{id:botId}});await db.$disconnect();}
+ }finally{await db.idempotencyRecord.deleteMany({where:{OR:[{scope:`reaction:${botId}`},{scope:{startsWith:`reaction:${botId}:`}}]}});await db.channel.deleteMany({where:{id:{in:[channelId,groupId]}}});await db.bot.deleteMany({where:{id:botId}});await db.$disconnect();}
 });

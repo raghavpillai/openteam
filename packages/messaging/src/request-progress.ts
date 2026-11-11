@@ -8,6 +8,8 @@ import {
 import { Prisma, type PrismaClient } from "@openteam/db";
 import type { AgentMessaging, ToolContext } from "./index";
 import { taskProgress } from "./task-progress";
+import { requestIsStopped } from "./request-state";
+export { requestIsStopped } from "./request-state";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const openWorkers = ["provisioning", "queued", "running", "waiting"] as const;
@@ -57,7 +59,7 @@ async function requestForRun(
       "request_not_owned",
       "The request must belong to this agent and conversation"
     );
-  if (root.requestStoppedAt || root.status === "cancelled")
+  if (requestIsStopped(root))
     throw new ApiError(
       409,
       "request_stopped",
@@ -298,7 +300,7 @@ export async function settleRequestProgress(
     where: { id: runId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
   });
-  if (!source || source.status === "cancelled") return;
+  if (!source || requestIsStopped(source)) return;
   // Several independent completions can fold into one parent wake. Reconcile
   // every open request in this conversation, rather than losing the folded IDs.
   const roots = await tx.run.findMany({
@@ -317,8 +319,7 @@ export async function settleRequestProgress(
     if (
       !root ||
       root.botId !== botId ||
-      root.requestStoppedAt ||
-      root.status === "cancelled" ||
+      requestIsStopped(root) ||
       !p ||
       p.state !== "working" ||
       root.requestNextCheckAt
@@ -373,7 +374,12 @@ export async function settleRequestProgress(
 export async function recoverRequestProgress(prisma: PrismaClient, messaging: AgentMessaging) {
   const roots = await prisma.run.findMany({
     where: {
-      status: { notIn: ["queued", "running", "cancelled"] },
+      // Filter before distinct: a cancelled request must not hide a recoverable
+      // request in the same conversation.
+      OR: [
+        { status: { notIn: ["queued", "running", "cancelled"] } },
+        { status: "cancelled", error: { path: ["code"], equals: "priority_peer_interrupt" } },
+      ],
       requestStoppedAt: null,
       requestProgress: { path: ["state"], equals: "working" },
       bot: { status: "active" },
@@ -415,10 +421,9 @@ export async function dispatchRequestChecks(
       if (
         !p ||
         p.state !== "waiting" ||
-        root.requestStoppedAt ||
+        requestIsStopped(root) ||
         !root.requestNextCheckAt ||
-        root.requestNextCheckAt > now ||
-        root.status === "cancelled"
+        root.requestNextCheckAt > now
       )
         return 0;
       if (!(await canContinueRequest(tx, root))) {
@@ -467,11 +472,31 @@ export async function stopRequestProgress(
   const context =
     (source?.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined)
       ?.taskContextRunId ?? runId;
+  let legacyOwners: string[] = [];
+  if (!context) {
+    // Older tasks may predate durable request progress. Discover their live
+    // owners without treating every finished historical turn as unfinished work.
+    const workers = await tx.subagent.findMany({
+      where: { parentBotId: botId, status: { in: [...openWorkers] } },
+      select: { requestRunId: true, parentRunId: true },
+    });
+    const active = await tx.run.findMany({
+      where: { botId, OR: [
+        { status: { in: ["queued", "running"] } },
+        { id: { in: workers.map(worker => worker.requestRunId ?? worker.parentRunId) } },
+      ] },
+      select: { id: true, inboxEvents: { take: 1, select: { payload: true } } },
+    });
+    legacyOwners = active.map(run =>
+      (run.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined)?.taskContextRunId ?? run.id);
+  }
   const roots = await tx.run.findMany({
     where: {
       botId,
-      ...(context ? { id: context } : {}),
-      requestProgress: { not: Prisma.DbNull },
+      ...(context ? { id: context } : { OR: [
+        { requestProgress: { not: Prisma.DbNull } },
+        { id: { in: legacyOwners } },
+      ] }),
       requestStoppedAt: null,
     },
     select: { id: true },
@@ -498,6 +523,10 @@ export async function requestProgressSnapshot(
       channelId,
       requestStoppedAt: null,
       requestProgress: { not: Prisma.DbNull },
+      OR: [
+        { status: { not: "cancelled" } },
+        { status: "cancelled", error: { path: ["code"], equals: "priority_peer_interrupt" } },
+      ],
       NOT: { requestProgress: { path: ["state"], equals: "complete" } },
     },
     orderBy: { createdAt: "asc" },
@@ -521,10 +550,13 @@ export async function requestWakeAllowed(
   const context = (wake.payload as { taskContextRunId?: string } | null)?.taskContextRunId;
   if (!context) return wake.type !== "request.check";
   const root = await tx.run.findUnique({ where: { id: context } });
+  // A recorded stop is authoritative even if this legacy context never saved
+  // progress. Otherwise a late completion can wake a model to publish its result.
+  if (root?.requestStoppedAt) return false;
   // Preserve legacy automation/revival routing. Only request-tracked contexts
   // and the new check type use this additional revision/cancellation fence.
   if (!root?.requestProgress) return wake.type !== "request.check";
-  if (root.botId !== wake.botId || root.requestStoppedAt || root.status === "cancelled")
+  if (root.botId !== wake.botId || requestIsStopped(root))
     return false;
   if (taskProgress(root.requestProgress)?.state === "complete") return false;
   if (!(await canContinueRequest(tx, root))) return false;

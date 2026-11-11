@@ -9,6 +9,7 @@ import {
 import { Prisma, type PrismaClient } from "@openteam/db";
 import type { AgentMessaging, ToolContext } from "./index";
 import { automationContinuationRoute } from "./automation-results";
+import { requestIsStopped } from "./request-state";
 
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
 export const taskProgress = (value: unknown): TaskProgress | null => {
@@ -50,19 +51,29 @@ export const taskScopeContext = (value: unknown, originalTask?: string): string 
  * claimed turn while it is reconciling the old runtime's work. */
 export const TASK_RECOVERY_LOCK = "openteam-runtime-recovery";
 
-async function parentCancelled(
+async function taskOwnerStopped(
   tx: Prisma.TransactionClient,
-  sub: { id: string; parentRunId: string; currentRunId: string | null }
+  sub: { parentRunId: string; requestRunId?: string | null }
 ) {
   const parent = await tx.run.findUnique({
     where: { id: sub.parentRunId },
-    select: { status: true, error: true },
+    select: { status: true, error: true, requestStoppedAt: true },
   });
-  if (
-    parent?.status !== "cancelled" ||
-    (parent.error as { code?: string } | null)?.code !== "cancelled_by_user"
-  )
-    return false;
+  if (parent?.requestStoppedAt || (parent?.status === "cancelled" &&
+      (parent.error as { code?: string } | null)?.code === "cancelled_by_user")) return true;
+  if (!sub.requestRunId) return false;
+  const request = sub.requestRunId === sub.parentRunId ? parent : await tx.run.findUnique({
+    where: { id: sub.requestRunId },
+    select: { status: true, error: true, requestStoppedAt: true },
+  });
+  return !!request && requestIsStopped(request);
+}
+
+async function parentCancelled(
+  tx: Prisma.TransactionClient,
+  sub: { id: string; parentRunId: string; currentRunId: string | null; requestRunId?: string | null }
+) {
+  if (!(await taskOwnerStopped(tx, sub))) return false;
   const now = new Date();
   await tx.subagent.update({
     where: { id: sub.id },
@@ -182,6 +193,7 @@ export async function notifyTaskProgress(
   progress: TaskProgress,
   key: string
 ) {
+  if (await taskOwnerStopped(tx, subagent)) return null;
   const route = await automationContinuationRoute(tx, subagent.parentBotId, subagent.parentRunId);
   if (!route) return null;
   const source = await tx.run.findUnique({

@@ -3,17 +3,18 @@ import { Effect } from "effect";
 import { SubagentService } from "../../src/services/subagent/service";
 
 function fixture() {
-  const runs: Record<string, { id: string; botId: string; status: string }> = {
+  const runs: Record<string, { id: string; botId: string; status: string; error?: unknown; completedAt?: Date; requestStoppedAt?: Date }> = {
     main: { id: "main", botId: "bot", status: "running" },
     workerRun: { id: "workerRun", botId: "worker-bot", status: "running" },
     otherRun: { id: "otherRun", botId: "other-bot", status: "running" },
   };
   const subagents = [
-    { id: "worker", parentBotId: "bot", childBotId: "worker-bot", currentRunId: "workerRun", status: "running", subagentType: "executor", prompt: "Watch the tick loop", createdAt: new Date(1) },
-    { id: "other", parentBotId: "bot", childBotId: "other-bot", currentRunId: "otherRun", status: "running", subagentType: "executor", prompt: "Research cities", createdAt: new Date(2) },
+    { id: "worker", parentBotId: "bot", parentRunId: "main", childBotId: "worker-bot", currentRunId: "workerRun", status: "running", subagentType: "executor", prompt: "Watch the tick loop", createdAt: new Date(1) },
+    { id: "other", parentBotId: "bot", parentRunId: "main", childBotId: "other-bot", currentRunId: "otherRun", status: "running", subagentType: "executor", prompt: "Research cities", createdAt: new Date(2) },
   ];
   const matches = (row: any, where: any) => Object.entries(where).every(([key, value]: any) =>
-    value && typeof value === "object" && "in" in value ? value.in.includes(row[key]) : row[key] === value);
+    key === "OR" ? value.some((condition: any) => matches(row, condition)) :
+    value && typeof value === "object" && "in" in value ? value.in.includes(row[key]) : (row[key] ?? null) === value);
   const events: any[] = [];
   const cancelled: string[] = [];
   const shellStops: string[] = [];
@@ -22,7 +23,9 @@ function fixture() {
     bot: { findUnique: async ({ where }: any) => (["bot", "idle-bot"].includes(where.id) ? { id: where.id } : null) },
     run: {
       findUnique: async ({ where }: any) => (runs[where.id] ? { ...runs[where.id], inboxEvents: [] } : null),
-      findMany: async ({ where }: any) => where.requestProgress ? [] : Object.values(runs).filter((row) => matches(row, where)).map(({ id }) => ({ id })),
+      findMany: async ({ where, select }: any) => where.requestProgress ? [] : Object.values(runs).filter((row) => matches(row, where)).map((row) => select?.inboxEvents ? { ...row, inboxEvents: [] } : { id: row.id }),
+      update: async ({ where, data }: any) => Object.assign(runs[where.id]!, data),
+      count: async ({ where }: any) => Object.values(runs).filter(row => matches(row, where)).length,
     },
     subagent: {
       findFirst: async ({ where }: any) => subagents.find((row) => matches(row, where)) ?? null,
@@ -35,6 +38,7 @@ function fixture() {
       },
     },
     subagentAttempt: { updateMany: async () => ({ count: 1 }) },
+    inboxEvent: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
     event: { create: async ({ data }: any) => events.push(data) },
   };
   db.$transaction = async (fn: any) => fn(db);
@@ -42,6 +46,8 @@ function fixture() {
     cancel: (id: string) => Effect.sync(() => {
       cancelled.push(id);
       runs[id]!.status = "cancelled";
+      runs[id]!.error = { code: "cancelled_by_user" };
+      runs[id]!.completedAt = new Date();
       return { ok: true, status: "cancelled" };
     }),
   };
@@ -72,12 +78,78 @@ test("stopping a bot's run also stops every subagent it has running", async () =
   expect(f.subagents.map((row) => row.status)).toEqual(["stopped", "stopped"]);
 });
 
-test("a stop of a bot's finished run leaves its subagents alone", async () => {
+test("stopping a parent run reports a worker that could not be stopped", async () => {
+  const f = fixture();
+  const cancel = f.service["runs"].cancel;
+  f.service["runs"].cancel = (id: string) => id === "workerRun"
+    ? Effect.fail(new Error("Synthetic child cancellation failure")) : cancel(id);
+  await expect(Effect.runPromise(f.service.stopRun("main"))).rejects.toThrow("could not be stopped");
+  expect(f.runs.main!.status).toBe("cancelled");
+  expect(f.runs.workerRun!.status).toBe("running");
+  expect(f.subagents.map(row => row.status)).toEqual(["running", "stopped"]);
+});
+
+test("a failed parent cancellation still attempts to stop its workers", async () => {
+  const f = fixture();
+  const cancel = f.service["runs"].cancel;
+  f.service["runs"].cancel = (id: string) => id === "main"
+    ? Effect.fail(new Error("Synthetic parent cancellation failure")) : cancel(id);
+  await expect(Effect.runPromise(f.service.stopRun("main"))).rejects.toThrow();
+  expect(f.cancelled).toEqual(["workerRun", "otherRun"]);
+  expect(f.subagents.map(row => row.status)).toEqual(["stopped", "stopped"]);
+});
+
+test("retrying a partial parent stop reaches the failed worker and preserves newly requested work", async () => {
+  const f = fixture();
+  const cancel = f.service["runs"].cancel;
+  f.service["runs"].cancel = (id: string) => id === "workerRun"
+    ? Effect.fail(new Error("Synthetic child cancellation failure")) : cancel(id);
+  await expect(Effect.runPromise(f.service.stopRun("main"))).rejects.toThrow("could not be stopped");
+  f.service["runs"].cancel = cancel;
+  f.runs.freshRun = { id: "freshRun", botId: "fresh-worker", status: "running" };
+  f.subagents.push({ ...f.subagents[1]!, id: "fresh", parentRunId: "new-request", childBotId: "fresh-worker", currentRunId: "freshRun", status: "running" });
+  await Effect.runPromise(f.service.stopRun("main"));
+  expect(f.runs.workerRun!.status).toBe("cancelled");
+  expect(f.subagents.map(row => row.status)).toEqual(["stopped", "stopped", "running"]);
+  expect(f.runs.freshRun.status).toBe("running");
+});
+
+test("a parent cancellation waiting on its transport does not delay stopping its workers", async () => {
+  const f = fixture();
+  const cancel = f.service["runs"].cancel;
+  let release!: () => void;
+  let attempted!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const workerAttempt = new Promise<boolean>(resolve => { attempted = () => resolve(true); });
+  f.service["runs"].cancel = (id: string) => id === "main"
+    ? Effect.promise(async () => { await gate; f.runs.main!.status = "cancelled"; return { ok: true, status: "cancelled" }; })
+    : Effect.tap(cancel(id), () => Effect.sync(attempted));
+  const stopping = Effect.runPromise(f.service.stopRun("main"));
+  try {
+    expect(await Promise.race([workerAttempt, Bun.sleep(250).then(() => false)])).toBe(true);
+  } finally {
+    release();
+    await stopping;
+  }
+});
+
+test("a stop of a bot's finished run stops its remaining work and preserves independent workers", async () => {
   const f = fixture();
   f.runs.main!.status = "completed";
+  f.subagents[1]!.parentRunId = "independent-request";
   await Effect.runPromise(f.service.stopRun("main"));
-  expect(f.cancelled).toEqual(["main"]);
-  expect(f.subagents.map((row) => row.status)).toEqual(["running", "running"]);
+  expect(f.cancelled).toEqual(["main", "workerRun"]);
+  expect(f.subagents.map((row) => row.status)).toEqual(["stopped", "running"]);
+});
+
+test("stopping a finished request with stopped bookkeeping still cancels its remaining worker", async () => {
+  const f = fixture();
+  f.runs.main!.status = "completed";
+  f.runs.main!.requestStoppedAt = new Date();
+  f.subagents[1]!.status = "completed";
+  await Effect.runPromise(f.service.stopRun("main"));
+  expect(f.cancelled).toEqual(["main", "workerRun"]);
+  expect(f.subagents.map(row => row.status)).toEqual(["stopped", "completed"]);
 });
 
 test("a worker the worker process already recorded as stopped still counts as stopped", async () => {
@@ -103,7 +175,8 @@ test("stopping a bot stops its turn and every subagent it has running, without p
   expect(result).toEqual({ hadActiveRun: true });
   expect(f.cancelled).toEqual(["main", "workerRun", "otherRun"]);
   expect(f.subagents.map((row) => row.status)).toEqual(["stopped", "stopped"]);
-  expect(f.events.map((event) => event.topic)).toEqual(["subagent.stopped", "subagent.stopped"]);
+  expect(f.events.filter(event => event.topic === "subagent.stopped")).toHaveLength(2);
+  expect(f.runs.main!.requestStoppedAt).toBeInstanceOf(Date);
 });
 
 test("stopping a bot whose turn ended stops the subagents still working in the background", async () => {

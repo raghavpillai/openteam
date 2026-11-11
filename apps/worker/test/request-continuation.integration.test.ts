@@ -271,13 +271,15 @@ test.skipIf(!db)(
     } finally {
       await worker?.stop();
       if (app) {
-        const children = await app.prisma.subagent.findMany({
-          where: { parentBotId: parentId },
-          select: { childBotId: true },
-        });
-        await app.prisma.bot.deleteMany({
-          where: { id: { in: [parentId, ...children.map((c) => c.childBotId)] } },
-        });
+        if (parentId) {
+          const children = await app.prisma.subagent.findMany({
+            where: { parentBotId: parentId },
+            select: { childBotId: true },
+          });
+          await app.prisma.bot.deleteMany({
+            where: { id: { in: [parentId, ...children.map((c) => c.childBotId)] } },
+          });
+        }
         await Effect.runPromise(app.close());
       }
       fake.stop(true);

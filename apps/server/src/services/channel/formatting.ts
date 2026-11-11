@@ -42,10 +42,15 @@ export const reactionQuote = (content: string): string => {
   return collapsed.length > 80 ? `${collapsed.slice(0, 79)}…` : collapsed;
 };
 
-export const formatUserReactionPrompt = (emoji: string, content: string) =>
-  `[SAND_HIDDEN_PROMPT][The user reacted ${emoji} to your message: ` +
-  `${JSON.stringify(reactionQuote(content))}. You don't need to reply; ` +
-  `act on it only if it's useful (e.g. acknowledge, adjust, or continue).][SAND_HIDDEN_PROMPT]`;
+export const formatUserReactionPrompt = (emoji: string, content: string) => {
+  const thumbsDown = /^👎\p{Emoji_Modifier}?$/u.test(emoji.replace(/[\uFE0E\uFE0F]/g, ""));
+  const guidance = thumbsDown
+    ? "This is negative feedback on that reply. Re-check it and respond with a correction if needed; " +
+      "if it was correct, briefly clarify or ask what the user wants changed. Deliver your response with SendToUser."
+    : "You don't need to reply; act on it only if it's useful (e.g. acknowledge, adjust, or continue).";
+  return "[SAND_HIDDEN_PROMPT][The user reacted " + emoji + " to your message: " +
+    JSON.stringify(reactionQuote(content)) + ". " + guidance + "][SAND_HIDDEN_PROMPT]";
+};
 
 export const xmlText = (value: string): string =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");

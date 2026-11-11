@@ -1,5 +1,5 @@
 import { TaskProgressInput, RequestProgressInput } from "@openteam/contracts/task-progress";
-import { reportTaskProgress, reportRequestProgress, requestProgressSnapshot } from "@openteam/messaging";
+import { reportTaskProgress, reportRequestProgress, requestProgressSnapshot, assertBackgroundRequestDeliveryAllowed } from "@openteam/messaging";
 import { readAgentActivity, readTranscript } from "@openteam/messaging";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
@@ -371,6 +371,8 @@ export class InternalToolService {
       } else if (request.tool === "SendToUser") {
         validateSendToUserInput(request.arguments);
         const input = Schema.decodeUnknownSync(AgentSendToUserInput)(request.arguments);
+        if (context.origin === "background_revival")
+          await this.prisma.$transaction(tx => assertBackgroundRequestDeliveryAllowed(tx, context));
         if (input.type === "secret-request" && input.secret?.name) {
           validateProcessSecretName(input.secret.name);
           if (input.channel || childIdentity || !await this.prisma.channel.count({ where: { id: request.channelId, kind: "bot_dm", directKey: `bot:${request.botId}`, archivedAt: null } }))
@@ -386,6 +388,8 @@ export class InternalToolService {
               const asset = await this.messaging.assets.ingestSource(source);
               return {assetId:asset.assetId,name:asset.fileName,mimeType:asset.mimeType,bytes:Buffer.from(await Bun.file(this.messaging.assets.contentPath(asset.assetId)).arrayBuffer())};
             }));
+            if (context.origin === "background_revival")
+              await this.prisma.$transaction(tx => assertBackgroundRequestDeliveryAllowed(tx, context));
             const delivery = await this.plugins.deliverConnectedChannel({
               botId: request.botId,
               runId: request.runId,
@@ -404,7 +408,7 @@ export class InternalToolService {
               interruptRunId: null,
             };
           } catch (error) {
-            if(error instanceof ApiError&&error.code==="external_file_review_required")throw error;
+            if(error instanceof ApiError&&["external_file_review_required", "request_stopped"].includes(error.code))throw error;
             // Nothing left the box for these, so refuse now with the reason.
             if (error instanceof ApiError && error.code === "connected_channel_address_invalid")
               throw new ApiError(400, error.code, `"${input.channel}" is not a valid channel address, so nothing was sent. An address is shaped platform:chat.`);

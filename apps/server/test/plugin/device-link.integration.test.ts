@@ -133,6 +133,30 @@ async function fixture() {
   };
 }
 
+integration.each([true, false])("computer outage recovery through a fresh host resumes persisted state without new approval (still linked: %s)", async stillLinked => {
+  const f = await fixture();
+  try {
+    await f.connect();
+    const statusPath = join(f.marker, "../status-override.json");
+    await writeFile(statusPath, JSON.stringify({ linked: true }));
+    await f.poll();
+    expect((await f.row()).status).toBe("ready");
+    const starts = f.calls.filter(call => call.tool === "start_link").length;
+    await f.manager.closeAll();
+    await writeFile(statusPath, JSON.stringify({ linked: stillLinked, linking: false }));
+    await f.db.pluginConnection.update({ where: { id: f.id }, data: {
+      status: "error", statusMessage: "Local runtime unavailable: The computer is not reachable.",
+    } });
+    await (f.otherService as any).refreshLocalConnections();
+    const after = await f.row();
+    expect(after.status).toBe(stillLinked ? "ready" : "needs_auth");
+    expect(after.credentials).not.toHaveProperty("deviceLink");
+    expect(after.credentials).toHaveProperty("syntheticPrivate", "synthetic-host-private");
+    expect(f.calls.filter(call => call.tool === "start_link")).toHaveLength(starts);
+    expect((await readFile(f.marker, "utf8")).trim().split("\n")).toHaveLength(2);
+  } finally { await f.close(); }
+}, 15_000);
+
 integration("configuration save cannot erase another service's failed-removal gate", async () => {
   const f = await fixture();
   const entered = deferred<void>(), release = deferred<void>();

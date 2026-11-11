@@ -979,10 +979,16 @@ export class PluginService {
     if (!definition || connection.status === "disconnected") return { pending: false };
     const link = jsonObject(jsonObject(connection.credentials).deviceLink);
     const recovering = jsonObject(connection.credentials).deviceRecoveryPending === true;
-    if (connection.status !== "ready" && !link.sessionId && !recovering) return { pending: false };
+    // A working account can become unreachable while its computer restarts.
+    // Its persisted keys may resume through the status tool, which never starts
+    // approval. Interrupted approvals and explicit disconnects remain stopped.
+    const resuming = connection.status === "error" &&
+      connection.statusMessage?.startsWith("Local runtime unavailable:") === true &&
+      !link.sessionId;
+    if (connection.status !== "ready" && !link.sessionId && !recovering && !resuming) return { pending: false };
     if (connection.status !== "ready") {
       const runtime = await this.transport.stdioStatus(connectionId);
-      if (runtime.state === "stopped" || runtime.state === "error") {
+      if ((runtime.state === "stopped" && !resuming) || runtime.state === "error") {
         const credentials = clearDeviceLinkState(connection.credentials);
         await this.prisma.pluginConnection.updateMany({ where: { id: connectionId,
           runtimeGeneration: connection.runtimeGeneration, updatedAt: connection.updatedAt }, data: {

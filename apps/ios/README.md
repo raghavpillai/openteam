@@ -10,7 +10,9 @@ Version, build number, bundle ID and signing team are configured in `release.jso
 
 ## Build and run
 
-Use macOS with Xcode 27.3 beta or later and Swift 6; the deployment target is iOS 18. Open
+For Siri AI preview development, use macOS with Xcode 27.3 beta or later and Swift 6.
+The deployment target is iOS 18. See App Store builds below for stable-toolchain
+archive instructions. Open
 `OpenTeamNative.xcodeproj`, select the `OpenTeamNative` scheme and an iOS simulator,
 and Run. Connect to your OpenTeam server using its reachable HTTP or HTTPS address.
 The native target has no Expo, React Native or CocoaPods runtime dependency. Its only
@@ -195,12 +197,30 @@ This runs Release Swift history benchmarks. Simulator tests don't certify physic
 haptic feel, production APNs delivery, microphone or camera interruptions, iPhone
 frame rate, or Siri's spoken phrase routing.
 
+## App Store builds
+
+Use a stable Xcode toolchain accepted by App Store Connect for public releases.
+Xcode 27.1 builds the app with the standard iOS 18+ Shortcuts integration.
+The custom Siri preview conformances compile with Swift 6.4.2 and later.
+When archiving with an older stable SDK, pass
+`EXCLUDED_SOURCE_FILE_NAMES=Skills.skillsbundle` to omit the preview-only app
+skills resource. Xcode 27.3 beta remains available for internal Siri preview
+builds.
+
+Public App Store builds use the App Store for updates. The in-app TestFlight
+update notice is enabled for sandbox-receipt beta builds and Debug QA builds.
+The privacy policy is available before sign-in and in Settings.
+
 ## Release
 
 The upload checklist, including how to choose the build number, is in
 [`.github/RELEASING.md`](../../.github/RELEASING.md). Keep `release.json`'s version
 in sync with this workspace's `package.json`, and regenerate the project after
 changing it.
+
+The v0.0.16 App Store submission uses build 67, archived with stable Xcode 27.1
+and submitted for review on November 10, 2026. Recheck both builds and build uploads
+before choosing another build number.
 
 ### In-app update notice
 

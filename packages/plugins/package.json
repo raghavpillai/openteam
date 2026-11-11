@@ -26,6 +26,7 @@
     "nodemailer": "10.1.1",
     "postal-mime": "2.6.1",
     "qrcode": "1.5.4",
+    "qrcode-generator": "2.0.4",
     "xlsx": "file:../../vendor/sheetjs/xlsx-0.20.3.tgz"
   },
   "devDependencies": {

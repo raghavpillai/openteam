@@ -8,6 +8,7 @@ const fixture = (failure?: "context-network" | "screen-network" | "active-contex
   let contextExists = true;
   let runtimeActive = true;
   const retired: string[] = [];
+  let retirement: any = null;
   const calls: string[] = [];
   const observations: Array<{ status: string; runStatus: string; retired: string[] }> = [];
   let cancelBody: unknown;
@@ -15,7 +16,7 @@ const fixture = (failure?: "context-network" | "screen-network" | "active-contex
   const tx = {
     $executeRaw: async () => 0,
     run: {
-      findMany: async ({ where }: any) => where.requestStoppedAt === null ? [] : [{ id: "parent-run" }],
+      findMany: async ({ where }: any) => where.requestStoppedAt === null ? [] : [{ id: "parent-run", botId: "bot" }],
       updateMany: async ({ data }: any) => { runStatus = data.status; },
     },
     bot: {
@@ -32,7 +33,11 @@ const fixture = (failure?: "context-network" | "screen-network" | "active-contex
     routine: { updateMany: async () => ({ count: 0 }) },
     channel: { updateMany: async () => ({ count: 0 }) },
     event: { create: async () => ({}) },
-    retiredAgent: { createMany: async ({ data }: any) => { retired.push(...data.map(({ id }: any) => id)); } },
+    retiredAgent: {
+      upsert: async ({ create }: any) => { retired.push(create.id); retirement = { cleanupPending: true, ...create }; },
+      findUnique: async () => retirement,
+      update: async ({ data }: any) => { Object.assign(retirement, data); },
+    },
   };
   const prisma = { ...tx, $transaction: async (work: any) => work(tx) };
   const service = new BotService(prisma as never, {} as never, "/unused", async (path, init) => {
@@ -53,6 +58,7 @@ const fixture = (failure?: "context-network" | "screen-network" | "active-contex
     return Response.json({ ok: true });
   }, { deleteAgentFiles: async () => {}, repairActiveAgentAfterDeletion: async () => {} } as never);
   return { service, calls, observations, cancelBody: () => cancelBody, contextWasActive: () => contextWasActive,
+    cleanupPending: () => retirement.cleanupPending,
     state: () => ({ status, runStatus, contextExists, runtimeActive }) };
 };
 
@@ -63,6 +69,7 @@ test("archive durably cancels and settles the parent turn before deleting its co
   expect(f.cancelBody()).toEqual({ reason: "stop", recovery: true });
   expect(f.contextWasActive()).toBe(false);
   expect(f.observations.every((o) => o.status === "archived" && o.runStatus === "cancelled" && o.retired.includes("bot"))).toBe(true);
+  expect(f.cleanupPending()).toBe(false);
   expect(f.state()).toEqual({ status: "archived", runStatus: "cancelled", contextExists: false, runtimeActive: false });
   expect(f.calls.indexOf("/v1/turns/parent-run/cancel")).toBeLessThan(f.calls.indexOf("/v1/context-sessions/context"));
 });
@@ -72,6 +79,7 @@ for (const failure of ["context-network", "screen-network", "active-context", "c
     const f = fixture(failure);
     expect(await Effect.runPromise(f.service.archive("bot"))).toEqual({ ok: true });
     expect(f.state()).toMatchObject({ status: "archived", runStatus: "cancelled", contextExists: !["screen-network", "background-network"].includes(failure) });
+    expect(f.cleanupPending()).toBe(true);
     expect(f.calls).toContain("/v1/agent-stores/bot");
     expect(f.calls).toContain("/v1/screens/bot");
     expect(f.observations.every((o) => o.status === "archived" && o.runStatus === "cancelled" && o.retired.includes("bot"))).toBe(true);

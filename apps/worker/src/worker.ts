@@ -31,6 +31,8 @@ import {
 import { createPrismaClient, Prisma, type PrismaClient } from "@openteam/db";
 import {
   appendAgentTimelineEvent,
+  cleanupRetiredAgent,
+  RETIRED_AGENT_CLEANUP_RETRY_MS,
   AgentDataStore,
   AgentMessaging,
   appendRoutineRunLedger,
@@ -501,6 +503,7 @@ export class WakeWorker {
     await dispatchRequestChecks(this.prisma, this.messaging);
     await recoverRequestProgress(this.prisma, this.messaging);
     await this.recoverRoutineExecutions();
+    await this.reconcileRetiredAgents();
     await this.reconcileAgentStores();
     await this.agentData.reconcileAllActiveBots();
     await this.pushNotifications.drain();
@@ -527,7 +530,7 @@ export class WakeWorker {
     this.agentStoreTimer = setInterval(() => {
       if (this.reconcilingAgentStores) return;
       this.reconcilingAgentStores = true;
-      void this.reconcileAgentStores(false)
+      void this.reconcileRetiredAgents().then(() => this.reconcileAgentStores(false))
         .then(async (adopted) => {
           if (adopted > 0) await this.agentData.reconcileAllActiveBots();
         })
@@ -575,6 +578,27 @@ export class WakeWorker {
     } finally {
       this.routinePassActive = false;
     }
+  }
+
+  private async reconcileRetiredAgents(): Promise<void> {
+    const pending = await this.prisma.retiredAgent.findMany({
+      where: { cleanupPending: true, nextCleanupAt: { lte: new Date() } },
+      orderBy: [{ nextCleanupAt: "asc" }, { id: "asc" }],
+      take: 4,
+      select: { id: true },
+    });
+    await Promise.all(pending.map(async ({ id }) => {
+      try {
+        // Rotate even a failing database/filesystem operation out of the front of the batch.
+        await this.prisma.retiredAgent.update({ where: { id }, data: {
+          nextCleanupAt: new Date(Date.now() + RETIRED_AGENT_CLEANUP_RETRY_MS),
+        } });
+        const warnings = await cleanupRetiredAgent(this.prisma, (path, init) => this.computerFetch(path, init), this.agentData, id);
+        for (const warning of warnings) console.warn(`retired agent cleanup: ${warning}`);
+      } catch (error) {
+        console.warn(`retired agent cleanup ${id}: ${String(error)}`);
+      }
+    }));
   }
 
   /** Ids the owner already deleted; their directory residue must never become a chat again. */

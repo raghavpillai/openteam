@@ -1,3 +1,5 @@
+export { lockAgentLifecycle } from "./agent-lifecycle";
+export { cleanupRetiredAgent, RETIRED_AGENT_CLEANUP_RETRY_MS } from "./retired-agent-cleanup";
 export { ensureRequestForTask, reportRequestProgress, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, stopRequestProgress, requestProgressSnapshot, requestWakeAllowed } from "./request-progress";
 import { requestProgressSnapshot } from "./request-progress";
 import { renderTaskProgressContext } from "@openteam/contracts/task-progress";

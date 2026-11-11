@@ -909,6 +909,11 @@ model RunItem {
 model RetiredAgent {
   id        String   @id @db.Uuid
   retiredAt DateTime @default(now())
+  cleanupPending Boolean @default(true)
+  cleanupRunIds String[] @default([]) @db.Uuid
+  nextCleanupAt DateTime @default(now())
+
+  @@index([cleanupPending, nextCleanupAt])
 }
 
 model Event {

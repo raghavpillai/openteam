@@ -7,9 +7,8 @@ import {
   type SetChannelMembersInput,
   type UpdateChannelProfileInput,
 } from "@openteam/contracts";
-import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
 import type { PrismaClient } from "@openteam/db";
-import { type AgentDataStore, type AgentMessaging, GROUP_MAX_MEMBERS } from "@openteam/messaging";
+import { type AgentDataStore, type AgentMessaging, GROUP_MAX_MEMBERS, cleanupRetiredAgent } from "@openteam/messaging";
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
 import { provisionDirectories } from "../provision-directories";
@@ -189,7 +188,7 @@ export class GroupAdministration {
 
   deleteGroup = (channelId: string) =>
     serviceEffect(async (): Promise<{ deleted: true; channelId: string }> => {
-      const { activeRunIds, memberIds } = await this.prisma.$transaction(async (tx) => {
+      const { memberIds } = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('root-file:groups'))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
         const channel = await tx.channel.findFirst({
@@ -229,7 +228,7 @@ export class GroupAdministration {
           });
         }
         await tx.retiredAgent.upsert({
-          where: { id: channelId }, create: { id: channelId }, update: {},
+          where: { id: channelId }, create: { id: channelId, cleanupRunIds: runIds }, update: {},
         });
         await tx.channel.delete({ where: { id: channelId } });
         await appendEvent(tx, "channel.deleted", channelId, {
@@ -237,41 +236,21 @@ export class GroupAdministration {
           kind: "group",
           memberIds: ids,
         });
-        return { activeRunIds: runIds, memberIds: ids };
+        return { memberIds: ids };
       });
-      await Promise.all(
-        activeRunIds.map((runId) =>
-          this.computerFetch(COMPUTER_API_PATHS.turnCancel(runId), {
-            method: "POST",
-            signal: AbortSignal.timeout(5_000),
-          }).catch(() => undefined)
-        )
-      );
-      // The channel row is gone; everything left is cleanup. A single failed step must not fail the
-      // request: a leftover agent directory is the computer's roster authority and would be adopted
-      // straight back into a new group with the same id.
-      const warnings: string[] = [];
-      const retired = await this.computerFetch(COMPUTER_API_PATHS.agentStore(channelId), {
-        method: "DELETE",
-        signal: AbortSignal.timeout(10_000),
-      }).catch((error) => {
-        warnings.push(`agent store ${channelId}: ${String(error)}`);
-        return null;
-      });
-      if (retired && !retired.ok) {
-        warnings.push(`agent store ${channelId}: ${retired.status} ${await retired.text()}`);
-      }
-      if (this.agentData) {
-        await this.agentData.deleteAgentFiles(channelId).catch((error) => {
-          warnings.push(`agent files ${channelId}: ${String(error)}`);
-        });
-        for (const botId of memberIds) {
-          await this.agentData.writeGroupFilesForBot(botId).catch((error) => {
-            warnings.push(`group files ${botId}: ${String(error)}`);
-          });
+      try {
+        const warnings = await cleanupRetiredAgent(this.prisma, this.computerFetch, this.agentData, channelId);
+        if (this.agentData) {
+          for (const botId of memberIds) {
+            await this.agentData.writeGroupFilesForBot(botId).catch((error) => {
+              warnings.push(`group files ${botId}: ${String(error)}`);
+            });
+          }
         }
+        for (const warning of warnings) console.warn(`group delete cleanup: ${warning}`);
+      } catch (error) {
+        console.warn(`group delete cleanup ${channelId}: ${String(error)}`);
       }
-      for (const warning of warnings) console.warn(`group delete cleanup: ${warning}`);
       return { deleted: true, channelId };
     });
 

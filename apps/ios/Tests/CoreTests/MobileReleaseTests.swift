@@ -8,6 +8,17 @@ final class MobileReleaseTests: XCTestCase {
     MobileRelease(version: version, buildNumber: build, bundleIdentifier: "dev.openbot.mobile")
   }
 
+  func testUpdateChecksAreLimitedToBetaAndDebugBuilds() {
+    let betaReceipt = URL(fileURLWithPath: "/app/StoreKit/sandboxReceipt")
+    let storeReceipt = URL(fileURLWithPath: "/app/StoreKit/receipt")
+    XCTAssertTrue(MobileRelease.usesTestFlightUpdates(isDebug: false, receiptURL: betaReceipt))
+    XCTAssertFalse(MobileRelease.usesTestFlightUpdates(isDebug: false, receiptURL: storeReceipt))
+    XCTAssertFalse(MobileRelease.usesTestFlightUpdates(isDebug: false, receiptURL: nil))
+    for receipt in [betaReceipt, storeReceipt, nil] {
+      XCTAssertTrue(MobileRelease.usesTestFlightUpdates(isDebug: true, receiptURL: receipt))
+    }
+  }
+
   func testSameVersionTestFlightBuildIsAnUpdate() {
     XCTAssertTrue(release().isNewer(thanVersion: "0.0.4", buildNumber: "50"))
     XCTAssertFalse(release().isNewer(thanVersion: "0.0.4", buildNumber: "51"))

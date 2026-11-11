@@ -93,13 +93,13 @@ For reference, the same server ran the same tasks on cheaper models. GPT-6.1 Ter
 
 ## Speed
 
-Fable 5.2 was the quickest of the three because it did everything in one session: about eight tool calls a task, no helpers. Sol handed five of six tasks to helpers, which adds a hand-off and, on a busy server, a wait in the queue. Carbon used helpers every time and averaged 35 tool calls a task.
+Fable 5.2 was the quickest of the three because it did everything in one session: about eight tool calls a task, no helpers. Sol handed five of six tasks to helpers, which adds a hand-off. Carbon used helpers every time and averaged 35 tool calls a task.
 
 Carbon's slowness looks deliberate. Google says Carbon is "built for tasks that test the limits of a model's intelligence." It uses more tokens than its sibling Gemini 4 Argon "to explore thoroughly, reason deeply, and run extended verification loops." On our six everyday tasks that care didn't change a score; it may matter more on harder jobs.
 
 ## Where each one was better
 
-**GPT-6.1 Sol** was the cheapest correct answer every time, and the most repeatable: its second runs matched its first, down to how it laid out the research table. It leans on helpers, which costs time on a busy server.
+**GPT-6.1 Sol** was the cheapest correct answer every time, and the most repeatable: its second runs matched its first, down to how it laid out the research table. It leans on helpers, which adds hand-off time.
 
 **Claude Fable 5.2** was the quickest and the clearest. It worked alone, finished four of six tasks in under 90 seconds and said what it assumed. Its bill is the heaviest per token, mostly from cache writes.
 
@@ -112,7 +112,7 @@ Carbon's slowness looks deliberate. Google says Carbon is "built for tasks that 
 - **Choose Gemini 4 Carbon if** you want the most self-checking, and the jobs are hard enough to repay ten minutes and the price after November 30.
 - **Choose something cheaper if** your tasks look like ours. GPT-6.1 Terra and GLM-5.3 passed all six for about a dime.
 
-One model serves every bot on an OpenTeam server, so this is a server-wide choice: change it in **Settings → Model** and every bot switches. OpenTeam also has one human account per server, desktop apps for macOS on Apple silicon and Linux, an iPhone app in beta and no Android app.
+In OpenTeam this is one choice for the whole server: change it in **Settings → Model** and every bot switches.
 
 ## Frequently asked questions
 
@@ -130,7 +130,7 @@ $2 per million input tokens and $10 per million output tokens through November 3
 
 ### Can I use Gemini 4 Carbon in OpenTeam?
 
-Yes, through OpenRouter as `google/gemini-4-carbon`, or through a custom endpoint for Google's API. OpenTeam has no built-in Google provider. Through OpenRouter it offers minimal, low, medium and high reasoning.
+Yes, through OpenRouter as `google/gemini-4-carbon`, or through a custom endpoint for Google's API. Through OpenRouter, OpenTeam offers minimal, low, medium and high reasoning for it.
 
 ### Which is the best model for AI agents?
 

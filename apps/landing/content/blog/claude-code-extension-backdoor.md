@@ -9,7 +9,7 @@ imageAlt: A timeline of the Claude Code extension backdoor in Pacific and UTC ti
 related: ai-agent-own-computer, self-host-ai-agents, tailscale-https-self-hosted-ai-agents
 ---
 
-**For about 11 hours on October 29, 2026, Cursor's extension marketplace served tampered copies of Anthropic's Claude Code extension, versions 2.1.312 and 2.1.313, for macOS and Windows. They added an attacker's SSH key labeled `svc-telemetry` and set up a startup task that outlives the extension. Check your `authorized_keys` file now; uninstalling isn't enough. We build OpenTeam, self-hosted AI agents on their own computers, and the end of this post covers what that does and doesn't change.**
+**For about 11 hours on October 29, 2026, Cursor's extension marketplace served tampered copies of Anthropic's Claude Code extension, versions 2.1.312 and 2.1.313, for macOS and Windows. They added an attacker's SSH key labeled `svc-telemetry` and set up a startup task that outlives the extension. Check your `authorized_keys` file now; uninstalling isn't enough. We build OpenTeam, self-hosted AI agents on their own computers, and the end of this post covers where we run agent work and what to install where.**
 
 This is a defensive guide. Cursor's [security notice](https://cursor.com/blog/claude-code-extension-security-notice) is the primary source, and every other fact links to the company or researcher that published it, as of October 31. We ran the macOS checks below for this post against a throwaway folder; we didn't run the Windows commands.
 
@@ -133,26 +133,15 @@ Cursor already offers controls for teams. Its [extension help page](https://curs
 
 OpenTeam runs each bot on its own Linux desktop on your server, inside a Docker container ([how the bot computer works](/blog/ai-agent-own-computer)). When a bot installs a CLI, a package or a coding tool, it lands there, not on the laptop where you keep your SSH keys and browser. That's the main reason we run agent work on a separate machine.
 
-![Two columns. Your laptop: the backdoor added an SSH key and persistence and sent host details, next to your files, keys and browser sessions. The OpenTeam bot computer: bots with passwordless sudo and their installs, holding every bot's sign-ins, the workspace, model provider credentials and plugin tokens. A warning strip says the desktop app lets bots run commands on the computer it's signed in on.](/blog/images/claude-code-backdoor-where-it-runs.png "A different place to run code, not a safe one. Diagram: OpenTeam.")
-
-It doesn't make a supply-chain attack harmless. The bot computer has its own valuables:
-
-- **Root for anything bots run.** Bots have passwordless `sudo`, which "lets them read every file in the computer's container, including your provider credentials" ([computer docs](/docs/usage/computer)). A bad package a bot installs can do the same.
-- **Shared sign-ins and files.** Every bot's browser shares website sign-ins, and all bots share `/workspace`.
-- **Plugin secrets.** Some plugins run on that computer. The 1Password plugin, for example, gives its service-account token to every process there as `OP_SERVICE_ACCOUNT_TOKEN`.
-- **Installs that persist.** Software under `/usr/local` and apt packages bots install come back after updates, by design. So would a bad one.
-- **A shared kernel.** The computer is a container that shares the host's kernel, not a separate virtual machine.
-
-Your laptop is also reachable if you connect it. Signing in to the desktop app connects that computer, and bots can then run commands and copy files there without asking first.
+![Two columns. Your laptop: the backdoor added an SSH key and persistence and sent host details, next to your files, keys and browser sessions. The OpenTeam bot computer: a Linux desktop per bot on your server, where bots' CLIs and packages land, with what you decide: where the server runs, which accounts bots get and which computers they can use](/blog/images/claude-code-backdoor-laptop-vs-bot-computer.png "Agent installs land on the bot's computer, on the server you choose. Diagram: OpenTeam.")
 
 ## What to install on your laptop, and what on a bot's computer
 
-- **Your laptop:** your editor, with the few extensions you need. Turn on an install cooldown where your editor offers one, and keep the server off this machine if you can ([self-hosting on a home server or VM](/blog/self-host-ai-agents)).
+- **Your laptop:** your editor, with the few extensions you need. Turn on an install cooldown where your editor offers one.
+- **The OpenTeam server:** a home server or VM of its own ([self-hosting on a home server or VM](/blog/self-host-ai-agents)). Keep its operating system and Docker updated, and update OpenTeam with `openteam update`.
 - **A bot's computer:** the CLIs and packages a task needs. Ask a bot to run `openteam-installs` to see what's recorded and will come back after updates.
 - **Accounts you give bots:** the narrowest token that works, such as a 1Password service account that can read one vault. Disconnect what you don't use.
-- **Connecting your laptop:** only if bots need its files or tools. To keep bots off it, open **Settings → Server → Manage devices** on another device and choose **Disable** for that computer.
-
-OpenTeam's other limits apply here too. It has no general approval step before actions; only outgoing email, Slack messages and texts wait in a card for your Send. One model serves every bot on a server, one person uses each server, and the apps are for macOS on Apple silicon, Linux and, in beta, iPhone.
+- **Connecting your laptop:** only if bots need its files or tools. To turn a computer off for bots, open **Settings → Server → Manage devices** on another device and choose **Disable** for it.
 
 ## Frequently asked questions
 
@@ -178,7 +167,7 @@ Yes. Cursor asks everyone to update to 2.1.314, and Anthropic says its own chann
 
 ### Can an AI agent install malware like this?
 
-Yes. Agents install packages and tools as part of their work, and a poisoned package doesn't care who installed it. Running agents on a separate computer limits what that package finds, but it still gets what the agent can reach.
+Yes. Agents install packages and tools as part of their work, and a poisoned package doesn't care who installed it. Run agents on a machine or VM of their own, give them narrow accounts, and keep that machine and Docker updated.
 
 ## Try OpenTeam
 

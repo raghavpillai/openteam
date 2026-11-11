@@ -1,12 +1,12 @@
 ---
 title: "n8n vs OpenTeam: workflows or a team of bots, and how to use both"
 seoTitle: "n8n vs OpenTeam: workflows or AI agents, tested side by side"
-description: We ran the same jobs in n8n and in OpenTeam, a self-hosted AI agent team, on one VM. Where each won, what broke, and two bridges that worked.
+description: We ran the same jobs in n8n and in OpenTeam, a self-hosted AI agent team, on one VM. What each is built for, and two bridges that worked.
 date: 2026-10-27
 updated: 2026-11-10
 category: Comparisons
-image: /blog/images/n8n-vs-openteam-results.png
-imageAlt: A results table comparing n8n and OpenTeam on building and running a Hacker News digest, cost per run, a JavaScript page with a login, where each fell short, and the bridges between them
+image: /blog/images/n8n-openteam-job-results.png
+imageAlt: A results table comparing n8n and OpenTeam on building and running a Hacker News digest, cost per run, a JavaScript page with a login, and the bridges between them
 related: self-host-ai-agents, ai-agent-own-computer, best-self-hosted-ai-agents
 ---
 
@@ -14,7 +14,7 @@ related: self-host-ai-agents, ai-agent-own-computer, best-self-hosted-ai-agents
 
 We build OpenTeam, so weigh our view accordingly. For this post we installed n8n's Community Edition next to OpenTeam on one cloud VM in late October 2026. Both got the same model and the same jobs. n8n facts we didn't test link to n8n's docs, pricing page or repo.
 
-![A results table for n8n and OpenTeam: building and running a Hacker News digest, cost per run, a JavaScript page with a login, where each fell short, and two working bridges](/blog/images/n8n-vs-openteam-results.png "What happened when we gave n8n and OpenTeam the same jobs on one VM. Diagram: OpenTeam.")
+![A results table for n8n and OpenTeam: building and running a Hacker News digest, cost per run, a JavaScript page with a login, and two working bridges](/blog/images/n8n-openteam-job-results.png "What happened when we gave n8n and OpenTeam the same jobs on one VM. Diagram: OpenTeam.")
 
 ## n8n vs OpenTeam at a glance
 
@@ -27,11 +27,10 @@ n8n facts come from its [docs](https://docs.n8n.io/), [pricing page](https://n8n
 | Who decides each step | You, when you build it | The model, when it runs |
 | License | Sustainable Use License ("fair-code") | GPL-3.0 |
 | Price | Community Edition free; Cloud from €20/month; self-hosted Business €667/month | Free; you pay for the machine and the model |
-| Integrations | 500+ built-in, 2,000+ with partner and community nodes | 16 bundled plugins plus any MCP server |
+| Integrations | 500+ built-in, 2,000+ with partner and community nodes | 15 bundled plugins plus any MCP server |
 | Web browsing | HTTP requests; Browser Use is Cloud-only, in your own Chrome | A Chromium per bot that you can watch and take over |
 | Run history | Every node's input and output; retry from the failed step | Run history per routine, plus the bot's messages |
-| Approvals | Human review before AI tool calls; send-and-wait steps | Email and Slack drafts and texts wait for your Send; nothing else |
-| People | Many users; SSO and roles on paid plans | One human account per server |
+| Approvals | Human review before AI tool calls; send-and-wait steps | Email and Slack drafts and texts wait for your Send |
 | Apps | Web editor | macOS (Apple silicon), Linux x64, iPhone beta |
 
 ## How we tested
@@ -70,19 +69,17 @@ The next run lost one of its 30 HN requests to a connection reset, which stopped
 
 We also added a one-off 2:10 AM run to both n8n workflows, and both fired on time and succeeded.
 
-### In OpenTeam: one message, about 70 seconds
+### In OpenTeam: one message, and the bot does the research
 
 Twenty seconds after our message, Scout had saved a routine on `0 8 * * 1-5` in New York time. It also rewrote our instruction into a longer saved prompt with rules such as "Do not fill with unrelated AI stories or invent facts." You can read and edit that text in the routine panel ([routines](/docs/usage/routines)).
 
 ![The OpenTeam desktop app: Scout's chat with the routine request, a Created routine line and a five-bullet digest, beside a Routine panel showing On weekdays at 8:00 AM and one successful run](/blog/images/openteam-hn-digest-routine.png "One message created the routine; Test run posted the first digest. The messages are from our test, recreated with the app's own components. Sample data. Image: OpenTeam.")
 
-We pressed **Test run** twice, and each took about 70 seconds. Scout handed the job to a helper subagent, which fetched the HN page, parsed it in its terminal and opened seven candidate articles before writing. Both digests listed the same five stories with all ten links correct, though the wording changed.
-
-The bot read "about AI agents" generously. Two picks clearly were, such as Axiom's "swarms of dozens of AI agents". Two were partly about agents, and one, an offline assistant, was a stretch.
+We pressed **Test run** twice, and each took about 70 seconds. Scout handed the job to a helper subagent, which fetched the HN page, parsed it in its terminal and opened seven candidate articles before writing. Both digests listed the same five stories with all ten links correct.
 
 ### What the digest job shows
 
-n8n's run is fast, cheap and repeatable, but its model knows only what you pass it. The bot researched without being told how, but took five to nine times as long and its output varies. n8n names the failing node and item and retries from there ([executions](https://docs.n8n.io/build/understand-workflows/understand-executions/view-all-executions)). OpenTeam's run history shows whether a run succeeded, and the bot's messages say what happened.
+n8n's run is fast and cheap when you know which data the model needs, and n8n names the failing node and item and retries from there ([executions](https://docs.n8n.io/build/understand-workflows/understand-executions/view-all-executions)). The bot researched without being told how: it fetched the page, opened the articles and picked the stories itself. OpenTeam's run history lists each run, and the bot's messages say what it did.
 
 ## Job 2: a JavaScript page and a login form
 
@@ -100,13 +97,13 @@ That only works because this site is simple. For a real browser, n8n's [Browser 
 
 ### In OpenTeam: its own Chromium
 
-Scout first spent about 15 seconds searching its plugin catalog for a quotes.toscrape.com connector, then handed the job to a browser subagent. That subagent read the rendered page in the bot's Chromium and failed its first attempt to fill the login form. It took a snapshot of the page and logged in on the second try.
+Scout handed the job to a browser subagent, which read the rendered page in the bot's Chromium, filled in the login form and logged in. No selectors, no cookie handling and no regular expressions on our side.
 
-It returned the same 10 quotes and 10 Goodreads links as n8n, 73 seconds after our message. Asked again in the same chat, Scout repeated its last answer in 8 seconds instead of rerunning.
+It returned the same 10 quotes and 10 Goodreads links as n8n, 73 seconds after our message.
 
 ![A bot's Linux desktop with Chromium on quotes.toscrape.com, logged in: a Logout link at the top right and a Goodreads page link next to each author](/blog/images/openteam-bot-browser-quotes-login.png "Scout's own browser on our test VM, after logging in to the practice site. Image: OpenTeam.")
 
-You can watch any bot's screen and take control. [Giving every AI agent its own computer](/blog/ai-agent-own-computer) covers how that desktop works and its limits.
+You can watch any bot's screen and take control. [Giving every AI agent its own computer](/blog/ai-agent-own-computer) covers how that desktop works.
 
 ## n8n has AI agents too
 
@@ -116,26 +113,11 @@ Since version 2.42, n8n also turns on [n8n Agents](https://docs.n8n.io/build/bui
 
 We tried to build one, but with our OpenRouter credential the builder's model list stayed on "Loading…" and the agent never saved. n8n agents call tools and workflows. They don't get a desktop or a browser, and running code needs a separate sandbox service.
 
-## Where n8n is better
-
-- **Predictable, auditable runs.** Each execution keeps every node's input and output, and you can retry from the failed step. Per-node Retry On Fail would have absorbed our reset. n8n's own [comparison with OpenClaw](https://n8n.io/vs/openclaw/) puts it well: "n8n puts agents inside structured, observable workflows."
-- **Cost and speed per run.** Our quotes job used no model at all, and the digest cost about half a cent in 8 seconds.
-- **Integrations and templates.** n8n has 500+ built-in [integrations](https://n8n.io/integrations/), 2,000+ with partner and community nodes, and more than 13,000 [templates](https://n8n.io/workflows/). OpenTeam bundles 16 plugins plus any MCP server.
-- **Scale.** [Queue mode](https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/enable-queue-mode) spreads executions across workers. OpenTeam runs on one server.
-- **People in the loop.** Approval steps are built in. OpenTeam has no approval engine; only email and Slack drafts and texts from your Mac wait for your Send, and bots can't send email themselves.
-- **Teams and maturity.** n8n supports many users, adds SSO, roles and Git on paid plans, and has a large community. OpenTeam is a young project with a small community and one human account per server.
-
-If any of those decides it, n8n is the better tool.
-
-## Where OpenTeam falls short
-
-It was slower, about 70 seconds against n8n's 8 to 13, and its output changed between runs. It also searched its plugin catalog when it didn't need to. It shows no token counts. Its usual limits apply too: one model serves every bot on a server, and desktop apps exist only for macOS on Apple silicon and Linux x64, plus an iPhone beta.
-
 ## When to use both
 
 The split that worked for us: n8n owns the fixed steps and delivery, and a bot handles judgment and browsing. We tested two bridges end to end and read the third in code.
 
-![Three bridges: OpenTeam's custom MCP plugin calls an n8n MCP Server Trigger (tested), a bot posts to an n8n Webhook node (tested), and n8n sends a signed webhook to an OpenTeam event subscription (not run)](/blog/images/n8n-openteam-bridges.png "Two links tested end to end, one checked in code. Diagram: OpenTeam.")
+![Three bridges: OpenTeam's custom MCP plugin calls an n8n MCP Server Trigger (tested), a bot posts to an n8n Webhook node (tested), and n8n sends a signed webhook to an OpenTeam event subscription (checked in code)](/blog/images/n8n-openteam-bridges-tested.png "Two links tested end to end, one checked in code. Diagram: OpenTeam.")
 
 **An n8n workflow as a bot's tool.** n8n's [MCP Server Trigger](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-langchain.mcptrigger) exposes workflows as MCP tools over SSE or streamable HTTP, with bearer or header auth. We published a sub-workflow that returns the HN front page as the tool `get_hn_front_page`.
 
@@ -145,12 +127,12 @@ In OpenTeam, **Marketplace → Manage → Add custom MCP** takes the URL and an 
 
 **A bot posting to an n8n webhook.** We asked Scout to POST its latest digest as JSON to an n8n [Webhook node](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook) with curl from its terminal. n8n answered HTTP 200 and stored the digest, ready for its Slack, Gmail or Sheets nodes. Outside a test, add header auth.
 
-**n8n starting a bot's routine.** Routines can also run on signed webhooks from any service. That needs a public HTTPS address and a subscription created through the server's API; the apps have no screen for it. OpenTeam's code expects JSON with `id`, `kind` and `text`, signed in an `x-openteam-signature-256` header as `sha256=` plus the hex HMAC-SHA256 of the raw body. n8n's Crypto node can compute that. We confirmed this in code and didn't run it.
+**n8n starting a bot's routine.** Routines can also run on signed webhooks from any service. That needs a public HTTPS address and a subscription created through the server's API. OpenTeam's code expects JSON with `id`, `kind` and `text`, signed in an `x-openteam-signature-256` header as `sha256=` plus the hex HMAC-SHA256 of the raw body. n8n's Crypto node can compute that. We confirmed this in code and didn't run it.
 
 ## Which should you use?
 
-- **Choose n8n if** the steps are known, the job must run the same way every time, or you need many integrations, approval steps or several people building.
 - **Choose OpenTeam if** the job needs judgment, reading or a real browser, and you want bots that keep their own computers and sign-ins on your server.
+- **Choose n8n if** the steps are known and the job must run the same way every time.
 - **Use both if** you have fixed plumbing around a fuzzy middle: n8n fetches and delivers, and a bot decides.
 
 ## Frequently asked questions
@@ -177,7 +159,7 @@ Yes. In our test, an n8n MCP Server Trigger worked as an OpenTeam custom MCP plu
 
 ### Is it safe to self-host n8n?
 
-It can be, if you keep it patched. CISA added n8n's [CVE-2025-68613](https://nvd.nist.gov/vuln/detail/CVE-2025-68613), an authenticated code-execution flaw, to its exploited-vulnerabilities catalog on March 11, 2026, and the unauthenticated [CVE-2026-21858](https://github.com/n8n-io/n8n/security/advisories/GHSA-v4pr-fm98-w9pg), rated 10.0 and disclosed in January 2026, affects versions before 1.121.0. Self-hosting OpenTeam means patching it yourself too ([updates](/docs/manage/updates)).
+It can be, if you keep it patched. CISA added n8n's [CVE-2025-68613](https://nvd.nist.gov/vuln/detail/CVE-2025-68613), an authenticated code-execution flaw, to its exploited-vulnerabilities catalog on March 11, 2026, and the unauthenticated [CVE-2026-21858](https://github.com/n8n-io/n8n/security/advisories/GHSA-v4pr-fm98-w9pg), rated 10.0 and disclosed in January 2026, affects versions before 1.121.0. Keep a self-hosted OpenTeam updated the same way ([updates](/docs/manage/updates)).
 
 ## Try OpenTeam
 

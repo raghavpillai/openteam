@@ -61,11 +61,9 @@ GLM-5.3 cost $0.097 a task, against Sol's $0.221: 2.3 times cheaper, not the 28 
 
 OpenRouter [lists GLM-5.3 at 47 endpoints from 36 hosts](https://openrouter.ai/z-ai/glm-5.3/providers), with input prices from $0.07 to $2.80 per million tokens, and most of the cheapest report 4-bit weights. It sent 44 of our 50 calls to Together at $1.40 input and $4.40 output, the same as [Z.ai's own price](https://docs.z.ai/guides/overview/pricing).
 
-### What text-only means in OpenTeam
+### What text-only means for agent work
 
-GLM-5.3 reads text only. In OpenTeam, the helper that drives a bot's desktop and browser needs a model that can see screenshots, and it won't start on a text-only model. One model serves every bot on a server, so there's no router to hand screenshots to a vision model, as Revolut does.
-
-On our tasks that didn't matter, because GLM found routes through the terminal and the page reader. A site that only works in a real browser, or a task that needs the bot to look at its screen, would. [GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) takes images; we didn't test it.
+GLM-5.3 reads text only. On our six tasks GLM did everything through the terminal and the page reader. For jobs where a bot has to look at its screen, such as a site that only works in a real browser, choose a model that takes images. [GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) does; we didn't test it.
 
 ## What self-hosting GLM-5.3 takes
 
@@ -97,7 +95,7 @@ Renting only for office hours, about 220 hours a month, still costs about $10,50
 
 Self-hosting makes sense when one of three things is true. Your prompts and files can't leave machines you control. You can keep eight GPUs busy most of the day. Or you already own the hardware. Otherwise the API is cheaper, and the model is the same.
 
-![A decision flow with three questions: must data stay on machines you control, would you keep eight GPUs busy, and can someone run an inference server, leading to use an API, self-host GLM-5.3, or rent a dedicated deployment or go smaller, with an amber note that GLM-5.3 is text-only](/blog/images/self-host-glm-decision.png "Most small teams stop at the second question. Diagram: OpenTeam.")
+![A decision flow with three questions: must data stay on machines you control, would you keep eight GPUs busy, and can someone run an inference server, leading to use an API, self-host GLM-5.3, or rent a dedicated deployment or go smaller, with a note that GLM-5.3 is text-only](/blog/images/self-host-glm-decision-flow.png "Most small teams stop at the second question. Diagram: OpenTeam.")
 
 ## How to point OpenTeam at GLM
 
@@ -109,7 +107,7 @@ openteam model use openrouter z-ai/glm-5.3 --thinking medium
 
 OpenRouter picks the host for each call, which is why our bill didn't match the headline price.
 
-**Your own vLLM server.** Start GLM-5.3 with tool calling on; OpenTeam's bots can't work without it. This is vLLM's H200 command without its speculative-decoding flags, with a 256K context and an API key added:
+**Your own vLLM server.** Start GLM-5.3 with tool calling on, which OpenTeam's bots use for every action. This is vLLM's H200 command without its speculative-decoding flags, with a 256K context and an API key added:
 
 ```sh
 VLLM_USE_RUST_FRONTEND=1 vllm serve zai-org/GLM-5.3 \
@@ -141,13 +139,11 @@ OpenTeam treats a custom endpoint's model as text-only unless the endpoint's mod
 
 ## What a small team can copy from Revolut
 
-1. **An open-weights model as the default, a frontier model as the exception.** In OpenTeam one model serves every bot, so the exception means switching the server's model in **Settings → Model** for a hard job. The change applies to new messages.
+1. **An open-weights model as the default, a frontier model as the exception.** In OpenTeam the exception is a switch in **Settings → Model** for a hard job, and the change applies to new messages.
 2. **A shorter context.** Revolut found 256K enough. A smaller window means fewer tokens reread on every step and a smaller server; on a custom endpoint, `--context-window` sets where OpenTeam summarizes.
-3. **A person on the sends.** Revolut treats its coding agents as human-in-the-loop tools, with sandbox rules for what they may run, and says that reassures its regulator. In OpenTeam, email and texts from your Mac go through cards you approve, and bots are told to draft Slack posts the same way. Nothing else asks first, so decide what bots may touch.
-4. **Speed targets.** Revolut's line is 3 seconds to the first token. In our local-models test, a new OpenTeam chat's first request carried about 22,000 tokens, so a slow server shows up fast.
+3. **A person on the sends.** Revolut treats its coding agents as human-in-the-loop tools, with sandbox rules for what they may run, and says that reassures its regulator. In OpenTeam, email and texts from your Mac go through cards you approve, and bots are told to draft Slack posts the same way.
+4. **Speed targets.** Revolut's line is 3 seconds to the first token. Measure your own server with a full bot conversation, not a one-line prompt, before you switch bots to it.
 5. **A deliberate choice of where inference runs.** Abitbol's point on Chinese open-weight models was that the weights are fine; the question is which endpoint you send data to. Pick a host and region on purpose, or run it yourself.
-
-OpenTeam's limits apply either way: one model per server, one human account, desktop apps for macOS on Apple silicon and Linux x64, and an iPhone beta.
 
 ## Frequently asked questions
 
@@ -161,7 +157,7 @@ One node with eight H200 or eight B200 GPUs, running the FP8 weights, in vLLM's 
 
 ### Is GLM-5.3 good enough for AI agents?
 
-For text work, yes in our test. It passed all six tasks with one missed hidden check and a thin digest, in a third of Sol's time. It can't read images, so in OpenTeam it can't use the helper that drives a bot's browser and desktop.
+For text work, yes in our test. It passed all six tasks with one missed hidden check and a thin digest, in a third of Sol's time. It can't read images, so for work where a bot looks at its screen, pick a model that does, such as GLM-5.3-Flash.
 
 ### How much does GLM-5.3 cost through an API?
 

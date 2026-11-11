@@ -56,10 +56,11 @@ test.skipIf(!url)("simultaneous retries of one user reaction return one receipt 
   expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "me", emoji: "👎" }] });
 }));
 
-test.skipIf(!url)("simultaneous different user reactions do not overwrite each other", () => fixture(async f => {
+test.skipIf(!url)("simultaneous different user reactions leave only the last serialized emoji for that actor", () => fixture(async f => {
   await Promise.all([f.react("👍"), f.react("❤️")]);
-  const reactions = ((await f.stored()).metadata as { reactions: { emoji: string }[] }).reactions;
-  expect(reactions.map(r => r.emoji).sort()).toEqual(["❤️", "👍"].sort());
+  const reactions = ((await f.stored()).metadata as { reactions: { by: string; emoji: string }[] }).reactions;
+  const last = await f.db.event.findFirstOrThrow({ where: { topic: "channel.message.user_reaction", entityId: f.message.id }, orderBy: { sequence: "desc" } });
+  expect(reactions).toEqual([{ by: "me", emoji: (last.payload as { emoji: string }).emoji }]);
 }));
 
 test.skipIf(!url)("a simultaneous reaction retry with changed arguments is rejected without a second toggle", () => fixture(async f => {
@@ -246,4 +247,41 @@ test.skipIf(!url)("a scoped bot reaction retry with changed arguments cannot tog
   await expect(f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "❤️" })).rejects.toThrow("different arguments");
   expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "👍" }] });
   expect(await f.db.event.count({ where: { topic: "channel.message.reaction", entityId: f.message.id } })).toBe(1);
+}));
+
+test.skipIf(!url)("a different user emoji replaces the prior one and repeating it clears the user's reaction", () => fixture(async f => {
+  await f.react("👍");
+  expect(await f.react("❤️")).toMatchObject({ reacted: true, removed: false });
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "me", emoji: "❤️" }] });
+  expect(await f.react("❤️")).toMatchObject({ reacted: false, removed: true, runId: null });
+  expect((await f.stored()).metadata).not.toHaveProperty("reactions");
+  expect(await f.db.inboxEvent.count({ where: { botId: f.bot.id, type: "user.reaction" } })).toBe(2);
+}));
+
+test.skipIf(!url)("a user emoji replacement preserves every other actor's reactions and unrelated metadata", () => fixture(async f => {
+  const other = [{ by: "agent", emoji: "👍" }, { by: f.bot.id, emoji: "❤️" }];
+  await f.db.channelMessage.update({ where: { id: f.message.id }, data: { metadata: { address: "t0s1", extra: "keep", reactions: [{ by: "me", emoji: "👍" }, ...other] } } });
+  await f.react("❤️");
+  expect((await f.stored()).metadata).toEqual({ address: "t0s1", extra: "keep", reactions: [...other, { by: "me", emoji: "❤️" }] });
+}));
+
+for (const emoji of ["❤️", "👍"]) test.skipIf(!url)(`legacy multiple user reactions normalize on the next ${emoji} tap without changing other actors`, () => fixture(async f => {
+  const other = [{ by: "agent", emoji: "👍" }];
+  await f.db.channelMessage.update({ where: { id: f.message.id }, data: { metadata: { reactions: [{ by: "me", emoji: "👍" }, { by: "me", emoji: "👎" }, ...other] } } });
+  const result = await f.react(emoji);
+  expect(result).toMatchObject(emoji === "👍" ? { reacted: false, removed: true, runId: null } : { reacted: true, removed: false });
+  expect((await f.stored()).metadata).toEqual({ reactions: emoji === "👍" ? other : [...other, { by: "me", emoji }] });
+}));
+
+test.skipIf(!url)("replaying an older tap receipt returns the current message without restoring the old emoji or waking again", () => fixture(async f => {
+  const oldKey = crypto.randomUUID(), latestKey = crypto.randomUUID();
+  const old = await f.react("👍", oldKey);
+  const latest = await f.react("❤️", latestKey);
+  const replays = await Promise.all([f.react("👍", oldKey), f.react("❤️", latestKey), f.react("👍", oldKey)]);
+  expect(replays[0]).toMatchObject({ runId: old.runId, reacted: true });
+  expect(replays[1]).toMatchObject({ runId: latest.runId, reacted: true });
+  for (const replay of replays) expect(replay.message.metadata).toMatchObject({ reactions: [{ by: "me", emoji: "❤️" }] });
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "me", emoji: "❤️" }] });
+  expect(await f.db.inboxEvent.count({ where: { botId: f.bot.id, type: "user.reaction" } })).toBe(2);
+  expect(await f.db.event.count({ where: { topic: "channel.message.user_reaction", entityId: f.message.id } })).toBe(2);
 }));

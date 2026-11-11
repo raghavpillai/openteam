@@ -429,7 +429,7 @@ export class ChannelService {
 
       const response = await this.prisma.$transaction(async (tx) => {
         // Serialize the read/toggle/write and receipt check for this message.
-        // Two different taps must not overwrite metadata; a retried tap must
+        // Each tap must see the user's current selection; a retried tap must
         // return its original receipt rather than toggle again or hit P2002.
         await tx.$queryRaw`SELECT id FROM "ChannelMessage" WHERE id = ${messageId}::uuid FOR UPDATE`;
         const message = await tx.channelMessage.findUnique({
@@ -475,9 +475,10 @@ export class ChannelService {
         const removed = reactions.some(
           (reaction) => reaction.by === "me" && reaction.emoji === input.emoji
         );
-        const next = reactions.filter(
-          (reaction) => !(reaction.by === "me" && reaction.emoji === input.emoji)
-        );
+        // One current tapback per user: a different emoji replaces theirs,
+        // and tapping their selected emoji clears it. Also normalize legacy
+        // messages that stored several user emojis without touching other actors.
+        const next = reactions.filter((reaction) => reaction.by !== "me");
         if (!removed) next.push({ by: "me", emoji: input.emoji });
         if (next.length > 0) metadata.reactions = next;
         else delete metadata.reactions;

@@ -39,7 +39,10 @@ export function directDynamicToolsExtension(names: DirectToolNames): {
         const text = message.role === "toolResult" && message.isError && message.content?.length === 1 ? message.content[0]?.text : undefined;
         if (text !== `Tool ${message.toolName} not found`) return undefined;
         const available = [...new Set([...names.registered(), ...names.cursor()])];
-        return { message: { ...message, content: [{ type: "text", text: `Tool not found: ${message.toolName}. Available tools: ${available.join(", ")}` }] } };
+        // A registered tool can return this same text. Only the dispatcher can
+        // report an unavailable name; connector content cannot claim that provenance.
+        if (available.includes(message.toolName)) return undefined;
+        return { message: { ...message, details: { ...message.details, runtimeUnknownTool: true }, content: [{ type: "text", text: `Tool not found: ${message.toolName}. Available tools: ${available.join(", ")}` }] } };
       });
     },
   };

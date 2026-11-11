@@ -66,9 +66,6 @@ test("web page text has its exotic line breaks confined; host reminders follow t
   const reminder = "<system_reminder>\nThe namespace rejected these arguments as invalid.\n</system_reminder>";
   const [rejected] = fenceToolResults([{ role: "toolResult", toolName: "CallDynamicTool", isError: true, content: [{ type: "text", text: "Error: MCP error -32602: bad" }], details: { systemReminders: [reminder] } }]);
   expect(texts(rejected)).toEqual(['<cursor_untrusted_data_1337 source="CallDynamicTool">', "Error: MCP error -32602: bad", "</cursor_untrusted_data_1337>", reminder]);
-  // The runtime's own unknown-tool answer is not fenced, as in the reference.
-  const notFound = { role: "toolResult", toolName: "Nope", isError: true, content: [{ type: "text", text: "Tool not found: Nope. Available tools: Shell" }] };
-  expect(fenceToolResults([notFound])[0]).toBe(notFound);
 });
 
 test("calls cut off by a stop read as interrupted instead of aborted or unanswered", () => {

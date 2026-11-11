@@ -35,10 +35,10 @@ export function fenceToolResults<T extends { role: string }>(messages: readonly 
       toolCallId?: string;
       isError?: boolean;
       content: Array<{ type: string; text?: string }>;
-      details?: { systemReminders?: unknown };
+      details?: { systemReminders?: unknown; runtimeUnknownTool?: unknown };
     };
     // As in the reference: nothing to fence, or the runtime's own unknown-tool answer.
-    if (!result.content.length || (result.isError && result.content.length === 1 && result.content[0]!.text?.startsWith("Tool not found: ")))
+    if (!result.content.length || (result.isError && result.details?.runtimeUnknownTool === true))
       return message;
     // A cursor tool that was never found has no result of its own: CallDynamicTool answers, as in the reference.
     const unserved = result.isError && /^Error: (?:Built-in tool "[^"]*" not found in namespace|No built-in tools are available in namespace) /.test(result.content[0]?.text ?? "");

@@ -56,7 +56,8 @@ let searchResults: unknown[] | null = null;
 let browserNetwork = new BrowserNetworkFixture();
 let functionality = new FunctionalFixtures();
 let serverSetup = new ServerSetupFixture();
-let screen = {state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
+let controlGeneration = 0;
+let screen: {state:string;width:number;height:number;humanTakeover:boolean;controlSession:{id:string;generation:number}|null;apps:string[]} = {controlSession:null,state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
 let serverRelease: any;
 let serverUpdate: any;
 let busyBots: any[] = [];
@@ -80,7 +81,7 @@ function reset() {
   requestLog.length = 0;
   failures = {}; searchResults = null; authExpired = false; invalidServer = false; missingToken = false;
   browserNetwork = new BrowserNetworkFixture();
-  functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
+  functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.controlSession=null; controlGeneration=0; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
   serverSetup = new ServerSetupFixture();
   serverRelease = { releaseVersion: "0.0.0", apiProtocolVersion: 1, minimumClientVersion: "0.0.0", maximumClientVersionExclusive: "1.0.0", recommendedClientVersion: "0.0.0", updateChannel: "beta" };
   serverUpdate = { updaterAvailable: true, status: "ready", phase: null, targetVersion: null, message: null, jobId: null, safeToCloseDesktop: false };
@@ -225,7 +226,7 @@ const server = Bun.serve({
         const group = snapshot.channels.find(c => c.kind === "group");
         if (group) { group.hasAvatar = true; group.updatedAt = input.customAvatarRevision; }
       }
-      if (input.expireTakeover) screen.humanTakeover = false;
+      if (input.expireTakeover) { screen.humanTakeover = false; screen.controlSession = null; controlGeneration++; }
       authExpired = input.authExpired ?? authExpired; invalidServer = input.invalidServer ?? invalidServer; missingToken = input.missingToken ?? missingToken;
       if (input.failures) failures = input.failures;
       if (input.subagents) snapshot.subagents = input.subagents;
@@ -295,7 +296,16 @@ const server = Bun.serve({
     if(path.endsWith("/screen"))return response(screen);
     if(path.endsWith("/avatar"))return new Response(Bun.file(new URL(path.includes("visual-group-") && path.includes("-bot-0/") ? "./fixtures/group-blue-avatar.png" : "./fixtures/attachment.png",import.meta.url)),{headers:{"Content-Type":"image/png"}});
     if(path.endsWith("/screen/frame"))return new Response(Bun.file(new URL("./fixtures/computer.png",import.meta.url)),{headers:{"Content-Type":"image/png"}});
-    if(path.endsWith("/screen/takeover")){screen.humanTakeover=input.active;contentReceipts.push({path,active:input.active});return response(screen);}
+    if(path.endsWith("/screen/takeover")){
+      if(input.active && input.controlId){
+        if(screen.controlSession && screen.controlSession.id!==input.controlId && !input.force)return response({message:"Controlled on another device"},409);
+        if(screen.controlSession?.id!==input.controlId)screen.controlSession={id:input.controlId,generation:++controlGeneration};
+        screen.humanTakeover=true;
+      }else if(!input.active && (input.force || !screen.controlSession || screen.controlSession.id===input.controlId && screen.controlSession.generation===input.generation)){
+        screen.humanTakeover=false;screen.controlSession=null;controlGeneration++;
+      }
+      contentReceipts.push({path,...input});return response(screen);
+    }
     if(path.endsWith("/screen/actions")){if(!screen.humanTakeover)return response({message:"Take control first."},409);contentReceipts.push({path,...input});return response(screen);}
     if(path.startsWith("/api/v0/assets/")){
       contentReceipts.push({path,authenticated:request.headers.has("authorization")});
@@ -312,7 +322,7 @@ const server = Bun.serve({
       contentReceipts.push({path,...input});
       if(path.endsWith("/user-form") && input.action==="submit"){try{validateUserFormValues(message.metadata.form,input.values)}catch(error){return response({message:String(error)},400)}}
       if(path.endsWith("/user-form")){message.metadata.cardState=input.action==="submit"?"completed":input.mode==="escalated"?"escalated":"dismissed";message.metadata.outcomeText=input.action==="submit"?"Form filled successfully.":"Dismissed";}
-      else{message.metadata.computerHandoffState=input.action==="start"?"active":"completed";screen.humanTakeover=input.action==="start";}
+      else{message.metadata.computerHandoffState=input.action==="start"?"active":"completed";screen.humanTakeover=input.action==="start";screen.controlSession=input.action==="start"?{id:`handoff:${message.id}`,generation:++controlGeneration}:null;}
       emit("channel.message.updated",message.channelId);return response({accepted:true,message});
     }
     const networkResponse = browserNetwork.handle(path,method,input); if(networkResponse) return networkResponse;

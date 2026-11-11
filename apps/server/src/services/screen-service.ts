@@ -14,6 +14,8 @@ interface ComputerScreenStatus {
   viewerPort: number;
   viewerPassword: string;
   humanTakeover: boolean;
+  controlSession?: { id: string; generation: number } | null;
+  controlPending?: boolean;
   agentInputPaused: boolean;
   apps: Array<"chromium" | "thunar" | "terminal">;
   browserProfileScope: "computer";
@@ -218,13 +220,13 @@ export class ScreenService {
       catch: ScreenService.toError,
     });
 
-  action = (botId: string, input: ScreenActionInput) =>
+  action = (botId: string, input: ScreenActionInput, control?: { controlId?: string; generation?: number }) =>
     Effect.tryPromise({
       try: async () => {
         const bot = await this.requireActiveBot(botId);
         const response = await this.computerFetch(`/v1/screens/${bot.id}/actions`, {
           method: "POST",
-          body: JSON.stringify({ cwd: bot.defaultDirectory, input }),
+          body: JSON.stringify({ cwd: bot.defaultDirectory, input, ...(control?.controlId ? { control } : {}) }),
           signal: AbortSignal.timeout(20_000),
         });
         if (!response.ok) {
@@ -235,13 +237,13 @@ export class ScreenService {
       catch: ScreenService.toError,
     });
 
-  clipboard = (botId: string, input: ScreenClipboardInput, signal?: AbortSignal) =>
+  clipboard = (botId: string, input: ScreenClipboardInput, signal?: AbortSignal, control?: { controlId?: string; generation?: number }) =>
     Effect.tryPromise({
       try: async () => {
         const bot = await this.requireActiveBot(botId);
         const response = await this.computerFetch(`/v1/screens/${bot.id}/clipboard`, {
           method: "POST",
-          body: JSON.stringify({ cwd: bot.defaultDirectory, input }),
+          body: JSON.stringify({ cwd: bot.defaultDirectory, input, ...(control?.controlId ? { control } : {}) }),
           signal: AbortSignal.any([AbortSignal.timeout(10_000), ...(signal ? [signal] : [])]),
         });
         if (!response.ok) {
@@ -253,7 +255,22 @@ export class ScreenService {
       catch: ScreenService.toError,
     });
 
-  takeover = (botId: string, active: boolean) => this.updateControl(botId, "takeover", { active });
+  /** Called for input packets, not frames; avoid DB queries and desktop health probes per mouse move. */
+  async viewerMayInput(botId: string, control: { controlId?: string; generation?: number }): Promise<boolean> {
+    const response = await this.computerFetch(`/v1/screens/${botId}/control`, {
+      method: "POST", body: JSON.stringify(control), signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return false;
+    return ((await response.json()) as { allowed?: boolean }).allowed === true;
+  }
+
+  takeover = (botId: string, active: boolean, renew = false,
+    control?: { controlId?: string; generation?: number; force?: boolean }) =>
+    this.updateControl(botId, "takeover", { active, ...(renew ? { renew: true } : {}), ...control });
+
+  /** The VNC proxy saw the user operate the computer; this resets the five-minute idle release. */
+  reportActivity = (botId: string) =>
+    this.updateControl(botId, "takeover", { active: true, renew: true, activity: true });
 
   pause = (botId: string, paused: boolean) => this.updateControl(botId, "pause", { paused });
 
@@ -305,6 +322,8 @@ export class ScreenService {
       display: status.display,
       viewerUrl: screenViewerUrl(this.screenViewerHost, status.viewerPort, status.viewerPassword),
       humanTakeover: status.humanTakeover,
+      controlSession: status.controlSession ?? null,
+      controlPending: status.controlPending ?? false,
       agentInputPaused: status.agentInputPaused,
       apps: status.apps,
       browserProfileScope: status.browserProfileScope,
@@ -318,7 +337,7 @@ export class ScreenService {
   private updateControl(
     botId: string,
     endpoint: "takeover" | "pause",
-    input: { active: boolean } | { paused: boolean }
+    input: { active: boolean; renew?: boolean; activity?: boolean; controlId?: string; generation?: number; force?: boolean } | { paused: boolean }
   ) {
     return Effect.tryPromise({
       try: async () => {

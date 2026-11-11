@@ -403,10 +403,11 @@ export class RichMessageService {
           }
 
           if (input.action === "start") {
-            await Effect.runPromise(this.screens.takeover(message.senderBotId, true));
             if (state === "active") {
               return { accepted: false, message: messageView(message), runId: null };
             }
+            await Effect.runPromise(this.screens.takeover(message.senderBotId, true, false,
+              { controlId: `handoff:${message.id}`, force: true }));
             const updated = await tx.channelMessage.update({
               where: { id: message.id },
               data: {
@@ -426,7 +427,7 @@ export class RichMessageService {
             return { accepted: true, message: messageView(updated), runId: null };
           }
 
-          await Effect.runPromise(this.screens.takeover(message.senderBotId, false));
+          await Effect.runPromise(this.screens.takeover(message.senderBotId, false, false, { force: true }));
           const finalState =
             input.action === "complete"
               ? "completed"

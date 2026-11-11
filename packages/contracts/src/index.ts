@@ -1025,7 +1025,20 @@ export const ComputerUseInput = Schema.Struct({
 );
 export type ComputerUseInput = typeof ComputerUseInput.Type;
 
-export const ScreenTakeoverInput = Schema.Struct({ active: Schema.Boolean });
+/** Explicit control persists through disconnection until the owning viewer releases it. */
+export const ScreenTakeoverInput = Schema.Struct({
+  active: Schema.Boolean,
+  controlId: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-zA-Z0-9:_-]{1,128}$/))),
+  generation: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.nonNegative())),
+  force: Schema.optional(Schema.Boolean),
+  // Compatibility for old clients; never extends a persistent control session.
+  renew: Schema.optional(Schema.Boolean),
+});
+export const ScreenControlIdentity = Schema.Struct({
+  controlId: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-zA-Z0-9:_-]{1,128}$/))),
+  generation: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.nonNegative())),
+});
+export interface ComputerControlSession { id: string; generation: number }
 export type ScreenTakeoverInput = typeof ScreenTakeoverInput.Type;
 
 export const ScreenPauseInput = Schema.Struct({ paused: Schema.Boolean });
@@ -1045,6 +1058,8 @@ export interface ScreenStatusView {
   display: number;
   viewerUrl: string;
   humanTakeover: boolean;
+  controlSession?: ComputerControlSession | null;
+  controlPending?: boolean;
   agentInputPaused: boolean;
   apps: Array<"chromium" | "thunar" | "terminal">;
   browserProfileScope: "computer";

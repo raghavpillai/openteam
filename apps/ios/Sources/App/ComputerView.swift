@@ -19,9 +19,7 @@ struct ComputerView: View {
   @State private var statusFailure: String?
   @State private var paused = false
   @State private var trackpad = false
-  @State private var heartbeat = Date.distantPast
   @State private var controlRevision = 0
-  @State private var desiredControl: Bool?
   @State private var refreshing = false
   @State private var streamRevision = 0
   @State private var inputTask: Task<Bool, Never>?
@@ -32,8 +30,15 @@ struct ComputerView: View {
   @State private var inputControls = false
   @State private var help = false
   private var viewerFailure: String? { statusFailure ?? vnc.failure }
-  private var takeover: Bool { status["humanTakeover"].bool }
-  private var working: Bool { busy || pendingInputs > 0 }
+  @SceneStorage("openteam.computer-control.viewer") private var controlID = UUID().uuidString
+  private var controlGeneration: Int { status["controlSession"]["generation"].int }
+  private var takeover: Bool { ComputerControl.owns(status, viewerID: controlID) }
+  private var controlLabel: String {
+    if status["controlPending"].bool { return "Changing control…" }
+    if takeover { return vnc.connected ? "You have control" : "Reconnecting — your control is reserved" }
+    return status["humanTakeover"].bool ? "Controlled on another device" : "Watching"
+  }
+  private var working: Bool { busy || pendingInputs > 0 || status["controlPending"].bool }
   private var path: String { "/api/v0/bots/\(API.segment(bot.id))/screen" }
   var body: some View {
     VStack(spacing: 0) {
@@ -42,17 +47,20 @@ struct ComputerView: View {
           .disabled(working)
         BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 25, mode: .idle)
         Text(bot.name).font(.body.weight(.medium)).lineLimit(1)
-          .accessibilityValue(takeover ? "You have control" : "Watching")
+          .accessibilityValue(controlLabel)
         Spacer(minLength: 0)
         ChatChromeButton(title: "Computer help", symbol: "questionmark", symbolSize: 21) { help = true }
         if hasFrame {
           Menu {
             Button(
-              takeover ? "Give back control" : "Take control",
+              takeover ? "Give back control" : (status["humanTakeover"].bool ? "Take control here" : "Take control"),
               systemImage: takeover ? "arrow.uturn.backward" : "hand.point.up.left"
             ) {
               keyboard = false
               Task { await setTakeover(!takeover) }
+            }
+            if !takeover && status["humanTakeover"].bool {
+              Button("Resume bot", systemImage: "play") { Task { await resumeBot() } }
             }
             Button(paused ? "Resume view" : "Pause view", systemImage: paused ? "play" : "pause") {
               paused.toggle()
@@ -68,6 +76,7 @@ struct ComputerView: View {
           }.buttonStyle(.plain).accessibilityLabel("Computer options").disabled(working)
         }
       }.padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 10)
+      Text(controlLabel).font(.caption).foregroundStyle(.secondary).padding(.bottom, 8)
       ComputerVideo(
         vnc: vnc,
         remoteSize: CGSize(
@@ -92,7 +101,7 @@ struct ComputerView: View {
           ComputerToolButton(title: "Clipboard", symbol: "list.clipboard") {
             keyboard = false
             clipboard = true
-          }
+          }.disabled(!takeover || working)
           Spacer()
           if paused { Text("View paused").font(.caption).foregroundStyle(.secondary) }
           ComputerToolButton(
@@ -100,10 +109,9 @@ struct ComputerView: View {
             symbol: "keyboard"
           ) {
             Task {
-              if !takeover { await setTakeover(true) }
               if takeover { keyboard.toggle() }
             }
-          }.disabled(working || paused || viewerFailure != nil)
+          }.disabled(!takeover || !vnc.connected || working || paused || viewerFailure != nil)
         }.padding(.horizontal, keyboard ? 18 : 30).padding(.top, 14).padding(.bottom, keyboard ? 18 : 12)
       }
     }.background(Color.black.ignoresSafeArea()).foregroundStyle(.white).preferredColorScheme(.dark)
@@ -118,7 +126,7 @@ struct ComputerView: View {
         Button("OK", role: .cancel) {}
       } message: {
         Text(
-          "Use the keyboard or choose Take control in the menu to pause the bot and interact. Tap to click, drag to move, or hold to right-click. Use two fingers to scroll. Closing this screen returns control to the bot."
+          "Choose Take control in the menu to pause the bot’s desktop input and interact. Tap to click, drag to move, or hold to right-click. Use two fingers to scroll. Give back control when you finish. Your control is preserved if the connection drops."
         )
       }
       .onChange(of: takeover) { _, active in
@@ -127,24 +135,22 @@ struct ComputerView: View {
       }
       .interactiveDismissDisabled(takeover)
       .task(id: scenePhase) {
-        guard scenePhase == .active else {
-          if takeover { _ = await release() }
-          return
+        guard scenePhase == .active else { return }
+        await refreshStatus()
+        if handoffID != nil, status["controlSession"]["id"].string.hasPrefix("handoff:") {
+          await setTakeover(true)
         }
         while !Task.isCancelled {
-          if !working, takeover, Date().timeIntervalSince(heartbeat) >= 20 {
-            await renewTakeover()
-          }
           if !paused { await refreshStatus() }
           do { try await Task.sleep(for: .seconds(1)) } catch { return }
         }
       }
-      .task(id: "\(scenePhase)-\(paused)-\(streamRevision)") {
+      .task(id: "\(scenePhase)-\(paused)-\(streamRevision)-\(takeover ? controlGeneration : 0)") {
         guard scenePhase == .active, !paused, let api = store.api else {
           vnc.stop()
           return
         }
-        await vnc.run(api: api, botID: bot.id)
+        await vnc.run(api: api, botID: bot.id, controlID: controlID, controlGeneration: takeover ? controlGeneration : nil)
         if vnc.unauthorized { store.handle(APIError("Sign in again.", status: 401)) }
       }
       .onChange(of: vnc.connected) { _, connected in
@@ -154,13 +160,6 @@ struct ComputerView: View {
       .onDisappear {
         vnc.stop(clear: true)
         inputEpoch = UUID()
-        if handoffID != nil, !finishedHandoff { Task { _ = await finishHandoff("dismiss") } }
-        if takeover, let api = store.api {
-          Task {
-            _ = try? await api.request(
-              path + "/takeover", method: "POST", body: .object(["active": .bool(false)]))
-          }
-        }
       }
   }
   private var clipboardSheet: some View {
@@ -174,14 +173,13 @@ struct ComputerView: View {
           Button("Type") {
             let value = text
             Task {
-              if !takeover { await setTakeover(true) }
               if await action(["action": .string("type"), "text": .string(value)]) {
                 text = ""
                 clipboard = false
               }
             }
           }.disabled(
-            text.isEmpty || text.count > 10_000 || working || paused || viewerFailure != nil)
+            !takeover || !vnc.connected || text.isEmpty || text.count > 10_000 || working || paused || viewerFailure != nil)
         }
       }.navigationTitle("Clipboard").navigationBarTitleDisplayMode(.inline)
         .toolbar { Button("Close clipboard") { clipboard = false }.disabled(working) }
@@ -266,7 +264,7 @@ struct ComputerView: View {
     }
   }
   func refreshStatus() async {
-    guard !refreshing, store.api != nil else { return }
+    guard !refreshing, !busy, store.api != nil else { return }
     refreshing = true
     let revision = controlRevision
     defer { refreshing = false }
@@ -286,48 +284,36 @@ struct ComputerView: View {
     }
   }
   func setTakeover(_ active: Bool) async {
-    guard !busy, let api = store.api else { return }
-    desiredControl = active
+    guard !busy, store.api != nil else { return }
     inputEpoch = UUID()
     vnc.setControl(false)
     controlRevision += 1
     busy = true
     defer {
+      controlRevision += 1
       busy = false
       vnc.setControl(takeover && vnc.connected && !paused && scenePhase == .active)
     }
     do {
       status = try await store.request(
-        path + "/takeover", method: "POST", body: .object(["active": .bool(active)]))
-      heartbeat = Date()
-      if active && scenePhase != .active {
-        status = try await api.request(
-          path + "/takeover", method: "POST", body: .object(["active": .bool(false)]))
-      }
+        path + "/takeover", method: "POST", body: ComputerControl.request(active: active, viewerID: controlID, generation: controlGeneration, force: active))
+      if active && !takeover { throw APIError("Update your OpenTeam server to use persistent computer control.") }
       failure = nil
     } catch {
       failure = UserFacingError.message(error)
       if (error as? APIError)?.unauthorized == true { store.handle(error) }
     }
   }
-  private func renewTakeover() async {
-    guard let api = store.api, takeover, !busy else { return }
-    let revision = controlRevision
+  private func resumeBot() async {
+    guard !busy else { return }
+    controlRevision += 1
+    busy = true
+    defer { controlRevision += 1; busy = false }
     do {
-      let next = try await api.request(path + "/takeover", method: "POST", body: .object(["active": .bool(true)]))
-      guard revision == controlRevision, scenePhase == .active else {
-        if desiredControl == false || scenePhase != .active {
-          _ = try? await api.request(path + "/takeover", method: "POST", body: .object(["active": .bool(false)]))
-        }
-        return
-      }
-      status = next
-      heartbeat = Date()
-    } catch {
-      guard revision == controlRevision else { return }
-      statusFailure = UserFacingError.message(error)
-      vnc.setControl(false)
-    }
+      status = try await store.request(path + "/takeover", method: "POST",
+        body: .object(["active": .bool(false), "force": .bool(true)]))
+      failure = nil
+    } catch { failure = UserFacingError.message(error) }
   }
   func release() async -> Bool {
     await setTakeover(false)
@@ -349,7 +335,7 @@ struct ComputerView: View {
           // App launch is a server control operation: keep the bot's managed
           // browser profile and automation connection. All pointer/key/text
           // input and framebuffer updates travel over the VNC connection.
-          _ = try await store.request(path + "/actions", method: "POST", body: .object(body))
+          _ = try await store.request(path + "/actions", method: "POST", body: .object(body.merging(["controlId": .string(controlID), "generation": .number(Double(controlGeneration))]) { _, new in new }))
         } else {
           try await vnc.input(body)
         }

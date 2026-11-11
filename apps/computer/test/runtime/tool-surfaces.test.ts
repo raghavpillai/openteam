@@ -849,6 +849,7 @@ test('Task returns the server receipt in one call, since every Task runs in the 
 test('browser workers retain their parent desktop session', async () => {
   const tools = runtimeTools() as any;
   tools.screens.browserEndpointForAgent = async () => 'http://unused-test-endpoint';
+  tools.screens.readySession = async (id: string) => ({botId:id,profileDirectory:'/tmp/browser-fixture',humanTakeoverUntil:0,humanActiveAt:0,agentInputPaused:false});
   const used: string[] = [];
   const makeBrowser = (name: string) => ({connected:true, configureUploads(){}, registerPrivateValues(){},
     async execute(tool: string, _args: unknown, signal?: AbortSignal) {

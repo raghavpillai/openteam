@@ -17,7 +17,11 @@ export interface ScreenSession {
   runtimeDirectory: string;
   state: ScreenState;
   error: string | null;
+  controlPending?: boolean;
+  controlSession?: { id: string; generation: number } | null;
   humanTakeoverUntil: number;
+  /** Last time the user operated the computer; the lease lapses after HUMAN_IDLE_RELEASE_MS without it. */
+  humanActiveAt: number;
   agentInputPaused: boolean;
   destroyed: boolean;
   stopping: boolean;
@@ -36,6 +40,8 @@ export interface ScreenStatus {
   display: number;
   viewerPort: number;
   viewerPassword: string;
+  controlPending?: boolean;
+  controlSession?: { id: string; generation: number } | null;
   humanTakeover: boolean;
   agentInputPaused: boolean;
   apps: Array<"chromium" | "thunar" | "terminal">;

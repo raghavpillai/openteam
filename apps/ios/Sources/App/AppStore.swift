@@ -37,6 +37,7 @@ final class AppStore {
   private var persistenceTask: Task<Void, Never>?
   private var writer: StateWriter?
   var error: String?
+  let reactionMutations = ReactionMutations()
   var online = false
   private(set) var connectionUnavailable = false
   private var connectionCheck: Task<Void, Never>?
@@ -481,6 +482,7 @@ final class AppStore {
     cancelConnectionCheck()
     connectionUnavailable = false
     generation = epoch
+    reactionMutations.cancelAll()
     activeSendID = nil
     checkingSendID = nil
     sending = false
@@ -677,7 +679,9 @@ final class AppStore {
     let sync = beginStateSync()
     defer { stateSyncs.remove(sync) }
     do {
-      let bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
+      let bootstrap = try await reactionMutations.read {
+        try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
+      }
       guard epoch == generation, !Task.isCancelled else { return false }
       apply(bootstrap)
       online = true
@@ -856,7 +860,9 @@ final class AppStore {
             || activeChannel.map({ historyLoadFailures.contains($0) }) == true
           {
             // Reconcile authoritative bounded projections. Advance the cursor only after reconciliation succeeds.
-            let bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
+            let bootstrap = try await reactionMutations.read {
+              try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
+            }
             try Task.checkCancellation()
             guard epoch == generation else { return }
             apply(bootstrap)
@@ -993,8 +999,10 @@ final class AppStore {
     if let before { query["before"] = before }
     let page: History
     do {
-      page = try await api.get(
-        "/api/v0/channels/\(API.segment(id))/history", as: History.self, query: query)
+      page = try await reactionMutations.read {
+        try await api.get(
+          "/api/v0/channels/\(API.segment(id))/history", as: History.self, query: query)
+      }
     } catch {
       // Superseded reads must not reach the caller's error handling either.
       guard epoch == generation, !Task.isCancelled,
@@ -1069,8 +1077,10 @@ final class AppStore {
     let request = historyOpening ?? (preservingTimeline ? historyOpenings[channelID] : UUID())
     if !preservingTimeline { historyOpenings[channelID] = request }
     do {
-      let page = try await api.get(
-        "/api/v0/channel-messages/\(API.segment(messageID))/context", as: MessageContext.self)
+      let page = try await reactionMutations.read {
+        try await api.get(
+          "/api/v0/channel-messages/\(API.segment(messageID))/context", as: MessageContext.self)
+      }
       guard epoch == generation, !Task.isCancelled,
         navigationGeneration == navigation, historyOpenings[channelID] == request,
         !preservingTimeline || historyWindows[channelID]?.id == windowID else { return false }
@@ -1109,9 +1119,11 @@ final class AppStore {
     let windowID = historyWindows[channelID]?.id
     let opening = historyOpenings[channelID]
     do {
-      let page = try await api.get(
-        "/api/v0/channel-messages/\(API.segment(last.id))/context", as: MessageContext.self,
-        query: ["direction": "after", "limit": "60"])
+      let page = try await reactionMutations.read {
+        try await api.get(
+          "/api/v0/channel-messages/\(API.segment(last.id))/context", as: MessageContext.self,
+          query: ["direction": "after", "limit": "60"])
+      }
       guard epoch == generation, !Task.isCancelled,
         historyWindows[channelID]?.id == windowID,
         historyOpenings[channelID] == opening else { return }
@@ -1136,8 +1148,10 @@ final class AppStore {
     let request = historyOpening ?? UUID()
     historyOpenings[channelID] = request
     do {
-      let page = try await api.get(
-        "/api/v0/channels/\(API.segment(channelID))/history", as: History.self, query: ["limit": "60"])
+      let page = try await reactionMutations.read {
+        try await api.get(
+          "/api/v0/channels/\(API.segment(channelID))/history", as: History.self, query: ["limit": "60"])
+      }
       guard epoch == generation, !Task.isCancelled,
         navigationGeneration == navigation, historyOpenings[channelID] == request else { return false }
       install(page)
@@ -1684,6 +1698,52 @@ final class AppStore {
     }
   }
   @discardableResult
+  func react(_ emoji: String, to message: Message) -> Bool {
+    guard api != nil else { return false }
+    let epoch = generation
+    let current = messages(message.channelId).first { $0.id == message.id } ?? message
+    if !reactionMutations.uncertain.contains(message.id) { error = nil }
+    return reactionMutations.toggle(
+      messageID: message.id, metadata: current.metadata, emoji: emoji,
+      send: { [weak self] emoji in
+        guard let self, self.generation == epoch else { throw CancellationError() }
+        let result = try await self.request(
+          "/api/v0/channel-messages/\(API.segment(message.id))/reaction", method: "POST",
+          body: .object([
+            "emoji": .string(emoji), "clientId": .string(UUID().uuidString),
+            "timeZone": .string(TimeZone.current.identifier),
+          ]))
+        return try result["message"].decode(Message.self)
+      },
+      confirmed: { [weak self] updated in
+        guard let self, self.generation == epoch else { return }
+        var current = self.messages(updated.channelId).first { $0.id == updated.id } ?? updated
+        current.metadata = ReactionMutations.replacingOwn(
+          current.metadata, with: ReactionMutations.ownEmoji(updated.metadata))
+        self.merge([current], channel: updated.channelId)
+        self.persist()
+      },
+      recover: { [weak self] failure in
+        guard let self, self.generation == epoch else { return false }
+        self.handle(failure)
+        NativeHaptics.failure(failure, source: "message.reaction")
+        // A timeout may have committed. Read this message before accepting
+        // another toggle; never replay an unknown mutation automatically.
+        do {
+          let page = try await self.reactionMutations.read {
+            try await self.fetch(
+              "/api/v0/channel-messages/\(API.segment(message.id))/context", as: MessageContext.self)
+          }
+          guard self.generation == epoch, page.channelId == message.channelId,
+            let updated = (page.messages + page.threadContext).first(where: { $0.id == message.id })
+          else { return false }
+          self.merge([updated], channel: updated.channelId)
+          self.persist()
+          return true
+        } catch { return false }
+      })
+  }
+  @discardableResult
   func mutate(
     _ path: String, method: String = "POST", body: JSON? = nil,
     successFeedback: HapticEffect? = nil, feedbackSource: String = "mutation"
@@ -2021,6 +2081,7 @@ final class AppStore {
       #endif
       lifecycle?.cancel()
       generation = UUID()
+      reactionMutations.cancelAll()
       activeSendID = nil
       checkingSendID = nil
       stopPersistence()
@@ -2062,6 +2123,7 @@ final class AppStore {
     lifecycle?.cancel()
     lifecycle = nil
     generation = UUID()
+    reactionMutations.cancelAll()
     activeSendID = nil
     checkingSendID = nil
     cancelAuthentication()
@@ -2145,6 +2207,7 @@ final class AppStore {
       cancelConnectionCheck()
       connectionUnavailable = false
       generation = UUID()
+      reactionMutations.cancelAll()
       activeSendID = nil
       checkingSendID = nil
       flushPersistence()

@@ -743,7 +743,8 @@ struct MessageRow: View {
             .allowsHitTesting(false)
             .onAppear { NativeHaptics.play(.medium, source: "message.long-press") }
         }
-        let reactions = MessageReaction.project(message.metadata)
+        let reactions = MessageReaction.project(
+          store.reactionMutations.project(message.metadata, messageID: message.id))
         if !reactions.isEmpty {
           HStack(spacing: 5) {
             ForEach(reactions) { reaction in
@@ -869,14 +870,7 @@ struct MessageRow: View {
   }
   func react(_ emoji: String) {
     NativeHaptics.play(.selection, source: "message.reaction")
-    Task {
-      await store.mutate(
-        "/api/v0/channel-messages/\(API.segment(message.id))/reaction",
-        body: .object([
-          "emoji": .string(emoji), "clientId": .string(UUID().uuidString),
-          "timeZone": .string(TimeZone.current.identifier),
-        ]))
-    }
+    store.react(emoji, to: message)
   }
   func markUnread() async {
     await store.markUnread(channel.id)

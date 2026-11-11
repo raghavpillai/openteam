@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import { BotService } from "../src/services/bot-service";
 
-const fixture = (failure?: "context-network" | "screen-network" | "active-context" | "cancel-network") => {
+const fixture = (failure?: "context-network" | "screen-network" | "active-context" | "cancel-network" | "background-network") => {
   let status = "active";
   let runStatus = "running";
   let contextExists = true;
@@ -47,8 +47,8 @@ const fixture = (failure?: "context-network" | "screen-network" | "active-contex
       contextWasActive = runtimeActive;
       if (failure === "context-network") throw new TypeError("fetch failed");
       if (failure === "active-context" || runtimeActive) return new Response("Cannot delete an active context session", { status: 500 });
-
     }
+    if (path.includes("background-shells") && failure === "background-network") throw new TypeError("fetch failed");
     if (path.includes("screens") && failure === "screen-network") throw new DOMException("timed out", "TimeoutError");
     return Response.json({ ok: true });
   }, { deleteAgentFiles: async () => {}, repairActiveAgentAfterDeletion: async () => {} } as never);
@@ -59,6 +59,7 @@ const fixture = (failure?: "context-network" | "screen-network" | "active-contex
 test("archive durably cancels and settles the parent turn before deleting its context", async () => {
   const f = fixture();
   expect(await Effect.runPromise(f.service.archive("bot"))).toEqual({ ok: true });
+  expect(f.calls).toContain("/v1/bots/bot/background-shells/stop");
   expect(f.cancelBody()).toEqual({ reason: "stop", recovery: true });
   expect(f.contextWasActive()).toBe(false);
   expect(f.observations.every((o) => o.status === "archived" && o.runStatus === "cancelled" && o.retired.includes("bot"))).toBe(true);
@@ -66,12 +67,13 @@ test("archive durably cancels and settles the parent turn before deleting its co
   expect(f.calls.indexOf("/v1/turns/parent-run/cancel")).toBeLessThan(f.calls.indexOf("/v1/context-sessions/context"));
 });
 
-for (const failure of ["context-network", "screen-network", "active-context", "cancel-network"] as const) {
+for (const failure of ["context-network", "screen-network", "active-context", "cancel-network", "background-network"] as const) {
   test(`archive succeeds despite ${failure} and retains runtime-owned session bookkeeping`, async () => {
     const f = fixture(failure);
     expect(await Effect.runPromise(f.service.archive("bot"))).toEqual({ ok: true });
-    expect(f.state()).toMatchObject({ status: "archived", runStatus: "cancelled", contextExists: failure !== "screen-network" });
+    expect(f.state()).toMatchObject({ status: "archived", runStatus: "cancelled", contextExists: !["screen-network", "background-network"].includes(failure) });
     expect(f.calls).toContain("/v1/agent-stores/bot");
+    expect(f.calls).toContain("/v1/screens/bot");
     expect(f.observations.every((o) => o.status === "archived" && o.runStatus === "cancelled" && o.retired.includes("bot"))).toBe(true);
   });
 }

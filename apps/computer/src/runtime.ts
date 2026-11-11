@@ -506,11 +506,12 @@ export class ComputerRuntime {
     }
     this.providerConnections.dispose(contextSessionId);
     await this.compaction.remove(contextSessionId);
-    if (!sessionPath) return;
-    const removable = disposableSessionPath(this.sessionsDir, sessionPath);
+    const recordedPath = sessionPath ?? await existingContextSessionPath(this.sessionsDir, contextSessionId);
+    if (!recordedPath) return;
+    const removable = disposableSessionPath(this.sessionsDir, recordedPath);
     if (!removable) {
       console.warn(
-        `context session ${contextSessionId} records a session path outside the session root; leaving ${sessionPath} untouched`
+        `context session ${contextSessionId} records a session path outside the session root; leaving ${recordedPath} untouched`
       );
       return;
     }

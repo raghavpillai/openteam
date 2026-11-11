@@ -492,13 +492,18 @@ export class BotService {
         }
       }));
       await Promise.all(ownerIds.map(async (id) => {
-        try {
-          const response = await this.computerFetch(`/v1/screens/${id}`, {
-            method: "DELETE", signal: AbortSignal.timeout(10_000),
-          });
-          if (!response.ok) cleanupWarnings.push(`screen ${id}: ${response.status} ${await response.text()}`);
-        } catch (error) {
-          cleanupWarnings.push(`screen ${id}: ${String(error)}`);
+        for (const [path, method, label] of [
+          [COMPUTER_API_PATHS.backgroundShellsStop(id), "POST", "background commands"],
+          [`/v1/screens/${id}`, "DELETE", "screen"],
+        ] as const) {
+          try {
+            const response = await this.computerFetch(path, {
+              method, signal: AbortSignal.timeout(10_000),
+            });
+            if (!response.ok) cleanupWarnings.push(`${label} ${id}: ${response.status} ${await response.text()}`);
+          } catch (error) {
+            cleanupWarnings.push(`${label} ${id}: ${String(error)}`);
+          }
         }
       }));
       // Retire the durable stores before the shared directories: an open SQLite store is what makes

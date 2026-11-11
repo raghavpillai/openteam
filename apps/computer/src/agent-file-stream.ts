@@ -23,6 +23,9 @@ function integrityReceipt() {
   return {
     fd,
     commit(value: { bytes: number; sha256: string }) {
+      // A helper can fail before the source reaches EOF. Its close handler
+      // releases this descriptor, which may already belong to another file.
+      if (closed) throw new Error("File transfer receipt is no longer active");
       const data = Buffer.from(JSON.stringify(value));
       for (let offset = 0; offset < data.length;) {
         const written = writeSync(fd, data, offset, data.length - offset, offset);

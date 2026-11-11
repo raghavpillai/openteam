@@ -15,7 +15,7 @@ export async function serveWhatsApp(account: WhatsAppAccount, transport: Transpo
   const results = new ResultStore("whatsapp", account.settings.accountId);
   const tools = [...whatsappTools(account), results.tool()];
   const entries = new Map(tools.map((entry) => [entry.name, { entry, validate: createToolValidator(entry.inputSchema) }]));
-  const server = new Server({ name: "openteam-whatsapp", version: "1.0.9" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "openteam-whatsapp", version: "1.0.10" }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: tools.map(({ run, ...definition }) => definition) }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {

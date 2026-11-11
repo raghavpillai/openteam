@@ -161,9 +161,10 @@ export function PluginAccountRow({
             <img
               src={qrCodeDataUrl}
               alt="Scan to link your account"
-              width={256}
-              height={256}
-              className="rounded-lg bg-white"
+              width={320}
+              height={320}
+              className="max-w-full h-auto rounded-lg bg-white"
+              style={{ imageRendering: "pixelated" }}
             />
           ) : null}
           <p className="text-[12px] text-foreground-secondary">

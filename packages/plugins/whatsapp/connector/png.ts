@@ -35,7 +35,8 @@ export function pairingPng(payload: string) {
   const qr = qrcode(0, "M");
   qr.addData(payload, "Byte");
   qr.make();
-  const count = qr.getModuleCount(), scale = 6, margin = 4;
+  // Keep a high-resolution integer grid for export and high-density displays.
+  const count = qr.getModuleCount(), scale = 12, margin = 4;
   const size = (count + margin * 2) * scale;
   return grayscalePng(size, size, (x, y) => {
     const column = Math.floor(x / scale) - margin, row = Math.floor(y / scale) - margin;

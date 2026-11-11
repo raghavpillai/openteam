@@ -30,9 +30,6 @@ export function settings(env: Record<string, string | undefined> = process.env, 
     mediaRoot: resolve(mediaRoot), readOnly: readOnly === "true", maxMessages,
     env: scopedProcessEnvironment(env, {
       WACLI_DEVICE_LABEL: "OpenTeam Plugin",
-      // wacli uses the WEB user agent. Its default DESKTOP props fall back
-      // to the generic "other web client" QR type; select Chrome explicitly.
-      WACLI_DEVICE_PLATFORM: "CHROME",
       WACLI_SYNC_MAX_MESSAGES: String(maxMessages), WACLI_SYNC_MAX_DB_SIZE: "512MB",
       WACLI_MEDIA_ROOTS: resolve(mediaRoot),
     }),

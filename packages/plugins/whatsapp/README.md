@@ -6,7 +6,9 @@ This packaged MCP connector links a personal WhatsApp account with `wacli` 0.26.
 
 Install the plugin, save account settings, and choose Connect. Scan the live QR in OpenTeam account settings using your phone's **Linked devices → Link a device** scanner. QR linking uses the shared desktop/iOS device-link flow; phone-code linking is not exposed. No developer app, Go/Python installation, or API key is required. The computer must run Linux x64 or ARM64 with glibc; both binaries are included and verified before execution. The desktop/iOS app can be used for setup because execution happens on the bot computer.
 
-The native client is configured with the device label **OpenTeam Plugin** and explicit **CHROME** device props, matching its WEB protocol user agent. The upstream DESKTOP default otherwise falls back to the generic other-web-client QR type. Existing links retain their original label; the phone-visible label on a fresh link still needs live verification.
+The native client is configured with the device label **OpenTeam Plugin** and retains the stock CLI platform defaults. Existing links retain their original label; the phone-visible label on a fresh link still needs live verification.
+
+QR images use a high-resolution square grid with a four-module white border. Desktop and iOS show a larger QR with sharp scaling. Chat screenshots remain frozen even while the native process rotates challenges; use the live account-settings view for reliable linking.
 
 The five manifest-declared lifecycle tools are host-only. `connection_status` remains available to Bots without QR secrets. Each approval has an exact session ID, a fixed deadline of at most ten minutes including bootstrap, and strictly increasing challenge generations. Rotation replaces the image; invalidation or image expiry hides it while polling continues. Get new code uses the host restart barrier to stop the previous approval first. Delayed events cannot revive a cancelled or expired session. A phone error alone does not identify passkey or transport failures; cancel and wait when WhatsApp reports a linking restriction.
 

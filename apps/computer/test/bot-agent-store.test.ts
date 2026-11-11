@@ -511,6 +511,25 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
     }
   });
 
+  test("deleting an agent retires its directory even while its store was open", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-delete-"));
+    const orphanRoot = join(root, "retired");
+    store = new BotAgentStore(join(root, "sand-data"), orphanRoot);
+    await store.openForWake(agentId);
+    const directory = store.agentDirectory(agentId);
+    expect(store.hasLiveHandle(agentId)).toBeTrue();
+
+    expect(await store.deleteAgent(agentId)).toBeTrue();
+
+    expect(store.hasLiveHandle(agentId)).toBeFalse();
+    expect(await readdir(join(root, "sand-data", "agents"))).toEqual([]);
+    expect(await stat(directory).catch(() => null)).toBeNull();
+    expect(await store.listAgentDirectories()).toEqual([]);
+    // Nothing is left behind under the retirement root either.
+    expect(await readdir(orphanRoot)).toEqual([]);
+    expect(await store.deleteAgent(agentId)).toBeFalse();
+  });
+
   test("turn metadata, transcript projections, and search indexes rebuild from store.db", async () => {
     root = await mkdtemp(join(tmpdir(), "openteam-bot-projections-"));
     store = new BotAgentStore(root);

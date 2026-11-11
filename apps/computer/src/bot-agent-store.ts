@@ -4,7 +4,7 @@ import type {
 } from "@openteam/contracts/service-protocol";
 import type { Database } from "bun:sqlite";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { chmod, mkdir, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   AgentDirectoryInventory,
@@ -643,6 +643,35 @@ export class BotAgentStore {
 
   async setPromptSnapshot(agentId: string, key: string, value: unknown): Promise<void> {
     await this.withAgentStore(agentId, () => this.setKv(agentId, key, JSON.stringify(value)));
+  }
+
+  /**
+   * Retire a durable agent directory. The control plane deletes chats in PostgreSQL, and a
+   * surviving directory is roster authority that the control plane adopts straight back, so
+   * deletion has to take the directory out of `agents/` even when its SQLite store was open. The
+   * directory is renamed out of the roster first (a rename succeeds where unlinking an open store
+   * can fail), then discarded. Returns whether anything was removed.
+   */
+  async deleteAgent(agentId: string): Promise<boolean> {
+    safeId(agentId);
+    await this.closeAgent(agentId).catch((error) =>
+      console.warn(`agent store close before delete failed: ${String(error)}`)
+    );
+    const directory = this.agentDirectory(agentId);
+    if (!(await stat(directory).catch(() => null))) return false;
+    await ensureSharedAgentDirectory(this.orphanRoot);
+    const retired = join(this.orphanRoot, `${agentId}.${this.now().toString(36)}`);
+    try {
+      await rename(directory, retired);
+    } catch (error) {
+      console.warn(`agent directory ${agentId} could not be moved out of the roster: ${String(error)}`);
+      await rm(directory, { recursive: true, force: true });
+      return true;
+    }
+    await rm(retired, { recursive: true, force: true }).catch((error) =>
+      console.warn(`retired agent directory ${agentId} could not be discarded: ${String(error)}`)
+    );
+    return true;
   }
 
   async closeAgent(agentId: string): Promise<void> {

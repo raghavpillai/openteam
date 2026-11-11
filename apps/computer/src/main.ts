@@ -363,6 +363,10 @@ const server = Bun.serve({
       }
 
       const agentStoreMatch = url.pathname.match(/^\/v1\/agent-stores\/([^/]+)$/);
+      if (request.method === "DELETE" && agentStoreMatch?.[1]) {
+        const removed = await agentStores.deleteAgent(agentStoreMatch[1]);
+        return json({ ok: true, removed });
+      }
       if (request.method === "PUT" && agentStoreMatch?.[1]) {
         const body = (await request.json().catch(() => ({}))) as { createdAt?: unknown };
         const createdAt =

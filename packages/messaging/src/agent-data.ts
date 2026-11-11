@@ -1434,7 +1434,13 @@ export class AgentDataStore {
       select: { id: true },
     });
     for (const bot of obsolete) {
-      await rm(this.botDirectory(bot.id), { recursive: true, force: true });
+      // A directory whose SQLite store is still open (or was already half deleted) may refuse the
+      // removal; that must not abort the rest of the reconciliation pass.
+      await rm(this.botDirectory(bot.id), { recursive: true, force: true }).catch((error) => {
+        warnings.push(
+          `obsolete agent directory ${bot.id}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      });
     }
     return { warnings: warnings.slice(0, 100) };
   }

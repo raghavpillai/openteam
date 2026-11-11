@@ -48,7 +48,7 @@ struct PluginConnectionActions: View {
       Text(connection["deviceLink"]["instructions"].string).font(.subheadline)
       if let image = deviceLinkImage {
         Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
-          .frame(maxWidth: 280).accessibilityLabel("Scan to link your account")
+          .frame(maxWidth: 320).accessibilityLabel("Scan to link your account")
       } else {
         Text("Waiting for an updated code or phone approval. You can also get a new code.")
           .font(.footnote).foregroundStyle(NativePalette.muted)

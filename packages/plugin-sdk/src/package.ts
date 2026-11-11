@@ -12,19 +12,24 @@ import type {
 export const PACKAGE_MAX_BYTES = 20 * 1024 * 1024;
 export const PACKAGE_MAX_FILES = 1000;
 
-export function validatePackageFiles(files: Record<string, string>): void {
+export function validatePackageFiles(files: Record<string, string>, encoding: "utf8" | "base64" = "utf8"): number {
   if (Object.keys(files).length > PACKAGE_MAX_FILES) throw new Error("Package exceeds 1,000 files");
   let bytes = 0;
   for (const [path, content] of Object.entries(files)) {
     safePackagePath(path);
     if (typeof content !== "string") throw new Error("Invalid package file");
-    bytes += new TextEncoder().encode(content).length;
+    if (encoding === "base64" && (content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)))
+      throw new Error(`Invalid binary file encoding: ${path}`);
+    bytes += encoding === "base64"
+      ? content.length / 4 * 3 - (content.endsWith("==") ? 2 : content.endsWith("=") ? 1 : 0)
+      : new TextEncoder().encode(content).length;
     if (bytes > PACKAGE_MAX_BYTES) throw new Error("Package exceeds 20 MB");
     if (
       /(^|\/)(?:node_modules|\.git|\.env(?:\..*)?|credentials\.json|auth\.json)(?:\/|$)/i.test(path)
     )
       throw new Error(`Remove private or generated file before importing: ${path}`);
   }
+  return bytes;
 }
 
 function skillFromFile(path: string, text: string) {

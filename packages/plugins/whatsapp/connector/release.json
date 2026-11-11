@@ -1,0 +1,27 @@
+{
+  "repository": "openclaw/wacli",
+  "version": "v0.26.0",
+  "revision": "535a8b969cc83c3aad57f66be77e8fd4a7fcaaa3",
+  "binaries": {
+    "linux-x64": {
+      "path": "connector/bin/linux-x64.br",
+      "sha256": "3750e566e88a3a7ae47e485c02392ad60b972160fc85e5bd789e896673245f76",
+      "size": 28332464,
+      "releaseArchive": "https://github.com/openclaw/wacli/releases/download/v0.26.0/wacli_0.26.0_linux_amd64.tar.gz",
+      "releaseArchiveSha256": "2c28f65e2f9aaf32585288229db1f916c6c5fb5db9513715017d528513604b44",
+      "compression": "brotli",
+      "compressedSize": 7473298,
+      "compressedSha256": "5d7ca169ba7492650e4930ca845b573efd4dd7762577f5eeb209bcd6ee108ce4"
+    },
+    "linux-arm64": {
+      "path": "connector/bin/linux-arm64.br",
+      "sha256": "4d4f00689a60d2e71b69ec9a2e0c2312608ab74029f8f68bab0358774189c421",
+      "size": 26833576,
+      "releaseArchive": "https://github.com/openclaw/wacli/releases/download/v0.26.0/wacli_0.26.0_linux_arm64.tar.gz",
+      "releaseArchiveSha256": "777a5dccece12421b7ee4af001b074e5ebc1c7a63f732cf642c3e7b3c4d7c7b9",
+      "compression": "brotli",
+      "compressedSize": 6647413,
+      "compressedSha256": "f678204d023552251f91ab5a30c6116c54af39c9c7f99dece9f2efe172ef2b1a"
+    }
+  }
+}

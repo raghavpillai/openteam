@@ -1,0 +1,11 @@
+{
+  "repository": "openclaw/openclaw",
+  "revision": "c321c038b59c1e67f4729023b5e680d3c061c9ca",
+  "directory": "",
+  "delivery": "reference",
+  "license": "MIT",
+  "files": {
+    "LICENSE": "9efd316ecf1c4c60f6fd5d26433142fff2b6794d7d328e9bc6179b29bf9c82a4",
+    "extensions/whatsapp/skills/wacli/SKILL.md": "55a92ebfc446eeb1e661e63ab44991e2dfa74c390c6fc3613396021b056164a3"
+  }
+}

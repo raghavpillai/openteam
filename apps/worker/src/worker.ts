@@ -1811,6 +1811,9 @@ export class WakeWorker {
     } satisfies Prisma.InputJsonObject;
     let priorityInterrupted = false;
     await this.prisma.$transaction(async (tx) => {
+      // Cancellation and failure settle the same run. Read its terminal state only after
+      // taking the write lock, otherwise a late disconnect can undo a committed deletion.
+      await tx.$executeRaw`SELECT id FROM "Run" WHERE id = ${claimed.runId}::uuid FOR NO KEY UPDATE`;
       const current = await tx.run.findUnique({ where: { id: claimed.runId } });
       const currentError =
         current?.error && !Array.isArray(current.error) && typeof current.error === "object"

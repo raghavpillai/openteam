@@ -371,22 +371,8 @@ export class BotService {
                 where: { childRunId: child.currentRunId },
               })
             : null;
-          await tx.subagent.updateMany({
-            where: {
-              id: child.id,
-              status: { in: ["provisioning", "queued", "running", "waiting"] },
-            },
-            data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt, nextCheckAt: null },
-          });
-          if (attempt) {
-            await tx.subagentAttempt.updateMany({
-              where: {
-                id: attempt.id,
-                status: { in: ["provisioning", "queued", "running", "waiting"] },
-              },
-              data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
-            });
-          }
+          // Worker settlement locks Run before Subagent/Attempt. Use that order too: holding
+          // the child row while waiting for its run can deadlock with a failing worker.
           if (child.currentRunId) {
             await tx.run.updateMany({
               where: {
@@ -412,6 +398,22 @@ export class BotService {
                 completedAt: deletedAt,
                 error: { code: "parent_archived" },
               },
+            });
+          }
+          await tx.subagent.updateMany({
+            where: {
+              id: child.id,
+              status: { in: ["provisioning", "queued", "running", "waiting"] },
+            },
+            data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt, nextCheckAt: null },
+          });
+          if (attempt) {
+            await tx.subagentAttempt.updateMany({
+              where: {
+                id: attempt.id,
+                status: { in: ["provisioning", "queued", "running", "waiting"] },
+              },
+              data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
             });
           }
           await appendEvent(tx, "subagent.stopped", child.id, {

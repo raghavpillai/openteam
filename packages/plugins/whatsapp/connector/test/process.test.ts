@@ -76,6 +76,36 @@ test("connector shutdown terminates a pending one-shot command and prevents new 
   await expect(f.process.execute(["auth", "status"])).rejects.toThrow("shutting down");
 }, 8000);
 
+for (const mode of ["follow", "execute"]) test.skipIf(process.platform !== "linux")(`killing the connector reaps a native ${mode} process that ignores graceful termination`, async () => {
+  const f = await fixture();
+  await writeFile(join(f.configuration.store, "mode"), "hang");
+  const owner = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/process-owner.ts"), f.home, f.process.executable, mode], { stdout: "ignore", stderr: "pipe" });
+  let nativePid: number | undefined;
+  const running = async (pid: number) => {
+    try {
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+      return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0] !== "Z";
+    } catch { return false; }
+  };
+  try {
+    const deadline = Date.now() + 3000;
+    while (!nativePid && Date.now() < deadline) {
+      const value = await Bun.file(join(f.configuration.store, "native.pid")).text().catch(() => "");
+      if (value) nativePid = Number(value);
+      else await Bun.sleep(10);
+    }
+    expect(nativePid).toBeGreaterThan(0);
+    owner.kill("SIGKILL"); await owner.exited;
+    const stoppedBy = Date.now() + 2000;
+    while (await running(nativePid!) && Date.now() < stoppedBy) await Bun.sleep(10);
+    expect(await running(nativePid!)).toBe(false);
+  } finally {
+    owner.kill("SIGKILL"); await owner.exited;
+    if (nativePid && await running(nativePid)) process.kill(nativePid, "SIGKILL");
+    await f.process.close();
+  }
+}, 7000);
+
 test("attachments reject traversal, symlink escapes, and session files", async () => {
   const f = await fixture(); const root = f.configuration.mediaRoot;
   await writeFile(join(root, "report.txt"), "intended attachment");

@@ -86,7 +86,16 @@ export class WacliProcess {
   }
   private launch(args: string[]) {
     if (this.closed) throw new Error("WhatsApp connector is shutting down.");
-    const child = Bun.spawn([this.executable, ...args], {
+    // A SIGKILL cannot run our close handlers. Bind each native process to the
+    // connector's lifetime so an orphan cannot keep the account writer lock.
+    // Check PPID after arming the signal to cover death during child startup.
+    // Both programs are part of the OpenTeam Linux computer's base system.
+    const command = process.platform === "linux"
+      ? ["/usr/bin/setpriv", "--pdeathsig", "KILL", "--", "/bin/sh", "-c",
+        'test "$PPID" = "$1" || exit 125; shift; exec "$@"',
+        "openteam-wacli", String(process.pid), this.executable, ...args]
+      : [this.executable, ...args];
+    const child = Bun.spawn(command, {
       cwd: this.configuration.store, env: this.configuration.env, stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
     this.children.add(child);

@@ -1,12 +1,16 @@
 #!/usr/bin/env bun
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const store = args[args.indexOf("--store") + 1]!;
 const mode = existsSync(`${store}/mode`) ? readFileSync(`${store}/mode`, "utf8") : "normal";
 appendFileSync(`${store}/calls`, JSON.stringify(args) + "\n");
 if (mode === "large") { process.stdout.write("x".repeat(5 * 1024 * 1024)); setInterval(() => {}, 1000); }
-else if (mode === "hang") setInterval(() => {}, 1000);
+else if (mode === "hang") {
+  writeFileSync(`${store}/native.pid`, String(process.pid));
+  process.on("SIGTERM", () => {});
+  setInterval(() => {}, 1000);
+}
 else if (args.includes("--events")) {
   process.stderr.write(JSON.stringify({ event: "qr_code", data: { code: "private-qr-payload" } }) + "\n");
   process.stderr.write("unstructured secret diagnostic\n");

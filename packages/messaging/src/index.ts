@@ -104,17 +104,16 @@ export interface MessageReaction {
   emoji: string;
 }
 
-/** OpenTeam-compatible toggle semantics: each actor may hold multiple emoji. */
+/** One current tapback per actor; repeating their selected emoji clears it. */
 export const toggleMessageReaction = (
   reactions: readonly MessageReaction[],
   emoji: string,
   by: string
 ): { reactions: MessageReaction[]; removed: boolean } => {
   const removed = reactions.some((reaction) => reaction.by === by && reaction.emoji === emoji);
+  const others = reactions.filter((reaction) => reaction.by !== by);
   return {
-    reactions: removed
-      ? reactions.filter((reaction) => !(reaction.by === by && reaction.emoji === emoji))
-      : [...reactions, { by, emoji }],
+    reactions: removed ? others : [...others, { by, emoji }],
     removed,
   };
 };
@@ -2590,12 +2589,15 @@ export class AgentMessaging {
         where: { id: message.id },
         data: { metadata: json(metadata) },
       });
-      const notificationKey = `reaction:${message.id}:${context.botId}:${input.emoji}`;
-      if (removed) {
-        await tx.channelNotification.updateMany({ where: { key: { startsWith: `${notificationKey}:` } }, data: { revoked: true } });
-      } else {
+      // Replacement retires every older alert from this bot, including legacy
+      // multiple-emoji state. Other reactors' pills and alerts remain independent.
+      const notificationPrefix = `reaction:${message.id}:${context.botId}:`;
+      await tx.channelNotification.updateMany({
+        where: { key: { startsWith: notificationPrefix }, revoked: false }, data: { revoked: true },
+      });
+      if (!removed) {
         const bot = await tx.bot.findUniqueOrThrow({ where: { id: context.botId } });
-        await publishChannelNotification(tx, `${notificationKey}:${context.runId}:${context.callId}`, {
+        await publishChannelNotification(tx, `${notificationPrefix}${input.emoji}:${context.runId}:${context.callId}`, {
           schemaVersion: 1, kind: "reaction", botId: context.botId, channelId: message.channelId,
           runId: context.runId, messageSequence: message.sequence.toString(),
           messageId: message.id,

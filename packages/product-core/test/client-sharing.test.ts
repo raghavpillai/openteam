@@ -169,6 +169,22 @@ describe("shared desktop and iOS product policy", () => {
     });
   });
 
+  test("optimistic replacement leaves one own emoji while preserving other actors and metadata", () => {
+    const original = message({ marker: "preserved", reactions: [
+      { emoji: "👍", by: "me" }, { emoji: "👍", by: "peer" },
+      { emoji: "😂", by: "me" }, { emoji: "❤️", by: "agent" },
+    ] });
+    const snapshot = structuredClone(original);
+    const replaced = toggleOwnReaction(original, "❤️");
+    expect(replaced.metadata).toEqual({ marker: "preserved", reactions: [
+      { emoji: "👍", by: "peer" }, { emoji: "❤️", by: "agent" }, { emoji: "❤️", by: "me" },
+    ] });
+    expect(toggleOwnReaction(replaced, "❤️").metadata).toEqual({ marker: "preserved", reactions: [
+      { emoji: "👍", by: "peer" }, { emoji: "❤️", by: "agent" },
+    ] });
+    expect(original).toEqual(snapshot);
+  });
+
   test("shares canonical message assets, reactions, and display projection", () => {
     const asset = {
       assetId: "a".repeat(64),

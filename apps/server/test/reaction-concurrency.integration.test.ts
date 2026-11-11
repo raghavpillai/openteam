@@ -285,3 +285,105 @@ test.skipIf(!url)("replaying an older tap receipt returns the current message wi
   expect(await f.db.inboxEvent.count({ where: { botId: f.bot.id, type: "user.reaction" } })).toBe(2);
   expect(await f.db.event.count({ where: { topic: "channel.message.user_reaction", entityId: f.message.id } })).toBe(2);
 }));
+
+test.skipIf(!url)("one bot replacement call leaves one emoji and revokes the replaced emoji's notification", () => fixture(async f => {
+  const context = await userContext(f);
+  await f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "👍" });
+  expect(await f.messaging.reactToMessage({ ...context, callId: crypto.randomUUID() }, { message_address: "t0u", emoji: "❤️" })).toMatchObject({ reacted: true, removed: false });
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "❤️" }] });
+  const notifications = await f.db.channelNotification.findMany({ where: { channelId: f.channel.id }, orderBy: { sequence: "asc" } });
+  expect(notifications).toHaveLength(2);
+  expect(notifications.map(n => n.revoked)).toEqual([true, false]);
+  expect(notifications[1]!.payload).toMatchObject({ body: "Reacted ❤️ to “The result is 391.”" });
+  expect(await f.messaging.reactToMessage({ ...context, callId: crypto.randomUUID() }, { message_address: "t0u", emoji: "❤️" })).toMatchObject({ reacted: false, removed: true });
+  expect((await f.stored()).metadata).not.toHaveProperty("reactions");
+  expect(await f.db.channelNotification.count({ where: { channelId: f.channel.id, revoked: false } })).toBe(0);
+}));
+
+test.skipIf(!url)("a bot's old call retry cannot restore the emoji replaced by its newer call", () => fixture(async f => {
+  const context = await userContext(f);
+  const first = await f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "👍" });
+  const replacement = { ...context, callId: crypto.randomUUID() };
+  await f.messaging.reactToMessage(replacement, { message_address: "t0u", emoji: "❤️" });
+  expect(await f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "👍" })).toEqual(first);
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "❤️" }] });
+  expect(await f.db.event.count({ where: { topic: "channel.message.reaction", entityId: f.message.id } })).toBe(2);
+  expect(await f.db.channelNotification.count({ where: { channelId: f.channel.id, revoked: false } })).toBe(1);
+}));
+
+test.skipIf(!url)("concurrent different bot emojis leave only the final serialized selection and its live notification", () => fixture(async f => {
+  const context = await userContext(f);
+  await Promise.all(["👍", "❤️"].map(emoji => f.messaging.reactToMessage({ ...context, callId: crypto.randomUUID() }, { message_address: "t0u", emoji })));
+  const last = await f.db.event.findFirstOrThrow({ where: { topic: "channel.message.reaction", entityId: f.message.id }, orderBy: { sequence: "desc" } });
+  const emoji = (last.payload as { emoji: string }).emoji;
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji }] });
+  const notifications = await f.db.channelNotification.findMany({ where: { channelId: f.channel.id, revoked: false } });
+  expect(notifications).toHaveLength(1);
+  expect(notifications[0]!.payload).toMatchObject({ body: `Reacted ${emoji} to “The result is 391.”` });
+}));
+
+for (const emoji of ["❤️", "👍"]) test.skipIf(!url)(`a group bot's ${emoji} tap normalizes its legacy reactions while preserving other reactors`, () => fixture(async f => {
+  const context = await userContext(f);
+  await f.db.channel.update({ where: { id: f.channel.id }, data: { kind: "group" } });
+  const peer = await f.db.bot.create({ data: { name: "Peer reactor", status: "active", defaultDirectory: "/tmp", conversation: { create: {} } } });
+  try {
+    await f.db.channelMember.create({ data: { channelId: f.channel.id, botId: peer.id, ordinal: 1 } });
+    const others = [{ by: "me", emoji: "👍" }, { by: peer.id, emoji: "👍" }];
+    await f.db.channelMessage.update({ where: { id: f.message.id }, data: { metadata: { address: "t0u", reactions: [...others, { by: f.bot.id, emoji: "👍" }, { by: f.bot.id, emoji: "🎉" }] } } });
+    const result = await f.messaging.reactToMessage(context, { message_address: "t0u", emoji });
+    expect(result).toMatchObject(emoji === "👍" ? { removed: true, reacted: false } : { removed: false, reacted: true });
+    expect((await f.stored()).metadata).toEqual({ address: "t0u", reactions: emoji === "👍" ? others : [...others, { by: f.bot.id, emoji }] });
+  } finally { await f.db.bot.delete({ where: { id: peer.id } }); }
+}));
+
+test.skipIf(!url)("a bot emoji replacement does not leave the replaced emoji's alert deliverable", () => fixture(async f => {
+  const context = await userContext(f);
+  await f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "👍" });
+  await f.messaging.reactToMessage({ ...context, callId: crypto.randomUUID() }, { message_address: "t0u", emoji: "❤️" });
+  const notifications = await f.db.channelNotification.findMany({ where: { channelId: f.channel.id }, orderBy: { sequence: "asc" } });
+  expect(notifications.map(n => n.revoked)).toEqual([true, false]);
+}));
+
+test.skipIf(!url)("one group bot replacing its emoji preserves the peer bot's pill and live notification", () => fixture(async f => {
+  const context = await userContext(f);
+  await f.db.channel.update({ where: { id: f.channel.id }, data: { kind: "group" } });
+  const peer = await f.db.bot.create({ data: { name: "Peer reactor", status: "active", defaultDirectory: "/tmp", conversation: { create: {} } }, include: { conversation: true } });
+  try {
+    await f.db.channelMember.create({ data: { channelId: f.channel.id, botId: peer.id, ordinal: 1 } });
+    const run = await f.db.run.create({ data: { botId: peer.id, conversationId: peer.conversation!.id, channelId: f.channel.id, userMessageId: crypto.randomUUID(), status: "running", origin: "user" } });
+    const peerContext = { ...context, botId: peer.id, conversationId: peer.conversation!.id, runId: run.id, callId: crypto.randomUUID() };
+    await f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "👍" });
+    await f.messaging.reactToMessage(peerContext, { message_address: "t0u", emoji: "🎉" });
+    await f.messaging.reactToMessage({ ...context, callId: crypto.randomUUID() }, { message_address: "t0u", emoji: "❤️" });
+    expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: peer.id, emoji: "🎉" }, { by: f.bot.id, emoji: "❤️" }] });
+    const notifications = await f.db.channelNotification.findMany({ where: { channelId: f.channel.id }, orderBy: { sequence: "asc" } });
+    expect(notifications.map(n => ({ botId: n.botId, revoked: n.revoked }))).toEqual([
+      { botId: f.bot.id, revoked: true }, { botId: peer.id, revoked: false }, { botId: f.bot.id, revoked: false },
+    ]);
+  } finally {
+    await f.db.idempotencyRecord.deleteMany({ where: { scope: { startsWith: `reaction:${peer.id}:` } } });
+    await f.db.bot.delete({ where: { id: peer.id } });
+  }
+}));
+
+test.skipIf(!url)("clearing a legacy bot selection revokes alerts for all its stored emojis", () => fixture(async f => {
+  const context = await userContext(f);
+  await f.db.channelMessage.update({ where: { id: f.message.id }, data: { metadata: { address: "t0u", reactions: [{ by: "agent", emoji: "👍" }, { by: "agent", emoji: "🎉" }, { by: "me", emoji: "❤️" }] } } });
+  for (const emoji of ["👍", "🎉"]) await f.db.channelNotification.create({ data: {
+    key: `reaction:${f.message.id}:${f.bot.id}:${emoji}:legacy`, channelId: f.channel.id, botId: f.bot.id, kind: "reaction",
+    payload: { schemaVersion: 1, kind: "reaction", botId: f.bot.id, channelId: f.channel.id, runId: context.runId, messageId: f.message.id, title: f.bot.name, body: `Reacted ${emoji}` },
+  } });
+  expect(await f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "👍" })).toMatchObject({ reacted: false, removed: true });
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "me", emoji: "❤️" }] });
+  expect(await f.db.channelNotification.count({ where: { channelId: f.channel.id, revoked: false } })).toBe(0);
+}));
+
+test.skipIf(!url)("replacement retires an old bot alert even when notifications are disabled before the new emoji", () => fixture(async f => {
+  const context = await userContext(f);
+  await f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "👍" });
+  await f.db.bot.update({ where: { id: f.bot.id }, data: { notificationsEnabled: false } });
+  await f.messaging.reactToMessage({ ...context, callId: crypto.randomUUID() }, { message_address: "t0u", emoji: "❤️" });
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "❤️" }] });
+  expect(await f.db.channelNotification.count({ where: { channelId: f.channel.id } })).toBe(1);
+  expect(await f.db.channelNotification.count({ where: { channelId: f.channel.id, revoked: false } })).toBe(0);
+}));

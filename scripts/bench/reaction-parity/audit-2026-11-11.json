@@ -4,7 +4,7 @@
   "kind": "Recorded validation evidence, not an executable evaluation harness or universal parity claim.",
   "liveTestedCommit": "bfd3c57edf5bec074ada71d0ce907bed8e8d847e",
   "reviewCodeCommit": "ecb486084f47153adcbc9f840cbb58992ffcfade",
-  "reviewTreeChange": "Unrelated file-transfer fixes excluded; agent interaction/runtime/client sources are unchanged from the live-tested tree.",
+  "reviewTreeChange": "Initial review tree excluded unrelated file-transfer fixes. Final merge preparation integrates current main and adds compatible lock ordering for background publication and mixed reaction/room-delivery claims.",
   "sourceProvenance": {
     "reactionFixture": "packages/messaging/test/fixtures/grok-emoji-guidance-2026-11-02.json",
     "meaning": "Text/schema equality to the captured active variant; current private Grok instructions, model and feature gates are not authenticated.",
@@ -127,7 +127,7 @@
           "apps/server/test/reaction-concurrency.integration.test.ts"
         ],
         "exit": 0,
-        "pass": 98,
+        "pass": 99,
         "fail": 0,
         "failures": []
       },
@@ -145,7 +145,7 @@
           "packages/product-core/test/client-sharing.test.ts"
         ],
         "exit": 0,
-        "pass": 78,
+        "pass": 79,
         "fail": 0,
         "failures": []
       },
@@ -163,7 +163,7 @@
         "failures": []
       }
     ],
-    "bunPassed": 379,
+    "bunPassed": 381,
     "bunFailed": 0,
     "desktopReactionOrder": {
       "passed": 24,
@@ -451,6 +451,107 @@
       "Explicit Stop/redrive cases reuse the typed-interruption suite worker, queues, claim helper, bot factory and cleanup.",
       "Legacy cancellation and stale completion delivery share one request-stop suite and fixture."
     ],
-    "validation": "All 379 Bun tests rerun after consolidation, plus architecture checks and messaging/worker/server/computer typechecks. Unchanged desktop/iOS client checks and other package typechecks retain the earlier results recorded above."
+    "validation": "All 379 Bun tests rerun after consolidation, plus architecture checks and messaging/worker/server/computer typechecks. Unchanged desktop/iOS client checks and other package typechecks retain the earlier results recorded above.",
+    "consolidatedLayoutCommit": "33c7d0262e4d90c7549797788f60e5ecf51b9701"
+  },
+  "preMergeValidation": {
+    "baseCommit": "f8968d8e577021856bee23acc08c85c46118f3fc",
+    "coreBunPassed": 381,
+    "additionalRetirementGroups": {
+      "server": {
+        "files": [
+          "apps/server/test/chat-deletion.integration.test.ts",
+          "apps/server/test/child-delete-claim.integration.test.ts",
+          "apps/server/test/deletion-late-settlement.integration.test.ts",
+          "apps/server/test/deletion-message-acceptance.integration.test.ts",
+          "apps/server/test/deletion-races.integration.test.ts",
+          "apps/server/test/group-delete-claim.integration.test.ts",
+          "apps/server/test/retirement-combined-chaos.integration.test.ts",
+          "apps/server/test/retirement-entrypoints.integration.test.ts",
+          "apps/server/test/subagent/lifecycle.test.ts",
+          "apps/server/test/bot-archive.test.ts",
+          "apps/server/test/channel/group-deletion.test.ts"
+        ],
+        "exit": 0,
+        "timeout": false,
+        "pass": 47,
+        "fail": 0,
+        "failures": []
+      },
+      "computer": {
+        "files": [
+          "apps/computer/test/bot-agent-store.test.ts",
+          "apps/computer/test/channel-shell-retirement.test.ts",
+          "apps/computer/test/context-deletion.test.ts",
+          "apps/computer/test/runtime-request-abort.test.ts",
+          "apps/computer/test/session-path.test.ts"
+        ],
+        "exit": 0,
+        "timeout": false,
+        "pass": 30,
+        "fail": 0,
+        "failures": []
+      },
+      "worker": {
+        "files": [
+          "apps/worker/test/interrupted-progress.test.ts",
+          "apps/worker/test/periodic-reconciliation.test.ts",
+          "apps/worker/test/request-continuation.integration.test.ts",
+          "apps/worker/test/routine-event-coalescing.integration.test.ts",
+          "apps/worker/test/task-continuation.integration.test.ts"
+        ],
+        "exit": 0,
+        "timeout": false,
+        "pass": 14,
+        "fail": 0,
+        "failures": []
+      },
+      "packages": {
+        "files": [
+          "packages/db/test/retired-agents.integration.test.ts",
+          "packages/messaging/test/retired-agent-cleanup.test.ts",
+          "packages/shell-jobs/test/environment-capture.test.ts"
+        ],
+        "exit": 0,
+        "timeout": false,
+        "pass": 9,
+        "fail": 0,
+        "failures": []
+      }
+    },
+    "additionalRetirementPassed": 100,
+    "postFixRouting": {
+      "files": [
+        "apps/worker/test/reaction-claim-availability.integration.test.ts",
+        "apps/server/test/group-delete-claim.integration.test.ts",
+        "apps/server/test/retirement-entrypoints.integration.test.ts",
+        "apps/server/test/deletion-races.integration.test.ts",
+        "apps/worker/test/queue-dispatch.integration.test.ts",
+        "apps/worker/test/runtime-dispatch.integration.test.ts",
+        "apps/worker/test/routine-revival-batch.integration.test.ts",
+        "apps/worker/test/superseded-wake-redrive.integration.test.ts",
+        "apps/worker/test/typed-message-supersedes-turn.integration.test.ts"
+      ],
+      "exit": 0,
+      "pass": 47,
+      "fail": 0,
+      "failures": []
+    },
+    "clientChecks": {
+      "desktopPassed": 24,
+      "iosPassed": 275
+    },
+    "packageTypechecks": 7,
+    "architecture": "pass",
+    "mergeIntegration": [
+      "Preserve both lifecycle retirement gates and request-stop delivery fences; acquire lifecycle before request claim during publication.",
+      "Acquire sorted candidate room execution locks before feedback membership locks, preventing mixed reaction/delivery claims from reversing deletion lock order."
+    ],
+    "regressionEvidence": "The mixed-queue lock test failed before the acquisition-order fix and passed afterward. One publication test variant covers retirement lock order; both additions reuse existing suites.",
+    "fixtureUpdates": [
+      "Archive mock rows now include selected inboxEvents.",
+      "Request-continuation teardown avoids querying an empty UUID if setup fails, preserving the original failure and allowing cleanup."
+    ],
+    "earlierAttempts": "The initial broad batch had six outdated archive-mock failures and did not exit after reporting its test summary; it was terminated. A later worker batch had one early setup failure masked by an empty-UUID teardown query. The teardown was corrected; the continuation test passed alone, with task continuation, and in the final 14-test worker batch. The original setup failure was not reproduced or attributed to a product defect."
   }
 }

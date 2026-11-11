@@ -13,6 +13,7 @@ import {
 } from "./automation-trigger";
 import { uniqueSlug } from "./file-state";
 import { lockGroupExecution } from "./group-supersession";
+import { lockAgentLifecycle } from "./agent-lifecycle";
 import { type AutomationChangedAction, appendAgentTimelineEvent } from "./timeline-events";
 import { timestampUserTurn } from "./timestamps";
 import { readUserTimeZone } from "./user-time-zone";
@@ -25,6 +26,20 @@ const TOO_FREQUENT = () =>
   new ApiError(400, "routine_schedule_too_frequent", "routine schedules must be at least 5 minutes apart.");
 
 export type RoutineOwner = { kind: "bot"; id: string } | { kind: "group"; id: string };
+
+/** Routine writes and seeds must precede retirement. Group coalescing and worker claims take
+ * member claim gates before the room gate, so all routine entry points use that same order. */
+async function lockRoutineOwner(tx: Prisma.TransactionClient, owner: RoutineOwner) {
+  if (owner.kind === "bot") {
+    await lockAgentLifecycle(tx, owner.id);
+    return;
+  }
+  const members = await tx.channelMember.findMany({
+    where: { channelId: owner.id }, select: { botId: true }, orderBy: { botId: "asc" },
+  });
+  for (const { botId } of members) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${botId}`}))`;
+  await lockGroupExecution(tx, owner.id);
+}
 
 const appendRoutineChangedEvent = async (
   tx: Prisma.TransactionClient,
@@ -1027,6 +1042,7 @@ export class RoutineService {
     event?: AutomationEvent
   ): Promise<RoutineExecutionView> {
     const result = await this.prisma.$transaction(async (tx) => {
+      await lockRoutineOwner(tx, owner);
       const routine = await lockedOwnedRoutine(tx, owner, id);
       if (event && (!routine.enabled || !matchesAutomationEvent(parseStoredTrigger(routine.trigger), event))) throw new ApiError(409, "routine_event_inactive", "Routine no longer accepts this event");
       const eventKey = event ? createHash("sha256").update(`${event.source}:${event.id}`).digest("hex") : requestId;
@@ -1262,6 +1278,10 @@ export class RoutineService {
     routineId: string,
     now = new Date()
   ): Promise<false | { roundId: string | null }> {
+    // Resolve the immutable owner before the routine gate so launch paths keep lifecycle ->
+    // routine order. Worker settlement callers already hold the owner's lifecycle gate.
+    const candidate = await tx.routine.findUnique({ where: { id: routineId }, select: { botId: true, channelId: true } });
+    if (candidate?.botId || candidate?.channelId) await lockRoutineOwner(tx, routineOwnerFrom(candidate));
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${routineId}`}))`;
     const active = await tx.routineExecution.findMany({
       where: { routineId, status: { in: ["queued", "running"] } },
@@ -1386,6 +1406,7 @@ export class RoutineService {
     const { schedule, trigger } = normalizeRoutineMutationTrigger(input, zone);
     const enabled = input.enabled ?? true;
     return this.prisma.$transaction(async (tx) => {
+      await lockRoutineOwner(tx, owner);
       if (owner.kind === "bot") {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${owner.id}`}))`;
       }
@@ -1488,6 +1509,7 @@ export class RoutineService {
   ) {
     const id = required(input.id, "id");
     return this.prisma.$transaction(async (tx) => {
+      await lockRoutineOwner(tx, owner);
       if (owner.kind === "bot") {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${owner.id}`}))`;
       }
@@ -1611,6 +1633,7 @@ export class RoutineService {
     input: RoutineMutationInput,
     id: string
   ) {
+    await lockRoutineOwner(tx, owner);
     if (owner.kind === "bot") {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${owner.id}`}))`;
     }
@@ -1753,6 +1776,7 @@ export class RoutineService {
       let outcome: { didDispatch: boolean; roundId: string | null };
       try {
         outcome = await this.prisma.$transaction(async (tx) => {
+        await lockRoutineOwner(tx, routineOwnerFrom(candidate));
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${candidate.id}`}))`;
         const routine = await tx.routine.findUnique({
           where: { id: candidate.id },

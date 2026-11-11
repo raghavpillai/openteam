@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -26,6 +27,63 @@ afterEach(async () => {
 });
 
 describe("OpenTeam-compatible agent SQLite stores", () => {
+  test("concurrent retirement is idempotent and preserves another agent's retired files", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-concurrent-delete-"));
+    const retiredRoot = join(root, "retired");
+    store = new BotAgentStore(join(root, "data"), retiredRoot);
+    await store.openForWake(agentId);
+    const unrelated = "10000000-0000-4000-8000-000000000001.previous-attempt";
+    await mkdir(join(retiredRoot, unrelated), { recursive: true });
+    await writeFile(join(retiredRoot, unrelated, "keep"), "another agent's data");
+    const results = await Promise.all(Array.from({ length: 20 }, () => store!.deleteAgent(agentId)));
+    expect(results.some(Boolean)).toBe(true);
+    expect(store.hasLiveHandle(agentId)).toBe(false);
+    expect(await store.listAgentDirectories()).toEqual([]);
+    expect(await readdir(retiredRoot)).toEqual([unrelated]);
+    expect(await readFile(join(retiredRoot, unrelated, "keep"), "utf8")).toBe("another agent's data");
+  });
+
+  test.skipIf(process.getuid?.() === 0 || process.platform === "win32")("failed disposal is reported and a retry removes residue outside the roster", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-disposal-"));
+    const retiredRoot = join(root, "retired");
+    store = new BotAgentStore(join(root, "data"), retiredRoot);
+    await store.openForWake(agentId);
+    const protectedDirectory = join(store.agentDirectory(agentId), "protected");
+    await mkdir(protectedDirectory);
+    await writeFile(join(protectedDirectory, "keep"), "runtime data");
+    await chmod(protectedDirectory, 0o500);
+    try {
+      const failures = await Promise.allSettled(Array.from({ length: 20 }, () => store!.deleteAgent(agentId)));
+      // Bun on macOS may report the retained outer directory as ENOTEMPTY rather than
+      // the protected child's EACCES. All callers must still see failure and be able to retry.
+      expect(failures.every((result) => result.status === "rejected" && ["EACCES", "EPERM", "ENOTEMPTY"].includes(result.reason.code))).toBe(true);
+      expect(store.hasLiveHandle(agentId)).toBe(false);
+      expect(await store.listAgentDirectories()).toEqual([]);
+      const retired = await readdir(retiredRoot);
+      expect(retired).toHaveLength(1);
+      await chmod(join(retiredRoot, retired[0]!, "protected"), 0o700);
+      expect(await store.deleteAgent(agentId)).toBe(true);
+      expect(await readdir(retiredRoot)).toEqual([]);
+    } finally {
+      await chmod(protectedDirectory, 0o700).catch(() => {});
+      for (const entry of await readdir(retiredRoot).catch(() => [])) {
+        await chmod(join(retiredRoot, entry, "protected"), 0o700).catch(() => {});
+      }
+    }
+  });
+
+  test("a retry finds previously retired directories after the roster entry is already gone", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-residue-"));
+    const retiredRoot = join(root, "retired");
+    store = new BotAgentStore(join(root, "data"), retiredRoot);
+    const residue = join(retiredRoot, `${agentId}.previous-attempt`);
+    await mkdir(residue, { recursive: true });
+    await writeFile(join(residue, "store.db"), "runtime data");
+    expect(await store.deleteAgent(agentId)).toBe(true);
+    expect(await readdir(retiredRoot)).toEqual([]);
+    expect(await store.deleteAgent(agentId)).toBe(false);
+  });
+
   test("first wake leaves shared agent directories writable by the server group", async () => {
     root = await mkdtemp(join(tmpdir(), "openteam-agent-permissions-"));
     store = new BotAgentStore(root);
@@ -509,6 +567,25 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
       primary.close(false);
       blobs.close(false);
     }
+  });
+
+  test("deleting an agent retires its directory even while its store was open", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-bot-store-delete-"));
+    const orphanRoot = join(root, "retired");
+    store = new BotAgentStore(join(root, "sand-data"), orphanRoot);
+    await store.openForWake(agentId);
+    const directory = store.agentDirectory(agentId);
+    expect(store.hasLiveHandle(agentId)).toBeTrue();
+
+    expect(await store.deleteAgent(agentId)).toBeTrue();
+
+    expect(store.hasLiveHandle(agentId)).toBeFalse();
+    expect(await readdir(join(root, "sand-data", "agents"))).toEqual([]);
+    expect(await stat(directory).catch(() => null)).toBeNull();
+    expect(await store.listAgentDirectories()).toEqual([]);
+    // Nothing is left behind under the retirement root either.
+    expect(await readdir(orphanRoot)).toEqual([]);
+    expect(await store.deleteAgent(agentId)).toBeFalse();
   });
 
   test("turn metadata, transcript projections, and search indexes rebuild from store.db", async () => {

@@ -1,4 +1,4 @@
-import { nextMessageAddress, lockGroupExecution, supersedeGroupUserTurns } from "@openteam/messaging";
+import { nextMessageAddress, lockAgentLifecycle, lockGroupExecution, supersedeGroupUserTurns } from "@openteam/messaging";
 import {
   ApiError,
   type ReactToChannelMessageInput,
@@ -163,6 +163,12 @@ export class ChannelService {
       }
 
       const accepted = await this.prisma.$transaction(async (tx) => {
+        // Acceptance must commit before archive scans the queue, or read the archived status
+        // afterwards. Take this before the Bot/onboarding row lock to keep their order fixed.
+        const owner = await tx.conversation.findUnique({
+          where: { id: conversationId }, select: { botId: true },
+        });
+        if (owner) await lockAgentLifecycle(tx, owner.botId);
         const conversation = await tx.conversation.findUnique({
           where: { id: conversationId },
           include: { bot: { include: { subagentIdentity: { select: { id: true } } } } },

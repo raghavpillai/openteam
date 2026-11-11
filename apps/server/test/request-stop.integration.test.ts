@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { createPrismaClient } from "@openteam/db";
-import { AgentDataStore, AgentMessaging, ensureRequestForTask, stopRequestProgress, type ToolContext } from "@openteam/messaging";
+import { AgentDataStore, AgentMessaging, ensureRequestForTask, stopRequestProgress, lockAgentLifecycle, type ToolContext } from "@openteam/messaging";
 import { InternalToolService } from "../src/services/internal-tool-service";
 import { RunService } from "../src/services/run-service";
 import { SubagentService } from "../src/services/subagent/service";
@@ -208,7 +208,8 @@ test.skipIf(!url)("an active completion can deliver; a priority interruption doe
   expect(await f.db.channelMessage.count({ where: { channelId: f.channel.id, sender: "agent" } })).toBe(1);
 }));
 
-test.skipIf(!url)("publication waits for a concurrent Stop transaction and reads its committed stop marker", () => fixture(async f => {
+for (const retiring of [false, true])
+test.skipIf(!url)(`publication waits for a concurrent ${retiring ? "retirement and Stop" : "Stop"} transaction and reads its committed stop marker`, () => fixture(async f => {
   await f.db.$transaction(tx => ensureRequestForTask(tx, f.bot.id, f.root.id));
   const run = await f.wake();
   let preparing!: () => void, releasePreparation!: () => void;
@@ -224,6 +225,9 @@ test.skipIf(!url)("publication waits for a concurrent Stop transaction and reads
   const pending = f.send(run);
   await prepared;
   const stop = f.db.$transaction(async tx => {
+    // Retirement acquires lifecycle before the request claim lock. Publication
+    // must use that same order to avoid deadlocking with deletion.
+    if (retiring) await lockAgentLifecycle(tx, f.bot.id);
     await stopRequestProgress(tx, f.bot.id, f.root.id);
     stopping(); await stopGate;
   });
@@ -231,10 +235,11 @@ test.skipIf(!url)("publication waits for a concurrent Stop transaction and reads
     await stopWritten;
     releasePreparation();
     let waiting = false;
+    const lockKey = `${retiring ? "agent-lifecycle" : "bot-run-claim"}:${f.bot.id}`;
     for (let attempt = 0; attempt < 100; attempt++) {
       const rows = await f.db.$queryRaw<{ waiting: boolean }[]>`SELECT EXISTS (
         SELECT 1 FROM pg_locks WHERE locktype = 'advisory'
-        AND objid = hashtext(${`bot-run-claim:${f.bot.id}`})::oid AND NOT granted
+        AND objid = hashtext(${lockKey})::oid AND NOT granted
       ) AS waiting`;
       if (rows[0]?.waiting) { waiting = true; break; }
       await Bun.sleep(10);

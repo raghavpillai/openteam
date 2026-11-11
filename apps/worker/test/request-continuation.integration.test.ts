@@ -7,6 +7,7 @@ import type { ComputerTurnRequest } from "@openteam/contracts";
 import { dispatchRequestChecks } from "@openteam/messaging";
 import { AppService } from "../../server/src/app-service";
 import { WakeWorker } from "../src/worker";
+import { streamingComputer } from "./fixtures/streaming-computer";
 
 const db = process.env.OPENTEAM_TEST_DATABASE_URL;
 test.skipIf(!db)(
@@ -34,7 +35,7 @@ test.skipIf(!db)(
     const fake = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      async fetch(req) {
+      fetch: streamingComputer(async (req) => {
         const path = new URL(req.url).pathname;
         if (path === "/health")
           return Response.json({
@@ -165,7 +166,7 @@ test.skipIf(!db)(
         return new Response(events.map((e) => JSON.stringify(e)).join("\n") + "\n", {
           headers: { "content-type": "application/x-ndjson" },
         });
-      },
+      }),
     });
     const until = async (condition: () => Promise<boolean>) => {
       for (let i = 0; i < 800; i++) {
@@ -270,13 +271,15 @@ test.skipIf(!db)(
     } finally {
       await worker?.stop();
       if (app) {
-        const children = await app.prisma.subagent.findMany({
-          where: { parentBotId: parentId },
-          select: { childBotId: true },
-        });
-        await app.prisma.bot.deleteMany({
-          where: { id: { in: [parentId, ...children.map((c) => c.childBotId)] } },
-        });
+        if (parentId) {
+          const children = await app.prisma.subagent.findMany({
+            where: { parentBotId: parentId },
+            select: { childBotId: true },
+          });
+          await app.prisma.bot.deleteMany({
+            where: { id: { in: [parentId, ...children.map((c) => c.childBotId)] } },
+          });
+        }
         await Effect.runPromise(app.close());
       }
       fake.stop(true);

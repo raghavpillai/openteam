@@ -1,4 +1,4 @@
-import { initialTaskProgress, taskProgress, taskScopeUpdates, ensureRequestForTask, stopRequestProgress, requestIsStopped } from "@openteam/messaging";
+import { initialTaskProgress, taskProgress, taskScopeUpdates, ensureRequestForTask, stopRequestProgress, requestIsStopped, lockAgentLifecycle } from "@openteam/messaging";
 import {
   ApiError,
   formatPiModelRef,
@@ -608,6 +608,11 @@ export class SubagentService {
     const outputPath = `/home/box/agent-data/agent-transcripts/${childBotId}/${childBotId}.jsonl`;
     const avatar = resolveBotAvatarMark({ agentId: childBotId });
     return this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, context.botId);
+      const currentParent = await tx.bot.findUnique({ where: { id: context.botId }, select: { status: true } });
+      if (currentParent?.status !== "active") {
+        throw new ApiError(409, "parent_not_active", "The parent agent is not active");
+      }
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openteam-subagent-capacity'))`;
       await assertSubagentCapacity(context.botId, type, tx);
       const requestRunId = await ensureRequestForTask(tx, context.botId, context.runId, input.request_run_id);
@@ -730,6 +735,11 @@ export class SubagentService {
       );
     }
     return this.prisma.$transaction(async (tx) => {
+      await lockAgentLifecycle(tx, context.botId);
+      const currentParent = await tx.bot.findUnique({ where: { id: context.botId }, select: { status: true } });
+      if (currentParent?.status !== "active") {
+        throw new ApiError(409, "parent_not_active", "The parent agent is not active");
+      }
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openteam-subagent-capacity'))`;
       await assertSubagentCapacity(context.botId, type, tx);
       const priorRequest = subagent.requestRunId ? await tx.run.findUnique({ where: { id: subagent.requestRunId } }) : null;

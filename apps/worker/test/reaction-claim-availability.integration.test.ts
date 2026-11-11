@@ -101,3 +101,51 @@ test.skipIf(!url)("feedback claim waits for an in-flight group membership edit a
   expect(claimed).toBeNull();
   expect(await f.db.run.findUnique({ where: { id: result.runId! } })).toMatchObject({ status: "cancelled" });
 }));
+
+test.skipIf(!url)("a mixed room-message and reaction queue takes the room execution lock before membership locks", () => fixture(async f => {
+  const root = await f.db.channelMessage.create({ data: { channelId: f.group.id, sender: "user", content: "Continue the room work." } });
+  const round = await f.db.channelRound.create({ data: {
+    channelId: f.group.id, triggerMessageId: root.id, rootMessageId: root.id,
+    deliveries: { create: { botId: f.bot.id, ordinal: 0, status: "queued" } },
+  }, include: { deliveries: true } });
+  const run = await f.db.run.create({ data: {
+    botId: f.bot.id, conversationId: f.bot.conversation!.id, userMessageId: crypto.randomUUID(),
+    channelId: f.group.id, deliveryId: round.deliveries[0]!.id, status: "queued", origin: "user",
+  } });
+  await f.db.inboxEvent.create({ data: {
+    botId: f.bot.id, conversationId: f.bot.conversation!.id, runId: run.id,
+    idempotencyKey: crypto.randomUUID(), type: "channel.message", priority: 400,
+    payload: { content: "Continue the room work.", clientId: crypto.randomUUID() },
+  } });
+  await f.react("👍");
+  const locked = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  // Deletion takes room execution before membership; pause at that first gate.
+  const deletion = f.db.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`group-execution:${f.group.id}`}))`;
+    locked.resolve();
+    await release.promise;
+  });
+  let claim: Promise<any> | undefined;
+  try {
+    await locked.promise;
+    claim = f.worker.claim(f.bot.id);
+    void claim!.catch(() => undefined);
+    let locks: { waiting: boolean; membership: boolean } | undefined;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const rows = await f.db.$queryRaw<Array<{ waiting: boolean; membership: boolean }>>`SELECT
+        EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+          AND objid = hashtext(${`group-execution:${f.group.id}`})::oid) AS waiting,
+        EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND granted
+          AND objid = hashtext(${`channel:${f.group.id}`})::oid) AS membership`;
+      locks = rows[0];
+      if (locks?.waiting) break;
+      await Bun.sleep(10);
+    }
+    expect(locks?.waiting).toBe(true);
+    expect(locks?.membership).toBe(false);
+  } finally {
+    release.resolve();
+    await deletion;
+    await claim;
+  }
+}));

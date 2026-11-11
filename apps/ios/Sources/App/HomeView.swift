@@ -1486,7 +1486,6 @@ struct CreateConversationView: View {
 struct SearchView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
-  @Environment(\.openURL) private var openURL
   var onSelect: (String, String?, String?) -> Void
   @State private var query = ""
   @State private var category = "all"
@@ -1536,9 +1535,8 @@ struct SearchView: View {
         ForEach(resultsKey == searchKey ? results : []) { result in
           Button {
             if result.kind == "link", let raw = result.url, let url = URL(string: raw),
-              ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "")
+              InAppBrowser.open(url)
             {
-              openURL(url)
               return
             }
             if let channel = result.channelId

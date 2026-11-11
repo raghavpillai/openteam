@@ -72,7 +72,7 @@ For usage beyond the pool, Cursor lists its own model rates. Grok 4.7, for examp
 
 OpenTeam is free and open source (GPL-3.0). You pay for a machine that stays on, a model provider and any services you connect. It runs in Docker on macOS, Windows or Linux and recommends 8 GB of RAM ([installation](/docs/getting-started/installation)).
 
-**The model** is the part that varies. One model serves every bot on a server, set in **Settings → Model** ([model providers](/docs/configuration/models)). You can sign in with a ChatGPT or Claude subscription, use an OpenAI, Anthropic or OpenRouter key, or point it at a model server of your own.
+**The model** is the part that varies. You choose it for your bots in **Settings → Model** ([model providers](/docs/configuration/models)). You can sign in with a ChatGPT or Claude subscription, use an OpenAI, Anthropic or OpenRouter key, or point it at a model server of your own.
 
 To price the API route, we ran five everyday tasks on OpenTeam's current release through OpenRouter at medium reasoning. They were a browser login and data pull, a research table with sources, a data analysis with a chart, setting up a weekday routine and a small coding job with tests. We added up the recorded cost of every model call, helpers included.
 
@@ -91,41 +91,30 @@ These are estimates for a 30-day month. Your tasks will be bigger or smaller tha
 
 ### A computer you already own, with a ChatGPT plan
 
-About $23: $20 for [ChatGPT Plus](https://chatgpt.com/pricing/) and $3 of power. You don't pay per token, but the plan's limits apply, and OpenAI doesn't publish them as token counts either. OpenTeam's ChatGPT sign-in uses the same connection as Codex. OpenAI's [help center](https://help.openai.com/en/articles/20001625-understanding-chatgpt-and-codex-usage-limits) says that "Starting in December, Plus, Pro, and Business plans' usage allowance will be shared across ChatGPT and Codex." Your own chats and your bots will then share one allowance, much like Grok Bot and Cursor do.
+About $23: $20 for [ChatGPT Plus](https://chatgpt.com/pricing/) and $3 of power. You don't pay per token; the plan's usage limits apply instead, and OpenAI doesn't publish them as token counts either. OpenTeam's ChatGPT sign-in uses the same connection as Codex. OpenAI's [help center](https://help.openai.com/en/articles/20001625-understanding-chatgpt-and-codex-usage-limits) says that "Starting in December, Plus, Pro, and Business plans' usage allowance will be shared across ChatGPT and Codex." Your own chats and your bots will then share one allowance, much like Grok Bot and Cursor do.
 
 ### The same computer, paying per task
 
-At 10 tasks a day, GPT-6.1 Terra comes to about $32 and Sol about $58, plus power: roughly $35 and $61. Every call is billed, which makes a heavy month expensive. It also means there's no pool to run out of, and you can see what each task cost.
+At 10 tasks a day, GPT-6.1 Terra comes to about $32 and Sol about $58, plus power: roughly $35 and $61. You pay for each call, so there's no pool to run out of, and you can see what each task cost.
 
 ### A cloud VM
 
-The VM alone costs more than Grok Bot's Premium plan. With Sol at 3 tasks a day it's about $65, or $68 with ChatGPT Plus. A VM makes sense when you want bots running on a machine that isn't in your house, not to save money.
-
-## Where Grok Bot's bundle is the better deal
-
-- **You already pay for Cursor, Grok or X Premium+.** Premium bundles all three with Grok Bot for $30, which xAI compares with $90 for the separate plans.
-- **You don't have a machine that stays on.** Grok Bot's computer runs in xAI's cloud, and closing your laptop doesn't stop it ([FAQ](https://docs.x.ai/grok-bot/faq)). Renting an 8 GB VM for OpenTeam costs more than Premium before you've paid for a model.
-- **You want no setup.** You sign in and start. OpenTeam needs Docker, an install and a model connection.
-- **You need more apps.** Grok Bot has desktop apps for macOS, Windows and Linux and phone apps for iOS and Android. OpenTeam's desktop apps cover macOS on Apple silicon and Linux, with an iPhone beta and no Android app.
-- **You're buying for a team.** Each paid seat has its own pool, plus SSO and admin controls. OpenTeam has one human account per server.
-
-If any of those is the deciding factor, Premium is the cheaper and simpler choice.
+With Sol at 3 tasks a day it's about $65, or $68 with ChatGPT Plus. A VM suits you when you want bots running on a machine that isn't in your house.
 
 ## Where running your own makes sense
 
 - **You already have the hardware.** A spare Mac mini or home server plus a $20 ChatGPT plan costs less than Premium, and our [self-hosting guide](/blog/self-host-ai-agents) covers the setup.
-- **You want to choose the model.** OpenTeam works with any provider, including a local model, though one model serves every bot on a server. Grok Bot picks the model for you.
+- **You want to choose the model.** OpenTeam works with any provider, including a local model. Grok Bot picks the model for you.
 - **You want to see every token.** Pay-per-use providers show what each task cost. Grok Bot's pool is a relative number.
-- **You want the data on your machine.** Conversations, files, memory and website sign-ins stay on your server ([privacy](/docs/configuration/privacy)); the model provider still sees what each task needs.
+- **You want the data on your machine.** Conversations, files, memory and website sign-ins stay on your server, and only what each task needs goes to your model provider ([privacy](/docs/configuration/privacy)).
 
-The trade-offs are real: you maintain the server and its updates, and bots act without approval apart from cards for outgoing email, Slack messages and texts. Our [open-source Grok Bot alternative](/blog/open-source-grok-bot-alternative) comparison covers the feature differences.
+Our [open-source Grok Bot alternative](/blog/open-source-grok-bot-alternative) comparison covers the features side by side.
 
 ## Which should you pick?
 
-- **Choose Grok Bot on Premium if** you use Cursor or Grok already, don't have a machine that stays on, or want apps on Windows and Android.
-- **Choose Super or Ultra if** Premium's pool runs out before the week does and you'd rather not manage top-ups.
 - **Choose OpenTeam with a ChatGPT or Claude plan if** you have a computer that stays on and want a flat monthly cost.
 - **Choose OpenTeam with pay-per-use if** you want to pick the model and see each task's cost.
+- **Choose Grok Bot if** you already pay for Cursor or Grok and want it in the same bundle.
 
 ## Frequently asked questions
 

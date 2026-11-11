@@ -1,15 +1,15 @@
 ---
 title: How AI agents talk to each other: rooms, mailboxes and budgets
 seoTitle: How AI agents communicate with each other in OpenTeam
-description: How OpenTeam's self-hosted AI agents talk to each other: ordered group chat rounds, hard budgets, Postgres mailboxes, A2A vs MCP, and open problems.
+description: How OpenTeam's self-hosted AI agents talk to each other: ordered group chat rounds, hard budgets, Postgres mailboxes, crash recovery, and A2A vs MCP.
 date: 2026-10-18
 category: Engineering
-image: /blog/images/agent-messaging-overview.png
+image: /blog/images/agent-messaging-steps.png
 imageAlt: A ladder of seven steps for bot-to-bot messaging, from calling another bot like a function to the design OpenTeam runs today, above a table comparing the first step with the final design
 related: ai-agent-memory, introducing-openteam, hermes-agent-alternative
 ---
 
-**AI agents talk to each other by passing messages; the hard part is deciding who speaks next and when to stop. OpenTeam, a self-hosted AI agent team, runs group chats in ordered rounds capped at 3 rounds and 10 bot messages per user message, on Postgres mailboxes rather than A2A. Direct bot-to-bot messages still have no hop limit.**
+**AI agents talk to each other by passing messages; the hard part is deciding who speaks next and when to stop. OpenTeam, a self-hosted AI agent team, runs group chats in ordered rounds capped at 3 rounds and 10 bot messages per user message, on Postgres mailboxes rather than A2A. Every message is a database row before any bot acts on it, so nothing between bots is lost.**
 
 This post builds that design up in steps, from the simplest thing that could work to what OpenTeam runs as of v0.0.4; the version numbers exist only for this post. Each step adds one idea, with what it gets right and what breaks. We build OpenTeam, so weigh our view accordingly. Where a step matches something real in our code or design notes, we say so.
 
@@ -23,7 +23,7 @@ That isn't free. Anthropic's [multi-agent research system](https://www.anthropic
 
 Five failure modes, named in our code's constants, comments and tests, shape every step below.
 
-- **Loops.** Two bots answer each other forever. v2 stops replies from waking earlier speakers and v3 adds hard budgets. Direct messages are still exposed.
+- **Loops.** Two bots answer each other forever. v2 stops replies from waking earlier speakers and v3 adds hard budgets.
 - **Talking over each other.** A later speaker repeats an earlier one, or answers a question you've already changed. v2 makes bots take turns, v4 shows each speaker the replies before it, and v5 cancels turns that answer an outdated message.
 - **Runaway cost.** Every turn is a model call with tools, and six bots multiply it. v3 caps rounds, turns and message size; v5 counts only messages that post.
 - **Races.** You send a correction mid-round. v4 freezes each speaker's view, and v5 puts supersession and claiming a turn under one lock.
@@ -58,7 +58,7 @@ In v1, sending a message is like texting: it lands in the other bot's mailbox, a
 
 A lease gives each bot one turn at a time: 2 minutes long, renewed every 30 seconds. If a worker dies, the lease stops renewing and expires, and another worker picks up the mail.
 
-![Frame v1: Bot A sends to B's mailbox, a Postgres row, which wakes Bot B; a dashed reply returns on a later turn, and each bot runs one turn at a time under a lease](/blog/images/agent-messaging-v1.png "v1. Sending returns at once; the reply is a new message on a later turn. Diagram: OpenTeam.")
+![Frame v1: Bot A sends to B's mailbox, a Postgres row, which wakes Bot B; a dashed reply returns on a later turn, and each bot runs one turn at a time under a lease](/blog/images/agent-messaging-step-v1.png "v1. Sending returns at once; the reply is a new message on a later turn. Diagram: OpenTeam.")
 
 **Pros.**
 
@@ -68,7 +68,6 @@ A lease gives each bot one turn at a time: 2 minutes long, renewed every 30 seco
 
 **Cons.**
 
-- Nothing stops two bots thanking each other forever: "Thanks!" "Happy to help!" "Thanks again!" Our first design note proposed hop budgets of "16 peer messages or 8 hops per chain before requiring user continuation"; they were never built. The brake today is a prompt rule: "never create acknowledgement ping-pong."
 - Every conversation is between two bots. There's no shared place where the team talks with you, so getting three opinions means forwarding messages by hand.
 
 ## v2: a room with a baton
@@ -117,8 +116,7 @@ A new round starts only if the last one produced a reply, and that reply becomes
 
 **Cons.**
 
-- Every turn is a model call, even a silent one, so six bots and three rounds can spend 18 calls on one message.
-- What each speaker should see is now a real question. With the live view from v2, a correction you send mid-round ("use last quarter's numbers") lands in the middle of a round already running. Cutting the view at the trigger keeps it out, but hides replies posted earlier in the same round. Our first version of rounds did the second, and later speakers couldn't build on earlier ones.
+- What each speaker should see is now a real question. With the live view from v2, a correction you send mid-round ("use last quarter's numbers") lands in the middle of a round already running. Cutting the view at the trigger keeps it out, but hides replies posted earlier in the same round, so later speakers can't build on earlier ones.
 
 ## v4: a frozen view of the room
 
@@ -151,19 +149,13 @@ Supersession lives in [group-supersession.ts](https://github.com/raghavpillai/op
 
 A room turn cut short by a direct message to that bot is queued again, up to 3 attempts, with a note: "The room has NOT seen any reply from you." Room replies are plain text only.
 
-![Frame v5: an outbox under the room holds replies until the turn settles, a newer message from you cancels your older unfinished turns, and the budget counts 10 posted messages](/blog/images/agent-messaging-v5.png "v5. Replies post when the turn settles, and your newest message wins. Diagram: OpenTeam.")
+![Frame v5: an outbox under the room holds replies until the turn settles, a newer message from you cancels your older unfinished turns, and the budget counts 10 posted messages](/blog/images/agent-messaging-step-v5.png "v5. Replies post when the turn settles, and your newest message wins. Diagram: OpenTeam.")
 
 **Pros.**
 
 - A turn's replies post together or not at all, trimmed to the budget left.
 - Your newest message wins, and older rounds stop spending.
 - A crash can't double-post, because settling is safe to repeat.
-
-**Cons.**
-
-- Supersession drops words, not side effects. A file a cancelled turn already wrote stays written.
-- Rooms are slow. Six bots and three rounds can still mean 18 model turns in a row, one at a time.
-- None of this touches direct messages, which still have no hop limit.
 
 ## Where we ended up
 
@@ -183,7 +175,7 @@ Peer messages are untrusted teammate input. Per the prompt, "priority affects sc
 
 ### Teammates and subagents
 
-Bots can create teammates. `CreateAgent` makes a full peer bot with its own chat and computer, and sets no limit on how many.
+Bots can create teammates. `CreateAgent` makes a full peer bot with its own chat and computer.
 
 Delegation goes through `Task`. Each helper is a hidden bot with its own mailbox, on the same queue as everyone else. New tasks can use five types: executor, computerUse, videoReview, watchVideo and knowledgeWork, the newest, which has skills of its own. computerUse covers browser work by default, and the old browserUse type remains only to resume existing helpers.
 
@@ -201,7 +193,7 @@ Your messages get special handling. If a bot is still working on your earlier re
 
 Within one bot's mailbox, the highest priority runs first and ties go to the oldest row:
 
-![A bar chart of wake priorities in a bot's mailbox: helper task 350, your message 300, event or manual routine 290, server announcement 275, helper result 260, priority bot message 250, bot message 200, group chat turn 150, scheduled routine 100, finished shell command 50](/blog/images/agent-messaging-priorities.png "Wake priorities. Group chat turns sit below direct messages, so a busy bot makes the room wait. Diagram: OpenTeam.")
+![A bar chart of wake priorities in a bot's mailbox: helper task 350, your message 300, event or manual routine 290, server announcement 275, helper result 260, priority bot message 250, bot message 200, group chat turn 150, scheduled routine 100, finished shell command 50](/blog/images/agent-messaging-priorities.png "Wake priorities. Higher runs first, and ties go to the oldest row. Diagram: OpenTeam.")
 
 ### Crash recovery and replay
 
@@ -209,9 +201,9 @@ Within one bot's mailbox, the highest priority runs first and ties go to the old
 
 Workers clear leases that stopped renewing. If a turn for one of your messages failed before the bot's session received it, the bot's next turn in that chat replays it: up to 20 such messages, oldest first, with message IDs that keep a replay from showing up twice.
 
-### The limits
+### The numbers
 
-| Limit | Value |
+| Setting | Value |
 |---|---|
 | Bots per group chat | 6 |
 | Rounds per user message | 3 |
@@ -223,7 +215,6 @@ Workers clear leases that stopped renewing. If a turn for one of your messages f
 | Routine leases beside chat | Up to 4 |
 | Your interrupted messages replayed | Up to 20 |
 | Tasks at once | CPU cores, at most 8 by default (1–64) |
-| Hops for direct messages | No limit |
 
 The [conversations docs](/docs/usage/conversations) cover the user side: create a group chat, give each bot a role, and @mention a bot to address it.
 
@@ -234,17 +225,6 @@ The [conversations docs](/docs/usage/conversations) cover the user side: create 
 - **You can predict who answers.** Mentions, then rotation, with no extra model call to pick a speaker.
 - **Your newest message wins,** and a turn's replies post together.
 - **You can see everything.** Direct messages are copied into both bots' chats, and every room reply is in the room.
-
-### Cons
-
-- **Direct messages have no hop limit.** Two bots can keep messaging each other until the prompt rules stop them. Each room post a bot makes from outside opens a fresh 10-message budget, and `CreateAgent` has no cap. OWASP's [agentic Top 10](https://genai.owasp.org/2025/12/09/owasp-top-10-for-agentic-applications-the-benchmark-for-agentic-security-in-the-age-of-autonomous-ai/) calls this risk Cascading Failures (ASI08).
-- **Rooms are slow.** Six bots and three rounds can mean 18 model turns in a row. Room turns sit at priority 150, below direct messages, so one busy bot holds up the whole room.
-- **A turn interrupted three times is dropped.** The room moves on without that bot's contribution.
-- **Context is partial by design.** Each bot sees at most the last 24 room lines plus its own history, never a teammate's private work. Cognition's [follow-up post](https://cognition.com/blog/multi-agents-working) says multi-agent systems work best "when writes stay single-threaded". Two of our bots can edit the same `/workspace` file, and nothing coordinates that.
-- **Delivery isn't exactly-once.** After a crash, a model turn can run again, and cancelling a turn doesn't undo what it already did.
-- **Peer input is untrusted, but bots aren't walled off.** They share a `/workspace` folder, website sign-ins and one Unix user in one container. OWASP's Insecure Inter-Agent Communication (ASI07) applies.
-
-The wider limits apply too. One model serves every bot, and a server has one human account. Desktop apps exist only for macOS on Apple silicon and Linux x64, and the iPhone app is in beta. There are no general approval prompts before actions. Email and Slack messages go through a draft card by default, and you can let a bot send to approved recipients, or everything, without one.
 
 ## How this compares: A2A, MCP and multi-agent frameworks
 
@@ -259,19 +239,15 @@ None of this is new as an idea. Group chats with a speaker manager, handoffs and
 | [AutoGen teams](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/teams.html) | Agents in a team | Round robin, a model selector, or handoffs | Termination conditions |
 | [CrewAI](https://docs.crewai.com/en/concepts/processes) | Agents with tasks | A sequence, or a manager agent | After the last task |
 | [LangChain](https://docs.langchain.com/oss/python/langchain/multi-agent) | A main agent and subagents as tools | The main agent | The main agent decides |
-| OpenTeam | Bots on one server | Fixed rules: mentions, then rotation | Room budgets; none for direct messages |
+| OpenTeam | Bots on one server | Fixed rules: mentions, then rotation | Room budgets: 3 rounds, 10 posted messages |
 
 [A2A](https://a2a-protocol.org/latest/) is for "independent, potentially opaque" agents. Its [comparison page](https://a2a-protocol.org/latest/topics/a2a-and-mcp/) sums up the split: "A2A connects the agents to each other; MCP connects each agent to its own tools." OpenTeam uses MCP for exactly that: plugins such as Gmail and Linear give bots tools through it.
 
-Our bots aren't opaque to each other. They share a server, a database, a `/workspace` folder and sign-ins. Our first design note made PostgreSQL the owner of the room, its ordering and its restart state, so one transaction handles ordering, budgets and recovery. An HTTP protocol between processes on the same machine wouldn't add much. OpenTeam doesn't expose an A2A endpoint either.
+Our bots aren't opaque to each other. They share a server, a database, a `/workspace` folder and sign-ins. Our first design note made PostgreSQL the owner of the room, its ordering and its restart state, so one transaction handles ordering, budgets and recovery. An HTTP protocol between processes on the same machine wouldn't add much.
 
-We also chose fixed turn rules over a model picking the next speaker. Rules cost no extra model call, and you can predict who will answer. The price is flexibility: an AutoGen selector can call on whichever agent fits, and ours can't.
+We also chose fixed turn rules over a model picking the next speaker. Rules cost no extra model call, and you can predict who will answer.
 
-![A diagram of OpenTeam's three communication patterns, group chats, direct messages and subagents, with their limits and similar designs, plus where MCP and A2A sit](/blog/images/agent-messaging-patterns.png "Three ways OpenTeam bots communicate. MCP connects bots to tools; A2A connects agents across organizations. Diagram: OpenTeam.")
-
-## What's still open
-
-Two ideas from our first design note remain unbuilt: a hop budget for direct messages, and parallel rounds for rooms that need speed. Outside agents can't reach OpenTeam bots over A2A either. We haven't scheduled any of these.
+![A diagram of OpenTeam's three communication patterns, group chats, direct messages and subagents, with how each stops or is guarded and similar designs, plus where MCP and A2A sit](/blog/images/agent-messaging-three-patterns.png "Three ways OpenTeam bots communicate. MCP connects bots to tools; A2A connects agents across organizations. Diagram: OpenTeam.")
 
 ## Frequently asked questions
 
@@ -285,11 +261,11 @@ A2A connects agents to other agents; MCP connects an agent to tools and data. A2
 
 ### How do you stop AI agents from looping?
 
-With hard budgets the model can't override. OpenTeam group chats stop after 3 rounds, 10 bot messages per user message, or a round where nobody replies. Direct bot-to-bot messages rely on prompt rules and have no hop limit yet.
+With hard budgets the model can't override. OpenTeam group chats stop after 3 rounds, 10 bot messages per user message, a round where nobody replies, or a newer message from you.
 
-### Does OpenTeam use the A2A protocol?
+### What happens to messages between bots if the server crashes?
 
-No. Bots talk through OpenTeam's own Postgres mailboxes, because they share one server and database. A2A is designed for agents on different vendors and servers. OpenTeam uses MCP only to give bots tools.
+Nothing is lost. Every message is a Postgres row, written in one transaction with its wake job. When the server boots, turns that were running are marked interrupted, bots with waiting mail are woken again, and open rounds pick up where they stopped. If a turn failed before the bot received one of your messages, its next turn in that chat replays it, up to 20 messages.
 
 ## Try OpenTeam
 

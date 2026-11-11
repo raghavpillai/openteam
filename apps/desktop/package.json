@@ -164,7 +164,8 @@
     "test:native:e2e": "bun test/host/fixtures/capability-integration.ts",
     "test:chat-transition-motion": "bun scripts/analyze-chat-transitions.ts",
     "test:browser-network": "bun scripts/test-browser-network.ts",
-    "test:desktop-media": "bun scripts/test-desktop-media.ts"
+    "test:desktop-media": "bun scripts/test-desktop-media.ts",
+    "test:link-favicons": "bun scripts/test-link-favicons.ts"
   },
   "type": "module"
 }

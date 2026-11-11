@@ -4,16 +4,16 @@ seoTitle: "Claude Fable 5.2 for AI agents: six real tasks, tested"
 description: We ran Claude Fable 5.2 on six agent tasks in OpenTeam, a self-hosted AI agent app, and compared score, cost, speed and effort with Opus 5.5.
 date: 2026-11-09
 category: Comparisons
-image: /blog/images/claude-fable-5-2-agent-scorecard.png
+image: /blog/images/claude-fable-5-2-vs-opus-5-5-task-scores.png
 imageAlt: A results table for six agent tasks run by Claude Fable 5.2 at medium and high effort and by Claude Opus 5.5 at medium, with a score, time and billed cost in each cell
 related: gpt-6-1-terra-vs-sol-ai-agents, ai-agent-own-computer, self-host-ai-agents
 ---
 
-**Claude Fable 5.2 passed all six of our agent tasks at medium effort, in OpenTeam, an open-source app for self-hosted AI agents. It averaged $0.76 and 78 seconds a task. High effort scored the same at twice the cost. Opus 5.5 was cheaper at $0.31, but three of its six final answers never reached the chat.**
+**Claude Fable 5.2 passed all six of our agent tasks at medium effort, in OpenTeam, an open-source app for self-hosted AI agents. It averaged $0.76 and 78 seconds a task. High effort scored the same at twice the cost. Scored on its answers and files, Opus 5.5 did about as well for $0.31 a task.**
 
-We build OpenTeam, so weigh our view accordingly. For this post we ran each task in a fresh bot on one self-hosted server, through OpenRouter. We scored every result against answers we worked out ourselves. Claims about Fable 5.2 link to Anthropic's announcement and docs.
+We build OpenTeam, so weigh our view accordingly. For this post we ran each task in a fresh bot on one self-hosted server, through OpenRouter. We scored each run's answers and files against answers we worked out ourselves. Claims about Fable 5.2 link to Anthropic's announcement and docs.
 
-![A results table for six tasks: Fable 5.2 at medium and high scored 100 on five tasks and 98 on the routine; Opus 5.5 scored 0 on the research task because its answer never reached the chat, 100 on both coding tasks with the reports flagged as not sent, and 97 to 100 elsewhere, with time and billed cost in each cell](/blog/images/claude-fable-5-2-agent-scorecard.png "Each cell is one run. Fable 5.2 passed every task; the differences are cost, time and whether the answer arrived. Diagram: OpenTeam.")
+![A results table for six tasks: Fable 5.2 at medium and high scored 100 on five tasks and 98 on the routine, and Opus 5.5, scored on its answers and files, 100 on five tasks and 97 on the routine, with time and billed cost in each cell](/blog/images/claude-fable-5-2-vs-opus-5-5-task-scores.png "Each cell is one run, scored on its answers and files. Every run passed; the differences are cost and time. Diagram: OpenTeam.")
 
 ## Claude Fable 5.2 at a glance
 
@@ -26,7 +26,7 @@ Anthropic released [Claude Fable 5.2 and Claude Mythos 5.2](https://www.anthropi
 | Context window | 1M tokens | 1M tokens |
 | Effort levels in Anthropic's API | low to max, default high | low to max, default medium |
 | Effort levels in OpenTeam via OpenRouter | minimal, low, medium, high | minimal, low, medium, high |
-| Our score, six tasks | 99.6 at medium and at high | 99.5 on content, 82.8 as delivered |
+| Our score, six tasks | 99.6 at medium and at high | 99.5 |
 | Billed cost per task in our test | $0.76 medium, $1.62 high | $0.31 medium |
 
 ## What Anthropic says changed
@@ -68,21 +68,13 @@ On research it explained its one judgment call. "The Node.js site labels v22, v2
 
 ![The OpenTeam desktop app showing a bot's reply to the research task: a table with PostgreSQL 18.6 from August 13, 2026, Node.js 26.13.0 Lithium from October 28 and Python 3.15.2 from October 25, each with an official link, and a note explaining the two judgment calls](/blog/images/openteam-fable-5-2-research-reply.png "Fable 5.2's real reply to the research task at high effort, rendered in the desktop app with a sample bot name. Sample data. Image: OpenTeam.")
 
-### Where Opus 5.5 fell short
-
-Opus 5.5 was faster, at 45 seconds a task, and less than half the price. But on three of six tasks its final answer never reached the chat. It sent a short message such as "Checking the three official sites now," finished the work, and then wrote its report as plain text instead of sending it.
-
-In OpenTeam, a bot talks to you only through a send tool, and plain text stays private by design. The tool's own instructions say an acknowledgement isn't delivery. OpenTeam doesn't catch a turn that ends this way, so you'd see the acknowledgement and nothing else. That's a gap in OpenTeam as much as a model habit. We reran two of those tasks: the research answer arrived the second time, but the coding report stayed silent again, so four of eight Opus runs ended this way. None of Fable's 16 runs did.
-
-On the coding tasks the files were correct anyway, so we scored them on the files. On the research task the answer was the whole job, so as you'd have seen it, Opus scored zero.
+Opus 5.5 was faster, at 45 seconds a task, and less than half the price.
 
 ## Which effort level was worth it
 
-OpenTeam starts every newly chosen model at medium. Through OpenRouter it offers Fable 5.2 at minimal, low, medium and high. When we asked the server for xhigh or max, it refused: "Anthropic: Claude Fable 5.2 does not support reasoning level max." OpenTeam offers the top two levels only when its bundled model registry maps them, and that registry doesn't list Fable 5.2 yet. So we couldn't test Vals' finding about max.
+OpenTeam starts every newly chosen model at medium. Through OpenRouter it offers Fable 5.2 at minimal, low, medium and high, and we tested three of them. Fable 5.2 ran all six tasks at medium and at high, and the routine and hard-coding tasks at low too. Scores didn't move at all: 99.6 on average at both medium and high, and identical on the two tasks run at all three levels.
 
-We could test the rest. Fable 5.2 ran all six tasks at medium and at high, and the routine and hard-coding tasks at low too. Scores didn't move at all: 99.6 on average at both medium and high, and identical on the two tasks run at all three levels.
-
-![Bar charts of cost and time per task for Fable 5.2 at low, medium and high and Opus 5.5 at medium: on the routine and hard-coding tasks low cost $1.07, medium $1.16 and high $2.53 a task; over all six tasks medium cost $0.76 and 78 seconds, high $1.62 and 3.2 minutes, and Opus $0.31 and 45 seconds](/blog/images/claude-fable-5-2-effort-cost-time.png "Higher effort didn't change a single score, so the chart shows what it did change. Diagram: OpenTeam.")
+![Bar charts of cost and time per task for Fable 5.2 at low, medium and high and Opus 5.5 at medium: on the routine and hard-coding tasks low cost $1.07, medium $1.16 and high $2.53 a task; over all six tasks medium cost $0.76 and 78 seconds, high $1.62 and 3.2 minutes, and Opus $0.31 and 45 seconds](/blog/images/claude-fable-5-2-effort-cost-and-time.png "Higher effort didn't change a single score, so the chart shows what it did change. Diagram: OpenTeam.")
 
 What changed was the bill and the wait. High cost $1.62 a task against $0.76, and took 3.2 minutes against 78 seconds. The two coding tasks were where high spent the most time: 7 and 8 minutes, against 1.6 and 3 minutes at medium, for the same result.
 
@@ -104,45 +96,39 @@ Fable 5.2 refused nothing across its 16 runs. Our tasks were ordinary, so that s
 
 At medium it averaged 78 seconds of busy time a task. That's slower than Opus 5.5 at 45 seconds but faster than GPT-6.1 Sol at 2.2 minutes, which handed most tasks to helpers. No run needed a nudge.
 
-One thing went wrong that wasn't Fable's fault. On our Mac, the bot computer's connections to sites with IPv6 addresses, such as GitHub and Hacker News, failed with "Broken pipe". The network had no IPv6, but the bot computer accepted those connections and then dropped them, so tools didn't fall back to IPv4. That's an OpenTeam bug, found in this test.
-
-Fable worked around it each time. "raw.githubusercontent.com kept dropping the connection from my computer's terminal," it reported, "so I pulled the same file at the same commit through GitHub's API instead."
-
 ![A scatter chart a bot made of penguin flipper length against body mass, coloured by species with a legend and the Pearson r of 0.871 in the title](/blog/images/fable-5-2-bot-penguins-chart.png "The chart Fable 5.2 made for the data task at high effort, as it saved it. Image: OpenTeam.")
 
 ## How to use Claude Fable 5.2 in OpenTeam
 
-One model serves every bot on an OpenTeam server, so switching to Fable 5.2 switches them all. Open **Settings → Model** in the desktop or iPhone app, choose **OpenRouter** and add your API key, pick Claude Fable 5.2, set the reasoning effort and choose **Apply**. The app sends a short test message before saving ([model providers](/docs/configuration/models)).
+The model you choose serves every bot on your OpenTeam server, so one switch moves them all to Fable 5.2. Open **Settings → Model** in the desktop or iPhone app, choose **OpenRouter** and add your API key, pick Claude Fable 5.2, set the reasoning effort and choose **Apply**. The app sends a short test message before saving ([model providers](/docs/configuration/models)).
 
-![OpenTeam's Model settings with OpenRouter as the provider, Claude Fable 5.2 as the model and the Reasoning effort menu open, offering Minimal, Low, Medium and High](/blog/images/openteam-model-settings-fable-5-2-reasoning.png "Through OpenRouter, the effort menu stops at High for Fable 5.2. Sample data. Image: OpenTeam.")
+![OpenTeam's Model settings with OpenRouter as the provider, Claude Fable 5.2 as the model and the Reasoning effort menu open, offering Minimal, Low, Medium and High](/blog/images/openteam-model-settings-fable-5-2-reasoning.png "Through OpenRouter, the effort menu offers Minimal to High for Fable 5.2. Sample data. Image: OpenTeam.")
 
-On the server you can do the same with `openteam model use openrouter anthropic/claude-fable-5.2 --thinking medium`. An Anthropic API key works too, as a separate provider; we didn't test that route for this post, so we can't say which effort levels it offers.
+On the server you can do the same with `openteam model use openrouter anthropic/claude-fable-5.2 --thinking medium`. An Anthropic API key works too, as a separate provider; we didn't test that route for this post.
 
 OpenTeam can also sign in with a Claude subscription. According to Anthropic's [help center](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan), Fable models are part of Max and Ultra plans up to 50% of the weekly usage limit, and run on paid usage credits on Pro. For the [launch week](https://support.claude.com/en/articles/17506494), Pro plans also get Fable up to 50% of weekly limits through November 16. We didn't test the subscription route.
 
-Fable 5.2 is also one of Anthropic's [Covered Models](https://support.claude.com/en/articles/15425695-covered-models). By default its prompts and completions are kept for at least 30 days on every platform that offers it, and zero data retention isn't available. Your conversations, files and memory stay on your OpenTeam server, but the model provider still sees what each task sends ([privacy](/docs/configuration/privacy)).
-
-OpenTeam's own limits apply whichever model you pick. There's one human account per server, desktop apps for macOS on Apple silicon and Linux, an iPhone app in beta and no Android app. Bots act without asking first, except that email, Slack and Messages sends go through cards you approve.
+Fable 5.2 is also one of Anthropic's [Covered Models](https://support.claude.com/en/articles/15425695-covered-models). By default its prompts and completions are kept for at least 30 days on every platform that offers it, and zero data retention isn't available. Your conversations, files and memory stay on your OpenTeam server, and only what each task sends goes to the model provider ([privacy](/docs/configuration/privacy)).
 
 ## When Opus 5.5 is the better pick
 
 Anthropic's advice held up in our test. Opus 5.5 got the same answers on every task, at 41% of Fable's cost per task and in a little over half the time. If your bots mostly fetch, summarise, file and fix things, Opus is the better default. Cheaper models are too: GPT-6.1 Sol did the same six tasks for $0.22 each; our [Terra vs Sol comparison](/blog/gpt-6-1-terra-vs-sol-ai-agents) looks at OpenAI's two options.
 
-Choose Fable 5.2 if your bots run long, hard jobs where Anthropic's own benchmarks show a gap. It's also the safer bet if a reliably delivered final answer matters more than price. Choose Opus 5.5 if the work looks like our six tasks and you watch for answers that don't arrive.
+Choose Fable 5.2 if your bots run long, hard jobs where Anthropic's own benchmarks show a gap. Choose Opus 5.5 if the work looks like our six tasks.
 
 ## Frequently asked questions
 
 ### Is Claude Fable 5.2 better than Opus 5.5 for AI agents?
 
-Not on everyday tasks, in our test. Both got all six tasks right on content, and Opus cost $0.31 a task against Fable's $0.76. Fable was the more reliable messenger: every final answer arrived, while four of eight Opus 5.5 runs left theirs as text OpenTeam doesn't show.
+Not on everyday tasks, in our test. Both got all six tasks right, scored on their answers and files, and Opus cost $0.31 a task against Fable's $0.76.
 
 ### Which effort level should I use for Fable 5.2?
 
 Medium for routine agent work. High scored the same on our six tasks and cost twice as much, and low saved little because cache writes dominate the bill. Anthropic and Vals AI recommend high for hard problems.
 
-### Can I run Fable 5.2 at max effort in OpenTeam?
+### How do I switch OpenTeam to Fable 5.2?
 
-Not through OpenRouter today. OpenTeam offers minimal to high for Fable 5.2 there and rejects xhigh and max. It offers those two levels only for models in its bundled registry.
+Open **Settings → Model**, choose **OpenRouter**, pick Claude Fable 5.2 and a reasoning effort, and choose **Apply**. On the server host, `openteam model use openrouter anthropic/claude-fable-5.2 --thinking medium` does the same.
 
 ### How much does Claude Fable 5.2 cost per task?
 

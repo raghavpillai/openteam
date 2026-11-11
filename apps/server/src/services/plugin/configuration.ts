@@ -15,6 +15,7 @@ import {
 } from "@openteam/plugin-sdk";
 import { serviceEffect, toJson } from "../service-utils";
 import { loadConnectionNamespaces } from "./namespaces";
+import { clearDeviceLinkState } from "./device-link";
 import {
   definitionFromManifest,
   connectionConfigured,
@@ -129,7 +130,7 @@ export class PluginConfiguration {
     serviceEffect(async () => {
       const { connection, fields, plugin, connector } = await this.connection(id);
       const config = { ...jsonObject(connection.configuration) };
-      const credentials = { ...jsonObject(connection.credentials) };
+      let credentials = { ...jsonObject(connection.credentials) };
       if (credentials.stateRemovalPending === true)
         throw new ApiError(409, "plugin_account_removal_pending", "Account removal must finish before changing configuration.");
       if (input.values) {
@@ -216,9 +217,8 @@ export class PluginConfiguration {
         JSON.stringify(credentials) !== JSON.stringify(connection.credentials) ||
         endpoint !== connection.endpoint;
       if (changed) {
+        credentials = clearDeviceLinkState(credentials);
         delete credentials.oauth;
-        delete credentials.deviceLink;
-        delete credentials.deviceRecoveryPending;
         await this.stop(id, connection.transport);
         const updated = await this.prisma.pluginConnection.updateMany({
           // Stop may await another service's removal/reconnect. Never overwrite

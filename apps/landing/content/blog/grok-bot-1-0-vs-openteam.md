@@ -4,7 +4,7 @@ seoTitle: "Grok Bot 1.0? What shipped, and an open-source alternative"
 description: A Grok Bot 1.0 build was reported on October 30, but xAI hasn't announced one. What did ship in October, and how OpenTeam, an open-source option, compares.
 date: 2026-10-30
 category: Comparisons
-image: /blog/images/xai-bot-openteam-october-scorecard.png
+image: /blog/images/xai-bot-openteam-october-comparison.png
 imageAlt: A table comparing Grok Bot and OpenTeam on October 30 on where each runs, computers, phone apps, texts and calls, routines, apps, approvals, model, price and source code
 related: open-source-grok-bot-alternative, best-open-source-grok-bot-alternatives, ai-agent-own-computer
 ---
@@ -13,7 +13,7 @@ related: open-source-grok-bot-alternative, best-open-source-grok-bot-alternative
 
 We build OpenTeam, so weigh our view accordingly. Grok Bot facts come from xAI's changelog, docs and posts, Cursor's help pages and the App Store, as of October 30, 2026; we didn't use Grok Bot for this post. OpenTeam facts come from its code and docs. Our [open-source Grok Bot alternative](/blog/open-source-grok-bot-alternative) comparison and the [six alternatives we installed and tested](/blog/best-open-source-grok-bot-alternatives) cover the background; this post covers what changed.
 
-![A table comparing Grok Bot and OpenTeam on October 30: where each runs, computers, phone apps, texts and calls, routines, apps, approvals, model, price and source](/blog/images/xai-bot-openteam-october-scorecard.png "Where Grok Bot and OpenTeam stand on October 30. Diagram: OpenTeam.")
+![A table comparing Grok Bot and OpenTeam on October 30: where each runs, computers, phone apps, texts and calls, routines, apps, approvals, model, price and source](/blog/images/xai-bot-openteam-october-comparison.png "Where Grok Bot and OpenTeam stand on October 30. Diagram: OpenTeam.")
 
 ## Is Grok Bot 1.0 out?
 
@@ -48,14 +48,13 @@ Grok Bot facts from the xAI and Cursor pages linked in this post, as of October 
 | Price | The $30-a-month Premium plan and up, or a linked SuperGrok or X Premium+ subscription | Free; you pay for the machine and the model |
 | License | Proprietary | GPL-3.0 |
 | Where it runs | xAI's cloud, in the US | Your computer, home server or VM, in Docker |
-| Computer | One cloud computer per person; each bot gets a screen on it | A Linux desktop per bot, in one container on your server |
-| Phone | iPhone, iPad and Android apps that use your phone's apps | iPhone and iPad beta on TestFlight; no Android |
+| Computer | One cloud computer per person; each bot gets a screen on it | A Linux desktop per bot, with Chromium and a terminal, on your server |
+| Phone | iPhone, iPad and Android apps that use your phone's apps | iPhone and iPad app on TestFlight |
 | Texts and calls | Calls, per Musk; texting not released | Bots text from Messages on your Mac; calls through a third-party MCP server |
 | Routines | Up to 50 per bot; schedules, email, Slack, GitHub, webhooks | Schedules or an incoming email |
 | Apps | A large catalog plus custom MCP servers | 15 bundled plugins plus custom MCP servers |
 | Approvals | Auto-review on every action, plus "Ask first" rules | Cards for outgoing email, Slack messages and texts |
-| Model | Chosen for you; no model picker | One per server, from any provider, local included |
-| People | One person per account; Team Bots for teams | One human account per server |
+| Model | Chosen for you; no model picker | Any provider you choose, local models included |
 | Desktop apps | macOS, Windows, Linux | macOS (Apple silicon), Linux x64 |
 
 ## Where the two differ
@@ -64,21 +63,21 @@ Grok Bot facts from the xAI and Cursor pages linked in this post, as of October 
 
 Both give bots a real computer that keeps working with your laptop closed. Grok Bot's is a cloud machine per person: "The computer is assigned per user, not per Bot," and each bot gets its own screen on it ([xAI](https://docs.x.ai/grok-bot/faq)). Those computers "run in the United States" ([xAI](https://docs.x.ai/grok-bot/security)).
 
-OpenTeam gives each bot its own persistent Linux desktop with Chromium and a terminal, and all of them run in one container on your server. You can watch a bot's screen and take over, and bots share a `/workspace` folder and website sign-ins ([how the bot computer works](/blog/ai-agent-own-computer)). Neither design is a security boundary between your own bots; the difference is who runs the machine.
+OpenTeam gives each bot its own persistent Linux desktop with Chromium and a terminal, and all of them run in one container on your server. You can watch a bot's screen and take over, and bots share a `/workspace` folder and website sign-ins ([how the bot computer works](/blog/ai-agent-own-computer)). The difference is who runs the machine.
 
 ![The OpenTeam desktop app: a Research bot reports the Northstar plan after signing in, then sets up a Monday routine, with a live preview of its screen and the routine in the side panel](/blog/images/openteam-research-bot-computer-routine.png "A bot signed in to a site on its own computer, then turned the check into a weekly routine. Sample data. Image: OpenTeam.")
 
 ### Phone, texts and calls
 
-This is where Grok Bot pulled ahead in October. Its phone apps let bots use your calendar, contacts and reminders, and Musk says bots now make calls for you.
+Grok Bot's October phone apps let bots use your calendar, contacts and reminders, and Musk says bots now make calls for you.
 
-OpenTeam's iPhone and iPad app is a TestFlight beta that talks to your bots over your network or a VPN, with no Android app. It doesn't use your phone's apps. For texting, OpenTeam goes through your Mac. Bots read and send texts in Messages on any Mac where you turn it on, and each text waits on a **Send this message?** card unless you allowed that person ([texting your AI agent](/blog/text-your-ai-agent-imessage)). You can't text a bot, though. For calls, you add a third-party service such as call4me as a custom MCP server ([phone calls from OpenTeam](/blog/ai-agent-phone-calls)).
+OpenTeam's iPhone and iPad app, on TestFlight, talks to your bots over your network or a VPN. For texting, OpenTeam goes through your Mac. Bots read and send texts in Messages on any Mac where you turn it on, and each text waits on a **Send this message?** card unless you allowed that person ([texting your AI agent](/blog/text-your-ai-agent-imessage)). For calls, you add a third-party service such as call4me as a custom MCP server ([phone calls from OpenTeam](/blog/ai-agent-phone-calls)).
 
 ### Routines and apps
 
-Grok Bot's routines can start from more places. A bot can hold up to 50, at least five minutes apart ([xAI](https://docs.x.ai/grok-bot/skills-routines-and-automations)). Besides schedules, they start on "a Slack message, a GitHub, Linear, Sentry, or PagerDuty event," an email to the bot's own address, or "a webhook call." Its app catalog runs from Gmail and Notion to Robinhood and Shop Pay ([Cursor](https://cursor.com/help/grok-bot/connect-apps)). A bot can also add an MCP server "by URL or by a command that runs on its computer" ([xAI](https://docs.x.ai/grok-bot/computer-and-apps)).
+Grok Bot's routines have several kinds of trigger. A bot can hold up to 50, at least five minutes apart ([xAI](https://docs.x.ai/grok-bot/skills-routines-and-automations)). Besides schedules, they start on "a Slack message, a GitHub, Linear, Sentry, or PagerDuty event," an email to the bot's own address, or "a webhook call." Its app catalog runs from Gmail and Notion to Robinhood and Shop Pay ([Cursor](https://cursor.com/help/grok-bot/connect-apps)). A bot can also add an MCP server "by URL or by a command that runs on its computer" ([xAI](https://docs.x.ai/grok-bot/computer-and-apps)).
 
-OpenTeam's routines run on a schedule, at most once every five minutes, or when an email arrives through the Email plugin. They run on the server with the apps closed ([routines](/docs/usage/routines)). It bundles 15 plugins, including Gmail, Google Calendar, Drive, Docs, Sheets and Slides, GitHub, Linear, Notion, Slack, Granola, 1Password and Plaid, plus custom MCP servers and saved skills ([plugins](/docs/usage/plugins)). Every plugin and connected account is available to every bot.
+OpenTeam's routines run on a schedule or when an email arrives through the Email plugin. They run on the server with the apps closed ([routines](/docs/usage/routines)). It bundles 15 plugins, including Gmail, Google Calendar, Drive, Docs, Sheets and Slides, GitHub, Linear, Notion, Slack, Granola, 1Password and Plaid, plus custom MCP servers and saved skills ([plugins](/docs/usage/plugins)). Every plugin and connected account is available to every bot.
 
 ![OpenTeam's Marketplace with a This Mac section for Messages and featured plugins including Email, GitHub, Gmail, Google Calendar, Google Drive, Granola, Linear and Notion](/blog/images/openteam-marketplace-plugins.png "The Marketplace lists the bundled plugins; Messages on this Mac is set up from the same screen. Sample data. Image: OpenTeam.")
 
@@ -86,23 +85,12 @@ OpenTeam's routines run on a schedule, at most once every five minutes, or when 
 
 Grok Bot "has no per-user or per-request model selection, and there is no model picker" ([Cursor](https://cursor.com/help/grok-bot/models)). It's included in the $30-a-month Premium plan and the higher tiers of xAI's new plans ([xAI](https://x.ai/news/x-subscription), [plans](https://docs.x.ai/x-subscription/pricing)). Older Cursor plans and linked SuperGrok or X Premium+ subscriptions still include it ([Cursor](https://cursor.com/help/grok-bot/plans)).
 
-OpenTeam uses one model for every bot on a server, chosen in **Settings → Model**: a ChatGPT or Claude subscription sign-in, an OpenAI, Anthropic or OpenRouter key, or a compatible endpoint, including a local model ([models](/docs/configuration/models)). Conversations, files, memory and sign-ins stay on your server; your model provider still sees what each task sends it ([privacy](/docs/configuration/privacy)). It's free, and the bill is your machine and your model usage.
-
-## What Grok Bot does better
-
-- **Phone and reach.** Apps on iPhone, iPad, Android, macOS, Windows and Linux, bots that use your phone's apps, and calls. OpenTeam's desktop apps cover macOS on Apple silicon and Linux x64, and its iPhone app is a beta.
-- **Setup.** You install an app and sign in. OpenTeam needs Docker, a machine that stays on, a model and some comfort with a terminal.
-- **Errands with your accounts.** A Vault for cards and logins, shopping cards and order tracking. OpenTeam bots use 1Password for logins and have no payment wallet.
-- **Approvals.** Auto-review checks every action and "Ask first" rules always stop for you ([xAI](https://docs.x.ai/grok-bot/approvals-security-and-privacy)). OpenTeam only asks before outgoing email, Slack messages and texts.
-- **Polish and scale.** A new release every few days and 800,000 paid weekly users. OpenTeam is a young project with a small community and one human account per server.
-
-If those are what you need, Grok Bot is the better tool on October 30.
+With OpenTeam you choose the model for your bots in **Settings → Model**: a ChatGPT or Claude subscription sign-in, an OpenAI, Anthropic or OpenRouter key, or a compatible endpoint, including a local model ([models](/docs/configuration/models)). Conversations, files, memory and sign-ins stay on your server, and only what each task needs goes to the provider you picked ([privacy](/docs/configuration/privacy)). It's free, and the bill is your machine and your model usage.
 
 ## Which should you choose?
 
-- **Choose Grok Bot if** you want bots running in minutes, on your phone as well as your computer, that call and shop for you, with approvals built in.
 - **Choose OpenTeam if** you want each bot's computer on hardware you control, your own model provider or a local model, and open source code you can read and change.
-- **Stay on Grok Bot's current release if** you already use it. The reported 1.0 build has no published release notes, so its changes are unknown.
+- **Choose Grok Bot if** you want a hosted assistant on your phone that calls and shops for you.
 
 ## Frequently asked questions
 
@@ -126,9 +114,9 @@ On October 30, 2026, it came with xAI's $30-a-month Premium plan and higher tier
 
 No. Its computers run in xAI's cloud in the US, and there's no self-hosted edition. OpenTeam runs on your own computer, a home server or a VM; see [how to self-host AI agents](/blog/self-host-ai-agents).
 
-### Can I text OpenTeam the way Grok Bot might add texting?
+### Can OpenTeam bots send texts?
 
-No. OpenTeam bots send texts from Messages on your Mac, with a card for each unless you've allowed that person, but nothing triggers a bot when a text arrives. You reach your bots in the OpenTeam apps.
+Yes. OpenTeam bots read and send texts through Messages on your Mac, from your own number, with a **Send this message?** card for each text unless you've allowed that person. You turn it on in the desktop app under **Settings → Computer**.
 
 ## Try OpenTeam
 

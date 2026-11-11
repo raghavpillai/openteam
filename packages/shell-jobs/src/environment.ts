@@ -1,4 +1,4 @@
-import { openSync, closeSync } from "node:fs";
+import { openSync, closeSync, fstatSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, rename, writeFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -93,13 +93,21 @@ export async function persistShellEnvironment(path: string, chunks: readonly Buf
 export function createShellEnvironmentCapture(directory: string) {
   const path = join(directory, `environment-capture-${randomUUID()}.tmp`);
   const fd = openSync(path, "wx", 0o600);
+  const identity = fstatSync(fd);
   let closed = false;
   return {
     fd,
     closeParent() {
       if (!closed) {
         closed = true;
-        closeSync(fd);
+        // Bun may close an inherited numeric descriptor during spawn. Once the child has closed,
+        // release it only if it still names our file, never another job's reused pipe or log fd.
+        try {
+          const current = fstatSync(fd);
+          if (current.dev === identity.dev && current.ino === identity.ino) closeSync(fd);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EBADF") throw error;
+        }
       }
     },
     async persist(destination: string, excludedKeys: readonly string[] = [], baseline?: NodeJS.ProcessEnv) {

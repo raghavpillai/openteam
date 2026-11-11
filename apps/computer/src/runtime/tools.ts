@@ -635,13 +635,14 @@ export class RuntimeTools {
     callId: string,
     tool: string,
     args: unknown,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    claimResponseCall?: () => boolean
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const name = tool === CALL_DYNAMIC_TOOL_TOOL.name ? (args as { toolName?: unknown } | null)?.toolName : tool;
     // Pi starts a parallel batch in call order, so chaining sends here delivers them in call order.
     const run = tool === SEND_TO_USER_TOOL.name
-      ? (active.sendChain ?? Promise.resolve()).then(() => this.executeScopedTool(active, callId, tool, args, signal))
-      : this.executeScopedTool(active, callId, tool, args, signal);
+      ? (active.sendChain ?? Promise.resolve()).then(() => this.executeScopedTool(active, callId, tool, args, signal, claimResponseCall))
+      : this.executeScopedTool(active, callId, tool, args, signal, claimResponseCall);
     if (tool === SEND_TO_USER_TOOL.name) active.sendChain = run.catch(() => undefined);
     // Calls issued in one step start in order, so a later Read in the step can wait for these.
     const writers = typeof name === "string" && SAME_STEP_FILE_WRITERS.has(name)
@@ -652,7 +653,16 @@ export class RuntimeTools {
       this.stepFileWriters.set(active.runId, writers);
     }
     try {
-      return await run;
+      const result = await run;
+      // Connected channels can report a failed delivery in a successful HTTP
+      // response. Preserve that receipt, but apply the same batch rules as a rejected send.
+      if (result.details?.isError === true) {
+        if (tool === SEND_TO_USER_TOOL.name) active.failedResponseSends?.add(callId);
+        // Pi's extension API can mark an error but cannot clear terminate.
+        // A failed receipt must leave the batch open when a closing sibling is held.
+        return { ...result, terminate: false };
+      }
+      return result;
     } catch (error) {
       if (tool === SEND_TO_USER_TOOL.name) active.failedResponseSends?.add(callId);
       if (signal?.aborted) throw error;
@@ -679,7 +689,8 @@ export class RuntimeTools {
     callId: string,
     tool: string,
     args: unknown,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    claimResponseCall?: () => boolean
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     if (tool === "Task")
       args = expandPluginAgent(active.pluginRuntimePackages ?? [], args as Record<string, unknown>);
@@ -695,9 +706,9 @@ export class RuntimeTools {
     active.pluginAbortController?.signal.throwIfAborted();
     // Pi validates arguments before execution, so the raw-argument match recorded
     // when the call started is authoritative; the direct comparison covers the rest.
-    const responseCall = active.pendingResponseCalls?.has(callId) === true &&
+    const responseCall = claimResponseCall?.() === true || (active.pendingResponseCalls?.has(callId) === true &&
       (active.toolArgs?.get(callId)?.responseCall === true ||
-        active.pendingResponseCalls?.get(callId) === JSON.stringify(args));
+        active.pendingResponseCalls?.get(callId) === JSON.stringify(args)));
     const afterEndTurn = active.endTurnRequested === true && active.finishResponseCalls === true && responseCall;
     if (active.endTurnRequested && !afterEndTurn)
       throw new Error("The turn has ended after delivery; wait for the next user message.");
@@ -826,9 +837,17 @@ export class RuntimeTools {
       const input = Schema.decodeUnknownSync(CallDynamicToolInput)(args);
       // A first-party tool this agent already has directly runs natively, as in the reference.
       if (input.namespace === "cursor" && input.toolName !== GET_DYNAMIC_TOOLS_TOOL.name && input.toolName !== CALL_DYNAMIC_TOOL_TOOL.name &&
-          this.directToolNames(active).includes(input.toolName))
-        return this.executeOpenTeamTool(active, callId, input.toolName, decodeDynamicArguments(input.arguments), signal).catch(referenceError);
-      return this.callDynamicTool(active, callId, input, signal, afterEndTurn).catch(referenceError);
+          this.directToolNames(active).includes(input.toolName)) {
+        // The outer invocation consumed the original response entry. Transfer its
+        // grant once to the native invocation, which may queue behind another send.
+        let unclaimed = responseCall;
+        return this.executeOpenTeamTool(active, callId, input.toolName, decodeDynamicArguments(input.arguments), signal, () => {
+          const claimed = unclaimed;
+          unclaimed = false;
+          return claimed;
+        }).catch(referenceError);
+      }
+      return this.callDynamicTool(active, callId, input, signal, responseCall).catch(referenceError);
     }
 
     return this.callControlPlaneTool(active, callId, tool, args, signal);
@@ -1523,6 +1542,8 @@ export class RuntimeTools {
       ],
       details: {
         tool,
+        ...(tool === SEND_TO_USER_TOOL.name && body && typeof body === "object" &&
+          (body as Record<string, unknown>).delivery_failed === true ? { isError: true } : {}),
         ...(tool === "CheckSubagent" ? {pendingBackgroundWork: onlyPendingBackgroundWork(body)} : {}),
         ...(tool === "TodoWrite" && body && typeof body === "object" && "todos" in body
           ? { todos: body.todos, ...(todoCleanupReminder(body.todos) ? { systemReminders: [todoCleanupReminder(body.todos)] } : {}) }
@@ -1894,7 +1915,7 @@ export class RuntimeTools {
     callId: string,
     input: CallDynamicToolInput,
     signal?: AbortSignal,
-    afterEndTurn = false
+    responseCall = false
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     if (
       active.readOnly &&
@@ -1924,8 +1945,10 @@ export class RuntimeTools {
     }, signal);
     const invoke = async () => {
       signal?.throwIfAborted();
-      if (afterEndTurn) active.pluginAbortController?.signal.throwIfAborted();
-      if (active.endTurnRequested && !afterEndTurn)
+      active.pluginAbortController?.signal.throwIfAborted();
+      // A response call can queue before its closing sibling finishes. Recheck
+      // the closing state after the mutation wait while retaining its one-use grant.
+      if (active.endTurnRequested && !(responseCall && active.finishResponseCalls))
         throw new Error("The turn has ended; wait for the next user message");
       const result = resolved.namespace.kind === "mcp"
         ? await resolved.tool.execute(active, callId, resolved.arguments, signal)

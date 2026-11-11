@@ -1151,12 +1151,9 @@ if (!hasSingleInstanceLock) {
           return new Response("Not found", { status: 404 });
         }
       });
-      // Site icons for chat links. Fetched in a cookie-less in-memory session, so
-      // the request carries nothing from the user's other browsing in the app.
-      const faviconSession = session.fromPartition("openteam-link-favicons");
+      // Cookie-free favicon connections pin validated public DNS answers.
       const linkFavicons = createLinkFavicons({
         cacheDir: join(app.getPath("userData"), "link-favicons"),
-        fetch: (url, init) => faviconSession.fetch(url, init),
       });
       await protocol.handle(LINK_FAVICON_SCHEME, (request) => linkFavicons.serve(request));
       computerSettings = createComputerSettingsStore(

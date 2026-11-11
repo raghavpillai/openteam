@@ -21,7 +21,7 @@ Search results for an AI iMessage assistant mix two things:
 - **An AI you text.** The assistant is a contact with its own number. You text [Poke](https://poke.com) on Messages, WhatsApp or Telegram, and it handles email, calendar and reminders. It doesn't document reading your own message history.
 - **An AI inside your own conversations.** It reads the Messages history on a Mac and sends from your account. ChatGPT's Messages plugin, Claude's "Read and Send iMessages" connector and OpenTeam work this way.
 
-The second kind, covered here, is more useful and riskier: it sees everything you've received, and recipients see your name on what it writes.
+The second kind, covered here, does more: it reads what you've received and replies under your name, so OpenTeam puts each text on an approval card by default.
 
 ## What OpenTeam bots can do in Messages
 
@@ -48,7 +48,7 @@ The desktop app connects your Mac to your server with an outgoing connection, so
 3. **Grant access.** A window lists three macOS permissions; choose **Allow** next to each. **Automation** lets bots send through Messages and **Contacts** lets them find people by name; accept the macOS prompt for each. **Full Disk Access** lets bots search your texts; macOS doesn't ask for this one, so **Allow** opens System Settings, where you turn on OpenTeam.
 4. **Check it.** Ask a bot what's new in your texts.
 
-Keep the app open while bots use Messages. If it closes or the Mac sleeps, that Mac goes offline.
+Keep the app open on that Mac while bots use Messages.
 
 ### More than one Mac
 
@@ -78,13 +78,13 @@ The bot lists the chats active since then, reads them and summarizes.
 
 > What did Maya say about the lake house dates?
 
-The bot finds Maya in Contacts, opens her conversations and searches them. Search matches message text, not names.
+The bot finds Maya in Contacts, opens her conversations and searches their text.
 
 ### Open a photo someone sent
 
 > Show me the photo Dana sent yesterday of the leak under the sink.
 
-The bot fetches the attachment and looks at it. A photo kept only in iCloud can't be fetched.
+The bot fetches the attachment and looks at it.
 
 ### Reply in an existing chat
 
@@ -107,11 +107,6 @@ From each product's docs or listing, checked October 19, 2026. We haven't tested
 
 OpenClaw's docs recommend a dedicated Apple ID for the bot. Apple's Smart Reply drafts a reply in the text field, and you press Return to send ([Apple](https://support.apple.com/guide/mac-help/mchl00c5b2c3/26/mac/26)). Beeper's Desktop API can search history and send or draft messages while Beeper Desktop runs, with iMessage on macOS only ([Beeper](https://developers.beeper.com/desktop-api)).
 
-### What ChatGPT's plugin does better
-
-- **No server.** It's a plugin in an app you may already use, on all ChatGPT plans.
-- **Per-chat allow rules.** ChatGPT can always allow a whole chat, groups included. OpenTeam allows one recipient at a time, for texts a bot addresses to that person's number or email; group texts always need a card unless you turn on Send Without Asking.
-
 OpenTeam fits if you want open source, your own hardware and model, or more than one Mac.
 
 ## Safety: before an AI texts as you
@@ -120,20 +115,13 @@ OpenTeam fits if you want open source, your own hardware and model, or more than
 
 **Your model provider sees what bots read.** iMessage is end-to-end encrypted, but a text a bot reads goes to your model provider ([privacy](/docs/configuration/privacy)). To keep it on your hardware, run your [own model server](/docs/configuration/models#use-your-own-model-server).
 
-**Every bot can use it.** Connected computers are shared by all bots on the server. Only a bot's own chat turns get Messages tools; its helpers and routine runs don't.
+**Chat turns only.** A bot's own chat turns get Messages tools; its helpers and routine runs don't.
 
 **Only that Mac turns it on.** **Use Messages** is a setting in the app on the Mac itself. The server can't turn it on, and a Mac with it off refuses Messages requests.
 
 **No double sends.** Each card sends at most once. The Mac keeps a receipt per card, so pressing Send again after a lost connection returns the first result instead of texting twice.
 
 **Turning it off.** Turn off **Use Messages** on that Mac, or disable the Mac under **Settings → Server → Manage devices** on another computer or your iPhone.
-
-## What it can't do yet
-
-- **No trigger on new texts, and no routines.** Bots use Messages when you ask in chat; [routines](/docs/usage/routines) can't read or send texts.
-- **Text only.** Bots don't send attachments, reactions or replies to a specific message.
-- **A Mac must be awake** with the app open. A Mac that sleeps goes offline until it wakes.
-- **OpenTeam limits.** One model and one human account per server. Desktop apps for macOS (Apple silicon) and Linux (x64) only, the iPhone app is a TestFlight beta, and there's no Android app.
 
 ## Troubleshooting
 
@@ -165,13 +153,13 @@ No. Apple's developer support says "macOS doesn't have an API for accessing the 
 
 One Mac with Messages on has to be awake with the app open. With Messages on for two Macs, bots use whichever is online, so a closed laptop falls back to a desktop Mac that stays on.
 
-### Is it safe to let an AI read my texts?
+### How do I stay in control of what a bot sends?
 
-Only with trade-offs. Your model provider sees the texts bots read, and incoming texts can carry instructions. Approving each text, a local model and explicit send requests narrow the risk.
+Each text waits on a **Send this message?** card showing the recipient, the exact text and the Mac that sends it. **Send** sends it once, **Discard** drops it, and **Always allow** skips the card for that person on that Mac. **Settings → Computer → Messages** lists the people you've allowed, with a button to remove each.
 
-### Can an AI auto-reply to every new text?
+### Can a bot start a new conversation?
 
-Not with OpenTeam: there's no new-message trigger, and routines can't use Messages. Shortcuts on macOS 26 can run an automation when a message arrives ([Apple](https://support.apple.com/en-us/125148)), but anything it sends goes out unreviewed.
+Yes. A bot can text an existing chat, a group, or a new phone number or email address. It finds people by name in Contacts, and the text goes out from your Mac once you approve the card.
 
 ## Try OpenTeam
 

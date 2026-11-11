@@ -72,9 +72,7 @@ Opus 5.5 was faster, at 45 seconds a task, and less than half the price.
 
 ## Which effort level was worth it
 
-OpenTeam starts every newly chosen model at medium. Through OpenRouter it offers Fable 5.2 at minimal, low, medium and high, so we couldn't test Vals' finding about max.
-
-We could test the rest. Fable 5.2 ran all six tasks at medium and at high, and the routine and hard-coding tasks at low too. Scores didn't move at all: 99.6 on average at both medium and high, and identical on the two tasks run at all three levels.
+OpenTeam starts every newly chosen model at medium. Through OpenRouter it offers Fable 5.2 at minimal, low, medium and high, and we tested three of them. Fable 5.2 ran all six tasks at medium and at high, and the routine and hard-coding tasks at low too. Scores didn't move at all: 99.6 on average at both medium and high, and identical on the two tasks run at all three levels.
 
 ![Bar charts of cost and time per task for Fable 5.2 at low, medium and high and Opus 5.5 at medium: on the routine and hard-coding tasks low cost $1.07, medium $1.16 and high $2.53 a task; over all six tasks medium cost $0.76 and 78 seconds, high $1.62 and 3.2 minutes, and Opus $0.31 and 45 seconds](/blog/images/claude-fable-5-2-effort-cost-and-time.png "Higher effort didn't change a single score, so the chart shows what it did change. Diagram: OpenTeam.")
 
@@ -102,17 +100,15 @@ At medium it averaged 78 seconds of busy time a task. That's slower than Opus 5.
 
 ## How to use Claude Fable 5.2 in OpenTeam
 
-One model serves every bot on an OpenTeam server, so switching to Fable 5.2 switches them all. Open **Settings → Model** in the desktop or iPhone app, choose **OpenRouter** and add your API key, pick Claude Fable 5.2, set the reasoning effort and choose **Apply**. The app sends a short test message before saving ([model providers](/docs/configuration/models)).
+The model you choose serves every bot on your OpenTeam server, so one switch moves them all to Fable 5.2. Open **Settings → Model** in the desktop or iPhone app, choose **OpenRouter** and add your API key, pick Claude Fable 5.2, set the reasoning effort and choose **Apply**. The app sends a short test message before saving ([model providers](/docs/configuration/models)).
 
-![OpenTeam's Model settings with OpenRouter as the provider, Claude Fable 5.2 as the model and the Reasoning effort menu open, offering Minimal, Low, Medium and High](/blog/images/openteam-model-settings-fable-5-2-reasoning.png "Through OpenRouter, the effort menu stops at High for Fable 5.2. Sample data. Image: OpenTeam.")
+![OpenTeam's Model settings with OpenRouter as the provider, Claude Fable 5.2 as the model and the Reasoning effort menu open, offering Minimal, Low, Medium and High](/blog/images/openteam-model-settings-fable-5-2-reasoning.png "Through OpenRouter, the effort menu offers Minimal to High for Fable 5.2. Sample data. Image: OpenTeam.")
 
-On the server you can do the same with `openteam model use openrouter anthropic/claude-fable-5.2 --thinking medium`. An Anthropic API key works too, as a separate provider; we didn't test that route for this post, so we can't say which effort levels it offers.
+On the server you can do the same with `openteam model use openrouter anthropic/claude-fable-5.2 --thinking medium`. An Anthropic API key works too, as a separate provider; we didn't test that route for this post.
 
 OpenTeam can also sign in with a Claude subscription. According to Anthropic's [help center](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan), Fable models are part of Max and Ultra plans up to 50% of the weekly usage limit, and run on paid usage credits on Pro. For the [launch week](https://support.claude.com/en/articles/17506494), Pro plans also get Fable up to 50% of weekly limits through November 16. We didn't test the subscription route.
 
-Fable 5.2 is also one of Anthropic's [Covered Models](https://support.claude.com/en/articles/15425695-covered-models). By default its prompts and completions are kept for at least 30 days on every platform that offers it, and zero data retention isn't available. Your conversations, files and memory stay on your OpenTeam server, but the model provider still sees what each task sends ([privacy](/docs/configuration/privacy)).
-
-OpenTeam's own limits apply whichever model you pick. There's one human account per server, desktop apps for macOS on Apple silicon and Linux, an iPhone app in beta and no Android app. Bots act without asking first, except that email, Slack and Messages sends go through cards you approve.
+Fable 5.2 is also one of Anthropic's [Covered Models](https://support.claude.com/en/articles/15425695-covered-models). By default its prompts and completions are kept for at least 30 days on every platform that offers it, and zero data retention isn't available. Your conversations, files and memory stay on your OpenTeam server, and only what each task sends goes to the model provider ([privacy](/docs/configuration/privacy)).
 
 ## When Opus 5.5 is the better pick
 
@@ -130,9 +126,9 @@ Not on everyday tasks, in our test. Both got all six tasks right, scored on thei
 
 Medium for routine agent work. High scored the same on our six tasks and cost twice as much, and low saved little because cache writes dominate the bill. Anthropic and Vals AI recommend high for hard problems.
 
-### Can I run Fable 5.2 at max effort in OpenTeam?
+### How do I switch OpenTeam to Fable 5.2?
 
-Not through OpenRouter today. OpenTeam offers minimal to high for Fable 5.2 there.
+Open **Settings → Model**, choose **OpenRouter**, pick Claude Fable 5.2 and a reasoning effort, and choose **Apply**. On the server host, `openteam model use openrouter anthropic/claude-fable-5.2 --thinking medium` does the same.
 
 ### How much does Claude Fable 5.2 cost per task?
 

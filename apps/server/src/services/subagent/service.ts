@@ -316,7 +316,7 @@ export class SubagentService {
    */
   stopRun = (runId: string) =>
     serviceEffect(async () => {
-      const run = await this.prisma.run.findUnique({ where: { id: runId }, select: { botId: true, status: true } });
+      const run = await this.prisma.run.findUnique({ where: { id: runId }, select: { botId: true, status: true, error: true, completedAt: true, requestStoppedAt: true } });
       if (!run) throw new ApiError(404, "run_not_found", "Run not found");
       const callId = `user-stop:${runId}`;
       const worker = await this.prisma.subagent.findFirst({
@@ -328,9 +328,27 @@ export class SubagentService {
         return { ok: true, status: current?.status ?? "cancelled" };
       }
       await this.prisma.$transaction(tx => stopRequestProgress(tx, run.botId, ["queued", "running"].includes(run.status) ? undefined : runId));
-      const result = await Effect.runPromise(this.runs.cancel(runId));
-      if (["queued", "running"].includes(run.status)) await this.stopRunningSubagents(run.botId, callId);
-      return result;
+      const userCancelled = run.error && typeof run.error === "object" && !Array.isArray(run.error) &&
+        (run.error as { code?: unknown }).code === "cancelled_by_user";
+      const stoppedAt = run.status === "cancelled" && userCancelled ? run.completedAt ?? run.requestStoppedAt : null;
+      // A retry after a partial stop still owns its old workers, but must not
+      // cancel a worker attached to a fresh request after the failed attempt.
+      const workerScope: Prisma.SubagentWhereInput | null = ["queued", "running"].includes(run.status) ? {}
+        : stoppedAt ? { OR: [{ parentRunId: runId }, { requestRun: { requestStoppedAt: { lte: stoppedAt } } }] } : null;
+      // A transport failure stopping the parent must not leave its workers
+      // untouched or delay their stop, and child failures must reach the caller.
+      const [cancellation, workers] = await Promise.all([
+        Effect.runPromise(this.runs.cancel(runId)).then(
+          result => ({ ok: true as const, result }),
+          error => ({ ok: false as const, error }),
+        ),
+        workerScope !== null
+          ? this.stopRunningSubagents(run.botId, callId, workerScope) : Promise.resolve([]),
+      ]);
+      if (workers.some(worker => worker.outcome === "failed"))
+        throw new ApiError(503, "bot_stop_incomplete", "Some work could not be stopped. Try Stop again.");
+      if (!cancellation.ok) throw cancellation.error;
+      return cancellation.result;
     });
 
   /**
@@ -424,9 +442,9 @@ export class SubagentService {
     return { stopped_all: true, stopped: of("stopped"), already_finished: of("finished"), failed: of("failed"), delegated };
   }
 
-  private async stopRunningSubagents(parentBotId: string, callId: string) {
+  private async stopRunningSubagents(parentBotId: string, callId: string, scope: Prisma.SubagentWhereInput = {}) {
     const running = await this.prisma.subagent.findMany({
-      where: { parentBotId, status: { in: [...OPEN_STATUSES] } },
+      where: { ...scope, parentBotId, status: { in: [...OPEN_STATUSES] } },
       orderBy: { createdAt: "asc" },
     });
     return Promise.all(running.map(async (subagent) => {

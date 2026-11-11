@@ -45,6 +45,40 @@ test.skipIf(!url)("Stop reports a worker cancellation failure even after its par
   await expect(Effect.runPromise(service.stopBot(f.owner.id))).rejects.toThrow("could not be stopped");
 }));
 
+test.skipIf(!url)("retrying a failed Stop reaches older stopped requests without stopping a fresh request", () => fixture(async f => {
+  await f.service.task(f.context, { description: "Original work", subagent_type: "executor", prompt: "Compute the original digest." });
+  const original = await f.db.subagent.findFirstOrThrow({ where: { parentBotId: f.owner.id } });
+  await f.db.run.update({ where: { id: f.context.runId }, data: { status: "completed" } });
+  const nextRun = async (content: string) => {
+    const wake = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, {
+      botId: f.owner.id, channelId: f.channel.id, origin: "user", type: "user.message", content,
+      clientId: crypto.randomUUID(), priority: 300,
+    }));
+    await f.db.run.update({ where: { id: wake.run.id }, data: { status: "running" } });
+    return wake.run.id;
+  };
+  const followup = await nextRun("What is the status?");
+  let failOriginal = true;
+  const service = new SubagentService(f.db, f.messaging, {
+    cancel: (id: string) => Effect.tryPromise(async () => {
+      if (id === original.currentRunId && failOriginal) throw new Error("Synthetic cancellation failure");
+      await f.db.run.update({ where: { id }, data: { status: "cancelled", completedAt: new Date(), error: { code: "cancelled_by_user" } } });
+      return { ok: true, status: "cancelled" };
+    }),
+  } as never, f.dir, async () => Response.json({ stopped: true }), f.store);
+  await expect(Effect.runPromise(service.stopRun(followup))).rejects.toThrow("could not be stopped");
+  const freshRun = await nextRun("Start the independent new digest.");
+  await f.service.task({ ...f.context, runId: freshRun, callId: crypto.randomUUID() }, {
+    description: "Fresh work", subagent_type: "executor", prompt: "Compute only the new digest.",
+  });
+  const fresh = await f.db.subagent.findFirstOrThrow({ where: { parentRunId: freshRun } });
+  failOriginal = false;
+  await Effect.runPromise(service.stopRun(followup));
+  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: original.id } })).status).toBe("stopped");
+  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: fresh.id } })).status).toBe(fresh.status);
+  expect((await f.db.run.findUniqueOrThrow({ where: { id: freshRun } })).status).toBe("running");
+}));
+
 test.skipIf(!url)("a typed follow-up does not discard a completed background result; an explicit stop still does", () => fixture(async f => {
   await f.service.task(f.context, { description: "Compute digest", subagent_type: "executor", prompt: "Compute the requested digest." });
   await f.db.run.update({ where: { id: f.context.runId }, data: {

@@ -54,7 +54,9 @@ describe("OpenTeam-compatible agent SQLite stores", () => {
     await chmod(protectedDirectory, 0o500);
     try {
       const failures = await Promise.allSettled(Array.from({ length: 20 }, () => store!.deleteAgent(agentId)));
-      expect(failures.every((result) => result.status === "rejected" && result.reason.code === "EACCES")).toBe(true);
+      // Bun on macOS may report the retained outer directory as ENOTEMPTY rather than
+      // the protected child's EACCES. All callers must still see failure and be able to retry.
+      expect(failures.every((result) => result.status === "rejected" && ["EACCES", "EPERM", "ENOTEMPTY"].includes(result.reason.code))).toBe(true);
       expect(store.hasLiveHandle(agentId)).toBe(false);
       expect(await store.listAgentDirectories()).toEqual([]);
       const retired = await readdir(retiredRoot);

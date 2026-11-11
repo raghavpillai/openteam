@@ -1,0 +1,56 @@
+[
+  {
+    "name": "brown",
+    "avatar": "#a47952",
+    "light": "#86592e",
+    "dark": "#8c5d31"
+  },
+  {
+    "name": "red",
+    "avatar": "#f23d52",
+    "light": "#c82532",
+    "dark": "#cf2b35"
+  },
+  {
+    "name": "orange",
+    "avatar": "#ff7a1a",
+    "light": "#d2550a",
+    "dark": "#cd5309"
+  },
+  {
+    "name": "yellow",
+    "avatar": "#ff9e12",
+    "light": "#c2730b",
+    "dark": "#c8770c"
+  },
+  {
+    "name": "green",
+    "avatar": "#10b972",
+    "light": "#0d9655",
+    "dark": "#0e9f5a"
+  },
+  {
+    "name": "cyan",
+    "avatar": "#27baae",
+    "light": "#0d9381",
+    "dark": "#0e9886"
+  },
+  {
+    "name": "blue",
+    "avatar": "#4b8efb",
+    "light": "#126fd4",
+    "dark": "#116dd2"
+  },
+  {
+    "name": "violet",
+    "avatar": "#925df2",
+    "light": "#7442d1",
+    "dark": "#7845d7"
+  },
+  {
+    "name": "magenta",
+    "avatar": "#ef479b",
+    "light": "#c82779",
+    "dark": "#cf297e"
+  }
+]

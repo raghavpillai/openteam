@@ -606,3 +606,20 @@ test("first-run requests can be given up on without waiting for the server", asy
 
   expect(signals).toEqual([signal, signal, signal, signal, signal]);
 });
+
+test("Library pages retain conversation scope, cursor escaping, and cancellation", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const controller = new AbortController();
+  const client = createOpenTeamClient({
+    baseUrl: "http://openteam.test",
+    fetch: (async (url, init) => {
+      calls.push({ url: String(url), init });
+      return Response.json({ items: [], nextCursor: null });
+    }) as typeof fetch,
+  });
+  await client.channelLibrary("channel/1", "123.2", controller.signal);
+  expect(calls[0]?.url).toBe(
+    "http://openteam.test/api/v0/channels/channel%2F1/library?before=123.2"
+  );
+  expect(calls[0]?.init?.signal).toBe(controller.signal);
+});

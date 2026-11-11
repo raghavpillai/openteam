@@ -123,18 +123,7 @@ export function RoutinesSummary({
     );
   }
 
-  if (sorted.length === 0) {
-    return (
-      <div className="flex flex-1 items-center justify-center px-4 py-4">
-        <div className="grid max-w-64 gap-3 text-center">
-          <p className="text-[13px] leading-[17px] text-muted-foreground">
-            Routines are recurring tasks this Bot runs on a schedule. Ask it in chat to set one up.
-          </p>
-
-        </div>
-      </div>
-    );
-  }
+  if (sorted.length === 0) return null;
 
   return (
     <div className="mt-5 min-h-0 flex-1 overflow-y-auto" data-routines-list="">

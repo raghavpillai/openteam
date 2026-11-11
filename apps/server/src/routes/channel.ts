@@ -35,6 +35,10 @@ export async function channelRoutes(context: RouteContext): Promise<Response | u
   }
 
   const channelHistoryMatch = path.match(/^\/api\/channels\/([^/]+)\/history$/);
+  const libraryMatch = path.match(/^\/api\/channels\/([^/]+)\/library$/);
+  if (request.method === "GET" && libraryMatch?.[1]) {
+    return json(await run(app.channelLibrary(decodeURIComponent(libraryMatch[1]), url.searchParams.get("before"))), 200, { "cache-control": "no-store" });
+  }
   if (request.method === "GET" && channelHistoryMatch?.[1]) {
     const requestedLimit = Number(url.searchParams.get("limit") ?? 100);
     return json(

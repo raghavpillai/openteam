@@ -34,7 +34,11 @@ enum NativePalette {
       })
   }
   static let assistant = surface
-  static let user = color("0E0E0E", "545454")
+  static let user = Color(uiColor: UIColor { traits in
+    traits.userInterfaceStyle == .dark
+      ? UIColor(white: 245 / 255, alpha: 0.18) : UIColor(white: 28 / 255, alpha: 1)
+  })
+  static let userText = color("FFFFFF", "F5F5F5")
   static let separator = color("E4E4E4", "343434")
   /// The conversation list's column beside a chat, and its open conversation's card.
   static let sidebar = color("F5F5F6", "181819")

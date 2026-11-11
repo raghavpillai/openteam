@@ -24,8 +24,8 @@ import XCTest
     app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
     if let channel { app.launchArguments += ["--open-channel", channel] }
     app.launch()
-    XCTAssertTrue(
-      app.buttons[channel == nil ? "settings-button" : "chat-back"].waitForExistence(timeout: 15))
+    let arrived = channel == nil ? app.buttons["settings-button"] : app.chatBackButton
+    XCTAssertTrue(arrived.waitForExistence(timeout: 15))
     return app
   }
 

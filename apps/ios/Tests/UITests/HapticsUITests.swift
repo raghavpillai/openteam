@@ -70,9 +70,8 @@ import XCTest
       app.launchArguments += ["--open-channel", "visual-chat"]
     }
     app.launch()
-    XCTAssertTrue(
-      app.buttons[login ? "get-started" : home ? "settings-button" : "chat-back"].waitForExistence(
-        timeout: 15))
+    let arrived = login ? app.buttons["get-started"] : home ? app.buttons["settings-button"] : app.chatBackButton
+    XCTAssertTrue(arrived.waitForExistence(timeout: 15))
     if !home && !login {
       XCTAssertTrue(app.staticTexts["Got it — here."].waitForExistence(timeout: 8))
     }

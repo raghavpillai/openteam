@@ -95,9 +95,16 @@ final class FunctionalFlowUITests: XCTestCase {
       app.launch()
       let row = app.buttons["channel-channel-research"]
       XCTAssertTrue(row.waitForExistence(timeout: 15))
-      row.swipeLeft()
+      // Reveal actions without committing the new full-swipe pin gesture.
+      let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+      start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -105, dy: 0)),
+        withVelocity: .slow, thenHoldForDuration: 0.15)
+      let swipePin = app.buttons["conversation-swipe-pin"]
+      XCTAssertTrue(swipePin.waitForExistence(timeout: 5))
       XCTAssertFalse(app.buttons["conversation-swipe-hide"].exists)
       XCTAssertTrue(row.exists)
+      row.tap()
+      XCTAssertTrue(swipePin.waitForNonExistence(timeout: 5))
       row.press(forDuration: 0.8)
       XCTAssertTrue(app.buttons["Pin"].waitForExistence(timeout: 5))
       XCTAssertTrue(app.buttons["Delete bot"].exists)

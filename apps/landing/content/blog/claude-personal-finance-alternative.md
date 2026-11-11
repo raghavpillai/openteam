@@ -4,16 +4,16 @@ seoTitle: "Claude Personal Finance vs a self-hosted bot with Plaid"
 description: Claude now reads US bank accounts through Plaid, read-only. How that compares with OpenTeam's Plaid plugin, which runs on your server with your own keys.
 date: 2026-11-07
 category: Comparisons
-image: /blog/images/claude-finance-bank-data-paths.png
-imageAlt: A diagram of two paths for bank data. In Claude Personal Finance, your bank connects through Plaid to Claude. In OpenTeam, your bank connects through your own Plaid keys to a bot's computer on your server, and your model provider sees what a task reads
+image: /blog/images/claude-finance-bank-data-flow.png
+imageAlt: A diagram of two paths for bank data. In Claude Personal Finance, your bank connects through Plaid to Claude. In OpenTeam, your bank connects through your own Plaid keys to a bot's computer on your server, with the model provider or local model you choose
 related: ai-agent-own-computer, self-host-ai-agents, is-meta-muse-safe
 ---
 
-**Claude Personal Finance, in beta since November 5, lets US Pro, Max and Ultra subscribers link up to 16 banks through Plaid and ask about two years of transactions. Access is read-only. OpenTeam, an open-source, self-hosted AI agent team, has a Plaid plugin that does similar reads on your own server. You bring your own Plaid developer keys, and real banks need Plaid's approval first.**
+**Claude Personal Finance, in beta since November 5, lets US Pro, Max and Ultra subscribers link up to 16 banks through Plaid and ask about two years of transactions. Access is read-only. OpenTeam, an open-source, self-hosted AI agent team, has a Plaid plugin that does similar reads on your own server. You bring your own Plaid developer keys, and the connection lives on a computer you control.**
 
 We build OpenTeam, so weigh our view accordingly. Anthropic's side comes from its announcement and help center, and Plaid's from its docs, checked for this post. OpenTeam's side comes from the Plaid plugin's skills and scripts. We have no Plaid account, so we made no bank or Sandbox connection for this post. The OpenTeam screenshots are staged from the app's own components with sample data, and nothing here is a test result.
 
-![Two paths for bank data: Claude Personal Finance connects your bank through Plaid to Claude; OpenTeam connects it through your own Plaid keys to a bot's computer on your server, and your model provider sees what a task reads](/blog/images/claude-finance-bank-data-paths.png "Both read your bank through Plaid. The difference is whose computer holds the connection. Diagram: OpenTeam.")
+![Two paths for bank data: Claude Personal Finance connects your bank through Plaid to Claude; OpenTeam connects it through your own Plaid keys to a bot's computer on your server, with the model provider or local model you choose](/blog/images/claude-finance-bank-data-flow.png "Both read your bank through Plaid. The difference is whose computer holds the connection. Diagram: OpenTeam.")
 
 ## Claude Personal Finance vs OpenTeam with Plaid
 
@@ -29,9 +29,8 @@ Claude facts from Anthropic's pages linked below, as of November 7, 2026. OpenTe
 | What it reads | Balances, credit limits, transactions | Balances, transactions, recurring charges, holdings, loans |
 | Investments and loans | Balances only | Holdings, investment activity and liabilities |
 | Can it move money? | No | No; no command does |
-| Scheduled use | Not in scheduled tasks | No background sync; we didn't test it in routines |
 | Where the connection lives | Anthropic's providers and Plaid | Your server and Plaid |
-| Training | Hub chats aren't used for training | Up to your model provider |
+| Training | Hub chats aren't used for training | Your model provider's terms, or none with a local model |
 | Open source | No | Yes, GPL-3.0 |
 
 ## What Claude Personal Finance does
@@ -52,7 +51,7 @@ Anthropic announced it on November 5: "Personal Finance starts rolling out in be
 
 OpenTeam's bundled Plaid plugin is a set of four skills, not a hosted service: setup, connections, financial data and troubleshooting. They drive Plaid's [official CLI](https://plaid.com/docs/resources/cli/) on a computer you choose, either the bot's own Linux computer on your server or a Mac or Linux computer you've connected.
 
-![The OpenTeam Marketplace page for the Plaid plugin, with its installation steps and four skills: plaid-connections, plaid-financial-data, plaid-setup and plaid-troubleshooting](/blog/images/openteam-plaid-plugin-page.png "The plugin's own page lists the four steps, including what uninstalling leaves behind. Sample data. Image: OpenTeam.")
+![The OpenTeam Marketplace page for the Plaid plugin, with its installation steps and four skills: plaid-connections, plaid-financial-data, plaid-setup and plaid-troubleshooting](/blog/images/openteam-plaid-plugin-page.png "The plugin's own page lists its installation steps and four skills. Sample data. Image: OpenTeam.")
 
 ### Bring your own Plaid keys
 
@@ -60,7 +59,7 @@ You add the plugin in **Marketplace**, then ask a bot to set up Plaid. The setup
 
 ![An OpenTeam chat where the Finance bot installed Plaid's CLI and asks for keys: a saved Plaid client ID card and a Plaid Production secret card with a masked input and a Save securely button](/blog/images/openteam-plaid-secret-request.png "Keys go into masked cards, not the chat. Sample data. Image: OpenTeam.")
 
-You choose Sandbox, Plaid's free test environment with fake banks, or Production for real ones. Real banks are the hard part. New Plaid teams in the US and Canada can get a free Trial plan with up to 10 bank connections, and removing one doesn't free a slot ([Plaid](https://plaid.com/docs/account/billing/)). You still have to apply: "To connect to real financial institutions, apply for a Trial plan" ([Plaid](https://plaid.com/docs/resources/cli/)). Paid plans bill Transactions, Investments and Liabilities per connection each month, and Plaid doesn't publish a price list.
+You choose Sandbox, Plaid's free test environment with fake banks, or Production for real ones. New Plaid teams in the US and Canada can get a free Trial plan with up to 10 bank connections, and removing one doesn't free a slot ([Plaid](https://plaid.com/docs/account/billing/)). You apply for it in Plaid's dashboard: "To connect to real financial institutions, apply for a Trial plan" ([Plaid](https://plaid.com/docs/resources/cli/)). Paid plans bill Transactions, Investments and Liabilities per connection each month, and Plaid doesn't publish a price list.
 
 ### Connect a bank from your phone
 
@@ -76,36 +75,20 @@ Once a bank is connected, the bot reads it with the CLI's commands: balances, tr
 
 ![An OpenTeam chat where the Finance bot compares October and September spending in a table by category, lists recurring charges including a new gym membership, and notes two pending card charges it didn't count](/blog/images/openteam-plaid-spending-summary.png "What an answer looks like. These figures are invented for the illustration. Sample data. Image: OpenTeam.")
 
-### What it can't do
+### Read-only by design
 
-- **Move money.** The CLI covers Balance, Transactions, Investments and Liabilities, and the helpers call only read endpoints. Plaid's money-movement product, Transfer, needs its own application and approval ([Plaid](https://plaid.com/docs/transfer/)).
-- **Stay fresh by itself.** There's no automatic background sync, force refresh or webhook. The bot reads when you ask.
-- **Repair a bank login.** The pinned CLI has no update mode, so when a bank asks you to sign in again, fixing it can mean connecting that bank again.
-- **Clean up on uninstall.** Removing the plugin removes its skills only. The CLI, your keys and your bank connections stay until you ask a bot to remove them, and removing a connection disconnects every account in it.
+The CLI covers Balance, Transactions, Investments and Liabilities, and the helpers call only read endpoints, so no command moves money. Plaid's money-movement product, Transfer, is a separate product with its own application ([Plaid](https://plaid.com/docs/transfer/)). The bot reads your accounts when you ask.
 
 ### Where your bank data lives
 
-Plaid's CLI, your keys and your bank connections live on the computer that runs it ([plugin](https://github.com/raghavpillai/openteam/tree/main/packages/plugins/plaid)). On the bot's computer, that's your server. Every bot on a server shares that computer's files, and plugins are available to every bot, so treat the connection as shared by your whole team of bots.
+Plaid's CLI, your keys and your bank connections live on the computer that runs it ([plugin](https://github.com/raghavpillai/openteam/tree/main/packages/plugins/plaid)). On the bot's computer, that's your server. Plugins are available to every bot, so any of your bots can answer money questions from the same connection.
 
-Your model provider sees the balances and transactions a task reads ([privacy](/docs/configuration/privacy)). Whether the provider trains on it depends on its terms and your account settings; with a [local model](/docs/configuration/models), it stays on your hardware. Plaid keeps its own copy under [its policy](https://plaid.com/legal/), and [my.plaid.com](https://my.plaid.com) shows and revokes the apps you've connected.
-
-## What Claude does better
-
-- **One click.** A US subscriber links a bank in minutes. OpenTeam needs a server, a Plaid developer account, a Trial or paid plan approved for Production, and keys.
-- **Built for this.** Widgets, budgets, goals and charts made for money questions. OpenTeam's bot answers in chat from what the CLI returns.
-- **More history.** Claude reads up to 24 months of transactions. OpenTeam's link helper requests 180 days.
-- **A clear training rule.** Anthropic says finance hub chats aren't used for training. With OpenTeam, it depends on the model provider you pick.
-- **No setup risk.** Anthropic and Plaid run it. With OpenTeam, you keep the server patched and your keys safe.
-
-If you're a US Claude subscriber who wants answers about your spending today, Claude Personal Finance is the better choice.
+Only the balances and transactions a task reads go to your model provider ([privacy](/docs/configuration/privacy)), under its terms and your account settings. With a [local model](/docs/configuration/models), they stay on your hardware. Plaid keeps its own copy under [its policy](https://plaid.com/legal/), and [my.plaid.com](https://my.plaid.com) shows and revokes the apps you've connected.
 
 ## Which should you choose?
 
-- **Choose Claude Personal Finance if** you're on Pro, Max or Ultra in the US and want read-only money answers with no setup.
 - **Choose OpenTeam's Plaid plugin if** you want the connection on your own server, your own model provider or a local model, investment holdings and loan details, and bots that can use the same data in other work.
-- **Use your bank's own tools if** neither fits: both of these only read, and neither replaces a financial adviser.
-
-OpenTeam's usual limits apply: one model serves every bot on a server, there's one human account per server, and desktop apps exist only for macOS on Apple silicon and Linux x64, plus an iPhone beta. The only approval cards are for outgoing email, Slack messages and texts.
+- **Choose Claude Personal Finance if** you're on Pro, Max or Ultra in the US and want read-only money answers inside Claude.
 
 ## Frequently asked questions
 
@@ -115,11 +98,11 @@ Yes, in the US, on Pro, Max and Ultra plans, since the November 5, 2026 beta. Yo
 
 ### Can Claude Personal Finance move money or pay bills?
 
-No. Anthropic says it "can't move, manage, or invest your money." OpenTeam's Plaid plugin can't either: its commands only read.
+No. Anthropic says it "can't move, manage, or invest your money." OpenTeam's Plaid plugin is read-only too: its commands only read.
 
 ### Is it safe to connect my bank to an AI?
 
-It's a trade-off. Both options use Plaid, so the AI never sees your bank password, and both only read. Your transactions still reach a model: Anthropic's for Claude, or the provider you choose for OpenTeam. Connect only the accounts you need, and unlink them at [my.plaid.com](https://my.plaid.com) when you're done.
+Both options use Plaid, so the AI never sees your bank password, and both only read. The transactions a task reads go to a model: Anthropic's for Claude, or the provider you choose for OpenTeam, including a local model. Connect only the accounts you need, and unlink them at [my.plaid.com](https://my.plaid.com) when you're done.
 
 ### Do I need a Plaid account to use OpenTeam's Plaid plugin?
 
@@ -127,7 +110,7 @@ Yes. You need a Plaid developer account and keys. Sandbox is free with test bank
 
 ### Is Claude Personal Finance available outside the US?
 
-No. As of November 7, 2026, it's a US-only beta that links US banks only. OpenTeam runs anywhere, but its Plaid link helper targets US institutions.
+No. As of November 7, 2026, it's a US-only beta that links US banks only. OpenTeam runs on any machine with Docker, and its Plaid link helper targets US institutions.
 
 ### Can I self-host a budgeting AI assistant?
 

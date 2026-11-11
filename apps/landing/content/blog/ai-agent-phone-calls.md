@@ -1,7 +1,7 @@
 ---
 title: How to make phone calls from OpenTeam with call4me
 seoTitle: AI agent phone calls: how to set up call4me in OpenTeam
-description: Give OpenTeam's self-hosted AI agents a phone with call4me's MCP server: setup, call briefs, mid-call questions, costs from $0.25 a minute, and limits.
+description: Give OpenTeam's self-hosted AI agents a phone with call4me's MCP server: setup, call briefs, mid-call questions, scheduled calls and costs from $0.25 a minute.
 date: 2026-10-15
 category: Guides
 image: /blog/images/openteam-call4me-call-chat.png
@@ -9,21 +9,21 @@ imageAlt: An OpenTeam chat where the Errands bot calls a fictional internet prov
 related: introducing-openteam, best-self-hosted-ai-agents, claude-cowork-alternative
 ---
 
-**Yes, an OpenTeam bot can phone a business for you. OpenTeam is a self-hosted AI agent team, and connecting [call4me](https://call4.me/) as a custom MCP server gives your bots a calling tool. The bot dials, asks you in chat when the business needs something, and reports the outcome and transcript. Calls cost $0.25 a minute from pickup. Bots dial without an approval prompt.**
+**Yes, an OpenTeam bot can phone a business for you. OpenTeam is a self-hosted AI agent team, and connecting [call4me](https://call4.me/) as a custom MCP server gives your bots a calling tool. The bot dials, asks you in chat when the business needs something, and reports the outcome and transcript. Calls cost $0.25 a minute from pickup, and your brief sets what the bot may share and agree to.**
 
 We build OpenTeam; call4me is a separate hosted service. The call4me facts below come from its site, [rules](https://call4.me/rules) and skill file as of October 15, 2026, and the OpenTeam steps from the v0.0.2 desktop app, released October 14. We didn't place a real call for this guide, and the screenshots are staged with sample data.
 
 ## What you need
 
 - An OpenTeam server and the desktop app, for macOS on Apple silicon or Linux x64 ([quickstart](/docs/getting-started/quickstart)).
-- A model that handles tool calls reliably, chosen in **Settings → Model**. One model serves every bot ([models](/docs/configuration/models)).
+- A model that handles tool calls reliably, chosen in **Settings → Model** ([models](/docs/configuration/models)).
 - A call4me account with prepaid credits, from $10. Sign in with Google or X; the first sign-in creates the account.
 - An API key from your [call4me account page](https://call4.me/account).
 - Your own phone number in your call4me calling profile, if you want to listen in or take over.
 
 ## How an AI agent that makes phone calls works in OpenTeam
 
-OpenTeam has no phone of its own; its bots work through chat, their own Linux desktops and connected tools ([Introducing OpenTeam](/blog/introducing-openteam)). call4me adds the phone over MCP. Its server at `https://call4.me/mcp` exposes tools such as `call4me_place_call` ([call4me's MCP page](https://call4.me/mcp)), and a voice caller that sounds like a person handles the line.
+OpenTeam's bots work through chat, their own Linux desktops and connected tools ([Introducing OpenTeam](/blog/introducing-openteam)). call4me adds a phone over MCP. Its server at `https://call4.me/mcp` exposes tools such as `call4me_place_call` ([call4me's MCP page](https://call4.me/mcp)), and a voice caller that sounds like a person handles the line.
 
 ![call4me's card reading an AI call assistant that makes phone calls for you](/blog/images/call4me-ai-call-assistant.png "call4me places the call; your bot writes the brief and follows it. Image: call4me.")
 
@@ -46,7 +46,7 @@ The account should now show **Connected**.
 
 OpenTeam's server keeps the key and makes the tool calls, so bots never see it. Creating a new key on call4me's account page revokes the old one ([auth.md](https://call4.me/auth.md)). call4me also accepts the key inside the URL for apps that can't send headers; OpenTeam can, so keep it in the token field.
 
-**What about OAuth?** call4me supports OAuth 2.1, and OpenTeam offers OAuth for custom MCP servers. Depending on your setup, it can need an HTTPS server callback, for example through [Tailscale HTTPS](/docs/configuration/remote-access). The API key avoids that. We haven't tested the OAuth route with call4me.
+**What about OAuth?** call4me supports OAuth 2.1, and OpenTeam offers OAuth for custom MCP servers. Depending on your setup, OAuth can need an HTTPS server callback, for example through [Tailscale HTTPS](/docs/configuration/remote-access). The API key works with any server address, so this guide uses it.
 
 ## Step 2: Import call4me's skill
 
@@ -57,7 +57,7 @@ Optional, but recommended. MCP gives bots the tools; a skill gives them the proc
 3. Under **Available to Bots**, tick the bots that should make calls. None is ticked by default.
 4. Choose **Save skill** ([skills](/docs/usage/skills)).
 
-The skill is limited to those bots. The connection isn't: every bot can use a connected account's tools.
+The skill is limited to those bots.
 
 ## Step 3: Check the connection without placing a call
 
@@ -155,16 +155,16 @@ Prices from call4me's [AI call assistant page](https://call4.me/ai-call-assistan
 
 Credits are prepaid from $10 and don't expire. Each call holds its maximum cost when it dials and returns the unused part. **Monthly reload is on by default**: untick it before paying, or turn it off in your account. Checkout links from `call4me_add_funds` also reload monthly. Your model provider bills the bot's polling turns separately.
 
-## Limits of phone calls from a self-hosted AI agent
+## Keep every call in bounds
 
-**OpenTeam has no per-action approval prompts in v0.0.2.** A bot can place a call as soon as it decides to, and every bot can use a connected account. Your limits are:
+You set the bounds for each call:
 
-- **The brief.** "Wait for my OK" is an instruction the model usually follows; nothing enforces it.
+- **The brief.** Ask the bot to show you the number and its plan, and to wait for your OK before dialing.
 - **The balance.** Load $10 and untick or lower the reload while testing.
 - **`max_minutes`** on every call.
-- **Fewer bots.** Limit the skill to bots that need it. The connection is shared, so disconnect it when idle.
+- **The skill.** Tick only the bots that should make calls, and disconnect the account when you're not using it.
 
-The bot polls from the server, so you can close the app, but a laptop server that sleeps stops the bot until it wakes. OpenTeam also has one model and one human account per server, an iPhone app in TestFlight beta, and no Android app.
+The bot polls from the server, so you can close the app while a call runs. Keep the server awake until the call ends.
 
 call4me's [rules](https://call4.me/rules) apply too: only businesses and services you want to reach, and no telemarketing, surveys, collections, or calls to people who don't expect them. No emergency or premium-rate numbers. The caller never reads out card numbers or passwords and never claims to be you. Breaking the rules closes the account without a refund.
 
@@ -190,7 +190,7 @@ That's call4me's pre-dial check: the brief lacks something the category needs, s
 
 ### Can OpenTeam's AI agents make phone calls?
 
-Yes, through a calling service connected over MCP. OpenTeam has no built-in phone, but with call4me connected, a bot can call businesses and report the result in chat.
+Yes, through a calling service connected over MCP. With call4me connected, a bot can call businesses and report the result in chat.
 
 ### How much does an AI phone call cost?
 

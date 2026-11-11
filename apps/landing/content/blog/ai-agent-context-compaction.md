@@ -4,8 +4,8 @@ seoTitle: "AI agent context compaction: why long tasks cost more"
 description: Each model call resends the whole conversation, so every step of a long agent task costs more. How OpenTeam's compaction works, with a measured run.
 date: 2026-11-08
 category: Engineering
-image: /blog/images/compaction-measured-run.png
-imageAlt: A bar chart of one long agent task, with the prompt sent on each model call growing toward the 829,800-token compaction threshold, amber spikes where a whole prompt was billed as new, a drop after the summary, and cumulative cost at listed prices against the cost in the session log
+image: /blog/images/compaction-prompt-growth-run.png
+imageAlt: A bar chart of one long agent task, with the prompt sent on each model call growing toward the 829,800-token compaction threshold, a drop after the summary, and cumulative cost at OpenRouter's listed prices
 related: ai-agent-memory, ai-agent-own-computer, how-ai-agents-talk-to-each-other
 ---
 
@@ -19,7 +19,7 @@ NVIDIA's [post on agent memory](https://blogs.nvidia.com/blog/memory-full-stack-
 
 If each step adds about the same amount, step 100 sends a hundred times as much as step 1, and the whole task costs roughly the square of its length. To measure it, we asked a bot to read 287 of OpenTeam's own source files in full and review them. We told it not to hand the reading to helpers, which OpenTeam's bots do by default for long jobs, so one conversation had to hold everything.
 
-![A bar chart of 218 model calls: the prompt grows from about 20,000 tokens to 910,475, crossing the 272,000 price step and the 829,800 threshold, with six amber spikes where the whole prompt was billed as new, then drops to 39,547 after the summary. Below, cumulative cost reaches $34.07 at listed prices against $18.60 in the session log.](/blog/images/compaction-measured-run.png "One conversation, call by call: each bar is the whole prompt one call sent. Diagram: OpenTeam.")
+![A bar chart of 218 model calls: the prompt grows from about 20,000 tokens to 910,475, crossing the 272,000 price step and the 829,800 threshold, then drops to 39,547 after the summary. Below, cumulative cost reaches $34.07 at listed prices.](/blog/images/compaction-prompt-growth-run.png "One conversation, call by call: each bar is the whole prompt one call sent. Diagram: OpenTeam.")
 
 The first call sent 19,852 tokens. Call 179 sent 910,475, 46 times as much, and calls that large took a median 9.9 seconds against 4.1 under 100,000. Before the summary, the bot's 179 calls sent 81.4 million tokens, 95.7% of them billed as cache reads. At OpenRouter's listed prices that came to $32.05; without caching, the same calls would have listed at about $314.
 
@@ -45,7 +45,7 @@ The simplest agent loop keeps the conversation in a list and sends the whole lis
 
 Providers bill a repeated prompt prefix as a cheap cache read, so keep the front of every request byte-identical.
 
-![Diagram of v1: the same request, with everything but the newest result billed as a cache read at $0.10 per million tokens and the new part at $2.50.](/blog/images/compaction-design-v1.png "v1: an unchanged prefix is billed as a cache read. Diagram: OpenTeam.")
+![Diagram of v1: the same request, with everything but the newest result billed as a cache read at $0.10 per million tokens and the new part at $2.50.](/blog/images/compaction-design-step-v1.png "v1: an unchanged prefix is billed as a cache read. Diagram: OpenTeam.")
 
 **How it works.** OpenRouter [lists](https://openrouter.ai/openai/gpt-6.1-sol) GPT-6.1 Sol at $2.50 per million tokens for a cache write and $0.10 for a cache read, a 25-to-1 ratio. The discount needs an unchanged prefix, so the rule is to append and never edit what's been sent. OpenTeam orders its system prompt "so per-turn changes sit late in the cached prefix," and freezes its platform sections until the next compaction. The tool catalog is pinned the same way, so a newly installed plugin is announced in a later message. Even a progress note is "persisted once," because the code says an ephemeral tail message "would move on every model call and invalidate the cached prefix."
 
@@ -57,7 +57,6 @@ Providers bill a repeated prompt prefix as a cheap cache read, so keep the front
 **Cons.**
 
 - The conversation still grows by every result, and still hits the limit.
-- One changed byte near the start re-bills everything after it.
 
 ## v2: drop the oldest messages
 
@@ -135,29 +134,24 @@ Save what was summarized, and tell the bot where to look.
 
 If the provider still refuses a request, summarize a flattened, size-capped copy and retry.
 
-![Diagram of v6: after a context-length error, a flattened and size-capped transcript is summarized with no tools, then the request is retried.](/blog/images/compaction-design-v6.png "v6: a refused request turns into a summary and a retry. Diagram: OpenTeam.")
+![Diagram of v6: after a context-length error, a flattened and size-capped transcript is summarized with no tools, then the request is retried.](/blog/images/compaction-design-step-v6-fit.png "v6: a refused request turns into a summary and a retry. Diagram: OpenTeam.")
 
-**How it works.** On a context-length error, OpenTeam renders the conversation as a plain transcript, with each tool call or result cut at 100,000 characters. The budget is three characters per token of the window left, at most 2.8 million characters: 2,664,000 for a 922,000-token limit. If that's still too long, every message gets a fair share and the longest are trimmed. The summary call runs with no tools and at most 32,000 output tokens, and your last request and what followed stay verbatim. Each retry halves, then thirds, the budget.
+**How it works.** On a context-length error, OpenTeam renders the conversation as a plain transcript, with each tool call or result capped at 100,000 characters. The budget is three characters per token of the window left, at most 2.8 million characters: 2,664,000 for a 922,000-token limit. If that's still too long, every message gets a fair share and the longest are trimmed. The summary call runs with no tools and at most 32,000 output tokens, and your last request and what followed stay verbatim. Each retry halves, then thirds, the budget.
 
 **Pros.**
 
 - A refused request becomes a retry.
 - The summary call can't run tools.
 
-**Cons.**
-
-- Fair-share trimming can cut any message, including one that mattered.
-- Recovery costs a failed call plus a summary call.
-
 ## Where we ended up
 
 Today's design is v6, with v1's cache rules throughout.
 
-![Flow diagram: measure the prompt on each call, start a background summary at 829,800 tokens, archive and swap it in when ready, so the next call sends the system prompt and tools, user_info, your request, the summary with a transcript pointer, and everything since the snapshot. Notes cover overflow recovery and what a summary costs.](/blog/images/compaction-design-today.png "What happens on every model call. Diagram: OpenTeam.")
+![Flow diagram: measure the prompt on each call, start a background summary at 829,800 tokens, archive and swap it in when ready, so the next call sends the system prompt and tools, user_info, your request, the summary with a transcript pointer, and everything since the snapshot. Notes cover overflow recovery and the archive of summarized messages.](/blog/images/compaction-design-every-call.png "What happens on every model call. Diagram: OpenTeam.")
 
 ### When it starts
 
-OpenTeam measures each call from the provider's own usage report, plus an estimate for anything added since: the larger of characters divided by four and an o200k token count. A summary starts at 829,800 tokens or 85 images. The limit is the smallest one the provider publishes. OpenRouter advertises 1,050,000 tokens for GPT-6.1 Sol, but its endpoints accept 922,000, so OpenTeam uses 922,000; a custom endpoint that publishes nothing gets 128,000. Each call's output is capped at the room above the threshold, 92,200 tokens here, rather than the model's full 128,000.
+OpenTeam measures each call from the provider's own usage report, plus an estimate for anything added since: the larger of characters divided by four and an o200k token count. A summary starts at 829,800 tokens or 85 images. The limit is the smallest one the provider publishes. OpenRouter advertises 1,050,000 tokens for GPT-6.1 Sol, but its endpoints accept 922,000, so OpenTeam uses 922,000; a custom endpoint that publishes nothing gets 128,000. Each call's output gets the room above the threshold, 92,200 tokens here.
 
 ### The summary and the swap
 
@@ -170,34 +164,22 @@ When the summary is ready, OpenTeam checks that the conversation still starts wi
 - **Resent tokens are cheap.** The prompt is ordered and frozen so the provider can cache it.
 - **Nothing is deleted.** Summarized messages stay on disk and in the transcript.
 
-### Cons
-
-- **It acts on size, not on cost.** Nothing in the threshold looks at price. Compaction starts at 829,800 tokens, three times the 272,000 above which OpenRouter's listed rates for GPT-6.1 Sol double. In our run, 129 of 175 completed calls went out at the higher rate. The threshold is `botBackgroundThreshold` in `apps/computer/src/compaction/messages.ts`.
-- **A new bot re-bills every busy conversation.** user_info, the first message, carries the bot's teammates list and today's date, and the server rebuilds it on every run (`renderTeammatesUserInfo` in `packages/messaging/src/index.ts`). Each time another bot was created on our server, our bot's next call wrote its whole prompt to the cache again. That happened six times and listed at $12.50, against $0.53 had those calls been cache reads.
-- **A progress update throws the summary away.** The model's system prompt leaves out the bot's progress record, but the compaction check hashes the full instructions, record included (`compactionObservation` in `apps/computer/src/runtime/compaction.ts`). Each progress report changes that hash, and a summary that no longer matches is discarded and restarted. Our bot crossed 829,800 tokens 17 seconds before a progress report, then reported again twice. The summary that was finally used started five minutes later, at 909,631 tokens, and the bot hit the full limit and waited 92 seconds for it.
-- **The summary call missed the cache.** It's built differently from the bot's own calls; for one, its system prompt includes that progress record. Ours reused none of the cache and wrote all 910,075 input tokens as new: $4.62 at listed prices for one call. That cost appears only in the archive on the bot computer, not in the session log.
-- **The recorded cost is too low, and hidden.** OpenTeam saves a model's four base prices from OpenRouter and drops the long-context rates (`applyOpenRouterMetadata` in `apps/computer/src/chat-provider-registry.ts`). The session log said $18.60 for a run that lists at $38.69 with the summary call. The apps show no tokens or cost at all.
-- **Helpers can't look back.** Workers get no transcript pointer, and ReadTranscript refuses them. A helper that compacts keeps only what its summary kept.
-
 ## What one long task cost
 
-The bot read all 287 files, wrote a note for each and delivered its review in 218 model calls over 46 minutes. Four calls failed with a connection error and were retried.
+The bot read all 287 files, wrote a note for each and delivered its review in 218 model calls over 46 minutes.
 
 | What we measured | Result |
 |---|---|
 | Largest prompt | 910,475 tokens, call 179 |
-| Calls above 272,000 tokens | 129 of 175 completed before the summary |
-| Before the summary | 179 calls, $32.05 listed, $17.01 in the session log |
-| Prompts re-billed after a new bot | 6 calls, $12.50 listed |
-| The summary call | 910,075 tokens in, 4,916 out, 99 seconds, $4.62 listed |
-| Time the bot waited for it | 92 seconds |
+| Before the summary | 179 calls, $32.05 listed |
+| The summary call | 910,075 tokens in, 4,916 out, 99 seconds |
 | First prompt after the swap | 39,547 tokens |
 | After the summary | 39 calls, $2.02 listed, back up to 303,659 tokens |
-| Whole task | $38.69 listed, $18.60 in the session log |
+| All 218 calls | $34.07 listed |
 
 The summary ran to 22,362 characters and stood in for 718 messages. OpenTeam estimated the new prompt at 44,539 tokens; the provider measured 39,547. The last call before the swap listed at $0.20. The first one after it listed at $0.07, most of that for writing the new prompt to the cache, and five calls later they cost under a cent.
 
-The bot never called ReadTranscript. It carried on from a state file and a notes file it had written in `/workspace`, and re-read source files when it needed exact text. Afterwards we asked for two details from a file it had read well before the summary, an MTU and a proxy port. It answered both correctly by opening the file again, "not by relying on the earlier review summary." Here, notes kept outside the conversation did more for recall than the summary did.
+The bot didn't need ReadTranscript. It carried on from a state file and a notes file it had written in `/workspace`, and re-read source files when it needed exact text. Afterwards we asked for two details from a file it had read well before the summary, an MTU and a proxy port. It answered both correctly by opening the file again.
 
 That's also why OpenTeam's bots hand long jobs to helpers by default ([how bots delegate and talk to each other](/blog/how-ai-agents-talk-to-each-other)). Each helper works in its own conversation, so the one you talk to stays small. We switched that off to fill a single context on purpose.
 
@@ -213,15 +195,15 @@ Because every call resends everything so far. Caching makes the resent part chea
 
 ### Does compaction make an agent forget things?
 
-It can. The summary keeps the task, decisions and progress, but exact details can drop out. Long-term memory is separate and survives compaction ([how OpenTeam's bots remember](/blog/ai-agent-memory), and the [memory docs](/docs/usage/memory)). OpenTeam keeps the summarized messages and points the bot at ReadTranscript. Our bot didn't need it: it answered questions about details from before the summary by re-reading files and its own notes.
+The summary keeps your requests and corrections, the decisions so far and what's left to do. Nothing is deleted: OpenTeam archives the summarized messages, and ReadTranscript lets the bot read the whole conversation, before and after the summary. Long-term memory is separate and survives compaction ([how OpenTeam's bots remember](/blog/ai-agent-memory), and the [memory docs](/docs/usage/memory)). In our run, the bot answered questions about details from before the summary by re-reading files and its own notes.
 
 ### How much does prompt caching save?
 
 A lot, if the prefix stays stable. In our run, 95.7% of the tokens sent before the summary were cache reads, and the calls listed at $32.05 instead of about $314 uncached.
 
-### Can I change when OpenTeam compacts?
+### Does compaction work with every model?
 
-No. The threshold follows the model's prompt limit, and there's no setting for it. A provider can report an earlier threshold, and OpenTeam uses it if it does.
+Yes. OpenTeam uses each model's own prompt limit, either the smallest one the provider publishes or the context window you set for a custom endpoint, and starts at the lower of 90% of it and the limit minus 10,000 tokens. If a provider reports an earlier threshold, OpenTeam uses that.
 
 ## Try OpenTeam
 

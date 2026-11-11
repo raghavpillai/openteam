@@ -4,6 +4,7 @@ export function contentScene(snapshot: ClientSnapshot, scene:string) {
   const message:any={id:'content-fixture',sequence:'400',channelId:'channel-research',sender:'bot',senderBotId:'bot-research',sourceRunId:null,content:'',metadata:{},createdAt:'2026-09-16T12:00:00.000Z'};
   if(scene==='widget-completed')message.metadata={type:'widget',widget:{prompt:'Choose a route',options:[{label:'Alpha',value:'alpha'},{label:'Beta',value:'beta'}],allowCustom:true,multiSelect:true},respondedValue:'alpha\nbeta\nGamma'};
   if(scene==='type-size')message.content='Hello';
+  if(scene==='plain-link')message.content="Here's one: [Wikipedia's random article page](https://en.wikipedia.org/wiki/Special:Random). It opens a different article every time you click it.";
   if(scene==='edge-text')message.content='Swipe from the screen edge to return to your conversations. Swipe inside this message to reply. A canceled back gesture must keep your draft and leave this message alone.';
   if(scene==='edge-photo')message.metadata={attachments:[{assetId:'6'.repeat(64),fileName:'Desktop 6.png',mimeType:'image/png',byteSize:66033,kind:'image',width:545,height:341}]};
   if(scene==='edge-file')message.metadata={attachments:[{assetId:'9'.repeat(64),fileName:'memory-deep-supplement-914.zip',mimeType:'application/zip',byteSize:5000,kind:'file'}]};
@@ -11,6 +12,18 @@ export function contentScene(snapshot: ClientSnapshot, scene:string) {
     {assetId:'a'.repeat(64),fileName:'LoadingDocsForBusiness2025.pdf',mimeType:'application/pdf',byteSize:818000,kind:'file'},
     {assetId:'b'.repeat(64),fileName:'1089646',mimeType:'application/octet-stream',byteSize:1200000,kind:'file'},
     {assetId:'9'.repeat(64),fileName:'memory-deep-supplement-914.zip',mimeType:'application/zip',byteSize:5000,kind:'file'}]}});
+  if(scene==='link-chat') {
+    // The reference conversation: short messages, then a link reply.
+    const user={...message,sender:'user',senderBotId:null};
+    snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');
+    snapshot.channelMessages.push(
+      {...user,id:'link-chat-1',sequence:'401',content:'Hello'},
+      {...user,id:'link-chat-2',sequence:'402',content:'??'},
+      {...user,id:'link-chat-3',sequence:'403',content:'Test'},
+      {...user,id:'link-chat-4',sequence:'404',content:'Send a random url'},
+      {...message,id:'content-fixture',sequence:'405',content:"Here's one: [Wikipedia's random article page](https://en.wikipedia.org/wiki/Special:Random). It opens a different article every time you click it."});
+    return snapshot;
+  }
   if(scene==='media-chat') {
     const user={...message,sender:'user',senderBotId:null};
     snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');

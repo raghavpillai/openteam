@@ -144,6 +144,16 @@ const controlPlaneError = (status: number, body: unknown): ControlPlaneError => 
 };
 
 const CONNECTOR_AUTH_FAILURES = new Set(["plugin_auth_required", "plugin_auth_failed"]);
+/** Runtime guidance must not be inferred from text returned by a connector. */
+class ToolGuidanceError extends Error {
+  constructor(message: string, readonly systemReminders: string[]) { super(message); }
+}
+const toolGuidance = (error: unknown): string[] | undefined => {
+  for (let depth = 0; depth < 8 && error instanceof Error; depth++, error = error.cause) {
+    if (error instanceof ToolGuidanceError) return error.systemReminders;
+  }
+  return undefined;
+};
 /** Classified connector failures keep their message; anything else is the reference's "Tool execution error". */
 const connectorCallError = (
   error: unknown,
@@ -157,7 +167,7 @@ const connectorCallError = (
     return new Error(`${error.message}${guidance ? ` ${guidance}` : ""}`);
   }
   if (/MCP error -32(?:602|600|700)\b/.test(error.message))
-    return new Error(`${error.message}\n\n<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with ${JSON.stringify({ namespace: namespace.name, toolName })} and rebuild the arguments from the returned input schema.\n</system_reminder>`);
+    return new ToolGuidanceError(error.message, [`<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with ${JSON.stringify({ namespace: namespace.name, toolName })} and rebuild the arguments from the returned input schema.\n</system_reminder>`]);
   if (!error.code || ["internal_error", "stdio_mcp_failed"].includes(error.code))
     return new Error(`Tool execution error. ${error.message}`);
   return error;
@@ -646,6 +656,11 @@ export class RuntimeTools {
     } catch (error) {
       if (tool === SEND_TO_USER_TOOL.name) active.failedResponseSends?.add(callId);
       if (signal?.aborted) throw error;
+      const reminders = toolGuidance(error);
+      if (reminders) return {
+        content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+        details: { tool, isError: true, systemReminders: reminders },
+      };
       const report = invalidArgumentsMessage(error);
       // Every SendToUser failure reads as one sentence saying the send failed and why.
       if (tool === SEND_TO_USER_TOOL.name)

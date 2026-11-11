@@ -1,4 +1,4 @@
-import { settleTaskProgress, dispatchTaskContinuations, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, requestWakeAllowed, taskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
+import { settleTaskProgress, dispatchTaskContinuations, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, requestWakeAllowed, requestIsStopped, taskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
 import {
   publishMessageNotification,
   turnOwesReplyReminder,
@@ -1696,9 +1696,9 @@ export class WakeWorker {
     if (!claimed.interruptedRunId) return false;
     const run = await this.prisma.run.findFirst({
       where: { id: claimed.interruptedRunId, botId: claimed.botId },
-      select: { status: true, inputDeliveredAt: true },
+      select: { status: true, inputDeliveredAt: true, error: true, requestStoppedAt: true },
     });
-    return Boolean(run?.inputDeliveredAt && ["cancelled", "interrupted"].includes(run.status));
+    return Boolean(run?.inputDeliveredAt && !requestIsStopped(run) && ["cancelled", "interrupted"].includes(run.status));
   }
 
   /** A wake cut off by a typed or priority message runs again after it, a bounded number of times. */
@@ -1766,9 +1766,16 @@ export class WakeWorker {
         where: { botId: claimed.botId, payload: { path: ["interruptedRunId"], equals: claimed.runId } },
         select: { id: true },
       });
-      priorityInterrupted = currentError?.code === "priority_peer_interrupt" ||
-        (Boolean(supersededByUser) && current?.status !== "failed");
-      const failureDetails = (priorityInterrupted || current?.status === "cancelled") && currentError ? currentError : details;
+      // A later explicit Stop wins over an older typed-message interruption.
+      // The computer can confirm that stop before the cancel API records it.
+      const stoppedByRuntime = error instanceof TurnStoppedError && current?.status !== "failed";
+      const explicitlyStopped = stoppedByRuntime ||
+        (current?.status === "cancelled" && currentError?.code !== "priority_peer_interrupt");
+      priorityInterrupted = !explicitlyStopped && (currentError?.code === "priority_peer_interrupt" ||
+        (Boolean(supersededByUser) && current?.status !== "failed"));
+      const failureDetails = stoppedByRuntime && (!currentError || currentError.code === "priority_peer_interrupt")
+        ? { code: "cancelled_by_user", message: error.message }
+        : (priorityInterrupted || current?.status === "cancelled") && currentError ? currentError : details;
       const finalStatus =
         current?.status === "cancelled" || (error instanceof TurnStoppedError && current?.status !== "failed")
           ? "cancelled"

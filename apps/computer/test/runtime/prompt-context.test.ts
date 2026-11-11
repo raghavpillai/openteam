@@ -159,6 +159,26 @@ test("after an ack the progress reminder fires once per seven silent calls, not 
   ]);
 });
 
+test("an existing conversation receives newly preloaded Stop guidance without rewriting its pinned catalog", async () => {
+  const { pinDynamicToolCatalog } = await import("../../src/runtime/catalog-snapshot");
+  const entries: Array<{ type: string; customType: string; data: unknown }> = [];
+  const log = { getEntries: () => entries, appendCustomEntry: (customType: string, data: unknown) => { entries.push({ type: "custom", customType, data }); } };
+  const legacy = [{ name: "cursor", tools: [{ name: "StopSubagent" }] }];
+  const first = pinDynamicToolCatalog(log, 0, legacy);
+  const inputSchema = { type: "object", properties: { all: { type: "boolean" } } };
+  const current = [{ name: "cursor", tools: [{ name: "StopSubagent", inputSchema }] }];
+  const upgraded = pinDynamicToolCatalog(log, 0, current);
+  expect(upgraded.catalog).toBe(first.catalog);
+  expect(upgraded.update).toContain('<preloaded_tool_schemas>');
+  expect(upgraded.update).toContain('"tool":"StopSubagent"');
+  expect(upgraded.update).toContain(JSON.stringify(inputSchema));
+  expect(upgraded.update).toContain('`CallDynamicTool` directly');
+  expect(pinDynamicToolCatalog(log, 0, current).update).toBeNull();
+  const changed = [{ name: "cursor", tools: [{ name: "StopSubagent", inputSchema: { ...inputSchema, required: ["all"] } }] }];
+  expect(pinDynamicToolCatalog(log, 0, changed).update).toContain('"required":["all"]');
+  expect(pinDynamicToolCatalog(log, 0, changed).catalog).toBe(first.catalog);
+});
+
 test("a reaction that went through acknowledges the user; a widget or failed reaction does not", () => {
   const react = { role: "assistant", content: [{ type: "toolCall", id: "r", name: "ReactToMessage", arguments: { emoji: "👍" } }] };
   const reacted = (isError: boolean) => [user, react, { role: "toolResult", toolCallId: "r", isError, content: [] }, call("Shell"), call("Shell")];
@@ -211,7 +231,7 @@ test("a reply cut off at the output limit gets one reminder to continue in small
   expect(OUTPUT_LIMIT_REMINDER).toBe("<system_reminder>Your response was cut off because it exceeded the output token limit. Please break your work into smaller pieces. Continue from where you left off.</system_reminder>");
 });
 
-test("Task's and the web tools' schemas ride in the catalog, so a dispatch or a quick lookup needs no schema lookup", () => {
+test("Task, Stop and web schemas ride in the catalog without an extra discovery round trip", () => {
   const task = { name: "Task", description: "Start a subagent.", inputSchema: { type: "object", properties: { prompt: { type: "string" } } } };
   const catalog = renderDynamicToolCatalog([{ name: "cursor", description: "First-party tools.", tools: [{ name: "TodoWrite" }, task] }])!;
   expect(catalog).toContain("before calling `CallDynamicTool`, except for the tools in <preloaded_tool_schemas>, which you can call with `CallDynamicTool` directly.");
@@ -227,9 +247,12 @@ test("Task's and the web tools' schemas ride in the catalog, so a dispatch or a 
   const turn = { requestSource: "turn", runtimeProfile: "agent", subagentType: null, pluginNamespaces: [] } as unknown as ActiveTurn;
   const cursor = tools.contextCatalog(turn).find((namespace) => namespace.name === "cursor")!;
   const preloaded = cursor.tools.filter((tool) => tool.inputSchema !== undefined);
-  expect(preloaded.map((tool) => tool.name).sort()).toEqual(["Task", "WebFetch", "WebSearch"]);
+  expect(preloaded.map((tool) => tool.name).sort()).toEqual(["StopSubagent", "Task", "WebFetch", "WebSearch"]);
   expect(JSON.stringify(preloaded.find((tool) => tool.name === "Task")!.inputSchema)).toContain("subagent_type");
   // A quick lookup is one call away too: without these schemas the main agent handed one-question research to an executor.
   expect(JSON.stringify(preloaded.find((tool) => tool.name === "WebSearch")!.inputSchema)).toContain("search_term");
   expect(JSON.stringify(preloaded.find((tool) => tool.name === "WebFetch")!.inputSchema)).toContain("url");
+  const stop = preloaded.find(tool => tool.name === "StopSubagent")!;
+  expect(JSON.stringify(stop.inputSchema)).toContain("all");
+  expect(renderDynamicToolCatalog([cursor])).toContain('"tool":"StopSubagent"');
 });

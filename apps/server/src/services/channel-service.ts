@@ -492,6 +492,7 @@ export class ChannelService {
           !removed &&
           message.sender === "agent" &&
           message.senderBot &&
+          message.channel.members.some(member => member.botId === message.senderBotId) &&
           ["active", "provisioning"].includes(message.senderBot.status)
         ) {
           const wake = await this.messaging.enqueueWake(tx, {

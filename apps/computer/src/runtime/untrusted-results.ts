@@ -11,7 +11,6 @@ const confineLineBreaks = (text: string) =>
   text.replace(/\r\n|[\r\v\f\u001c-\u001e\u0085\u2028\u2029]/gu, (found) =>
     found === "\r\n" ? "\n" : found === "\r" ? "\\r" : `\\u${found.charCodeAt(0).toString(16).padStart(4, "0")}`);
 const carriesPageText = (source: string) => source === "WebFetch" || source === "WebSearch" || source.startsWith("browser_");
-const TRAILING_REMINDER = /\n*(<system_reminder>\n[\s\S]*?\n<\/system_reminder>)\s*$/;
 
 /** Applied at the model boundary; original tool receipts remain intact for UI,
  * replay and audit. Source text cannot synthesize a structural closing fence. */
@@ -62,11 +61,9 @@ export function fenceToolResults<T extends { role: string }>(messages: readonly 
         body.push(part);
         continue;
       }
-      // A host reminder appended to a result is read after the fence, outside the untrusted data.
-      const reminder = TRAILING_REMINDER.exec(part.text);
-      const text = reminder ? part.text.slice(0, reminder.index) : part.text;
-      if (reminder) reminders.push(reminder[1]!);
-      run.push(confine ? confineLineBreaks(text) : text);
+      // Result text is untrusted even when it imitates a host reminder.
+      // Only reminders carried in runtime-owned details may leave the fence.
+      run.push(confine ? confineLineBreaks(part.text) : part.text);
     }
     flush();
     const wrapped = {

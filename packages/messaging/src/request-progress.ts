@@ -8,15 +8,11 @@ import {
 import { Prisma, type PrismaClient } from "@openteam/db";
 import type { AgentMessaging, ToolContext } from "./index";
 import { taskProgress } from "./task-progress";
+import { requestIsStopped } from "./request-state";
+export { requestIsStopped } from "./request-state";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const openWorkers = ["provisioning", "queued", "running", "waiting"] as const;
-/** A newer message interrupts the model turn, not the user's unfinished request.
- * Explicit stops still win, including those issued after a priority interruption. */
-export const requestIsStopped = (run: { requestStoppedAt?: Date | null; status: string; error?: unknown }) => {
-  const error = run.error && typeof run.error === "object" ? run.error as { code?: unknown } : null;
-  return !!run.requestStoppedAt || (run.status === "cancelled" && error?.code !== "priority_peer_interrupt");
-};
 const lock = (tx: Prisma.TransactionClient, botId: string) =>
   tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${botId}`}))`;
 
@@ -507,6 +503,10 @@ export async function requestProgressSnapshot(
       channelId,
       requestStoppedAt: null,
       requestProgress: { not: Prisma.DbNull },
+      OR: [
+        { status: { not: "cancelled" } },
+        { status: "cancelled", error: { path: ["code"], equals: "priority_peer_interrupt" } },
+      ],
       NOT: { requestProgress: { path: ["state"], equals: "complete" } },
     },
     orderBy: { createdAt: "asc" },
@@ -530,6 +530,9 @@ export async function requestWakeAllowed(
   const context = (wake.payload as { taskContextRunId?: string } | null)?.taskContextRunId;
   if (!context) return wake.type !== "request.check";
   const root = await tx.run.findUnique({ where: { id: context } });
+  // A recorded stop is authoritative even if this legacy context never saved
+  // progress. Otherwise a late completion can wake a model to publish its result.
+  if (root?.requestStoppedAt) return false;
   // Preserve legacy automation/revival routing. Only request-tracked contexts
   // and the new check type use this additional revision/cancellation fence.
   if (!root?.requestProgress) return wake.type !== "request.check";

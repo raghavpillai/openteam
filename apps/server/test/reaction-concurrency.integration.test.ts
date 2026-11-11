@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { createPrismaClient } from "@openteam/db";
 import { AgentMessaging, type ToolContext } from "@openteam/messaging";
 import { ChannelService } from "../src/services/channel-service";
+import { InternalToolService } from "../src/services/internal-tool-service";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 
@@ -12,6 +13,7 @@ async function fixture(body: (f: Awaited<ReturnType<typeof setup>>) => Promise<v
   finally {
     await f.db.idempotencyRecord.deleteMany({ where: { OR: [
       { scope: `channel-message:${f.message.id}:user-reaction` }, { scope: `reaction:${f.bot.id}` },
+      { scope: { startsWith: `reaction:${f.bot.id}:` } },
     ] } });
     await f.db.bot.delete({ where: { id: f.bot.id } });
     await f.db.channel.delete({ where: { id: f.channel.id } });
@@ -35,6 +37,15 @@ async function userContext(f: Awaited<ReturnType<typeof setup>>): Promise<ToolCo
   await f.db.channelMessage.update({ where: { id: f.message.id }, data: { sender: "user", senderBotId: null, metadata: { address: "t0u" } } });
   const run = await f.db.run.create({ data: { botId: f.bot.id, channelId: f.channel.id, conversationId: f.bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running", origin: "user" } });
   return { botId: f.bot.id, channelId: f.channel.id, conversationId: f.bot.conversation!.id, runId: run.id, deliveryId: null, origin: "user", callId: crypto.randomUUID(), isFork: false, replyToMessageId: null };
+}
+
+function controlReact(f: Awaited<ReturnType<typeof setup>>, context: ToolContext) {
+  const tools = new InternalToolService(f.db, f.messaging, {} as never, async () => {}, {} as never, {} as never, {} as never, {} as never);
+  return Effect.runPromise(tools.execute({
+    runId: context.runId, botId: context.botId, conversationId: context.conversationId!, channelId: context.channelId!,
+    deliveryId: context.deliveryId, callId: context.callId, tool: "ReactToMessage",
+    arguments: { message_address: "t0u", emoji: "👍" },
+  }));
 }
 
 test.skipIf(!url)("simultaneous retries of one user reaction return one receipt and create one wake", () => fixture(async f => {
@@ -95,4 +106,144 @@ test.skipIf(!url)("distinct concurrent bot taps toggle off and revoke the first 
   expect(results.filter(r => r.removed)).toHaveLength(1);
   expect((await f.stored()).metadata).not.toHaveProperty("reactions");
   expect(await f.db.channelNotification.count({ where: { channelId: f.channel.id, revoked: false } })).toBe(0);
+}));
+
+test.skipIf(!url)("a bot cannot add a tapback after its target chat is archived", () => fixture(async f => {
+  const context = await userContext(f);
+  await f.db.channel.update({ where: { id: f.channel.id }, data: { archivedAt: new Date() } });
+  const result = await f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "👍" });
+  expect(result).toMatchObject({ reacted: false, removed: false });
+  expect((await f.stored()).metadata).not.toHaveProperty("reactions");
+  expect(await f.db.event.count({ where: { topic: "channel.message.reaction", entityId: f.message.id } })).toBe(0);
+}));
+
+test.skipIf(!url)("feedback on a former group member's message does not wake that bot back into the group", () => fixture(async f => {
+  const remaining = await f.db.bot.create({ data: { name: "Remaining member", status: "active", defaultDirectory: "/tmp", conversation: { create: {} } } });
+  try {
+    await f.db.channel.update({ where: { id: f.channel.id }, data: { kind: "group" } });
+    await f.db.channelMember.create({ data: { channelId: f.channel.id, botId: remaining.id, ordinal: 1 } });
+    await f.db.channelMember.delete({ where: { channelId_botId: { channelId: f.channel.id, botId: f.bot.id } } });
+    const result = await f.react("👎");
+    expect(result).toMatchObject({ reacted: true, removed: false, runId: null });
+    expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "me", emoji: "👎" }] });
+    expect(await f.db.inboxEvent.count({ where: { botId: f.bot.id, type: "user.reaction" } })).toBe(0);
+  } finally {
+    await f.db.bot.delete({ where: { id: remaining.id } });
+  }
+}));
+
+test.skipIf(!url)("a provider call id reused in a later run is a new bot tapback, not an old receipt", () => fixture(async f => {
+  const context = { ...await userContext(f), callId: "call_0" };
+  expect(await controlReact(f, context)).toMatchObject({ reacted: true });
+  await f.db.run.update({ where: { id: context.runId }, data: { status: "completed" } });
+  const run = await f.db.run.create({ data: { botId: f.bot.id, channelId: f.channel.id, conversationId: f.bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running", origin: "user" } });
+  expect(await controlReact(f, { ...context, runId: run.id })).toMatchObject({ reacted: false, removed: true });
+  expect((await f.stored()).metadata).not.toHaveProperty("reactions");
+}));
+
+test.skipIf(!url)("a reused provider call id cannot replay another channel's bot tapback receipt", () => fixture(async f => {
+  const context = { ...await userContext(f), callId: "call_0" };
+  await controlReact(f, context);
+  await f.db.run.update({ where: { id: context.runId }, data: { status: "completed" } });
+  const group = await f.db.channel.create({ data: { kind: "group", name: "Second chat", members: { create: { botId: f.bot.id, ordinal: 0 } } } });
+  try {
+    const message = await f.db.channelMessage.create({ data: { channelId: group.id, sender: "user", content: "Thanks", metadata: { address: "t0u" } } });
+    const run = await f.db.run.create({ data: { botId: f.bot.id, channelId: group.id, conversationId: f.bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running", origin: "user" } });
+    expect(await controlReact(f, { ...context, channelId: group.id, runId: run.id })).toMatchObject({ reacted: true });
+    expect((await f.db.channelMessage.findUniqueOrThrow({ where: { id: message.id } })).metadata).toMatchObject({ reactions: [{ by: f.bot.id, emoji: "👍" }] });
+  } finally {
+    await f.db.channel.delete({ where: { id: group.id } });
+  }
+}));
+
+async function legacyTapback(f: Awaited<ReturnType<typeof setup>>, context: ToolContext, notification = true) {
+  await f.db.run.update({ where: { id: context.runId }, data: { createdAt: new Date("2020-01-01") } });
+  await f.db.channelMessage.update({ where: { id: f.message.id }, data: { metadata: { address: "t0u", reactions: [{ by: "agent", emoji: "👍" }] } } });
+  const response = { reacted: true, removed: false, message_address: "t0u", emoji: "👍" };
+  await f.db.idempotencyRecord.create({ data: {
+    scope: `reaction:${f.bot.id}`, key: context.callId, requestHash: "t0u:👍", response, status: "completed",
+    createdAt: new Date("2021-01-01"), expiresAt: new Date("2030-01-01"),
+  } });
+  if (notification) await f.db.channelNotification.create({ data: {
+    key: `reaction:${f.message.id}:${f.bot.id}:👍:${context.callId}`,
+    channelId: f.channel.id, botId: f.bot.id, kind: "reaction", messageSequence: f.message.sequence,
+    payload: { schemaVersion: 1, kind: "reaction", botId: f.bot.id, channelId: f.channel.id,
+      runId: context.runId, messageId: f.message.id, messageSequence: f.message.sequence.toString(), title: f.bot.name, body: "Reacted 👍" },
+  } });
+  return response;
+}
+
+test.skipIf(!url)("reused call ids produce a fresh notification after an add/remove/add across runs", () => fixture(async f => {
+  await f.db.bot.update({ where: { id: f.bot.id }, data: { notificationsEnabled: true } });
+  const context = { ...await userContext(f), callId: "call_0" };
+  const outcomes = [];
+  for (let i = 0; i < 3; i++) {
+    const run = i === 0 ? { id: context.runId } : await f.db.run.create({ data: {
+      botId: f.bot.id, channelId: f.channel.id, conversationId: f.bot.conversation!.id,
+      userMessageId: crypto.randomUUID(), status: "running", origin: "user",
+    } });
+    outcomes.push(await controlReact(f, { ...context, runId: run.id }));
+    await f.db.run.update({ where: { id: run.id }, data: { status: "completed" } });
+  }
+  expect(outcomes).toMatchObject([{ reacted: true }, { removed: true }, { reacted: true }]);
+  const notifications = await f.db.channelNotification.findMany({ where: { channelId: f.channel.id }, orderBy: { sequence: "asc" } });
+  expect(notifications).toHaveLength(2);
+  expect(notifications.map(n => n.revoked)).toEqual([true, false]);
+}));
+
+test.skipIf(!url)("a legacy receipt older than the current run cannot suppress its new tapback", () => fixture(async f => {
+  const context = { ...await userContext(f), callId: "call_0" };
+  await legacyTapback(f, context, false);
+  await f.db.run.update({ where: { id: context.runId }, data: { createdAt: new Date("2022-01-01") } });
+  expect(await controlReact(f, context)).toMatchObject({ reacted: false, removed: true });
+  expect((await f.stored()).metadata).not.toHaveProperty("reactions");
+}));
+
+test.skipIf(!url)("an owned in-flight legacy tapback replays without undoing it and records its scoped receipt", () => fixture(async f => {
+  const context = await userContext(f);
+  const response = await legacyTapback(f, context);
+  expect(await controlReact(f, context)).toEqual(response);
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "👍" }] });
+  expect(await f.db.event.count({ where: { topic: "channel.message.reaction", entityId: f.message.id } })).toBe(0);
+  expect(await f.db.idempotencyRecord.findUnique({ where: { scope_key: {
+    scope: `reaction:${f.bot.id}:${context.runId}:${f.channel.id}`, key: context.callId,
+  } } })).toMatchObject({ status: "completed", response });
+  expect(await controlReact(f, context)).toEqual(response);
+}));
+
+test.skipIf(!url)("ambiguous in-flight legacy receipts fail honestly without undoing a reaction", () => fixture(async f => {
+  const context = await userContext(f);
+  await legacyTapback(f, context, false);
+  await expect(controlReact(f, context)).rejects.toThrow("Cannot safely match an old reaction receipt");
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "👍" }] });
+  expect(await f.db.event.count({ where: { topic: "channel.message.reaction", entityId: f.message.id } })).toBe(0);
+  expect(await f.db.idempotencyRecord.count({ where: { scope: `reaction:${f.bot.id}:${context.runId}:${f.channel.id}` } })).toBe(0);
+}));
+
+test.skipIf(!url)("an owned legacy retry with changed arguments is rejected without another tapback", () => fixture(async f => {
+  const context = await userContext(f);
+  await legacyTapback(f, context);
+  await expect(f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "❤️" })).rejects.toThrow("different arguments");
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "👍" }] });
+}));
+
+test.skipIf(!url)("a legacy notification from a different run cannot authorize receipt replay", () => fixture(async f => {
+  const context = await userContext(f);
+  await legacyTapback(f, context);
+  const key = `reaction:${f.message.id}:${f.bot.id}:👍:${context.callId}`;
+  const notification = await f.db.channelNotification.findUniqueOrThrow({ where: { key } });
+  await f.db.channelNotification.update({ where: { key }, data: {
+    payload: { ...(notification.payload as Record<string, string>), runId: crypto.randomUUID() },
+  } });
+  await expect(controlReact(f, context)).rejects.toThrow("Cannot safely match an old reaction receipt");
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "👍" }] });
+  expect(await f.db.event.count({ where: { topic: "channel.message.reaction", entityId: f.message.id } })).toBe(0);
+}));
+
+test.skipIf(!url)("a scoped bot reaction retry with changed arguments cannot toggle a second emoji", () => fixture(async f => {
+  const context = await userContext(f);
+  await controlReact(f, context);
+  await expect(f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "❤️" })).rejects.toThrow("different arguments");
+  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "👍" }] });
+  expect(await f.db.event.count({ where: { topic: "channel.message.reaction", entityId: f.message.id } })).toBe(1);
 }));

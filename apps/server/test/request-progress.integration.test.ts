@@ -21,6 +21,26 @@ import { SubagentService } from "../src/services/subagent/service";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 
+for (const priorityInterrupt of [false, true]) test.skipIf(!url)(`request snapshots ${priorityInterrupt ? "retain priority-interrupted work" : "exclude cancelled requests even without a legacy stop timestamp"}`, () => fixture(async f => {
+  await f.db.$transaction(tx => ensureRequestForTask(tx, f.owner.id, f.context.runId));
+  await f.db.run.update({ where: { id: f.context.runId }, data: { status: "cancelled",
+    error: { code: priorityInterrupt ? "priority_peer_interrupt" : "cancelled_by_user" } } });
+  const snapshot = await requestProgressSnapshot(f.db, f.owner.id, f.channel.id);
+  expect(snapshot.map(x => x.request_run_id)).toEqual(priorityInterrupt ? [f.context.runId] : []);
+}));
+
+for (const hasProgress of [false, true]) test.skipIf(!url)(`a stopped request rejects late completion wakes ${hasProgress ? "with tracked progress" : "even before progress was recorded"}`, () => fixture(async f => {
+  if (hasProgress) await f.db.$transaction(tx => ensureRequestForTask(tx, f.owner.id, f.context.runId));
+  await f.db.run.update({ where: { id: f.context.runId }, data: { status: "completed", requestStoppedAt: new Date() } });
+  const wake = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, {
+    botId: f.owner.id, channelId: f.channel.id, origin: "background_revival", type: "subagent.completed",
+    content: "[SAND_HIDDEN_PROMPT]Late result must not be delivered.", clientId: crypto.randomUUID(), priority: 260,
+    taskContextRunId: f.context.runId,
+  }));
+  const event = await f.db.inboxEvent.findFirstOrThrow({ where: { runId: wake.run.id } });
+  expect(await f.db.$transaction(tx => requestWakeAllowed(tx, event))).toBe(false);
+}));
+
 for (const finishedDuringCancel of [false, true]) test.skipIf(!url)(`Stop ${finishedDuringCancel ? "accepts a turn that finished during a failed cancellation" : "reports failure when the active turn cannot be cancelled"}`, () => fixture(async f => {
   const service = new SubagentService(f.db, f.messaging, {
     cancel: () => Effect.promise(async () => {

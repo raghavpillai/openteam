@@ -23,8 +23,9 @@ export interface CatalogNamespace {
 /** First-party tools whose schema rides in the catalog. Every browser and worker task starts with Task,
  * and looking up its schema first cost the main agent a model round trip before each dispatch. A quick
  * lookup starts with WebSearch or WebFetch; with their schemas a lookup away, the main agent handed even
- * one-question research to an executor. */
-export const PRELOADED_TOOL_NAMES: ReadonlySet<string> = new Set(["Task", "WebFetch", "WebSearch"]);
+ * one-question research to an executor. Stop must also be immediately callable:
+ * discovering its schema first can let ongoing work finish before cancellation. */
+export const PRELOADED_TOOL_NAMES: ReadonlySet<string> = new Set(["Task", "StopSubagent", "WebFetch", "WebSearch"]);
 
 const catalogAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
@@ -36,10 +37,7 @@ const catalogAttribute = (value: string) => value.replace(/&/g, "&amp;").replace
 export function renderDynamicToolCatalog(namespaces: readonly CatalogNamespace[]): string | null {
   const entries = catalogEntries(namespaces);
   if (!entries.length) return null;
-  const preloaded = namespaces
-    .filter((namespace) => namespace.name === "cursor")
-    .flatMap((namespace) => namespace.tools.filter((tool) => PRELOADED_TOOL_NAMES.has(tool.name) && tool.inputSchema !== undefined))
-    .map((tool) => JSON.stringify({ namespace: "cursor", tool: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
+  const preloaded = preloadedToolSchemas(namespaces);
   return [
     "<dynamic_tool_catalog>",
     `These dynamic tool namespaces were available when this conversation started. Availability may have changed, so use \`GetDynamicTools\` to check current state before calling \`CallDynamicTool\`${preloaded.length ? ", except for the tools in <preloaded_tool_schemas>, which you can call with `CallDynamicTool` directly" : ""}.`,
@@ -52,10 +50,27 @@ export function renderDynamicToolCatalog(namespaces: readonly CatalogNamespace[]
   ].join("\n");
 }
 
-/** The first-party namespace alone, which is what the reference re-announces when it changes mid-conversation. */
+/** Announce first-party changes without rewriting the pinned user_info. Include schemas so existing
+ * conversations also receive newly preloaded tools, even when the available tool names did not change. */
 export function renderCursorNamespaceStatement(namespaces: readonly CatalogNamespace[]): string {
   const [entry] = catalogEntries(namespaces.filter((namespace) => namespace.name === "cursor"));
-  return `<dynamic_tool_namespaces>\n${entry ?? '(no built-in "cursor" namespace is available; discover the remaining namespaces with the discovery tool)'}\n</dynamic_tool_namespaces>`;
+  const preloaded = preloadedToolSchemas(namespaces);
+  return [
+    "<dynamic_tool_namespaces>",
+    entry ?? '(no built-in "cursor" namespace is available; discover the remaining namespaces with the discovery tool)',
+    "</dynamic_tool_namespaces>",
+    ...(preloaded.length ? [
+      "The tools in <preloaded_tool_schemas> can be called with `CallDynamicTool` directly, without a discovery call.",
+      "<preloaded_tool_schemas>", ...preloaded, "</preloaded_tool_schemas>",
+    ] : []),
+  ].join("\n");
+}
+
+function preloadedToolSchemas(namespaces: readonly CatalogNamespace[]): string[] {
+  return namespaces
+    .filter((namespace) => namespace.name === "cursor")
+    .flatMap((namespace) => namespace.tools.filter((tool) => PRELOADED_TOOL_NAMES.has(tool.name) && tool.inputSchema !== undefined))
+    .map((tool) => JSON.stringify({ namespace: "cursor", tool: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
 }
 
 function catalogEntries(namespaces: readonly CatalogNamespace[]): string[] {

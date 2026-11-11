@@ -13,11 +13,62 @@ import {
   recoverTaskInterruption,
   initialTaskProgress,
   automationBackgroundWorkRunning,
+  notifyTaskProgress,
   type ToolContext,
 } from "@openteam/messaging";
 import { SubagentService } from "../src/services/subagent/service";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
+
+test.skipIf(!url)("a stopped original request fences a parked worker even when its immediate parent turn completed", () => fixture(async f => {
+  const check = new Date(Date.now() + 1000);
+  await reportTaskProgress(f.db, f.messaging, f.context, { ...f.progress, state: "waiting", checkAt: check.toISOString() });
+  await f.park();
+  // The request belongs to the same parent bot; its immediate completion wake is a separate turn.
+  const request = await f.db.run.create({ data: { botId: f.parent.bot.id, channelId: f.parent.channel.id,
+    conversationId: f.parent.bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "completed", requestStoppedAt: new Date() } });
+  await f.db.subagent.update({ where: { id: f.sub.id }, data: { requestRunId: request.id } });
+  await f.db.run.update({ where: { id: f.parent.run.id }, data: { status: "completed" } });
+  expect(await dispatchTaskContinuations(f.db, f.messaging, new Date(check.getTime() + 1))).toBe(0);
+  expect(await f.db.subagent.findUniqueOrThrow({ where: { id: f.sub.id } })).toMatchObject({ status: "stopped", nextCheckAt: null });
+  expect(await f.db.inboxEvent.count({ where: { botId: f.child.bot.id, type: "subagent.continue" } })).toBe(0);
+}));
+
+test.skipIf(!url)("recovery does not schedule a new worker turn for a stopped original request", () => fixture(async f => {
+  await reportTaskProgress(f.db, f.messaging, f.context, f.progress);
+  const request = await f.db.run.create({ data: { botId: f.parent.bot.id, channelId: f.parent.channel.id,
+    conversationId: f.parent.bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "completed", requestStoppedAt: new Date() } });
+  await f.db.subagent.update({ where: { id: f.sub.id }, data: { requestRunId: request.id } });
+  await f.db.run.update({ where: { id: f.child.run.id }, data: { status: "interrupted" } });
+  await f.db.$transaction(tx => recoverTaskInterruption(tx, f.messaging, f.sub.id, f.child.run.id, f.attempt.id, { code: "runtime_restart" }));
+  expect(await f.db.subagent.findUniqueOrThrow({ where: { id: f.sub.id } })).toMatchObject({ status: "stopped", nextCheckAt: null, recoveryAttempts: 0 });
+}));
+
+for (const priorityInterrupt of [false, true]) test.skipIf(!url)(`a parked worker ${priorityInterrupt ? "survives a priority-interrupted original request" : "does not revive an explicitly cancelled original request"}`, () => fixture(async f => {
+  const check = new Date(Date.now() + 1000);
+  await reportTaskProgress(f.db, f.messaging, f.context, { ...f.progress, state: "waiting", checkAt: check.toISOString() });
+  await f.park();
+  const request = await f.db.run.create({ data: { botId: f.parent.bot.id, channelId: f.parent.channel.id,
+    conversationId: f.parent.bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "cancelled",
+    error: { code: priorityInterrupt ? "priority_peer_interrupt" : "cancelled_by_user" } } });
+  await f.db.subagent.update({ where: { id: f.sub.id }, data: { requestRunId: request.id } });
+  await f.db.run.update({ where: { id: f.parent.run.id }, data: { status: "completed" } });
+  expect(await dispatchTaskContinuations(f.db, f.messaging, new Date(check.getTime() + 1))).toBe(priorityInterrupt ? 1 : 0);
+  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: f.sub.id } })).status).toBe(priorityInterrupt ? "queued" : "stopped");
+}));
+
+test.skipIf(!url)("late task progress does not wake a parent after the original request was stopped", () => fixture(async f => {
+  await reportTaskProgress(f.db, f.messaging, f.context, f.progress);
+  const before = await f.db.inboxEvent.count({ where: { botId: f.parent.bot.id, type: "subagent.progress" } });
+  const request = await f.db.run.create({ data: { botId: f.parent.bot.id, channelId: f.parent.channel.id,
+    conversationId: f.parent.bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "completed", requestStoppedAt: new Date() } });
+  await f.db.subagent.update({ where: { id: f.sub.id }, data: { requestRunId: request.id } });
+  const result = await f.db.$transaction(async tx => notifyTaskProgress(tx, f.messaging,
+    await tx.subagent.findUniqueOrThrow({ where: { id: f.sub.id } }),
+    { ...f.progress, runId: f.child.run.id, revision: 2 }, "late-result"));
+  expect(result).toBeNull();
+  expect(await f.db.inboxEvent.count({ where: { botId: f.parent.bot.id, type: "subagent.progress" } })).toBe(before);
+}));
 
 test.skipIf(!url)("resuming a stopped task retains permission revocation before the new scope", () => fixture(async f => {
   const service = new SubagentService(f.db, f.messaging, { cancel: () => Effect.succeed({}) } as never,

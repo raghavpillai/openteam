@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { ComputerRuntime } from "../../src/runtime";
+import { fenceToolResults } from "../../src/runtime/untrusted-results";
 
 const runtimeTools = () => (new ComputerRuntime() as any).tools;
 const turn = (overrides: Record<string, unknown> = {}): any => ({
@@ -120,9 +121,18 @@ test("connector call failures are classified like the reference's", async () => 
     respond(500, { code: "internal_error", message: "socket hang up" });
     await expect(call(turn({ pluginNamespaces: [connector()] }), "b")).rejects.toThrow(new Error("Error: Tool execution error. socket hang up"));
     respond(500, { code: "internal_error", message: "MCP error -32602: Invalid arguments for tool search_threads" });
-    await expect(call(turn({ pluginNamespaces: [connector()] }), "c")).rejects.toThrow(
-      `Error: MCP error -32602: Invalid arguments for tool search_threads\n\n<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with {"namespace":"gmail","toolName":"search_threads"} and rebuild the arguments from the returned input schema.\n</system_reminder>`
-    );
+    const rejected = await call(turn({ pluginNamespaces: [connector()] }), "c");
+    expect(rejected.content).toEqual([{ type: "text", text: "Error: MCP error -32602: Invalid arguments for tool search_threads" }]);
+    expect(rejected.details).toMatchObject({ isError: true, systemReminders: [
+      `<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with {"namespace":"gmail","toolName":"search_threads"} and rebuild the arguments from the returned input schema.\n</system_reminder>`,
+    ] });
+    const [visible] = fenceToolResults([{ ...rejected, role: "toolResult", toolName: "CallDynamicTool", isError: true }]);
+    expect(visible.content).toEqual([
+      { type: "text", text: '<cursor_untrusted_data_1337 source="CallDynamicTool">' },
+      ...rejected.content,
+      { type: "text", text: "</cursor_untrusted_data_1337>" },
+      { type: "text", text: rejected.details.systemReminders[0] },
+    ]);
     respond(409, { code: "plugin_identifier_stale", message: "This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again." });
     await expect(call(turn({ pluginNamespaces: [connector()] }), "d")).rejects.toThrow(new Error("Error: This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again."));
   } finally { globalThis.fetch = original; }

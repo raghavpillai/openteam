@@ -41,7 +41,6 @@ export const SECTION_LABELS: Record<string, string> = {
   automations: "Routines",
   agent_directory: "Teammates and groups",
   mcp_instructions: "Connector instructions",
-  agent_instructions: "Bot-specific instructions",
 };
 
 export function parsePromptSections(value: unknown): Record<string, PromptSectionSnapshot> {

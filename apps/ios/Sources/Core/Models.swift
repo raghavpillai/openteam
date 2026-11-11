@@ -79,7 +79,6 @@ public struct Bot: Codable, Identifiable, Sendable, Hashable {
   public var name: String
   public var title: String
   public var description: String
-  public var instructions: String
   public var icon: String
   public var color: String
   public var hasAvatar: Bool

@@ -1464,7 +1464,7 @@ struct CreateConversationView: View {
         "clientRequestId": .string(requestID),
         "name": .string(name.trimmingCharacters(in: .whitespacesAndNewlines)),
         "description": .string(""),
-        "instructions": .string(""), "color": .string(color), "icon": .string(shape),
+        "color": .string(color), "icon": .string(shape),
       ])
     do {
       let result = try await store.request(

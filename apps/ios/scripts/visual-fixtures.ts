@@ -163,7 +163,7 @@ export function visualFixture(base: any, scene: string) {
     const isMotion = scene === "motion-reference";
     const name=isMotion?"Memory Deep 914 Box copy":isLong?"Compaction Ten 0913":isActions?"Memory Deep 914 Box":isDark?"Memory Deep 914 Server":"New Bot";
     const {channel}=bot("visual-chat",name,isDark?"#FA2AA4":isLong||isActions||isMotion?"#00B8A9":"#FF6600",isDark||isLong||isActions||isMotion?"cloud":"hexagon");
-    if (isDark) { snapshot.bots[0].title=""; snapshot.bots[0].instructions=""; }
+    if (isDark) { snapshot.bots[0].title=""; }
     if (scene === "delivery-spacing") {
       message(channel.id, "agent", "Ready when you are.", 1);
       message(channel.id, "user", "Why is the return address Irving, Texas? That doesn't make sense.", 2);

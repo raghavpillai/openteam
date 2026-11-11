@@ -65,7 +65,6 @@ const mainAgent = (id: string) => {
         findUniqueOrThrow: async () => ({
           id,
           name: id,
-          instructions: `Follow ${id}'s preferences.`,
           hiddenFromSidebar: false,
           notificationsEnabled: true,
           defaultDirectory: `/workspace/${id}`,
@@ -210,7 +209,6 @@ describe("platform prompt integration", () => {
       expect(prompt.instructions).toStartWith(
         `${renderPlatformBaseSystemPrompt()}\n\nYou are ${id}.`
       );
-      expect(prompt.instructions).toContain(`Follow ${id}'s preferences.`);
       expect(prompt.instructions).toContain(`${id}'s memory policy.`);
       expect(prompt.instructions).not.toContain(`Only ${id} knows this fact.`);
       expect(prompt.userInfo).toMatch(

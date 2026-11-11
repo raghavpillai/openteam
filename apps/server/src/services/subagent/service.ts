@@ -588,7 +588,6 @@ export class SubagentService {
           name,
           title: `Subagent (${type})`,
           description: `Background subagent owned by ${parent.name}`,
-          instructions: "",
           icon: avatar.shape,
           color: avatar.color,
           notificationsEnabled: false,

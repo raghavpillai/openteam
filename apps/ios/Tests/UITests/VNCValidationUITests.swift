@@ -87,6 +87,9 @@ import XCTest
       _ = try await request("/__qa/control", ["statusDelay": 4500, "vncDelay": 4500])
       _ = try await request("/__qa/desktop", [:])
     }
+    if !app.buttons["Computer"].exists {
+      app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.tap()
+    }
     app.buttons["Computer"].tap()
     if starting {
       let loading = app.descendants(matching: .any)
@@ -100,12 +103,11 @@ import XCTest
     return app
   }
   private func takeControl(_ app: XCUIApplication) {
-    app.buttons["Computer options"].tap()
     XCTAssertTrue(app.buttons["Take control"].waitForExistence(timeout: 5))
     capture("takeover-menu", app)
     app.buttons["Take control"].tap()
     let owned = app.staticTexts.matching(
-      NSPredicate(format: "value == %@", "You have control")
+      NSPredicate(format: "value == %@", "You’re in control")
     ).firstMatch.waitForExistence(timeout: 8)
     capture("takeover-result", app)
     XCTAssertTrue(owned, "Take control must establish ownership before testing remote gestures")

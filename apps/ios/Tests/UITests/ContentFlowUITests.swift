@@ -15,7 +15,7 @@ import XCTest
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
   func launch(_ scene: String, required: Bool = false, dark: Bool = false, haptics: Bool = false,
-    slowFavicons: Bool = false) async throws
+    slowFavicons: Bool = false, largeText: Bool = false) async throws
     -> XCUIApplication
   {
     continueAfterFailure = false
@@ -34,6 +34,7 @@ import XCTest
     if required { app.launchArguments.append("--show-login") }
     if haptics { app.launchArguments.append("--haptic-audit") }
     if slowFavicons { app.launchArguments.append("--slow-favicons") }
+    if largeText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
     app.launch()
     if required {
       waitForArrival(app.buttons["get-started"])
@@ -308,6 +309,61 @@ import XCTest
     XCTAssertTrue(app.buttons["photo-close"].waitForExistence(timeout: 12))
     capture("native-file-preview", app)
     app.buttons["photo-close"].tap()
+  }
+  /// Native control chrome must remain usable before or during a VNC reconnect.
+  func testComputerControlBarAndBackgroundOwnership() async throws {
+    try await exerciseComputerControlBar(largeText: false)
+  }
+  func testComputerControlBarWithAccessibilityText() async throws {
+    try await exerciseComputerControlBar(largeText: true)
+  }
+  private func exerciseComputerControlBar(largeText: Bool) async throws {
+    let app = try await launch("plain-link", dark: true, largeText: largeText)
+    defer { app.terminate() }
+    if !app.buttons["Computer"].exists {
+      app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.tap()
+    }
+    app.buttons["Computer"].tap()
+    let take = app.buttons["Take control"]
+    XCTAssertTrue(take.waitForExistence(timeout: 12), "Take control is visible without opening a menu")
+    XCTAssertTrue(take.isHittable)
+    XCTAssertGreaterThanOrEqual(take.frame.height, 44)
+    capture(largeText ? "computer-control-large-text-watching" : "computer-control-watching", app)
+    take.tap()
+    let stop = app.buttons["Give back control"]
+    XCTAssertTrue(stop.waitForExistence(timeout: 12))
+    XCTAssertTrue(stop.isHittable)
+    let owned = try await state()
+    XCTAssertEqual((owned["screen"] as? [String: Any])?["humanTakeover"] as? Bool, true)
+    capture(largeText ? "computer-control-large-text-owned" : "computer-control-owned", app)
+    if !largeText {
+      XCUIDevice.shared.press(.home)
+      try await Task.sleep(for: .seconds(2))
+      app.activate()
+      XCTAssertTrue(stop.waitForExistence(timeout: 12))
+      let returned = try await state()
+      let expectedControl = try XCTUnwrap((owned["screen"] as? [String: Any])?["controlSession"] as? NSDictionary)
+      XCTAssertEqual((returned["screen"] as? [String: Any])?["controlSession"] as? NSDictionary, expectedControl)
+      XCTAssertEqual((returned["screen"] as? [String: Any])?["humanTakeover"] as? Bool, true)
+    }
+    stop.tap()
+    XCTAssertTrue(take.waitForExistence(timeout: 12))
+    let released = try await state()
+    XCTAssertEqual((released["screen"] as? [String: Any])?["humanTakeover"] as? Bool, false)
+    // Another viewer acquires ownership while this one is open.
+    try await control("/api/v0/bots/bot-research/screen/takeover", [
+      "active": true, "controlId": "other-viewer", "force": true,
+    ])
+    XCTAssertTrue(app.buttons["Take control here"].waitForExistence(timeout: 12))
+    let resume = app.buttons["Resume bot"]
+    XCTAssertTrue(resume.isHittable)
+    capture(largeText ? "computer-control-large-text-other-device" : "computer-control-other-device", app)
+    resume.tap()
+    XCTAssertTrue(take.waitForExistence(timeout: 12))
+    let resumed = try await state()
+    XCTAssertEqual((resumed["screen"] as? [String: Any])?["humanTakeover"] as? Bool, false)
+    app.buttons["Done"].tap()
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.waitForExistence(timeout: 12))
   }
   /// Input delivery is covered against an actual VNC desktop in VNCValidationUITests.
   /// This fixture verifies handoff lifecycle even if the viewer cannot connect.

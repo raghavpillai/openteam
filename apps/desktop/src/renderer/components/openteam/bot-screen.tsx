@@ -10,7 +10,7 @@ import {
 } from "@openteam/client-core";
 import type { BotView, ScreenStatusView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { Minimize2, Monitor, RefreshCw } from "lucide-react";
+import { Eye, LoaderCircle, Minimize2, Monitor, SquareMousePointer, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { API_BASE } from "../../client/http";
@@ -61,11 +61,19 @@ export function BotScreen({
   const controlId = useMemo(() => {
     const key = `openteam:computer-control:${API_BASE}:${bot.id}`;
     let id = sessionStorage.getItem(key);
-    if (!id) { id = crypto.randomUUID(); sessionStorage.setItem(key, id); }
+    if (!id) {
+      id = crypto.randomUUID();
+      sessionStorage.setItem(key, id);
+    }
     return id;
   }, [bot.id]);
-  const control = useMemo(() => createComputerControlController(controlId,
-    (active, input) => api.screenTakeover(bot.id, active, false, input)), [bot.id, controlId]);
+  const control = useMemo(
+    () =>
+      createComputerControlController(controlId, (active, input) =>
+        api.screenTakeover(bot.id, active, false, input)
+      ),
+    [bot.id, controlId]
+  );
   const controlRevision = useRef(0);
   const [screen, setScreen] = useState<ScreenStatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -204,46 +212,82 @@ export function BotScreen({
   const controlling = ownsComputerControl(screen, controlId);
   const [controlPending, setControlPending] = useState(false);
   const [viewerConnected, setViewerConnected] = useState(false);
-  const changeControl = useCallback(async (active: boolean) => {
-    if (controlPending) return;
-    controlRevision.current += 1;
-    setControlPending(true);
-    try {
-      const next = active ? await control.take(true) : await control.giveBack();
-      if (next) setScreen(next);
-      setError(null);
-    } catch (cause) {
-      setError(clientErrorMessage(cause, active ? "Could not take computer control" : "Could not give back control"));
-    } finally { controlRevision.current += 1; setControlPending(false); }
-  }, [control, controlPending]);
+  const [watchHint, setWatchHint] = useState(false);
+  useEffect(() => {
+    setWatchHint(false);
+  }, [open, controlling]);
+  const changeControl = useCallback(
+    async (active: boolean) => {
+      if (controlPending) return;
+      controlRevision.current += 1;
+      setControlPending(true);
+      try {
+        const next = active ? await control.take(true) : await control.giveBack();
+        if (next) setScreen(next);
+        setError(null);
+      } catch (cause) {
+        setError(
+          clientErrorMessage(
+            cause,
+            active ? "Could not take computer control" : "Could not give back control"
+          )
+        );
+      } finally {
+        controlRevision.current += 1;
+        setControlPending(false);
+      }
+    },
+    [control, controlPending]
+  );
   const resumeBot = async () => {
     controlRevision.current += 1;
     setControlPending(true);
-    try { const next = await api.screenTakeover(bot.id, false, false, { force: true }); control.observe(next); setScreen(next); }
-    catch (cause) { setError(clientErrorMessage(cause, "Could not resume the bot")); }
-    finally { controlRevision.current += 1; setControlPending(false); }
+    try {
+      const next = await api.screenTakeover(bot.id, false, false, { force: true });
+      control.observe(next);
+      setScreen(next);
+    } catch (cause) {
+      setError(clientErrorMessage(cause, "Could not resume the bot"));
+    } finally {
+      controlRevision.current += 1;
+      setControlPending(false);
+    }
   };
   useEffect(() => {
     if (!open) return;
     control.open();
     const poller = createSerialPoller({
-      intervalMs: SCREEN_STATUS_POLL_MS, immediate: true,
-      task: async () => { if (isWindowVisible()) await refreshStatus(); },
+      intervalMs: SCREEN_STATUS_POLL_MS,
+      immediate: true,
+      task: async () => {
+        if (isWindowVisible()) await refreshStatus();
+      },
     });
     poller.start();
     window.addEventListener(WINDOW_VISIBILITY_EVENT, poller.wake);
     return () => {
       poller.stop();
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, poller.wake);
-      if (!handoff) void control.close().catch(() => { /* Ownership is reserved for reconnection. */ });
+      if (!handoff)
+        void control.close().catch(() => {
+          /* Ownership is reserved for reconnection. */
+        });
     };
   }, [control, handoff, open, refreshStatus]);
   useEffect(() => {
-    if (open && handoff && screen?.controlSession?.id === `handoff:${handoff.messageId}`) void changeControl(true);
+    if (open && handoff && screen?.controlSession?.id === `handoff:${handoff.messageId}`)
+      void changeControl(true);
   }, [open, handoff, screen?.controlSession?.id, changeControl]);
-  const controlLabel = screen?.controlPending ? "Changing control…" : controlling
-    ? viewerConnected ? "You have control" : "Reconnecting — your control is reserved"
-    : screen?.humanTakeover ? "Controlled on another device" : "Watching";
+  const controlLabel =
+    controlPending || screen?.controlPending
+      ? "Changing control…"
+      : controlling
+        ? viewerConnected
+          ? "You’re in control"
+          : "Reconnecting — your control is reserved"
+        : screen?.humanTakeover
+          ? "Controlled on another device"
+          : "Watching";
   const viewerReady = screen?.state === "ready";
   const frameSource = useAuthenticatedResource(
     enabled && active && screen?.state === "ready" && !open
@@ -292,7 +336,12 @@ export function BotScreen({
                 src={frameSource}
               />
             ) : (
-              <span className="bot-computer-placeholder"><BotAvatar bot={bot} size="md" mode="still" /><span className="bot-computer-sleep">z<span>z</span></span></span>
+              <span className="bot-computer-placeholder">
+                <BotAvatar bot={bot} size="md" mode="still" />
+                <span className="bot-computer-sleep">
+                  z<span>z</span>
+                </span>
+              </span>
             )}
           </span>
         </button>
@@ -346,26 +395,10 @@ export function BotScreen({
           the full-window computer outside that containing block. */}
       {open &&
         createPortal(
-          <div className="fixed inset-0 z-[70] flex flex-col bg-black/[0.94] text-white">
+          <div className="fixed inset-0 z-[70] flex flex-col bg-[#111111] text-white">
             {/* One draggable title row; content starts past the macOS window
               buttons, which end at x=76px. */}
             <header className="electron-drag flex min-h-11 shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 border-b border-white/[0.035] py-1.5 pl-[88px] pr-3">
-              {!handoff && (
-                <span className="mr-auto min-w-0 truncate text-[12px] text-white/55">
-                  {controlLabel}
-                </span>
-              )}
-              <Button
-                className="electron-no-drag text-white/80 hover:bg-white/[0.055] hover:text-white"
-                disabled={controlPending || screen?.controlPending || !viewerReady}
-                onClick={() => void changeControl(!controlling)}
-                size="sm"
-                variant="ghost"
-              >
-                {controlling ? "Give back control" : screen?.humanTakeover ? "Take control here" : "Take control"}
-              </Button>
-              {!controlling && screen?.humanTakeover && <Button className="electron-no-drag" variant="ghost" size="sm"
-                disabled={controlPending} onClick={() => void resumeBot()}>Resume bot</Button>}
               {handoff ? (
                 <>
                   <span className="mr-auto min-w-0 basis-full py-2 text-[13px] leading-4 text-white/85 md:flex-1 md:basis-0 md:py-0">
@@ -411,13 +444,16 @@ export function BotScreen({
               </p>
             )}
             <main
-              className="flex min-h-0 flex-1 items-center justify-center p-2 [container-type:size]"
+              className="flex min-h-0 flex-1 items-center justify-center px-5 py-2 [container-type:size]"
               onClick={(event) => event.target === event.currentTarget && closeViewer()}
               onKeyDown={(event) => event.key === "Escape" && closeViewer()}
             >
               {/* The largest 16:10 screen that fits the space below the header. */}
               <div
-                className="relative aspect-[16/10] overflow-hidden rounded-[6px] bg-[#1b1d1f]"
+                className="relative aspect-[16/10] overflow-hidden rounded-lg bg-[#1b1d1f]"
+                onPointerDownCapture={() => {
+                  if (!controlling && viewerReady) setWatchHint(true);
+                }}
                 style={{ width: "min(100cqw, 160cqh)" }}
               >
                 {viewerReady && visible ? (
@@ -426,8 +462,18 @@ export function BotScreen({
                     botId={bot.id}
                     name={bot.name}
                     serverUrl={API_BASE}
-                    createSession={(id, signal) => api.screenVncSession(id, signal, { controlId, ...(controlling ? { generation: screen?.controlSession?.generation } : {}) })}
-                    clipboard={(input, signal) => api.screenClipboard(bot.id, input, signal, { controlId, generation: screen?.controlSession?.generation })}
+                    createSession={(id, signal) =>
+                      api.screenVncSession(id, signal, {
+                        controlId,
+                        ...(controlling ? { generation: screen?.controlSession?.generation } : {}),
+                      })
+                    }
+                    clipboard={(input, signal) =>
+                      api.screenClipboard(bot.id, input, signal, {
+                        controlId,
+                        generation: screen?.controlSession?.generation,
+                      })
+                    }
                     viewOnly={!controlling || controlPending}
                     onReady={recordViewerReady}
                     onConnectionChange={setViewerConnected}
@@ -460,6 +506,67 @@ export function BotScreen({
                 )}
               </div>
             </main>
+            <footer className="electron-no-drag flex shrink-0 justify-center px-4 pb-4 pt-2">
+              <div
+                aria-label="Computer control"
+                role="group"
+                className="flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-[28px] border border-white/[0.08] bg-[#242424]/90 py-1.5 pl-4 pr-1.5 text-[14px] shadow-[0_4px_24px_#0003] backdrop-blur-xl"
+              >
+                <span
+                  aria-live="polite"
+                  role="status"
+                  className="flex min-w-0 items-center gap-2 text-white/70"
+                >
+                  {controlPending || screen?.controlPending ? (
+                    <LoaderCircle
+                      aria-hidden="true"
+                      className="size-4 shrink-0 motion-safe:animate-spin"
+                    />
+                  ) : controlling ? (
+                    <SquareMousePointer aria-hidden="true" className="size-4 shrink-0" />
+                  ) : (
+                    <Eye aria-hidden="true" className="size-4 shrink-0" />
+                  )}
+                  <span>
+                    {controlLabel}
+                    {watchHint && !controlling && !screen?.humanTakeover && (
+                      <span className="ml-2 text-white/45">Take control to click and type</span>
+                    )}
+                  </span>
+                </span>
+                <button
+                  aria-label={
+                    controlling
+                      ? "Give back control"
+                      : screen?.humanTakeover
+                        ? "Take control here"
+                        : "Take control"
+                  }
+                  className={`min-h-9 shrink-0 rounded-full px-3.5 text-[14px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#242424] disabled:cursor-wait disabled:opacity-45 ${controlling ? "bg-white/[0.07] text-white/85 hover:bg-white/[0.14]" : "bg-[#f7f7f7] text-[#202020] hover:bg-white"}`}
+                  disabled={
+                    controlPending || screen?.controlPending || (!controlling && !viewerReady)
+                  }
+                  onClick={() => void changeControl(!controlling)}
+                  type="button"
+                >
+                  {controlling
+                    ? "Stop"
+                    : screen?.humanTakeover
+                      ? "Take control here"
+                      : "Take control"}
+                </button>
+                {!controlling && screen?.humanTakeover && (
+                  <button
+                    type="button"
+                    className="min-h-9 rounded-full px-3 text-white/75 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:opacity-45"
+                    disabled={controlPending || screen?.controlPending}
+                    onClick={() => void resumeBot()}
+                  >
+                    Resume bot
+                  </button>
+                )}
+              </div>
+            </footer>
           </div>,
           document.body
         )}

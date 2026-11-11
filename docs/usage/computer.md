@@ -8,7 +8,7 @@ Open a bot and choose the computer button at the top right of the conversation.
 
 On desktop, this opens a panel with a preview of the bot's screen. After you've opened it once, the preview refreshes every few seconds while the panel is open. Select the preview to open the screen full size. On iPhone and iPad, the computer button opens the screen full size directly. Both start in **Watching** mode, so the bot can keep working.
 
-Choose **Take control** to click and type: in the full-size header on desktop, or the **⋯** menu on iPhone and iPad. The status changes to **You have control**. The bot can keep chatting and doing other work, but cannot use this computer's screen or browser while you control it. Choose **Give back control** when you finish, or close the viewer (**Done** on iPhone).
+Choose **Take control** to click and type: in the control bar below the screen on desktop, iPhone, and iPad. The status changes to **You’re in control**. The bot can keep chatting and doing other work, but cannot use this computer's screen or browser while you control it. Choose **Stop** to give back control when you finish, or close the viewer (**Done** on iPhone).
 
 There is no inactivity countdown or renewal requirement. A dropped connection, a backgrounded iPhone app, or a restart of the server or bot computer preserves your control. While the screen reconnects, it shows **Reconnecting — your control is reserved**. Check the current screen before retrying an action; disconnected input is not replayed.
 

@@ -306,10 +306,11 @@ describe("platform prompt integration", () => {
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toMatch(/live meeting|Outlook|saved send rule listed/);
   });
 
-  test("a stop request starts with StopSubagent all: true, which also reaches peers", () => {
+  test("an unscoped stop starts with StopSubagent all: true; a named cancellation preserves other work", () => {
     expect(DELEGATING_SECTION).toContain(
-      "Your first tool call for it is StopSubagent with all: true; that one call stops every running child (computerUse, executor, and all other Task children, plus anything they started) and delivers a stop to every peer agent you handed work to (each then stops its own subagents the same way)"
+      "Your first tool call for that unscoped stop is StopSubagent with all: true; that one call stops every running child (computerUse, executor, and all other Task children, plus anything they started) and delivers a stop to every peer agent you handed work to (each then stops its own subagents the same way)"
     );
+    expect(DELEGATING_SECTION).toContain("first call StopSubagent with that task's subagent_id and omit all; stop only the named work and preserve the other tasks");
     expect(DELEGATING_SECTION).toContain("Do not CheckSubagent first or stop children one by one");
     expect(DELEGATING_SECTION).not.toContain("call CheckSubagent with no id, issue StopSubagent for every running child");
     expect(`${PLATFORM_BASE_SYSTEM_PROMPT}\n${DELEGATING_SECTION}`).not.toContain("cloud agent");

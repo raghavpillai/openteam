@@ -7,6 +7,7 @@ import type { ComputerTurnRequest } from "@openteam/contracts";
 import { dispatchTaskContinuations } from "@openteam/messaging";
 import { AppService } from "../../server/src/app-service";
 import { WakeWorker } from "../src/worker";
+import { streamingComputer } from "./fixtures/streaming-computer";
 
 const db = process.env.OPENTEAM_TEST_DATABASE_URL;
 const realTimeSoak = process.env.OPENTEAM_TASK_SOAK === "1";
@@ -35,7 +36,7 @@ test.skipIf(!db)(
     const fake = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      async fetch(req) {
+      fetch: streamingComputer(async (req) => {
         const path = new URL(req.url).pathname;
         paths.push(`${req.method} ${path}`);
         if (path === "/health")
@@ -219,7 +220,7 @@ test.skipIf(!db)(
         return new Response(events.map((e) => JSON.stringify(e)).join("\n") + "\n", {
           headers: { "content-type": "application/x-ndjson" },
         });
-      },
+      }),
     });
     const until = async (condition: () => Promise<boolean>) => {
       for (let i = 0; i < 900; i++) {

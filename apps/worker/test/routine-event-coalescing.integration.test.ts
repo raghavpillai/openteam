@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import type { ComputerTurnRequest } from "@openteam/contracts";
 import { AppService } from "../../server/src/app-service";
 import { WakeWorker } from "../src/worker";
+import { streamingComputer } from "./fixtures/streaming-computer";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 test.skipIf(!databaseUrl)(
@@ -20,7 +21,7 @@ test.skipIf(!databaseUrl)(
     const fake = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      async fetch(request) {
+      fetch: streamingComputer(async (request) => {
         const path = new URL(request.url).pathname;
         if (path === "/v1/task-capabilities") return Response.json({ desktopAvailable: true, boxAvailable: true });
         if (path === "/health") return Response.json({ status: "ready", inference: { ready: true, authenticated: true } });
@@ -51,7 +52,7 @@ test.skipIf(!databaseUrl)(
         return new Response(events.map((event) => JSON.stringify(event)).join("\n") + "\n", {
           headers: { "content-type": "application/x-ndjson" },
         });
-      },
+      }),
     });
     const keys = ["DATABASE_URL", "OPENTEAM_COMPUTER_URL", "OPENTEAM_CONTROL_TOKEN", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_AGENT_DATA_ROOT"] as const;
     const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));

@@ -45,6 +45,10 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
       Math.abs(main.x - stage.x) < 0.1 && Math.abs(main.width - stage.width) < 0.1,
       "viewer occupies chat area and preserves sidebar"
     );
+    check(
+      Math.abs(stage.y) < 0.1 && Math.abs(stage.height - p.viewportSize().height) < 0.1,
+      "production preview fills the visible viewport vertically"
+    );
     check(await p.locator("[data-composer-dock] form").isVisible(), "composer stays visible");
     const dock = await rect(p.locator("[data-composer-dock] form"));
     check(

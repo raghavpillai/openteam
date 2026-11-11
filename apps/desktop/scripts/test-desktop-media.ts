@@ -2,20 +2,28 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createServer } from "vite";
+import { build, preview } from "vite";
 
 const directory = await mkdtemp(join(tmpdir(), "openteam-desktop-media-"));
-const server = await createServer({
-  root: resolve(import.meta.dir, ".."),
-  configFile: resolve(import.meta.dir, "../vite.config.ts"),
-  cacheDir: join(directory, "vite"),
-  optimizeDeps: { include: ["xlsx", "mammoth"] },
-  server: { port: 0, strictPort: false },
-});
+const root = resolve(import.meta.dir, "..");
+const configFile = resolve(root, "vite.config.ts");
+const outDir = join(directory, "dist");
+let server: Awaited<ReturnType<typeof preview>> | undefined;
 let child: ReturnType<typeof Bun.spawn> | undefined;
 let timeout: ReturnType<typeof setTimeout> | undefined;
 try {
-  await server.listen();
+  // Release CSS optimization can change transform/translate interaction.
+  await build({
+    root,
+    configFile,
+    logLevel: "error",
+    build: {
+      outDir,
+      emptyOutDir: true,
+      rolldownOptions: { input: resolve(root, "test/browser/desktop-style-app.html") },
+    },
+  });
+  server = await preview({ root, configFile, build: { outDir }, preview: { port: 0, strictPort: false } });
   const url = `${server.resolvedUrls!.local[0]}test/browser/desktop-style-app.html`;
   // Reserve an ephemeral port before handing it to Electron's local CDP listener.
   const reservation = Bun.serve({ port: 0, fetch: () => new Response(null) });
@@ -78,6 +86,6 @@ try {
   if (timeout) clearTimeout(timeout);
   child?.kill();
   if (child) await child.exited;
-  await server.close();
+  if (server) await new Promise<void>((done) => server.httpServer.close(() => done()));
   await rm(directory, { recursive: true, force: true });
 }

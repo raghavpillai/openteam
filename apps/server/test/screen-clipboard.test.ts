@@ -42,3 +42,14 @@ test("clipboard rejects missing text, unsupported actions, and oversized text", 
     expect(() => decode(value)).toThrow();
   }
 });
+
+test("clipboard route forwards the viewer generation separately from the operation", async () => {
+  const service = new ScreenService({ bot: { findUnique: async () => ({ id: "bot", status: "active", defaultDirectory: "/workspace" }) } } as unknown as PrismaClient,
+    "/data", "localhost", async (_path, init) => {
+      expect(JSON.parse(String(init.body))).toEqual({ cwd: "/workspace", input: {action:"copy"}, control: {controlId:"desktop",generation:7} });
+      return Response.json({text:"copied"});
+    });
+  const request = new Request("http://localhost/api/v0/bots/bot/screen/clipboard", {method:"POST",body:JSON.stringify({action:"copy",controlId:"desktop",generation:7})});
+  const response = await botRoutes({app:{screenClipboard:service.clipboard},request,url:new URL(request.url),path:"/api/bots/bot/screen/clipboard"} as unknown as RouteContext);
+  expect(response?.status).toBe(200);
+});

@@ -87,6 +87,9 @@ import XCTest
       _ = try await request("/__qa/control", ["statusDelay": 4500, "vncDelay": 4500])
       _ = try await request("/__qa/desktop", [:])
     }
+    if !app.buttons["Computer"].exists {
+      app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.tap()
+    }
     app.buttons["Computer"].tap()
     if starting {
       let loading = app.descendants(matching: .any)
@@ -100,21 +103,22 @@ import XCTest
     return app
   }
   private func takeControl(_ app: XCUIApplication) {
-    app.buttons["Computer options"].tap()
     XCTAssertTrue(app.buttons["Take control"].waitForExistence(timeout: 5))
     capture("takeover-menu", app)
     app.buttons["Take control"].tap()
     let owned = app.staticTexts.matching(
-      NSPredicate(format: "value == %@", "You have control")
+      NSPredicate(format: "value == %@", "You’re in control")
     ).firstMatch.waitForExistence(timeout: 8)
     capture("takeover-result", app)
-    XCTAssertTrue(owned, "Take control must acquire the lease before testing remote gestures")
+    XCTAssertTrue(owned, "Take control must establish ownership before testing remote gestures")
   }
   func testStartupKeyboardClipboardUsesVNC() async throws {
     let app = try await launch(starting: true)
     let screen = app.otherElements["computer-screen"]
     XCTAssertEqual(screen.frame.width / screen.frame.height, 1.6, accuracy: 0.03)
     capture("keyboard-closed", app)
+    XCTAssertFalse(app.buttons["Show computer keyboard"].isEnabled)
+    takeControl(app)
     app.buttons["Show computer keyboard"].tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
     XCTAssertLessThan(screen.frame.maxY, app.keyboards.firstMatch.frame.minY)
@@ -282,7 +286,7 @@ import XCTest
     }, "An expired tap must not leave the remote mouse button held")
     capture("trackpad-expired-tap-moves-only", app)
   }
-  func testForegroundRecoveryPauseAndLeaseReturn() async throws {
+  func testForegroundRecoveryPauseAndControlReturn() async throws {
     let app = try await launch()
     takeControl(app)
     _ = try await request("/__qa/control", ["offline": true])
@@ -312,7 +316,8 @@ import XCTest
     XCUIDevice.shared.press(.home)
     try await Task.sleep(for: .seconds(2))
     let status = try await request("/__qa/state")
-    XCTAssertEqual((status["status"] as? [String: Any])?["humanTakeover"] as? Bool, false)
+    XCTAssertEqual((status["status"] as? [String: Any])?["humanTakeover"] as? Bool, true,
+      "Backgrounding must preserve ownership for reconnection")
     app.activate()
     let foreground = expectation(
       for: NSPredicate(format: "isHittable == true"),
@@ -326,7 +331,7 @@ import XCTest
     let hidden = expectation(
       for: NSPredicate(format: "exists == false"), evaluatedWith: app.keyboards.firstMatch)
     await fulfillment(of: [hidden], timeout: 12)
-    capture("lease-returned", app)
+    capture("control-returned", app)
     app.buttons["Done"].tap()
     XCTAssertTrue(app.buttons["Computer"].waitForExistence(timeout: 10))
   }

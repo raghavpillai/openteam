@@ -160,8 +160,8 @@ app.whenReady().then(async () => {
     const takeovers = value.takeovers;
     await pause(20_100);
     check(
-      (await read()).takeovers > takeovers,
-      "the hidden computer preserves its control heartbeat"
+      (await read()).takeovers === takeovers,
+      "the hidden computer does not acquire or renew control"
     );
     await signal(true, false);
     value = await waitFor((value) => value.vnc.live === 1);

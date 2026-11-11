@@ -756,17 +756,18 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
           body: JSON.stringify(input),
         }
       ),
-    screenClipboard: (botId: string, input: ScreenClipboardInput, signal?: AbortSignal) =>
+    screenClipboard: (botId: string, input: ScreenClipboardInput, signal?: AbortSignal, control?: { controlId?: string; generation?: number }) =>
       transport.request<ScreenClipboardView>(
         `/api/v0/bots/${encodeURIComponent(botId)}/screen/clipboard`,
-        { method: "POST", body: JSON.stringify(input), signal }
+        { method: "POST", body: JSON.stringify({ ...input, ...control }), signal }
       ),
-    setScreenTakeover: (botId: string, active: boolean) =>
+    /** Persistent control uses an owner ID and generation. `renew` is retained for old clients. */
+    setScreenTakeover: (botId: string, active: boolean, renew = false, control?: { controlId?: string; generation?: number; force?: boolean }) =>
       transport.request<ScreenStatusView>(
         `/api/v0/bots/${encodeURIComponent(botId)}/screen/takeover`,
         {
           method: "POST",
-          body: JSON.stringify({ active }),
+          body: JSON.stringify({ active, ...(renew ? { renew } : {}), ...control }),
         }
       ),
     routines: (ownerId: string, ownerKind: "bot" | "group" = "bot") =>
@@ -821,9 +822,9 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/bots/${encodeURIComponent(botId)}/screen/pause`,
         { method: "POST", body: JSON.stringify({ paused }) }
       ),
-    screenVncSession: (botId: string, signal?: AbortSignal) =>
+    screenVncSession: (botId: string, signal?: AbortSignal, control?: { controlId?: string; generation?: number }) =>
       transport.request<ScreenVncSessionView>(
-        `/api/v0/bots/${encodeURIComponent(botId)}/screen/vnc`, { method: "POST", signal }
+        `/api/v0/bots/${encodeURIComponent(botId)}/screen/vnc`, { method: "POST", signal, ...(control ? { body: JSON.stringify(control) } : {}) }
       ),
     screenFrameUrl: (botId: string, revision = Date.now()) =>
       `${transport.baseUrl}/api/v0/bots/${encodeURIComponent(botId)}/screen/frame?v=${revision}`,

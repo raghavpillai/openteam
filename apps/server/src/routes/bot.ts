@@ -1,3 +1,4 @@
+import { Schema } from "effect";
 import {
   CreateBotInput,
   CreateGroupInput,
@@ -5,6 +6,7 @@ import {
   ScreenClipboardInput,
   ScreenPauseInput,
   ScreenTakeoverInput,
+  ScreenControlIdentity,
 } from "@openteam/contracts";
 import { corsHeaders, json } from "../http";
 import { type RouteContext, run } from "./context";
@@ -80,20 +82,20 @@ const routes = [
   bodyRoute(
     "POST",
     /^\/api\/bots\/([^/]+)\/screen\/clipboard$/,
-    ScreenClipboardInput,
-    ({ app, request }, id, input) => app.screenClipboard(id, input, request.signal)
+    ScreenClipboardInput.pipe(Schema.extend(ScreenControlIdentity)),
+    ({ app, request }, id, { controlId, generation, ...input }) => app.screenClipboard(id, input, request.signal, { controlId, generation })
   ),
   bodyRoute(
     "POST",
     /^\/api\/bots\/([^/]+)\/screen\/actions$/,
-    ScreenActionInput,
-    ({ app }, id, input) => app.screenAction(id, input)
+    ScreenActionInput.pipe(Schema.extend(ScreenControlIdentity)),
+    ({ app }, id, { controlId, generation, ...input }) => app.screenAction(id, input, { controlId, generation })
   ),
   bodyRoute(
     "POST",
     /^\/api\/bots\/([^/]+)\/screen\/takeover$/,
     ScreenTakeoverInput,
-    ({ app }, id, input) => app.screenTakeover(id, input.active)
+    ({ app }, id, input) => app.screenTakeover(id, input.active, input.renew, input)
   ),
   bodyRoute(
     "POST",

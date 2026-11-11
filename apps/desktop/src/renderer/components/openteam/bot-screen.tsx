@@ -5,7 +5,8 @@ import {
   createSerialPoller,
   SCREEN_FRAME_REFRESH_MS,
   SCREEN_STATUS_POLL_MS,
-  SCREEN_TAKEOVER_HEARTBEAT_MS,
+  createComputerControlController,
+  ownsComputerControl,
 } from "@openteam/client-core";
 import type { BotView, ScreenStatusView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
@@ -29,6 +30,7 @@ import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import VncComputer from "./vnc-computer";
 import { BotAvatar } from "./avatar";
+import { ComputerControlBar } from "./computer-control-bar";
 
 const statusRequests = createKeyedRequestCoordinator();
 
@@ -57,19 +59,27 @@ export function BotScreen({
 }) {
   const visible = useWindowVisible();
   const resourcesActive = useResourceActive();
+  const controlId = useMemo(() => {
+    const key = `openteam:computer-control:${API_BASE}:${bot.id}`;
+    let id = sessionStorage.getItem(key);
+    if (!id) {
+      id = crypto.randomUUID();
+      sessionStorage.setItem(key, id);
+    }
+    return id;
+  }, [bot.id]);
+  const control = useMemo(
+    () =>
+      createComputerControlController(controlId, (active, input) =>
+        api.screenTakeover(bot.id, active, false, input)
+      ),
+    [bot.id, controlId]
+  );
+  const controlRevision = useRef(0);
   const [screen, setScreen] = useState<ScreenStatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frameRevision, setFrameRevision] = useState(Date.now());
   const [open, setOpen] = useState(false);
-  const viewerState = useRef({ open, botId: bot.id, mounted: true });
-  viewerState.current.open = open;
-  viewerState.current.botId = bot.id;
-  useEffect(() => {
-    viewerState.current.mounted = true;
-    return () => {
-      viewerState.current.mounted = false;
-    };
-  }, []);
   const recordViewerReady = useCallback(() => {
     if (!viewerOpenedAt.current) return;
     recordPerformance("view.desktop-ready", performance.now() - viewerOpenedAt.current, {
@@ -90,8 +100,11 @@ export function BotScreen({
     [handoffMessageId]
   );
   const refreshStatus = useCallback(async () => {
+    const revision = controlRevision.current;
     try {
       const next = await loadScreenStatus(bot.id);
+      if (revision !== controlRevision.current) return next;
+      control.observe(next);
       setScreen(next);
       setError(null);
       return next;
@@ -99,7 +112,7 @@ export function BotScreen({
       setError(clientErrorMessage(cause, "Could not load the shared computer"));
       return null;
     }
-  }, [bot.id]);
+  }, [bot.id, control]);
 
   useEffect(() => {
     if (visible && shouldLoadScreenStatus(enabled, active) && !screen) void refreshStatus();
@@ -174,15 +187,6 @@ export function BotScreen({
     closeViewer();
   }, [active, closeViewer, open]);
   useEffect(() => {
-    if (!handoffMessageId) return;
-    handoffRelease.resume();
-    window.addEventListener("pagehide", handoffRelease.release);
-    return () => {
-      window.removeEventListener("pagehide", handoffRelease.release);
-      handoffRelease.deferRelease();
-    };
-  }, [handoffMessageId, handoffRelease]);
-  useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -203,46 +207,96 @@ export function BotScreen({
     if (!handoff || handoff.botId !== bot.id) return;
     onEnable();
     setOpen(true);
-    if (!screen) void refreshStatus();
-  }, [bot.id, handoff, onEnable, refreshStatus, screen]);
+    // The server took control when the card started; a cached status may predate that.
+    void refreshStatus();
+  }, [bot.id, handoff, onEnable, refreshStatus]);
+  const controlling = ownsComputerControl(screen, controlId);
+  const [controlPending, setControlPending] = useState(false);
+  const [viewerConnected, setViewerConnected] = useState(false);
+  const [showReconnect, setShowReconnect] = useState(false);
+  useEffect(() => {
+    if (!controlling || viewerConnected) {
+      setShowReconnect(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowReconnect(true), 500);
+    return () => window.clearTimeout(timer);
+  }, [controlling, viewerConnected]);
+  const [watchHint, setWatchHint] = useState(false);
+  useEffect(() => {
+    setWatchHint(false);
+  }, [open, controlling]);
+  const changeControl = useCallback(
+    async (active: boolean) => {
+      if (controlPending) return;
+      controlRevision.current += 1;
+      setControlPending(true);
+      try {
+        const next = active ? await control.take(true) : await control.giveBack();
+        if (next) setScreen(next);
+        setError(null);
+      } catch (cause) {
+        setError(
+          clientErrorMessage(
+            cause,
+            active ? "Could not take computer control" : "Could not give back control"
+          )
+        );
+      } finally {
+        controlRevision.current += 1;
+        setControlPending(false);
+      }
+    },
+    [control, controlPending]
+  );
+  const resumeBot = async () => {
+    controlRevision.current += 1;
+    setControlPending(true);
+    try {
+      const next = await api.screenTakeover(bot.id, false, false, { force: true });
+      control.observe(next);
+      setScreen(next);
+    } catch (cause) {
+      setError(clientErrorMessage(cause, "Could not resume the bot"));
+    } finally {
+      controlRevision.current += 1;
+      setControlPending(false);
+    }
+  };
   useEffect(() => {
     if (!open) return;
-    let active = true;
-    let pending: Promise<ScreenStatusView> | undefined;
+    control.open();
     const poller = createSerialPoller({
-      intervalMs: SCREEN_TAKEOVER_HEARTBEAT_MS,
+      intervalMs: SCREEN_STATUS_POLL_MS,
+      immediate: true,
       task: async () => {
-        try {
-          pending = api.screenTakeover(bot.id, true);
-          const next = await pending;
-          if (active) setScreen(next);
-        } catch (cause) {
-          if (active) setError(clientErrorMessage(cause, "Could not keep computer control"));
-        }
+        if (isWindowVisible()) await refreshStatus();
       },
     });
     poller.start();
     window.addEventListener(WINDOW_VISIBILITY_EVENT, poller.wake);
     return () => {
-      active = false;
       poller.stop();
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, poller.wake);
-      if (!handoff) {
-        // Wait for an in-flight acquisition before releasing; a reopened viewer
-        // keeps its lease, while closing or changing bots returns control.
-        void Promise.resolve(pending)
-          .catch(() => undefined)
-          .then(() => {
-            const viewer = viewerState.current;
-            if (!viewer.mounted || !viewer.open || viewer.botId !== bot.id)
-              return api.screenTakeover(bot.id, false);
-          })
-          .catch(() => {
-            /* The bounded lease expires if the server is offline. */
-          });
-      }
+      if (!handoff)
+        void control.close().catch(() => {
+          /* Ownership is reserved for reconnection. */
+        });
     };
-  }, [bot.id, handoff, open]);
+  }, [control, handoff, open, refreshStatus]);
+  useEffect(() => {
+    if (open && handoff && screen?.controlSession?.id === `handoff:${handoff.messageId}`)
+      void changeControl(true);
+  }, [open, handoff, screen?.controlSession?.id, changeControl]);
+  const controlLabel = screen?.controlPending
+    ? "Changing control…"
+    : controlling
+      ? !showReconnect
+        ? "You’re in control"
+        : "Reconnecting — your control is reserved"
+      : screen?.humanTakeover
+        ? "Controlled on another device"
+        : "Watching";
   const viewerReady = screen?.state === "ready";
   const frameSource = useAuthenticatedResource(
     enabled && active && screen?.state === "ready" && !open
@@ -291,7 +345,12 @@ export function BotScreen({
                 src={frameSource}
               />
             ) : (
-              <span className="bot-computer-placeholder"><BotAvatar bot={bot} size="md" mode="still" /><span className="bot-computer-sleep">z<span>z</span></span></span>
+              <span className="bot-computer-placeholder">
+                <BotAvatar bot={bot} size="md" mode="still" />
+                <span className="bot-computer-sleep">
+                  z<span>z</span>
+                </span>
+              </span>
             )}
           </span>
         </button>
@@ -345,14 +404,14 @@ export function BotScreen({
           the full-window computer outside that containing block. */}
       {open &&
         createPortal(
-          <div className="fixed inset-0 z-[70] flex flex-col bg-black/[0.94] text-white">
+          <div className="fixed inset-0 z-[70] flex flex-col bg-[#111111] text-white">
             {/* One draggable title row; content starts past the macOS window
               buttons, which end at x=76px. */}
             <header className="electron-drag flex min-h-11 shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 border-b border-white/[0.035] py-1.5 pl-[88px] pr-3">
               {handoff ? (
                 <>
                   <span className="mr-auto min-w-0 basis-full py-2 text-[13px] leading-4 text-white/85 md:flex-1 md:basis-0 md:py-0">
-                    {handoff.reason || "Complete the requested step"}
+                    {controlLabel + " · " + (handoff.reason || "Complete the requested step")}
                   </span>
                   <Button
                     className="electron-no-drag text-white/70 hover:bg-white/[0.055] hover:text-white"
@@ -394,24 +453,39 @@ export function BotScreen({
               </p>
             )}
             <main
-              className="flex min-h-0 flex-1 items-center justify-center p-2 [container-type:size]"
+              className="flex min-h-0 flex-1 items-center justify-center px-5 py-2 [container-type:size]"
               onClick={(event) => event.target === event.currentTarget && closeViewer()}
               onKeyDown={(event) => event.key === "Escape" && closeViewer()}
             >
               {/* The largest 16:10 screen that fits the space below the header. */}
               <div
-                className="relative aspect-[16/10] overflow-hidden rounded-[6px] bg-[#1b1d1f]"
+                className="relative aspect-[16/10] overflow-hidden rounded-lg bg-[#1b1d1f]"
+                onPointerDownCapture={() => {
+                  if (!controlling && viewerReady) setWatchHint(true);
+                }}
                 style={{ width: "min(100cqw, 160cqh)" }}
               >
                 {viewerReady && visible ? (
                   <VncComputer
-                    key={bot.id}
+                    key={`${bot.id}:${controlling ? screen?.controlSession?.generation : 0}`}
                     botId={bot.id}
                     name={bot.name}
                     serverUrl={API_BASE}
-                    createSession={api.screenVncSession}
-                    clipboard={(input, signal) => api.screenClipboard(bot.id, input, signal)}
+                    createSession={(id, signal) =>
+                      api.screenVncSession(id, signal, {
+                        controlId,
+                        ...(controlling ? { generation: screen?.controlSession?.generation } : {}),
+                      })
+                    }
+                    clipboard={(input, signal) =>
+                      api.screenClipboard(bot.id, input, signal, {
+                        controlId,
+                        generation: screen?.controlSession?.generation,
+                      })
+                    }
+                    viewOnly={!controlling || controlPending}
                     onReady={recordViewerReady}
+                    onConnectionChange={setViewerConnected}
                     onClose={closeViewer}
                   />
                 ) : (
@@ -441,6 +515,18 @@ export function BotScreen({
                 )}
               </div>
             </main>
+            <footer className="electron-no-drag flex shrink-0 justify-center px-4 pb-4 pt-2">
+              <ComputerControlBar
+                label={controlLabel}
+                controlling={controlling}
+                pending={controlPending || screen?.controlPending === true}
+                available={viewerReady}
+                anotherDevice={!controlling && screen?.humanTakeover === true}
+                hint={watchHint}
+                onChange={() => void changeControl(!controlling)}
+                onResume={() => void resumeBot()}
+              />
+            </footer>
           </div>,
           document.body
         )}

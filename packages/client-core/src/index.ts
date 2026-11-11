@@ -20,3 +20,4 @@ export * from "./http";
 export * from "./plugin-marketplace";
 export * from "./screen";
 export * from "./sync";
+export * from "./computer-control";

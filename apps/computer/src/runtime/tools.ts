@@ -875,6 +875,7 @@ export class RuntimeTools {
       requestedActions.some(action => ["click", "move", "drag", "scroll"].includes(action.action));
     const actions = needsDesktopObservation ? [{ action: "screenshot" as const }] : requestedActions;
     const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions, signal).catch((error) => {
+      active.lastGraphicalSurface = undefined;
       throw signal?.aborted ? error : new Error(`Computer action failed: ${error instanceof Error ? error.message : String(error)}`);
     });
     signal?.throwIfAborted();
@@ -949,14 +950,27 @@ export class RuntimeTools {
     signal?: AbortSignal,
     callId = toolName
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const browser = await this.browserSession(active);
-    this.browserUseSessions.set(active.botId, browser);
-    this.browserSessionScreens.set(active.botId, active.screenBotId);
-    browser.configureUploads(this.workspaceRoot, [this.agentDir]);
-    browser.registerPrivateValues([...(this.privateBrowserValues.get(active.screenBotId) ?? [])]);
-    const result = await browser.execute(toolName, args, signal);
-    active.lastGraphicalSurface = "browser";
-    return result;
+    try {
+      return await this.screens.withAgentBrowserInput(active.screenBotId, active.cwd, async controlSignal => {
+        const combined = signal && controlSignal ? AbortSignal.any([signal, controlSignal]) : signal ?? controlSignal;
+        combined?.throwIfAborted();
+        const browser = await this.browserSession(active);
+        combined?.throwIfAborted();
+        this.browserUseSessions.set(active.botId, browser);
+        this.browserSessionScreens.set(active.botId, active.screenBotId);
+        browser.configureUploads(this.workspaceRoot, [this.agentDir]);
+        browser.registerPrivateValues([...(this.privateBrowserValues.get(active.screenBotId) ?? [])]);
+        const result = await browser.execute(toolName, args, combined);
+        // Some browser commands cannot cancel midway. Drain them before granting human input,
+        // and report the interruption even if the underlying command completed successfully.
+        combined?.throwIfAborted();
+        active.lastGraphicalSurface = "browser";
+        return result;
+      });
+    } catch (error) {
+      active.lastGraphicalSurface = undefined;
+      throw error;
+    }
   }
 
   private async formBrowser(botId: string, existingEndpoint?: string): Promise<FormBrowser> {

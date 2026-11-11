@@ -15,7 +15,7 @@ import XCTest
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
   func launch(_ scene: String, required: Bool = false, dark: Bool = false, haptics: Bool = false,
-    slowFavicons: Bool = false) async throws
+    slowFavicons: Bool = false, largeText: Bool = false, reducedMotion: Bool = false) async throws
     -> XCUIApplication
   {
     continueAfterFailure = false
@@ -33,7 +33,9 @@ import XCTest
     ]
     if required { app.launchArguments.append("--show-login") }
     if haptics { app.launchArguments.append("--haptic-audit") }
+    if reducedMotion { app.launchArguments.append("--qa-reduce-motion") }
     if slowFavicons { app.launchArguments.append("--slow-favicons") }
+    if largeText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
     app.launch()
     if required {
       waitForArrival(app.buttons["get-started"])
@@ -308,6 +310,92 @@ import XCTest
     XCTAssertTrue(app.buttons["photo-close"].waitForExistence(timeout: 12))
     capture("native-file-preview", app)
     app.buttons["photo-close"].tap()
+  }
+  /// Native control chrome must remain usable before or during a VNC reconnect.
+  func testComputerControlBarAndBackgroundOwnership() async throws {
+    try await exerciseComputerControlBar(largeText: false)
+  }
+  func testComputerControlBarWithAccessibilityText() async throws {
+    try await exerciseComputerControlBar(largeText: true)
+  }
+  func testComputerControlMotion() async throws {
+    let app = try await launch("plain-link", dark: true)
+    defer { app.terminate() }
+    if !app.buttons["Computer"].exists {
+      app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.tap()
+    }
+    app.buttons["Computer"].tap()
+    XCTAssertTrue(app.buttons["Take control"].waitForExistence(timeout: 12))
+    try await Task.sleep(for: .seconds(2))
+    print("COMPUTER_CONTROL_MOTION_START")
+    try await Task.sleep(for: .seconds(1))
+    for _ in 0..<3 {
+      app.buttons["Take control"].tap()
+      XCTAssertTrue(app.buttons["Give back control"].waitForExistence(timeout: 12))
+      try await Task.sleep(for: .milliseconds(1200))
+      let stopFrame = app.buttons["Give back control"].frame
+      let barFrame = app.descendants(matching: .any).matching(identifier: "computer-control-bar").firstMatch.frame
+      XCTAssertEqual(stopFrame.width, 64, accuracy: 2, "Stop must not retain Take control’s invisible layout slot")
+      XCTAssertEqual(barFrame.maxX - stopFrame.maxX, 6, accuracy: 2, "Stop keeps the same trailing rim inset")
+      XCTAssertEqual(barFrame.midY, stopFrame.midY, accuracy: 1, "Stop is vertically centered in the capsule")
+      app.buttons["Give back control"].tap()
+      XCTAssertTrue(app.buttons["Take control"].waitForExistence(timeout: 12))
+      try await Task.sleep(for: .milliseconds(1200))
+    }
+    print("COMPUTER_CONTROL_MOTION_END")
+    let final = try await state()
+    XCTAssertEqual((final["screen"] as? [String: Any])?["humanTakeover"] as? Bool, false)
+  }
+  func testComputerControlReducedMotion() async throws {
+    try await exerciseComputerControlBar(largeText: false, reducedMotion: true)
+  }
+  private func exerciseComputerControlBar(largeText: Bool, reducedMotion: Bool = false) async throws {
+    let app = try await launch("plain-link", dark: true, largeText: largeText, reducedMotion: reducedMotion)
+    defer { app.terminate() }
+    if !app.buttons["Computer"].exists {
+      app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.tap()
+    }
+    app.buttons["Computer"].tap()
+    let take = app.buttons["Take control"]
+    XCTAssertTrue(take.waitForExistence(timeout: 12), "Take control is visible without opening a menu")
+    XCTAssertTrue(take.isHittable)
+    XCTAssertGreaterThanOrEqual(take.frame.height, 44)
+    capture(largeText ? "computer-control-large-text-watching" : "computer-control-watching", app)
+    take.tap()
+    let stop = app.buttons["Give back control"]
+    XCTAssertTrue(stop.waitForExistence(timeout: 12))
+    XCTAssertTrue(stop.isHittable)
+    let owned = try await state()
+    XCTAssertEqual((owned["screen"] as? [String: Any])?["humanTakeover"] as? Bool, true)
+    capture(largeText ? "computer-control-large-text-owned" : "computer-control-owned", app)
+    if !largeText {
+      XCUIDevice.shared.press(.home)
+      try await Task.sleep(for: .seconds(2))
+      app.activate()
+      XCTAssertTrue(stop.waitForExistence(timeout: 12))
+      let returned = try await state()
+      let expectedControl = try XCTUnwrap((owned["screen"] as? [String: Any])?["controlSession"] as? NSDictionary)
+      XCTAssertEqual((returned["screen"] as? [String: Any])?["controlSession"] as? NSDictionary, expectedControl)
+      XCTAssertEqual((returned["screen"] as? [String: Any])?["humanTakeover"] as? Bool, true)
+    }
+    stop.tap()
+    XCTAssertTrue(take.waitForExistence(timeout: 12))
+    let released = try await state()
+    XCTAssertEqual((released["screen"] as? [String: Any])?["humanTakeover"] as? Bool, false)
+    // Another viewer acquires ownership while this one is open.
+    try await control("/api/v0/bots/bot-research/screen/takeover", [
+      "active": true, "controlId": "other-viewer", "force": true,
+    ])
+    XCTAssertTrue(app.buttons["Take control here"].waitForExistence(timeout: 12))
+    let resume = app.buttons["Resume bot"]
+    XCTAssertTrue(resume.isHittable)
+    capture(largeText ? "computer-control-large-text-other-device" : "computer-control-other-device", app)
+    resume.tap()
+    XCTAssertTrue(take.waitForExistence(timeout: 12))
+    let resumed = try await state()
+    XCTAssertEqual((resumed["screen"] as? [String: Any])?["humanTakeover"] as? Bool, false)
+    app.buttons["Done"].tap()
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.waitForExistence(timeout: 12))
   }
   /// Input delivery is covered against an actual VNC desktop in VNCValidationUITests.
   /// This fixture verifies handoff lifecycle even if the viewer cannot connect.

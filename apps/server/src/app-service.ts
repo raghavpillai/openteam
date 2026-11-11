@@ -477,6 +477,8 @@ export class AppService {
 
   screenTakeover = forwardServiceMethod(() => this.screens.takeover);
 
+  screenActivity = forwardServiceMethod(() => this.screens.reportActivity);
+
   screenPause = forwardServiceMethod(() => this.screens.pause);
 
   archiveBot = forwardServiceMethod(() => this.bots.archive);

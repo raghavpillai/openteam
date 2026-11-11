@@ -5,18 +5,30 @@ import { resolveVncSocketUrl } from "../../client/runtime-url";
 import type RFB from "@novnc/novnc";
 import type { ScreenClipboardInput, ScreenClipboardView, ScreenVncSessionView } from "@openteam/contracts";
 
-export default function VncComputer({ botId, name, serverUrl, createSession, clipboard, onReady, onClose }: {
+export default function VncComputer({ botId, name, serverUrl, createSession, clipboard, viewOnly = false, onReady, onClose, onConnectionChange }: {
   botId: string;
   name: string;
   serverUrl: string;
   createSession: (botId: string, signal: AbortSignal) => Promise<ScreenVncSessionView>;
   clipboard?: (input: ScreenClipboardInput, signal: AbortSignal) => Promise<ScreenClipboardView>;
+  /** Observation mode: the screen is shown but no key, pointer or clipboard input is sent. */
+  viewOnly?: boolean;
   onReady: () => void;
+  onConnectionChange?: (connected: boolean) => void;
   onClose: () => void;
 }) {
+  const sessionAPI = useRef(createSession);
+  sessionAPI.current = createSession;
   const container = useRef<HTMLDivElement>(null);
   const rfb = useRef<RFB | null>(null);
+  const viewOnlyRef = useRef(viewOnly);
+  viewOnlyRef.current = viewOnly;
+  useEffect(() => {
+    // Toggling control must not reconnect: noVNC switches input on the live session.
+    if (rfb.current) rfb.current.viewOnly = viewOnly;
+  }, [viewOnly]);
   const [state, setState] = useState("connecting");
+  useEffect(() => { onConnectionChange?.(state === "connected"); }, [state, onConnectionChange]);
   const [lastFrame, setLastFrame] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const clipboardAPI = useRef(clipboard);
@@ -28,9 +40,10 @@ export default function VncComputer({ botId, name, serverUrl, createSession, cli
     clipboardRequests.current.clear();
     clipboardQueue.current = Promise.resolve();
   }, []);
+  useEffect(() => { if (viewOnly) abortClipboard(); }, [viewOnly, abortClipboard]);
   const transferClipboard = useCallback((action: "paste" | "copy" | "cut", shift = false, text?: Promise<string>) => {
     const current = rfb.current;
-    if (!current) return;
+    if (!current || viewOnlyRef.current) return;
     // Read the local clipboard at the gesture, before a queued operation can delay it.
     const value = action === "paste" ? (text ?? Promise.resolve().then(() => window.openteam?.clipboard?.readText() ?? navigator.clipboard.readText())) : Promise.resolve("");
     const request = new AbortController();
@@ -38,7 +51,7 @@ export default function VncComputer({ botId, name, serverUrl, createSession, cli
     const prepared = value.then(text => ({ text }), () => ({ error: "Clipboard access failed. Use the Edit menu to try again." }));
     const operation = clipboardQueue.current.then(async () => {
       const result = await prepared;
-      if (request.signal.aborted || rfb.current !== current) return;
+      if (request.signal.aborted || rfb.current !== current || viewOnlyRef.current) return;
       if ("error" in result) throw new Error(result.error);
       if (!clipboardAPI.current) throw new Error("Update your OpenTeam server to use clipboard sharing.");
       if (result.text.length > 1_000_000) throw new Error("Clipboard text is too large.");
@@ -62,7 +75,7 @@ export default function VncComputer({ botId, name, serverUrl, createSession, cli
     update();
     document.addEventListener("focusin", update);
     const unsubscribe = bridge?.onComputerAction(action => {
-      if (state === "connected" && container.current?.contains(document.activeElement)) transferClipboard(action);
+      if (state === "connected" && !viewOnlyRef.current && container.current?.contains(document.activeElement)) transferClipboard(action);
     });
     return () => { document.removeEventListener("focusin", update); unsubscribe?.(); bridge?.setComputerActive(false); };
   }, [state, transferClipboard]);
@@ -86,7 +99,7 @@ export default function VncComputer({ botId, name, serverUrl, createSession, cli
       pending = request;
       try {
         const [{ default: RFB }, session] = await Promise.all([
-          import("@novnc/novnc"), createSession(botId, request.signal),
+          import("@novnc/novnc"), sessionAPI.current(botId, request.signal),
         ]);
         if (stopped || request.signal.aborted || !container.current) return;
         const url = resolveVncSocketUrl(serverUrl, session.path, botId);
@@ -95,6 +108,7 @@ export default function VncComputer({ botId, name, serverUrl, createSession, cli
         });
         connection = current;
         rfb.current = current;
+        current.viewOnly = viewOnlyRef.current;
         current.scaleViewport = true;
         current.resizeSession = false;
         current.focusOnClick = true;
@@ -166,11 +180,13 @@ export default function VncComputer({ botId, name, serverUrl, createSession, cli
       rfb.current = null;
       abortClipboard();
     };
-  }, [botId, serverUrl, createSession, onReady, abortClipboard]);
+  }, [botId, serverUrl, onReady, abortClipboard]);
 
   return <div className="absolute inset-0 bg-[#1b1d1f]" data-vnc-state={state}
     onKeyDownCapture={(event) => {
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
+      // Observation mode forwards nothing, including the modifier sync below.
+      else if (viewOnly) return;
       else if (event.key === "Meta") { event.preventDefault(); event.stopPropagation(); }
       else if ((event.ctrlKey || event.metaKey) && ["v", "c", "x"].includes(event.key.toLowerCase()) && !event.altKey) {
         event.preventDefault();
@@ -185,6 +201,7 @@ export default function VncComputer({ botId, name, serverUrl, createSession, cli
       }
     }}
     onKeyUpCapture={(event) => {
+      if (viewOnly) return;
       if (event.key === "Meta" || ((event.ctrlKey || event.metaKey) && ["v", "c", "x"].includes(event.key.toLowerCase()) && !event.altKey)) {
         event.preventDefault(); event.stopPropagation();
       }
@@ -194,7 +211,7 @@ export default function VncComputer({ botId, name, serverUrl, createSession, cli
     onBeforeInput={(event) => event.preventDefault()}
     onPaste={(event) => {
       const text = event.clipboardData.getData("text/plain");
-      if (!text || !rfb.current) return;
+      if (!text || !rfb.current || viewOnly) return;
       event.preventDefault();
       transferClipboard("paste", false, Promise.resolve(text));
     }}>

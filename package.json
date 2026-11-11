@@ -46,7 +46,8 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "ios:performance": "bun --filter @openteam/ios performance",
-    "prepare:plugins": "bun packages/plugins/scripts/generate.ts"
+    "prepare:plugins": "bun packages/plugins/scripts/generate.ts",
+    "test:computer-control:chaos": "bun test apps/computer/test/screen-control.chaos.test.ts apps/server/test/screen-vnc.chaos.test.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.7",

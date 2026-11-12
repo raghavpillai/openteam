@@ -22,6 +22,7 @@ Every plugin belongs in `packages/plugins/<plugin-name>/`. The same structure ap
 | [Notion](notion/README.md) | Remote MCP, OAuth | Work with documents, research, meetings, and tasks |
 | [Plaid](plaid/README.md) | Skills using the Plaid CLI | Query balances, transactions, recurring payments, investments, and loans |
 | [Ramp](ramp/README.md) | Remote MCP, OAuth | Analyze spend, manage expenses and approvals, and run finance workflows |
+| [T3 Code](t3-code/README.md) | Remote MCP, OAuth and bundled skills | Start coding work in T3 worktrees, follow results, and continue existing threads |
 | [Slack (managed)](slack/README.md) | Remote MCP, your Slack app's OAuth | Search channels, read threads, send messages, and work with canvases |
 | [Slack (stealth)](slack-stealth/README.md) | Packaged MCP, browser session | Search, read channels and threads, send messages, and add reactions |
 
@@ -48,6 +49,8 @@ For remote MCP, declare HTTP(S), authentication (`none`, `token`, or `oauth`), a
 If a provider requires OAuth authorization extensions, set `configuration.oauthAuthorizationParameters`. The supported parameters are `access_type` and `prompt`; security parameters such as state, callback, and PKCE remain controlled by OpenTeam. The Google packages request `access_type: "offline"` and `prompt: "consent select_account"` to obtain refresh tokens and explicitly choose an account. Configured scopes take precedence over the provider's advertised scope inventory.
 
 `${FIELD_NAME}` substitutes a typed setup value. Declare credential fields with `secret: true`, no default, and use placeholders in the manifest. Enter real secrets in the installed account's settings. Keep, replace and clear are distinct operations. Never include `.env`, credentials files, `node_modules`, or a real token in a contribution.
+
+For a user-supplied remote MCP endpoint, declare a required, non-secret string field with `format: "mcp-url"`, and use the entire field as the endpoint, such as `"endpoint": "${mcpUrl}"`. Account setup saves and validates the URL before OAuth discovery. This format accepts HTTPS or HTTP loopback and rejects embedded credentials, approval-code queries, and fragments. It does not assert reachability: authenticated discovery must still succeed. Use `configuration.oauthRegistration: "dynamic"` for a connector that must not inherit global manual OAuth client credentials.
 
 ## Multiple provider accounts
 

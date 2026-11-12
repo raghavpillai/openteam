@@ -7,6 +7,7 @@ PluginSettingsView,
 } from "@openteam/contracts";
 import { GOOGLE_PLUGIN_KEYS, pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
+import { validateValues } from "@openteam/plugin-sdk/configuration";
 import {
 Check,
 ChevronDown,
@@ -418,6 +419,7 @@ function PluginSetupCard({
   const setup = plugin.setup;
   const [values, setValues] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const section = sectionRef.current;
@@ -458,19 +460,22 @@ function PluginSetupCard({
       });
       return;
     }
-    // A "none" setup still collects its declared fields; connecting before
-    // saving them leaves the connector's placeholders unresolved.
-    if (setup.kind === "none" && !connection.configured && setup.fields.length) {
-      onConfigureValues(
-        Object.fromEntries(
+    // Save account setup (including a remote URL) before OAuth discovery.
+    if ((setup.kind === "none" || setup.kind === "oauth") && !connection.configured && setup.fields.length) {
+      const submitted = Object.fromEntries(
           setup.fields
             .filter((field) => values[field.key]?.trim())
             .map((field) => [
               field.key,
               field.secret ? values[field.key]! : values[field.key]!.trim(),
             ])
-        )
-      );
+        );
+      try { validateValues(setup.fields, submitted); } catch (error) {
+        setValidationError(error instanceof Error ? error.message : "Check the connection details.");
+        return;
+      }
+      setValidationError(null);
+      onConfigureValues(submitted);
       return;
     }
     onAuthenticate();
@@ -485,7 +490,8 @@ function PluginSetupCard({
         ? connection.configured
           ? "Authorize account"
           : "Save credentials and continue"
-        : setup.kind === "none" ? "Connect" : "Continue to authorization";
+        : setup.kind === "none" ? "Connect" : !connection.configured && setup.fields.some(field => field.format === "mcp-url")
+          ? "Validate URL and connect" : "Continue to authorization";
 
   return (
     <section
@@ -616,7 +622,7 @@ function PluginSetupCard({
           {setup.fields.length && !connection.configured ? (
             <div className="mt-3 grid grid-cols-2 gap-2 max-sm:grid-cols-1">
               {setup.fields.map((field) => (
-                <label className="space-y-1" key={field.key}>
+                <label className={cn("space-y-1", field.format === "mcp-url" && "col-span-2 max-sm:col-span-1")} key={field.key}>
                   <span className="block text-[10px] font-medium text-foreground-secondary">
                     {field.label}
                   </span>
@@ -624,11 +630,12 @@ function PluginSetupCard({
                     aria-label={field.label}
                     required={field.required}
                     className="h-8 w-full rounded-[7px] border border-black/[0.08] bg-background px-2.5 text-[10.5px] outline-none placeholder:text-foreground-tertiary focus:border-black/20 dark:border-white/10 dark:bg-[#1d1d1d] dark:focus:border-white/20"
-                    onChange={(event) =>
-                      setValues((current) => ({ ...current, [field.key]: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      setValues((current) => ({ ...current, [field.key]: event.target.value }));
+                      setValidationError(null);
+                    }}
                     placeholder={field.placeholder}
-                    type={field.secret ? "password" : "text"}
+                    type={field.secret ? "password" : field.format === "mcp-url" ? "url" : "text"}
                     value={values[field.key] ?? ""}
                   />
                   {field.helpText ? (
@@ -645,6 +652,7 @@ function PluginSetupCard({
             </div>
           ) : null}
 
+          {validationError ? <p role="alert" className="mt-3 text-[10.5px] text-red-600 dark:text-red-400">{validationError}</p> : null}
           {connection.statusMessage ? (
             <p className="mt-3 text-[10px] leading-4 text-foreground-tertiary">
               {connection.statusMessage}

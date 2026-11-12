@@ -80,6 +80,17 @@ public enum FormValidation {
       if !field["enum"].array.isEmpty, !field["enum"].array.contains(value) {
         throw APIError("Choose one of the available values for \(label.lowercased()).")
       }
+      if field["format"].string == "mcp-url" {
+        let parsed = try endpoint(value.string)
+        guard let url = URLComponents(string: parsed),
+          url.scheme?.lowercased() == "https"
+            || ["localhost", "127.0.0.1", "::1", "[::1]"].contains(url.host?.lowercased() ?? "")
+        else { throw APIError("Use an HTTPS MCP URL, or HTTP on localhost for a server on the same computer.") }
+        let privateKey = "token|secret|password|authorization|api.?key|cookie|credential|^(code|approval_code|pairing_code|state)$"
+        if (url.queryItems ?? []).contains(where: { $0.name.range(of: privateKey, options: [.regularExpression, .caseInsensitive]) != nil }) {
+          throw APIError("Use the MCP server URL without credentials or approval codes.")
+        }
+      }
       if value.string.count > 20_000 {
         throw APIError("\(label) is too long. Use no more than 20,000 characters.")
       }

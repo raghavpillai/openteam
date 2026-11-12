@@ -3,6 +3,27 @@ import type { ConfigValue, PluginDefinition, PluginField, SecretEdit } from "./t
 export const isSecretKey = (key: string): boolean =>
   /token|secret|password|authorization|api.?key|cookie|credential/i.test(key);
 
+/** OAuth endpoints can receive credentials; never accept userinfo or remote plain HTTP. */
+export function validateMcpUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error("Enter the complete MCP URL, including https:// and its endpoint path.");
+  }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw new Error("Use an HTTPS MCP URL, or HTTP on localhost for a server on the same computer.");
+  }
+  const credentialQuery = [...url.searchParams.keys()].some(
+    key => isSecretKey(key) || /^(code|approval_code|pairing_code|state)$/i.test(key)
+  );
+  if (url.username || url.password || value.includes("#") || credentialQuery) {
+    throw new Error("Use the MCP server URL without credentials, approval codes, or fragments.");
+  }
+  return url.toString();
+}
+
 export function validateValues(
   fields: readonly PluginField[],
   values: Record<string, unknown>,
@@ -30,7 +51,9 @@ export function validateValues(
       throw new Error(`${field.label} is too long`);
     if (field.enum && !field.enum.includes(value as ConfigValue))
       throw new Error(`${field.label} must be one of its listed options`);
-    result[field.key] = value as ConfigValue;
+    result[field.key] = field.format === "mcp-url" && typeof value === "string"
+      ? validateMcpUrl(value)
+      : value as ConfigValue;
   }
   for (const key of Object.keys(values)) {
     if (!fields.some((field) => field.key === key)) throw new Error(`Unknown setup field: ${key}`);

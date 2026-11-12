@@ -1,4 +1,6 @@
 import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { ApiError } from "@openteam/contracts";
 import type {
   OAuthClientInformationMixed,
   OAuthClientMetadata,
@@ -34,6 +36,7 @@ export interface OAuthProviderOptions {
 /** Persists the SDK's OAuth session in the owning PluginConnection record. */
 export class OpenTeamOAuthProvider implements OAuthClientProvider {
   private value: StoredOAuthState;
+  private writes: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: OAuthProviderOptions) {
     this.value = { ...options.initial };
@@ -109,11 +112,23 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
       const value = this.options.authorizationParameters?.[key];
       if (value) authorizationUrl.searchParams.set(key, value);
     }
-    await this.update({ authorizationUrl: authorizationUrl.toString() });
+    await this.update({ authorizationUrl: authorizationUrl.toString() }, () => this.assertInteractiveAuthorization());
   }
 
   async saveCodeVerifier(codeVerifier: string): Promise<void> {
-    await this.update({ codeVerifier });
+    await this.update({ codeVerifier }, () => this.assertInteractiveAuthorization());
+  }
+
+  private assertInteractiveAuthorization(): void {
+    // Only the user's explicit sign-in action creates a callback/state session.
+    // A background SDK retry must not start a browser flow with an empty state.
+    if (!this.value.state) {
+      // The SDK falls through to interactive authorization on a temporary
+      // refresh failure too. Keep the existing grant so a later call can retry.
+      if (this.value.tokens?.refresh_token)
+        throw new ApiError(503, "plugin_token_refresh_failed", "Authorization could not be refreshed. Try again shortly.");
+      throw new UnauthorizedError("Sign in to this account again.");
+    }
   }
 
   codeVerifier(): string {
@@ -131,7 +146,7 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
 
   async invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier"): Promise<void> {
     if (scope === "all") {
-      await this.replace({
+      await this.enqueue(() => this.replace({
         state: this.value.state,
         stateCreatedAt: this.value.stateCreatedAt,
         stateGeneration: this.value.stateGeneration,
@@ -139,7 +154,7 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
         callbackSessionId: this.value.callbackSessionId,
         callbackMode: this.value.callbackMode,
         exchangeStarted: this.value.exchangeStarted,
-      });
+      }));
       return;
     }
     if (scope === "client") await this.update({ clientInformation: undefined });
@@ -151,17 +166,35 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
     return { ...this.value };
   }
 
-  private async update(patch: Partial<StoredOAuthState>): Promise<void> {
-    const next = { ...this.value };
-    for (const [key, value] of Object.entries(patch)) {
-      if (value === undefined) delete (next as Record<string, unknown>)[key];
-      else (next as Record<string, unknown>)[key] = value;
-    }
-    await this.replace(next);
+  private async update(patch: Partial<StoredOAuthState>, validate?: () => void): Promise<void> {
+    await this.enqueue(async () => {
+      validate?.();
+      const next = { ...this.value };
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === undefined) delete (next as Record<string, unknown>)[key];
+        else (next as Record<string, unknown>)[key] = value;
+      }
+      await this.replace(next);
+    });
+  }
+
+  private enqueue(operation: () => Promise<void>): Promise<void> {
+    const pending = this.writes.then(operation);
+    // A rejected save must not prevent later valid writes from running.
+    this.writes = pending.then(() => undefined, () => undefined);
+    return pending;
   }
 
   private async replace(value: StoredOAuthState): Promise<void> {
+    try {
+      await this.options.save(value);
+    } catch (error) {
+      // Failed writes can include the new token/verifier in diagnostics, before
+      // that secret exists in storage. Never let those diagnostics reach UI/logs.
+      if (error instanceof ApiError && error.code === "plugin_oauth_session_changed")
+        throw new ApiError(409, error.code, "A newer authorization attempt or configuration change replaced this session");
+      throw new ApiError(503, "plugin_oauth_persistence_failed", "Could not save sign-in state. Start sign-in again.");
+    }
     this.value = value;
-    await this.options.save(value);
   }
 }

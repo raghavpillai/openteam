@@ -24,8 +24,11 @@ Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. 
 | WhatsApp | Search messages, send messages and files, and manage chats through a linked WhatsApp account |
 | Ramp | Analyze spend, manage expenses and approvals, and run Ramp finance workflows |
 | 1Password | Sign in to websites with saved logins and one-time codes from vaults shared with a service account |
+| T3 Code | Start coding work on a connected T3 environment, follow progress, and continue or stop threads |
 
 Several plugins also include skills; see [the included skills](skills.md#skills-from-plugins).
+
+For T3 Code, paste the full MCP URL copied from your T3 environment, then choose **Validate URL and connect**. Authorize on T3's page; enter its current one-time code there if asked. **Auto** is T3's provider review mode and can still ask for approval. The plugin includes its coding, thread-management and setup skills. See the [T3 Code guide](../../packages/plugins/t3-code/README.md).
 
 Plaid adds skills only. After adding it, ask a bot to set up Plaid on the computer that should hold your credentials; it asks for your Plaid keys and sends a link for connecting your bank from any device. Those bank connections are kept on that computer, not in the plugin's accounts. See the [Plaid guide](../../packages/plugins/plaid/README.md).
 

@@ -339,7 +339,12 @@ struct PluginConnectionView: View {
       ]
       if connection["auth"].string == "oauth" { body["oauthCallbackMode"] = .string(callbackMode) }
       if connection["transport"].string == "http" {
-        body["endpoint"] = .string(try FormValidation.endpoint(endpoint))
+        // A URL setup field owns a templated endpoint. Preserve that binding when
+        // saving its value, rather than submitting the unresolved template or old URL.
+        let hasURLField = configuration["fields"].array.contains { $0["format"].string == "mcp-url" }
+        if !hasURLField || endpoint != configuration["endpoint"].string {
+          body["endpoint"] = .string(try FormValidation.endpoint(endpoint))
+        }
       }
       if connection["transport"].string == "stdio" {
         let parsed = try FormValidation.json(args, label: "Arguments", object: false)

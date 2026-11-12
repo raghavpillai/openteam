@@ -64,7 +64,19 @@ export function redactConnectionSecrets(
     else if (Array.isArray(entry)) entry.forEach(collect);
     else if (entry && typeof entry === "object") Object.values(entry).forEach(collect);
   };
-  collect(connection.credentials);
+  // OAuth client metadata is public protocol data. Values such as the response
+  // type "code" must not corrupt tool results (for example, the id "codex").
+  const { oauth: storedOAuth, ...credentials } = jsonObject(connection.credentials);
+  collect(credentials);
+  const oauth = jsonObject(storedOAuth);
+  for (const key of ["state", "codeVerifier", "authorizationUrl", "callbackSessionId"])
+    collect(oauth[key]);
+  const tokens = jsonObject(oauth.tokens);
+  for (const key of ["access_token", "refresh_token", "id_token"])
+    collect(tokens[key]);
+  const client = jsonObject(oauth.clientInformation);
+  collect(client.client_secret);
+  collect(client.registration_access_token);
   const config = jsonObject(connection.configuration);
   collect(config.clientSecret);
   collect(config.headers);

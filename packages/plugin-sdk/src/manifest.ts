@@ -82,6 +82,10 @@ const validateFields = (fields: readonly PluginField[], allowEnvironment = false
       throw new Error(`Invalid setup field flags: ${field.key}`);
     if (field.type && !["string", "number", "integer", "boolean"].includes(field.type))
       throw new Error(`Unsupported setup field type: ${field.key}`);
+    if (field.format !== undefined && (
+      field.format !== "mcp-url" || (field.type ?? "string") !== "string" || field.secret
+    ))
+      throw new Error(`Invalid setup field format: ${field.key}`);
     if (
       (field.type ?? "string") === "string" &&
       isSecretKey(field.key) &&
@@ -201,9 +205,17 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
       !["none", "oauth", "token"].includes(connector.auth)
     )
       throw new Error("Unsupported connector transport or authentication");
-    if (connector.transport === "http" && !/^https?:\/\//.test(connector.endpoint))
+    const endpointField = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(connector.endpoint)?.[1];
+    if (connector.transport === "http" && endpointField) {
+      const setup = connector.setup ?? (plugin.setup?.connectionKey === connector.key ? plugin.setup : null);
+      const fields = [...(plugin.setupFields ?? []), ...(setup?.fields ?? [])];
+      if (!fields.some(field => field.key === endpointField && field.format === "mcp-url" &&
+        field.required && !field.secret))
+        throw new Error("An endpoint placeholder requires a required MCP URL setup field");
+    }
+    if (connector.transport === "http" && !endpointField && !/^https?:\/\//.test(connector.endpoint))
       throw new Error("MCP URL must use HTTP or HTTPS");
-    if (connector.transport === "http") {
+    if (connector.transport === "http" && !endpointField) {
       const endpoint = new URL(
         connector.endpoint.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, "placeholder")
       );

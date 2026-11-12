@@ -8,9 +8,9 @@ import { PluginService } from "../../../src/services/plugin-service";
 import { createOAuthMcpFixture } from "./oauth-mcp";
 
 /** Real plugin routes/DB/MCP, with a synthetic catalog and local OAuth provider. */
-export async function createPluginFlowFixture(databaseUrl: string, options: { publicUrl?: string; callbackMode?: "auto" | "server" | "desktop" | "manual"; authSessions?: string[]; packaged?: boolean } = {}) {
+export async function createPluginFlowFixture(databaseUrl: string, options: { publicUrl?: string; callbackMode?: "auto" | "server" | "desktop" | "manual"; authSessions?: string[]; packaged?: boolean; refreshTokens?: boolean } = {}) {
   const db = createPrismaClient(databaseUrl);
-  const provider = createOAuthMcpFixture();
+  const provider = createOAuthMcpFixture(0, {refreshTokens:options.refreshTokens});
   const suffix = crypto.randomUUID();
   const oauth = createPluginTemplate(options.packaged ? "packaged-mcp" : "remote-mcp", `flow-oauth-${suffix}`);
   oauth.name = "Flow OAuth";

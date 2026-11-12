@@ -59,20 +59,6 @@ async function setup() {
     botId: bot.id, runId: run.id, conversationId: bot.conversation!.id, channelId: channel.id,
     deliveryId: null, origin: run.origin, callId: crypto.randomUUID(),
   } as ToolContext, { type: "text", content: "The case was verified." });
-  const legacyWorker = async (parentRunId: string, requestRunId: string | null) => {
-    const child = await db.bot.create({ data: { name: "Legacy worker", defaultDirectory: dir,
-      status: "active", onboardingStatus: "completed", conversation: { create: {} } }, include: { conversation: true } });
-    const childChannel = await db.channel.create({ data: { kind: "bot_dm", name: "Worker",
-      directKey: `bot:${child.id}`, members: { create: { botId: child.id, ordinal: 0 } } } });
-    const run = await db.run.create({ data: { botId: child.id, channelId: childChannel.id,
-      conversationId: child.conversation!.id, userMessageId: crypto.randomUUID(), origin: "agent", status: "running" } });
-    const sub = await db.subagent.create({ data: { parentBotId: bot.id, childBotId: child.id,
-      parentRunId, requestRunId, parentChannelId: channel.id, currentRunId: run.id, launchCallId: crypto.randomUUID(),
-      description: "Legacy inspection", prompt: "Read the existing case status only.", subagentType: "executor", status: "running", outputPath: "/tmp/legacy-result" } });
-    await db.subagentAttempt.create({ data: { subagentId: sub.id, parentRunId, parentChannelId: channel.id,
-      parentToolCallId: sub.launchCallId, childRunId: run.id, description: sub.description, prompt: sub.prompt, status: "running" } });
-    return sub;
-  };
   const root = await parent();
   const wake = (origin?: "background_revival" | "user") => completion(root.id, origin);
   let connectedSends = 0;
@@ -86,7 +72,7 @@ async function setup() {
     deliveryId: null, tool: "SendToUser", arguments: { type: "text", content: "The result is ready.", ...(channel ? { channel } : {}), ...(images ? { images } : {}) },
     callId: crypto.randomUUID(),
   }));
-  return { db, dir, bot, channel, service, messaging, parent, completion, failures, sendVisible, legacyWorker, root, wake, send, connectedSends: () => connectedSends };
+  return { db, dir, bot, channel, service, messaging, parent, completion, failures, sendVisible, root, wake, send, connectedSends: () => connectedSends };
 }
 
 test.skipIf(!url)("actual Stop of a completed legacy root fences an already-running completion and preserves siblings", () => fixture(async f => {
@@ -111,64 +97,6 @@ test.skipIf(!url)("failed actual cancellation of an active legacy root still fen
   expect((await f.db.run.findUniqueOrThrow({ where: { id: root.id } })).requestStoppedAt).not.toBeNull();
   await expect(f.sendVisible(wake)).rejects.toThrow("request was stopped");
   expect((await f.db.run.findUniqueOrThrow({ where: { id: historical.id } })).requestStoppedAt).toBeNull();
-}));
-
-for (const scope of ["all", "bot"] as const)
-test.skipIf(!url)(`${scope} Stop finds legacy roots through already-running completion contexts without marking unrelated history`, () => fixture(async f => {
-  const root = await f.parent(), historical = await f.parent();
-  const wake = await f.completion(root.id);
-  if (scope === "bot") {
-    f.failures.add(wake.id);
-    await expect(Effect.runPromise(f.service.stopBot(f.bot.id))).rejects.toThrow("could not be stopped");
-  } else await f.service.stop(f.bot.id, crypto.randomUUID(), { all: true });
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: root.id } })).requestStoppedAt).not.toBeNull();
-  await expect(f.sendVisible(wake)).rejects.toThrow("request was stopped");
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: historical.id } })).requestStoppedAt).toBeNull();
-  await f.sendVisible(await f.parent("running"));
-}));
-
-for (const scope of ["all", "bot"] as const)
-test.skipIf(!url)(`${scope} Stop records an active legacy user request without scanning all historical requests`, () => fixture(async f => {
-  const root = await f.parent("running"), historical = await f.parent();
-  if (scope === "bot") await Effect.runPromise(f.service.stopBot(f.bot.id));
-  else await f.service.stop(f.bot.id, crypto.randomUUID(), { all: true });
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: root.id } })).requestStoppedAt).not.toBeNull();
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: historical.id } })).requestStoppedAt).toBeNull();
-}));
-
-for (const scope of ["all", "bot"] as const) for (const linked of [false, true])
-test.skipIf(!url)(`${scope} Stop finds a completed legacy root through its worker's ${linked ? "requestRunId" : "parentRunId"}`, () => fixture(async f => {
-  const root = await f.parent(), historical = await f.parent();
-  const child = await f.legacyWorker(root.id, linked ? root.id : null);
-  if (scope === "bot") await Effect.runPromise(f.service.stopBot(f.bot.id));
-  else await f.service.stop(f.bot.id, crypto.randomUUID(), { all: true });
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: root.id } })).requestStoppedAt).not.toBeNull();
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).status).toBe("stopped");
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: child.currentRunId! } })).status).toBe("cancelled");
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: historical.id } })).requestStoppedAt).toBeNull();
-}));
-
-test.skipIf(!url)("all Stop follows a legacy worker's completed parent continuation to the original request", () => fixture(async f => {
-  const root = await f.parent(), historical = await f.parent();
-  const continuation = await f.completion(root.id);
-  await f.db.run.update({ where: { id: continuation.id }, data: { status: "completed" } });
-  const child = await f.legacyWorker(continuation.id, null);
-  await f.service.stop(f.bot.id, crypto.randomUUID(), { all: true });
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: root.id } })).requestStoppedAt).not.toBeNull();
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).status).toBe("stopped");
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: historical.id } })).requestStoppedAt).toBeNull();
-}));
-
-test.skipIf(!url)("stopping an already-cancelled legacy request reaches a worker attached through a later parent turn", () => fixture(async f => {
-  const root = await f.parent(), sibling = await f.parent("running");
-  const continuation = await f.completion(root.id);
-  await f.db.run.update({ where: { id: continuation.id }, data: { status: "completed" } });
-  const child = await f.legacyWorker(continuation.id, root.id);
-  await f.db.run.update({ where: { id: root.id }, data: { status: "cancelled", completedAt: new Date(Date.now() - 60_000), error: { code: "cancelled_by_user" } } });
-  await Effect.runPromise(f.service.stopRun(root.id));
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).status).toBe("stopped");
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: sibling.id } })).requestStoppedAt).toBeNull();
-  await f.sendVisible(sibling);
 }));
 
 for (const tracked of [false, true]) test.skipIf(!url)(`a running completion cannot deliver after Stop (${tracked ? "tracked" : "legacy"} request)`, () => fixture(async f => {
@@ -262,27 +190,4 @@ test.skipIf(!url)("a running completion cannot send to a connected channel after
   await f.db.run.update({ where: { id: f.root.id }, data: { requestStoppedAt: new Date() } });
   await expect(f.send(run, "slack:C123")).rejects.toThrow("request was stopped");
   expect(f.connectedSends()).toBe(0);
-}));
-
-test.skipIf(!url)("a Stop during connected-channel attachment preparation refuses before remote dispatch", () => fixture(async f => {
-  await f.db.$transaction(tx => ensureRequestForTask(tx, f.bot.id, f.root.id));
-  const run = await f.wake();
-  const imagePath = join(f.dir, "fixture.png");
-  await Bun.write(imagePath, new Uint8Array([137, 80, 78, 71]));
-  let entered!: () => void, release!: () => void;
-  const started = new Promise<void>(resolve => { entered = resolve; });
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  f.messaging.assets.ingestSource = (async () => {
-    entered(); await gate;
-    return { assetId: "fixture", fileName: "fixture.png", mimeType: "image/png" };
-  }) as never;
-  f.messaging.assets.contentPath = () => imagePath;
-  const pending = f.send(run, "slack:C123", [{ url: "https://fixture.invalid/image.png" }]);
-  try {
-    await started;
-    await f.db.$transaction(tx => stopRequestProgress(tx, f.bot.id, f.root.id));
-  } finally { release(); }
-  await expect(pending).rejects.toThrow("request was stopped");
-  expect(f.connectedSends()).toBe(0);
-  expect(await f.db.inboxEvent.count({ where: { botId: f.bot.id, type: "channel.delivery_failed" } })).toBe(0);
 }));

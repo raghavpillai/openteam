@@ -83,7 +83,7 @@ const assertWidgetAnswer = (widget: Record<string, unknown>, rawValue: string): 
   return value;
 };
 
-export const buildSecretProvidedAck = (label: string, targetKind = "channel-credential"): string =>
+const buildSecretProvidedAck = (label: string, targetKind = "channel-credential"): string =>
   `[The user securely provided the requested secret: ${JSON.stringify(label)}. It was written straight to its destination (${targetKind}); you never see the value and it is not in this conversation.]\nConfirm to the user that it is set, then continue. For a connector credential, the connection links within a few seconds, so you can check and report its status.`;
 
 export const buildComputerHandoffResume = (outcome: "complete" | "skip" | "dismiss"): string =>

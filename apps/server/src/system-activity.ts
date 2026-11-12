@@ -2,7 +2,7 @@ import { readFile, statfs } from "node:fs/promises";
 import { cpus, freemem, platform, totalmem } from "node:os";
 import type { SystemActivityView } from "@openteam/contracts";
 
-export const usagePercent = (used: number, total: number): number | null =>
+const usagePercent = (used: number, total: number): number | null =>
   Number.isFinite(used) && Number.isFinite(total) && total > 0
     ? Math.round(Math.min(100, Math.max(0, (used / total) * 100)) * 10) / 10
     : null;
@@ -17,13 +17,13 @@ const cpuTimes = (): CpuTimes =>
     { idle: 0, total: 0 }
   );
 
-export const cpuPercent = (before: CpuTimes, after: CpuTimes) => {
+const cpuPercent = (before: CpuTimes, after: CpuTimes) => {
   const total = after.total - before.total;
   const idle = after.idle - before.idle;
   return idle < 0 || idle > total ? null : usagePercent(total - idle, total);
 };
 
-export function linuxMemoryPercent(meminfo: string): number | null {
+function linuxMemoryPercent(meminfo: string): number | null {
   const value = (key: string) =>
     Number(meminfo.match(new RegExp(`^${key}:\\s+(\\d+)\\s+kB$`, "m"))?.[1]);
   const total = value("MemTotal");
@@ -45,7 +45,7 @@ async function diskPercent() {
 }
 
 /** One short sample shared by concurrent viewers, with no background collector. */
-export function createSystemActivityReader(
+function createSystemActivityReader(
   sample = async (): Promise<SystemActivityView> => {
     const before = cpuTimes();
     await new Promise((resolve) => setTimeout(resolve, 500));

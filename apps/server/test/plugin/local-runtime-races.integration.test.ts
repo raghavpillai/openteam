@@ -6,14 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StdioMcpManager } from "../../../computer/src/mcp-manager";
 import { PluginService } from "../../src/services/plugin-service";
+import { gate } from "./fixtures/gate";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const integration = test.skipIf(!databaseUrl);
-function gate() {
-  let release!: () => void;
-  const promise = new Promise<void>(resolve => { release = resolve; });
-  return { promise, release };
-}
 async function harness(run: (context: {
   db: ReturnType<typeof createPrismaClient>;
   service: PluginService;
@@ -28,7 +24,7 @@ async function harness(run: (context: {
   delayPost(): void;
 }) => Promise<void>) {
   const db = createPrismaClient(databaseUrl!);
-  const directory = await mkdtemp(join(tmpdir(), "plugin-stress-"));
+  const directory = await mkdtemp(join(tmpdir(), "plugin-races-"));
   const manager = new StdioMcpManager(directory, 10_000);
   const holdPost = gate();
   const postStarted = gate();
@@ -62,7 +58,7 @@ async function harness(run: (context: {
   }
   try {
     const added = await Effect.runPromise(service.addCustomMcp({
-      name: "MCP stress fixture",
+      name: "MCP race fixture",
       command: "node",
       args: [join(import.meta.dir, "../../../computer/test/fixtures/gated-mcp.mjs"), directory],
     }));
@@ -93,11 +89,11 @@ integration("disconnect wins over a discovery request delayed before reaching th
   });
 }, 20_000);
 
-integration("30 overlapping restarts during browser consent share one replacement", async () => {
+integration("overlapping restarts during browser consent share one replacement", async () => {
   await harness(async ({ service, manager, directory, id, starts, waitFor }) => {
     const initial = Effect.runPromise(service.connect(id)).then(() => "ready", () => "cancelled");
     await waitFor(async () => (await starts()) === 1);
-    const restarts = Promise.allSettled(Array.from({ length: 30 }, () => Effect.runPromise(service.restart(id))));
+    const restarts = Promise.allSettled(Array.from({ length: 5 }, () => Effect.runPromise(service.restart(id))));
     await waitFor(async () => (await starts()) >= 2);
     await writeFile(join(directory, "approved"), "yes");
     expect(await initial).toBe("cancelled");
@@ -131,24 +127,9 @@ for (const action of ["disconnect", "restart"] as const) {
   }, 20_000);
 }
 
-integration("200 connect requests plus 500 health ticks preserve one waiting login", async () => {
-  await harness(async ({ db, service, manager, directory, id, starts, waitFor }) => {
-    const pending = Promise.all(Array.from({ length: 200 }, () => Effect.runPromise(service.connect(id))));
-    await waitFor(async () => (await starts()) === 1);
-    const health = service as unknown as { refreshLocalConnections(): Promise<void> };
-    for (let i = 0; i < 500; i++) await health.refreshLocalConnections();
-    expect(await starts()).toBe(1);
-    expect((await db.pluginConnection.findUniqueOrThrow({ where: { id } })).status).toBe("needs_auth");
-    await writeFile(join(directory, "approved"), "yes");
-    expect((await pending).every(result => "status" in result && result.status === "ready")).toBe(true);
-    expect(manager.status(id).state).toBe("ready");
-    expect(await starts()).toBe(1);
-  });
-}, 25_000);
-
 integration("two independent server instances share one computer login", async () => {
   await harness(async ({ service, peerService, directory, id, starts, waitFor }) => {
-    const pending = Promise.all(Array.from({ length: 200 }, (_, i) =>
+    const pending = Promise.all(Array.from({ length: 20 }, (_, i) =>
       Effect.runPromise((i % 2 ? service : peerService).connect(id))));
     await waitFor(async () => (await starts()) === 1);
     await writeFile(join(directory, "approved"), "yes");

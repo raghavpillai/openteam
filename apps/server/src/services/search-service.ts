@@ -8,8 +8,8 @@ import { Prisma, type PrismaClient } from "@openteam/db";
 import { serviceEffect } from "./service-utils";
 
 const RESULT_LIMIT = 24;
-export const SEARCH_CANDIDATE_LIMIT = 512;
-export const SEARCH_RESULT_URL_MAX_LENGTH = 8_192;
+const SEARCH_CANDIDATE_LIMIT = 512;
+const SEARCH_RESULT_URL_MAX_LENGTH = 8_192;
 const MAX_QUERY_LENGTH = 200;
 const MAX_QUERY_TERMS = 8;
 

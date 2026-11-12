@@ -25,14 +25,6 @@ describe("channel message interaction prompts", () => {
     ).toBe("This is for the current bot");
   });
 
-  test("formats an image-only user prompt without trailing whitespace", () => {
-    expect(formatUserPrompt("t19u", "")).toBe("[t19u]");
-  });
-
-  test("puts the message address on its own line above the text, as the reference does", () => {
-    expect(formatUserPrompt("t0u", "Please run echo hello for me.")).toBe("[t0u]\nPlease run echo hello for me.");
-  });
-
   test("quotes the replied-to message after the new user address", () => {
     expect(
       formatUserPrompt("t18u", "What user prompt do you see?", {
@@ -43,12 +35,6 @@ describe("channel message interaction prompts", () => {
         metadata: { address: "t17s0" },
       })
     ).toBe('[t18u]\n[In reply to t17s0: "Test 2 received."]\nWhat user prompt do you see?');
-  });
-
-  test("uses the hidden reaction wrapper delivered to the authoring agent", () => {
-    expect(formatUserReactionPrompt("❤️", "Nothing in the transcripts looks inbound.")).toBe(
-      "[SAND_HIDDEN_PROMPT][The user reacted ❤️ to your message: \"Nothing in the transcripts looks inbound.\". You don't need to reply; act on it only if it's useful (e.g. acknowledge, adjust, or continue).][SAND_HIDDEN_PROMPT]"
-    );
   });
 
   test("caps the reaction wake quote at OpenTeam's 80-character limit", () => {

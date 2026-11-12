@@ -16,7 +16,7 @@ export const prunedFinishedTodoIds = (
     .slice(MAX_FINISHED_TODOS)
     .map((todo) => todo.id);
 
-export const uniqueTodoInputs = (todos: TodoWriteInput["todos"]) => {
+const uniqueTodoInputs = (todos: TodoWriteInput["todos"]) => {
   const seen = new Set<string>();
   return todos.filter((todo) => {
     if (seen.has(todo.id)) return false;

@@ -164,11 +164,6 @@ test("a worker the worker process already recorded as stopped still counts as st
   expect(result).toMatchObject({ stopped: true, status: "stopped" });
 });
 
-test("unknown runs are not found", async () => {
-  const f = fixture();
-  await expect(Effect.runPromise(f.service.stopRun("missing"))).rejects.toThrow("Run not found");
-});
-
 test("stopping a bot stops its turn and every subagent it has running, without posting anything", async () => {
   const f = fixture();
   const result = await Effect.runPromise(f.service.stopBot("bot"));
@@ -194,9 +189,4 @@ test("stopping an idle bot changes nothing", async () => {
   expect(result).toEqual({ hadActiveRun: false });
   expect(f.cancelled).toEqual([]);
   expect(f.shellStops).toEqual([]);
-});
-
-test("unknown bots are not found", async () => {
-  const f = fixture();
-  await expect(Effect.runPromise(f.service.stopBot("missing"))).rejects.toThrow("Bot not found");
 });

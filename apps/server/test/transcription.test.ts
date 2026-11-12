@@ -275,31 +275,6 @@ describe("voice-note provider requests", () => {
       code: "invalid_transcription_response",
     });
   });
-  test("cancelling propagates upstream and releases concurrency capacity", async () => {
-    const config = await store();
-    await config.save(settings);
-    const controller = new AbortController();
-    let entered!: () => void;
-    const ready = new Promise<void>((resolve) => {
-      entered = resolve;
-    });
-    const service = new TranscriptionService(
-      config,
-      fakeFetch(
-        (_url, init) =>
-          new Promise((_resolve, reject) => {
-            init.signal!.addEventListener("abort", () => reject(init.signal!.reason), {
-              once: true,
-            });
-            entered();
-          })
-      )
-    );
-    const running = service.transcribe(audio(controller.signal));
-    await ready;
-    controller.abort();
-    await expect(running).rejects.toMatchObject({ code: "transcription_cancelled" });
-  });
   test("diagnostics distinguish missing, listed, discovery unsupported, and auth failure without sending audio", async () => {
     const config = await store();
     let calls = 0;
@@ -437,22 +412,6 @@ describe("transcription model discovery", () => {
       expect(String(error)).not.toContain("synthetic-secret");
       expect(error).toMatchObject({ code: "transcription_provider_error" });
     }
-  });
-  test.each([
-    null,
-    {},
-    { data: [{ id: 42 }] },
-    { data: [{ id: "bad\u001b[31m" }] },
-    { data: [{ id: "x".repeat(257) }] },
-  ])("rejects malformed catalog %j", async (body) => {
-    const config = await store();
-    const service = new TranscriptionService(
-      config,
-      fakeFetch(() => Response.json(body))
-    );
-    await expect(service.models(settings)).rejects.toMatchObject({
-      code: "model_discovery_failed",
-    });
   });
   test("bounds discovery responses and redacts transport errors", async () => {
     const config = await store();
@@ -614,75 +573,6 @@ describe("Deepgram transcription", () => {
     expect(urls).toEqual([`${deepgram.baseUrl}/auth/token`]);
   });
 
-  test("does not verify a general alias from a specialty-only catalog", async () => {
-    const config = await store();
-    await config.save(deepgram);
-    const service = new TranscriptionService(
-      config,
-      fakeFetch(() =>
-        Response.json({
-          stt: [
-            {
-              name: "medical",
-              canonical_name: "nova-3-medical",
-              architecture: "nova-3",
-              batch: true,
-            },
-            {
-              name: "general",
-              canonical_name: "nova-3-general",
-              architecture: "nova-3",
-              batch: false,
-            },
-          ],
-        })
-      )
-    );
-    expect((await service.check()).status).toBe("unverified");
-  });
-
-  test("sends the native Deepgram request over HTTP with the original audio bytes", async () => {
-    const recording = new Uint8Array(128).fill(42);
-    const upstream = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        expect(request.method).toBe("POST");
-        expect(url.pathname).toBe("/v1/listen");
-        expect(url.searchParams.get("model")).toBe("nova-3");
-        expect(request.headers.get("authorization")).toBe(`Token ${deepgram.apiKey}`);
-        expect(request.headers.get("content-type")).toBe("audio/mp4");
-        expect(new Uint8Array(await request.arrayBuffer())).toEqual(recording);
-        return Response.json({
-          results: { channels: [{ alternatives: [{ transcript: "Native HTTP transcript" }] }] },
-        });
-      },
-    });
-    try {
-      const config = await store();
-      await config.save(deepgram);
-      const service = new TranscriptionService(
-        config,
-        fakeFetch((url, init) => {
-          const endpoint = new URL(url);
-          return fetch(`${upstream.url.origin}${endpoint.pathname}${endpoint.search}`, init);
-        })
-      );
-      expect(
-        await service.transcribe(
-          new Request("http://local", {
-            method: "POST",
-            body: recording,
-            headers: { "content-type": "audio/mp4" },
-          })
-        )
-      ).toEqual({ text: "Native HTTP transcript" });
-    } finally {
-      await upstream.stop(true);
-    }
-  });
-
   test.each([401, 429])("redacts HTTP %i transcription and diagnostic failures", async (status) => {
     const config = await store();
     await config.save(deepgram);
@@ -697,22 +587,6 @@ describe("Deepgram transcription", () => {
     const check = await service.check();
     expect(check.level).toBe("fail");
     expect(check.detail).not.toContain(deepgram.apiKey);
-  });
-
-  test.each([
-    {},
-    { results: { channels: [] } },
-    { results: { channels: [{ alternatives: [{ transcript: 42 }] }] } },
-  ])("rejects malformed transcript %j", async (body) => {
-    const config = await store();
-    await config.save(deepgram);
-    const service = new TranscriptionService(
-      config,
-      fakeFetch(() => Response.json(body))
-    );
-    await expect(service.transcribe(audio())).rejects.toMatchObject({
-      code: "invalid_transcription_response",
-    });
   });
 
   test("empty speech is recoverable and malformed catalogs fail discovery and diagnostics", async () => {

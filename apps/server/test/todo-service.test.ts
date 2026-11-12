@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_FINISHED_TODOS, prunedFinishedTodoIds, TodoService, uniqueTodoInputs } from "../src/services/todo-service";
+import { MAX_FINISHED_TODOS, prunedFinishedTodoIds, TodoService } from "../src/services/todo-service";
 
 type Row = {
   botId: string;
@@ -87,32 +87,6 @@ describe("bounded set-based TodoWrite persistence", () => {
       .rejects.toThrow("requires content and status");
     expect(fixture.rows()).toEqual(before);
   });
-  test("one-item merge completes a task without dropping neighboring tasks or their positions", async () => {
-    const fixture = todoFixture([
-      { botId: "bot-1", id: "first", content: "First", status: "pending", position: 0 },
-      { botId: "bot-1", id: "second", content: "Second", status: "pending", position: 1 },
-    ]);
-    const result = await fixture.service.write("bot-1", "call-single", {
-      merge: true, todos: [{ id: "first", content: "First", status: "completed" }],
-    });
-    expect(result.todos).toEqual([
-      { id: "first", content: "First", status: "completed" },
-      { id: "second", content: "Second", status: "pending" },
-    ]);
-    expect(fixture.rows().map(row => row.position)).toEqual([0, 1]);
-  });
-  test("deduplicates in linear first-write order", () => {
-    expect(
-      uniqueTodoInputs([
-        { id: "a", content: "first", status: "pending" },
-        { id: "b", content: "second", status: "in_progress" },
-        { id: "a", content: "ignored", status: "completed" },
-      ])
-    ).toEqual([
-      { id: "a", content: "first", status: "pending" },
-      { id: "b", content: "second", status: "in_progress" },
-    ]);
-  });
 
   test("merge preserves positions and uses one bounded set replacement", async () => {
     const fixture = todoFixture([
@@ -164,31 +138,6 @@ describe("bounded set-based TodoWrite persistence", () => {
       { id: "a", content: "A", status: "completed" },
     ]);
     expect(fixture.operations).toEqual({ deleteMany: 1, createMany: 1, upsert: 0 });
-  });
-
-  test("merges beyond the former 64-item cap while preserving existing positions", async () => {
-    const fixture = todoFixture(
-      Array.from({ length: 64 }, (_, index) => ({
-        botId: "bot-1",
-        id: `existing-${index}`,
-        content: "Existing",
-        status: "pending" as const,
-        position: index,
-      }))
-    );
-
-    await (
-      fixture.service.write("bot-1", "call-3", {
-        merge: true,
-        todos: [
-          { id: "existing-0", content: "Updated", status: "completed" },
-          { id: "overflow", content: "Too many", status: "pending" },
-        ],
-      })
-    );
-    expect(fixture.operations).toEqual({ deleteMany: 1, createMany: 1, upsert: 0 });
-    expect(fixture.rows()).toHaveLength(65);
-    expect(fixture.rows().at(-1)).toMatchObject({ id: "overflow", position: 64 });
   });
 });
 

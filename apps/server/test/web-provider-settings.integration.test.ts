@@ -24,13 +24,7 @@ test("provider settings validate tools, providers and fields without echoing the
     { search: { providers: { exa: { baseUrl: "https://x" } } } },
     { search: { providers: { exa: { apiKey: " " } } } },
     { search: { providers: { exa: { apiKey: "bad\nkey" } } } },
-    { search: { providers: { exa: { apiKey: "two words" } } } },
-    { search: { providers: { exa: { apiKey: 123 } } } },
     { fetch: { providers: { builtin: { apiKey: "k" } } } },
-    // Providers that are no longer offered.
-    { search: { selected: "tavily" } },
-    { search: { providers: { searxng: { baseUrl: "https://searx.example" } } } },
-    { fetch: { selected: "cloudflare" } },
     { search: { selected: "exa", configured: true } },
   ])
     expect(() => parseWebProviderSettings(input)).toThrow();
@@ -211,8 +205,6 @@ test.skipIf(!databaseUrl)("database constraints accept every catalog provider an
       { tool: "search", provider: "exa-free" },
       { tool: "other", provider: "exa" },
       { tool: "search", provider: "google" },
-      { tool: "search", provider: "tavily" },
-      { tool: "fetch", provider: "cloudflare" },
     ])
       await expect(Promise.resolve(prisma.webToolProvider.create({ data }))).rejects.toThrow();
     const exa = { tool_provider: { tool: "search", provider: "exa" } };

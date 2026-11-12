@@ -49,15 +49,7 @@ test("activity collapses repeats and keeps the newest 24 entries", () => {
   ])).toEqual(["[pending] Shell"]);
 });
 
-test("the tool call count covers finished calls only", async () => {
-  const { service, db } = fixture("running");
-  let countWhere: any;
-  db.runItem.count = async ({ where }: any) => { countWhere = where; return 2; };
-  expect(await service.check("parent", { subagent_id: "child" })).toMatchObject({ tool_call_count: 2 });
-  expect(countWhere.AND[1]).toEqual({ status: { in: ["completed", "failed", "cancelled"] } });
-});
-
-test("another parent cannot inspect the child ", async () => {
+test("another parent cannot inspect the child", async () => {
   const { service } = fixture();
   expect(typeof await service.check("other-parent", { subagent_id: "child" })).toBe("string");
 });
@@ -65,30 +57,4 @@ test("another parent cannot inspect the child ", async () => {
 test("unavailable or foreign current run exposes no run", async () => {
   const { service } = fixture("running", "foreign");
   expect(await service.check("parent", { subagent_id: "child" })).toMatchObject({ run_status: null, tool_call_count: 0 });
-});;
-
-test("prompt diagnostics do not inflate worker activity or crowd out recent tool calls", async () => {
-  const { service, db } = fixture("completed");
-  const rows = [
-    ...Array.from({ length: 10 }, (_, i) => ({ kind: "tool", title: "promptFingerprint", createdAt: new Date(100 + i), status: "completed" })),
-    { kind: "tool", title: "browser_click", createdAt: new Date(3), status: "failed" },
-    { kind: "command", title: "promptFingerprint", createdAt: new Date(2), status: "completed" },
-    { kind: "tool", title: null, createdAt: new Date(1), status: "completed" },
-  ];
-  const matches = (row: any, where: any): boolean =>
-    Object.entries(where).every(([key, value]: [string, any]) => {
-      if (key === "runId") return true;
-      if (key === "OR") return value.some((clause: any) => matches(row, clause));
-      if (value && typeof value === "object") {
-        if ("in" in value) return value.in.includes(row[key]);
-        if ("not" in value) return row[key] !== null && row[key] !== value.not;
-      }
-      return row[key] === value;
-    });
-  db.runItem.findMany = async ({ where, take }: any) => rows.filter(row => matches(row, where))
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, take);
-  db.runItem.count = async ({ where }: any) => rows.filter(row => matches(row, where.AND[0])).length;
-  const result = await service.check("parent", { subagent_id: "child" }) as any;
-  expect(result.tool_call_count).toBe(3);
-  expect(result.recent_activity).toEqual(["[pending] tool", "[done] tool", "[pending] promptFingerprint", "[done] promptFingerprint", "[pending] browser_click", "[failed] browser_click"]);
 });

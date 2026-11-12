@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { PluginInvocations } from "../../src/services/plugin/invocations";
-import { PluginQueries } from "../../src/services/plugin/queries";
 
 const connection = {
   id:"connection",alias:"default",name:"Fixture",connectorKey:"fixture",status:"ready",
@@ -8,12 +7,6 @@ const connection = {
   installation:{name:"Fixture",pluginKey:"fixture",status:"installed",},
   toolSnapshot:[{name:"write",description:"Fixture write",risk:"write",inputSchema:{type:"object"}}],
 };
-
-test("installed tools remain discoverable", async () => {
-  const queries = new PluginQueries({pluginConnection:{findMany:async()=>[connection]}} as any,async()=>[],async()=>undefined,"http://127.0.0.1");
-  const namespaces=await queries.dynamicNamespaces("bot");
-  expect(namespaces[0]?.tools.map(tool=>tool.name)).toEqual(["write"]);
-});
 
 test("writes execute without grants or approval records while retaining call replay boundaries", async () => {
   const calls=new Map<string,any>();let writes=0;

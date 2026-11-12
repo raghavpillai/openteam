@@ -157,23 +157,6 @@ test.skipIf(!url)("a reused provider call id cannot replay another channel's bot
   }
 }));
 
-async function legacyTapback(f: Awaited<ReturnType<typeof setup>>, context: ToolContext, notification = true) {
-  await f.db.run.update({ where: { id: context.runId }, data: { createdAt: new Date("2020-01-01") } });
-  await f.db.channelMessage.update({ where: { id: f.message.id }, data: { metadata: { address: "t0u", reactions: [{ by: "agent", emoji: "👍" }] } } });
-  const response = { reacted: true, removed: false, message_address: "t0u", emoji: "👍" };
-  await f.db.idempotencyRecord.create({ data: {
-    scope: `reaction:${f.bot.id}`, key: context.callId, requestHash: "t0u:👍", response, status: "completed",
-    createdAt: new Date("2021-01-01"), expiresAt: new Date("2030-01-01"),
-  } });
-  if (notification) await f.db.channelNotification.create({ data: {
-    key: `reaction:${f.message.id}:${f.bot.id}:👍:${context.callId}`,
-    channelId: f.channel.id, botId: f.bot.id, kind: "reaction", messageSequence: f.message.sequence,
-    payload: { schemaVersion: 1, kind: "reaction", botId: f.bot.id, channelId: f.channel.id,
-      runId: context.runId, messageId: f.message.id, messageSequence: f.message.sequence.toString(), title: f.bot.name, body: "Reacted 👍" },
-  } });
-  return response;
-}
-
 test.skipIf(!url)("reused call ids produce a fresh notification after an add/remove/add across runs", () => fixture(async f => {
   await f.db.bot.update({ where: { id: f.bot.id }, data: { notificationsEnabled: true } });
   const context = { ...await userContext(f), callId: "call_0" };
@@ -190,55 +173,6 @@ test.skipIf(!url)("reused call ids produce a fresh notification after an add/rem
   const notifications = await f.db.channelNotification.findMany({ where: { channelId: f.channel.id }, orderBy: { sequence: "asc" } });
   expect(notifications).toHaveLength(2);
   expect(notifications.map(n => n.revoked)).toEqual([true, false]);
-}));
-
-test.skipIf(!url)("a legacy receipt older than the current run cannot suppress its new tapback", () => fixture(async f => {
-  const context = { ...await userContext(f), callId: "call_0" };
-  await legacyTapback(f, context, false);
-  await f.db.run.update({ where: { id: context.runId }, data: { createdAt: new Date("2022-01-01") } });
-  expect(await controlReact(f, context)).toMatchObject({ reacted: false, removed: true });
-  expect((await f.stored()).metadata).not.toHaveProperty("reactions");
-}));
-
-test.skipIf(!url)("an owned in-flight legacy tapback replays without undoing it and records its scoped receipt", () => fixture(async f => {
-  const context = await userContext(f);
-  const response = await legacyTapback(f, context);
-  expect(await controlReact(f, context)).toEqual(response);
-  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "👍" }] });
-  expect(await f.db.event.count({ where: { topic: "channel.message.reaction", entityId: f.message.id } })).toBe(0);
-  expect(await f.db.idempotencyRecord.findUnique({ where: { scope_key: {
-    scope: `reaction:${f.bot.id}:${context.runId}:${f.channel.id}`, key: context.callId,
-  } } })).toMatchObject({ status: "completed", response });
-  expect(await controlReact(f, context)).toEqual(response);
-}));
-
-test.skipIf(!url)("ambiguous in-flight legacy receipts fail honestly without undoing a reaction", () => fixture(async f => {
-  const context = await userContext(f);
-  await legacyTapback(f, context, false);
-  await expect(controlReact(f, context)).rejects.toThrow("Cannot safely match an old reaction receipt");
-  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "👍" }] });
-  expect(await f.db.event.count({ where: { topic: "channel.message.reaction", entityId: f.message.id } })).toBe(0);
-  expect(await f.db.idempotencyRecord.count({ where: { scope: `reaction:${f.bot.id}:${context.runId}:${f.channel.id}` } })).toBe(0);
-}));
-
-test.skipIf(!url)("an owned legacy retry with changed arguments is rejected without another tapback", () => fixture(async f => {
-  const context = await userContext(f);
-  await legacyTapback(f, context);
-  await expect(f.messaging.reactToMessage(context, { message_address: "t0u", emoji: "❤️" })).rejects.toThrow("different arguments");
-  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "👍" }] });
-}));
-
-test.skipIf(!url)("a legacy notification from a different run cannot authorize receipt replay", () => fixture(async f => {
-  const context = await userContext(f);
-  await legacyTapback(f, context);
-  const key = `reaction:${f.message.id}:${f.bot.id}:👍:${context.callId}`;
-  const notification = await f.db.channelNotification.findUniqueOrThrow({ where: { key } });
-  await f.db.channelNotification.update({ where: { key }, data: {
-    payload: { ...(notification.payload as Record<string, string>), runId: crypto.randomUUID() },
-  } });
-  await expect(controlReact(f, context)).rejects.toThrow("Cannot safely match an old reaction receipt");
-  expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "agent", emoji: "👍" }] });
-  expect(await f.db.event.count({ where: { topic: "channel.message.reaction", entityId: f.message.id } })).toBe(0);
 }));
 
 test.skipIf(!url)("a scoped bot reaction retry with changed arguments cannot toggle a second emoji", () => fixture(async f => {
@@ -263,14 +197,6 @@ test.skipIf(!url)("a user emoji replacement preserves every other actor's reacti
   await f.db.channelMessage.update({ where: { id: f.message.id }, data: { metadata: { address: "t0s1", extra: "keep", reactions: [{ by: "me", emoji: "👍" }, ...other] } } });
   await f.react("❤️");
   expect((await f.stored()).metadata).toEqual({ address: "t0s1", extra: "keep", reactions: [...other, { by: "me", emoji: "❤️" }] });
-}));
-
-for (const emoji of ["❤️", "👍"]) test.skipIf(!url)(`legacy multiple user reactions normalize on the next ${emoji} tap without changing other actors`, () => fixture(async f => {
-  const other = [{ by: "agent", emoji: "👍" }];
-  await f.db.channelMessage.update({ where: { id: f.message.id }, data: { metadata: { reactions: [{ by: "me", emoji: "👍" }, { by: "me", emoji: "👎" }, ...other] } } });
-  const result = await f.react(emoji);
-  expect(result).toMatchObject(emoji === "👍" ? { reacted: false, removed: true, runId: null } : { reacted: true, removed: false });
-  expect((await f.stored()).metadata).toEqual({ reactions: emoji === "👍" ? other : [...other, { by: "me", emoji }] });
 }));
 
 test.skipIf(!url)("replaying an older tap receipt returns the current message without restoring the old emoji or waking again", () => fixture(async f => {

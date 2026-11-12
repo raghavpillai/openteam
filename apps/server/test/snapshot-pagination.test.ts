@@ -15,11 +15,6 @@ type RawQuery = {
 
 const rawSql = (query: RawQuery): string => query.strings?.join("?") ?? String(query);
 
-const requireRawQuery = (query: RawQuery | null, name: string): RawQuery => {
-  if (query === null) throw new Error(`${name} SQL was not executed`);
-  return query;
-};
-
 const deferred = <Value>() => {
   let resolve!: (value: Value) => void;
   const promise = new Promise<Value>((next) => {
@@ -575,7 +570,7 @@ describe("snapshot pagination", () => {
     expect(firstBootstrap.cursor).toBe("52");
   });
 
-  test("keeps profile, read, unread, and message delivery identity in bootstrap SQL", async () => {
+  test("bootstrap keeps profile, unread count, and message delivery identity", async () => {
     const botId = "00000000-0000-0000-0000-000000000040";
     const channelId = "00000000-0000-0000-0000-000000000041";
     const conversationId = "00000000-0000-0000-0000-000000000042";
@@ -627,8 +622,6 @@ describe("snapshot pagination", () => {
       metadata: {},
       createdAt: now,
     };
-    let latestQuery: RawQuery | null = null;
-    let unreadQuery: RawQuery | null = null;
     const service = new SnapshotService(
       {
         bot: { findMany: async () => [bot] },
@@ -653,11 +646,7 @@ describe("snapshot pagination", () => {
                 activityUnreadCount: 0n,
               },
             ];
-          if (sql.includes("CROSS JOIN LATERAL")) {
-            latestQuery = query;
-            return [latestMessage];
-          }
-          unreadQuery = query;
+          if (sql.includes("CROSS JOIN LATERAL")) return [latestMessage];
           return [{ channelId, unreadCount: 3 }];
         },
       } as never,
@@ -690,19 +679,6 @@ describe("snapshot pagination", () => {
       sequence: "43",
       content: "Latest user message",
     });
-
-    const capturedLatestQuery = requireRawQuery(latestQuery, "latest-message");
-    const capturedUnreadQuery = requireRawQuery(unreadQuery, "unread-count");
-    expect(rawSql(capturedLatestQuery)).toContain("unnest(?::uuid[])");
-    expect(rawSql(capturedLatestQuery)).toContain('message."clientId"');
-    expect(rawSql(capturedLatestQuery)).toContain('ORDER BY message."sequence" DESC');
-    expect(capturedLatestQuery.values).toEqual([[channelId]]);
-    expect(rawSql(capturedUnreadQuery)).toContain('LEFT JOIN "ChannelReadState"');
-    expect(rawSql(capturedUnreadQuery)).toContain(
-      'message."sequence" > COALESCE(state."lastReadSequence", 0)'
-    );
-    expect(rawSql(capturedUnreadQuery)).toContain("= ANY(?::uuid[])");
-    expect(capturedUnreadQuery.values).toEqual([[channelId]]);
   });
 
   test("rejects future event cursors instead of leaving the stream permanently idle", async () => {

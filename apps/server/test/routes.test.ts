@@ -3,6 +3,9 @@ import { Effect, Schema } from "effect";
 import { channelRoutes } from "../src/routes/channel";
 import type { RouteContext } from "../src/routes/context";
 import { bodyRoute, dispatchRoutes, effectRoute } from "../src/routes/dispatch";
+import { ApiError } from "@openteam/contracts";
+import { errorResponse } from "../src/http";
+import { serviceEffect } from "../src/services/service-utils";
 
 const context = (method: string, path: string, body?: string): RouteContext => {
   const request = new Request(`http://localhost${path}`, { method, body });
@@ -90,4 +93,24 @@ test("Library routes forward the conversation and cursor without caching file me
   expect(calls).toEqual([["channel-1", "12.2"]]);
   expect(response?.headers.get("cache-control")).toBe("no-store");
   expect(await response?.json()).toEqual({ items: [], nextCursor: null });
+});
+
+for(const [status,code] of [[400,"invalid_asset_path"],[403,"asset_path_protected"],[409,"external_file_review_required"]] as const) {
+  test(`expected ${status} survives nested service effects`, async()=>{
+    let failure:unknown;
+    try {await Effect.runPromise(serviceEffect(()=>Effect.runPromise(serviceEffect(async()=>{
+      throw new ApiError(status,code,"Fixture denial",{fixture:true});
+    }))));} catch(error) {failure=error;}
+    const response=errorResponse(failure);
+    expect(response.status).toBe(status);
+    expect(await response.json()).toEqual({error:{code,message:"Fixture denial",details:{fixture:true}}});
+  });
+}
+
+test("unexpected failures remain internal errors",async()=>{
+  let failure:unknown;
+  try {await Effect.runPromise(Effect.fail(new Error("Unexpected fixture failure")));}catch(error){failure=error;}
+  const response=errorResponse(failure);
+  expect(response.status).toBe(500);
+  expect((await response.json()).error.code).toBe("internal_error");
 });

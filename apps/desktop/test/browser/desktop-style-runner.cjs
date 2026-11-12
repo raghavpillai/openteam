@@ -399,6 +399,78 @@ app.whenReady().then(async () => {
       })
     );
     win.webContents.debugger.attach("1.3");
+    // Exercise the header over the same 1000-message conversation. Hover must
+    // keep layout stable, including rapid reversals on a slower CPU.
+    const cdp = win.webContents.debugger;
+    const headerPoint = await run(async () => {
+      document.querySelector('button[aria-label="Close details"]').click();
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      document.activeElement?.blur();
+      const rect = document.querySelector(".desktop-conversation-pill").getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    });
+    const hoverHeader = (hover) => cdp.sendCommand("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: hover ? headerPoint.x : 5,
+      y: hover ? headerPoint.y : 100,
+    });
+    await hoverHeader(false);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await cdp.sendCommand("Emulation.setCPUThrottlingRate", { rate: 4 });
+    try {
+      await run(() => {
+        const pill = document.querySelector(".desktop-conversation-pill");
+        const sample = window.headerMotionSample = {
+          frames: [], longTasks: [], resizes: 0, active: true,
+          width: pill.getBoundingClientRect().width,
+        };
+        sample.resizeObserver = new ResizeObserver(() => sample.resizes++);
+        sample.resizeObserver.observe(pill);
+        sample.taskObserver = new PerformanceObserver((list) =>
+          sample.longTasks.push(...list.getEntries().map((entry) => entry.duration))
+        );
+        sample.taskObserver.observe({ type: "longtask" });
+        let last;
+        const frame = (now) => {
+          if (!sample.active) return;
+          if (last) sample.frames.push(now - last);
+          last = now;
+          requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+      });
+      for (let i = 0; i < 12; i++) {
+        await hoverHeader(i % 2 === 0);
+        await new Promise((resolve) => setTimeout(resolve, i < 4 ? 700 : 140));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      const report = await run(() => {
+        const sample = window.headerMotionSample;
+        sample.active = false;
+        sample.resizeObserver.disconnect();
+        sample.taskObserver.disconnect();
+        const frames = sample.frames.sort((a, b) => a - b);
+        const pill = document.querySelector(".desktop-conversation-pill");
+        if (sample.resizes > 1 || pill.getBoundingClientRect().width !== sample.width)
+          throw Error("Header hover changes layout size");
+        if (pill.getAnimations({ subtree: true }).some((animation) =>
+          animation.playState === "running" && animation.effect?.target?.matches(
+            ".desktop-conversation-surface, .desktop-conversation-name, .desktop-conversation-avatar, .desktop-conversation-chevron"
+          )
+        ))
+          throw Error("Header keeps animating after hover settles");
+        const p95FrameMs = frames[Math.floor(frames.length * .95)];
+        if (p95FrameMs > 34) throw Error("Header animation p95 exceeds 34ms: " + p95FrameMs);
+        return {
+          checks: ["header hover at 4x CPU slowdown with 1000 messages", "stable layout", "idle animation stops"],
+          frames: frames.length, p95FrameMs, maxFrameMs: Math.max(...frames), longTasks: sample.longTasks,
+        };
+      });
+      reports.push(report);
+    } finally {
+      await cdp.sendCommand("Emulation.setCPUThrottlingRate", { rate: 1 });
+    }
+    await run(() => document.querySelector(".desktop-conversation-pill").click());
     await win.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", {
       features: [{ name: "prefers-reduced-motion", value: "reduce" }],
     });

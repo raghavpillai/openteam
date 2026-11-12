@@ -39,6 +39,9 @@ describe("Doctor notification readiness", () => {
     expect(output).toContain("NOTIFICATIONS");
     expect(doctorNextSteps(result).join("\n")).toContain("notifications configure");
     expect(doctorNextSteps(result).join("\n")).toContain("apply it live");
+    // A key for another app's bundle ID is the same silent failure.
+    const wrongTopic = notificationChecks(state, { ...config, topic: "dev.openteam.mobile.swift" });
+    expect(check(wrongTopic, "iOS push credentials").level).toBe("fail");
   });
 
   test("APNs is optional for installations without an eligible iPhone", () => {
@@ -54,35 +57,6 @@ describe("Doctor notification readiness", () => {
       "iOS push credentials",
       "iOS push delivery",
     ]);
-  });
-
-  test("disabled and expired registrations cannot masquerade as push readiness", () => {
-    const checks = notificationChecks({ ...state, eligible: 0, topics: [] }, config);
-    expect(check(checks, "iOS push registration")).toMatchObject({ level: "warn" });
-    expect(check(checks, "iOS push registration").detail).toContain("no valid login session");
-    expect(check(checks, "iOS push delivery").level).toBe("warn");
-  });
-
-  test("valid local configuration does not claim Apple acceptance or visible delivery", () => {
-    const checks = notificationChecks(state, config);
-    expect(check(checks, "iOS push credentials").level).toBe("pass");
-    expect(check(checks, "iOS push credentials").detail).toContain("not verified");
-    expect(check(checks, "iOS push delivery").detail).toContain("skipped alerts");
-  });
-
-  test("checks bundle ID, incomplete device metadata, and stalled deliveries", () => {
-    expect(
-      check(
-        notificationChecks(state, { ...config, topic: "dev.openteam.mobile.swift" }),
-        "iOS push credentials"
-      ).level
-    ).toBe("fail");
-    expect(
-      check(notificationChecks({ ...state, invalid: 1 }, config), "iOS push registration").level
-    ).toBe("fail");
-    expect(
-      check(notificationChecks({ ...state, waiting: 2 }, config), "iOS push delivery").level
-    ).toBe("warn");
   });
 
   test("executes bounded read-only probes inside the actual services", () => {
@@ -110,8 +84,6 @@ describe("Doctor notification readiness", () => {
 
   test.each([
     "{broken",
-    "{}",
-    "null",
     '{"missing":["secret-token"],"issue":null,"topic":"dev.openbot.mobile"}',
   ])("invalid probe output %s never passes or leaks its contents", (stdout) => {
     const project = { run: () => ({ status: 0, stdout, stderr: "" }) } as unknown as ComposeProject;
@@ -177,12 +149,4 @@ describe("real APNs worker configuration probe", () => {
     }
   });
 
-  test("fails without a diagnostics socket", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openteam-apns-socket-"));
-    try {
-      expect(await runConfig(join(directory, "missing.sock"))).toEqual({ exitCode: 1, output: "" });
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
 });

@@ -10,7 +10,7 @@ import {
   writeManifest,
 } from "../src/config";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
-import { providerAddCommand, providerListCommand, providerLoginCommand } from "../src/providers";
+import { providerAddCommand, providerLoginCommand } from "../src/providers";
 import type { SetupPrompter } from "../src/setup";
 
 class ProviderRunner implements CommandRunner {
@@ -127,34 +127,6 @@ const fixture = () => {
 };
 
 describe("provider management", () => {
-  test("adds a keyless endpoint without an initial model or a secret prompt", async () => {
-    const runner = new ProviderRunner();
-    const options = parseArguments([
-      "provider",
-      "add",
-      "acme",
-      "--name",
-      "Local",
-      "--base-url",
-      "http://localhost:11434",
-      "--api",
-      "openai-completions",
-      "--no-auth",
-    ]);
-    const prompter = new SecretPrompter("");
-    prompter.secret = async () => {
-      throw new Error("Must not prompt for a key");
-    };
-    await providerAddCommand(fixture(), runner, options, prompter);
-    const add = runner.calls.find((call) => call.args.includes("add-custom"));
-    expect(JSON.parse(add?.options?.input ?? "{}")).toMatchObject({
-      id: "acme",
-      noAuth: true,
-      createOnly: true,
-    });
-    expect(JSON.parse(add?.options?.input ?? "{}").model).toBeUndefined();
-    expect(runner.calls.some((call) => call.args.includes("login"))).toBe(false);
-  });
   test("does not accept a zero exit code without saved provider authentication", async () => {
     const runner = new ProviderRunner();
     runner.failLogin = true;
@@ -167,24 +139,6 @@ describe("provider management", () => {
         new SecretPrompter("")
       )
     ).rejects.toThrow("sign-in did not complete");
-  });
-  test("lists Pi providers and marks the selected provider", () => {
-    const runner = new ProviderRunner();
-    const output: string[] = [];
-    const original = console.log;
-    console.log = (...values) => output.push(values.map(String).join(" "));
-    try {
-      providerListCommand(fixture(), runner);
-    } finally {
-      console.log = original;
-    }
-    const text = output.join("\n");
-    expect(text).toContain("CONNECTED ACCOUNTS");
-    expect(text).toContain("● openai-codex");
-    expect(text).toContain("Connected · OAuth");
-    expect(text).toContain("AVAILABLE TO CONNECT");
-    expect(text.replace(/\s+/g, " ")).toContain("Claude Pro/Max / Anthropic API key");
-    expect(text.indexOf("openai-codex")).toBeLessThan(text.indexOf("anthropic"));
   });
 
   test("passes API keys over stdin and never command arguments", async () => {

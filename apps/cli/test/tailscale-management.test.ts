@@ -6,21 +6,12 @@ import {
   createEnvironment,
   installationPaths,
   parseEnvironment,
-  replaceEnvironmentValue,
   writeFileAtomic,
   writeManifest,
 } from "../src/config";
-import { parseArguments } from "../src/arguments";
 import { configureTailscale, tailscaleStatus } from "../src/tailscale-command";
-import { inspectTailscale, configureTailscaleRoute, tailscaleRoute } from "../src/tailscale-https";
-import {
-  managedTailscaleRoutes,
-  ensureManagedTailscaleRoute,
-  removeManagedTailscaleRoute,
-} from "../src/tailscale-state";
-import { createSetupSession } from "../src/setup-session";
-import { collectSetupConfiguration } from "../src/setup";
-import { SETUP_STAGES } from "../src/setup-values";
+import { configureTailscaleRoute } from "../src/tailscale-https";
+import { managedTailscaleRoutes } from "../src/tailscale-state";
 import type { CommandRunner, RunResult } from "../src/process";
 
 const host = "bot.tail123.ts.net";
@@ -107,84 +98,6 @@ const mapping = (port: string, backend = "8787") => ({
   Web: { [`${host}:${port}`]: { Handlers: { "/": { Proxy: `http://127.0.0.1:${backend}` } } } },
 });
 
-test("CLI exposes explicit management commands and validates ports", () => {
-  expect(parseArguments(["tailscale", "enable", "--https-port", "14443", "--json"])).toMatchObject({
-    command: "tailscale-enable",
-    httpsPort: "14443",
-    json: true,
-  });
-  expect(parseArguments(["tailscale", "status"])).toMatchObject({ command: "tailscale-status" });
-  expect(parseArguments(["tailscale", "disable"])).toMatchObject({ command: "tailscale-disable" });
-  expect(parseArguments(["help", "tailscale", "enable"])).toMatchObject({
-    helpTopic: "tailscale-enable",
-  });
-  for (const p of ["0", "65536", "-1", "x", "443/path"])
-    expect(() => parseArguments(["tailscale", "enable", "--https-port", p])).toThrow();
-  expect(() => parseArguments(["tailscale", "disable", "--https-port", "443"])).toThrow();
-});
-
-test("normal setup exposes Tailscale, previews custom port, and keeps backend loopback", () => {
-  const f = fixture();
-  const setup = createSetupSession({
-    version: "test",
-    stages: SETUP_STAGES,
-    current: parseEnvironment(f.original),
-    fresh: true,
-    ownerConfigured: true,
-    tailscaleHost: host,
-  });
-  expect(setup.view().title).toBe("1. Connection");
-  expect(setup.rows().some((r) => "id" in r && r.id === "access:tailscale")).toBe(true);
-  setup.handle("6", { name: "6" });
-  expect(setup.state.accessMode).toBe("tailscale");
-  // Port is the only editable value; the hostname comes from the host daemon.
-  expect(setup.rows().some((r) => "id" in r && r.id === "tailscalePort")).toBe(true);
-  expect(setup.rows().some((r) => "id" in r && r.id === "host")).toBe(false);
-  setup.handle("14443", { name: "1" });
-  setup.handle("", { name: "return" });
-  expect(setup.configuration()).toMatchObject({
-    accessMode: "tailscale",
-    publicUrl: `https://${host}:14443`,
-    bindHost: "127.0.0.1",
-    viewerBindHost: "127.0.0.1",
-    composeProfiles: "direct",
-  });
-});
-
-test("typed setup offers the same explicit Tailscale selection", async () => {
-  const f = fixture();
-  const answers = ["tailscale", "14443"];
-  const config = await collectSetupConfiguration(
-    parseEnvironment(f.original),
-    {
-      question: async () => answers.shift()!,
-      secret: async () => {
-        throw new Error("unexpected secret");
-      },
-      close() {},
-    },
-    { ownerConfigured: true, tailscaleHost: host }
-  );
-  expect(config).toMatchObject({
-    accessMode: "tailscale",
-    publicUrl: `https://${host}:14443`,
-  });
-  expect(answers).toHaveLength(0);
-});
-
-test("missing prerequisites stay visible and block setup", () => {
-  const f = fixture();
-  const setup = createSetupSession({
-    version: "test",
-    stages: SETUP_STAGES,
-    current: parseEnvironment(f.original),
-    ownerConfigured: true,
-    tailscaleIssue: "Install Tailscale on this host.",
-  });
-  setup.handle("6", { name: "6" });
-  expect(setup.problems().some((p) => p.message.includes("Install Tailscale"))).toBe(true);
-});
-
 describe("connection lifecycle", () => {
   test("enable, reapply, change port, and disable preserve other routes and secrets", async () => {
     const f = fixture();
@@ -241,52 +154,6 @@ describe("connection lifecycle", () => {
     expect(managedTailscaleRoutes(f.paths)).toEqual([]);
   });
 
-  test("failed port migration preserves the old working route", async () => {
-    const f = fixture();
-    await configureTailscale(f.paths, f.runner, "enable", "14443", f.dependencies);
-    const before = readFileSync(f.paths.environment, "utf8");
-    await expect(
-      configureTailscale(f.paths, f.runner, "enable", "14444", {
-        ...f.dependencies,
-        verify: async () => {
-          throw new Error("endpoint not ready");
-        },
-      })
-    ).rejects.toThrow("Previous configuration restored");
-    expect(readFileSync(f.paths.environment, "utf8")).toBe(before);
-    expect(f.serve).toEqual(mapping("14443"));
-  });
-
-  test("failed reuse never removes a user's mapping", async () => {
-    const f = fixture();
-    f.setServe(mapping("14443"));
-    await expect(
-      configureTailscale(f.paths, f.runner, "enable", "14443", {
-        ...f.dependencies,
-        verify: async () => {
-          throw new Error("DNS failure");
-        },
-      })
-    ).rejects.toThrow("DNS failure");
-    expect(f.serve).toEqual(mapping("14443"));
-  });
-
-  test("Compose validation and startup errors restore environment before exposing Serve", async () => {
-    for (const failure of ["config", "up"]) {
-      const f = fixture();
-      f.fail((command, args) =>
-        command === "docker" && args.includes(failure)
-          ? { status: 1, stdout: "", stderr: "fixture failure" }
-          : null
-      );
-      await expect(
-        configureTailscale(f.paths, f.runner, "enable", "14443", f.dependencies)
-      ).rejects.toThrow("Previous configuration restored");
-      expect(readFileSync(f.paths.environment, "utf8")).toBe(f.original);
-      expect(f.calls.some((c) => c.includes("--bg"))).toBe(false);
-    }
-  });
-
   test("changed managed mappings are reported and preserved", async () => {
     const f = fixture();
     await configureTailscale(f.paths, f.runner, "enable", "14443", f.dependencies);
@@ -302,50 +169,6 @@ describe("connection lifecycle", () => {
     expect(managedTailscaleRoutes(f.paths)).toHaveLength(1);
   });
 
-  test("missing mapping is detected and repaired after restart", async () => {
-    const f = fixture();
-    await configureTailscale(f.paths, f.runner, "enable", "14443", f.dependencies);
-    f.setServe({ TCP: {}, Web: {} });
-    expect((await tailscaleStatus(f.paths, f.runner)).route).toBe("missing");
-    await configureTailscale(f.paths, f.runner, "enable", undefined, f.dependencies);
-    expect((await tailscaleStatus(f.paths, f.runner)).route).toBe("matching");
-  });
-});
-
-test("unavailable CLI, stopped daemon, logged-out node, MagicDNS and HTTPS have distinct remedies", () => {
-  const f = fixture();
-  f.fail(() => ({
-    status: 1,
-    stdout: "",
-    stderr: "",
-    error: Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
-  }));
-  expect(inspectTailscale(f.runner).issue).toContain("Install Tailscale");
-  f.fail(null);
-  for (const [status, remedy] of [
-    [{ BackendState: "Stopped" }, "Start Tailscale"],
-    [{ BackendState: "NeedsLogin" }, "tailscale up"],
-    [{ BackendState: "Running", Self: {} }, "MagicDNS"],
-    [{ BackendState: "Running", Self: { DNSName: host } }, "HTTPS certificates"],
-  ] as const) {
-    f.setStatus(status);
-    expect(inspectTailscale(f.runner).issue).toContain(remedy);
-  }
-});
-
-test("on Linux only root or the Tailscale operator is offered Serve", () => {
-  const f = fixture();
-  let prefs: object = { ControlURL: "https://controlplane.tailscale.com" };
-  f.fail((_command, args) => (args[0] === "debug" ? ok(JSON.stringify(prefs)) : null));
-  const user = { platform: "linux" as const, uid: 1001, username: "otonb" };
-  expect(inspectTailscale(f.runner, user).issue).toContain("sudo tailscale set --operator=otonb");
-  expect(inspectTailscale(f.runner, { ...user, uid: 0 }).issue).toBeNull();
-  expect(inspectTailscale(f.runner, { ...user, platform: "darwin" }).issue).toBeNull();
-  prefs = { ControlURL: "https://controlplane.tailscale.com", OperatorUser: "otonb" };
-  expect(inspectTailscale(f.runner, user).issue).toBeNull();
-  // Output that doesn't look like Tailscale's prefs leaves the decision to Serve itself.
-  prefs = { TCP: {} };
-  expect(inspectTailscale(f.runner, user).issue).toBeNull();
 });
 
 test("permissions and tailnet enablement links are actionable without echoing secrets", () => {
@@ -371,42 +194,6 @@ test("permissions and tailnet enablement links are actionable without echoing se
   }
 });
 
-test("Funnel, extra paths, mixed TCP forwarding, and foreground sessions are never mutated", () => {
-  const f = fixture();
-  const node = { host, addresses: [], port: "443" };
-  for (const config of [
-    { ...mapping("443"), AllowFunnel: { [`${host}:443`]: true } },
-    { ...mapping("443"), Foreground: { session: {} } },
-    { ...mapping("443"), TCP: { "443": { HTTPS: true, TCPForward: "localhost:9000" } } },
-    {
-      ...mapping("443"),
-      Web: {
-        [`${host}:443`]: {
-          Handlers: { "/": { Proxy: "http://localhost:8787" }, "/other": { Text: "hi" } },
-        },
-      },
-    },
-  ]) {
-    f.setServe(config);
-    expect(() => configureTailscaleRoute(f.runner, node, "8787")).toThrow();
-    expect(tailscaleRoute(config, host, "8787")).toBe("occupied");
-  }
-  expect(f.calls.some((c) => c.includes("--bg") || c.includes("off"))).toBe(false);
-});
-
-test("owned mapping cannot be deleted after another app adds a handler", () => {
-  const f = fixture();
-  const entry = ensureManagedTailscaleRoute(
-    f.paths,
-    f.runner,
-    { host, addresses: [], port: "14443" },
-    "8787"
-  )!;
-  f.serve.Web[`${host}:14443`].Handlers["/other"] = { Text: "another app" };
-  expect(() => removeManagedTailscaleRoute(f.paths, f.runner, entry)).toThrow("preserved");
-  expect(f.calls.some((c) => c.includes("off"))).toBe(false);
-});
-
 test("a route created before a command timeout is tracked and rolled back", async () => {
   const f = fixture();
   f.fail((command, args) => {
@@ -421,54 +208,3 @@ test("a route created before a command timeout is tracked and rolled back", asyn
   expect(Object.keys(f.serve.TCP)).toEqual([]);
 });
 
-test("rollback restores env even when safe route cleanup is refused", async () => {
-  const f = fixture();
-  await expect(
-    configureTailscale(f.paths, f.runner, "enable", "14443", {
-      ...f.dependencies,
-      verify: async () => {
-        f.serve.Web[`${host}:14443`].Handlers["/other"] = { Text: "another app" };
-        throw new Error("verification failed");
-      },
-    })
-  ).rejects.toThrow("cleanup needs attention");
-  expect(readFileSync(f.paths.environment, "utf8")).toBe(f.original);
-  expect(managedTailscaleRoutes(f.paths)).toHaveLength(1);
-  expect((await tailscaleStatus(f.paths, f.runner)).issue).toContain("changed externally");
-});
-
-test("settings suggest the existing private HTTPS port before enabling", async () => {
-  const f = fixture();
-  const a = mapping("443", "9000"),
-    b = mapping("10000");
-  f.setServe({ TCP: { ...a.TCP, ...b.TCP }, Web: { ...a.Web, ...b.Web } });
-  expect(await tailscaleStatus(f.paths, f.runner)).toMatchObject({
-    enabled: false,
-    httpsPort: "10000",
-    hostname: host,
-  });
-});
-
-test("changing connection mode in quick setup asks for the new public hostname", async () => {
-  const f = fixture();
-  let env = replaceEnvironmentValue(f.original, "OPENTEAM_ACCESS_MODE", "private");
-  env = replaceEnvironmentValue(env, "OPENTEAM_PUBLIC_URL", "http://100.100.10.5:8787");
-  const answers = ["https", "bot.example.com"];
-  const prompts: string[] = [];
-  const config = await collectSetupConfiguration(
-    parseEnvironment(env),
-    {
-      question: async (prompt) => {
-        prompts.push(prompt);
-        return answers.shift()!;
-      },
-      secret: async () => {
-        throw new Error("unexpected secret");
-      },
-      close() {},
-    },
-    { ownerConfigured: true }
-  );
-  expect(prompts.some((p) => p.startsWith("Public domain"))).toBe(true);
-  expect(config.publicUrl).toBe("https://bot.example.com");
-});

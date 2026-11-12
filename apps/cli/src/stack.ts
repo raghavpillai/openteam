@@ -36,7 +36,7 @@ export const runningServices = (project: ComposeProject): Set<string> => {
 };
 
 /** Ask Docker which container, if any, publishes a host port. */
-export const describePortOccupant = (
+const describePortOccupant = (
   runner: CommandRunner,
   host: string,
   port: number

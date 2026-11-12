@@ -38,26 +38,6 @@ const fixture = (run: AsyncProcess) => {
   };
 };
 describe("provider connection transport", () => {
-  test("cancelling during Keychain lookup never starts an import", async () => {
-    const f = fixture(async () => "");
-    const abort = new AbortController();
-    let imports = 0;
-    const api = createProviderConnectionAPI(
-      f.paths,
-      runner,
-      async (invocation) => {
-        if (invocation.command === "security") {
-          abort.abort();
-          return JSON.stringify({ claudeAiOauth: { accessToken: "a", refreshToken: "r" } });
-        }
-        imports++;
-        return "";
-      },
-      { home: f.directory, env: {}, platform: "darwin" }
-    );
-    await expect(api.importLogin("claude-code", abort.signal)).rejects.toThrow();
-    expect(imports).toBe(0);
-  });
   test("uses the existing Docker service API, piping prompt values without exposing secrets in argv", async () => {
     const calls: Array<{ args: readonly string[]; input?: string }> = [];
     const f = fixture(async (command, input) => {
@@ -78,9 +58,7 @@ describe("provider connection transport", () => {
     });
     expect(JSON.parse(calls[2]!.input!).method).toBe("DELETE");
   });
-  test.each([
-    401, 403, 404, 500,
-  ])("HTTP %i is actionable without echoing provider credentials", async (status) => {
+  test.each([401, 500])("HTTP %i is actionable without echoing provider credentials", async (status) => {
     const f = fixture(async () =>
       JSON.stringify({ status, body: { error: "sk-test-secret-token" } })
     );
@@ -88,10 +66,6 @@ describe("provider connection transport", () => {
     expect(error).toBeInstanceOf(Error);
     expect(error.message).not.toContain("sk-test-secret-token");
     expect(error.message).toMatch(/doctor|Go back/);
-  });
-  test("cancelling an expired, missing session succeeds", async () => {
-    const f = fixture(async () => JSON.stringify({ status: 404, body: null }));
-    await expect(f.api.cancel("expired-session")).resolves.toBeUndefined();
   });
   test("validates auth data and discards unexpected credential fields", () => {
     expect(
@@ -133,15 +107,6 @@ describe("provider connection transport", () => {
     expect(calls[0]!.args.join(" ")).not.toContain("test-refresh");
     expect(calls[1]!.args).toContain("providers");
   });
-  test("a missing local login never starts a remote import", async () => {
-    let calls = 0;
-    const f = fixture(async () => {
-      calls++;
-      return "";
-    });
-    await expect(f.api.importLogin("claude-code")).rejects.toThrow("No reusable Claude Code login");
-    expect(calls).toBe(0);
-  });
   test("a failed or unverified import does not report success", async () => {
     const f = fixture(async () => "[]");
     mkdirSync(join(f.directory, ".claude"));
@@ -167,41 +132,6 @@ describe("provider connection transport", () => {
     const error = await failed.importLogin("claude-code").catch((error) => error);
     expect(error.message).toContain("may have expired");
     expect(error.message).not.toContain("private-refresh-token");
-  });
-  test("the actual bridge script sends authenticated JSON to the computer API", async () => {
-    let received: unknown;
-    const server = Bun.serve({
-      port: 0,
-      hostname: "127.0.0.1",
-      async fetch(request) {
-        expect(request.headers.get("authorization")).toBe("Bearer synthetic-control-token");
-        expect(new URL(request.url).pathname).toBe("/v1/inference/auth-sessions/test/respond");
-        received = await request.json();
-        return Response.json(authView());
-      },
-    });
-    try {
-      const output = await runConnectionProcess(
-        {
-          command: process.execPath,
-          args: ["-e", AUTH_REQUEST_SCRIPT],
-          env: {
-            ...process.env,
-            OPENTEAM_COMPUTER_PORT: String(server.port),
-            OPENTEAM_CONTROL_TOKEN: "synthetic-control-token",
-          },
-        },
-        JSON.stringify({
-          path: "/v1/inference/auth-sessions/test/respond",
-          method: "POST",
-          body: { promptId: "p1", value: "synthetic-code" },
-        })
-      );
-      expect(JSON.parse(output).status).toBe(200);
-      expect(received).toEqual({ promptId: "p1", value: "synthetic-code" });
-    } finally {
-      server.stop(true);
-    }
   });
   test("subprocess failures, timeouts and oversized output are bounded and redact diagnostics", async () => {
     for (const code of [

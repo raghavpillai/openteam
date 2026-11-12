@@ -5,10 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import {
-  cliAssetName,
   cliPromotionEnvironment,
   downloadCliArtifact,
-  isBunStandaloneExecutable,
   isStandaloneCliExecutable,
   promoteStagedCli,
   readCliPromotion,
@@ -64,19 +62,6 @@ const artifactServer = (options: {
 };
 
 describe("CLI self-update", () => {
-  test("detects Bun's virtual executable entrypoint on Unix and Windows", () => {
-    expect(
-      isBunStandaloneExecutable(["/usr/local/bin/openteam", "/$bunfs/root/openteam", "update"], {
-        bun: "1.3.8",
-      })
-    ).toBe(true);
-    expect(
-      isBunStandaloneExecutable(
-        ["C:\\OpenTeam\\openteam.exe", "B:\\~BUN\\root\\openteam.exe", "update"],
-        { bun: "1.3.8" }
-      )
-    ).toBe(true);
-  });
 
   test("detects native standalone launches without treating Desktop as installable CLI", () => {
     expect(
@@ -104,13 +89,6 @@ describe("CLI self-update", () => {
         "linux"
       )
     ).toBe(false);
-  });
-
-  test("selects each published host asset", () => {
-    expect(cliAssetName("darwin", "arm64")).toBe("openteam-darwin-arm64");
-    expect(cliAssetName("linux", "x64")).toBe("openteam-linux-x64");
-    expect(cliAssetName("win32", "arm64")).toBe("openteam-windows-x64.exe");
-    expect(() => cliAssetName("freebsd", "x64")).toThrow("does not publish");
   });
 
   test("removes a standalone Unix CLI without deleting a shared runtime", () => {

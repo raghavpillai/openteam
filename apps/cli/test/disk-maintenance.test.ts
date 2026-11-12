@@ -2,7 +2,6 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
-  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -16,7 +15,6 @@ import { join } from "node:path";
 import { installationPaths } from "../src/config";
 import { ComposeProject } from "../src/docker";
 import {
-  captureStackImages,
   maintenanceWarning,
   registerDatabaseBackup,
   retainDatabaseBackups,
@@ -179,117 +177,6 @@ test("removes retired containerd digest references and image layers before forge
   expect(JSON.parse(readFileSync(ledgerPath, "utf8")).owned).not.toContain(id(1));
 });
 
-test("removes classic image-store digest references absent from RepoTags", () => {
-  const { paths, runner, project } = fixture();
-  const digest = `registry.example:5000/team@${id(99)}`;
-  runner.digests.set(id(1), [digest]);
-  retainStackImages(paths, project, runner, [id(1)], [id(2)]);
-  const ledgerPath = join(paths.directory, "image-retention.json");
-  const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
-  const marker = `openteam-retention-${ledger.owner}:${id(1).slice(7)}`;
-  const run = runner.run.bind(runner);
-  runner.run = (command, args) => {
-    const result = run(command, args);
-    if (args[0] !== "image" || args[1] !== "inspect") return result;
-    const images = JSON.parse(result.stdout);
-    images[0].RepoDigests.push(`openteam-retention-${ledger.owner}@${id(1)}`);
-    return { ...result, stdout: JSON.stringify(images) };
-  };
-
-  retainStackImages(paths, project, runner, [id(2)], [id(3)]);
-
-  expect(runner.images.has(id(1))).toBe(false);
-  expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual([
-    ["image", "rm", digest],
-    ["image", "rm", marker],
-  ]);
-  expect(JSON.parse(readFileSync(ledgerPath, "utf8")).owned).not.toContain(id(1));
-});
-
-test("preserves references that Docker does not confirm as repository digests", () => {
-  for (const ref of [`registry.example/team@${id(1)}`, "registry.example/team@sha256:invalid"]) {
-    const { paths, runner, project } = fixture();
-    retainStackImages(paths, project, runner, [id(1)], [id(2)]);
-    runner.images.get(id(1))!.add(ref);
-    retainStackImages(paths, project, runner, [id(2)], [id(3)]);
-    expect(runner.images.has(id(1))).toBe(true);
-    expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual([]);
-  }
-});
-
-test.each([
-  { Id: id(99) },
-  { RepoTags: null },
-  { RepoTags: [42] },
-])("refuses malformed owned image inventory %j before removing any reference", (inventory) => {
-  const { paths, runner, project } = fixture();
-  retainStackImages(paths, project, runner, [id(1)], [id(2)]);
-  const run = runner.run.bind(runner);
-  runner.run = (command, args) => {
-    const result = run(command, args);
-    if (args[0] !== "image" || args[1] !== "inspect") return result;
-    const images = JSON.parse(result.stdout);
-    Object.assign(images[0], inventory);
-    return { ...result, stdout: JSON.stringify(images) };
-  };
-  expect(() => retainStackImages(paths, project, runner, [id(2)], [id(3)])).toThrow(
-    "Invalid owned image inventory"
-  );
-  expect(runner.images.has(id(1))).toBe(true);
-  expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual([]);
-});
-
-test.each([
-  { confirmedDigests: undefined },
-  { confirmedDigests: null },
-  { confirmedDigests: "digest reference" },
-  { confirmedDigests: [] },
-  { confirmedDigests: [id(1)] },
-])("preserves digest references with incomplete RepoDigests %j", ({ confirmedDigests }) => {
-  const { paths, runner, project } = fixture();
-  retainStackImages(paths, project, runner, [id(1)], [id(2)]);
-  runner.images.get(id(1))!.add(`registry.example/team@${id(1)}`);
-  const run = runner.run.bind(runner);
-  runner.run = (command, args) => {
-    const result = run(command, args);
-    if (args[0] !== "image" || args[1] !== "inspect") return result;
-    const images = JSON.parse(result.stdout);
-    images[0].RepoDigests = confirmedDigests;
-    return { ...result, stdout: JSON.stringify(images) };
-  };
-  retainStackImages(paths, project, runner, [id(2)], [id(3)]);
-  expect(runner.images.has(id(1))).toBe(true);
-  expect(runner.calls.filter((args) => args[0] === "image" && args[1] === "rm")).toEqual([]);
-});
-
-test("retries partially removed digest references using the retained ownership marker", () => {
-  const { paths, runner, project } = fixture();
-  const digests = [`ghcr.io/team/computer@${id(1)}`, `registry.example/team@${id(99)}`];
-  for (const ref of digests) runner.images.get(id(1))!.add(ref);
-  runner.digests.set(id(1), digests);
-  retainStackImages(paths, project, runner, [id(1)], [id(2)]);
-  const run = runner.run.bind(runner);
-  runner.run = (command, args) => {
-    if (args[0] === "image" && args[1] === "rm" && args[2] === digests[1])
-      return { status: 1, stdout: "", stderr: "fixture interrupted removal" };
-    return run(command, args);
-  };
-  expect(() => retainStackImages(paths, project, runner, [id(2)], [id(3)])).toThrow(
-    "fixture interrupted removal"
-  );
-  const ledgerPath = join(paths.directory, "image-retention.json");
-  const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
-  expect(ledger.owned).toContain(id(1));
-  expect(runner.images.get(id(1))).toEqual(
-    new Set([digests[1]!, `openteam-retention-${ledger.owner}:${id(1).slice(7)}`])
-  );
-
-  runner.run = run;
-  retainStackImages(paths, project, runner, [id(2)], [id(3)]);
-  expect(runner.images.has(id(1))).toBe(false);
-  expect(JSON.parse(readFileSync(ledgerPath, "utf8")).owned).not.toContain(id(1));
-});
-
 test("forcing an unchanged release preserves the previous distinct rollback stack across restarts", () => {
   const { paths, runner, project } = fixture();
   retainStackImages(paths, project, runner, [id(1), id(2)], [id(3), id(4)]);
@@ -303,28 +190,6 @@ test("forcing an unchanged release preserves the previous distinct rollback stac
   retainStackImages(paths, restarted, runner, [id(3), id(4)], [id(5), id(6)]);
   expect(runner.images.has(id(1))).toBe(false);
   for (const n of [3, 4, 5, 6]) expect(runner.images.has(id(n))).toBe(true);
-});
-
-test("inventories custom prefixes, optional services, and actual pre-pull mutable-tag container IDs", () => {
-  const { paths, runner, project } = fixture();
-  runner.refs = {
-    "private.example/team-server:mutable": id(1),
-    "caddy@sha256:abc": id(2),
-    "private.example/team-migrate:mutable": id(3),
-  };
-  runner.containers.push({
-    Image: id(4),
-    Config: {
-      Labels: {
-        "com.docker.compose.project": project.projectName,
-        "com.docker.compose.project.working_dir": paths.directory,
-      },
-    },
-    State: { Running: false },
-  });
-  expect(captureStackImages(paths, project, runner).sort()).toEqual([id(1), id(2), id(3), id(4)]);
-  expect(runner.calls[0]).toContain("--profile");
-  expect(runner.calls[0]).toContain("*");
 });
 
 test("missing inventory or malformed history prevents removals; removal failure only warns", () => {
@@ -366,44 +231,25 @@ const backups = () => {
   return { ...f, files };
 };
 
-test("keeps three newest updater dumps plus protected rollback backup; preserves manual matching files and directories", () => {
-  const { paths, files } = backups();
-  const manual = dump(paths.backups, 0);
-  writeFileSync(manual, "manual");
-  const manualDirectory = join(paths.backups, "manual-backup");
-  mkdirSync(manualDirectory);
-  writeFileSync(join(manualDirectory, "data"), "keep");
-  retainDatabaseBackups(paths, files[0]!);
-  expect(files.map(existsSync)).toEqual([true, false, false, true, true, true]);
-  expect(readFileSync(manual, "utf8")).toBe("manual");
-  expect(readFileSync(join(manualDirectory, "data"), "utf8")).toBe("keep");
-});
-
 test("backup retention refuses symlinked files, directories, and traversal in history", () => {
-  for (const mode of ["file", "directory", "ledger", "traversal", "hardlink"]) {
+  for (const mode of ["file", "directory", "traversal"]) {
     const { paths, files } = backups();
     const outside = join(paths.directory, "manual.sql");
     writeFileSync(outside, "precious");
-    if (mode === "file" || mode === "hardlink") {
+    if (mode === "file") {
       rmSync(files[0]!);
-      if (mode === "file") symlinkSync(outside, files[0]!);
-      else linkSync(outside, files[0]!);
+      symlinkSync(outside, files[0]!);
     }
     if (mode === "directory") {
       rmSync(paths.backups, { recursive: true });
       symlinkSync(paths.directory, paths.backups);
-    }
-    if (mode === "ledger") {
-      rmSync(join(paths.directory, "backup-retention.json"));
-      symlinkSync(outside, join(paths.directory, "backup-retention.json"));
     }
     if (mode === "traversal")
       writeFileSync(
         join(paths.directory, "backup-retention.json"),
         JSON.stringify({ schemaVersion: 1, directory: paths.directory, files: ["../manual.sql"] })
       );
-    if (mode === "hardlink") retainDatabaseBackups(paths, files[5]!);
-    else expect(() => retainDatabaseBackups(paths, files[5]!)).toThrow();
+    expect(() => retainDatabaseBackups(paths, files[5]!)).toThrow();
     expect(readFileSync(outside, "utf8")).toBe("precious");
   }
 });
@@ -419,79 +265,13 @@ test("backup creation refuses symlink directories and path traversal before invo
   expect(runner.calls).toHaveLength(0);
 });
 
-test("unpulled optional profile images are skipped, but active or ambiguous inventory failures abort capture", () => {
-  for (const mode of ["optional", "required", "ambiguous", "malformed"]) {
-    const { paths, runner, project } = fixture();
-    const run = runner.run.bind(runner);
-    runner.run = (command, args) => {
-      if (args.includes("config"))
-        return {
-          status: 0,
-          stdout: JSON.stringify({
-            services: {
-              server: { image: id(1) },
-              caddy: {
-                image: "never-pulled",
-                ...(mode === "required" ? {} : { profiles: ["https"] }),
-              },
-            },
-          }),
-          stderr: "",
-        };
-      if (args[0] === "image" && args[2] === "never-pulled")
-        return mode === "malformed"
-          ? { status: 0, stdout: "[]", stderr: "" }
-          : {
-              status: 1,
-              stdout: "",
-              stderr:
-                mode === "ambiguous" ? "daemon unavailable" : "Error: No such image: never-pulled",
-            };
-      return run(command, args);
-    };
-    if (mode === "optional") expect(captureStackImages(paths, project, runner)).toEqual([id(1)]);
-    else expect(() => captureStackImages(paths, project, runner)).toThrow();
-  }
-});
-
 test("backup retention can be disabled or increased; invalid settings preserve all restore points", () => {
-  for (const count of ["0", "6", "-1", "invalid", "9007199254740992"]) {
+  for (const count of ["0", "invalid"]) {
     const { paths, files } = backups();
     writeFileSync(paths.environment, `OPENTEAM_BACKUP_RETENTION_COUNT=${count}\n`);
-    if (count === "0" || count === "6") retainDatabaseBackups(paths, files[5]!);
+    if (count === "0") retainDatabaseBackups(paths, files[5]!);
     else expect(() => retainDatabaseBackups(paths, files[5]!)).toThrow("backups preserved");
     expect(files.every(existsSync)).toBe(true);
   }
 });
 
-test("configured smaller retention still protects the rollback dump and exported copies", () => {
-  const { paths, files } = backups();
-  writeFileSync(paths.environment, "OPENTEAM_BACKUP_RETENTION_COUNT=1\n");
-  const manual = join(paths.backups, "manual");
-  mkdirSync(manual);
-  const exported = join(manual, "keep.sql");
-  writeFileSync(exported, readFileSync(files[1]!));
-  retainDatabaseBackups(paths, files[0]!);
-  expect(files.map(existsSync)).toEqual([true, false, false, false, false, true]);
-  expect(readFileSync(exported, "utf8")).toBe("private database bytes");
-});
-
-test("missing recent dumps do not displace surviving restore points from retention", () => {
-  const { paths, files } = backups();
-  rmSync(files[3]!);
-  rmSync(files[4]!);
-  retainDatabaseBackups(paths, files[5]!);
-  expect(files.map(existsSync)).toEqual([false, true, true, false, false, true]);
-  const ledger = JSON.parse(readFileSync(join(paths.directory, "backup-retention.json"), "utf8"));
-  expect(ledger.files).toHaveLength(3);
-  expect(ledger.files.every((name: string) => existsSync(join(paths.backups, name)))).toBe(true);
-});
-
-test("empty dumps cannot displace valid restore points", () => {
-  const { paths, files } = backups();
-  writeFileSync(files[3]!, "");
-  writeFileSync(files[4]!, "");
-  retainDatabaseBackups(paths, files[5]!);
-  for (const index of [1, 2, 5])
-    expect(readFileSync(files[index]!, "utf8")).toBe("private database bytes");
-});

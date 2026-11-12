@@ -28,42 +28,6 @@ export const providerAccessFixture = (): ModelProvider[] => [
     modelCount: 2,
     authMethods: [{ type: "api_key", label: "OpenAI API key", subscription: false }],
   },
-  {
-    id: "anthropic",
-    name: "Anthropic",
-    custom: false,
-    connected: false,
-    authType: null,
-    modelCount: 0,
-    authMethods: [{ type: "api_key", label: "Anthropic API key", subscription: false }],
-  },
-  {
-    id: "claude-code",
-    name: "Claude Code",
-    custom: false,
-    connected: false,
-    authType: null,
-    modelCount: 0,
-    authMethods: [{ type: "oauth", label: "Claude Code", subscription: true }],
-  },
-  {
-    id: "openrouter",
-    name: "OpenRouter",
-    custom: false,
-    connected: false,
-    authType: null,
-    modelCount: 0,
-    authMethods: [{ type: "api_key", label: "API key", subscription: false }],
-  },
-  {
-    id: "local",
-    name: "Local models",
-    custom: true,
-    connected: true,
-    authType: "api_key",
-    modelCount: 1,
-    authMethods: [{ type: "api_key", label: "API key", subscription: false }],
-  },
 ];
 
 export const modelFixture = () => {

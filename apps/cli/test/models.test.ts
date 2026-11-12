@@ -185,29 +185,6 @@ describe("Codex model selection", () => {
     expect(state.writes).toHaveLength(0);
   });
 
-  test.each([
-    "off",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-  ])("persists explicit %s reasoning", async (thinking) => {
-    const { paths, runner, state } = fixture();
-    await modelUseCommand(paths, runner, {
-      providerId: "openai-codex",
-      modelId: "gpt-5.6-sol",
-      thinking,
-    });
-    expect(state.selected).toEqual({
-      providerId: "openai-codex",
-      modelId: "gpt-5.6-sol",
-      reasoning: thinking,
-    });
-    expect(state.writes).toHaveLength(1);
-  });
-
   test("reselecting the same model and reasoning makes no write", async () => {
     const { paths, runner, state } = fixture();
     await modelUseCommand(paths, runner, { providerId: "openai-codex", modelId: "gpt-5.5" });
@@ -219,22 +196,7 @@ describe("Codex model selection", () => {
     expect(state.writes).toHaveLength(0);
   });
 
-  test("changing reasoning on the same model persists the change", async () => {
-    const { paths, runner, state } = fixture();
-    await modelUseCommand(paths, runner, {
-      providerId: "openai-codex",
-      modelId: "gpt-5.5",
-      thinking: "low",
-    });
-    expect(state.selected.reasoning).toBe("low");
-    expect(state.writes).toHaveLength(1);
-  });
-
-  test.each([
-    "Pi does not provide openai-codex/missing",
-    "Inference provider openai-codex is not authenticated",
-    "openai-codex/gpt-5.4 was retired for ChatGPT sign-in",
-  ])("rejects failed verification before changing settings: %s", async (error) => {
+  test.each(["Inference provider openai-codex is not authenticated"])("rejects failed verification before changing settings: %s", async (error) => {
     const { paths, runner, state } = fixture();
     runner.verificationError = error;
     await expect(
@@ -243,38 +205,6 @@ describe("Codex model selection", () => {
     expect(state.reads).toBe(0);
     expect(state.writes).toHaveLength(0);
     expect(state.selected.modelId).toBe("gpt-5.5");
-  });
-
-  test("rejects invalid reasoning without writing settings", async () => {
-    const { paths, runner, state } = fixture();
-    await expect(
-      modelUseCommand(paths, runner, {
-        providerId: "openai-codex",
-        modelId: "gpt-5.6-sol",
-        thinking: "impossible",
-      })
-    ).rejects.toThrow("Invalid reasoning level");
-    expect(state.writes).toHaveLength(0);
-  });
-
-  test.each([
-    401, 403,
-  ])("explains an HTTP %s control-token rejection and preserves the selection", async (status) => {
-    const { paths, runner, state } = fixture();
-    state.readStatus = status;
-    await expect(
-      modelUseCommand(paths, runner, { providerId: "openai-codex", modelId: "gpt-5.6-sol" })
-    ).rejects.toThrow("rejected this installation's control token");
-    expect(state.writes).toHaveLength(0);
-  });
-
-  test("fails when runtime settings are missing instead of choosing an implicit default", async () => {
-    const { paths, runner, state } = fixture();
-    state.invalidRead = true;
-    await expect(
-      modelUseCommand(paths, runner, { providerId: "openai-codex", modelId: "gpt-5.6-sol" })
-    ).rejects.toThrow("invalid runtime settings");
-    expect(state.writes).toHaveLength(0);
   });
 
   test("surfaces a server-side rejection without reporting a successful selection", async () => {

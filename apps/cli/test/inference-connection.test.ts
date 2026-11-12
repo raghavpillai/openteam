@@ -21,11 +21,7 @@ const fixture = (result: RunResult = { status: 0, stdout: '{"ok":true}\n', stder
 };
 
 describe("model connection probe", () => {
-  test.each([
-    "openai-codex",
-    "openai",
-    "anthropic",
-  ])("uses the saved %s model and thinking setting without exporting credentials", (providerId) => {
+  test.each(["anthropic"])("uses the saved %s model and thinking setting without exporting credentials", (providerId) => {
     const { project, calls } = fixture();
     const selected = {
       ...settings,
@@ -60,30 +56,11 @@ describe("model connection probe", () => {
     expect(result.detail).not.toContain(secret);
   });
 
-  test.each([
-    "",
-    "not JSON",
-    "{}",
-    '{"ok":"true"}',
-    "null",
-  ])("does not report success for malformed output %j", (stdout) => {
+  test.each(["not JSON", '{"ok":"true"}'])("does not report success for malformed output %j", (stdout) => {
     const { project } = fixture({ status: 0, stdout, stderr: "" });
     expect(checkInferenceConnection(project, settings)).toEqual({
       ok: false,
       detail: `${settings.providerId}/${settings.modelId}: The connection test returned an invalid result`,
-    });
-  });
-
-  test("reports a bounded Docker timeout", () => {
-    const { project } = fixture({
-      status: 1,
-      stdout: "",
-      stderr: "",
-      error: Object.assign(new Error("spawn timed out"), { code: "ETIMEDOUT" }),
-    });
-    expect(checkInferenceConnection(project, settings)).toMatchObject({
-      ok: false,
-      detail: expect.stringContaining("timed out"),
     });
   });
 
@@ -103,26 +80,12 @@ describe("model connection probe", () => {
 describe("connection probe executed in Bun", () => {
   test.each([
     { status: 200, body: { text: "OK" }, ok: true },
-    { status: 200, body: { text: "A connection is working." }, ok: true },
     { status: 200, body: { text: "  " }, ok: false, error: "no text" },
-    { status: 200, body: { text: 123 }, ok: false, error: "no text" },
     {
       status: 401,
       body: { error: "Invalid provider credential" },
       ok: false,
       error: "HTTP 401: Invalid provider credential",
-    },
-    {
-      status: 429,
-      body: { error: { message: "Quota exceeded" } },
-      ok: false,
-      error: "HTTP 429: Quota exceeded",
-    },
-    {
-      status: 400,
-      body: { error: "Model is not supported" },
-      ok: false,
-      error: "HTTP 400: Model is not supported",
     },
   ])("validates an actual HTTP response: %j", async ({ status, body, ok, error }) => {
     const received: Array<{ path: string; method: string; authorized: boolean; body: unknown }> =

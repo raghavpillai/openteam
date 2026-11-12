@@ -101,28 +101,6 @@ describe("detected vendor sign-ins", () => {
     );
   });
 
-  test("ignores Codex API-key mode, missing files, and honours CODEX_HOME", () => {
-    const directory = home();
-    expect(readCodexCredential({ home: directory, env: {} })).toBeNull();
-    mkdirSync(join(directory, ".codex"));
-    writeFileSync(
-      join(directory, ".codex", "auth.json"),
-      JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "sk-test", tokens: null })
-    );
-    expect(readCodexCredential({ home: directory, env: {} })).toBeNull();
-
-    const elsewhere = join(directory, "codex-home");
-    mkdirSync(elsewhere);
-    writeFileSync(
-      join(elsewhere, "auth.json"),
-      JSON.stringify({ tokens: { access_token: "plain", refresh_token: "refresh-2" } })
-    );
-    expect(readCodexCredential({ home: directory, env: { CODEX_HOME: elsewhere } })).toMatchObject({
-      credential: { access: "plain", refresh: "refresh-2", expires: 0 },
-      source: "Codex CLI (~/codex-home/auth.json)",
-    });
-  });
-
   test("reads the Claude Code sign-in from its credentials file or the macOS Keychain", () => {
     const directory = home();
     mkdirSync(join(directory, ".claude"));

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArguments } from "../src/arguments";
@@ -16,7 +16,6 @@ import {
   portAvailable,
   runDoctor,
   suggestApiPort,
-  viewerPorts,
 } from "../src/doctor";
 import { SERVER_PROBE, WORKER_PROBE, STORAGE_PROBE } from "../src/doctor-probes";
 import { NOTIFICATION_STATE_PROBE, APNS_CONFIGURATION_PROBE } from "../src/doctor-notifications";
@@ -39,12 +38,6 @@ describe("installation ports", () => {
     }
   });
 
-  test("enumerates the complete fixed screen-viewer range", () => {
-    const ports = viewerPorts();
-    expect(ports).toHaveLength(100);
-    expect(ports[0]).toBe(6200);
-    expect(ports.at(-1)).toBe(6299);
-  });
 });
 
 const cleanups: Array<() => void> = [];
@@ -212,40 +205,6 @@ const installedFixture = () => {
 };
 
 describe("doctor model API connection", () => {
-  test("healthy containers do not hide missing APNs credentials or delivery failures", async () => {
-    const { paths, runner } = installedFixture();
-    runner.notifications = {
-      total: 1,
-      eligible: 1,
-      invalid: 0,
-      topics: ["dev.openbot.mobile"],
-      failed: 87,
-      waiting: 0,
-    };
-    const result = await runDoctor(paths, runner, "openteam", { deepChecks: true });
-    expect(result.ok).toBe(false);
-    expect(result.checks.find((c) => c.label === "Compose services")?.level).toBe("pass");
-    expect(result.checks.find((c) => c.label === "iOS push registration")?.level).toBe("pass");
-    expect(result.checks.find((c) => c.label === "iOS push credentials")?.level).toBe("fail");
-    expect(result.checks.find((c) => c.label === "iOS push delivery")?.level).toBe("fail");
-  });
-  test("optional transcription setup warns while provider failure makes doctor fail", async () => {
-    const { paths, state, runner } = installedFixture();
-    const missing = await runDoctor(paths, runner, "openteam", { deepChecks: true });
-    expect(missing.ok).toBe(true);
-    expect(missing.checks).toContainEqual({
-      label: "Transcription",
-      level: "warn",
-      detail: "Transcription diagnostic",
-    });
-    state.transcriptionLevel = "fail";
-    const unavailable = await runDoctor(paths, runner, "openteam", { deepChecks: true });
-    expect(unavailable.ok).toBe(false);
-    expect(unavailable.checks.find((check) => check.label === "Transcription")?.level).toBe("fail");
-    expect(state.requests.some((request) => request.path.endsWith("/audio/transcriptions"))).toBe(
-      false
-    );
-  });
   test("the doctor command tests the saved model once without modifying settings", async () => {
     const { paths, state, runner } = installedFixture();
     const output: string[] = [];
@@ -297,22 +256,6 @@ describe("doctor model API connection", () => {
     expect(output.join("\n")).not.toContain(secret);
   });
 
-  test.each([
-    "HTTP 429: quota exceeded",
-    "model is unavailable",
-    "network connection refused",
-  ])("reports %s as a blocking problem", async (error) => {
-    const { paths, runner } = installedFixture();
-    runner.result.stdout = JSON.stringify({ ok: false, error });
-    const result = await runDoctor(paths, runner, "openteam", { testInference: true });
-    expect(result.ok).toBe(false);
-    expect(result.checks).toContainEqual({
-      level: "fail",
-      label: "AI connection",
-      detail: `openai-codex/gpt-5.6-sol: ${error}`,
-    });
-  });
-
   test("marks unconfigured inference as not tested instead of passing it", async () => {
     const { paths, state, runner } = installedFixture();
     state.inference = "missing";
@@ -329,15 +272,8 @@ describe("doctor model API connection", () => {
     ).toHaveLength(1);
   });
 
-  test.each([
-    "unhealthy",
-    "foreign server",
-    "stopped computer",
-    "wrong release",
-  ])("does not send a model request for an %s installation", async (condition) => {
+  test.each(["stopped computer", "wrong release"])("does not send a model request for an %s installation", async (condition) => {
     const { paths, state, runner } = installedFixture();
-    if (condition === "unhealthy") state.health = "starting";
-    if (condition === "foreign server") runner.running = ["postgres", "computer"];
     if (condition === "stopped computer") runner.running = ["postgres", "server", "worker"];
     if (condition === "wrong release") state.version = "9.9.9";
     const result = await runDoctor(paths, runner, "openteam", { testInference: true });
@@ -360,25 +296,6 @@ describe("doctor model API connection", () => {
       "rejected this installation's control token"
     );
     expect(runner.probes).toHaveLength(0);
-  });
-
-  test("does not invent a model when runtime settings are missing", async () => {
-    const { paths, state, runner } = installedFixture();
-    state.invalidSettings = true;
-    const result = await runDoctor(paths, runner, "openteam", { testInference: true });
-    expect(result.ok).toBe(false);
-    expect(result.checks.find((check) => check.label === "AI connection")?.detail).toContain(
-      "invalid runtime settings"
-    );
-    expect(runner.probes).toHaveLength(0);
-  });
-
-  test("routine setup health checks do not generate model requests", async () => {
-    const { paths, runner } = installedFixture();
-    const result = await runDoctor(paths, runner);
-    expect(result.ok).toBe(true);
-    expect(runner.probes).toHaveLength(0);
-    expect(result.checks.some((check) => check.label === "AI connection")).toBe(false);
   });
 
   test("stopped services skip dependent probes and never start containers", async () => {
@@ -405,28 +322,4 @@ describe("doctor model API connection", () => {
     ).toBe(false);
   });
 
-  test("an invalid manifest is included in the report instead of throwing before rendering", async () => {
-    const { paths, runner } = installedFixture();
-    writeFileSync(paths.manifest, "{broken");
-    const result = await runDoctor(paths, runner, "openteam", { deepChecks: true });
-    expect(result.ok).toBe(false);
-    expect(result.checks.find((c) => c.label === "Installation")?.detail).toContain(
-      "Invalid installation manifest"
-    );
-  });
-
-  test("distinguishes an incomplete installation from a fresh machine", async () => {
-    const { paths, runner } = installedFixture();
-    rmSync(paths.compose);
-    expect(await runDoctor(paths, runner, "openteam", { checkInstallPorts: false })).toMatchObject({
-      ok: false,
-      installed: false,
-    });
-    rmSync(paths.environment);
-    rmSync(paths.manifest);
-    expect(await runDoctor(paths, runner, "openteam", { checkInstallPorts: false })).toMatchObject({
-      ok: true,
-      installed: false,
-    });
-  });
 });

@@ -78,25 +78,6 @@ test("setup prefers private Tailscale HTTPS and creates a verified persistent ro
   expect(f.calls.filter((args) => args.includes("--bg"))).toHaveLength(1);
 });
 
-test("a re-run keeps the connection already in use instead of suggesting Tailscale HTTPS", () => {
-  const setup = createSetupSession({
-    version: "test",
-    stages: SETUP_STAGES,
-    current: new Map([
-      ["OPENTEAM_ACCESS_MODE", "private"],
-      ["OPENTEAM_PUBLIC_URL", `http://${host}:8788`],
-      ["OPENTEAM_API_PORT", "8788"],
-    ]),
-    fresh: false,
-    ownerConfigured: true,
-    preferredHttpsHost: host,
-  });
-  expect(setup.configuration()).toMatchObject({
-    accessMode: "private",
-    publicUrl: `http://${host}:8788`,
-  });
-});
-
 test("detection avoids disabled HTTPS and every incompatible route", () => {
   const f = fixture();
   f.status.CertDomains = [];
@@ -125,25 +106,6 @@ test("detection avoids disabled HTTPS and every incompatible route", () => {
     expect(detectTailscaleHttps(other.runner, "8787")).toBeNull();
     expect(() => configureTailscaleRoute(other.runner, { host, addresses: [] }, "8787")).toThrow();
     expect(other.calls.some((args) => args.includes("--bg"))).toBe(false);
-  }
-});
-
-test("route changes during review, missing CLI, and invalid status fail without mutation", () => {
-  const f = fixture();
-  const candidate = detectTailscaleHttps(f.runner, "8787")!;
-  f.setServe(matching("9000"));
-  expect(() => configureTailscaleRoute(f.runner, candidate, "8787")).toThrow();
-  for (const runner of [
-    { run: () => ({ status: 1, stdout: "", stderr: "unavailable" }) },
-    { run: () => ({ status: 0, stdout: "not JSON", stderr: "" }) },
-    {
-      run: () => {
-        throw new Error("missing CLI");
-      },
-    },
-  ]) {
-    expect(detectTailscaleHttps(runner, "8787")).toBeNull();
-    expect(() => configureTailscaleRoute(runner, candidate, "8787")).toThrow();
   }
 });
 

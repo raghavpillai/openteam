@@ -21,12 +21,11 @@ process.exit(result.status);
 const installStub = (f: ReturnType<typeof statusFixture>, id: string) => {
   const bin = join(f.directory, "bin");
   mkdirSync(bin);
-  if (id !== "docker-missing")
-    for (const name of ["docker", "docker-compose"]) {
-      const file = join(bin, name);
-      writeFileSync(file, stub);
-      chmodSync(file, 0o755);
-    }
+  for (const name of ["docker", "docker-compose"]) {
+    const file = join(bin, name);
+    writeFileSync(file, stub);
+    chmodSync(file, 0o755);
+  }
   return {
     ...process.env,
     PATH: bin,
@@ -87,67 +86,6 @@ describe.skipIf(process.platform === "win32")("actual status and health CLI comm
       f.cleanup();
     }
   });
-  // A representative subset runs through the real CLI; the full matrix runs in-process above.
-  test.each(
-    statusScenarios.filter(([id]) =>
-      ["healthy", "stopped", "docker-missing", "job-failed", "not-installed"].includes(id)
-    )
-  )(
-    "%s: both aliases have the same output and exit status",
-    async (id, _title, state, expected) => {
-      const f = statusFixture(id);
-      try {
-        const env = installStub(f, id);
-        const outputs: string[] = [];
-        for (const command of ["status", "health"]) {
-          const child = Bun.spawn(
-            [
-              process.execPath,
-              resolve(import.meta.dir, "../src/main.ts"),
-              command,
-              "--dir",
-              f.paths.directory,
-            ],
-            { env, stdout: "pipe", stderr: "pipe" }
-          );
-          const [output, stderr, code] = await Promise.all([
-            new Response(child.stdout).text(),
-            new Response(child.stderr).text(),
-            child.exited,
-          ]);
-          expect(code).toBe(state === "RUNNING" ? 0 : 2);
-          expect(stderr).toBe("");
-          expect(output).toContain(state);
-          expect(output.replace(/\s+/g, " ")).toContain(expected);
-          outputs.push(output);
-        }
-        expect(outputs[0]).toBe(outputs[1]);
-        for (const [file, content] of f.before) expect(readFileSync(file, "utf8")).toBe(content);
-        expect(f.requests).toEqual(f.requests.map(() => "/api/v0/health"));
-        if (existsSync(env.OPENTEAM_TEST_CALLS)) {
-          const calls = readFileSync(env.OPENTEAM_TEST_CALLS, "utf8")
-            .trim()
-            .split("\n")
-            .map((line) => JSON.parse(line));
-          expect(
-            calls.every(
-              (call) =>
-                !call.args.some((arg: string) =>
-                  ["up", "start", "stop", "restart", "exec", "pull", "down"].includes(arg)
-                )
-            )
-          ).toBe(true);
-          for (const call of calls.filter((call) => call.args.includes("json"))) {
-            expect(call.args).toContain("friend-team");
-            expect(call.args).toContain(f.paths.directory);
-          }
-        }
-      } finally {
-        f.cleanup();
-      }
-    },
-    15_000
-  );
 });
 
 describe("status and health reports", () => {

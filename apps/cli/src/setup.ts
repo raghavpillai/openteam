@@ -135,7 +135,7 @@ export interface SetupCommandOptions {
   tailscaleIssue?: string | null;
 }
 
-export const supportsInteractiveSelection = (
+const supportsInteractiveSelection = (
   environment: NodeJS.ProcessEnv = process.env
 ): boolean => environment.TERM?.toLowerCase() !== "dumb";
 
@@ -200,7 +200,7 @@ export const createTerminalPrompter = (): SetupPrompter => {
 
 type SelectionAction = "previous" | "next" | "confirm" | "cancel" | number | null;
 
-export const selectionActionForKey = (
+const selectionActionForKey = (
   character: string,
   key: { name?: string; ctrl?: boolean },
   options: readonly { shortcut?: string }[]

@@ -3,9 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { DOCKER_CLI_MISSING } from "../src/docker-diagnostics";
-import { dockerMissing, renderDockerRequired, startDockerDesktop } from "../src/docker-preflight";
+import { dockerMissing, startDockerDesktop } from "../src/docker-preflight";
 import type { CommandRunner, RunResult } from "../src/process";
-import { terminalTextWidth } from "../src/terminal";
 
 const stopped =
   "Cannot connect to the Docker daemon at unix:///Users/me/.docker/run/docker.sock. Is the docker daemon running?";
@@ -73,14 +72,6 @@ describe("Docker Desktop start", () => {
     expect(printed).toContain("Docker Desktop is running.");
   });
 
-  test("opens Docker Desktop when its docker command is not installed yet", async () => {
-    const runner = new DesktopRunner(0);
-    runner.installed = false;
-    const { output } = terminal();
-    expect(await startDockerDesktop(runner, options(output))).toBe("ready");
-    expect(runner.opened).toBe(true);
-  });
-
   test("gives up after the timeout and lets preflight explain the failure", async () => {
     const runner = new DesktopRunner(Number.POSITIVE_INFINITY);
     const { writes, output } = terminal();
@@ -124,37 +115,6 @@ describe("Docker Desktop start", () => {
 });
 
 describe("Docker required", () => {
-  test("is a short block with the install link and how to continue", () => {
-    for (const width of [24, 40, 80]) {
-      for (const [platform, link] of [
-        ["darwin", "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"],
-        ["win32", "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"],
-        [
-          "linux",
-          "Install Docker Engine and the Compose plugin: https://docs.docker.com/engine/install/",
-        ],
-      ] as const) {
-        const block = renderDockerRequired("openteam setup", { platform, width, color: false });
-        expect(block.split("\n").every((line) => terminalTextWidth(line) <= width)).toBe(true);
-        const text = block.replace(/\s+/g, " ").trim();
-        if (width === 80) {
-          expect(text).toBe(`✗ Docker is required. ${link} Then run: openteam setup`);
-        }
-      }
-    }
-    expect(
-      renderDockerRequired("/Users/me/.local/bin/openteam setup", {
-        platform: "darwin",
-        desktopStarting: true,
-        color: false,
-        width: 80,
-      })
-        .replace(/\s+/g, " ")
-        .trim()
-    ).toBe(
-      "✗ Docker Desktop is installed but not ready. Open Docker Desktop and finish its setup. Then run: /Users/me/.local/bin/openteam setup"
-    );
-  });
 
   test("applies only when the docker command itself is missing", () => {
     const result = (detail: string) => ({

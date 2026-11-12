@@ -33,7 +33,7 @@ jobs:
           bun-version: 1.4.2
       # The full CLI suite also imports the server's update-agent implementation.
       - run: bun install --frozen-lockfile --ignore-scripts --filter @openteam/cli --filter @openteam/server
-      - name: Installer rendering and terminal behavior
+      - name: Installer countdown and install script
         run: bun test ./apps/cli/test/setup-countdown.test.ts ./apps/landing/lib/install-script.test.ts
       - name: Full CLI and browser-state preservation regressions
         if: runner.os != 'Windows'

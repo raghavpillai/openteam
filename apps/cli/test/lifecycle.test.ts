@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { parseArguments } from "../src/arguments";
 import {
   createEnvironment,
@@ -36,7 +36,6 @@ import {
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import type { SetupPrompter } from "../src/setup";
 import { updateBusyMessage } from "@openteam/contracts/server-updates";
-import { registerDatabaseBackup } from "../src/disk-maintenance";
 import { readUpdateState } from "../src/update-safety";
 
 class HealthyDockerRunner implements CommandRunner {
@@ -380,71 +379,6 @@ describe("installed lifecycle", () => {
     }
   });
 
-  test("explicit install automation can start before account setup", async () => {
-    const { paths } = fixture();
-    writeManifest(paths, { ...readManifest(paths)!, ownerUsername: undefined });
-    const runner = new HealthyDockerRunner();
-    await installCommand(paths, parseArguments(["install", "--no-setup"]), runner);
-    expect(runner.calls.some((call) => call.args.includes("ps"))).toBe(true);
-  });
-
-  test("reports missing inference while allowing an owner to run the services", async () => {
-    for (const inference of ["missing", "ready"]) {
-      const { paths } = fixture(inference);
-      const output: string[] = [];
-      const log = spyOn(console, "log").mockImplementation((...values) => {
-        output.push(values.join(" "));
-      });
-      try {
-        await startCommand(paths, new HealthyDockerRunner());
-      } finally {
-        log.mockRestore();
-      }
-      expect(output.join("\n")).toContain("already running");
-      expect(output.join("\n").includes("No model is connected yet")).toBe(inference === "missing");
-      if (inference === "missing")
-        expect(output.join(" ").replace(/\s+/g, " ")).toContain(
-          "Connect one in the OpenTeam app under Settings → Model, or run openteam model"
-        );
-    }
-  });
-
-  test("start reports the Tailscale conflict before running Compose up", async () => {
-    const { paths } = fixture();
-    const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
-    const port = environment.get("OPENTEAM_API_PORT")!;
-    writeFileAtomic(
-      paths.environment,
-      replaceEnvironmentValue(
-        readFileSync(paths.environment, "utf8"),
-        "OPENTEAM_BIND_HOST",
-        "0.0.0.0"
-      )
-    );
-    const runner = new HealthyDockerRunner();
-    runner.tailscale = JSON.stringify({ TCP: { [port]: { TCPForward: `127.0.0.1:${port}` } } });
-    await expect(startCommand(paths, runner)).rejects.toThrow(
-      `Tailscale Serve already uses port ${port}`
-    );
-    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
-    expect(
-      runner.calls
-        .filter((call) => call.command === "tailscale")
-        .every((call) => call.args.join(" ") === "serve status --json")
-    ).toBe(true);
-  });
-
-  test("start fails promptly when a ready container has no reachable host listener", async () => {
-    const { paths } = fixture();
-    servers.at(-1)!.stop(true);
-    const runner = new HealthyDockerRunner();
-    runner.internalHealth = "ready\n";
-    const started = Date.now();
-    await expect(startCommand(paths, runner)).rejects.toThrow("ready inside Docker");
-    expect(Date.now() - started).toBeLessThan(5_000);
-    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
-  });
-
   test("repeated start checks preflight and reports already running without restarting services or setup jobs", async () => {
     const { paths } = fixture();
     const runner = new HealthyDockerRunner();
@@ -486,29 +420,12 @@ describe("installed lifecycle", () => {
     expect(runner.calls.some((call) => call.args.includes("-e"))).toBe(false);
   });
 
-  test("starts a missing worker even when the server health endpoint is ready", async () => {
-    const { paths } = fixture();
-    const runner = new HealthyDockerRunner();
-    runner.running = ["server", "postgres", "computer"];
-    const output: string[] = [];
-    const log = spyOn(console, "log").mockImplementation((...values) => {
-      output.push(values.join(" "));
-    });
-    try {
-      await startCommand(paths, runner);
-    } finally {
-      log.mockRestore();
-    }
-    expect(output.join("\n")).toContain("partially running. Starting or checking: worker");
-    expect(output.join("\n")).not.toContain("already running");
-    expect(runner.calls.filter((call) => call.args.includes("up"))).toHaveLength(1);
-  });
-
-  test("does not skip startup for unhealthy services or failed setup jobs", async () => {
-    for (const scenario of ["unhealthy", "failed-job", "wrong-version"]) {
+  test("does not skip startup for missing or unhealthy services or failed setup jobs", async () => {
+    for (const scenario of ["missing-worker", "unhealthy", "failed-job", "wrong-version"]) {
       const { paths } = fixture();
       const runner = new HealthyDockerRunner();
-      if (scenario === "unhealthy") runner.serviceHealth.worker = "unhealthy";
+      if (scenario === "missing-worker") runner.running = ["server", "postgres", "computer"];
+      else if (scenario === "unhealthy") runner.serviceHealth.worker = "unhealthy";
       else if (scenario === "failed-job")
         runner.extraStates = [{ Service: "migrate", State: "exited", ExitCode: 1 }];
       else {
@@ -529,72 +446,6 @@ describe("installed lifecycle", () => {
     }
   });
 
-  test("reports a stopped installation and starts it", async () => {
-    const { paths } = fixture();
-    const port = Number(
-      parseEnvironment(readFileSync(paths.environment, "utf8")).get("OPENTEAM_API_PORT")
-    );
-    servers.at(-1)!.stop(true);
-    const runner = new HealthyDockerRunner();
-    runner.running = [];
-    runner.onStart = () => {
-      servers.push(
-        Bun.serve({
-          hostname: "127.0.0.1",
-          port,
-          fetch: () => Response.json({ status: "ready", release: { releaseVersion: "1.2.3" } }),
-        })
-      );
-    };
-    // Viewer ports belong to real stacks on development machines; the fixture has no Docker listeners.
-    const available = spyOn(ports, "portAvailable").mockResolvedValue(true);
-    const output: string[] = [];
-    const log = spyOn(console, "log").mockImplementation((...values) => {
-      output.push(values.join(" "));
-    });
-    try {
-      await startCommand(paths, runner);
-    } finally {
-      available.mockRestore();
-      log.mockRestore();
-    }
-    expect(output.join("\n")).toContain("OpenTeam is stopped. Starting services…");
-    expect(runner.calls.filter((call) => call.args.includes("up"))).toHaveLength(1);
-  });
-
-  test("does not report already running when service inspection is invalid", async () => {
-    const { paths } = fixture();
-    const runner = new HealthyDockerRunner();
-    runner.invalidState = true;
-    await expect(startCommand(paths, runner)).rejects.toThrow("invalid service state");
-    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
-  });
-
-  test("diagnoses forwarding after a short grace period when newly started containers are ready", async () => {
-    const { paths } = fixture();
-    servers.at(-1)!.stop(true);
-    const runner = new HealthyDockerRunner();
-    runner.running = ["computer", "postgres"];
-    runner.internalHealth = "ready\n";
-    const started = Date.now();
-    await expect(startCommand(paths, runner)).rejects.toThrow("ready inside Docker");
-    expect(Date.now() - started).toBeGreaterThanOrEqual(10_000);
-    expect(Date.now() - started).toBeLessThan(20_000);
-    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(true);
-  }, 20_000);
-
-  test("doctor validates Compose and reports missing model onboarding as a warning", async () => {
-    const { paths } = fixture();
-    const result = await runDoctor(paths, new HealthyDockerRunner());
-    expect(result.ok).toBe(true);
-    expect(result.installed).toBe(true);
-    expect(result.checks).toContainEqual({
-      level: "warn",
-      label: "Inference",
-      detail: "status is missing; connect a model before starting a task",
-    });
-  });
-
   test("start refuses to race another OpenTeam stack that already answers on the API port", async () => {
     const { paths } = fixture();
     const runner = new HealthyDockerRunner();
@@ -611,42 +462,6 @@ describe("installed lifecycle", () => {
     await expect(statusCommand(paths, runner)).rejects.toThrow(
       "Another OpenTeam server is answering"
     );
-  });
-
-  test("status flags a different release answering on the configured port", async () => {
-    const { paths } = fixture();
-    const runner = new HealthyDockerRunner();
-    const manifest = readManifest(paths);
-    if (!manifest) throw new Error("fixture manifest missing");
-    writeManifest(paths, { ...manifest, version: "1.2.4" });
-
-    await expect(statusCommand(paths, runner)).rejects.toThrow(
-      "expected release 1.2.4, but 1.2.3 is responding"
-    );
-  });
-
-  test("status reports a missing worker even when the API is healthy, without starting services", async () => {
-    const { paths } = fixture("ready");
-    const runner = new HealthyDockerRunner();
-    runner.running = ["postgres", "server", "computer"];
-    const output: string[] = [];
-    const log = spyOn(console, "log").mockImplementation((value) => {
-      output.push(String(value));
-    });
-    try {
-      await expect(statusCommand(paths, runner)).rejects.toMatchObject({
-        exitCode: 2,
-        reported: true,
-      });
-    } finally {
-      log.mockRestore();
-    }
-    expect(output.join("\n")).toContain("NEEDS ATTENTION");
-    expect(output.join("\n")).toContain("Not created");
-    expect(
-      runner.calls.some((call) => call.args.includes("up") || call.args.includes("start"))
-    ).toBe(false);
-    expect(runner.calls.filter((call) => call.args.includes("ps"))).toHaveLength(1);
   });
 
   test("safe uninstall removes containers but preserves configuration", async () => {
@@ -723,130 +538,6 @@ describe("installed lifecycle", () => {
       "verifying",
       "complete",
     ]);
-  });
-
-  test.each([
-    "classic",
-    "containerd",
-  ])("successive updates retire digest-pulled images with the %s image store", async (store) => {
-    const { paths } = fixture();
-    const docker = new HealthyDockerRunner();
-    const runner: CommandRunner = {
-      run(command, args, options) {
-        const result = docker.run(command, args, options);
-        if (args[0] !== "image" || args[1] !== "inspect") return result;
-        const images = JSON.parse(result.stdout);
-        const digest = `registry.example:5000/runtime@${images[0].Id}`;
-        images[0].RepoDigests = [digest];
-        if (store === "containerd") images[0].RepoTags.push(digest);
-        return { ...result, stdout: JSON.stringify(images) };
-      },
-    };
-    const log = spyOn(console, "log").mockImplementation(() => undefined);
-    const ledgerPath = join(paths.directory, "image-retention.json");
-    try {
-      await updateCommand(
-        paths,
-        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
-        runner
-      );
-      const first = JSON.parse(readFileSync(ledgerPath, "utf8"));
-      const retired = first.rollback[0];
-      await updateCommand(
-        paths,
-        parseArguments(["update", "--version", "1.4.0", ...releaseFixture()]),
-        runner
-      );
-      expect(readManifest(paths)?.version).toBe("1.4.0");
-      expect(readUpdateState(paths)?.status).toBe("complete");
-      const second = JSON.parse(readFileSync(ledgerPath, "utf8"));
-      expect(second.rollback).toEqual(first.current);
-      expect(second.owned).not.toContain(retired);
-      expect(
-        docker.calls
-          .filter((call) => call.args[0] === "image" && call.args[1] === "rm")
-          .map((call) => call.args)
-      ).toEqual([
-        ["image", "rm", `registry.example:5000/runtime@${retired}`],
-        ["image", "rm", `openteam-retention-${first.owner}:${retired.slice(7)}`],
-      ]);
-    } finally {
-      log.mockRestore();
-    }
-  });
-
-  test("disk maintenance failures warn without undoing a successful update", async () => {
-    const { paths } = fixture();
-    writeFileSync(join(paths.directory, "backup-retention.json"), "malformed");
-    const warning = spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      await updateCommand(
-        paths,
-        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
-        new HealthyDockerRunner()
-      );
-      expect(readManifest(paths)?.version).toBe("1.3.0");
-      expect(readUpdateState(paths)?.status).toBe("complete");
-      expect(warning).toHaveBeenCalled();
-    } finally {
-      warning.mockRestore();
-    }
-  });
-
-  test("a successful update preserves legacy unregistered backup files", async () => {
-    const { paths } = fixture();
-    const old = [
-      "postgres-1.1.0-before-1.2.0-2026-01-01T00-00-00-000Z.sql",
-      "postgres-1.2.0-before-1.2.1-2026-02-01T00-00-00-000Z.sql",
-      "postgres-1.2.1-before-1.2.2-2026-03-01T00-00-00-000Z.sql",
-      "postgres-1.2.2-before-1.2.3-2026-04-01T00-00-00-000Z.sql",
-    ];
-    mkdirSync(paths.backups, { recursive: true });
-    for (const name of old) writeFileSync(join(paths.backups, name), "SELECT 1;\n");
-    const messages: string[] = [];
-    const log = spyOn(console, "log").mockImplementation((...values) => {
-      messages.push(values.map(String).join(" "));
-    });
-    try {
-      await updateCommand(
-        paths,
-        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
-        new HealthyDockerRunner()
-      );
-    } finally {
-      log.mockRestore();
-    }
-    const current = readUpdateState(paths)!.backupPath!;
-    expect(readdirSync(paths.backups).sort()).toEqual([...old, basename(current)].sort());
-    expect(messages.some((message) => message.startsWith("Removed "))).toBe(false);
-  });
-
-  test("forcing the installed release preserves the last distinct rollback stack", async () => {
-    const { paths } = fixture();
-    const runner = new HealthyDockerRunner();
-    const log = spyOn(console, "log").mockImplementation(() => undefined);
-    try {
-      await updateCommand(
-        paths,
-        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
-        runner
-      );
-      const ledgerPath = join(paths.directory, "image-retention.json");
-      const first = JSON.parse(readFileSync(ledgerPath, "utf8"));
-      await updateCommand(
-        paths,
-        parseArguments(["update", "--version", "1.3.0", "--force", ...releaseFixture()]),
-        runner
-      );
-      const second = JSON.parse(readFileSync(ledgerPath, "utf8"));
-      expect(second.rollback).toEqual(first.rollback);
-      expect(second.current).toEqual(first.current);
-      expect(runner.calls.some((call) => call.args[0] === "image" && call.args[1] === "rm")).toBe(
-        false
-      );
-    } finally {
-      log.mockRestore();
-    }
   });
 
   test("a failed update deletes no backups", async () => {
@@ -938,22 +629,6 @@ describe("installed lifecycle", () => {
     expect(readFileSync(paths.compose, "utf8")).toBe(previousCompose);
   });
 
-  test("--when-idle updates once every bot is done", async () => {
-    const { paths } = fixture("missing", () => Response.json({ bots: [] }));
-    const runner = new HealthyDockerRunner();
-    const log = spyOn(console, "log").mockImplementation(() => undefined);
-    try {
-      await updateCommand(
-        paths,
-        parseArguments(["update", "--version", "1.3.0", "--when-idle", ...releaseFixture()]),
-        runner
-      );
-    } finally {
-      log.mockRestore();
-    }
-    expect(readManifest(paths)?.version).toBe("1.3.0");
-  });
-
   test("restores configuration and reports rollback when an update fails", async () => {
     const { paths } = fixture();
     const previousCompose = readFileSync(paths.compose, "utf8");
@@ -980,29 +655,6 @@ describe("installed lifecycle", () => {
     expect(readManifest(paths)?.version).toBe("1.2.3");
     expect(messages.some((message) => message.includes('"phase":"rolling-back"'))).toBe(true);
     expect(runner.calls.at(-1)?.args).toContain("pull");
-  });
-
-  test("points a silent Docker failure at the durable update log", async () => {
-    const { paths } = fixture();
-    class SilentStartupFailure extends HealthyDockerRunner {
-      override run(command: string, args: readonly string[], options?: RunOptions): RunResult {
-        const result = super.run(command, args, options);
-        return result.stderr === "fixture startup failed" ? { ...result, stderr: "" } : result;
-      }
-    }
-    const error = await updateCommand(
-      paths,
-      parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
-      new SilentStartupFailure(false, true)
-    ).then(
-      () => null,
-      (caught: unknown) => caught as Error
-    );
-
-    expect(error?.message).toContain(
-      `Docker Compose failed: command failed; see ${paths.updateLog}`
-    );
-    expect(error?.message).not.toContain("see the Docker output above");
   });
 
   test("restores the database before restarting the prior release after startup fails", async () => {

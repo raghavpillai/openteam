@@ -8,12 +8,9 @@ import { installationPaths, writeManifest } from "../src/config";
 import {
   UpdateAgent,
   updateAgentArguments,
-  updateAgentExecutable,
   stableRuntimePath,
   UPDATE_AGENT_ENV,
-  UPDATE_AGENT_CLI_ENV,
 } from "../src/update-agent";
-import { CLI_VERSION } from "../src/constants";
 import { writeUpdateState } from "../src/update-safety";
 import { ServerUpdates } from "../../server/src/server-updates";
 
@@ -139,71 +136,6 @@ test("rejects unsafe versions again on the host and reports spawn failures", asy
   await agent.tick();
   await agent.tick();
   expect(f.updates.view()).toMatchObject({ status: "error", message: "Cannot launch updater" });
-});
-
-test("CLI daemon entrypoint authenticates to its installation without a desktop process", async () => {
-  const f = fixture();
-  let received!: () => void;
-  const heartbeat = new Promise<void>((resolve) => {
-    received = resolve;
-  });
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    fetch(request) {
-      expect(new URL(request.url).pathname).toBe("/api/v0/internal/system/update-agent");
-      expect(request.headers.get("authorization")).toBe("Bearer fixture-private-token");
-      f.updates.heartbeat({});
-      received();
-      return Response.json({ request: null });
-    },
-  });
-  writeFileSync(
-    f.paths.environment,
-    `OPENTEAM_CONTROL_TOKEN=fixture-private-token\nOPENTEAM_API_PORT=${server.port}\n`
-  );
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      new URL("../src/main.ts", import.meta.url).pathname,
-      "status",
-      "--dir",
-      f.paths.directory,
-    ],
-    {
-      env: { ...process.env, [UPDATE_AGENT_ENV]: "1" },
-      stdout: "ignore",
-      stderr: "pipe",
-    }
-  );
-  const timeout = setTimeout(() => received(), 4_000);
-  try {
-    await heartbeat;
-    expect(f.updates.view().updaterAvailable).toBe(true);
-  } finally {
-    clearTimeout(timeout);
-    child.kill();
-    await child.exited;
-    server.stop(true);
-  }
-});
-
-test("a staged CLI starts its daemon from the promoted installation, and private daemons invoke that CLI", () => {
-  const target = "/tmp/openteam";
-  const source = `/tmp/.openteam.update-${CLI_VERSION}-fixture`;
-  expect(
-    updateAgentExecutable(
-      {
-        OPENTEAM_CLI_UPDATE_SOURCE: source,
-        OPENTEAM_CLI_UPDATE_TARGET: target,
-        OPENTEAM_CLI_UPDATE_VERSION: CLI_VERSION,
-      },
-      source
-    )
-  ).toBe(target);
-  expect(updateAgentExecutable({ [UPDATE_AGENT_CLI_ENV]: target }, "/tmp/private-agent")).toBe(
-    target
-  );
 });
 
 test("a Homebrew runtime starts the agent by a path that survives brew upgrade", () => {

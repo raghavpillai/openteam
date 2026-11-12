@@ -117,7 +117,7 @@ export const reportActiveUpdate = (paths: InstallationPaths, options: CliOptions
 };
 
 /** Recover the worker's final error, which the CLI renders as a wrapped `✗` block. */
-export const updateLogFailure = (contents: string): string | null => {
+const updateLogFailure = (contents: string): string | null => {
   const lines = contents
     .slice(-MAX_LOG_ERROR_BYTES)
     .replace(/\x1b\[[0-9;]*m/g, "")

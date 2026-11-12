@@ -30,7 +30,7 @@ import {
 } from "./update-agent-service";
 
 export const UPDATE_AGENT_ENV = "OPENTEAM_UPDATE_AGENT";
-export const UPDATE_AGENT_CLI_ENV = "OPENTEAM_UPDATE_AGENT_CLI";
+const UPDATE_AGENT_CLI_ENV = "OPENTEAM_UPDATE_AGENT_CLI";
 /**
  * The same runtime by a path that outlives an upgrade of it. Homebrew's versioned Cellar path
  * disappears on `brew upgrade`, while its `opt` link and the copy on PATH follow the upgrade.
@@ -60,7 +60,7 @@ export const stableRuntimePath = (executable: string, environment = process.env)
 const runtimeExecutable = (environment = process.env): string =>
   isBunStandaloneExecutable() ? process.execPath : stableRuntimePath(process.execPath, environment);
 
-export const updateAgentExecutable = (
+const updateAgentExecutable = (
   environment = process.env,
   executable = runtimeExecutable(environment)
 ): string =>

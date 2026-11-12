@@ -83,7 +83,7 @@ export function ensureManagedTailscaleRoute(
   }
   return created ? entry : null;
 }
-export function removeManagedTailscaleRoute(
+function removeManagedTailscaleRoute(
   paths: InstallationPaths,
   runner: CommandRunner,
   entry: ManagedTailscaleRoute

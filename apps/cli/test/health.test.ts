@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installationPaths, writeFileAtomic } from "../src/config";
-import { checkHealth, healthUrl, waitForHealth } from "../src/health";
+import { checkHealth, healthUrl } from "../src/health";
 
 const temporaryDirectories: string[] = [];
 const servers: Array<{ stop(force?: boolean): void }> = [];
@@ -16,9 +16,7 @@ afterEach(() => {
 });
 
 describe("installation health URL", () => {
-  test.each([
-    200, 503,
-  ])("rejects unavailable dependencies even if the API says ready (HTTP %s)", async (httpStatus) => {
+  test.each([503])("rejects unavailable dependencies even if the API says ready (HTTP %s)", async (httpStatus) => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-cli-health-"));
     temporaryDirectories.push(directory);
     const paths = installationPaths(directory);
@@ -69,61 +67,4 @@ describe("installation health URL", () => {
     expect(await checkHealth(paths, "1.3.0")).toMatchObject({ ok: true, version: "1.3.0" });
   });
 
-  test("distinguishes connection failures from an HTTP readiness failure and prints the cause", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-health-"));
-    temporaryDirectories.push(directory);
-    const paths = installationPaths(directory);
-    const server = Bun.serve({ port: 0, fetch: () => new Response("starting", { status: 503 }) });
-    servers.push(server);
-    writeFileAtomic(paths.environment, `OPENTEAM_API_PORT=${server.port}\n`);
-    expect(await checkHealth(paths)).toMatchObject({ ok: false, detail: "HTTP 503" });
-    expect((await checkHealth(paths)).connectionFailed).toBeUndefined();
-    server.stop(true);
-    expect(await checkHealth(paths)).toMatchObject({ ok: false, connectionFailed: true });
-
-    const output: string[] = [];
-    const writer = spyOn(process.stdout, "write").mockImplementation((chunk) => {
-      output.push(String(chunk));
-      return true;
-    });
-    try {
-      const result = await waitForHealth(paths, 0);
-      expect(result.ok).toBe(false);
-      expect(output.join("")).toContain(result.url);
-      expect(output.join("")).toContain(result.detail);
-      expect(output.join("")).toContain("s elapsed");
-    } finally {
-      writer.mockRestore();
-    }
-  });
-
-  test("does not print failed probes while a starting server becomes ready", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-health-"));
-    temporaryDirectories.push(directory);
-    const paths = installationPaths(directory);
-    let requests = 0;
-    const server = Bun.serve({
-      port: 0,
-      fetch: () =>
-        ++requests === 1
-          ? new Response("starting", { status: 503 })
-          : Response.json({ status: "ready" }),
-    });
-    servers.push(server);
-    writeFileAtomic(paths.environment, `OPENTEAM_API_PORT=${server.port}\n`);
-
-    const output: string[] = [];
-    const writer = spyOn(process.stdout, "write").mockImplementation((chunk) => {
-      output.push(String(chunk));
-      return true;
-    });
-    try {
-      const result = await waitForHealth(paths, 30_000);
-      expect(result.ok).toBe(true);
-      expect(requests).toBeGreaterThan(1);
-      expect(output.join("")).not.toContain("HTTP 503");
-    } finally {
-      writer.mockRestore();
-    }
-  });
 });

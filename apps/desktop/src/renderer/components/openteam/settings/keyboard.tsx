@@ -14,7 +14,7 @@ import {
   checkShortcut,
   SHORTCUT_LABELS,
 } from "../../../lib/keyboard-shortcut-rules";
-import { ScreenBotShortcutSettings, Keycaps } from "./screenbot-shortcut";
+import { Keycaps, RecordingKeys, ScreenBotShortcutSettings } from "./screenbot-shortcut";
 import { SectionLabel, SettingsGroup, SettingsRow, settingsSecondaryButton } from "./ui";
 
 const errorText = (cause: unknown) =>
@@ -122,9 +122,7 @@ function ShortcutRow({
   const label = SHORTCUT_LABELS[action];
   const description = recording
     ? `Press the new shortcut${action === "dictate" && mac ? ", or 🌐 Fn on its own" : ""}. Esc cancels.`
-    : action === "dictate" && binding === FN_KEY
-      ? "Tap 🌐 Fn on its own to start or stop a voice note. If macOS also reacts, set “Press 🌐 key to” to “Do Nothing” in System Settings › Keyboard."
-      : label.description;
+    : label.description;
 
   return (
     <>
@@ -136,10 +134,10 @@ function ShortcutRow({
             <span
               aria-live="polite"
               aria-label={recording ? `Recording a shortcut for ${label.title}` : `${label.title}: ${shortcutText(binding, mac)}`}
-              className={recording ? "rounded-[8px] px-1.5 py-1 ring-2 ring-[var(--control-accent)]" : "px-1.5 py-1"}
+              className="px-1.5 py-1"
             >
               {recording ? (
-                held.length ? <Keycaps keys={held.map((part) => (mac ? HELD_MAC : HELD_OTHER)[part] ?? part)} chord={false} /> : <span className="text-[12px] text-foreground-secondary">Recording…</span>
+                <RecordingKeys keys={held.map((part) => (mac ? HELD_MAC : HELD_OTHER)[part] ?? part)} />
               ) : (
                 <Keycaps keys={shortcutKeycaps(binding, mac)} chord={false} />
               )}

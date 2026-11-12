@@ -242,6 +242,47 @@ async function notificationExperiment(variant: 'control' | 'treatment') {
  return { ...f, variant, service, worker, ids, create, settle, ready, visible, context, release, mailSends: () => mailSends };
 }
 
+test('Grokbot comparison: same-subject discard followed by reverse-order burst retains identity and accurate counts', async () => {
+ if (!databaseUrl) return;
+ const f = await notificationExperiment('treatment');
+ try {
+  const creationRun = await f.prisma.run.findFirstOrThrow({ where: { botId: f.botId } });
+  for (let number = 1; number <= 6; number++) {
+   const result = await f.service.create(f.context(creationRun.id, `compare-${number}`), {
+    platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['draft-qa@example.com'],
+    subject: number <= 2 ? 'PR-COMPARE-SAME' : `PR-COMPARE-${String(number).padStart(2, '0')}`,
+    body: `Synthetic comparison card ${number}. No action required.`,
+   }) as { message_id: string };
+   f.ids.push(result.message_id);
+  }
+  await f.settle(f.ids[0]!, 'cancel'); await f.ready();
+  const first = await f.worker().claim(f.botId);
+  expect(first.content).toContain(`Draft card ID: ${f.ids[0]}`);
+  await f.messaging.flushDraftNotification(f.context(first.runId));
+  expect((await f.visible())[0]!.content).toContain('5 awaiting review');
+  await f.release(first);
+  // Match the native UI actions: card 1, then 6, 5, 4, 3, 2.
+  for (const id of f.ids.slice(1).reverse()) await f.settle(id, 'cancel');
+  await f.ready(); const second = await f.worker().claim(f.botId);
+  for (const id of f.ids.slice(1)) expect(second.content).toContain(`Draft card ID: ${id}`);
+  await f.messaging.flushDraftNotification(f.context(second.runId));
+  await f.messaging.sendVisible(f.context(second.runId), { type: 'text', content: 'Four cards are left to review.' });
+  const messages = await f.visible();
+  expect(messages).toHaveLength(2);
+  expect(messages[1]!.content).toContain('5 discarded without sending');
+  expect(messages[1]!.content).toContain('none awaiting review');
+  const covered = messages.flatMap(message => (message.metadata as any).draftOutcomeNotification.outcomeIds);
+  expect(covered).toHaveLength(6); expect(new Set(covered).size).toBe(6);
+  for (const id of f.ids) {
+   const card = await f.card(id);
+   expect(card.cardState).toBe('dismissed');
+   expect(card.draftNotification.messageId).toBeString();
+   expect(card.outcomeText).toContain(card.draft.body);
+  }
+  expect(f.mailSends()).toBe(0);
+ } finally { await f.cleanup(); }
+});
+
 test('A/B: 24 completions, lost response, new call IDs and a replayed run', async () => {
  if (!databaseUrl) return;
  for (const variant of ['control', 'treatment'] as const) {

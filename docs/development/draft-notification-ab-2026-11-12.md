@@ -14,7 +14,7 @@ Each scenario was executed once per arm with independent synthetic bot fixtures.
 
 The final database suite also verifies that notification messages, per-outcome receipts and a real push outbox row roll back together; concurrent publication produces one message/outbox entry; cancelled runs and invalid routing cannot publish; already-reported wakes do not block newer user input; ordinary user replies keep their content.
 
-PR-readiness review added a regression for a queued replay that absorbs a genuinely new outcome. Queued work now binds to currently unreported outcomes when claimed, while an already-processing turn preserves its original identity snapshot during lease recovery. All eleven database tests pass (162 assertions), including exact-once coverage of that new outcome without changing the older receipt.
+PR-readiness review added a regression for a queued replay that absorbs a genuinely new outcome. Queued work now binds to currently unreported outcomes when claimed, while an already-processing turn preserves its original identity snapshot during lease recovery. A further [fresh Grokbot comparison](grokbot-email-draft-behavior-2026-11-12.md#pr-comparison--fresh-fourth-bot) reproduces the same-subject/reverse-discard scenario in PostgreSQL. All twelve database tests pass (193 assertions), including exact-once coverage of the new outcome without changing the older receipt, distinct same-subject IDs and accurate final pending counts.
 
 Machine-readable measurements: [JSON](assets/draft-notification-ab-2026-11-12.json). Inline comparison artifact: [HTML](assets/draft-notification-ab-2026-11-12.html).
 

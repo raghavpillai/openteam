@@ -128,4 +128,22 @@ At 15:35:48 the bot reported that both notices were identical and contained neit
 - Reopened discarded cards show their stored original fields and body on desktop and iOS. Unsubmitted local edits are not presented as persisted history.
 - Approval rules, agent cancellation capabilities and send authorization are unchanged. No interruption system or new model-facing cancellation tool was added.
 
-Validation passed: nine worker/background-revival tests; six real PostgreSQL draft integration tests (83 assertions), including identity retention after ambient receipt acknowledgement and 24-to-one claiming; four desktop UI combinations (light/dark, wide/narrow) including local edits before discard; server/worker/desktop TypeScript checks; desktop production build and performance budgets; iOS simulator build. Tests use mocked mail transports and synthetic data. Changes remain local, uncommitted and undeployed.
+Initial validation passed: nine worker/background-revival tests; six real PostgreSQL draft integration tests (83 assertions), including identity retention after ambient receipt acknowledgement and 24-to-one claiming; four desktop UI combinations (light/dark, wide/narrow) including local edits before discard; server/worker/desktop TypeScript checks; desktop production build and performance budgets; iOS simulator build. Tests use mocked mail transports and synthetic data. See the later PR comparison below and the [A/B report](draft-notification-ab-2026-11-12.md) for expanded validation. No production deployment was made.
+
+## PR comparison — fresh fourth bot
+
+On November 12, a new native bot, `Email PR Comparison`, created six review cards at 16:42:15–16:42:20 ET. Cards 1 and 2 shared subject `PR-COMPARE-SAME` but had distinct numbered bodies. Cards 3–6 used subjects `PR-COMPARE-03` through `06`. All addressed `draft-qa@example.com`. The prompt prohibited sending mail, mailbox drafts, approval changes, memory and helpers. The bot declined to disclose creation IDs in this conversation; that refusal is model behavior, not evidence that its creation tool omitted IDs.
+
+Manual action order was 1, then 6, 5, 4, 3, 2, with fresh accessibility observations after each click. The first acknowledgement completed before the remaining actions. The final five discards spanned roughly ten seconds, including scrolling. All six cards visibly settled as Discarded. Reopening card 4 showed its original body read-only, with no Send control.
+
+Before any diagnostic follow-up, three automatic messages appeared:
+
+- 16:42:47: one same-subject draft discarded; five still awaiting review (accurate then).
+- 16:43:14: card 3 discarded; four left to review (stale: cards 4–6 had already been discarded).
+- 16:43:21: the other same-subject card discarded; cards 4–6 still remained (false: all six were discarded).
+
+At 16:44:03, after a diagnostic user question, the bot corrected the stale count. It reported three individual notices (same subject, card 3, same subject) and a combined catch-up notice for cards 4–6 saying their individual notices had been cut off. It said the notices carried recipient, subject and discard state, but neither card ID nor body, so it could not establish which same-subject version was discarded first. Those internals are model self-report; no private server trace was available. The bot confirmed all test work stopped. No Send button was clicked.
+
+The matched OpenTeam regression creates the same subjects/bodies and discards in the same order, with one worker claim after card 1 and one after the remaining five. It verifies two canonical messages (five pending, then none pending), six distinct outcome IDs covered exactly once, all six bodies retained in stored receipts, and zero mocked mail sends. Injecting the stale four-pending model reply creates no extra text under treatment. All twelve PostgreSQL tests pass with 193 assertions.
+
+This is a matched scenario comparison, not a randomized live-model A/B benchmark. Grokbot used a live model and native UI; OpenTeam used real PostgreSQL/worker claim/message persistence with mocked transport and injected model text. Worker claim timing was staged explicitly in OpenTeam, and the production treatment remains off by default. The separate desktop Electron fixture verifies real card interactions. The result supports the identity/counting design and exposes a reproducible reference failure; it does not establish comparative latency or real-world error rates.

@@ -123,7 +123,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // the voice recorder taking its transcriber as a parameter (for dictation), 1,281,496;
 // the theme helper taking an explicit preference (the overlay's own storage), 1,281,509.
 // Main at 2090e228 measures 1,287,125 (over its own 1,280,000); with Appshots, 1,288,966.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_289_500);
+// Email review forwarding, revision highlights, validation and read-only history:
+// 1,293,288 B on this baseline. File previews reuse the lazy attachment viewer.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_294_500);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -177,7 +179,8 @@ atMost("startup CSS bytes", startupCssBytes, 202_000);
 // Rebased on main at 2090e228 (16,593,176 B on its own): 16,661,513 B; 16,662,762 B with
 // the Bot menu fitting the screen (flips below the chip) and fading where it scrolls.
 // Main at 521b9f32 grows to 16,599,431 B (+6,255, routines); with Appshots, 16,669,264 B.
-atMost("renderer bytes", result.renderer.bytes, 16_670_000);
+// Email review parity on this baseline: 16,673,564 B.
+atMost("renderer bytes", result.renderer.bytes, 16_675_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -200,7 +203,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_670_000);
 // and one continuous card shadow: 4,153,604; with Esc leaving early: 4,153,714.
 // Rebased on main at 2090e228 (4,133,729 on its own): 4,157,884.
 // Main at 521b9f32: 4,135,795; with Appshots, 4,160,418.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_161_000);
+// Same email review feature build: 4,161,640 B gzip.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_162_500);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun

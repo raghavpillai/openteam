@@ -693,3 +693,64 @@ test("OpenRouter recommends the Auto Router, else a rolling general model, and l
   expect(saved.providers.openrouter.models[0].id).toBe("openrouter/auto");
   expect(saved.providers.openrouter.models[0]).not.toHaveProperty("recommended");
 });
+
+
+test.each([true, false])("OpenRouter persists tiers and reloads them after restart (catalog overrides: %s)", async (catalogOverrides) => {
+  const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" } });
+  f.connected.clear();
+  f.connected.add("openrouter");
+  const pricing = {
+    prompt: "0.000002", completion: "0.00001", input_cache_read: "0.0000001", input_cache_write: "0.0000025",
+    overrides: [{ min_prompt_tokens: 272000, prompt: "0.000004", completion: "0.000015" }],
+  };
+  f.state.body = { data: [{
+    id: "openai/gpt-6.1-sol", architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
+    supported_parameters: ["tools", "reasoning"], context_length: 1050000,
+    top_provider: { max_completion_tokens: 128000 }, pricing: { ...pricing, overrides: catalogOverrides ? pricing.overrides : undefined },
+  }] };
+  let offline = false;
+  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (url: any, init: any) => {
+    if (!String(url).endsWith("/endpoints")) return f.fetcher(url, init);
+    if (offline) throw new Error("offline");
+    return Response.json({ data: { endpoints: [{ max_prompt_tokens: 922000, pricing }] } });
+  }) as typeof fetch);
+  await registry.verify({ providerId: "openrouter", modelId: "openai/gpt-6.1-sol", reasoning: "medium" });
+  const document = JSON.parse(await readFile(f.path, "utf8"));
+  const saved = structuredClone(document.providers.openrouter.models[0]);
+  expect(saved.cost.tiers).toEqual([{ inputTokensAbove: 272000, input: 4, output: 15, cacheRead: saved.cost.cacheRead, cacheWrite: 2.5 }]);
+  expect(saved).toMatchObject({ api: "openai-completions", contextWindow: 922000, maxTokens: 128000, input: ["text", "image"] });
+  const restarted = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: f.path,
+    modelsStorePath: join(f.path, "..", "restart-models-store.json"), refreshOnCreate: false });
+  await restarted.refresh({ allowNetwork: false });
+  expect(restarted.getModel("openrouter", saved.id)?.cost).toEqual(saved.cost);
+  // Startup refresh upgrades already-selected models even if their window is already capped.
+  delete document.providers.openrouter.models[0].cost.tiers;
+  await writeFile(f.path, JSON.stringify(document));
+  await registry.refreshPromptCaps();
+  expect(JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0]).toEqual(saved);
+  const before = await readFile(f.path, "utf8");
+  await registry.refreshPromptCaps();
+  expect(await readFile(f.path, "utf8")).toBe(before);
+  offline = true;
+  await registry.refreshPromptCaps();
+  expect(await readFile(f.path, "utf8")).toBe(before);
+});
+
+test("OpenRouter pricing refresh preserves a model reselected during its endpoint lookup", async () => {
+  const saved = {
+    ...model("openrouter", "openai/gpt-6.1-sol"), api: "openai-completions",
+    baseUrl: "https://openrouter.test/api/v1", contextWindow: 922000,
+    cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+  };
+  const f = await fixture({ openrouter: { models: [saved] } });
+  const replacement = { ...saved, cost: { input: 3, output: 12, cacheRead: 0.3, cacheWrite: 3 } };
+  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (_raw: URL | string | Request, _init?: RequestInit) => {
+    await writeFile(f.path, JSON.stringify({ providers: { openrouter: { models: [replacement] } } }));
+    return Response.json({ data: { endpoints: [{ pricing: {
+      prompt: "0.000002", completion: "0.00001", input_cache_read: "0.0000001", input_cache_write: "0.0000025",
+      overrides: [{ min_prompt_tokens: 272000, prompt: "0.000004" }],
+    } }] } });
+  }) as typeof fetch);
+  await registry.refreshPromptCaps();
+  expect(JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models).toEqual([replacement]);
+});

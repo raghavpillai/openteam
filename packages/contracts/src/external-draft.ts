@@ -1,3 +1,12 @@
+import type { AssetRef } from "./index";
+
+export type { DraftRevision } from "./external-draft-revision";
+export const DRAFT_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+export const DRAFT_ATTACHMENTS_MAX_BYTES = 25 * 1024 * 1024;
+export const DRAFT_ATTACHMENT_MAX_FILES = 10;
+export const isDraftEmailAddress = (value: string) =>
+  value.length <= 320 && /^[^\s<>@,;:\x00-\x1f\x7f]+@[^\s<>@,;:\x00-\x1f\x7f]+\.[^\s<>@,;:\x00-\x1f\x7f]+$/.test(value);
+
 export interface ExternalDraft {
   platform: "email" | "slack";
   providerIdentifier: string;
@@ -7,6 +16,8 @@ export interface ExternalDraft {
   cc?: string[];
   subject?: string;
   replyToMessageId?: string;
+  forwardMessageId?: string;
+  attachments?: string[];
   target?: string;
   channelId?: string;
   threadTs?: string;
@@ -28,8 +39,7 @@ export function parseExternalDraft(raw: unknown): ExternalDraft {
   const address = (input: unknown): string => {
     if (
       typeof input !== "string" ||
-      !/^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(input.trim()) ||
-      input.length > 320
+      !isDraftEmailAddress(input.trim())
     )
       throw new Error("Use plain email addresses");
     return input.trim();
@@ -51,7 +61,7 @@ export function parseExternalDraft(raw: unknown): ExternalDraft {
   }
   for (const key of draft.platform === "email"
     ? ["target", "channelId", "threadTs"]
-    : ["from", "to", "cc", "subject", "replyToMessageId"]) {
+    : ["from", "to", "cc", "subject", "replyToMessageId", "forwardMessageId", "attachments"]) {
     if (
       value[key] !== undefined &&
       value[key] !== "" &&
@@ -66,6 +76,7 @@ export function parseExternalDraft(raw: unknown): ExternalDraft {
       cc: addresses("cc"),
       subject: text("subject", true),
       replyToMessageId: text("replyToMessageId"),
+      forwardMessageId: text("forwardMessageId"),
     });
   else {
     Object.assign(draft, {
@@ -77,6 +88,17 @@ export function parseExternalDraft(raw: unknown): ExternalDraft {
       throw new Error("Use a resolved Slack channel or conversation ID");
     if (draft.threadTs && !/^\d+\.\d+$/.test(draft.threadTs))
       throw new Error("Invalid Slack thread timestamp");
+  }
+  if (draft.replyToMessageId && draft.forwardMessageId)
+    throw new Error("Choose either a reply or a forward, not both");
+  if (draft.platform === "email" && value.attachments !== undefined) {
+    if (!Array.isArray(value.attachments) || value.attachments.length > DRAFT_ATTACHMENT_MAX_FILES)
+      throw new Error(`A draft can carry at most ${DRAFT_ATTACHMENT_MAX_FILES} attachments`);
+    draft.attachments = value.attachments.map((path) => {
+      if (typeof path !== "string" || !path.startsWith("/") || path.length > 4096 || /[\x00-\x1f]/.test(path))
+        throw new Error("An attachment needs an absolute file path on the bot computer");
+      return path;
+    });
   }
   return draft;
 }
@@ -94,6 +116,11 @@ export interface ExternalDraftVerification {
   thread?: string;
   /** Opens the replied-to message in the provider's own web app. */
   threadUrl?: string;
+  forwarding?: string;
+  forwardUrl?: string;
+  /** Immutable copies of the files the user reviews; the send uses these same bytes. */
+  attachments?: AssetRef[];
+  revision?: import("./external-draft-revision").DraftRevision;
 }
 
 /** The user edits content, recipients and (among verified aliases) From; account and thread stay fixed. */

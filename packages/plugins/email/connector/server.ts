@@ -193,6 +193,10 @@ export const tools = (accountId: string): Tool[] => [
             body: { type: "string" },
             html: { type: "string" },
             replyToMessageId: { type: "string" },
+            forwardMessageId: { type: "string" },
+            attachments: { type: "array", maxItems: 10, items: { type: "object", properties: {
+              filename: { type: "string" }, mimeType: { type: "string" }, content: { type: "string" },
+            }, required: ["filename", "content"] } },
           },
           required: ["from", "to", "subject", "body"],
           additionalProperties: false,
@@ -204,6 +208,7 @@ export const tools = (accountId: string): Tool[] => [
     _meta: HOST_ONLY,
     run: async ({ mailbox, settings }, args) => {
       const draft = args.draft;
+      if (draft.replyToMessageId && draft.forwardMessageId) throw new Error("Choose either a reply or a forward");
       if (String(draft.from).toLowerCase() !== settings.address)
         throw new Error(
           `This draft is from ${draft.from}, but this account sends as ${settings.address}`
@@ -214,6 +219,7 @@ export const tools = (accountId: string): Tool[] => [
         return {
           identity: settings.address,
           sendingAddresses: [settings.address],
+          ...(draft.forwardMessageId ? { forwarding: await mailbox.forwardingContext(draft.forwardMessageId) } : {}),
           ...(draft.replyToMessageId
             ? { thread: `message ${draft.replyToMessageId} in ${settings.address}` }
             : {}),
@@ -226,6 +232,8 @@ export const tools = (accountId: string): Tool[] => [
         text: draft.body,
         html: draft.html,
         inReplyTo: draft.replyToMessageId,
+        forwardMessageId: draft.forwardMessageId,
+        attachments: draft.attachments,
       });
       if (!sent.accepted.length) throw new Error("The mail server accepted none of the recipients");
       return sent;

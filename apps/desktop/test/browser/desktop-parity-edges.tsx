@@ -7,6 +7,8 @@ import { ChatPane } from "../../src/renderer/components/openteam/chat-pane";
 import { SearchDialog } from "../../src/renderer/components/openteam/search-dialog";
 import { PromptInput } from "../../src/renderer/components/ai-elements/prompt-input";
 import { TooltipProvider } from "../../src/renderer/components/ui/tooltip";
+import { ExternalDraftCard } from "../../src/renderer/components/openteam/external-draft-card";
+import { parseExternalDraft } from "@openteam/contracts/external-draft";
 import "../../src/renderer/styles.css";
 
 window.fetch = async () => {
@@ -466,9 +468,82 @@ async function historyScenario(theme: string) {
   render(null);
   await pause(50);
 }
+async function draftReviewScenario(theme: string, width: number) {
+  const draft = parseExternalDraft({ platform: "email", providerIdentifier: "gmail", from: "me@example.com", to: ["ann@example.com"], subject: "Fwd: Schedule", body: "Please review before Friday.", forwardMessageId: "original", attachments: ["/workspace/notes.txt"] });
+  const verification = { identity: "me@example.com", destination: "ann@example.com", forwarding: "“Schedule” from Pat", forwardUrl: "https://mail.example.com/original",
+    attachments: [{ assetId: "a".repeat(64), fileName: "notes.txt", mimeType: "text/plain", byteSize: 5, kind: "text" }],
+    revision: { baselineMessageId: "older", changedFields: ["subject"], body: [{ text: "Please review ", added: false }, { text: "before Friday", added: true }, { text: ".", added: false }] } };
+  let card = { id: `draft-${theme}-${width}`, channelId: "test", sequence: "1", sender: "agent", senderBotId: "bot-0", sourceRunId: null, content: draft.subject, createdAt: new Date().toISOString(), metadata: { type: "external-draft", draft: { ...draft, verification }, cardState: "pending" } } as ChannelMessageView;
+  const calls: string[] = [];
+  const draw = () => render(<div style={{ width, padding: 12 }}><ExternalDraftCard key={card.id} message={card} draft={draft} bot={bots[0]} /></div>);
+  Object.assign(api, { mutateExternalDraft: async (_id: string, action: string) => {
+    calls.push(action);
+    card = { ...card, metadata: { ...(card.metadata as object), cardState: action === "cancel" ? "dismissed" : "sent" } };
+    draw();
+    return { accepted: true, message: card, runId: null };
+  } });
+  const oldFetch = window.fetch;
+  window.fetch = async () => new Response("hello", { headers: { "content-type": "text/plain", "content-length": "5" } });
+  try {
+    draw();
+    for (let i = 0; i < 80 && !document.querySelector('[aria-label="Open notes.txt"]'); i++) await pause(100);
+    check(document.querySelector('[aria-label="Open notes.txt"]'), "Draft attachment did not render");
+    check(document.querySelector('.draft-field[href="https://mail.example.com/original"]')?.textContent?.includes("Forwarding"), "Forwarding source missing");
+    check(document.querySelector('.draft-revision-body mark')?.textContent === "before Friday", "Revision highlight missing");
+    check(document.querySelector('[aria-label="Subject"][data-revised]'), "Changed subject not highlighted");
+    const send = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === "Send")!;
+    const setField = async (label: string, value: string) => {
+      const field = document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`)!;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, value);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      await pause(50);
+    };
+    const highlighted = document.querySelector<HTMLElement>('.draft-revision-body')!;
+    highlighted.focus(); highlighted.textContent = draft.body + " Updated.";
+    const range = document.createRange(); range.selectNodeContents(highlighted); range.collapse(false);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    highlighted.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " Updated." }));
+    await pause(50);
+    const editedBody = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message body"]')!;
+    check(editedBody.value === draft.body + " Updated." && document.activeElement === editedBody && editedBody.selectionStart === editedBody.value.length, "Editing highlighted text lost content, focus or caret");
+    await setField("To", "invalid"); check(send().disabled, "Invalid To left Send enabled");
+    await setField("To", ""); check(send().disabled, "Empty To left Send enabled");
+    await setField("To", "ann@example.com");
+    await setField("Cc", "invalid"); check(send().disabled, "Invalid Cc left Send enabled");
+    await setField("Cc", ""); check(!send().disabled, "Valid recipients left Send disabled");
+    await setField("Message body", ""); check(send().disabled, "Empty body left Send enabled");
+    await setField("Message body", draft.body); check(!send().disabled, "Valid body left Send disabled");
+    document.querySelector<HTMLButtonElement>('[aria-label="Open notes.txt"]')!.click();
+    for (let i = 0; i < 30 && !document.querySelector('[role="dialog"]')?.textContent?.includes("hello"); i++) await pause(100);
+    check(document.querySelector('[role="dialog"]')?.textContent?.includes("hello"), "Draft attachment preview did not load");
+    document.querySelector<HTMLButtonElement>('[aria-label="Close preview"]')!.click(); await pause(100);
+    await setField("To", "edited@example.com");
+    await setField("Subject", "Local subject edit");
+    await setField("Message body", "Local body edit that was never submitted.");
+    [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === "Discard")!.click();
+    await pause(150);
+    check(calls.join(",") === "cancel", "Discard made an unexpected send");
+    check(!document.querySelector("form"), "Discarded card stayed editable");
+    document.querySelector<HTMLElement>("details > summary")!.click(); await pause(50);
+    check(document.querySelector("details")?.open, "Discarded draft did not reopen");
+    check(document.querySelector("details .draft-body")?.textContent === draft.body, "Reopened draft lost its body");
+    check(document.querySelector("details")?.textContent?.includes("ann@example.com") && !document.querySelector("details")?.textContent?.includes("edited@example.com"), "Discarded history kept unsubmitted recipient edits");
+    check(document.querySelector("details")?.textContent?.includes(draft.subject!) && !document.querySelector("details")?.textContent?.includes("Local subject edit"), "Discarded history kept unsubmitted subject edits");
+    check(![...document.querySelectorAll('button')].some(button => button.textContent === "Send"), "Reopening a discarded card restored Send");
+    check(document.querySelector('.draft-card')!.getBoundingClientRect().width <= width, "Draft overflows narrow chat");
+    render(null); await pause(50); draw(); await pause(100);
+    check(!document.querySelector("form") && document.querySelector("details"), "Discarded state was lost after remount");
+    reports.push({ theme, width, scenario: "draft forwarding, revision, attachment preview, validation and discard history", calls });
+  } finally { window.fetch = oldFetch; render(null); await pause(50); }
+}
+
 try {
   for (const theme of ["light", "dark"]) {
     document.documentElement.dataset.theme = theme;
+    if (new URLSearchParams(location.search).has("draft-review")) {
+      for (const width of [745, 360]) await draftReviewScenario(theme, width);
+      continue;
+    }
     await inputScenario(theme);
     for (const kind of ["bot_dm", "group"] as const) await chatScenario(theme, kind);
     await narrowScenario(theme);

@@ -412,6 +412,8 @@ describe("specialized subagent tool surfaces", () => {
     expect(draft.decodeArguments({ ...email, body: "We reviewed the contract terms with legal on Monday and they asked us to\nadd a clause about data retention before anything gets signed.\n\nBest,\nAnn" }))
       .toMatchObject({ body: "We reviewed the contract terms with legal on Monday and they asked us to add a clause about data retention before anything gets signed.\n\nBest,\nAnn" });
     expect(() => draft.decodeArguments({ ...email, body: "Hello<br>See you" })).toThrow("body is plain text, so <br> would reach the recipient as literal text. Nothing was drafted.");
+    expect(draft.decodeArguments({ ...email, body: "Please review.", forwardMessageId: "source-1", attachments: ["/workspace/report.txt"] }))
+      .toMatchObject({ forwardMessageId: "source-1", attachments: ["/workspace/report.txt"] });
   });
 
   test("normal agents expose the complete plugin lifecycle management surface", () => {

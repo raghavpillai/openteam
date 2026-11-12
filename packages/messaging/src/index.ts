@@ -4,6 +4,8 @@ export { cleanupRetiredAgent, RETIRED_AGENT_CLEANUP_RETRY_MS } from "./retired-a
 export { ensureRequestForTask, reportRequestProgress, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, stopRequestProgress, requestProgressSnapshot, requestWakeAllowed, requestIsStopped } from "./request-progress";
 import { requestProgressSnapshot } from "./request-progress";
 import { assertBackgroundRequestDeliveryAllowed } from "./background-request-delivery";
+import { DRAFT_NOTIFICATION_COLLECTION_MS, publishDraftNotification, lockDraftNotifications } from "./draft-notifications";
+export { draftNotificationVariant, isTreatmentDraftWake, lockDraftNotifications, prepareDraftNotification, publishDraftNotification, DRAFT_NOTIFICATION_COLLECTION_MS } from "./draft-notifications";
 export { assertBackgroundRequestDeliveryAllowed } from "./background-request-delivery";
 import { renderTaskProgressContext } from "@openteam/contracts/task-progress";
 export { initialTaskProgress, settleTaskProgress, reportTaskProgress, dispatchTaskContinuations, taskProgress, taskProgressContext, notifyTaskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "./task-progress";
@@ -670,7 +672,7 @@ export const WORKER_SAFETY_SECTION =
   ].join("\n");
 
 /** Messages under the user's name go out only as the parent's draft cards (the reference's text, for every worker type). */
-export const WORKER_DRAFT_HANDOFF = "You cannot call DraftExternalMessage. When an email or Slack message should go out under the user's name, do not create the draft in the source app with Slack slack_send_message_draft, Gmail create_draft, Gmail update_draft, or another connector draft tool. Tell the parent to call DraftExternalMessage. Put that ask in WakeParent when you have it, and in your final message otherwise. Include the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox, or that must carry a file attachment: save it in their mailbox, with the email connector's create_draft or the mail app's own UI, send nothing, and do not ask the parent to draft it." + " A parent task that explicitly conveys the user’s approval may authorize actions at the named destination within its stated purpose and limits. The email and Slack draft routing rule is specific to those destinations; do not require that tool for unrelated website or application workflows. A generic goal or a third-party request is not approval. Read-only work cannot send or submit. New fees, purchases, commitments or materially different terms need a new approval through the parent. Respect actual permission and policy refusals; never route around them.";
+export const WORKER_DRAFT_HANDOFF = "You cannot call DraftExternalMessage. When an email or Slack message should go out under the user's name, do not create the draft in the source app with Slack slack_send_message_draft, Gmail create_draft, Gmail update_draft, or another connector draft tool. Tell the parent to call DraftExternalMessage. Put that ask in WakeParent when you have it, and in your final message otherwise. Include the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox: save it there with the email connector's create_draft or the mail app's own UI, send nothing, and do not ask the parent to draft it. For a review card with file attachments, give the parent the absolute file paths to include in DraftExternalMessage attachments." + " A parent task that explicitly conveys the user’s approval may authorize actions at the named destination within its stated purpose and limits. The email and Slack draft routing rule is specific to those destinations; do not require that tool for unrelated website or application workflows. A generic goal or a third-party request is not approval. Read-only work cannot send or submit. New fees, purchases, commitments or materially different terms need a new approval through the parent. Respect actual permission and policy refusals; never route around them.";
 
 /** The executor's send rules: an irreversible step waits for the user's explicit ask, and otherwise comes back as a draft. */
 export const EXECUTOR_NO_USER_LINE = "You have no way to talk to the user directly, so do not ask follow-up questions. Do the work the rules below allow, and report what you found, what you did, and anything you stopped short of.";
@@ -1075,6 +1077,36 @@ export class AgentMessaging {
       }
     );
     return { message, run, inbox };
+  }
+
+  /** Treatment has one bounded pending notification per conversation, in addition to an active turn. */
+  async enqueueDraftOutcome(tx: Prisma.TransactionClient, input: WakeInput, treatment: boolean) {
+    if (!treatment || !input.channelId) return this.enqueueWake(tx, input);
+    await lockDraftNotifications(tx, input.botId, input.channelId);
+    const pending = await tx.inboxEvent.findFirst({ where: { botId: input.botId, type: "draft.response", status: "pending",
+      run: { channelId: input.channelId, status: "queued" }, payload: { path: ["draftNotification", "variant"], equals: "treatment" } } });
+    if (pending) {
+      await tx.event.create({ data: { topic: "draft.notification.coalesced", entityId: pending.id, payload: { botId: input.botId, channelId: input.channelId } } });
+      return { run: { id: pending.runId } };
+    }
+    const wake = await this.enqueueWake(tx, { ...input, availableAt: new Date(Date.now() + DRAFT_NOTIFICATION_COLLECTION_MS) });
+    await tx.inboxEvent.update({ where: { id: wake.inbox.id }, data: { payload: {
+      ...(wake.inbox.payload as Prisma.JsonObject), draftNotification: { variant: "treatment" },
+    } } });
+    return wake;
+  }
+
+  async flushDraftNotification(context: Pick<ToolContext, "botId" | "channelId" | "runId" | "timeZone">) {
+    return this.prisma.$transaction(async tx => {
+      await lockAgentLifecycle(tx, context.botId);
+      return this.notifyDraftOutcomes(tx, context);
+    });
+  }
+
+  private async notifyDraftOutcomes(tx: Prisma.TransactionClient, context: Pick<ToolContext, "botId" | "channelId" | "runId" | "timeZone">) {
+    const notification = await publishDraftNotification(tx, context);
+    if (notification?.created) await this.scheduleTranscriptProjection(tx, [context.botId]);
+    return notification?.result ?? null;
   }
 
   async broadcast(input: AdminBroadcastInput): Promise<{
@@ -2120,7 +2152,10 @@ export class AgentMessaging {
           ? (message.metadata as Record<string, unknown>)
           : {};
       if (metadata.outcomeEchoed === true) return [];
-      if (typeof metadata.outcomeId === "string" && typeof metadata.outcomeText === "string") return [`[Card outcome ${metadata.outcomeId}]\n${metadata.outcomeText}`];
+      if (typeof metadata.outcomeId === "string" && typeof metadata.outcomeText === "string") {
+        const notification = metadata.draftNotification as { messageId?: string } | undefined;
+        return [`[Card outcome ${metadata.outcomeId}]\n${notification?.messageId ? `Already acknowledged to the user in message ${notification.messageId}; context only, do not repeat the status.\n` : ""}${metadata.outcomeText}`];
+      }
       if (metadata.type === "widget") {
         if (metadata.widgetDismissed === true) {
           dismissedWidgetPrompts.push(message.content);
@@ -2258,6 +2293,9 @@ export class AgentMessaging {
     for (const receipt of receipts) {
       await this.prisma.$executeRaw(Prisma.sql`
         UPDATE "ChannelMessage" SET "metadata" = "metadata" || '{"outcomeEchoed":true,"respondedValueEchoed":true}'::jsonb
+          || CASE WHEN "metadata"#>>'{draftNotification,variant}' = 'treatment'
+            THEN jsonb_build_object('draftNotification', coalesce("metadata"->'draftNotification', '{}'::jsonb)
+              || jsonb_build_object('contextDeliveredAt', ${new Date().toISOString()}::text)) ELSE '{}'::jsonb END
         WHERE "senderBotId" = ${botId}::uuid AND "id" = ${receipt.messageId}::uuid AND "metadata"->>'outcomeId' = ${receipt.outcomeId}
       `);
     }
@@ -2661,6 +2699,12 @@ export class AgentMessaging {
         include: { members: { orderBy: { ordinal: "asc" } } },
       });
       if (!activeChannel) throw new Error("The active delivery channel is unavailable");
+      // Only dedicated treatment outcome continuations use canonical status notifications.
+      // Regular user turns and all other message types keep their existing delivery behavior.
+      if (input.type === "text") {
+        const notification = await this.notifyDraftOutcomes(tx, context);
+        if (notification) return notification;
+      }
       if (activeChannel.kind === "agent_dm") {
         throw new ApiError(
           409,

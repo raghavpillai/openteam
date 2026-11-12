@@ -3,6 +3,7 @@ import "./external-draft-card.css";
 import type { BotView, ChannelMessageView } from "@openteam/contracts";
 import {
   externalDraftApprovalMode,
+  isDraftEmailAddress,
   type ExternalDraft,
   type ExternalDraftApprovalMode,
   type ExternalDraftVerification,
@@ -11,8 +12,9 @@ import { externalDraftReviewEdits } from "@openteam/client-core/external-draft";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../client/openteam-api";
+const FileAttachmentCard = lazy(() => import("./file-attachment").then((module) => ({ default: module.FileAttachmentCard })));
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -163,6 +165,8 @@ export function ExternalDraftCard({
 }) {
   const inFlight = useRef(false);
   const body = useRef<HTMLTextAreaElement>(null);
+  const highlightedBody = useRef<HTMLDivElement>(null);
+  const caret = useRef<number | null>(null);
   const metadata = record(message.metadata);
   const verification = record(record(metadata.draft).verification) as Partial<ExternalDraftVerification>;
   const sendingAddresses = verification.sendingAddresses ?? [];
@@ -180,19 +184,36 @@ export function ExternalDraftCard({
   const [lost, setLost] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [revisionDismissed, setRevisionDismissed] = useState(false);
+  const revision = !revisionDismissed && text === draft.body ? verification.revision : undefined;
+  const recipientsValid = !email || (addresses(to).length > 0 && addresses(to).length <= 100 && addresses(cc).length <= 100 && [...addresses(to), ...addresses(cc)].every(isDraftEmailAddress));
+  const editRevision = (element: HTMLDivElement) => {
+    const selection = window.getSelection();
+    if (selection?.focusNode && element.contains(selection.focusNode)) {
+      const range = document.createRange(); range.selectNodeContents(element); range.setEnd(selection.focusNode, selection.focusOffset);
+      caret.current = range.toString().length;
+    }
+    setRevisionDismissed(true); setText(element.innerText);
+  };
   useEffect(() => {
     setState(String(metadata.cardState ?? "pending"));
     if (metadata.cardState === "sent") setError("");
   }, [metadata.cardState]);
   useLayoutEffect(() => {
-    const element = body.current;
+    const element = body.current ?? highlightedBody.current;
     if (!element) return;
     const measure = () => setOverflowing(element.scrollHeight > 272);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [text, state]);
+  }, [text, state, revisionDismissed]);
+  useLayoutEffect(() => {
+    if (caret.current === null || !body.current) return;
+    body.current.focus();
+    body.current.setSelectionRange(caret.current, caret.current);
+    caret.current = null;
+  }, [text, revisionDismissed]);
   const sendError = typeof metadata.sendError === "string" ? metadata.sendError : "";
   const fields = { body: text, subject, to, cc, from };
   const run = async (work: () => Promise<void>) => {
@@ -275,7 +296,14 @@ export function ExternalDraftCard({
     />
   ) : null;
   const signature = email ? verification.signatures?.[from.toLowerCase()] : undefined;
-  const title = email ? (draft.replyToMessageId ? "Reply" : "New email") : "Slack message";
+  const title = email ? (draft.replyToMessageId ? "Reply" : draft.forwardMessageId ? "Forward" : "New email") : "Slack message";
+  const attachments = verification.attachments?.length ? (
+    <div className="draft-attachments" aria-label="Attachments">
+      <Suspense fallback={<span>Loading attachments…</span>}>
+        {verification.attachments.map((attachment, index) => <FileAttachmentCard key={`${attachment.assetId}:${index}`} attachment={attachment} />)}
+      </Suspense>
+    </div>
+  ) : null;
   const header = (
     <div className="draft-header">
       <span className="draft-title">{title}</span>
@@ -291,6 +319,9 @@ export function ExternalDraftCard({
         {verification.thread ?? draft.replyToMessageId}
       </Field>
     ) : null;
+  const forwardRow = email && draft.forwardMessageId ? (
+    <Field href={verification.forwardUrl} label="Forwarding">{verification.forwarding ?? draft.forwardMessageId}</Field>
+  ) : null;
   const notes = (
     <>
       {sentUnder.rule ? (
@@ -308,18 +339,32 @@ export function ExternalDraftCard({
   );
 
   if (state !== "pending" && state !== "sending") {
-    const recipient = email ? (addresses(to)[0] ?? "") : (draft.target ?? "");
+    const settled = state === "dismissed" ? draft : { ...draft, from, to: addresses(to), cc: addresses(cc), subject, body: text };
+    const settledSignature = email ? verification.signatures?.[settled.from?.toLowerCase() ?? ""] : undefined;
+    const recipient = email ? (settled.to?.[0] ?? "") : (draft.target ?? "");
     const summary =
       state === "unknown"
         ? "The send was interrupted — check your mailbox to see whether it went out"
-        : `${state === "sent" ? "Sent to" : "To"} ${recipient}${email ? ` — “${subject || draft.subject}”` : ""}`;
+        : `${state === "sent" ? "Sent to" : "To"} ${recipient}${email ? ` — “${settled.subject}”` : ""}`;
     const autoSent = Boolean(sentUnder.rule || sentUnder.draftingDisabled);
     return (
       <section aria-label={title} className="draft-card rich-message-card">
         {header}
-        <span className="draft-summary" title={summary}>
-          {summary}
-        </span>
+        <details className="draft-history">
+          <summary className="draft-summary" title={summary}>{summary}<ChevronDown aria-hidden size={14} /></summary>
+          <div className="draft-panel">
+            <div className="draft-fields">
+              {email ? <>
+                <Field label="From">{settled.from}</Field>{replyRow}{forwardRow}
+                <Field label="To">{settled.to?.join(", ")}</Field>{!!settled.cc?.length && <Field label="Cc">{settled.cc.join(", ")}</Field>}
+                <Field label="Subject">{settled.subject}</Field>
+              </> : <><Field label="Workspace">{verification.identity}</Field><Field label="To">{draft.target}</Field></>}
+            </div>
+            <div className="draft-body draft-body-readonly" dir="auto">{settled.body}</div>
+            {settledSignature && <div className="draft-signature">{signatureText(settledSignature)}</div>}
+            {attachments}
+          </div>
+        </details>
         {notes}
         {autoSent && <div className="draft-footer">{menu}</div>}
       </section>
@@ -356,14 +401,17 @@ export function ExternalDraftCard({
                 )}
               </Field>
               {replyRow}
+              {forwardRow}
               <Field htmlFor={`${message.id}-to`} label="To">
                 <textarea
                   aria-label="To"
                   autoComplete="off"
                   className="draft-input"
+                  data-revised={revision?.changedFields.includes("to") ? "" : undefined}
+                  aria-invalid={!recipientsValid && addresses(to).some((address) => !isDraftEmailAddress(address)) || undefined}
                   disabled={locked}
                   id={`${message.id}-to`}
-                  onChange={(event) => setTo(event.target.value.replace(/[\r\n]+/g, " "))}
+                  onChange={(event) => { setRevisionDismissed(true); setTo(event.target.value.replace(/[\r\n]+/g, " ")); }}
                   placeholder="name@example.com"
                   rows={1}
                   spellCheck={false}
@@ -375,9 +423,11 @@ export function ExternalDraftCard({
                   aria-label="Cc"
                   autoComplete="off"
                   className="draft-input"
+                  data-revised={revision?.changedFields.includes("cc") ? "" : undefined}
+                  aria-invalid={addresses(cc).some((address) => !isDraftEmailAddress(address)) || undefined}
                   disabled={locked}
                   id={`${message.id}-cc`}
-                  onChange={(event) => setCc(event.target.value.replace(/[\r\n]+/g, " "))}
+                  onChange={(event) => { setRevisionDismissed(true); setCc(event.target.value.replace(/[\r\n]+/g, " ")); }}
                   placeholder="name@example.com"
                   rows={1}
                   spellCheck={false}
@@ -389,9 +439,10 @@ export function ExternalDraftCard({
                   aria-label="Subject"
                   autoComplete="off"
                   className="draft-input"
+                  data-revised={revision?.changedFields.includes("subject") ? "" : undefined}
                   disabled={locked}
                   id={`${message.id}-subject`}
-                  onChange={(event) => setSubject(event.target.value.replace(/[\r\n]+/g, " "))}
+                  onChange={(event) => { setRevisionDismissed(true); setSubject(event.target.value.replace(/[\r\n]+/g, " ")); }}
                   placeholder="Subject"
                   rows={1}
                   value={subject}
@@ -406,19 +457,29 @@ export function ExternalDraftCard({
             </>
           )}
         </div>
-        <textarea
+        {revision?.body.some((part) => part.added) ? <div
+          role="textbox" aria-label="Message body" aria-multiline="true" aria-readonly={locked}
+          className="draft-body draft-revision-body" dir="auto" ref={highlightedBody}
+          data-clamped={overflowing && !expanded ? "" : undefined}
+          contentEditable={locked ? false : "plaintext-only"} suppressContentEditableWarning
+          onInput={(event) => {
+            if ((event.nativeEvent as InputEvent).isComposing) return;
+            editRevision(event.currentTarget);
+          }}
+          onCompositionEnd={(event) => editRevision(event.currentTarget)}
+        >{revision.body.map((part, index) => part.added ? <mark key={index}>{part.text}</mark> : part.text)}</div> : <textarea
           aria-label="Message body"
           className="draft-body"
           data-clamped={overflowing && !expanded ? "" : undefined}
           dir="auto"
           disabled={locked}
           name="body"
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => { setRevisionDismissed(true); setText(event.target.value); }}
           placeholder="Write a message"
           ref={body}
           rows={4}
           value={text}
-        />
+        />}
         {overflowing && (
           <ButtonPrimitive className="draft-toggle" onClick={() => setExpanded((open) => !open)} type="button">
             {expanded ? "Show less" : "Show more"}
@@ -430,6 +491,7 @@ export function ExternalDraftCard({
           </ButtonPrimitive>
         )}
         {signature && <div className="draft-signature">{signatureText(signature)}</div>}
+        {attachments}
       </div>
       {notes}
       <div className="draft-footer">
@@ -437,7 +499,7 @@ export function ExternalDraftCard({
           <ButtonPrimitive
             className="draft-button draft-button-primary"
             data-sending={sending ? "" : undefined}
-            disabled={locked || !text.trim()}
+            disabled={locked || !text.trim() || !recipientsValid}
             type="submit"
             loading={sending}
             loadingLabel="Sending…"

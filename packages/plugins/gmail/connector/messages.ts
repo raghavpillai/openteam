@@ -77,7 +77,7 @@ const multipart = (parts: string[], subtype: string) => {
   const boundary = `openteam-${crypto.randomUUID()}`;
   return `Content-Type: multipart/${subtype}; boundary="${boundary}"\r\n\r\n${parts.map(p => `--${boundary}\r\n${p}\r\n`).join('')}--${boundary}--`;
 };
-export function draftMime(args: Args, original?: any) {
+export function draftMime(args: Args, original?: any, forwarded?: any) {
   let body = args.body, html = args.htmlBody;
   const originalHeaders = original ? headersOf(original) : {};
   const subject = args.subject ?? (original ? (/^re:/i.test(originalHeaders.subject ?? '') ? originalHeaders.subject : `Re: ${originalHeaders.subject ?? ''}`) : '');
@@ -96,6 +96,12 @@ export function draftMime(args: Args, original?: any) {
     const quote = `On ${originalHeaders.date ?? 'the previous message'}, ${originalHeaders.from ?? 'the sender'} wrote:`;
     if (body !== undefined || html === undefined) body = `${body ?? ''}\n\n${quote}\n${(normalized.plaintextBody ?? '').split('\n').map((line: string) => `> ${line}`).join('\n')}`;
     if (html !== undefined) html = `${html}<br><br>${escapeHtml(quote)}<blockquote>${normalized.htmlBody ?? escapeHtml(normalized.plaintextBody ?? '').replaceAll('\n', '<br>')}</blockquote>`;
+  } else if (forwarded) {
+    const source = normalizeMessage(forwarded), h = headersOf(forwarded);
+    const context = ["---------- Forwarded message ---------", ...["from", "date", "subject", "to", "cc"]
+      .filter((key) => h[key]).map((key) => `${key === "cc" ? "Cc" : key[0]!.toUpperCase() + key.slice(1)}: ${h[key]}`)].join("\n");
+    body = `${body ?? ""}\n\n${context}\n\n${source.plaintextBody ?? ""}`;
+    if (html !== undefined) html = `${html}<br><br>${escapeHtml(context).replaceAll('\n', '<br>')}<br><br><blockquote>${source.htmlBody ?? escapeHtml(source.plaintextBody ?? '').replaceAll('\n', '<br>')}</blockquote>`;
   } else if (args.inReplyTo) {
     // A rewritten reply draft keeps its thread headers.
     headers.push(`In-Reply-To: ${safeHeader(args.inReplyTo)}`);

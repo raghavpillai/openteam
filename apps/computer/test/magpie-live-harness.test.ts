@@ -12,6 +12,7 @@ for (const behavior of [
   "truncated after correct answer",
   "stalled after correct answer",
 ] as const) {
+  // Allow slow cold imports; inference keeps its separately asserted 1.5/5s deadlines.
   test(`live Magpie harness rejects ${behavior}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "magpie-harness-negative-"));
     await writeFile(join(root, "result.json"), JSON.stringify({ success: true }));
@@ -141,5 +142,5 @@ for (const behavior of [
       server.stop(true);
       await rm(root, { recursive: true, force: true });
     }
-  }, 15000);
+  }, 60000);
 }

@@ -120,7 +120,7 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
       {(error || sendError) && <p className="draft-note" role="alert">{error || sendError}</p>}
       <div className="imessage-actions">
         <button className="draft-button draft-button-primary" data-sending={sending ? "" : undefined} disabled={busy || sending} onClick={() => void act("send")} type="button">
-          {sending && <LoadingOrb aria-hidden size={20} state="composing" />}
+          {sending && <LoadingOrb aria-hidden size={20} state="searching" />}
           {sending ? "Sending…" : "Send"}
         </button>
         {send.allowable === true && handle ? (

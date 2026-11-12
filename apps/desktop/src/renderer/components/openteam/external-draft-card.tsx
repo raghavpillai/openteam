@@ -440,7 +440,7 @@ export function ExternalDraftCard({
             disabled={locked || !text.trim()}
             type="submit"
           >
-            {sending && <LoadingOrb aria-hidden size={20} state="composing" />}
+            {sending && <LoadingOrb aria-hidden size={20} state="searching" />}
             {sending ? "Sending…" : "Send"}
           </button>
           {lost ? (

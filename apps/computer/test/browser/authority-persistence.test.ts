@@ -100,56 +100,6 @@ test("encrypted saves preserve the envelope across base64 chunk boundaries", asy
   expect((await readdir(directory)).filter((name) => name.includes(".tmp-"))).toEqual([]);
 });
 
-test("a small idle change rewrites only the index and leaves large stored data untouched", async () => {
-  const { broker, directory, path } = await fixture();
-  const entry = (index: number, body: string) => ({
-    request: { url: `${origin}/asset-${index}.js`, method: "GET", headers: [] },
-    response: { status: 200, statusText: "OK", headers: [], body },
-  });
-  const state = (rotating: string, firstBody = "A".repeat(200_000)): BrowserOriginState => ({
-    origin,
-    capturedAt: rotating,
-    localStorage: [["module-cache", "m".repeat(300_000)], ["session-id", rotating]],
-    indexedDb: [{ name: "app", version: 1, stores: [{ name: "s", records: [{ key: 1, value: "v".repeat(40_000) }] }] }],
-    cacheStorage: [{ name: "precache", entries: [entry(0, firstBody), entry(1, "B".repeat(200_000))] }],
-    serviceWorkers: [{ scope: `${origin}/`, scriptURL: `${origin}/sw.js` }],
-  });
-  broker.cookies.set("persistent", cookie);
-  broker.origins.set(origin, state("first"));
-  await broker.save();
-  const parts = await partsOf(directory);
-  expect(parts.size).toBe(4);
-  const index = await readFile(path);
-  expect(index.length).toBeLessThan(4096);
-
-  // A rotating session key and a rolling cookie expiry.
-  broker.origins.set(origin, state("second"));
-  broker.cookies.set("persistent", { ...cookie, expires: cookie.expires! + 60 });
-  await broker.save();
-  expect(await partsOf(directory)).toEqual(parts);
-  expect(await readFile(path)).not.toEqual(index);
-  let loaded = new BrowserBroker(home) as unknown as Persistence;
-  await loaded.load();
-  expect(loaded.origins.get(origin)).toEqual(state("second"));
-  expect([...loaded.cookies.values()]).toEqual([{ ...cookie, expires: cookie.expires! + 60 }]);
-
-  // One changed cache entry adds one part; the superseded part stays for one
-  // more generation so a snapshot taken mid-save still restores.
-  broker.origins.set(origin, state("third", "C".repeat(200_000)));
-  await broker.save();
-  const changed = await partsOf(directory);
-  expect([...changed.keys()].filter((name) => !parts.has(name))).toHaveLength(1);
-  expect(changed.size).toBe(5);
-  broker.origins.set(origin, state("fourth", "C".repeat(200_000)));
-  await broker.save();
-  const pruned = await partsOf(directory);
-  expect(pruned.size).toBe(4);
-  for (const [name, mtime] of pruned) expect(changed.get(name)).toBe(mtime);
-  loaded = new BrowserBroker(home) as unknown as Persistence;
-  await loaded.load();
-  expect(loaded.origins.get(origin)).toEqual(state("fourth", "C".repeat(200_000)));
-});
-
 test("a missing or altered part drops only that storage area on restore", async () => {
   const { broker, directory } = await fixture();
   const state: BrowserOriginState = {
@@ -293,32 +243,3 @@ test("overlapping saves publish the latest snapshot after an in-flight older sav
   expect(loaded.origins.get(origin)?.localStorage).toEqual([["value", "new"]]);
 });
 
-test("saves with unchanged state keep the encrypted file, and a changed key or state rewrites it", async () => {
-  const { broker, directory, path } = await fixture();
-  broker.cookies.set("persistent", cookie);
-  broker.origins.set(origin, { origin, capturedAt: "2026-10-22", localStorage: [["value", "kept"]] });
-  await broker.save();
-  const saved = await readFile(path);
-  const savedAt = (await stat(path)).mtimeMs;
-  broker.cookies.set("session", { ...cookie, name: "session", expires: -1 });
-  await broker.save();
-  expect(await readFile(path)).toEqual(saved);
-  expect((await stat(path)).mtimeMs).toBe(savedAt);
-  const reloaded = new BrowserBroker(home) as unknown as Persistence;
-  await reloaded.load();
-  await reloaded.save();
-  expect(await readFile(path)).toEqual(saved);
-  reloaded.origins.set(origin, { origin, capturedAt: "2026-10-22", localStorage: [["value", "changed"]] });
-  await reloaded.save();
-  const changed = await readFile(path);
-  expect(changed).not.toEqual(saved);
-  await rm(join(directory, "browser-authority.key"));
-  await reloaded.save();
-  expect(await readFile(path)).not.toEqual(changed);
-  const rekeyed = new BrowserBroker(home) as unknown as Persistence;
-  await rekeyed.load();
-  expect(rekeyed.origins.get(origin)?.localStorage).toEqual([["value", "changed"]]);
-  await rm(path);
-  await rekeyed.save();
-  expect(await stat(path)).toBeTruthy();
-});

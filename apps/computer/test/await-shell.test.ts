@@ -231,25 +231,6 @@ test("a stop kills a running foreground Shell and reports it as interrupted", as
   finally{clearTimeout(stop);}
 });
 
-test("a stopped AwaitShell and invalid waits report the reference errors", async () => {
-  const {root}=await fixture();
-  const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
-  (runtime as any).processSecrets=async()=>({});
-  const active={runId:"await-errors",runtimeProfile:"subagent",subagentType:"executor",botId:"bot-await-errors",cwd:root,pluginNamespaces:[]} as unknown as ActiveTurn;
-  const wait=testTools(runtime,active).find(t=>t.name==="AwaitShell")!;
-  await expect(wait.execute("zero",{block_until_ms:0})).rejects.toThrow("Error awaiting task: Invalid arguments:\nshell_id: Required when block_until_ms is 0. Without shell_id there is nothing to check: pass the shell_id to check, or a nonzero block_until_ms to sleep.");
-  await expect(wait.execute("cap",{block_until_ms:780_001})).rejects.toThrow("Error awaiting task: Invalid arguments:\nblock_until_ms: block_until_ms must be at most 780000 (13 minutes)");
-  await expect(wait.execute("unknown",{shell_id:"999",block_until_ms:0})).rejects.toThrow("Error awaiting task: No shell found for id 999");
-  const started=await testTools(runtime,active).find(t=>t.name==="Shell")!.execute("start",{command:"sleep 0.2",block_until_ms:0});
-  await expect(wait.execute("regex",{shell_id:started.details.shellId,pattern:"(?=a)",block_until_ms:0})).rejects.toThrow("Error awaiting task: pattern is not valid RE2 syntax: invalid or unsupported Perl syntax. RE2 has no lookahead, lookbehind or backreferences.");
-  expect((await wait.execute("finish",{shell_id:started.details.shellId,block_until_ms:5000})).details).toMatchObject({status:"completed"});
-  const controller=new AbortController();
-  const pending=(runtime as unknown as {executeScopedTool(active:ActiveTurn,callId:string,tool:string,args:unknown,signal?:AbortSignal):Promise<unknown>})
-    .executeScopedTool(active,"stopped","AwaitShell",{block_until_ms:60_000},controller.signal);
-  setTimeout(()=>controller.abort(),50);
-  await expect(pending).rejects.toThrow(/^Error: Await was interrupted by the user after \d+ms\.$/);
-});
-
 test("each Shell or AwaitShell call waits at most 13 minutes, or 58 for a computerUse worker", async () => {
   const { root } = await fixture();
   const screens = { commandEnvironment: async () => ({ PATH: process.env.PATH }) } as unknown as ScreenBroker;

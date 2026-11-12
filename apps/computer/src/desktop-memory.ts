@@ -4,8 +4,6 @@ import { rmdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const ROOT = "/sys/fs/cgroup/desktops";
-export const DEFAULT_DESKTOP_MEMORY_LIMIT = "10g";
-
 export function parseMemoryLimit(value: string): number {
   const match = /^(\d+)([kmgt]?)b?$/i.exec(value);
   const units = { "": 1, k: 1024, m: 1024 ** 2, g: 1024 ** 3, t: 1024 ** 4 };

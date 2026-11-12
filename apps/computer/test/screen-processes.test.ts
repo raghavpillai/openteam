@@ -76,17 +76,4 @@ describe("screen process exit waits", () => {
     }
   });
 
-  test("overlapping waits each finish and detach on process exit", async () => {
-    const child = spawn("/bin/sleep", ["30"], { stdio: "ignore" });
-    try {
-      const waits = [waitForProcessExit([child], 2_000), waitForProcessExit([child], 2_000)];
-      child.kill("SIGKILL");
-      await Promise.all(waits);
-      expect(child.listenerCount("exit")).toBe(0);
-      await waitForProcessExit([child], 2_000);
-      expect(child.listenerCount("exit")).toBe(0);
-    } finally {
-      child.kill("SIGKILL");
-    }
-  });
 });

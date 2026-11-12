@@ -119,7 +119,7 @@ const guarded = (prefix: string, value: string) =>
 const ROLES: Record<string, string> = { toolResult: "tool", tool: "tool", custom: "user" };
 
 /** `role: content`, with calls and results as `[Tool call] name {json}` and `[Tool result] name {json}`. */
-export function serializeForExternalSummary(message: BotMessage): string {
+function serializeForExternalSummary(message: BotMessage): string {
   const role = ROLES[String(message.role)] ?? String(message.role);
   if (message.role === "toolResult" || message.role === "tool") {
     const parts = Array.isArray(message.content) ? message.content : [message.content];

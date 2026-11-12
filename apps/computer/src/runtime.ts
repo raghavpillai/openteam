@@ -86,7 +86,7 @@ export const REPLY_NUDGE_PROMPT = SEND_TO_USER_REPLY_NUDGE_PROMPT;
 /** Reply nudges a turn that delivered nothing gets before it settles anyway. */
 export const MAX_REPLY_NUDGES = 3;
 
-export const isDeliveryOwed = (
+const isDeliveryOwed = (
   requestSource: NonNullable<ComputerTurnRequest["requestSource"]>
 ): boolean => ["turn", "handoff-resume", "broadcast", "connector"].includes(requestSource);
 

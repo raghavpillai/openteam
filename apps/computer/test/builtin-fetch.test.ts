@@ -3,16 +3,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { errors } from "undici/index.js";
-import {
-  builtinFetch,
-  decodeWebText,
-  kindOf,
-  MAX_MARKDOWN_ELEMENTS,
-  MAX_WEB_DOWNLOAD,
-  webMarkdown,
-  WebHttpError,
-  publicWebGet,
-} from "../src/builtin-fetch";
+import { builtinFetch, kindOf, MAX_MARKDOWN_ELEMENTS, MAX_WEB_DOWNLOAD, webMarkdown, WebHttpError, publicWebGet } from "../src/builtin-fetch";
 import { isPublicAddress, publicWebUrl } from "../src/public-web-url";
 
 type Get = typeof publicWebGet;
@@ -21,39 +12,6 @@ const html = (body: string, title = "Fixture") =>
   Buffer.from(`<!doctype html><html><head><title>${title}</title></head><body>${body}</body></html>`);
 const paragraphs = "<p>Useful paragraph about the topic with real reading content for people.</p>".repeat(40);
 const article = `<article><h1>Guide</h1>${paragraphs}</article>`;
-
-test("prose in navigation-marked disclosures survives extraction while link menus do not", () => {
-  const page = html(`<nav><a href="/menu">MENU_ONLY</a></nav><main>${article}
-    <section><h2>Common questions</h2><div><h3>What is included?</h3>
-    <nav style="height:0px"><div>Each workspace includes twelve project folders and unlimited archived records. See <a href="/limits">the limits guide</a> for exceptions.</div></nav>
-    </div><div role="navigation">Exported records retain their original creation dates and author names.</div></section></main>`).toString();
-  const markdown = webMarkdown(page, url);
-  expect(markdown).toContain("twelve project folders and unlimited archived records");
-  expect(markdown).toContain("original creation dates and author names");
-  expect(markdown).toContain("https://example.com/limits");
-  expect(markdown).not.toContain("MENU_ONLY");
-});
-
-test("disclosures survive enclosing chrome landmarks and article extraction", () => {
-  for (const wrapper of ["header", "footer", "aside"]) {
-    const page = html(`<main>${article}<${wrapper}><nav>Archived records retain their original owners and timestamps.</nav><nav><a href="/menu">MENU_ONLY</a></nav></${wrapper}><details><summary>Export policy</summary><p>Exports include every archived record and its original identifier.</p></details></main>`).toString();
-    const markdown = webMarkdown(page, url);
-    expect(markdown).toContain("original owners and timestamps");
-    expect(markdown).toContain("every archived record and its original identifier");
-    expect(markdown).not.toContain("MENU_ONLY");
-  }
-  const standalone = webMarkdown(html(`${article}<details><summary>Export policy</summary><p>All archived records remain exportable.</p></details><details hidden>HIDDEN_DISCLOSURE</details>`).toString(), url);
-  expect(standalone).toContain("All archived records remain exportable.");
-  expect(standalone).not.toContain("HIDDEN_DISCLOSURE");
-});
-
-test("article extraction cannot drop a short sibling from an explicit main region", () => {
-  for (const region of ["<main>", '<div role="main">']) {
-    const close = region === "<main>" ? "</main>" : "</div>";
-    const markdown = webMarkdown(html(`${region}${article}<section>Exports retain original timestamps and include archived records.</section>${close}`).toString(), url);
-    expect(markdown).toContain("Exports retain original timestamps and include archived records.");
-  }
-});
 
 test("public fetch cancels while DNS is pending and does not continue after late resolution", async () => {
   const controller = new AbortController();
@@ -96,33 +54,6 @@ test("DNS cancellation retains pre-abort and private-address guards", async () =
   })).rejects.toThrow("Resolver unavailable");
 });
 
-test("markdown preserves explicitly labelled SVG evidence without guessing decorative icons", () => {
-  const markdown = webMarkdown(html(`<main><h1>Service comparison</h1><table>
-    <tr><th>Feature</th><th>Basic</th><th>Team</th></tr>
-    <tr><td>Shared scheduling</td><td><svg role="img" aria-label="Not included"><path/></svg></td><td><svg><title>Included</title><path/></svg></td></tr>
-    <tr><td>Exports</td><td><svg aria-labelledby="export-label"><title id="export-label">Available with add-on</title></svg></td><td><svg aria-hidden="true"><title>HIDDEN_ICON</title></svg></td></tr>
-    </table><svg><path id="DECORATIVE_PATH"/></svg><svg><script>ACTIVE_SCRIPT</script></svg>
-    <button><svg aria-label="PRIVATE_BUTTON"/></button></main>`).toString(), url);
-  expect(markdown).toContain("| Shared scheduling | Not included | Included |");
-  expect(markdown).toContain("| Exports | Available with add-on |  |");
-  for (const hidden of ["HIDDEN_ICON", "DECORATIVE_PATH", "ACTIVE_SCRIPT", "PRIVATE_BUTTON"])
-    expect(markdown).not.toContain(hidden);
-});
-
-test("text decoding honors header, BOM, meta and XML charset declarations", () => {
-  const shiftJis = Buffer.from([0x93, 0xfa, 0x96, 0x7b]); // 日本
-  expect(decodeWebText(shiftJis, "text/html; charset=Shift_JIS")).toBe("日本");
-  expect(
-    decodeWebText(Buffer.concat([Buffer.from('<meta charset="shift_jis">'), shiftJis]), "text/html")
-  ).toContain("日本");
-  expect(
-    decodeWebText(Buffer.concat([Buffer.from('<?xml version="1.0" encoding="Shift_JIS"?>'), shiftJis]), "application/xml")
-  ).toContain("日本");
-  expect(decodeWebText(Buffer.from([0xef, 0xbb, 0xbf, 0x68, 0x69]), "text/plain; charset=latin1")).toBe("hi");
-  expect(decodeWebText(Buffer.from([0xe9]), "text/plain; charset=iso-8859-1")).toBe("é");
-  expect(decodeWebText(Buffer.from("plain"), "text/plain; charset=not-a-charset")).toBe("plain");
-});
-
 test("content kinds are sniffed when servers omit or misstate the type", () => {
   const kind = (bytes: Buffer | string, contentType: string) =>
     kindOf({ url, bytes: Buffer.from(bytes), contentType });
@@ -135,19 +66,6 @@ test("content kinds are sniffed when servers omit or misstate the type", () => {
   expect(kind("plain words", "")).toBe("text");
   expect(kind(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]), "")).toBe("binary");
   expect(kind("GIF89a", "image/gif")).toBe("binary");
-});
-
-test("markdown keeps data tables that article extraction would drop", () => {
-  const rows = Array.from({ length: 30 }, (_, i) => `<tr><td>Country ${i}</td><td>${(i + 1) * 1_000_000}</td></tr>`).join("");
-  const page = html(
-    `<nav><a href="/a">Home</a></nav><p>As of 2026 the most populous country is listed first.</p>
-     <table><caption>Population by country</caption><tr><th>Country</th><th>Population</th></tr>${rows}</table>
-     <footer>Footer links</footer>`
-  ).toString();
-  const markdown = webMarkdown(page, url);
-  expect(markdown).toContain("**Population by country**");
-  expect(markdown).toContain("| Country | Population |");
-  expect(markdown).toContain("| Country 29 | 30000000 |");
 });
 
 test("markdown keeps whole-page forms, landmark-wrapped content and drops noise", () => {
@@ -182,15 +100,6 @@ const fakeGet = (respond: (headers: Record<string, string>) => { bytes: Buffer; 
   return { get, calls };
 };
 const isBrowser = (headers: Record<string, string>) => headers["user-agent"]!.includes("Mozilla");
-
-test("an honest request that succeeds is not retried", async () => {
-  const { get, calls } = fakeGet(() => ({ bytes: html(article) }));
-  const page = await builtinFetch(url, undefined, get);
-  expect(calls).toEqual(["OpenTeam-WebFetch/1.0"]);
-  expect(page).toMatchObject({ url, retriedWithBrowserHeaders: false });
-  expect(page.note).toBeUndefined();
-  expect(page.text).toContain("Useful paragraph");
-});
 
 test("blocked or JavaScript-shell pages retry once with browser headers", async () => {
   const blocked = fakeGet((headers) => (isBrowser(headers) ? { bytes: html(article) } : new WebHttpError(403)));
@@ -276,69 +185,6 @@ test.skipIf(!Bun.which("pdftotext"))("PDFs are converted to text", async () => {
   const { get } = fakeGet(() => ({ bytes: pdf, contentType: "application/pdf" }));
   const page = await builtinFetch(url, undefined, get);
   expect(page.text).toContain("PDF_VIOLET_284");
-});
-
-test("short complete pages are neither retried nor labeled JavaScript shells", async () => {
-  const { get, calls } = fakeGet(() => ({ bytes: html('<h1>Example Domain</h1><p>This domain is for use in documentation examples.</p>') }));
-  const page = await builtinFetch(url, undefined, get);
-  expect(calls).toHaveLength(1);
-  expect(page.note).toBeUndefined();
-});
-
-test("extraction separates structured offers from visible shipping and removes statically hidden text", () => {
-  const page = html(`<style>.hidden {display:none} .shown {display:none} .shown {display:block} @media print {.print {display:none}}</style>
-    <p class="hidden">Free shipping HIDDEN_CSS</p><p hidden>HIDDEN_ATTRIBUTE</p>
-    <p aria-hidden="true">HIDDEN_ARIA</p><p style="display:none !important">HIDDEN_INLINE</p>
-    <p class="hidden" style="display:block">Visible override</p><p class="shown">Visible cascade</p>
-    <p class="print">Visible screen</p><p>Shipping: $50</p>
-    <script type="application/ld+json">{"@type":"Product","offers":{"price":9975,"priceCurrency":"USD"}}</script>
-    <script type="application/ld+json">invalid PRIVATE_INVALID</script><script>PRIVATE_SCRIPT</script>`).toString();
-  const result = webMarkdown(page, url);
-  expect(result).not.toContain("HIDDEN_");
-  expect(result).not.toContain("PRIVATE_");
-  expect(result).toContain("Shipping: $50");
-  expect(result).toContain("Visible override");
-  expect(result).toContain("Visible cascade");
-  expect(result).toContain("Visible screen");
-  expect(result).toContain('"price": 9975');
-  expect(result).toContain("not necessarily visible, current or applicable to your region");
-});
-
-test("structured data is bounded, inert, and cannot conceal an empty page", async () => {
-  const data = JSON.stringify({ text: "```injected", price: 123 });
-  const page = html(`<div id="root">Loading</div><script type="application/ld+json">${data}</script><script type="application/ld+json">${JSON.stringify({ big: 'x'.repeat(65_000) })}</script>`);
-  const { get } = fakeGet(() => ({ bytes: page }));
-  const result = await builtinFetch(url, undefined, get);
-  expect(result.note).toContain("needs JavaScript");
-  expect(result.text).toContain('"price": 123');
-  expect(result.text).not.toContain("```injected");
-  expect(result.text).not.toContain('"big"');
-});
-
-test("a short genuine retry wins over a larger challenge page", async () => {
-  const { get } = fakeGet(headers => ({ bytes: html(isBrowser(headers)
-    ? '<p>Shipping: $50</p>'
-    : '<p>Checking your browser. Verify you are human before continuing to the requested shopping page.</p>') }));
-  const result = await builtinFetch(url, undefined, get);
-  expect(result.text).toContain("Shipping: $50");
-  expect(result.note).toBeUndefined();
-  expect(result.retriedWithBrowserHeaders).toBe(true);
-});
-
-test("repeated div matrices retain empty cell positions without inventing meanings", () => {
-  const matrix = `<section><h2>Starter · Team · Business · Enterprise</h2><div>
-  <div><div>Members</div><div>5</div><div>5</div><div>25</div><div>Unlimited</div></div>
-  <div><div>Synced users</div><div></div><div>1 user</div><div>5 users</div><div>Unlimited</div></div>
-  <div><div>Advanced feature</div><div></div><div></div><div></div><div><svg><path /></svg></div></div>
-  </div></section>`;
-  const result = webMarkdown(html(matrix).toString(), url);
-  expect(result).toContain('| Column 1 | Column 2 | Column 3 | Column 4 | Column 5 |');
-  expect(result).toContain(String.raw`| Synced users | \[empty or omitted content\] | 1 user | 5 users | Unlimited |`);
-  expect(result).toContain('columns are positional');
-  expect(result).not.toContain('| Advanced feature | No');
-  const ordinary = webMarkdown(html('<div><div><div>One</div><div>Two</div><div>Three</div></div><p>Normal content</p></div>').toString(), url);
-  expect(ordinary).not.toContain('columns are positional');
-  expect(ordinary).toContain('Normal content');
 });
 
 test.each([

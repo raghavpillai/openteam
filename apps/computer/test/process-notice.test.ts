@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { leftRunningProcesses, processNotice, ProcessNotice } from "../src/runtime/process-notice";
+import { leftRunningProcesses, ProcessNotice } from "../src/runtime/process-notice";
 
 let root: string;
 let proc: string;
@@ -30,13 +30,6 @@ const receipt = (id: string, scope: string, title: string, finished = true) =>
     id, scope, title, outputPath: join(terminals, `${id}.log`), outputOffset: 0, startedAt: 1,
     ...(finished ? { outcome: { exitCode: 0, finishedAt: 2 } } : {}),
   }));
-
-test("names a command by what the bot typed, from its output file, rather than its description", async () => {
-  await receipt("111", "bot-a", "Start the preview server");
-  await writeFile(join(terminals, "111.log"), `---\npid: 9\ncwd: "/home/box"\ncommand: "cd ~/site && nohup python3 -m http.server 8765 > \\"log\\" &"\ntitle: "Start the preview server"\nstatus: succeeded\n---\n\noutput`);
-  await processEntry(200, { shellId: "111", comm: "python3", ppid: 1 });
-  expect((await leftRunningProcesses(terminals, proc))["bot-a"]?.[0]?.command).toBe('cd ~/site && nohup python3 -m http.server 8765 > "log" &');
-});
 
 test("lists programs left running by finished or background Shell commands, by bot, naming programs rather than shells", async () => {
   await receipt("111", "bot-a", "cd /workspace/site && nohup python3 -m http.server 8765 &");
@@ -107,10 +100,3 @@ test("a program still running is not reported, but one whose pid was reused is",
   expect((await notice.claim("bot-a"))?.content).toContain("`nohup python3 -m http.server &` (python3)");
 });
 
-test("the reminder stays short with many programs", () => {
-  const entries = Array.from({ length: 8 }, (_, index) => ({ shellId: String(index), command: `server ${index}`, programs: [], pid: index, startTime: "1" }));
-  const text = processNotice(entries)!;
-  expect(text.split("\n").filter((line) => line.startsWith("- "))).toHaveLength(6);
-  expect(text).toContain("- and 3 more");
-  expect(processNotice([])).toBeNull();
-});

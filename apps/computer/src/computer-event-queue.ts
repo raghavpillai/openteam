@@ -1,8 +1,8 @@
 import type { ComputerEvent } from "@openteam/contracts";
 import { AsyncQueue } from "./async-queue";
 
-export const AGENT_DELTA_FLUSH_INTERVAL_MS = 32;
-export const AGENT_DELTA_MAX_CHARS = 4_096;
+const AGENT_DELTA_FLUSH_INTERVAL_MS = 32;
+const AGENT_DELTA_MAX_CHARS = 4_096;
 
 /**
  * Coalesces adjacent assistant token fragments without changing event order.

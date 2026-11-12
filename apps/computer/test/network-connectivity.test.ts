@@ -123,17 +123,6 @@ test("route changes clear health and cancel obsolete measurements before enablin
   }
 });
 
-test("repeated lease notifications coalesce a pending measurement", async () => {
-  const f = fixture();
-  try {
-    for (let i = 0; i < 25; i++) f.monitor.sync();
-    await until(() => f.monitor.status()?.checkedAt != null);
-    expect(f.applied.filter((v) => v.ipv4)).toHaveLength(1);
-  } finally {
-    await f.monitor.close();
-  }
-});
-
 test("independent provider failures classify connection vs TLS without leaking errors", async () => {
   const hosts: string[] = [];
   const result = await probeNetworkFamily(

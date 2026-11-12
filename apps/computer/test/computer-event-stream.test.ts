@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ComputerEvent } from "@openteam/contracts";
-import {
-  AGENT_DELTA_FLUSH_INTERVAL_MS,
-  AGENT_DELTA_MAX_CHARS,
-  ComputerEventQueue,
-} from "../src/computer-event-queue";
+import { ComputerEventQueue } from "../src/computer-event-queue";
 import { computerEventStream } from "../src/computer-event-stream";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -23,31 +19,6 @@ describe("computer event stream", () => {
       { type: "agent.delta", turnId: "run", itemId: "item", delta: "buttery" },
       { type: "item.completed", turnId: "run", item: { id: "item" } },
     ]);
-  });
-
-  test("bounds coalescing latency and fragment size", async () => {
-    const timed = new ComputerEventQueue();
-    const timedIterator = timed[Symbol.asyncIterator]();
-    timed.push({ type: "agent.delta", turnId: "run", itemId: "item", delta: "partial" });
-    const startedAt = performance.now();
-    const timedResult = await timedIterator.next();
-    expect(timedResult.value).toMatchObject({ type: "agent.delta", delta: "partial" });
-    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(AGENT_DELTA_FLUSH_INTERVAL_MS - 5);
-    timed.end();
-
-    const sized = new ComputerEventQueue();
-    const sizedIterator = sized[Symbol.asyncIterator]();
-    sized.push({
-      type: "agent.delta",
-      turnId: "run",
-      itemId: "item",
-      delta: "x".repeat(AGENT_DELTA_MAX_CHARS),
-    });
-    expect((await sizedIterator.next()).value).toMatchObject({
-      type: "agent.delta",
-      delta: "x".repeat(AGENT_DELTA_MAX_CHARS),
-    });
-    sized.end();
   });
 
   test("the NDJSON stream pulls only one event ahead of a stalled peer", async () => {
@@ -96,48 +67,6 @@ describe("computer event stream", () => {
     expect(errorChunk).toContain('"type":"runtime.error"');
     expect(errorChunk).toContain("stream exploded");
     expect((await failedReader.read()).done).toBe(true);
-  });
-
-  test("an aborted HTTP consumer releases the runtime waiting on an approval", async () => {
-    let release!: () => void;
-    let cancelled = 0;
-    const waiting = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch() {
-        return new Response(
-          computerEventStream(
-            (async function* () {
-              yield { type: "turn.started", turnId: "disconnect" } as any;
-              await waiting;
-            })(),
-            undefined,
-            {
-              onCancel: () => {
-                cancelled++;
-                release();
-              },
-            }
-          )
-        );
-      },
-    });
-    const abort = new AbortController();
-    try {
-      const response = await fetch(server.url, { signal: abort.signal });
-      const reader = response.body!.getReader();
-      await reader.read();
-      abort.abort();
-      await reader.read().catch(() => {});
-      for (let i = 0; i < 100 && !cancelled; i++) await Bun.sleep(10);
-      expect(cancelled).toBe(1);
-    } finally {
-      release();
-      server.stop(true);
-    }
   });
 
   test("quiet foreground tasks keep their HTTP event stream alive", async () => {

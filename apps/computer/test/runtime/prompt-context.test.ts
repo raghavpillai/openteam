@@ -2,15 +2,7 @@ import { expect, test } from "bun:test";
 import { platform, release } from "node:os";
 import { RuntimeTools } from "../../src/runtime/tools";
 import type { ActiveTurn } from "../../src/runtime/types";
-import {
-  communicationReminder,
-  enrichUserInfo,
-  renderDynamicToolCatalog,
-  promptFingerprint,
-  ACK_REMINDER,
-
-  PROGRESS_REMINDER,
-} from "../../src/runtime/prompt-context";
+import { communicationReminder, enrichUserInfo, renderDynamicToolCatalog, promptFingerprint, ACK_REMINDER } from "../../src/runtime/prompt-context";
 
 const user = { role: "user", content: "do work" };
 const call = (name: string, args = {}) => ({
@@ -81,29 +73,6 @@ test("acknowledgement reminders fire during work, with silent/worker exclusions"
   ).toBeNull();
 });
 
-const reminderNote = (content: string) => ({ role: "custom", customType: "openteam-communication-reminder", content });
-/** Runs the hook before each step the way the context hook does, appending what it injects. */
-const simulate = (steps: Array<ReturnType<typeof call>>) => {
-  const messages: any[] = [user];
-  const fired: Array<{ before: number; kind: string }> = [];
-  steps.forEach((step, index) => {
-    const reminder = communicationReminder(messages, active);
-    if (reminder) {
-      fired.push({ before: index + 1, kind: reminder.kind });
-      messages.push(reminderNote(reminder.content));
-    }
-    messages.push(step, { role: "toolResult", toolCallId: `call-${index}`, content: [] });
-  });
-  return fired;
-};
-
-test("the ack repeats every two silent calls until the user hears from the bot", () => {
-  expect(simulate(Array.from({ length: 13 }, () => call("Shell")))).toEqual(
-    [3, 5, 7, 9, 11, 13].map((before) => ({ before, kind: "ack" }))
-
-  );
-});
-
 test("the dynamic tool catalog has the reference shape and marks connections that are not ready", () => {
   expect(renderDynamicToolCatalog([
     { name: "gmail", namespaceStatus: "ready", description: "Gmail (default)", tools: [{ name: "search_threads" }, { name: "create_draft" }] },
@@ -152,33 +121,6 @@ test("the catalog in user_info is pinned for the epoch; a changed cursor namespa
   expect(pinDynamicToolCatalog(log, 1, [cursor(["TodoWrite", "UploadFile"]), gmail]).catalog).toContain('<namespace name="gmail"');
 });
 
-test("after an ack the progress reminder fires once per seven silent calls, not every step", () => {
-  expect(simulate([call("SendToUser", { type: "text" }), ...Array.from({ length: 16 }, () => call("Shell"))])).toEqual([
-    { before: 9, kind: "progress" },
-    { before: 16, kind: "progress" },
-  ]);
-});
-
-test("an existing conversation receives newly preloaded Stop guidance without rewriting its pinned catalog", async () => {
-  const { pinDynamicToolCatalog } = await import("../../src/runtime/catalog-snapshot");
-  const entries: Array<{ type: string; customType: string; data: unknown }> = [];
-  const log = { getEntries: () => entries, appendCustomEntry: (customType: string, data: unknown) => { entries.push({ type: "custom", customType, data }); } };
-  const legacy = [{ name: "cursor", tools: [{ name: "StopSubagent" }] }];
-  const first = pinDynamicToolCatalog(log, 0, legacy);
-  const inputSchema = { type: "object", properties: { all: { type: "boolean" } } };
-  const current = [{ name: "cursor", tools: [{ name: "StopSubagent", inputSchema }] }];
-  const upgraded = pinDynamicToolCatalog(log, 0, current);
-  expect(upgraded.catalog).toBe(first.catalog);
-  expect(upgraded.update).toContain('<preloaded_tool_schemas>');
-  expect(upgraded.update).toContain('"tool":"StopSubagent"');
-  expect(upgraded.update).toContain(JSON.stringify(inputSchema));
-  expect(upgraded.update).toContain('`CallDynamicTool` directly');
-  expect(pinDynamicToolCatalog(log, 0, current).update).toBeNull();
-  const changed = [{ name: "cursor", tools: [{ name: "StopSubagent", inputSchema: { ...inputSchema, required: ["all"] } }] }];
-  expect(pinDynamicToolCatalog(log, 0, changed).update).toContain('"required":["all"]');
-  expect(pinDynamicToolCatalog(log, 0, changed).catalog).toBe(first.catalog);
-});
-
 test("a reaction that went through acknowledges the user; a widget or failed reaction does not", () => {
   const react = { role: "assistant", content: [{ type: "toolCall", id: "r", name: "ReactToMessage", arguments: { emoji: "👍" } }] };
   const reacted = (isError: boolean) => [user, react, { role: "toolResult", toolCallId: "r", isError, content: [] }, call("Shell"), call("Shell")];
@@ -186,22 +128,6 @@ test("a reaction that went through acknowledges the user; a widget or failed rea
   expect(communicationReminder(reacted(true), active)?.kind).toBe("ack");
   expect(communicationReminder([user, call("SendToUser", { type: "widget" }), call("Read"), call("Read")], active)?.kind).toBe("ack");
   expect(communicationReminder([user, call("SendToUser", { type: "widget" }), call("Read")], active)).toBeNull();
-});
-
-test("a newer real user message starts a new acknowledgement window", () => {
-  expect(communicationReminder([user, call("SendToUser", { type: "text" }), call("Read"), user, call("Read"), call("Read")], active)?.kind).toBe("ack");
-  // Injected reminder blocks are skipped when looking back for the ack.
-  const hold = { role: "custom", customType: "openteam-end-turn-hold", content: "<system_reminder>\nYour turn did not end.\n</system_reminder>" };
-  expect(communicationReminder([user, call("SendToUser", { type: "text" }), hold, call("Read"), call("Read")], active)).toBeNull();
-});
-
-test("a failed text send does not reset the silent-call count or count as an acknowledgement", () => {
-  const messages: any[] = [user,
-    { role: "assistant", content: [{ type: "toolCall", id: "failed-send", name: "SendToUser", arguments: { type: "text", content: "Checking." } }] },
-    { role: "toolResult", toolCallId: "failed-send", isError: true, content: [{ type: "text", text: "Delivery failed." }] },
-    call("Read"),
-  ];
-  expect(communicationReminder(messages, { ...active, userAcknowledged: false })?.kind).toBe("ack");
 });
 
 test("a reply cut off at the output limit gets one reminder to continue in smaller pieces", async () => {

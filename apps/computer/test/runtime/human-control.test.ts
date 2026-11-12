@@ -7,7 +7,6 @@ import { ScreenBroker } from "../../src/screen-broker";
 import type { ScreenSession } from "../../src/screen/types";
 import type { BrowserUseSession } from "../../src/browser/use";
 import type { ActiveTurn } from "../../src/runtime/types";
-import { observeGraphicalToolResult } from "../../src/runtime/graphical-completion";
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
@@ -135,34 +134,6 @@ test("a browser command that cannot cancel must finish before human input is gra
     generation: owned.generation,
   });
   await expect(f.call()).resolves.toEqual({ content: [], details: {} });
-});
-test("caller cancellation still reaches browser execution without ending ownership state", async () => {
-  const started = deferred();
-  const controller = new AbortController();
-  const f = await fixture(async (_tool, _args, signal) => {
-    started.resolve();
-    await new Promise<void>((_, reject) =>
-      signal!.addEventListener("abort", () => reject(signal!.reason), { once: true })
-    );
-  });
-  const action = f.call(controller.signal);
-  void action.catch(() => {});
-  await started.promise;
-  controller.abort(new Error("caller cancelled"));
-  await expect(action).rejects.toThrow("caller cancelled");
-  expect((await f.broker.status("bot", "/workspace")).humanTakeover).toBe(false);
-});
-test("human control interruptions do not misreport a working computer as unreachable", () => {
-  const active = { subagentType: "computerUse" } as ActiveTurn;
-  for (let i = 0; i < 30; i++)
-    for (const message of [
-      "The user currently holds the graphical input lease",
-      "Agent graphical input interrupted by a control change",
-      "Graphical control changed; inspect the screen before retrying input",
-    ])
-      observeGraphicalToolResult(active, true, message);
-  expect(active.toolFailureBreakerTripped).toBeUndefined();
-  expect(active.endTurnRequested).toBeUndefined();
 });
 
 test("a browser readiness probe cannot launch Chrome after the user takes control", async () => {

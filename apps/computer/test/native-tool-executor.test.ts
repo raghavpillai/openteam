@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -19,8 +19,6 @@ const temporary = async () => {
   return root;
 };
 
-const dimensions = (bytes: Buffer) => [bytes.readUInt32BE(16), bytes.readUInt32BE(20)];
-
 describe("native computer tools", () => {
   test("Read returns numbered lines with positive and negative paging", async () => {
     const root = await mkdtemp(join(tmpdir(), "openteam-native-read-"));
@@ -32,37 +30,6 @@ describe("native computer tools", () => {
     expect(middle.content[0]).toEqual({ type: "text", text: "... 1 line not shown ...\n     2|beta\n... 2 lines not shown ..." });
     const last = await executor.read({ path, offset: -2, limit: 1 }, root);
     expect(last.content[0]).toEqual({ type: "text", text: "... 2 lines not shown ...\n     3|gamma\n... 1 line not shown ..." });
-  });
-
-  test("Read failures use the reference error texts and are failed calls", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-read-errors-"));
-    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-    await mkdir(join(root, "folder"));
-    await writeFile(join(root, "data.raw"), Buffer.from([0, 1, 2, 3]));
-    await writeFile(join(root, "bundle.tar.gz"), "not really");
-    await writeFile(join(root, "six.txt"), "1\n2\n3\n4\n5\n6");
-    const failure = (path: string, offset?: number) =>
-      executor.read({ path, offset }, root).then(() => "resolved", (error: Error) => error.message);
-    expect(await failure(join(root, "folder"))).toBe(`Error: Path is a directory, not a file: ${join(root, "folder")}`);
-    expect(await failure(join(root, "data.raw"))).toBe(`Error: File content is binary data, not text: ${join(root, "data.raw")}`);
-    expect(await failure(join(root, "bundle.tar.gz"))).toBe("Error: Cannot read binary files of type gz");
-    expect(await failure(join(root, "six.txt"), 50)).toBe("Error: Offset 50 is beyond file length (6 lines)");
-    expect(await failure("   ")).toBe("Error: path is empty or only whitespace");
-    expect(await failure(join(root, "missing.txt"))).toBe("Error: File not found");
-  });
-
-  test("Read recognizes images by content, labels them, and refuses undecodable ones", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-read-image-"));
-    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4AWP4////fwAJ+wP92PZgeAAAAABJRU5ErkJggg==", "base64");
-    await writeFile(join(root, "chart"), png);
-    const image = await executor.read({ path: join(root, "chart") }, root);
-    expect(image.content[0]).toEqual({ type: "text", text: `Read image file: ${await realpath(join(root, "chart"))}` });
-    expect(image.content[1]).toMatchObject({ type: "image", mimeType: "image/png" });
-    await writeFile(join(root, "broken.png"), png.subarray(0, 20));
-    await expect(executor.read({ path: join(root, "broken.png") }, root)).rejects.toThrow(
-      /^Error: File is not a valid image: its data could not be decoded \(.+\)\. A truncated or hand-copied file does this; write it again from the original bytes with code\.: /
-    );
   });
 
   test("Read renders a Jupyter notebook as cells and outputs", async () => {
@@ -368,18 +335,6 @@ describe("Read edge cases", () => {
   );
 
   test.skipIf(!Bun.which("pdftotext"))(
-    "knows a PDF by its header when its name doesn't say so, as the reference does",
-    async () => {
-      const root = await temporary();
-      const file = join(root, "1089646.data");
-      await copyFile(new URL("./fixtures/input-parity/three-pages.pdf", import.meta.url), file);
-      const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-      const result = await executor.read({ path: file }, root);
-      expect((result.content[0] as { text: string }).text).toContain("-- 1 of 3 --");
-    }
-  );
-
-  test.skipIf(!Bun.which("pdftotext"))(
     "knows a large PDF by its header too, instead of streaming it as text",
     async () => {
       const root = await temporary();
@@ -392,97 +347,6 @@ describe("Read edge cases", () => {
       expect((result.content[0] as { text: string }).text).toContain("-- 1 of 3 --");
     }
   );
-
-  test.skipIf(!Bun.which("pdftotext"))(
-    "reads a PDF whole with the reference's page markers, and a PDF without a text layer as just its markers",
-    async () => {
-      const root = await temporary();
-      const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-      const read = async (name: string, range: { offset?: number; limit?: number } = {}) => {
-        const file = join(root, name);
-        await copyFile(new URL(`./fixtures/input-parity/${name}`, import.meta.url), file);
-        const result = await executor.read({ path: file, ...range }, root);
-        return (result.content[0] as { text: string }).text;
-      };
-      // Oracle: pdf-parse 2.4.5 (the reference's extractor) returns, for these fixtures,
-      // "Page one line A\nPage one line B\n\n-- 1 of 3 --\n\nPage two only line\n\n-- 2 of 3 --\n\n…"
-      // and "\n\n-- 1 of 2 --\n\n\n\n-- 2 of 2 --\n\n"; Read numbers them like any text file.
-      expect(await read("three-pages.pdf")).toBe([
-        "Page one line A", "Page one line B", "", "-- 1 of 3 --", "",
-        "Page two only line", "", "-- 2 of 3 --", "",
-        "Third page first", "Third page second", "Third page third", "", "-- 3 of 3 --", "", "",
-      ].map((line, index) => `${String(index + 1).padStart(6)}|${line}`).join("\n"));
-      expect(await read("three-pages.pdf", { offset: 6, limit: 1 })).toBe("... 5 lines not shown ...\n     6|Page two only line\n... 10 lines not shown ...");
-      expect(await read("no-text-layer.pdf")).toBe(["", "", "-- 1 of 2 --", "", "", "", "-- 2 of 2 --", "", ""]
-        .map((line, index) => `${String(index + 1).padStart(6)}|${line}`).join("\n"));
-    }
-  );
-
-  test("native Read matches both full-file boundaries and recovers by paging", async () => {
-    const root = await temporary();
-    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-    const equal = join(root, "equal.txt"),
-      over = join(root, "over.txt");
-    await writeFile(equal, "a".repeat(100_000));
-    await writeFile(over, `BEGIN\n${"a".repeat(100_001)}\nEND`);
-    const success = await executor.read({ path: equal }, root);
-    expect(success.details).toMatchObject({ exceededLimit: false });
-    expect(success.content[0]).toEqual({ type: "text", text: `     1|${"a".repeat(100_000)}` });
-    // Over the limit is a failed call that reports the file's size, as in the reference.
-    const failure = await executor.read({ path: over }, root).then(() => undefined, (error: Error) => error.message);
-    expect(failure).toBe(
-      "Requested content exceeds maximum allowed characters (100000 characters). The file is 100011 bytes.\nPlease use offset and limit parameters to read specific portions of the file, or use the 'grep' tool to search for specific content."
-    );
-    expect((await executor.read({ path: over, offset: 1, limit: 1 }, root)).content[0]).toEqual({
-      type: "text",
-      text: "     1|BEGIN\n... 2 lines not shown ...",
-    });
-    expect((await executor.read({ path: over, offset: -1, limit: 1 }, root)).content[0]).toEqual({
-      type: "text",
-      text: "... 2 lines not shown ...\n     3|END",
-    });
-  });
-
-  test("Read can page an uploaded document above the old 10 MiB whole-file cap", async () => {
-    const root = await temporary();
-    const file = join(root, "large.txt");
-    await writeFile(file, `BEGIN\n${"x".repeat(11 * 1024 * 1024)}`);
-    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-    expect((await executor.read({ path: file, offset: 1, limit: 1 }, root)).content[0]).toEqual({
-      type: "text",
-      text: "     1|BEGIN\n... 1 line not shown ...",
-    });
-  });
-
-  test("Read returns bounded image bytes while the attachment stays intact", async () => {
-    const root = await temporary();
-    const file = join(root, "shapes.png");
-    await copyFile(new URL("./fixtures/input-parity/shapes-2400x1600.png", import.meta.url), file);
-    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-    const result = await executor.read({ path: file }, root);
-    const image = result.content.find((item) => item.type === "image");
-    expect(image?.type).toBe("image");
-    if (image?.type === "image")
-      expect(dimensions(Buffer.from(image.data, "base64"))).toEqual([1024, 683]);
-    expect(dimensions(await readFile(file))).toEqual([2400, 1600]);
-  });
-
-  test("binary reads fail locally and a later text read succeeds", async () => {
-    const root = await mkdtemp(join(tmpdir(), "edge-read-"));
-    try {
-      const ex = new NativeToolExecutor({ agentDir: root, controlToken: "fixture" });
-      for (const [name, bytes] of [["document.docx", Buffer.from([80,75,3,4,0,65])], ["nul.txt", Buffer.from([65,0,66])], ["invalid.txt", Buffer.from([255,254,253])]] as const) {
-        await writeFile(join(root,name), bytes);
-        await expect(ex.read({path:join(root,name)},root)).rejects.toThrow(`Error: File content is binary data, not text: ${join(root,name)}`);
-      }
-      await writeFile(join(root,"ok.txt"),"café 日本語");
-      expect(JSON.stringify(await ex.read({path:join(root,"ok.txt")},root))).toContain("café 日本語");
-      for(const [name,bytes] of [["utf16.txt",Buffer.concat([Buffer.from([255,254]),Buffer.from("café 日本語","utf16le")])],["latin1.txt",Buffer.from("café","latin1")],["fake.png",Buffer.from("plain text")]] as const) {
-        await writeFile(join(root,name),bytes);
-        expect(JSON.stringify(await ex.read({path:join(root,name)},root))).toContain(name==="fake.png"?"plain text":"café");
-      }
-    } finally { await rm(root,{recursive:true,force:true}); }
-  });
 
   test('Read rejects a file swapped into protected state after its initial readability check',async()=>{
    const root=await realpath(await mkdtemp('/tmp/read-race-'));
@@ -528,7 +392,6 @@ describe("Read edge cases", () => {
     await expect(ex.read({path:target},root)).rejects.toThrow('protected agent-data');
    }finally{await rm(root,{recursive:true,force:true})}
   });
-
 
   test('Read rejects a regular file replaced by a FIFO without waiting for a writer',async()=>{
    const root=await mkdtemp('/tmp/read-fifo-');

@@ -2,7 +2,6 @@ import { spawnAgentProcess as spawn, agentProcessIdentity } from "../agent-proce
 import { environment, removeProcess } from "./processes";
 import type { ScreenSession } from "./types";
 
-export const FRAME_STREAM_CONTENT_TYPE = "multipart/x-mixed-replace; boundary=openteam-frame";
 type Subscriber = { next?: Buffer; wake?: () => void; closed: boolean; error?: Error };
 type Feed = { subscribers: Set<Subscriber>; latest?: Buffer; stopped: boolean; stop: () => void };
 const feeds = new WeakMap<ScreenSession, Feed>();

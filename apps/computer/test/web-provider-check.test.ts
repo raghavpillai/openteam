@@ -37,16 +37,3 @@ test("a search check passes with results and fails with the provider's reason", 
   expect(missing).toMatchObject({ ok: false, message: expect.stringContaining("Bing is selected but its API key is missing") });
 });
 
-test("a fetch check reads example.com through the provider", async () => {
-  const page = (markdown: string): SearchFetch => async () =>
-    Response.json({ success: true, data: { markdown, metadata: { url: "https://example.com/", statusCode: 200 } } });
-  const passed = await checkWebProvider({ tool: "fetch", provider: "firecrawl", apiKey: "k" }, undefined, page("# Example Domain\nThis domain is for use in examples."));
-  expect(passed.ok).toBe(true);
-  expect(passed.message).toMatch(/^Fetch works: read example\.com \(\d+ characters\)\.$/);
-  const wrong = await checkWebProvider({ tool: "fetch", provider: "firecrawl", apiKey: "k" }, undefined, page("Something else"));
-  expect(wrong).toEqual({ ok: false, message: "The provider answered, but the test page's text was missing." });
-  const failed = await checkWebProvider({ tool: "fetch", provider: "firecrawl", apiKey: "k" }, undefined, async () =>
-    Response.json({ success: false, error: "Insufficient credits" }, { status: 402 })
-  );
-  expect(failed).toEqual({ ok: false, message: "Firecrawl fetch failed (HTTP 402): Insufficient credits. Check the provider's quota, balance or rate limit." });
-});

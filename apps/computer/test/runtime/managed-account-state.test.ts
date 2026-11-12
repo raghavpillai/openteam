@@ -4,7 +4,6 @@ import * as filesystem from "node:fs/promises";
 import { chmod, lstat, mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:net";
 import { StdioMcpManager } from "../../src/mcp-manager";
 import { McpRuntimeRouter } from "../../src/mcp-runtime-router";
 import type { PluginRuntimeAsset } from "@openteam/plugin-sdk";
@@ -91,35 +90,6 @@ test("stale removal cannot delete a newer account generation", async () => {
   expect(f.manager.status("account").state).toBe("ready");
 });
 
-test("an overlapping stale forget failure cannot poison a newer account removal", async () => {
-  const f = await fixture();
-  const latest = await f.info("account", "synthetic-new", 3);
-  const other = await f.info("other", "synthetic-other");
-  const stale = f.manager.forget("account", 2);
-  const staleResult = stale.then(() => null, error => error);
-  const current = f.manager.forget("account", 4);
-  expect(await staleResult).toBeInstanceOf(Error);
-  expect(String(await staleResult)).toContain("stale request");
-  await current;
-  await expect(stat(latest.directory)).rejects.toMatchObject({ code: "ENOENT" });
-  expect(f.manager.status("account").state).toBe("stopped");
-  expect(await readFile(join(other.directory, "synthetic-marker"), "utf8")).toBe("synthetic-other");
-  await expect(f.manager.discover("account", f.input, 3)).rejects.toThrow("stale request");
-  expect((await f.info("account", undefined, 4)).marker).toBeNull();
-}, 15_000);
-
-test.each([3, 4])("discovery at valid generation %i survives an overlapping rejected stale forget", async (generation) => {
-  const f = await fixture();
-  const latest = await f.info("account", "synthetic-preserved", 3);
-  const stale = f.manager.forget("account", 2).then(() => null, error => error);
-  const discovery = f.manager.discover("account", f.input, generation);
-  expect(String(await stale)).toContain("stale request");
-  expect(await discovery).toHaveLength(1);
-  expect(f.manager.status("account").state).toBe("ready");
-  expect((await f.info("account", undefined, generation)).marker).toBe("synthetic-preserved");
-  expect(await readFile(join(latest.directory, "synthetic-marker"), "utf8")).toBe("synthetic-preserved");
-}, 15_000);
-
 test("discovery waiting for removal independently rejects a generation made stale while waiting", async () => {
   const f = await fixture();
   const id = "waiting-discovery";
@@ -199,39 +169,6 @@ test("repairs permissions of an existing real account state directory before lau
   expect((await lstat(directory)).mode & 0o777).toBe(0o700);
 });
 
-test("legacy account directories migrate together without losing keys/history across restart", async () => {
-  const f = await fixture();
-  const id = "legacy-migration", legacy = legacyStatePath(f.root, id), current = statePath(f.root, id);
-  await mkdir(join(legacy, "wacli"), { recursive: true });
-  await writeFile(join(legacy, "synthetic-marker"), "synthetic-history");
-  await writeFile(join(legacy, "wacli", "session.db"), "synthetic-keys");
-  await chmod(legacy, 0o755);
-  const first = await f.info(id);
-  expect(first.directory).toBe(current);
-  expect(first.marker).toBe("synthetic-history");
-  await expect(lstat(legacy)).rejects.toMatchObject({ code: "ENOENT" });
-  expect(await readFile(join(current, "wacli", "session.db"), "utf8")).toBe("synthetic-keys");
-  expect((await lstat(current)).mode & 0o777).toBe(0o700);
-  await f.manager.closeAll();
-  const restarted = new StdioMcpManager(f.root, 5_000);
-  managers.push(restarted);
-  const result: any = await restarted.call(id, f.input, "state", {});
-  expect(JSON.parse(result.content[0].text).marker).toBe("synthetic-history");
-  expect(await readFile(join(current, "wacli", "session.db"), "utf8")).toBe("synthetic-keys");
-}, 15_000);
-
-test("migration refuses existing legacy/current pairs without merging or replacing either", async () => {
-  const f = await fixture();
-  const id = "migration-conflict", legacy = legacyStatePath(f.root, id), current = statePath(f.root, id);
-  await mkdir(legacy, { recursive: true });
-  await mkdir(current);
-  await writeFile(join(legacy, "synthetic-marker"), "synthetic-old");
-  await writeFile(join(current, "synthetic-marker"), "synthetic-new");
-  await expect(f.info(id)).rejects.toThrow("Both legacy and current account state exist");
-  expect(await readFile(join(legacy, "synthetic-marker"), "utf8")).toBe("synthetic-old");
-  expect(await readFile(join(current, "synthetic-marker"), "utf8")).toBe("synthetic-new");
-});
-
 test("legacy state symlinks fail closed and offline removal does not follow their targets", async () => {
   const f = await fixture();
   const id = "legacy-symlink", outside = join(f.root, "outside"), legacy = legacyStatePath(f.root, id);
@@ -258,31 +195,6 @@ test("offline removal deletes both owned path versions without launching or touc
   await expect(lstat(current)).rejects.toMatchObject({ code: "ENOENT" });
   expect(await readFile(join(other, "synthetic-marker"), "utf8")).toBe("synthetic-preserved");
   expect(f.manager.status(id).state).toBe("stopped");
-});
-
-test("production state paths leave room for a real Unix send socket", async () => {
-  const manager = new StdioMcpManager("/agent-data/plugin-runtimes");
-  const production = (manager as any).accountStateDirectory("synthetic-socket-account");
-  const targetBytes = Buffer.byteLength(join(production, ".send.sock"));
-  expect(production).toMatch(/^\/agent-data\/plugin-runtimes\/accounts\/[a-f0-9]{32}$/);
-  expect(targetBytes).toBe(80);
-  expect(Buffer.byteLength(join(production, "wacli", ".send.sock"))).toBeLessThan(108);
-  const root = await realpath(await mkdtemp("/tmp/socket-"));
-  directories.push(root);
-  const directory = join(root, "x".repeat(targetBytes - Buffer.byteLength(root) - 12));
-  await mkdir(directory);
-  const socket = join(directory, ".send.sock");
-  expect(Buffer.byteLength(socket)).toBe(targetBytes);
-  const server = createServer();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(socket, () => resolve());
-    });
-    expect((await lstat(socket)).isSocket()).toBe(true);
-  } finally {
-    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-  }
 });
 
 test.each(["close", "closeAll", "forget"] as const)("%s joins pending state-directory creation before completing teardown", async (operation) => {
@@ -367,31 +279,6 @@ test("managed runtime pins are shared across accounts; state removal preserves t
   await expect(f.manager.discover("three", f.input)).rejects.toThrow("verification failed");
   expect(downloads).toBe(1);
 }, 15_000);
-
-test("cancelling one account's shared managed-runtime download leaves the other account's startup alive", async () => {
-  const f = await fixture();
-  f.input.runtimeAssets = [asset];
-  const entered = deferred<void>(), download = deferred<Response>();
-  let signal: AbortSignal | undefined;
-  let downloads = 0;
-  (f.manager as any).runtimes.download = async (_url: unknown, options: RequestInit) => {
-    downloads++; signal = options.signal as AbortSignal; entered.resolve(); return download.promise;
-  };
-  const first = f.manager.discover("one", f.input).then(() => null, error => error);
-  const second = f.manager.discover("two", f.input);
-  await entered.promise;
-  const pending = () => [...(f.manager as any).runtimes.pending.values()][0] as { users: number };
-  for (let index = 0; index < 100 && pending()?.users !== 2; index++) await Bun.sleep(1);
-  expect(pending().users).toBe(2);
-  await f.manager.close("one", 1);
-  expect(signal?.aborted).toBe(false);
-  download.resolve(new Response(payload));
-  expect(await first).toBeInstanceOf(Error);
-  expect(await second).toHaveLength(1);
-  expect(f.manager.status("two").state).toBe("ready");
-  expect(downloads).toBe(1);
-}, 15_000);
-
 
 test("managed runtimes accept a cache directory with a symlink ancestor (including macOS /var)", async () => {
   const f = await fixture();

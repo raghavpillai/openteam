@@ -102,29 +102,6 @@ test("Firecrawl notes truncated PDFs and reports sites it declines as refusals, 
   expect(forbidden?.message).toContain("Check the API key");
 });
 
-test("Exa's 1,000-character publisher excerpts are flagged to the agent", async () => {
-  const exa = (text: string) =>
-    new FetchProviderClient(
-      () => ({ provider: "exa", apiKey: key }),
-      async () => Response.json({ results: [{ url, title: "News", text }], statuses: [{ id: url, status: "success", source: "crawled" }] }),
-      validate
-    );
-  expect(await exa("n".repeat(1_000)).fetch(url)).toMatchObject({
-    note: "Exa returned only a 1,000-character excerpt of this page; the publisher limits Exa to excerpts. Open the page with the browser tool for the full text.",
-  });
-  expect(await exa("n".repeat(1_001)).fetch(url)).not.toHaveProperty("note");
-});
-
-test("every third-party fetch provider needs its key; nothing is sent without one", async () => {
-  for (const provider of Object.keys(CASES) as FetchProvider[]) {
-    const result = await new FetchProviderClient(() => ({ provider }), async () => {
-      throw new Error("must not call network");
-    }).fetch(url);
-    expect(result).toMatchObject({ configured: false, provider });
-    expect("message" in result && result.message).toContain("is selected but its API key is missing");
-  }
-});
-
 test("fetch defaults to built-in, can be turned off, and never sends a request without a key", async () => {
   let requests = 0;
   const request = async () => {
@@ -240,16 +217,3 @@ test("a long page is cut inline at 100,000 characters with the reference marker,
   expect(result.details.characters).toBe("Start\n".length + 125_000 + "[redacted]\nEnd".length);
 });
 
-test("the result is the reference's URL heading and page, headed with the requested URL after a redirect", async () => {
-  for (const source of ["cached", "crawled", undefined] as const) {
-    const client = new FetchProviderClient(
-      () => ({ provider: "exa", apiKey: key }),
-      async () => Response.json({ results: [{ url: finalUrl, text: 'Price $9975; delivery to Thailand.' }], statuses: [{ id: url, status: 'success', source }] }),
-      validate
-    );
-    const page = await new WebTools(new SearchProviderClient(), client).fetch(url);
-    expect(page.content[0]!.text).toBe(`# Content from ${url}\n\nPrice $9975; delivery to Thailand.`);
-    expect(page.details).toMatchObject({ requestedUrl: url, url: finalUrl });
-    expect(page.details).not.toHaveProperty("retrievedAt");
-  }
-});

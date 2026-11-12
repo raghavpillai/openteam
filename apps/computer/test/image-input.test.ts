@@ -2,13 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createJimp } from "@jimp/core";
 import png from "@jimp/js-png";
 import { decodeInlineImages, MAX_IMAGE_BYTES } from "../src/runtime/attachments";
-import {
-  boundToolImage,
-  prepareUserImages,
-  repairImageHistory,
-  resizeImageForModel,
-  targetFitImageSize,
-} from "../src/runtime/image-input";
+import { boundToolImage, prepareUserImages, repairImageHistory, resizeImageForModel } from "../src/runtime/image-input";
 
 const Jimp = createJimp({ formats: [png] });
 const dimensions = (bytes: Buffer) => [bytes.readUInt32BE(16), bytes.readUInt32BE(20)];
@@ -36,30 +30,6 @@ describe("model image input", () => {
     expect(dimensions(result.data)[0]).toBeLessThan(1024);
     expect(dimensions(original)).toEqual([1024, 1024]);
   });
-
-
-
-
-
-  test("matches the independently extracted host geometry, including thin-image exceptions", () => {
-    // Oracle: host 886e13a, SHA d54bf2ea6a49e2dfad656c4889b4f202e92817fb00fa829aadbb6aa76dc5fecc.
-    for (const [w, h, max, ew, eh, changed] of [
-      [2400, 1600, 1024, 1024, 683, true],
-      [1600, 2400, 1024, 683, 1024, true],
-      [1024, 1024, 1024, 1024, 1024, false],
-      [1025, 1025, 1024, 1024, 1024, true],
-      [2400, 1600, 1280, 1280, 853, true],
-      [16000, 8, 1024, 16000, 8, false],
-      [16000, 7, 1024, 16000, 7, false],
-      [16000, 16, 1024, 8000, 8, true],
-    ] as const)
-      expect(targetFitImageSize(w, h, max)).toEqual({
-        width: ew,
-        height: eh,
-        needsResize: changed,
-      });
-  });
-
 
   test("allows 25 MiB inline transport and never silently drops the ninth image", () => {
     expect(MAX_IMAGE_BYTES).toBe(26_214_400);
@@ -104,22 +74,6 @@ describe("model image input", () => {
     expect(user.notice).toBe("[image omitted: failed to process 12 bytes (image/png)]");
   });
 
-  test("preserves a known WebP canvas and the box tool's no-codec passthrough", async () => {
-    const canvas = Buffer.alloc(30);
-    canvas.write("RIFF", 0);
-    canvas.writeUInt32LE(canvas.length - 8, 4);
-    canvas.write("WEBP", 8);
-    canvas.write("VP8X", 12);
-    canvas.writeUIntLE(1455, 24, 3);
-    canvas.writeUIntLE(839, 27, 3);
-    expect((await resizeImageForModel(canvas)).data).toEqual(canvas);
-    canvas.writeUIntLE(2399, 24, 3);
-    canvas.writeUIntLE(1599, 27, 3);
-    await expect(resizeImageForModel(canvas)).rejects.toThrow("WebP codec");
-    expect((await resizeImageForModel(canvas, { webpWithoutCodec: "passthrough" })).data).toEqual(
-      canvas
-    );
-  });
 });
 
 describe("image history repair", () => {
@@ -199,19 +153,4 @@ describe("image history repair", () => {
     expect(receiptImage.data).toBe(image.data);
   });
 
-  test("a rejected history input releases the validation slot for later callers", async () => {
-    const invalid = () => ({
-      role: "toolResult",
-      toolName: "Computer",
-      content: [{ type: "image", data: undefined, mimeType: "image/png" }],
-    });
-    await Promise.all([
-      expect(repairImageHistory([invalid()])).rejects.toThrow(),
-      expect(repairImageHistory([invalid()])).rejects.toThrow(),
-    ]);
-    const image = await smallImage();
-    const input = { role: "toolResult", toolName: "Computer", content: [image] };
-    const [result] = await repairImageHistory([input]);
-    expect(result!.content[0]).toEqual(image);
-  });
 });

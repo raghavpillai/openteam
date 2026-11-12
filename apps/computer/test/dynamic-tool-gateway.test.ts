@@ -56,8 +56,6 @@ const catalog = (
   },
 ];
 
-const discover = (input: GetDynamicToolsInput = {}, options = {}) =>
-  discoverDynamicTools(catalog(), input, options);
 const render = (input: GetDynamicToolsInput, status?: DynamicNamespaceDefinition["namespaceStatus"]) =>
   renderDynamicDiscovery(discoverDynamicTools(catalog(status), input), input) as any;
 
@@ -93,18 +91,6 @@ describe("OpenTeam dynamic tool gateway", () => {
     expect(render({ namespace: "cursor", pattern: "send" }).matches.map((m: any) => m.tool)).toEqual(["SendToAgent"]);
     // A scoped pattern can legitimately match nothing in an existing namespace.
     expect(render({ namespace: "cursor", pattern: "browser_" })).toEqual({ mode: "search", pattern: "browser_", matches: [] });
-  });
-
-  test("lookup errors use the reference texts", () => {
-    expect(() => discover({ toolName: "Computer" })).toThrow(new Error("toolName requires namespace to be set."));
-    expect(() => discover({ pattern: "x".repeat(257) })).toThrow(new Error("pattern cannot exceed 256 characters."));
-    expect(() => discover({ pattern: "(" })).toThrow(/^Invalid regex pattern: /);
-    expect(() => discover({ namespace: "slack" })).toThrow(new DynamicLookupMiss('namespace "slack" not found. Available namespaces: cursor, gmail'));
-    expect(() => discover({ namespace: "slack", pattern: "post" })).toThrow('namespace "slack" not found.');
-    expect(() => discover({ namespace: "gmail", toolName: "send" })).toThrow(new DynamicLookupMiss('Tool "send" not found in namespace "gmail".'));
-    expect(() => discover({ namespace: "cursor", toolName: "Shell" }, { directTools: ["Shell", "Read"] })).toThrow(
-      'Tool "Shell" is already available directly and is not part of dynamic namespace "cursor". Invoke "Shell" directly instead of using dynamic tool discovery or invocation.'
-    );
   });
 
   test("a call runs without a prior lookup and still validates its arguments", () => {

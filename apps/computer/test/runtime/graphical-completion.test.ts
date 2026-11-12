@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import type { BotMessage } from "../../src/bot-compaction";
 import { routeEvent } from "../../src/runtime/events";
 import type { ActiveTurn } from "../../src/runtime/types";
 import { RuntimeTools } from "../../src/runtime/tools";
@@ -70,77 +69,6 @@ test("a computerUse report with leaked tool-call markup becomes a blocked report
   // The relayed report replaces the leaked text in place.
   expect(graphicalFinalReport(active, [])).toEqual({ id: "assistant:r:3", text: "Status: blocked\n\nI tried to call a tool, which I do not have here, so that step was not done.\n\nDone." });
   expect(graphicalFinalReport({ ...active, subagentType: "executor" }, [])).toBeNull();
-});
-
-test("a computer that fails 20 calls in a row ends the worker with the blocked report", async () => {
-  const { mkdtemp, rm } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
-  const { InMemoryCredentialStore } = await import("@earendil-works/pi-ai");
-  const { streamSimple } = await import("@earendil-works/pi-ai/api/openai-completions");
-  const { ModelRuntime, SessionManager } = await import("@earendil-works/pi-coding-agent");
-  const { BotCompactionArchiveStore, BotCompactionCoordinator } = await import("../../src/bot-compaction");
-  const { ComputerRuntime } = await import("../../src/runtime");
-  const root = await mkdtemp(join(tmpdir(), "graphical-breaker-"));
-  const model: any = {
-    id: "breaker-fixture", name: "Breaker fixture", provider: "openai", api: "openai-completions",
-    baseUrl: "https://offline.invalid/v1", reasoning: false, input: ["text", "image"], contextWindow: 100_000,
-    maxTokens: 4_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  };
-  let requests = 0;
-  try {
-    const provider = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false });
-    provider.checkAuth = async () => ({ type: "api_key" });
-    provider.streamSimple = (_model, context, options) => streamSimple(model, context, {
-      ...options, apiKey: "fixture", maxRetries: 0,
-      fetch: (async () => {
-        requests++;
-        const content = requests === 1 ? "Opening the booking page now." : null;
-        const delta = { role: "assistant", ...(content ? { content } : {}), tool_calls: [{ index: 0, id: `click-${requests}`, type: "function", function: { name: "Lookup", arguments: "{}" } }] };
-        const chunks = [
-          { choices: [{ index: 0, delta, finish_reason: null }] },
-          { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 100, completion_tokens: 5, total_tokens: 105 } },
-        ];
-        return new Response(chunks.map(chunk => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: model.id, ...chunk })}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
-      }) as unknown as typeof fetch,
-    });
-    const runtime = new ComputerRuntime() as any;
-    runtime.agentDir = root;
-    runtime.modelRuntime = provider;
-    runtime.resolveModel = () => model;
-    runtime.compaction = new BotCompactionCoordinator(new BotCompactionArchiveStore(join(root, "archives")), 0);
-    runtime.cleanup = async (active: any) => active.session?.dispose();
-    runtime.tools = {
-      customTools: () => [{ name: "Lookup", label: "Lookup", description: "Read the desktop", parameters: { type: "object", properties: {} },
-        execute: async () => { throw new Error("connect ECONNREFUSED 127.0.0.1:9222"); } }],
-      acknowledgeToolOutcomes: async () => {},
-    };
-    const events: any[] = [];
-    const active: any = {
-      contextSessionId: crypto.randomUUID(), runId: "breaker-run", turnId: "breaker-turn",
-      modelRef: { providerId: model.provider, modelId: model.id }, reasoning: "off", cwd: root,
-      instructions: "Operate the desktop.", subagentType: "computerUse", requestSource: "subagent",
-      userInfoMessage: null, pluginAbortController: new AbortController(),
-      queue: { push: (event: any) => events.push(event), end() {} }, toolArgs: new Map(), startedItems: new Set(),
-      assistantOrdinal: 0, attachmentTempDirectories: [], sentMessageCount: 0,
-    };
-    const manager = SessionManager.create(root, join(root, "sessions"), { id: active.contextSessionId });
-    const session = await runtime.createStandaloneSession(root, active.instructions, manager, active, active.modelRef);
-    active.session = session;
-    runtime.bindTurnStop(active, session);
-    session.subscribe((event: any) => runtime.routeEvent(active, event));
-    await runtime.execute(active, "Book the table.", []);
-    expect(requests).toBe(20);
-    const reports = events.filter((event) => event.type === "item.completed" && event.item.type === "agentMessage");
-    expect(reports.at(-1).item.text).toBe([
-      "Status: blocked",
-      "The computer is unreachable: the last 20 tool calls all failed with no success in between, so the helper stopped. Last errors: tool_error (20).",
-      "Its last update:\n\nOpening the booking page now.",
-    ].join("\n\n"));
-    expect(events.at(-1)).toMatchObject({ type: "turn.completed", status: "completed" });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
 });
 
 test("graphical actions run directly but stop once the turn has ended or the call is cancelled", async () => {

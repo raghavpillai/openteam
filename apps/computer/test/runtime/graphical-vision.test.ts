@@ -4,19 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJimp } from "@jimp/core";
 import png from "@jimp/js-png";
-import { InMemoryCredentialStore, type Model } from "@earendil-works/pi-ai";
-import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
-import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { ComputerRuntime } from "../../src/runtime";
 import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../../src/bot-compaction";
 import { assertGraphicalModel } from "../../src/inference-models";
+import { offlineModel, offlineModelRuntime, sseResponse } from "./pi-fixtures";
 
-const model: Model<"openai-completions"> = {
-  id: "vision-fixture", name: "Vision fixture", provider: "openai", api: "openai-completions",
-  baseUrl: "https://offline.invalid/v1", reasoning: false, input: ["text", "image"],
-  contextWindow: 100_000, maxTokens: 4_000,
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-};
+const model = offlineModel("vision-fixture", { input: ["text", "image"] });
 
 test("computerUse rejects a text-only model before starting a session", async () => {
   const runtime = new ComputerRuntime() as any;
@@ -44,22 +38,17 @@ test("a Computer screenshot reaches the model request through the real Pi tool l
   const screenshot = await new (createJimp({ formats: [png] }))({ width: 1280, height: 800, color: 0xffffffff }).getBuffer("image/png");
   let session: any;
   try {
-    const provider = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false });
-    provider.checkAuth = async () => ({ type: "api_key" });
-    provider.streamSimple = (_model, context, options) => streamSimple(model, context, {
-      ...options, apiKey: "fixture", maxRetries: 0,
-      fetch: (async (_url: unknown, init: any) => {
-        requests.push(JSON.parse(await new Response(init.body).text()));
-        const takeScreenshot = requests.length === 1;
-        const delta = takeScreenshot
-          ? { role: "assistant", tool_calls: [{ index: 0, id: "capture", type: "function", function: { name: "Computer", arguments: '{"action":"screenshot"}' } }] }
-          : { role: "assistant", content: "The desktop screenshot was received." };
-        const chunks = [
-          { choices: [{ index: 0, delta, finish_reason: null }] },
-          { choices: [{ index: 0, delta: {}, finish_reason: takeScreenshot ? "tool_calls" : "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } },
-        ];
-        return new Response(chunks.map(chunk => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: model.id, ...chunk })}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
-      }) as typeof fetch,
+    const provider = await offlineModelRuntime(model, async (_url: unknown, init: any) => {
+      requests.push(JSON.parse(await new Response(init.body).text()));
+      const takeScreenshot = requests.length === 1;
+      const delta = takeScreenshot
+        ? { role: "assistant", tool_calls: [{ index: 0, id: "capture", type: "function", function: { name: "Computer", arguments: '{"action":"screenshot"}' } }] }
+        : { role: "assistant", content: "The desktop screenshot was received." };
+      const chunks = [
+        { choices: [{ index: 0, delta, finish_reason: null }] },
+        { choices: [{ index: 0, delta: {}, finish_reason: takeScreenshot ? "tool_calls" : "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } },
+      ];
+      return sseResponse(model, chunks);
     });
     const screens = { actComputerUse: async () => screenshot };
     const runtime = new ComputerRuntime(screens as never) as any;

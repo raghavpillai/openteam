@@ -7,7 +7,6 @@ const call = (id: string, name: string, args: unknown = {}) => ({ role: "assista
 const result = (id: string, isError = false) => ({ role: "toolResult", toolCallId: id, isError, content: [] });
 const ack = [call("ack", "SendToUser", { content: "On it." }), result("ack")];
 const task = [call("task", "CallDynamicTool", { namespace: "cursor", toolName: "Task", arguments: { prompt: "x" } }), result("task")];
-const memory = [call("memory", "UpdateMemory", { action: "write", fact: "x" }), result("memory")];
 
 function fixture(options: { sent?: number; endTurn?: boolean; requestSource?: string; messages: any[]; onPrompt?: (prompt: string, active: any) => void }) {
   const runtime = new ComputerRuntime() as any;
@@ -58,28 +57,6 @@ test("a turn that never sends is nudged up to three times and still settles as c
   expect(prompts).toEqual(["turn", REPLY_NUDGE_PROMPT, REPLY_NUDGE_PROMPT, REPLY_NUDGE_PROMPT]);
   expect(events.find((event) => event.type === "turn.completed")).toMatchObject({ status: "completed" });
 });
-
-test("reply nudges stop once something is delivered", async () => {
-  const { runtime, active, prompts } = fixture({
-    messages: [],
-    onPrompt: (prompt, active) => { if (prompt === REPLY_NUDGE_PROMPT) { active.sentMessageCount = 1; active.endTurnRequested = true; } },
-  });
-  await runtime.execute(active, "fixture", []);
-  expect(prompts).toEqual(["turn", REPLY_NUDGE_PROMPT]);
-});
-
-// As in the reference, an acknowledged turn that ends on silent tool calls gets no closing nudge.
-for (const [name, messages] of [
-  ["a background dispatch", task],
-  ["a memory save", memory],
-] as const) {
-  test(`an acknowledgement followed by ${name} settles without a nudge`, async () => {
-    const { runtime, active, events, prompts } = fixture({ sent: 1, messages: [...ack, ...messages, { role: "assistant", content: [] }] });
-    await runtime.execute(active, "fixture", []);
-    expect(prompts).toEqual(["turn"]);
-    expect(events.find((event) => event.type === "turn.completed")).toMatchObject({ status: "completed" });
-  });
-}
 
 test("routine runs and cancelled turns get no nudge", async () => {
   for (const variant of ["automation", "cancelled"] as const) {

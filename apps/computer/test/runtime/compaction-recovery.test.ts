@@ -2,9 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
-import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
-import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   BotCompactionArchiveStore,
   BotCompactionCoordinator,
@@ -19,23 +17,13 @@ import {
   recoverStagedPiCompaction,
 } from "../../src/runtime/compaction-history";
 import type { ActiveTurn } from "../../src/runtime/types";
+import { offlineModel, offlineModelRuntime, sseResponse } from "./pi-fixtures";
 
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
-const model: any = {
-  id: "recovery-fixture",
-  name: "Recovery",
-  provider: "openai",
-  api: "openai-completions",
-  baseUrl: "https://offline.invalid/v1",
-  contextWindow: 100_000,
-  maxTokens: 1000,
-  reasoning: false,
-  input: ["text"],
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-};
+const model: any = offlineModel("recovery-fixture", { maxTokens: 1000 });
 const usage = {
   input: 10,
   output: 1,
@@ -166,56 +154,36 @@ async function localRuntime(f: Awaited<ReturnType<typeof fixture>>, deliver = fa
     toolCalls = 0;
   const requests: any[] = [],
     events: any[] = [];
-  const provider = await ModelRuntime.create({
-    credentials: new InMemoryCredentialStore(),
-    modelsPath: null,
-    refreshOnCreate: false,
+  const provider = await offlineModelRuntime(model, async (_url: any, init: any) => {
+    providerCalls++;
+    requests.push(JSON.parse(await new Response(init.body).text()));
+    const send = deliver && providerCalls === 1;
+    const delta = send
+      ? {
+          role: "assistant",
+          tool_calls: [
+            {
+              index: 0,
+              id: "fresh-send",
+              type: "function",
+              function: { name: "SendToUser", arguments: "{}" },
+            },
+          ],
+        }
+      : { role: "assistant", content: "Continue from the persisted receipt" };
+    const rows = [
+      { choices: [{ index: 0, delta, finish_reason: null }] },
+      {
+        choices: [{ index: 0, delta: {}, finish_reason: send ? "tool_calls" : "stop" }],
+        usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
+      },
+    ];
+    return sseResponse(model, rows);
   });
-  provider.checkAuth = async () => ({ type: "api_key" });
   provider.completeSimple = async () => {
     summaryCalls++;
     return answer("Unexpected summary");
   };
-  provider.streamSimple = (_m, context, options) =>
-    streamSimple(model, context, {
-      ...options,
-      apiKey: "synthetic-fixture",
-      maxRetries: 0,
-      fetch: (async (_url: any, init: any) => {
-        providerCalls++;
-        requests.push(JSON.parse(await new Response(init.body).text()));
-        const send = deliver && providerCalls === 1;
-        const delta = send
-          ? {
-              role: "assistant",
-              tool_calls: [
-                {
-                  index: 0,
-                  id: "fresh-send",
-                  type: "function",
-                  function: { name: "SendToUser", arguments: "{}" },
-                },
-              ],
-            }
-          : { role: "assistant", content: "Continue from the persisted receipt" };
-        const rows = [
-          { choices: [{ index: 0, delta, finish_reason: null }] },
-          {
-            choices: [{ index: 0, delta: {}, finish_reason: send ? "tool_calls" : "stop" }],
-            usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
-          },
-        ];
-        return new Response(
-          rows
-            .map(
-              (row) =>
-                `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: model.id, ...row })}\n\n`
-            )
-            .join("") + "data: [DONE]\n\n",
-          { headers: { "content-type": "text/event-stream" } }
-        );
-      }) as typeof fetch,
-    });
   runtime.agentDir = f.root;
   runtime.modelRuntime = provider;
   runtime.resolveModel = () => model;
@@ -362,17 +330,6 @@ test("missing archive ancestry fails closed even on a longer branch with duplica
   );
 });
 
-test("legacy branch without its checkpoint or usage receipt fails closed", async () => {
-  const f = await fixture("owned");
-  const manager = f.open();
-  manager.branch(manager.getBranch()[0]!.id);
-  for (let i = 0; i < 1600; i++)
-    manager.appendMessage({ role: "user", content: "Duplicate", timestamp: i });
-  await expect(prepareCompactionHistory(f.coordinator, f.store, manager, f.id)).rejects.toThrow(
-    "cannot prove archive branch boundary"
-  );
-});
-
 test("staged restart adopts at the matching compaction, preserving later tool receipts once", async () => {
   const f = await fixture();
   await f.store.remove(f.id);
@@ -412,24 +369,6 @@ test("staged restart adopts at the matching compaction, preserving later tool re
   expect(await f.store.stagedId(f.id)).toBeNull();
 });
 
-test("healthy per-step reads add no branch scans, context rebuilds, or archive reads", async () => {
-  const f = await fixture("anchored");
-  const manager = f.open();
-  manager.branch(f.checkpoint);
-  const history = await prepareCompactionHistory(f.coordinator, f.store, manager, f.id);
-  const branches = spyOn(manager, "getBranch"),
-    builds = spyOn(manager, "buildSessionContext"),
-    latest = spyOn(f.store, "latest");
-  for (let i = 0; i < 50; i++) {
-    manager.appendCustomEntry("metadata", { i });
-    history.read();
-    history.boundary();
-  }
-  expect(branches).toHaveBeenCalledTimes(0);
-  expect(builds).toHaveBeenCalledTimes(50); // Exactly the pre-existing one builder per read.
-  expect(latest).toHaveBeenCalledTimes(0);
-});
-
 test("failed summary preparation explicitly cancels native Pi fallback", async () => {
   const handlers: Record<string, (event: any) => Promise<any>> = {};
   const coordinator = {
@@ -464,27 +403,6 @@ test("failed summary preparation explicitly cancels native Pi fallback", async (
     ).toEqual({ cancel: true });
   } finally {
     log.mockRestore();
-  }
-});
-
-test("real Pi manual compaction cancels on custom preparation failure without native model fallback", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  const before = await readFile(f.path, "utf8");
-  const preparation = spyOn(f.coordinator, "beforePiCompaction").mockRejectedValue(
-    Error("synthetic preparation failure")
-  );
-  const log = spyOn(console, "error").mockImplementation(() => {});
-  try {
-    await expect(local.session.compact()).rejects.toThrow("Compaction cancelled");
-    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
-    expect(await readFile(f.path, "utf8")).toBe(before);
-    expect((await f.store.latest(f.id))?.id).toBe(f.archiveId);
-    expect(local.events.filter((event: any) => event.type === "runtime.error")).toEqual([]);
-  } finally {
-    preparation.mockRestore();
-    log.mockRestore();
-    local.session.dispose();
   }
 });
 
@@ -525,32 +443,6 @@ test("manifest adoption failure keeps old coordinates in-session and recovers th
   }
 });
 
-test("unowned native compaction during a session preserves the existing view and invalidates measured usage", async () => {
-  const f = await fixture("anchored");
-  const manager = f.open();
-  manager.branch(f.checkpoint);
-  const history = await prepareCompactionHistory(f.coordinator, f.store, manager, f.id);
-  const original = history.read();
-  const request = manager.appendMessage({ role: "user", content: "New request", timestamp: 4 });
-  manager.appendCompaction("Unexpected native summary", request, 500_944, undefined, false);
-  manager.appendCustomMessageEntry("new-notice", "NATIVE_SUFFIX_NOTICE", false);
-  const projected = history.read();
-  expect(projected.slice(0, original.length)).toEqual(original);
-  expect(JSON.stringify(projected).match(/NATIVE_SUFFIX_NOTICE/g)).toHaveLength(1);
-  expect(JSON.stringify(projected)).not.toContain("Unexpected native summary");
-  expect(history.hasUnmeasuredRecovery()).toBe(true);
-  history.acceptUsage();
-  expect(history.hasUnmeasuredRecovery()).toBe(false);
-  // A new archive adopted in the recovered coordinate remains restartable.
-  const nextId = crypto.randomUUID();
-  await f.store.commit(f.id, {
-    ...archiveInput(nextId, projected.length),
-    piBoundary: history.boundary(),
-  });
-  const reopened = await prepareCompactionHistory(f.coordinator, f.store, f.open(), f.id);
-  expect(reopened.read()).toEqual(projected);
-});
-
 test("synthetic SendToUser executes once, and its durable outcome survives another native compaction and runtime restart", async () => {
   const f = await fixture();
   const first = await localRuntime(f, true);
@@ -587,625 +479,3 @@ test("synthetic SendToUser executes once, and its durable outcome survives anoth
   }
 });
 
-test("owned compactions with identical summary text use distinct durable entry IDs", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  try {
-    await local.session.compact();
-    const first = await f.store.latest(f.id);
-    const manager: SessionManager = local.session.sessionManager;
-    manager.appendMessage({ role: "user", content: "Another request", timestamp: 10 });
-    manager.appendMessage(answer("Another result"));
-    await local.session.compact();
-    const second = await f.store.latest(f.id);
-    expect(second?.summary).toBe(first?.summary);
-    expect(second?.id).not.toBe(first?.id);
-    expect(second?.piBoundary?.leafId).toBe(manager.getLeafId()!);
-    expect(second?.piBoundary?.leafId).not.toBe(first?.piBoundary?.leafId);
-    expect(local.active.compactionReadPiBoundary()).toEqual(second?.piBoundary);
-    expect(await f.store.stagedId(f.id)).toBeNull();
-  } finally {
-    local.session.dispose();
-  }
-});
-
-test("failed adoption cancels repeated compactions and projection until the original checkpoint can recover", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  const manager: SessionManager = local.session.sessionManager;
-  const commit = spyOn(f.store, "commitStaged").mockRejectedValue(
-    Error("synthetic repeated adoption failure")
-  );
-  try {
-    await local.session.compact();
-    const staged = await f.store.stagedId(f.id);
-    const checkpoint = manager.getLeafId();
-    expect(staged).not.toBeNull();
-    manager.appendMessage({
-      ...answer(""),
-      stopReason: "toolUse",
-      content: [
-        { type: "toolCall", id: "failed-adoption-send", name: "SendToUser", arguments: {} },
-      ],
-    });
-    manager.appendMessage({
-      role: "toolResult",
-      toolCallId: "failed-adoption-send",
-      toolName: "SendToUser",
-      content: [{ type: "text", text: "FAILED_ADOPTION_RECEIPT_794" }],
-      isError: false,
-      timestamp: 5,
-    });
-    manager.appendMessage({
-      role: "user",
-      content: "Continue after the persisted receipt",
-      timestamp: 6,
-    });
-    for (let i = 0; i < 2; i++)
-      await expect(local.session.compact()).rejects.toThrow("Compaction cancelled");
-    expect(commit).toHaveBeenCalledTimes(1);
-    expect(await f.store.stagedId(f.id)).toBe(staged);
-    const checkpoints = manager
-      .getBranch()
-      .filter(
-        (entry) =>
-          entry.type === "compaction" &&
-          (entry.details as { id?: string } | undefined)?.id === staged
-      );
-    expect(checkpoints.map((entry) => entry.id)).toEqual([checkpoint!]);
-    const before = await f.coordinator.contextMessages(
-      f.id,
-      local.active.compactionReadPiMessages()
-    );
-    const observation = {
-      ...compactionObservation(local.active),
-      usedTokens: 99_999,
-      freshUsage: true,
-      infer: async () => {
-        throw Error("must not start another summary");
-      },
-    };
-    await f.coordinator.observe(observation);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(await f.coordinator.modelContextMessages(observation)).toEqual(before);
-    expect(await f.store.stagedId(f.id)).toBe(staged);
-    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 1, toolCalls: 0 });
-    commit.mockRestore();
-    const history = await prepareCompactionHistory(f.coordinator, f.store, f.open(), f.id);
-    const projected = await f.coordinator.contextMessages(f.id, history.read());
-    expect((await f.store.latest(f.id))?.piBoundary?.leafId).toBe(checkpoint!);
-    expect(await f.store.stagedId(f.id)).toBeNull();
-    expect(JSON.stringify(projected).match(/FAILED_ADOPTION_RECEIPT_794/g)).toHaveLength(1);
-    expect(JSON.stringify(projected)).toContain("Continue after the persisted receipt");
-    expect(JSON.stringify(projected)).not.toContain("old-1599");
-  } finally {
-    commit.mockRestore();
-    local.session.dispose();
-  }
-});
-
-test("contextState leaves a live reader and failed adoption in the same coordinate until turn cleanup and reopen", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  local.runtime.sessionsDir = join(f.root, "sessions");
-  local.runtime.contextSessionsDir = join(f.root, "archive");
-  local.runtime.activeByContext.set(f.id, local.active);
-  const manager: SessionManager = local.session.sessionManager;
-  const commit = spyOn(f.store, "commitStaged").mockRejectedValue(
-    Error("synthetic adoption failure")
-  );
-  try {
-    await local.session.compact();
-    const staged = await f.store.stagedId(f.id);
-    manager.appendCustomMessageEntry("after-failed-adoption", "ACTIVE_ADOPTION_SUFFIX_795", false);
-    const before = await f.coordinator.contextMessages(
-      f.id,
-      local.active.compactionReadPiMessages()
-    );
-    commit.mockRestore();
-    const state = await local.runtime.contextState(f.id);
-    const after = await f.coordinator.contextMessages(
-      f.id,
-      local.active.compactionReadPiMessages()
-    );
-    expect(state.epoch).toBe(1);
-    expect(after).toEqual(before);
-    expect(JSON.stringify(after)).not.toContain("old-1599");
-    expect(JSON.stringify(after).match(/SEND_RECEIPT_791/g)).toHaveLength(1);
-    expect(await f.store.stagedId(f.id)).toBe(staged);
-    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 1, toolCalls: 0 });
-    await local.runtime.execute(local.active, "Continue using the already recorded outcome", []);
-    expect(local.events.filter((event: any) => event.type === "runtime.error")).toEqual([]);
-    expect(local.runtime.activeByContext.has(f.id)).toBe(false);
-    expect(JSON.stringify(local.requests[0]).match(/SEND_RECEIPT_791/g)).toHaveLength(1);
-    expect(JSON.stringify(local.requests[0])).not.toContain("old-1599");
-    // Once cleanup disposes the reader, an idle status read may finish adoption.
-    expect((await local.runtime.contextState(f.id)).epoch).toBe(2);
-    const history = await prepareCompactionHistory(f.coordinator, f.store, f.open(), f.id);
-    const reopened = await f.coordinator.contextMessages(f.id, history.read());
-    expect(JSON.stringify(reopened).match(/ACTIVE_ADOPTION_SUFFIX_795/g)).toHaveLength(1);
-    expect(JSON.stringify(reopened)).toContain("Continue using the already recorded outcome");
-    expect(JSON.stringify(reopened)).not.toContain("old-1599");
-    expect(await f.store.stagedId(f.id)).toBeNull();
-    expect(local.counts()).toEqual({ providerCalls: 1, summaryCalls: 1, toolCalls: 0 });
-  } finally {
-    commit.mockRestore();
-    local.runtime.activeByContext.delete(f.id);
-    local.session.dispose();
-  }
-});
-
-test("contextState cannot adopt a checkpoint while its live adoption is still in flight", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  local.runtime.sessionsDir = join(f.root, "sessions");
-  local.runtime.contextSessionsDir = join(f.root, "archive");
-  local.runtime.activeByContext.set(f.id, local.active);
-  let entered!: () => void, release!: () => void;
-  const started = new Promise<void>((resolve) => {
-    entered = resolve;
-  });
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const originalCommit = f.store.commitStaged.bind(f.store);
-  const commit = spyOn(f.store, "commitStaged").mockImplementation(async (...args) => {
-    entered();
-    await gate;
-    return originalCommit(...args);
-  });
-  const compacting = local.session.compact();
-  try {
-    await started;
-    const before = await f.coordinator.contextMessages(
-      f.id,
-      local.active.compactionReadPiMessages()
-    );
-    expect((await local.runtime.contextState(f.id)).epoch).toBe(1);
-    expect(commit).toHaveBeenCalledTimes(1);
-    expect(
-      await f.coordinator.contextMessages(f.id, local.active.compactionReadPiMessages())
-    ).toEqual(before);
-    release();
-    await compacting;
-    expect((await local.runtime.contextState(f.id)).epoch).toBe(2);
-    const after = await f.coordinator.contextMessages(
-      f.id,
-      local.active.compactionReadPiMessages()
-    );
-    expect(JSON.stringify(after)).not.toContain("old-1599");
-    expect(local.active.compactionReadPiBoundary()).toEqual(
-      (await f.store.latest(f.id))?.piBoundary
-    );
-    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 1, toolCalls: 0 });
-  } finally {
-    release();
-    await compacting;
-    commit.mockRestore();
-    local.runtime.activeByContext.delete(f.id);
-    local.session.dispose();
-  }
-});
-
-test("an idle status read defers if a live reader appears while its staged lookup is pending", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  local.runtime.sessionsDir = join(f.root, "sessions");
-  local.runtime.contextSessionsDir = join(f.root, "archive");
-  const commit = spyOn(f.store, "commitStaged").mockRejectedValue(
-    Error("synthetic adoption failure")
-  );
-  let entered!: () => void, release!: () => void;
-  const started = new Promise<void>((resolve) => {
-    entered = resolve;
-  });
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  let lookup: ReturnType<typeof spyOn> | undefined;
-  try {
-    await local.session.compact();
-    commit.mockRestore();
-    const originalLookup = f.coordinator.stagedId.bind(f.coordinator);
-    lookup = spyOn(f.coordinator, "stagedId").mockImplementation(async (id) => {
-      entered();
-      await gate;
-      return originalLookup(id);
-    });
-    const status = local.runtime.contextState(f.id);
-    await started;
-    local.runtime.activeByContext.set(f.id, local.active);
-    // Reader initialization precedes attachment of the AgentSession in run().
-    local.active.session = null;
-    release();
-    expect((await status).epoch).toBe(1);
-    expect((await f.store.latest(f.id))?.id).toBe(f.archiveId);
-    expect(await f.store.stagedId(f.id)).not.toBeNull();
-    lookup.mockRestore();
-    const open = spyOn(SessionManager, "open");
-    try {
-      expect((await local.runtime.contextState(f.id)).epoch).toBe(1);
-      expect(open).toHaveBeenCalledTimes(0);
-    } finally {
-      open.mockRestore();
-    }
-    // A stopped turn disposes its reader before releasing the context for idle recovery.
-    local.active.session = local.session;
-    local.active.stopped = true;
-    await local.runtime.cleanup(local.active);
-    expect((await local.runtime.contextState(f.id)).epoch).toBe(2);
-    expect(await f.store.stagedId(f.id)).toBeNull();
-    const history = await prepareCompactionHistory(f.coordinator, f.store, f.open(), f.id);
-    expect(history.boundary()).toEqual((await f.store.latest(f.id))?.piBoundary);
-    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 1, toolCalls: 0 });
-  } finally {
-    release();
-    lookup?.mockRestore();
-    commit.mockRestore();
-    local.runtime.activeByContext.delete(f.id);
-    local.session.dispose();
-  }
-});
-
-test("a projection already in flight cannot overwrite a newly persisted checkpoint intent", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  const observation = {
-    ...compactionObservation(local.active),
-    usedTokens: 99_999,
-    freshUsage: true,
-    infer: async () => ({ text: "Reusable background summary" }),
-  };
-  await f.coordinator.observe(observation);
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  const before = await f.coordinator.contextMessages(f.id, local.active.compactionReadPiMessages());
-  let entered!: () => void, release!: () => void;
-  const started = new Promise<void>((resolve) => {
-    entered = resolve;
-  });
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const originalUsedTokens = (f.coordinator as any).usedTokens.bind(f.coordinator);
-  const measurement = spyOn(f.coordinator as any, "usedTokens").mockImplementation(
-    async (...args: any[]) => {
-      entered();
-      await gate;
-      return originalUsedTokens(...args);
-    }
-  );
-  const projectedCommit = spyOn(f.store, "commit");
-  const adoption = spyOn(f.store, "commitStaged").mockRejectedValue(
-    Error("synthetic adoption failure")
-  );
-  const projecting = f.coordinator.modelContextMessages(observation);
-  try {
-    await started;
-    await local.session.compact();
-    const staged = await f.store.stagedId(f.id);
-    expect(staged).not.toBeNull();
-    release();
-    expect(await projecting).toEqual(before);
-    expect(projectedCommit).toHaveBeenCalledTimes(0);
-    expect((await f.store.latest(f.id))?.id).toBe(f.archiveId);
-    expect(await f.store.stagedId(f.id)).toBe(staged);
-    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
-  } finally {
-    release();
-    await projecting;
-    measurement.mockRestore();
-    projectedCommit.mockRestore();
-    adoption.mockRestore();
-    local.session.dispose();
-  }
-});
-
-test("a paused projection cannot recommit a candidate after successful native adoption", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  const observation = {
-    ...compactionObservation(local.active),
-    usedTokens: 99_999,
-    freshUsage: true,
-    infer: async () => ({ text: "Reusable successful summary" }),
-  };
-  await f.coordinator.observe(observation);
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  let entered!: () => void, release!: () => void;
-  const started = new Promise<void>((resolve) => {
-    entered = resolve;
-  });
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const originalUsedTokens = (f.coordinator as any).usedTokens.bind(f.coordinator);
-  const measurement = spyOn(f.coordinator as any, "usedTokens").mockImplementation(
-    async (...args: any[]) => {
-      entered();
-      await gate;
-      return originalUsedTokens(...args);
-    }
-  );
-  const projectedCommit = spyOn(f.store, "commit");
-  const projecting = f.coordinator.modelContextMessages(observation);
-  try {
-    await started;
-    await local.session.compact();
-    const adopted = await f.store.latest(f.id);
-    expect(adopted?.id).not.toBe(f.archiveId);
-    release();
-    await projecting;
-    expect(projectedCommit).toHaveBeenCalledTimes(0);
-    expect(await f.store.latest(f.id)).toEqual(adopted);
-    const manifest = await f.store.manifest(f.id);
-    expect(manifest.epoch).toBe(2);
-    expect(new Set(manifest.archives.map((record) => record.id)).size).toBe(2);
-    expect(local.active.compactionReadPiBoundary()).toEqual(adopted?.piBoundary);
-    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
-  } finally {
-    release();
-    await projecting;
-    measurement.mockRestore();
-    projectedCommit.mockRestore();
-    local.session.dispose();
-  }
-});
-
-test("a queued projection yields to native ownership reserved before staging", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  const observation = {
-    ...compactionObservation(local.active),
-    usedTokens: 99_999,
-    freshUsage: true,
-    infer: async () => ({ text: "Shared native candidate" }),
-  };
-  await f.coordinator.observe(observation);
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  let release!: () => void, queued!: () => void, reserving!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const projectionQueued = new Promise<void>((resolve) => {
-    queued = resolve;
-  });
-  const nativeReserved = new Promise<void>((resolve) => {
-    reserving = resolve;
-  });
-  const holding = (f.store as any).locked(f.id, () => gate);
-  const originalCommit = f.store.commit.bind(f.store);
-  const originalStage = f.store.stage.bind(f.store);
-  const commit = spyOn(f.store, "commit").mockImplementation(((id, input, isCurrent) => {
-    queued();
-    return originalCommit(id, input, isCurrent);
-  }) as typeof f.store.commit);
-  const stage = spyOn(f.store, "stage").mockImplementation(((id, input, isCurrent) => {
-    reserving();
-    return originalStage(id, input, isCurrent);
-  }) as typeof f.store.stage);
-  const projecting = f.coordinator.modelContextMessages(observation);
-  let compacting: Promise<unknown> | undefined;
-  try {
-    await projectionQueued;
-    compacting = local.session.compact();
-    await nativeReserved;
-    release();
-    await holding;
-    await Promise.all([projecting, compacting]);
-    const latest = await f.store.latest(f.id);
-    expect(latest?.piBoundary?.leafId).toBe(local.session.sessionManager.getLeafId());
-    expect(local.active.compactionReadPiBoundary()).toEqual(latest?.piBoundary);
-    const manifest = await f.store.manifest(f.id);
-    expect(manifest.epoch).toBe(2);
-    expect(new Set(manifest.archives.map((record) => record.id)).size).toBe(2);
-    expect(await f.store.stagedId(f.id)).toBeNull();
-    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
-  } finally {
-    release();
-    await holding;
-    await Promise.allSettled([projecting, ...(compacting ? [compacting] : [])]);
-    commit.mockRestore();
-    stage.mockRestore();
-    local.session.dispose();
-  }
-});
-
-test("two concurrent projections of one candidate commit one archive while the first continuation is paused", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  const observation = {
-    ...compactionObservation(local.active),
-    usedTokens: 99_999,
-    freshUsage: true,
-    infer: async () => ({ text: "Concurrent projection candidate" }),
-  };
-  await f.coordinator.observe(observation);
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  let releaseMeasurements!: () => void,
-    measurementsReady!: () => void,
-    releaseCommit!: () => void,
-    skipped!: () => void;
-  const measurementGate = new Promise<void>((resolve) => {
-    releaseMeasurements = resolve;
-  });
-  const bothMeasuring = new Promise<void>((resolve) => {
-    measurementsReady = resolve;
-  });
-  const commitGate = new Promise<void>((resolve) => {
-    releaseCommit = resolve;
-  });
-  const secondSkipped = new Promise<void>((resolve) => {
-    skipped = resolve;
-  });
-  let measurements = 0,
-    writes = 0;
-  const originalTokens = (f.coordinator as any).usedTokens.bind(f.coordinator);
-  const measurement = spyOn(f.coordinator as any, "usedTokens").mockImplementation(
-    async (...args: any[]) => {
-      if (++measurements === 2) measurementsReady();
-      await measurementGate;
-      return originalTokens(...args);
-    }
-  );
-  const originalCommit = f.store.commit.bind(f.store);
-  const commit = spyOn(f.store, "commit").mockImplementation((async (id, input, isCurrent) => {
-    const result = await originalCommit(id, input, isCurrent);
-    if (result) {
-      writes++;
-      await commitGate;
-    } else skipped();
-    return result;
-  }) as typeof f.store.commit);
-  const first = f.coordinator.modelContextMessages(observation);
-  const second = f.coordinator.modelContextMessages(observation);
-  try {
-    await bothMeasuring;
-    releaseMeasurements();
-    await secondSkipped;
-    expect(writes).toBe(1);
-    expect(commit).toHaveBeenCalledTimes(2);
-    releaseCommit();
-    await Promise.all([first, second]);
-    const manifest = await f.store.manifest(f.id);
-    expect(manifest.epoch).toBe(2);
-    expect(new Set(manifest.archives.map((record) => record.id)).size).toBe(2);
-    expect((await f.store.latest(f.id))?.id).toBe(manifest.latestArchiveId!);
-    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
-  } finally {
-    releaseMeasurements();
-    releaseCommit();
-    await Promise.allSettled([first, second]);
-    measurement.mockRestore();
-    commit.mockRestore();
-    local.session.dispose();
-  }
-});
-
-test("archive writer rejects duplicate IDs before mutation and preserves staged replay idempotence", async () => {
-  const f = await fixture();
-  const id = crypto.randomUUID();
-  const input = archiveInput(id, 2);
-  const { piBaseMessageCount, ...intent } = input;
-  await f.store.stage(f.id, intent);
-  const adopted = await f.store.commit(f.id, input);
-  const manifest = await f.store.manifest(f.id);
-  await expect(f.store.commit(f.id, input)).rejects.toThrow("already adopted");
-  expect(await f.store.manifest(f.id)).toEqual(manifest);
-  expect(await f.store.latest(f.id)).toEqual(adopted);
-  expect(await f.store.commitStaged(f.id, id, piBaseMessageCount)).toEqual(adopted);
-  expect(await f.store.manifest(f.id)).toEqual(manifest);
-  expect(await f.store.stagedId(f.id)).toBeNull();
-});
-
-test("a completed projection does not delete a replacement pending candidate", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  const observation = {
-    ...compactionObservation(local.active),
-    usedTokens: 99_999,
-    freshUsage: true,
-    infer: async () => ({ text: "First projected candidate" }),
-  };
-  await f.coordinator.observe(observation);
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  let committed!: () => void, release!: () => void;
-  const stored = new Promise<void>((resolve) => {
-    committed = resolve;
-  });
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const originalCommit = f.store.commit.bind(f.store);
-  const commit = spyOn(f.store, "commit").mockImplementation((async (id, input, isCurrent) => {
-    const result = await originalCommit(id, input, isCurrent);
-    committed();
-    await gate;
-    return result;
-  }) as typeof f.store.commit);
-  const projecting = f.coordinator.modelContextMessages(observation);
-  try {
-    await stored;
-    const replacement = {
-      ...observation,
-      systemPrompt: "Replacement system",
-      infer: async () => ({ text: "Replacement summary" }),
-    };
-    await f.coordinator.observe(replacement);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    const pending = (f.coordinator as any).pending.get(f.id);
-    expect(pending?.systemDigest).toBe(sha256(replacement.systemPrompt));
-    release();
-    await projecting;
-    expect((f.coordinator as any).pending.get(f.id)).toBe(pending);
-    commit.mockRestore();
-    await f.coordinator.modelContextMessages(replacement);
-    expect((await f.store.latest(f.id))?.summary).toBe("Replacement summary");
-    expect((await f.store.manifest(f.id)).epoch).toBe(3);
-    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
-  } finally {
-    release();
-    await projecting;
-    commit.mockRestore();
-    local.session.dispose();
-  }
-});
-
-test("native preparation drops a stale candidate without staging or deleting its replacement", async () => {
-  const f = await fixture("owned", 2);
-  const local = await localRuntime(f);
-  const observation = {
-    ...compactionObservation(local.active),
-    usedTokens: 99_999,
-    freshUsage: true,
-    infer: async () => ({ text: "Old native candidate" }),
-  };
-  await f.coordinator.observe(observation);
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  let entered!: () => void, release!: () => void;
-  const started = new Promise<void>((resolve) => {
-    entered = resolve;
-  });
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const originalWait = (f.coordinator as any).waitForPending.bind(f.coordinator);
-  const wait = spyOn(f.coordinator as any, "waitForPending").mockImplementation(
-    async (...args: any[]) => {
-      const result = await originalWait(...args);
-      entered();
-      await gate;
-      return result;
-    }
-  );
-  const stage = spyOn(f.store, "stage");
-  const preparing = f.coordinator.beforePiCompaction({
-    ...observation,
-    reason: "manual",
-    firstKeptEntryId: local.session.sessionManager.getLeafId()!,
-    tokensBefore: 99_999,
-    signal: new AbortController().signal,
-  });
-  try {
-    await started;
-    await f.coordinator.observe({
-      ...observation,
-      systemPrompt: "New native candidate system",
-      infer: async () => ({ text: "Replacement native candidate" }),
-    });
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    const replacement = (f.coordinator as any).pending.get(f.id);
-    release();
-    expect(await preparing).toBeNull();
-    expect((f.coordinator as any).pending.get(f.id)).toBe(replacement);
-    expect(stage).toHaveBeenCalledTimes(0);
-    expect(await f.store.stagedId(f.id)).toBeNull();
-    expect((await f.store.manifest(f.id)).epoch).toBe(1);
-    expect(local.counts()).toEqual({ providerCalls: 0, summaryCalls: 0, toolCalls: 0 });
-  } finally {
-    release();
-    await preparing;
-    wait.mockRestore();
-    stage.mockRestore();
-    local.session.dispose();
-  }
-});

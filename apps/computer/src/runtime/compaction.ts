@@ -481,7 +481,7 @@ export async function inferCompaction(
 
 /** Close only unanswered snapshot calls before Pi can invent error results.
  * This projection never changes the durable tape or the real continuation tail. */
-export function withPendingSummaryResults(messages: readonly BotMessage[]): BotMessage[] {
+function withPendingSummaryResults(messages: readonly BotMessage[]): BotMessage[] {
   const answered = new Set(
     messages.flatMap((message) =>
       message.role === "toolResult" && typeof message.toolCallId === "string"

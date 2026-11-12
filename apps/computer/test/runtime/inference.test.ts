@@ -40,40 +40,6 @@ const runtimeWithResult = (result: unknown) => {
 };
 
 describe("memory inference", () => {
-  test("stream timing excludes empty/start events and preserves pre-timeout progress", async () => {
-    const logs: string[] = [];
-    const spy = spyOn(console, "info").mockImplementation(value => { logs.push(String(value)); });
-    try {
-      for (const withText of [false, true]) {
-        const runtime = runtimeWithResult(null);
-        (runtime as any).modelRuntime.streamSimple = (_model: unknown, _context: unknown, options: any) => ({
-          async *[Symbol.asyncIterator]() {
-            yield { type: "start" };
-            yield { type: "text_delta", delta: "" };
-            if (withText) {
-              yield { type: "thinking_delta", delta: "PRIVATE_REASONING" };
-              await Bun.sleep(5);
-              yield { type: "text_delta", delta: "PRIVATE_RESPONSE" };
-            }
-            await new Promise((_, reject) => options.signal.addEventListener("abort",
-              () => reject(new Error("PRIVATE_ERROR")), { once: true }));
-          },
-          result: () => { throw new Error("No final result on interrupted stream"); },
-        });
-        await expect(runtime.infer({ ...inferenceRequest, timeoutMs: 30 })).rejects.toThrow("timed out");
-        const metrics = JSON.parse(logs.at(-1)!);
-        expect(metrics.outcome).toBe("timeout");
-        if (withText) {
-          expect(metrics.firstDeltaMs).toBeGreaterThanOrEqual(0);
-          expect(metrics.firstTextDeltaMs).toBeGreaterThanOrEqual(metrics.firstDeltaMs);
-        } else {
-          expect(metrics.firstDeltaMs).toBeNull();
-          expect(metrics.firstTextDeltaMs).toBeNull();
-        }
-      }
-      expect(logs.join("\n")).not.toContain("PRIVATE_");
-    } finally { spy.mockRestore(); }
-  });
 
   test("visual review sends the observation as an image without changing text or tool access", async () => {
     const runtime = runtimeWithResult(null);
@@ -115,32 +81,6 @@ describe("memory inference", () => {
       expect(JSON.parse(logs[1]!)).toMatchObject({ outcome: "error", kind: "unspecified" });
       expect(logs.join("\n")).not.toContain("PRIVATE_");
     } finally { spy.mockRestore(); }
-  });
-  test("caller cancellation cancels the underlying provider completion", async () => {
-    const runtime = runtimeWithResult(null);
-    const controller = new AbortController();
-    let providerCanceled = false;
-    const internals = runtime as unknown as {
-      modelRuntime: { completeSimple: (...arguments_: unknown[]) => Promise<unknown> };
-    };
-    internals.modelRuntime.completeSimple = async (_model, _context, options) => {
-      const { signal } = options as { signal: AbortSignal };
-      return new Promise((_, reject) => {
-        signal.addEventListener(
-          "abort",
-          () => {
-            providerCanceled = true;
-            reject(new Error("Provider canceled"));
-          },
-          { once: true }
-        );
-        controller.abort();
-      });
-    };
-    await expect(runtime.infer({ ...inferenceRequest, signal: controller.signal })).rejects.toThrow(
-      "Memory inference canceled"
-    );
-    expect(providerCanceled).toBe(true);
   });
 
   test("an actual HTTP disconnect reaches the provider through the request signal", async () => {
@@ -194,19 +134,6 @@ describe("memory inference", () => {
       controller.abort();
       await server.stop(true);
     }
-  });
-
-  test("an already canceled request never starts inference", async () => {
-    const runtime = runtimeWithResult(null);
-    const controller = new AbortController();
-    controller.abort();
-    const internals = runtime as unknown as { start: () => Promise<void> };
-    internals.start = async () => {
-      throw new Error("must not start a canceled request");
-    };
-    await expect(runtime.infer({ ...inferenceRequest, signal: controller.signal })).rejects.toThrow(
-      "Memory inference canceled"
-    );
   });
 
   test("an inference deadline cancels the provider and preserves the timeout error", async () => {

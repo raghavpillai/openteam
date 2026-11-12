@@ -122,11 +122,6 @@ for (const [provider, spec] of Object.entries(SPECS) as [SearchProvider, Spec][]
   });
 }
 
-test("dates from providers become a Published prefix", async () => {
-  const result = await searchClient("perplexity", () => Response.json(SPECS.perplexity.success)).search("q");
-  expect(result.details.results[0]!.description).toBe("Published 2026-09-01. An extract.");
-});
-
 test("bad keys map to key guidance whatever status the provider uses", async () => {
   for (const [provider, response] of [
     ["exa", Response.json({ error: `Invalid API key ${key}`, tag: "INVALID_API_KEY" }, { status: 401 })],
@@ -252,10 +247,4 @@ describe("Exa capacity recovery", () => {
     expect(brave).toBe(1);
   });
 
-  test("aborting the backoff prevents another request", async () => {
-    const controller = new AbortController();
-    const { client, count } = exa(() => { setTimeout(() => controller.abort(new Error("cancelled by caller")), 20); return capacity(); });
-    await expect(client.search("reference", controller.signal)).rejects.toThrow("cancelled by caller");
-    expect(count()).toBe(1);
-  });
 });

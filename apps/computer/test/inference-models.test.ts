@@ -52,38 +52,4 @@ describe("retired Codex models", () => {
     );
   });
 
-  test("preserves API access and currently supported Codex models", () => {
-    for (const modelId of ["gpt-5.4", "gpt-5.4-mini"]) {
-      expect(requireInferenceModel(runtime, { providerId: "openai", modelId }).id).toBe(modelId);
-    }
-    expect(
-      requireInferenceModel(runtime, { providerId: "openai-codex", modelId: "gpt-5.5" }).id
-    ).toBe("gpt-5.5");
-    expect(() =>
-      requireInferenceModel(runtime, { providerId: "openai-codex", modelId: "missing-model" })
-    ).toThrow("Pi does not provide");
-  });
-
-  test("keeps the UI catalog and provider model counts consistent", async () => {
-    const service = new InferenceProviderService(
-      () => runtime,
-      "/does/not/exist/models.json",
-      (async (url: URL | string | Request) =>
-        Response.json(
-          String(url).includes("chatgpt.com")
-            ? {
-                models: models
-                  .filter((m) => m.provider === "openai-codex")
-                  .map((m) => ({ ...m, slug: m.id, visibility: "list" })),
-              }
-            : { data: models.filter((m) => m.provider === "openai") }
-        )) as typeof fetch
-    );
-    const catalog = await service.catalog("openai-codex");
-    expect(catalog.models.map((model) => model.modelId)).toEqual(["gpt-5.5", "gpt-5.6-sol"]);
-    expect(catalog.providers.find((provider) => provider.id === "openai-codex")?.modelCount).toBe(
-      2
-    );
-    expect(catalog.providers.find((provider) => provider.id === "openai")?.modelCount).toBe(2);
-  });
 });

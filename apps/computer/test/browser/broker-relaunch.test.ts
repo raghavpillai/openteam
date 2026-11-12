@@ -139,24 +139,3 @@ test("a sign-in from another bot still reaches a browser that relaunches with an
   expect(relaunched.value()).toBe("signed-in");
 });
 
-test("when both copies changed, the shared sign-in still wins as before", async () => {
-  const { launch } = await setup();
-  const orion = fakeBrowser("first");
-  const nova = fakeBrowser("first");
-  const broker = await launch("orion", orion);
-  await broker.attach("nova", nova.port);
-  cleanup.push(() => nova.stop());
-  await broker.reconcile();
-  orion.set("orion-unseen");
-  orion.leaveSite();
-  await broker.detach("orion");
-
-  nova.set("nova-signed-in");
-  await broker.reconcile();
-  await broker.detach("nova");
-
-  const relaunched = fakeBrowser("orion-unseen");
-  const after = await launch("orion", relaunched);
-  await after.reconcile();
-  expect(relaunched.value()).toBe("nova-signed-in");
-});

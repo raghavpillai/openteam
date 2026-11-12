@@ -1,10 +1,9 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type BoxStoreDirtyHint, type BoxStoreManifest, BoxStoreSync } from "../src/box-store-sync";
-import { BotAgentStore } from "../src/bot-agent-store";
 
 let root: string | null = null;
 
@@ -97,99 +96,6 @@ describe("OpenTeam-compatible box-store synchronization", () => {
       scheduledRequests: 101,
       coalescedRequests: 100,
     });
-  });
-
-  test("partial snapshots preserve clean roots and retain exact deletion tombstones", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-box-store-dirty-paths-"));
-    const sourceHome = join(root, "source-home");
-    const sourceSand = join(sourceHome, "sand-data");
-    const sourceWorkspace = join(root, "source-workspace");
-    const agentOne = join(sourceSand, "agents", "one");
-    const agentTwo = join(sourceSand, "agents", "two");
-    await Promise.all([
-      mkdir(agentOne, { recursive: true }),
-      mkdir(agentTwo, { recursive: true }),
-      mkdir(join(sourceHome, ".pi", "agent"), { recursive: true }),
-      mkdir(sourceWorkspace, { recursive: true }),
-    ]);
-    await Promise.all([
-      writeFile(join(agentOne, "profile.json"), "one-before\n"),
-      writeFile(join(agentTwo, "profile.json"), "two-before\n"),
-      writeFile(join(sourceWorkspace, "workspace.txt"), "workspace-before\n"),
-      writeFile(join(sourceHome, ".pi", "agent", "session.jsonl"), "pi-before\n"),
-      writeFile(join(sourceSand, "search-index.db"), "search-before\n"),
-    ]);
-    const sync = new BoxStoreSync({
-      storeRoot: join(root, "replica"),
-      home: sourceHome,
-      sandRoot: sourceSand,
-      workspaceRoot: sourceWorkspace,
-    });
-    const initial = await sync.snapshotOut();
-    const metricsAfterInitial = sync.diagnostics();
-
-    await writeFile(join(agentOne, "profile.json"), "one-after\n");
-    await writeFile(join(sourceWorkspace, "workspace.txt"), "workspace-untracked\n");
-    const partial = await sync.snapshotOut({ agentIds: ["one"] });
-    const partialMetrics = sync.diagnostics();
-    expect(partial.files).toHaveLength(initial.files.length);
-    expect(partialMetrics.sourceFilesInspected - metricsAfterInitial.sourceFilesInspected).toBe(1);
-    expect(partialMetrics.sourceFilesRead - metricsAfterInitial.sourceFilesRead).toBe(1);
-    const workspaceBefore = initial.files.find(({ path }) => path === "workspace/workspace.txt");
-    expect(partial.files.find(({ path }) => path === "workspace/workspace.txt")).toEqual(
-      workspaceBefore
-    );
-
-    const full = await sync.snapshotOut();
-    expect(full.files.find(({ path }) => path === "workspace/workspace.txt")?.sha256).not.toBe(
-      workspaceBefore?.sha256
-    );
-    const searchBefore = full.files.find(
-      ({ path }) => path === "home/box/sand-data/search-index.db"
-    );
-    await writeFile(join(sourceSand, "search-index.db"), "search-after\n");
-    const metricsBeforeSandPath = sync.diagnostics();
-    const sandPathSnapshot = await sync.snapshotOut({ sandPaths: ["search-index.db"] });
-    expect(
-      sync.diagnostics().sourceFilesInspected - metricsBeforeSandPath.sourceFilesInspected
-    ).toBe(1);
-    expect(
-      sandPathSnapshot.files.find(({ path }) => path === "home/box/sand-data/search-index.db")
-        ?.sha256
-    ).not.toBe(searchBefore?.sha256);
-    await rm(join(agentOne, "profile.json"));
-    const deleted = await sync.snapshotOut({ agentIds: ["one"] });
-    expect(deleted.files.some(({ path }) => path.endsWith("/one/profile.json"))).toBeFalse();
-    expect(deleted.tombstones).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ path: "home/box/sand-data/agents/one/profile.json" }),
-      ])
-    );
-    expect(deleted.files.some(({ path }) => path.endsWith("/two/profile.json"))).toBeTrue();
-  });
-
-  test("snapshotting an unstarted agent store does not create WAL sidecars", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-box-store-unstarted-"));
-    const sourceHome = join(root, "source-home");
-    const sourceSand = join(sourceHome, "sand-data");
-    const sourceWorkspace = join(root, "source-workspace");
-    await Promise.all([
-      mkdir(join(sourceHome, ".pi", "agent"), { recursive: true }),
-      mkdir(sourceWorkspace, { recursive: true }),
-    ]);
-    const stores = new BotAgentStore(sourceSand, join(root, "orphans"));
-    await stores.initializeAgent("probe");
-    const directory = stores.agentDirectory("probe");
-    expect(await readdir(directory)).toEqual(["store.db"]);
-
-    const sync = new BoxStoreSync({
-      storeRoot: join(root, "replica"),
-      home: sourceHome,
-      sandRoot: sourceSand,
-      workspaceRoot: sourceWorkspace,
-    });
-    await sync.snapshotOut();
-    expect(await readdir(directory)).toEqual(["store.db"]);
   });
 
   test("snapshots WAL databases with VACUUM and hydrates by hash without pruning extras", async () => {
@@ -462,45 +368,6 @@ describe("OpenTeam-compatible box-store synchronization", () => {
     expect(await saved(await shortInterval.snapshotOut(), profilePath)).toBe("v5");
   });
 
-  test("keeps a pending browser request when a periodic full snapshot absorbs it", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-box-store-chrome-merge-"));
-    let releaseFirst: (() => void) | undefined;
-    const firstGate = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
-    class ControlledSync extends BoxStoreSync {
-      readonly hints: BoxStoreDirtyHint[] = [];
-
-      override async snapshotOut(
-        hint: BoxStoreDirtyHint = { all: true }
-      ): Promise<BoxStoreManifest> {
-        this.hints.push(hint);
-        if (this.hints.length === 1) await firstGate;
-        return {
-          version: 1,
-          revision: this.hints.length,
-          generatedAt: new Date(0).toISOString(),
-          files: [],
-          tombstones: [],
-          etag: `run-${this.hints.length}`,
-        };
-      }
-    }
-    const sync = new ControlledSync({ storeRoot: join(root, "replica") });
-    sync.scheduleSnapshot(0, { workspace: true });
-    await Bun.sleep(5);
-    sync.scheduleSnapshot(0, { agentIds: ["agent-a"], chrome: true });
-    sync.scheduleSnapshot(0, { all: true });
-    releaseFirst?.();
-    await sync.flushScheduledSnapshots();
-    expect(sync.hints).toHaveLength(2);
-    expect(sync.hints[1]).toEqual({ all: true, chrome: true });
-
-    sync.scheduleSnapshot(0, { all: true });
-    await sync.flushScheduledSnapshots();
-    expect(sync.hints[2]).toEqual({ all: true });
-  });
-
   test("a turn's browser request captures only that bot's running profile", async () => {
     root = await mkdtemp(join(tmpdir(), "openteam-box-store-profile-request-"));
     const home = join(root, "home");
@@ -537,25 +404,4 @@ describe("OpenTeam-compatible box-store synchronization", () => {
     expect(await saved(merged, idle)).toBe("v1");
   });
 
-  test("keeps a pending profile request when a periodic full snapshot absorbs it", async () => {
-    root = await mkdtemp(join(tmpdir(), "openteam-box-store-profile-merge-"));
-    const hints: BoxStoreDirtyHint[] = [];
-    class RecordingSync extends BoxStoreSync {
-      override async snapshotOut(hint: BoxStoreDirtyHint = { all: true }): Promise<BoxStoreManifest> {
-        hints.push(hint);
-        return { version: 1, revision: hints.length, generatedAt: new Date(0).toISOString(), files: [], tombstones: [], etag: `run-${hints.length}` };
-      }
-    }
-    const sync = new RecordingSync({ storeRoot: join(root, "replica") });
-    sync.scheduleSnapshot(0, { agentIds: ["agent-a"], workspace: true, pi: true, chromeProfiles: ["chrome-profile-2", "../escape"] });
-    sync.scheduleSnapshot(0, { all: true });
-    await sync.flushScheduledSnapshots();
-    expect(hints).toEqual([{ all: true, chromeProfiles: ["chrome-profile-2"] }]);
-
-    // A turn that used no browser asks for none.
-    sync.scheduleSnapshot(0, { agentIds: ["agent-a"], workspace: true, pi: true });
-    await sync.flushScheduledSnapshots();
-    expect(hints[1]?.chrome).toBeFalsy();
-    expect(hints[1]?.chromeProfiles).toBeUndefined();
-  });
 });

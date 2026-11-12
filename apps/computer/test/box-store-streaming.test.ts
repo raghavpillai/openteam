@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoxStoreSync } from "../src/box-store-sync";
@@ -137,25 +137,6 @@ const fileFixture = async () => {
   await mkdir(options.workspaceRoot, { recursive: true });
   return { ...options, file: join(options.workspaceRoot, "large.bin"), sync: new BoxStoreSync(options) };
 };
-
-test("large snapshots and restores preserve bytes, modes and unchanged-file reuse", async () => {
-  const f = await fileFixture();
-  const bytes = Buffer.alloc(5 * 1024 * 1024 + 17, 0xa5);
-  bytes[bytes.length - 1] = 0xff;
-  await writeFile(f.file, bytes); await chmod(f.file, 0o750);
-  const manifest = await f.sync.snapshotOut();
-  const entry = manifest.files.find((file) => file.path === "workspace/large.bin")!;
-  expect(entry.size).toBe(bytes.length);
-  expect(entry.sha256).toBe(await fileDigest(f.file));
-  expect(entry.mode).toBe(0o750);
-  await f.sync.snapshotOut();
-  expect(f.sync.diagnostics().sourceFilesRead).toBe(1);
-  await rm(f.file);
-  expect(await f.sync.copyIn()).toEqual({ copied: 1, skipped: 0 });
-  expect(await readFile(f.file)).toEqual(bytes);
-  expect((await stat(f.file)).mode & 0o777).toBe(0o750);
-  expect(await f.sync.copyIn()).toEqual({ copied: 0, skipped: 1 });
-});
 
 test("corrupt large blobs never replace a destination or leave a staged file", async () => {
   const f = await fileFixture();

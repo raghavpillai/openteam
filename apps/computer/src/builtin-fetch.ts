@@ -171,7 +171,7 @@ export function kindOf({ bytes, contentType }: RawResponse): "pdf" | "html" | "t
 }
 
 /** Decode with the declared charset (header, BOM, <meta>, XML declaration), else UTF-8. */
-export function decodeWebText(bytes: Buffer, contentType: string): string {
+function decodeWebText(bytes: Buffer, contentType: string): string {
   let charset = /charset\s*=\s*["']?([\w.:-]+)/i.exec(contentType)?.[1];
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) charset = "utf-8";
   else if (bytes[0] === 0xff && bytes[1] === 0xfe) charset = "utf-16le";

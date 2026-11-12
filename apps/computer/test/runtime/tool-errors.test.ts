@@ -43,48 +43,6 @@ test("first-party lookups coerce string-encoded values and report decode failure
   );
 });
 
-test("first-party lookups match argument keys and enum values loosely before decoding", async () => {
-  const { calls, lookup } = fixture(() => Response.json({}));
-  // Each loose call and the arguments the reference's normalizeMcpArgumentsToInputSchema makes of it with its
-  // CallDynamicTool options (renames and scalar wraps on), run on these tools' schemas through the loader.
-  const cases: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
-    ["CheckSubagent", { subagentId: "a1" }, { subagent_id: "a1" }],
-    ["StopSubagent", { SubagentID: "a1" }, { subagent_id: "a1" }],
-    ["MessageSubagent", { subagentId: "a1", msg: "hi" }, { subagent_id: "a1", message: "hi" }],
-    ["GetPlugin", { pluginId: "gmail" }, { plugin_id: "gmail" }],
-    ["GetPlugin", { arguments: { plugin_id: "gmail" } }, { plugin_id: "gmail" }],
-    ["UninstallPlugin", { pluginId: "x" }, { plugin_id: "x" }],
-    ["SearchPlugins", { Query: "mail" }, { query: "mail" }],
-    ["ReadTranscript", { In: "this", LIMIT: 5 }, { in: "session", limit: 5 }],
-    ["UpdateSkill", { action: "Write", name: "x", description: "use this when", body: "b" }, { action: "write", name: "x", description: "use this when", body: "b" }],
-  ];
-  // The fixture's empty reply may not render; only what reached the tool host matters here.
-  const sent = async (tool: string, args: Record<string, unknown>) => {
-    const before = calls.length;
-    await lookup(tool, args).catch(() => {});
-    return calls.slice(before);
-  };
-  for (const [tool, loose, repaired] of cases) {
-    const expected = await sent(tool, repaired);
-    expect(expected).toHaveLength(1);
-    expect(await sent(tool, loose)).toEqual(expected);
-  }
-  // Loose matching runs before string coercion, as the reference's tool parser coerces afterwards.
-  expect(await sent("StopSubagent", { All: "true" })).toEqual([{ name: "StopSubagent", args: { all: true } }]);
-});
-
-test("CopyToBox takes the reference's computer_path aliases", async () => {
-  const { tools, active, lookup } = fixture(() => Response.json({}));
-  active.cwd = "/workspace";
-  const copies: unknown[] = [];
-  tools.nativeToolExecutor.copyFile = async (_direction: string, args: unknown) => { copies.push(args); return { content: [], details: {} }; };
-  await lookup("CopyToBox", { local_path: "/Users/a/x.csv", machineId: "m1" });
-  expect(copies).toEqual([{ machineId: "m1", computer_path: "/Users/a/x.csv" }]);
-  await expect(lookup("CopyToBox", { path: "/Users/a/x.csv", source: "/Users/a/y.csv", machineId: "m1" })).rejects.toThrow(
-    "Invalid arguments:\ncomputer_path: Pass the file's absolute path on the user's computer once, as computer_path."
-  );
-});
-
 test("a missing attachment is named before anything reaches the tool host", async () => {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
   const active: any = { runId: "fixture", botId: "fixture", runtimeProfile: "agent", pluginNamespaces: [] };

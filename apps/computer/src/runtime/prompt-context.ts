@@ -125,7 +125,7 @@ export function promptFingerprint(system: string, userInfo: string, tools: unkno
 
 export const ACK_REMINDER =
   "<system_reminder>\nYou opened this turn by calling tools without first sending to the user, so they are watching silence and may think the app froze. Acknowledge them RIGHT NOW by actually invoking the SendToUser tool. Make a real tool/function call, not text you write. Plain assistant text is NEVER shown to the user; only a real SendToUser tool invocation reaches them, so if you don't call the tool they just keep seeing silence. Make that first SendToUser a one-line text acknowledgement, before any further tool call, then continue the work. A widget or attachment does not count as this acknowledgement.\n</system_reminder>";
-export const PROGRESS_REMINDER =
+const PROGRESS_REMINDER =
   "<system_reminder>\nYou have made several tool calls without a SendToUser, so the user is currently watching silence. Actually invoke the SendToUser tool now. Make a real tool/function call, not text you write. Plain assistant text is NEVER shown to the user; only a real SendToUser tool invocation reaches them, so if you don't call the tool they just keep seeing silence. Send one brief update in a complete sentence, saying what you found or what happens next, not a play-by-play of each step, before continuing.\n</system_reminder>";
 export const END_TURN_HOLD_REMINDER =
   "<system_reminder>\nYour turn did not end. This end_turn call succeeded, but a call alongside it failed; see that call's result. If the failure matters to the user, fix it without resending what already went out. Otherwise, stop.\n</system_reminder>";

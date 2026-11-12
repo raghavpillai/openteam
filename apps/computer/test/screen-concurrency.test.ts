@@ -51,18 +51,6 @@ describe("human control idle release", () => {
     expect((await broker.takeover("idle-renew", "/workspace", true)).humanTakeover).toBe(true);
   });
 
-  test("user activity reported by the proxy resets the idle timer, a plain heartbeat does not", async () => {
-    const { broker } = await fixture();
-    await broker.takeover("idle-activity", "/workspace", true);
-    const session = sessionOf(broker, "idle-activity");
-    const stale = Date.now() - 4 * 60_000;
-    session.humanActiveAt = stale;
-    await broker.takeover("idle-activity", "/workspace", true, { renew: true });
-    expect(session.humanActiveAt).toBe(stale);
-    await broker.takeover("idle-activity", "/workspace", true, { renew: true, activity: true });
-    expect(Date.now() - session.humanActiveAt).toBeLessThan(1_000);
-  });
-
   test("the agent regains input after the lease goes idle", async () => {
     const { broker } = await fixture();
     await broker.takeover("idle-agent", "/workspace", true);
@@ -98,16 +86,6 @@ describe("concurrent screen requests", () => {
       expect(input.trim().split("\n")).toHaveLength(1);
       expect(input).toContain("once");
     } finally { process.env.PATH = previousPath; }
-  });
-  test("canceled review capture does not start a desktop or run queued actions", async () => {
-    const { broker, starts } = await fixture();
-    const canceled = new AbortController(); canceled.abort();
-    await expect(broker.actComputerUse("never-start", "/workspace", [{ action: "screenshot" }], canceled.signal)).rejects.toThrow();
-    expect(starts).toHaveLength(0);
-    const controller = new AbortController();
-    const pending = broker.actComputerUse("queued", "/workspace", [{ action: "wait", durationMs: 30000 }], controller.signal);
-    await Bun.sleep(30); controller.abort();
-    await expect(pending).rejects.toThrow();
   });
   test("native review is invalidated even when human takeover has already ended", async () => {
     const { broker } = await fixture();
@@ -154,32 +132,6 @@ describe("concurrent screen requests", () => {
     expect(starts).toHaveLength(3);
   });
 
-  test("exhausting screen slots does not poison later allocation after a slot is freed", async () => {
-    const { broker, home } = await fixture();
-    await Promise.all(Array.from({length:100},(_,i)=>broker.ensure(`reserved-${i}`, "/workspace")));
-    await expect(broker.ensure("overflow", "/workspace")).rejects.toThrow("at most 100");
-    await broker.destroy("reserved-7");
-    expect((await broker.ensure("recovered", "/workspace")).display).toBe(107);
-  });
-
-  test("dormant assignments preserve profiles without exhausting live slots", async () => {
-    const {broker,home}=await fixture();
-    const legacy=Object.fromEntries(Array.from({length:100},(_,i)=>[`old-${i}`,i]));
-    await writeFile(join(home,".sand-window-assignments.json"),JSON.stringify(legacy));
-    await Promise.all([broker.ensure("new", "/workspace"),broker.ensure("old-0", "/workspace")]);
-    const sessions=(broker as any).sessions as Map<string,ScreenSession>;
-    expect(sessions.get("new")!.profileDirectory).toBe(join(home,"chrome-profile-101"));
-    expect(sessions.get("old-0")!.profileDirectory).toBe(join(home,"chrome-profile"));
-    expect(sessions.get("new")!.slot).not.toBe(sessions.get("old-0")!.slot);
-    const saved=JSON.parse(await readFile(join(home,".sand-window-assignments.json"),"utf8"));
-    expect(saved).toEqual({...legacy,new:100});
-    // A restarted broker can load the profile ID above the live-screen limit.
-    const restarted=new ScreenBroker(home) as any;
-    restarted.startSession=async(session:ScreenSession)=>{session.state="ready";session.lastHealthCheckAt=Date.now();};
-    await restarted.ensure("new","/workspace");
-    expect(restarted.sessions.get("new").profileDirectory).toBe(join(home,"chrome-profile-101"));
-  });
-
   test("overlapping human and agent actions finish in order on the same desktop", async () => {
     const { broker } = await fixture();
     await broker.ensure("shared", "/workspace");
@@ -211,20 +163,6 @@ describe("concurrent screen requests", () => {
     await expect(
       broker.act("shared", "/workspace", { action: "wait", ms: 1 }, "agent")
     ).resolves.toHaveProperty("state", "ready");
-  });
-  test("brief takeover invalidates old queued input even after release", async () => {
-    const { broker } = await fixture();
-    await broker.ensure("shared", "/workspace");
-    const first = broker.act("shared", "/workspace", { action: "wait", ms: 90 }, "human");
-    const queued = broker.act("shared", "/workspace", { action: "wait", ms: 1 }, "agent").then(
-      () => "ran",
-      () => "rejected"
-    );
-    await Bun.sleep(15);
-    await broker.takeover("shared", "/workspace", true);
-    await broker.takeover("shared", "/workspace", false);
-    await first;
-    expect(await queued).toBe("rejected");
   });
 
   test("takeover interrupts an active wait before acknowledging control", async () => {

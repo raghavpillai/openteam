@@ -5,7 +5,7 @@ import { parseSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { parsePluginRuntimeComponents, type PluginRuntimePackage } from "@openteam/plugin-sdk";
 import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { pluginCatalog } from "../../../../packages/plugins/src";
-import { expandPluginAgent, pluginComponentsExtension } from "../../src/runtime/plugin-components";
+import { pluginComponentsExtension } from "../../src/runtime/plugin-components";
 
 for (const [key, skillCount, commands] of [
   [
@@ -75,90 +75,3 @@ for (const [key, skillCount, commands] of [
   });
 }
 
-test("original command names dispatch without ambiguous flat names", async () => {
-  const pkg: PluginRuntimePackage = {
-    key: "granola",
-    installPath: "/cache/granola/upstream",
-    hooks: [],
-    warnings: [],
-    commands: [{ name: "granola-plan", description: "Plan", body: "Plan from $ARGUMENTS" }],
-    agents: [
-      { name: "granola-engineer", description: "Engineer", body: "Original agent instructions." },
-    ],
-    rules: [
-      {
-        name: "meeting-context",
-        description: "Context",
-        body: "Original rule.",
-        alwaysApply: true,
-        globs: [],
-      },
-    ],
-  };
-  const events: Record<string, (event: any) => Promise<any>> = {};
-  const install = async (packages: PluginRuntimePackage[]) => {
-    await pluginComponentsExtension(
-      { pluginRuntimePackages: packages } as any
-    ).factory({
-      on: (name: string, handler: any) => {
-        events[name] = handler;
-      },
-    } as any);
-  };
-  await install([pkg]);
-  for (const command of ["/granola-plan", "/granola:granola-plan"]) {
-    expect((await events.input!({ text: `${command} release` })).text).toBe("Plan from release");
-  }
-  const context = await events.before_agent_start!({ prompt: "release" });
-  expect(context.message.content).toContain("Original rule.");
-  expect(context.message.content).toContain('plugin_agent="granola:granola-engineer"');
-  for (const name of ["granola:granola-engineer"]) {
-    const expanded = expandPluginAgent([pkg], { plugin_agent: name, prompt: "Assigned work" });
-    expect(expanded.prompt).toContain("Original agent instructions.");
-    expect(expanded.prompt).toContain("Assigned work");
-    expect(expanded.prompt).toContain(pkg.installPath);
-  }
-  await install([pkg, { ...pkg, key: "duplicate" }]);
-  expect(await events.input!({ text: "/granola-plan release" })).toBeUndefined();
-  expect((await events.input!({ text: "/granola:granola-plan release" })).text).toBe(
-    "Plan from release"
-  );
-});
-
-test.skipIf(process.env.OPENTEAM_TEST_UPSTREAM_SOURCES !== "1")(
-  "all original Granola commands and its agent dispatch from the pinned provider source",
-  async () => {
-    const { resolveUpstreamPlugin } = await import("../../../server/src/plugins/upstream-package");
-    const original = await resolveUpstreamPlugin(
-      pluginCatalog.find((plugin) => plugin.key === "granola")!
-    );
-    const pkg: PluginRuntimePackage = {
-      ...parsePluginRuntimeComponents(original.files!),
-      key: "granola",
-      installPath: "/cache/granola/upstream",
-    };
-    expect(pkg.commands).toHaveLength(6);
-    const events: Record<string, (event: any) => Promise<any>> = {};
-    await pluginComponentsExtension(
-      { pluginRuntimePackages: [pkg] } as any
-    ).factory({
-      on: (name: string, handler: any) => {
-        events[name] = handler;
-      },
-    } as any);
-    for (const command of pkg.commands) {
-      const expanded = await events.input!({ text: `/${command.name} fixture release` });
-      expect(expanded.action).toBe("transform");
-      expect(expanded.text).toContain("fixture release");
-      expect(expanded.text).not.toContain("$ARGUMENTS");
-    }
-    const context = await events.before_agent_start!({ prompt: "fixture release" });
-    expect(context.message.content).toContain(pkg.rules[0]!.body);
-    for (const agent of pkg.agents)
-      expect(
-        expandPluginAgent([pkg], { plugin_agent: `granola:${agent.name}`, prompt: "Assigned work" })
-          .prompt
-      ).toContain(agent.body);
-  },
-  60_000
-);

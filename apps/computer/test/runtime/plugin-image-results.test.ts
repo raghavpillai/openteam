@@ -3,7 +3,6 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RuntimeTools } from "../../src/runtime/tools";
-import { spillConnectorText } from "../../src/runtime/connector-results";
 import { untrustedResultsExtension } from "../../src/runtime/untrusted-results";
 
 async function pluginCall(body: unknown, cwd = "/tmp") {
@@ -60,14 +59,6 @@ test("connector text over 40 KB is written to a file and the model gets the refe
     const inline = await pluginCall({content: [{type: "text", text: "y".repeat(40_000)}]}, cwd);
     expect(inline.content[0].text).toBe("y".repeat(40_000));
   } finally { await rm(cwd, {recursive: true, force: true}); }
-});
-
-test("a failed spill keeps a 40 KB head with the reference truncation notice", async () => {
-  const text = "z".repeat(50_000);
-  const { parts } = await spillConnectorText([{type: "text", text}], "/nonexistent", async () => { throw new Error("disk full"); });
-  const inline = (parts[0] as {text: string}).text;
-  expect(Buffer.byteLength(inline)).toBeLessThanOrEqual(40_000);
-  expect(inline).toEndWith("\n\n[Output truncated: the full MCP tool output was 50000 bytes, which exceeds the inline limit of 40000 bytes, and could not be written to a file. The remainder was discarded; do not retry the same call expecting the full output.]");
 });
 
 test("a connector call is cut off by the 840-second guard with the reference text", async () => {

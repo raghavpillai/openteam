@@ -74,9 +74,6 @@ export const namespaceUnavailableReason = (status: DynamicNamespaceStatus): stri
 const namespaceError = (namespace: { namespaceStatus: DynamicNamespaceStatus; statusMessage?: string }) =>
   `${namespaceUnavailableReason(namespace.namespaceStatus)}${namespace.statusMessage ? ` ${namespace.statusMessage}` : ""}`;
 
-export const dynamicToolKey = (namespace: string, toolName: string): string =>
-  `${namespace}/${toolName}`;
-
 const searchPattern = (source: string | undefined): { test(text: string): boolean } | null => {
   if (!source) return null;
   try {

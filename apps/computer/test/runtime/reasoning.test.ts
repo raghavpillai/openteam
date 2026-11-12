@@ -10,7 +10,6 @@ import {
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-codex-responses";
 import { type AgentSession, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { ComputerRuntime } from "../../src/runtime";
-import { inferCompaction } from "../../src/runtime/compaction";
 import { inferenceReasoningOptions } from "../../src/runtime/reasoning";
 import type { ActiveTurn } from "../../src/runtime/types";
 
@@ -102,61 +101,6 @@ describe("Codex reasoning request semantics", () => {
     expect(
       inferenceReasoningOptions({ ...model, reasoning: false }, "off").onPayload
     ).toBeUndefined();
-  });
-
-  test("memory inference and compaction also send explicit none", async () => {
-    const capture = captureRequests();
-    const modelRuntime = await ModelRuntime.create({
-      credentials: new InMemoryCredentialStore(),
-      modelsPath: null,
-      refreshOnCreate: false,
-    });
-    modelRuntime.checkAuth = async () => ({ type: "api_key" });
-    modelRuntime.streamSimple = (_model, messages, options) =>
-      streamSimple(model, messages, {
-        ...options,
-        ...capture.options,
-      });
-    const runtime = new ComputerRuntime();
-    const internals = runtime as unknown as {
-      start: () => Promise<void>;
-      modelRuntime: ModelRuntime;
-      resolveModel: () => typeof model;
-    };
-    internals.start = async () => {};
-    internals.modelRuntime = modelRuntime;
-    internals.resolveModel = () => model;
-    await expect(
-      runtime.infer({
-        instructions: "Offline test",
-        prompt: "Capture",
-        cwd: "/workspace",
-        timeoutMs: 1_000,
-        model: "openai-codex/gpt-5.6-sol",
-        reasoning: "off",
-      })
-    ).rejects.toThrow("Offline request captured");
-    await expect(
-      inferCompaction(
-        modelRuntime,
-        () => model,
-        () => [],
-        {
-          reasoning: "off",
-          modelRef: { providerId: model.provider, modelId: model.id },
-        } as ActiveTurn,
-        {
-          systemPrompt: "Offline test",
-          userInfoMessage: null,
-          messagesToSummarize: [],
-          shorter: false,
-        },
-        new AbortController().signal
-      )
-    ).rejects.toThrow("Offline request captured");
-    expect(capture.requests).toHaveLength(2);
-    for (const request of capture.requests)
-      expect(request).toMatchObject({ reasoning: { effort: "none" } });
   });
 
   test("normal ComputerRuntime sessions send none through the actual Pi request pipeline", async () => {

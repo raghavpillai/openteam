@@ -151,7 +151,7 @@ export interface PackagePolicy {
 }
 
 /** `apt-cache policy NAME...`. */
-export function parsePolicy(text: string): Record<string, PackagePolicy> {
+function parsePolicy(text: string): Record<string, PackagePolicy> {
   const policies: Record<string, PackagePolicy> = {};
   let current: PackagePolicy | undefined;
   let version: PackagePolicy["versions"][number] | undefined;
@@ -191,7 +191,7 @@ export function parseSourceFile(text: string): string[] {
 }
 
 /** Where the installed version came from: one of the image's sources, a bot's source, or a file. */
-export function classifyOrigin(policy: PackagePolicy | undefined, imageSources: ReadonlySet<string>): Pick<RecordedPackage, "origin" | "local"> {
+function classifyOrigin(policy: PackagePolicy | undefined, imageSources: ReadonlySet<string>): Pick<RecordedPackage, "origin" | "local"> {
   const sources = policy?.versions.find((entry) => entry.version === policy.installed)?.sources ?? [];
   if (!sources.length) return { local: true };
   if (sources.some((source) => imageSources.has(originKey(source)))) return {};
@@ -199,7 +199,7 @@ export function classifyOrigin(policy: PackagePolicy | undefined, imageSources: 
 }
 
 /** What to ask apt for: the newest version the package's own source has, or any candidate for the image's sources. */
-export function installTarget(name: string, entry: RecordedPackage, policy: PackagePolicy | undefined): string | undefined {
+function installTarget(name: string, entry: RecordedPackage, policy: PackagePolicy | undefined): string | undefined {
   if (!entry.origin) return policy?.candidate ? name : undefined;
   const version = policy?.versions.find((candidate) => candidate.sources.some((source) => originKey(source) === entry.origin))?.version;
   return version ? `${name}=${version}` : undefined;

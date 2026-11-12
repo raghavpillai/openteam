@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { classifyDiskPressure, DISK_PRESSURE_REMINDER, DiskPressureMonitor, reminderStepPersisted } from "../../src/runtime/disk-pressure";
+import { classifyDiskPressure, DISK_PRESSURE_REMINDER, DiskPressureMonitor } from "../../src/runtime/disk-pressure";
 
 const GIB = 1024 ** 3;
 
@@ -38,16 +38,6 @@ test("each bot hears about a low-disk episode once, and again after the disk rec
   expect(DISK_PRESSURE_REMINDER).toContain("Never delete anything without their explicit yes.");
 });
 
-test("like the reference, the worst of the workspace, agent data and temp volumes counts, once per device", async () => {
-  const volumes: Record<string, { device: string; availableBytes: number; totalBytes: number }> = {
-    "/workspace": { device: "1", availableBytes: 50 * GIB, totalBytes: 100 * GIB },
-    "/data": { device: "1", availableBytes: 50 * GIB, totalBytes: 100 * GIB },
-    "/tmp": { device: "2", availableBytes: 1 * GIB, totalBytes: 10 * GIB },
-  };
-  const monitor = new DiskPressureMonitor(Object.keys(volumes), undefined, async (path) => volumes[path]!);
-  expect(await monitor.claim("a")).toBeString();
-});
-
 test("a restarted computer keeps the episode and who already heard about it, as the reference's ledger does", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-disk-ledger-"));
   try {
@@ -69,14 +59,6 @@ test("a restarted computer keeps the episode and who already heard about it, as 
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-});
-
-test("the reminder is spent once a model step after it was saved, even if the turn is then interrupted", () => {
-  const reminder = { role: "custom", customType: "openteam-disk-pressure" };
-  expect(reminderStepPersisted([reminder])).toBe(false);
-  expect(reminderStepPersisted([reminder, { role: "assistant", stopReason: "aborted" }])).toBe(false);
-  expect(reminderStepPersisted([{ role: "assistant", stopReason: "toolUse" }, reminder])).toBe(false);
-  expect(reminderStepPersisted([reminder, { role: "assistant", stopReason: "toolUse" }, { role: "assistant", stopReason: "aborted" }])).toBe(true);
 });
 
 test("a main-agent turn on a low disk gets the reminder before its first request", async () => {

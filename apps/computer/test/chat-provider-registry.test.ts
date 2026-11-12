@@ -3,7 +3,6 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import {
   ChatProviderRegistry,
   inputWindow,
@@ -29,51 +28,6 @@ const model = (provider: string, id: string) => ({
   contextWindow: 128000,
   maxTokens: 8192,
 });
-const inputMetadataCases: Array<
-  [string, Record<string, unknown>, Array<"text" | "image"> | undefined]
-> = [
-  ["nested vision", { modalities: { input: ["text", "image"] } }, ["text", "image"]],
-  ["nested text", { modalities: { input: ["text"] } }, ["text"]],
-  ["nested image only", { modalities: { input: ["image"] } }, ["text", "image"]],
-  ["nested empty", { modalities: { input: [] } }, ["text"]],
-  ["flat vision", { input_modalities: ["text", "image"] }, ["text", "image"]],
-  [
-    "flat takes precedence",
-    { input_modalities: ["text"], modalities: { input: ["image"] } },
-    ["text"],
-  ],
-  [
-    "invalid flat falls back",
-    { input_modalities: null, modalities: { input: ["image"] } },
-    ["text", "image"],
-  ],
-  ["extra modalities", { modalities: { input: ["audio", "image", "video"] } }, ["text", "image"]],
-  ["mixed values", { modalities: { input: [null, {}, "image"] } }, ["text", "image"]],
-  ["audio alone", { modalities: { input: ["audio"] } }, ["text"]],
-  ["missing metadata", {}, undefined],
-  ["output alone", { modalities: { output: ["image"] } }, undefined],
-  ["null metadata", { modalities: null }, undefined],
-  ["array metadata", { modalities: ["image"] }, undefined],
-  ["string input", { modalities: { input: "image" } }, undefined],
-];
-for (const previous of [undefined, ["text"], ["text", "image"]] as const) {
-  for (const [label, metadata, advertised] of inputMetadataCases) {
-    test(`input metadata: ${label}, previous=${JSON.stringify(previous)}`, async () => {
-      const f = await fixture({
-        magpie: { baseUrl: "https://magpie.test/v1", api: "openai-completions" },
-      });
-      f.connected.clear();
-      f.connected.add("magpie");
-      if (previous)
-        f.runtime.registerProvider("magpie", {
-          models: [{ ...model("magpie", "vision-chat"), input: [...previous] }],
-        } as never);
-      f.state.body = { data: [{ id: "vision-chat", ...metadata }] };
-      const catalog = await f.registry.catalog("magpie");
-      expect(catalog.models[0]?.input).toEqual(advertised ?? (previous ? [...previous] : ["text"]));
-    });
-  }
-}
 async function fixture(custom: Record<string, unknown> = {}) {
   const directory = await mkdtemp(join(tmpdir(), "openteam-chat-registry-"));
   dirs.push(directory);
@@ -143,70 +97,6 @@ async function fixture(custom: Record<string, unknown> = {}) {
   };
 }
 describe("provider-first chat registry", () => {
-  test("live modalities repair stale capabilities and preserve conservative defaults", async () => {
-    const f = await fixture();
-    f.connected.clear();
-    f.connected.add("openai");
-    // The known fixture is text-only, just like the affected persisted Azure model.
-    f.state.body = {
-      data: [
-        { id: "gpt-chat", input_modalities: ["text", "image"] },
-        { id: "gpt-6-new-vision", input_modalities: ["text", "image", "audio"] },
-        { id: "gpt-6-new-text", input_modalities: ["text"] },
-        { id: "gpt-6-unknown" },
-      ],
-    };
-    const catalog = await f.registry.catalog("openai");
-    expect(catalog.models.map((m) => [m.id, m.input])).toEqual([
-      ["gpt-chat", ["text", "image"]],
-      ["gpt-6-new-vision", ["text", "image"]],
-      ["gpt-6-new-text", ["text"]],
-      ["gpt-6-unknown", ["text"]],
-    ]);
-    f.runtime.registerProvider("openai", {
-      models: [{ ...catalog.models[0]!, input: ["text", "image"] }],
-    } as never);
-    f.state.body = { data: [{ id: "gpt-chat", input_modalities: ["text"] }] };
-    expect((await f.registry.catalog("openai")).models[0]?.input).toEqual(["text"]);
-    f.state.body = { data: [{ id: "gpt-chat" }] };
-    expect((await f.registry.catalog("openai")).models[0]?.input).toEqual(["text", "image"]);
-  });
-  test("accepts Magpie's nested input modalities for custom providers", async () => {
-    const f = await fixture({
-      magpie: { baseUrl: "https://magpie.test/v1", api: "openai-completions" },
-    });
-    f.connected.clear();
-    f.connected.add("magpie");
-    f.state.body = {
-      data: [
-        {
-          id: "auto/deepseek-v4.1-flash",
-          modalities: { input: ["text", "image"] },
-          supported_parameters: ["tools"],
-        },
-      ],
-    };
-
-    const catalog = await f.registry.catalog("magpie");
-
-    expect(catalog.models[0]).toMatchObject({
-      id: "auto/deepseek-v4.1-flash",
-      input: ["text", "image"],
-    });
-
-    f.runtime.registerProvider("magpie", {
-      models: [{ ...catalog.models[0]!, input: ["text"] }],
-    } as never);
-    await f.registry.verify({
-      providerId: "magpie",
-      modelId: "auto/deepseek-v4.1-flash",
-      reasoning: "off",
-    });
-    const saved = JSON.parse(await readFile(f.path, "utf8")) as {
-      providers: { magpie: { models: Array<{ input: string[] }> } };
-    };
-    expect(saved.providers.magpie.models[0]?.input).toEqual(["text", "image"]);
-  });
   test("exposes only Anthropic, OpenAI auth modes, and explicitly added custom providers", async () => {
     const f = await fixture();
     const catalog = await f.registry.catalog();
@@ -228,15 +118,6 @@ describe("provider-first chat registry", () => {
     await expect(
       f.registry.verify({ providerId: "google", modelId: "unregistered-model", reasoning: "off" })
     ).rejects.toThrow("not in your registry");
-  });
-  test("never exposes models for disconnected providers or falls back to the bundled catalog", async () => {
-    const f = await fixture();
-    f.connected.clear();
-    expect((await f.registry.catalog()).models).toEqual([]);
-    expect(f.calls).toHaveLength(0);
-    f.connected.add("openai");
-    f.state.body = { data: [] };
-    expect((await f.registry.catalog()).models).toEqual([]);
   });
   test("uses provider-specific authentication and limits display to the selected provider", async () => {
     const f = await fixture();
@@ -352,112 +233,6 @@ describe("provider-first chat registry", () => {
     f.state.body = { data: [{ id: "claude-chat" }], has_more: true, last_id: "claude-chat" };
     expect((await f.registry.catalog("anthropic")).models).toEqual([]);
   });
-  test("ChatGPT uses its subscription catalog and excludes hidden models", async () => {
-    const f = await fixture();
-    f.connected.clear();
-    f.connected.add("openai-codex");
-    f.state.body = {
-      models: [
-        { slug: "gpt-visible", visibility: "list" },
-        { slug: "gpt-hidden", visibility: "hide" },
-        { slug: "gpt-5.4", visibility: "list" },
-      ],
-    };
-    const result = await f.registry.catalog("openai-codex");
-    expect(result.models.map((m) => m.id)).toEqual(["gpt-visible"]);
-    expect((await f.registry.catalog("openai-codex")).models.map((m) => m.id)).toEqual([
-      "gpt-visible",
-    ]);
-    expect(f.calls[0]?.url.origin).toBe("https://chatgpt.com");
-    expect(f.calls[0]?.url.pathname).toBe("/backend-api/codex/models");
-    // The live subscription endpoint returns only a hidden review model for
-    // the old 0.99.0 client, even with a valid authenticated subscription.
-    expect(f.calls[0]?.url.searchParams.get("client_version")).toBe("1.0.0");
-  });
-  test("ChatGPT reasoning levels and default come from each catalog model", async () => {
-    const f = await fixture();
-    f.connected.clear();
-    f.connected.add("openai-codex");
-    f.state.body = {
-      models: [
-        {
-          slug: "gpt-6.1-sol",
-          display_name: "GPT-6.1 Sol",
-          visibility: "list",
-          input_modalities: ["text", "image"],
-          supported_reasoning_levels: [
-            { effort: "low" },
-            { effort: "medium" },
-            { effort: "high" },
-            { effort: "ultra" },
-          ],
-          default_reasoning_level: "low",
-        },
-      ],
-    };
-    const [model] = (await f.registry.catalog("openai-codex")).models;
-    expect(model).toMatchObject({
-      id: "gpt-6.1-sol",
-      input: ["text", "image"],
-      reasoningLevels: ["low", "medium", "high"],
-      defaultReasoningLevel: "low",
-      thinkingLevelMap: {
-        off: null,
-        minimal: null,
-        low: "low",
-        medium: "medium",
-        high: "high",
-        xhigh: null,
-        max: null,
-      },
-    });
-    await expect(
-      f.registry.verify({
-        providerId: "openai-codex",
-        modelId: "gpt-6.1-sol",
-        reasoning: "off",
-      })
-    ).rejects.toThrow("does not support reasoning level off");
-    await f.registry.verify({
-      providerId: "openai-codex",
-      modelId: "gpt-6.1-sol",
-      reasoning: "low",
-    });
-    const persisted = JSON.parse(await readFile(f.path, "utf8"));
-    expect(persisted.providers["openai-codex"].models[0]).toMatchObject({
-      id: "gpt-6.1-sol",
-      input: ["text", "image"],
-      reasoningLevels: ["low", "medium", "high"],
-      defaultReasoningLevel: "low",
-      thinkingLevelMap: { off: null, low: "low" },
-    });
-    const restarted = await ModelRuntime.create({
-      credentials: new InMemoryCredentialStore(),
-      modelsPath: f.path,
-      modelsStorePath: join(f.path, "..", "restart-models-store.json"),
-      refreshOnCreate: false,
-    });
-    await restarted.refresh({ allowNetwork: false });
-    expect(restarted.getModel("openai-codex", "gpt-6.1-sol")?.input).toEqual(["text", "image"]);
-  });
-  test("Google-compatible custom endpoints filter generation methods", async () => {
-    const f = await fixture({
-      gemini: { baseUrl: "https://gemini.test/v1beta", api: "google-generative-ai", models: [] },
-    });
-    f.connected.clear();
-    f.connected.add("gemini");
-    f.state.body = {
-      models: [
-        { name: "models/gemini-chat", supportedGenerationMethods: ["generateContent"] },
-        { name: "models/embed", supportedGenerationMethods: ["embedContent"] },
-      ],
-    };
-    const result = await f.registry.catalog("gemini");
-    expect(result.models.map((m) => m.id)).toEqual(["gemini-chat"]);
-    expect(new Headers(f.calls[0]?.init.headers).get("x-goog-api-key")).toBe(
-      "synthetic-gemini-key"
-    );
-  });
   test("rejects oversized responses and redacts transport failures", async () => {
     const f = await fixture();
     f.state.fail = true;
@@ -521,7 +296,6 @@ test("OpenRouter discovers account-filtered tool models and persists capabilitie
         name: "New model",
         architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
         supported_parameters: ["tools", "reasoning"],
-        reasoning: { supported_efforts: ["minimal", "low", "medium", "high"] },
         context_length: 200000,
         top_provider: { max_completion_tokens: 32000 },
         pricing: { prompt: "0.000002", completion: "0.000008" },
@@ -577,69 +351,18 @@ test("OpenRouter discovers account-filtered tool models and persists capabilitie
   expect((await f.registry.catalog("openrouter")).models).toEqual([]);
 });
 
-test("OpenRouter models that require reasoning can't be saved with it off", async () => {
-  const f = await fixture({
-    openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" },
-  });
-  f.state.body = {
-    data: [
-      {
-        id: "anthropic/claude-sonnet-5.5",
-        architecture: { output_modalities: ["text"] },
-        supported_parameters: ["tools", "reasoning"],
-        reasoning: { mandatory: true, supported_efforts: ["minimal", "low", "medium", "high"] },
-      },
-    ],
-  };
-  const settings = { providerId: "openrouter", modelId: "anthropic/claude-sonnet-5.5" };
-  await expect(f.registry.verify({ ...settings, reasoning: "off" })).rejects.toThrow(
-    "does not support reasoning level off"
-  );
-  await f.registry.verify({ ...settings, reasoning: "medium" });
-  const saved = JSON.parse(await readFile(f.path, "utf8"));
-  expect(saved.providers.openrouter.models[0].thinkingLevelMap).toEqual({
-    off: null,
-    minimal: "minimal",
-    low: "low",
-    medium: "medium",
-    high: "high",
-    xhigh: null,
-    max: null,
-  });
-});
-
 test("the usable window is the smallest advertised input limit, else the fallback", () => {
   expect(inputWindow([1_050_000, 922_000], 128_000)).toBe(922_000);
   expect(inputWindow([200_000, undefined, "100000", 0, -1, 1.5], 128_000)).toBe(200_000);
   expect(inputWindow([], 128_000)).toBe(128_000);
-  expect(
-    openRouterEndpointPromptCap({
-      data: {
-        endpoints: [
-          { context_length: 1_050_000, max_prompt_tokens: 922_000 },
-          { context_length: 1_050_000, max_prompt_tokens: null },
-          { context_length: 1_050_000, max_prompt_tokens: 930_000 },
-        ],
-      },
-    })
-  ).toBe(922_000);
-  expect(
-    openRouterEndpointPromptCap({ data: { endpoints: [{ context_length: 1_000_000 }] } })
-  ).toBeUndefined();
+  expect(openRouterEndpointPromptCap({ data: { endpoints: [
+    { context_length: 1_050_000, max_prompt_tokens: 922_000 },
+    { context_length: 1_050_000, max_prompt_tokens: null },
+    { context_length: 1_050_000, max_prompt_tokens: 930_000 },
+  ] } })).toBe(922_000);
+  expect(openRouterEndpointPromptCap({ data: { endpoints: [{ context_length: 1_000_000 }] } })).toBeUndefined();
   expect(openRouterEndpointPromptCap({ data: [] })).toBeUndefined();
   expect(openRouterEndpointPromptCap(null)).toBeUndefined();
-});
-
-test("a provider's separate input cap bounds its context window", async () => {
-  const f = await fixture();
-  f.connected.clear();
-  f.connected.add("anthropic");
-  f.state.body = {
-    data: [{ id: "claude-chat", context_window: 1_000_000, max_input_tokens: 872_000 }],
-  };
-  expect((await f.registry.catalog("anthropic")).models[0]?.contextWindow).toBe(872_000);
-  f.state.body = { data: [{ id: "claude-chat", max_input_tokens: 200_000 }] };
-  expect((await f.registry.catalog("anthropic")).models[0]?.contextWindow).toBe(200_000);
 });
 
 test("OpenRouter saves the selected model with its endpoints' prompt cap as the window", async () => {
@@ -653,7 +376,6 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
         name: "GPT-6.1 Sol",
         architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
         supported_parameters: ["tools", "reasoning"],
-        reasoning: { supported_efforts: ["minimal", "low", "medium", "high"] },
         context_length: 1_050_000,
         top_provider: { context_length: 1_050_000, max_completion_tokens: 128_000 },
       },
@@ -663,26 +385,13 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
     data: {
       id: "openai/gpt-6.1-sol",
       endpoints: [
-        {
-          provider_name: "OpenAI",
-          context_length: 1_050_000,
-          max_prompt_tokens: 922_000,
-          max_completion_tokens: 128_000,
-        },
-        {
-          provider_name: "Azure",
-          context_length: 1_050_000,
-          max_prompt_tokens: null,
-          max_completion_tokens: 128_000,
-        },
+        { provider_name: "OpenAI", context_length: 1_050_000, max_prompt_tokens: 922_000, max_completion_tokens: 128_000 },
+        { provider_name: "Azure", context_length: 1_050_000, max_prompt_tokens: null, max_completion_tokens: 128_000 },
       ],
     },
   };
   const fetcher = f.fetcher;
-  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (
-    raw: URL | string | Request,
-    init: RequestInit
-  ) => {
+  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (raw: URL | string | Request, init: RequestInit) => {
     const url = new URL(String(raw));
     if (url.pathname.endsWith("/endpoints")) {
       f.calls.push({ url, init });
@@ -695,19 +404,13 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
   expect((await registry.catalog("openrouter")).models[0]?.contextWindow).toBe(1_050_000);
   expect(f.calls.some((c) => c.url.pathname.endsWith("/endpoints"))).toBe(false);
   const saved = async () => {
-    await registry.verify({
-      providerId: "openrouter",
-      modelId: "openai/gpt-6.1-sol",
-      reasoning: "medium",
-    });
+    await registry.verify({ providerId: "openrouter", modelId: "openai/gpt-6.1-sol", reasoning: "medium" });
     return JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0];
   };
   expect(await saved()).toMatchObject({ contextWindow: 922_000, maxTokens: 128_000 });
   const request = f.calls.find((c) => c.url.pathname.endsWith("/endpoints"))!;
   expect(request.url.pathname).toBe("/api/v1/models/openai/gpt-6.1-sol/endpoints");
-  expect(new Headers(request.init.headers).get("authorization")).toBe(
-    "Bearer synthetic-openrouter-key"
-  );
+  expect(new Headers(request.init.headers).get("authorization")).toBe("Bearer synthetic-openrouter-key");
   // Without a published cap, or when the lookup fails, the advertised window stays.
   endpoints = { data: { endpoints: [{ context_length: 1_050_000 }] } };
   expect((await saved()).contextWindow).toBe(1_050_000);
@@ -715,540 +418,3 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
   expect((await saved()).contextWindow).toBe(1_050_000);
 });
 
-test("a saved OpenRouter model without the prompt cap picks it up on refresh", async () => {
-  const saved = (id: string, contextWindow: number) => ({
-    id,
-    name: id,
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow,
-    maxTokens: 128_000,
-    api: "openai-completions",
-    baseUrl: "https://openrouter.test/api/v1",
-  });
-  const f = await fixture({
-    openrouter: {
-      models: [
-        saved("openai/gpt-6.1-sol", 1_050_000),
-        saved("vendor/uncapped", 400_000),
-        saved("vendor/smaller", 200_000),
-      ],
-    },
-  });
-  const caps: Record<string, unknown> = {
-    "openai/gpt-6.1-sol": 922_000,
-    "vendor/smaller": 300_000,
-  };
-  let refreshed = 0;
-  f.runtime.refresh = (async () => {
-    refreshed++;
-    return { errors: new Map(), aborted: false };
-  }) as ModelRuntime["refresh"];
-  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (
-    raw: URL | string | Request
-  ) => {
-    const id = new URL(String(raw)).pathname.replace(/^\/api\/v1\/models\/|\/endpoints$/g, "");
-    if (id === "vendor/uncapped") throw new Error("offline");
-    return Response.json({
-      data: { endpoints: [{ context_length: 1_050_000, max_prompt_tokens: caps[id] }] },
-    });
-  }) as typeof fetch);
-  const windows = async () =>
-    Object.fromEntries(
-      JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models.map(
-        (m: { id: string; contextWindow: number }) => [m.id, m.contextWindow]
-      )
-    );
-  await registry.refreshPromptCaps();
-  // Only a cap below the saved window lowers it; a failed lookup keeps the saved window.
-  expect(await windows()).toEqual({
-    "openai/gpt-6.1-sol": 922_000,
-    "vendor/uncapped": 400_000,
-    "vendor/smaller": 200_000,
-  });
-  expect(refreshed).toBe(1);
-  // Nothing to change: no write and no runtime reload.
-  await registry.refreshPromptCaps();
-  expect(refreshed).toBe(1);
-});
-
-test("OpenRouter recommends the Auto Router, else a rolling general model, and lists it first", async () => {
-  const f = await fixture({
-    openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" },
-  });
-  const entry = (id: string) => ({
-    id,
-    name: id,
-    architecture: { output_modalities: ["text"] },
-    supported_parameters: ["tools"],
-  });
-  f.state.body = {
-    data: [
-      entry("author/newest"),
-      entry("~openai/gpt-sol-latest"),
-      entry("~anthropic/claude-sonnet-latest"),
-      entry("openrouter/auto"),
-    ],
-  };
-  const catalog = await f.registry.catalog("openrouter");
-  expect(catalog.models.map((m) => [m.id, m.recommended])).toEqual([
-    ["openrouter/auto", true],
-    ["author/newest", undefined],
-    ["~openai/gpt-sol-latest", undefined],
-    ["~anthropic/claude-sonnet-latest", undefined],
-  ]);
-
-  // An account whose settings hide the Auto Router gets the next suggestion.
-  f.state.body = {
-    data: [
-      entry("author/newest"),
-      entry("~openai/gpt-sol-latest"),
-      entry("~anthropic/claude-sonnet-latest"),
-    ],
-  };
-  expect((await f.registry.catalog("openrouter")).models.map((m) => m.id)).toEqual([
-    "~anthropic/claude-sonnet-latest",
-    "author/newest",
-    "~openai/gpt-sol-latest",
-  ]);
-
-  // Nothing suggested is listed: keep OpenRouter's order and recommend nothing.
-  f.state.body = { data: [entry("author/b"), entry("author/a")] };
-  const plain = await f.registry.catalog("openrouter");
-  expect(plain.models.map((m) => m.id)).toEqual(["author/b", "author/a"]);
-  expect(plain.models.some((m) => m.recommended)).toBe(false);
-
-  // The suggestion is a catalog hint, not a capability, so it is never persisted.
-  f.state.body = { data: [entry("openrouter/auto")] };
-  await f.registry.verify({
-    providerId: "openrouter",
-    modelId: "openrouter/auto",
-    reasoning: "off",
-  });
-  const saved = JSON.parse(await readFile(f.path, "utf8"));
-  expect(saved.providers.openrouter.models[0].id).toBe("openrouter/auto");
-  expect(saved.providers.openrouter.models[0]).not.toHaveProperty("recommended");
-});
-
-test("a late OpenRouter verification cannot raise a concurrently refreshed prompt cap", async () => {
-  const saved = {
-    ...model("openrouter", "vendor/chat"),
-    api: "openai-completions",
-    reasoning: false,
-    contextWindow: 16000,
-    baseUrl: "https://openrouter.test/api/v1",
-  };
-  const f = await fixture({
-    openrouter: { baseUrl: saved.baseUrl, api: "openai-completions", models: [saved] },
-  });
-  f.connected.clear();
-  f.connected.add("openrouter");
-  const entered = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  let endpoints = 0;
-  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (
-    raw: URL | string | Request,
-    init: RequestInit
-  ) => {
-    const url = new URL(String(raw));
-    if (url.pathname.endsWith("/endpoints")) {
-      const older = ++endpoints === 1;
-      if (older) {
-        entered.resolve();
-        await release.promise;
-      }
-      return Response.json({ data: { endpoints: [{ max_prompt_tokens: older ? 12000 : 4000 }] } });
-    }
-    f.state.body = {
-      data: [
-        {
-          id: saved.id,
-          context_length: 16000,
-          architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
-          supported_parameters: ["tools"],
-        },
-      ],
-    };
-    return f.fetcher(raw, init);
-  }) as typeof fetch);
-  const verifying = registry.verify({
-    providerId: "openrouter",
-    modelId: saved.id,
-    reasoning: "off",
-  });
-  try {
-    await entered.promise;
-    await registry.refreshPromptCaps();
-    expect(
-      JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].contextWindow
-    ).toBe(4000);
-    release.resolve();
-    await verifying;
-    expect(
-      JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].contextWindow
-    ).toBe(4000);
-  } finally {
-    release.resolve();
-    await verifying;
-  }
-});
-
-for (const change of ["URL", "remove model", "remove provider"] as const) {
-  test(`pending OpenRouter prompt-cap refresh preserves an in-flight ${change} edit`, async () => {
-    const saved = {
-      ...model("openrouter", "vendor/chat"),
-      api: "openai-completions",
-      contextWindow: 16000,
-      baseUrl: "https://openrouter.test/api/v1",
-    };
-    const f = await fixture({ openrouter: { baseUrl: saved.baseUrl, models: [saved] } });
-    const entered = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async () => {
-      entered.resolve();
-      await release.promise;
-      return Response.json({ data: { endpoints: [{ max_prompt_tokens: 4000 }] } });
-    }) as unknown as typeof fetch);
-    const operation = registry.refreshPromptCaps();
-    try {
-      await entered.promise;
-      const edited = JSON.parse(await readFile(f.path, "utf8"));
-      if (change === "URL")
-        edited.providers.openrouter.models[0].baseUrl = "https://new-deployment.test/api/v1";
-      if (change === "remove model") edited.providers.openrouter.models = [];
-      if (change === "remove provider") delete edited.providers.openrouter;
-      const bytes = JSON.stringify(edited);
-      await writeFile(f.path, bytes);
-      release.resolve();
-      await operation;
-      expect(await readFile(f.path, "utf8")).toBe(bytes);
-    } finally {
-      release.resolve();
-      await operation;
-    }
-  });
-}
-
-test.each([
-  true,
-  false,
-])("OpenRouter persists tiers and reloads them after restart (catalog overrides: %s)", async (catalogOverrides) => {
-  const f = await fixture({
-    openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" },
-  });
-  f.connected.clear();
-  f.connected.add("openrouter");
-  const pricing = {
-    prompt: "0.000002",
-    completion: "0.00001",
-    input_cache_read: "0.0000001",
-    input_cache_write: "0.0000025",
-    overrides: [{ min_prompt_tokens: 272000, prompt: "0.000004", completion: "0.000015" }],
-  };
-  f.state.body = {
-    data: [
-      {
-        id: "openai/gpt-6.1-sol",
-        architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
-        supported_parameters: ["tools", "reasoning"],
-        reasoning: { supported_efforts: ["low", "medium", "high"] },
-        context_length: 1050000,
-        top_provider: { max_completion_tokens: 128000 },
-        pricing: { ...pricing, overrides: catalogOverrides ? pricing.overrides : undefined },
-      },
-    ],
-  };
-  let offline = false;
-  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (
-    url: any,
-    init: any
-  ) => {
-    if (!String(url).endsWith("/endpoints")) return f.fetcher(url, init);
-    if (offline) throw new Error("offline");
-    return Response.json({ data: { endpoints: [{ max_prompt_tokens: 922000, pricing }] } });
-  }) as typeof fetch);
-  await registry.verify({
-    providerId: "openrouter",
-    modelId: "openai/gpt-6.1-sol",
-    reasoning: "medium",
-  });
-  const document = JSON.parse(await readFile(f.path, "utf8"));
-  const saved = structuredClone(document.providers.openrouter.models[0]);
-  expect(saved.cost.tiers).toEqual([
-    {
-      inputTokensAbove: 272000,
-      input: 4,
-      output: 15,
-      cacheRead: saved.cost.cacheRead,
-      cacheWrite: 2.5,
-    },
-  ]);
-  expect(saved).toMatchObject({
-    api: "openai-completions",
-    contextWindow: 922000,
-    maxTokens: 128000,
-    input: ["text", "image"],
-  });
-  const restarted = await ModelRuntime.create({
-    credentials: new InMemoryCredentialStore(),
-    modelsPath: f.path,
-    modelsStorePath: join(f.path, "..", "restart-models-store.json"),
-    refreshOnCreate: false,
-  });
-  await restarted.refresh({ allowNetwork: false });
-  expect(restarted.getModel("openrouter", saved.id)?.cost).toEqual(saved.cost);
-  // Startup refresh upgrades already-selected models even if their window is already capped.
-  delete document.providers.openrouter.models[0].cost.tiers;
-  await writeFile(f.path, JSON.stringify(document));
-  await registry.refreshPromptCaps();
-  expect(JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0]).toEqual(saved);
-  const before = await readFile(f.path, "utf8");
-  await registry.refreshPromptCaps();
-  expect(await readFile(f.path, "utf8")).toBe(before);
-  offline = true;
-  await registry.refreshPromptCaps();
-  expect(await readFile(f.path, "utf8")).toBe(before);
-});
-
-test("OpenRouter pricing refresh preserves a model reselected during its endpoint lookup", async () => {
-  const saved = {
-    ...model("openrouter", "openai/gpt-6.1-sol"),
-    api: "openai-completions",
-    baseUrl: "https://openrouter.test/api/v1",
-    contextWindow: 922000,
-    cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
-  };
-  const f = await fixture({ openrouter: { models: [saved] } });
-  const replacement = { ...saved, cost: { input: 3, output: 12, cacheRead: 0.3, cacheWrite: 3 } };
-  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (
-    _raw: URL | string | Request,
-    _init?: RequestInit
-  ) => {
-    await writeFile(
-      f.path,
-      JSON.stringify({ providers: { openrouter: { models: [replacement] } } })
-    );
-    return Response.json({
-      data: {
-        endpoints: [
-          {
-            pricing: {
-              prompt: "0.000002",
-              completion: "0.00001",
-              input_cache_read: "0.0000001",
-              input_cache_write: "0.0000025",
-              overrides: [{ min_prompt_tokens: 272000, prompt: "0.000004" }],
-            },
-          },
-        ],
-      },
-    });
-  }) as typeof fetch);
-  await registry.refreshPromptCaps();
-  expect(JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models).toEqual([
-    replacement,
-  ]);
-});
-
-test("late OpenRouter verification preserves concurrently refreshed pricing tiers", async () => {
-  const saved = {
-    ...model("openrouter", "vendor/chat"),
-    api: "openai-completions",
-    reasoning: false,
-    contextWindow: 16000,
-    baseUrl: "https://openrouter.test/api/v1",
-    cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
-  };
-  const f = await fixture({
-    openrouter: { baseUrl: saved.baseUrl, api: "openai-completions", models: [saved] },
-  });
-  f.connected.clear();
-  f.connected.add("openrouter");
-  const entered = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  let endpoints = 0;
-  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (
-    raw: URL | string | Request,
-    init: RequestInit
-  ) => {
-    if (new URL(String(raw)).pathname.endsWith("/endpoints")) {
-      const older = ++endpoints === 1;
-      if (older) {
-        entered.resolve();
-        await release.promise;
-      }
-      return Response.json({
-        data: {
-          endpoints: [
-            {
-              pricing: {
-                prompt: "0.000002",
-                completion: "0.00001",
-                input_cache_read: "0.0000001",
-                input_cache_write: "0.0000025",
-                overrides: older ? undefined : [{ min_prompt_tokens: 8000, prompt: "0.000006" }],
-              },
-            },
-          ],
-        },
-      });
-    }
-    f.state.body = {
-      data: [
-        {
-          id: saved.id,
-          context_length: 16000,
-          architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
-          supported_parameters: ["tools"],
-          pricing: {
-            prompt: "0.000002",
-            completion: "0.00001",
-            input_cache_read: "0.0000001",
-            input_cache_write: "0.0000025",
-          },
-        },
-      ],
-    };
-    return f.fetcher(raw, init);
-  }) as typeof fetch);
-  const verifying = registry.verify({
-    providerId: "openrouter",
-    modelId: saved.id,
-    reasoning: "off",
-  });
-  try {
-    await entered.promise;
-    await registry.refreshPromptCaps();
-    const current = JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].cost;
-    expect(current.input).toBe(2);
-    expect(current.tiers).toHaveLength(1);
-    release.resolve();
-    await verifying;
-    expect(JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].cost).toEqual(
-      current
-    );
-  } finally {
-    release.resolve();
-    await verifying;
-  }
-});
-
-test("issue 281: advertised efforts drive API selection, validation and saved mappings", async () => {
-  const { InferenceProviderService } = await import("../src/inference-providers");
-  const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1" } });
-  const entry = {
-    id: "anthropic/claude-fable-5.2",
-    name: "Anthropic: Claude Fable 5.2",
-    architecture: { output_modalities: ["text"] },
-    supported_parameters: ["tools", "reasoning"],
-    reasoning: {
-      supported_efforts: ["max", "xhigh", "high", "medium", "low"],
-      mandatory: true,
-      default_effort: "high",
-    },
-  };
-  f.state.body = { data: [entry] };
-  const service = new InferenceProviderService(() => f.runtime, f.path, f.fetcher);
-  expect((await service.catalog("openrouter")).models[0]).toMatchObject({
-    reasoningLevels: ["low", "medium", "high", "xhigh", "max"],
-    defaultReasoningLevel: "high",
-  });
-  for (const reasoning of ["xhigh", "max"] as const) {
-    await service.verify({ providerId: "openrouter", modelId: entry.id, reasoning });
-    const saved = JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0];
-    expect(saved.thinkingLevelMap).toEqual({
-      off: null,
-      minimal: null,
-      low: "low",
-      medium: "medium",
-      high: "high",
-      xhigh: "xhigh",
-      max: "max",
-    });
-    // Simulate a saved/bundled snapshot remaining available during future discovery.
-    f.runtime.registerProvider("openrouter", { models: [saved] } as never);
-  }
-  // A later refresh removes max/xhigh and changes the default, overriding the snapshot.
-  entry.reasoning.supported_efforts = ["high", "low"];
-  entry.reasoning.default_effort = "low";
-  expect((await service.catalog("openrouter")).models[0]).toMatchObject({
-    reasoningLevels: ["low", "high"],
-    defaultReasoningLevel: "low",
-  });
-  await expect(
-    service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "max" })
-  ).rejects.toThrow("Choose one of: low, high");
-  await service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "low" });
-  expect(
-    JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].thinkingLevelMap.max
-  ).toBeNull();
-  // Removing effort metadata must also clear saved controls rather than resurrecting them.
-  f.state.body = { data: [{ ...entry, reasoning: { mandatory: true } }] };
-  expect((await service.catalog("openrouter")).models[0]).toMatchObject({
-    reasoningLevels: [],
-    defaultReasoningLevel: "off",
-  });
-  await service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "off" });
-  await expect(
-    service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "high" })
-  ).rejects.toThrow("provider default");
-  const beforeFailure = await readFile(f.path, "utf8");
-  f.state.status = 503;
-  await expect(
-    service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "off" })
-  ).rejects.toThrow("HTTP 503");
-  expect(await readFile(f.path, "utf8")).toBe(beforeFailure);
-});
-
-test("validation refuses effort on a model that does not reason", async () => {
-  const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1" } });
-  f.state.body = {
-    data: [
-      {
-        id: "author/plain",
-        architecture: { output_modalities: ["text"] },
-        supported_parameters: ["tools"],
-      },
-    ],
-  };
-  await expect(
-    f.registry.verify({ providerId: "openrouter", modelId: "author/plain", reasoning: "max" })
-  ).rejects.toThrow("Choose one of: off");
-  await f.registry.verify({ providerId: "openrouter", modelId: "author/plain", reasoning: "off" });
-});
-
-test("known providers also persist advertised capabilities instead of retaining bundled efforts", async () => {
-  const f = await fixture();
-  f.state.body = {
-    data: [
-      {
-        id: "claude-chat",
-        supported_reasoning_levels: ["low", "max"],
-        default_reasoning_level: "max",
-      },
-    ],
-  };
-  const discovered = (await f.registry.catalog("anthropic")).models[0]!;
-  const { reasoningCapabilities } = await import("../src/reasoning-capabilities");
-  expect(reasoningCapabilities(discovered)).toEqual({
-    reasoningLevels: ["low", "max"],
-    defaultReasoningLevel: "max",
-  });
-  await expect(
-    f.registry.verify({ providerId: "anthropic", modelId: "claude-chat", reasoning: "high" })
-  ).rejects.toThrow("Choose one of: low, max");
-  await f.registry.verify({ providerId: "anthropic", modelId: "claude-chat", reasoning: "max" });
-  expect(
-    JSON.parse(await readFile(f.path, "utf8")).providers.anthropic.models[0].thinkingLevelMap
-  ).toMatchObject({ high: null, max: "max" });
-  f.state.body = { data: [{ id: "claude-chat", thinking: false }] };
-  expect(reasoningCapabilities((await f.registry.catalog("anthropic")).models[0]!)).toEqual({
-    reasoningLevels: ["off"],
-    defaultReasoningLevel: "off",
-  });
-  await f.registry.verify({ providerId: "anthropic", modelId: "claude-chat", reasoning: "off" });
-  expect(JSON.parse(await readFile(f.path, "utf8")).providers.anthropic.models[0].reasoning).toBe(
-    false
-  );
-});

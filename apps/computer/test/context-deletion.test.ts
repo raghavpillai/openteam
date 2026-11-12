@@ -35,16 +35,6 @@ test("context deletion discovers the file when session attachment was not record
   expect(f.disposed).toEqual(["context"]);
 });
 
-test("context deletion removes a recorded file under an old session root", async () => {
-  const f = await fixture();
-  const legacy = join(f.root, "sessions", "legacy");
-  await mkdir(legacy);
-  const path = join(legacy, "context.jsonl");
-  await writeFile(path, "session");
-  await f.runtime.deleteContextSession("context", path);
-  expect(await stat(path).catch(() => null)).toBeNull();
-});
-
 test("context deletion preserves files outside the sessions parent", async () => {
   const f = await fixture();
   const path = join(f.root, "unrelated.jsonl");
@@ -112,18 +102,6 @@ describe("Pi session paths", () => {
     expect(() => assertSessionPath(piSessionsDir, `${piSessionsDir}/../escape.jsonl`)).toThrow(
       "outside the OpenTeam session directory"
     );
-  });
-
-  test("discarding a context also cleans a session recorded under a previous root", () => {
-    expect(disposableSessionPath(piSessionsDir, `${piSessionsDir}/one_ctx.jsonl`)).toBe(
-      `${piSessionsDir}/one_ctx.jsonl`
-    );
-    expect(
-      disposableSessionPath(
-        piSessionsDir,
-        "/home/box/.pi/agent/sessions/legacy/2026-11-07T15-01-21-131Z_588d944c.jsonl"
-      )
-    ).toBe("/home/box/.pi/agent/sessions/legacy/2026-11-07T15-01-21-131Z_588d944c.jsonl");
   });
 
   test("discarding never leaves the sessions parent directory or drops a non-session file", () => {

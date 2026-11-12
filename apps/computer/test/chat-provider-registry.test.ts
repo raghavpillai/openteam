@@ -521,6 +521,7 @@ test("OpenRouter discovers account-filtered tool models and persists capabilitie
         name: "New model",
         architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
         supported_parameters: ["tools", "reasoning"],
+        reasoning: { supported_efforts: ["minimal", "low", "medium", "high"] },
         context_length: 200000,
         top_provider: { max_completion_tokens: 32000 },
         pricing: { prompt: "0.000002", completion: "0.000008" },
@@ -586,7 +587,7 @@ test("OpenRouter models that require reasoning can't be saved with it off", asyn
         id: "anthropic/claude-sonnet-5.5",
         architecture: { output_modalities: ["text"] },
         supported_parameters: ["tools", "reasoning"],
-        reasoning: { mandatory: true },
+        reasoning: { mandatory: true, supported_efforts: ["minimal", "low", "medium", "high"] },
       },
     ],
   };
@@ -596,7 +597,15 @@ test("OpenRouter models that require reasoning can't be saved with it off", asyn
   );
   await f.registry.verify({ ...settings, reasoning: "medium" });
   const saved = JSON.parse(await readFile(f.path, "utf8"));
-  expect(saved.providers.openrouter.models[0].thinkingLevelMap).toEqual({ off: null });
+  expect(saved.providers.openrouter.models[0].thinkingLevelMap).toEqual({
+    off: null,
+    minimal: "minimal",
+    low: "low",
+    medium: "medium",
+    high: "high",
+    xhigh: null,
+    max: null,
+  });
 });
 
 test("the usable window is the smallest advertised input limit, else the fallback", () => {
@@ -644,6 +653,7 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
         name: "GPT-6.1 Sol",
         architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
         supported_parameters: ["tools", "reasoning"],
+        reasoning: { supported_efforts: ["minimal", "low", "medium", "high"] },
         context_length: 1_050_000,
         top_provider: { context_length: 1_050_000, max_completion_tokens: 128_000 },
       },
@@ -942,6 +952,7 @@ test.each([
         id: "openai/gpt-6.1-sol",
         architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
         supported_parameters: ["tools", "reasoning"],
+        reasoning: { supported_efforts: ["low", "medium", "high"] },
         context_length: 1050000,
         top_provider: { max_completion_tokens: 128000 },
         pricing: { ...pricing, overrides: catalogOverrides ? pricing.overrides : undefined },
@@ -1121,4 +1132,123 @@ test("late OpenRouter verification preserves concurrently refreshed pricing tier
     release.resolve();
     await verifying;
   }
+});
+
+test("issue 281: advertised efforts drive API selection, validation and saved mappings", async () => {
+  const { InferenceProviderService } = await import("../src/inference-providers");
+  const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1" } });
+  const entry = {
+    id: "anthropic/claude-fable-5.2",
+    name: "Anthropic: Claude Fable 5.2",
+    architecture: { output_modalities: ["text"] },
+    supported_parameters: ["tools", "reasoning"],
+    reasoning: {
+      supported_efforts: ["max", "xhigh", "high", "medium", "low"],
+      mandatory: true,
+      default_effort: "high",
+    },
+  };
+  f.state.body = { data: [entry] };
+  const service = new InferenceProviderService(() => f.runtime, f.path, f.fetcher);
+  expect((await service.catalog("openrouter")).models[0]).toMatchObject({
+    reasoningLevels: ["low", "medium", "high", "xhigh", "max"],
+    defaultReasoningLevel: "high",
+  });
+  for (const reasoning of ["xhigh", "max"] as const) {
+    await service.verify({ providerId: "openrouter", modelId: entry.id, reasoning });
+    const saved = JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0];
+    expect(saved.thinkingLevelMap).toEqual({
+      off: null,
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: "xhigh",
+      max: "max",
+    });
+    // Simulate a saved/bundled snapshot remaining available during future discovery.
+    f.runtime.registerProvider("openrouter", { models: [saved] } as never);
+  }
+  // A later refresh removes max/xhigh and changes the default, overriding the snapshot.
+  entry.reasoning.supported_efforts = ["high", "low"];
+  entry.reasoning.default_effort = "low";
+  expect((await service.catalog("openrouter")).models[0]).toMatchObject({
+    reasoningLevels: ["low", "high"],
+    defaultReasoningLevel: "low",
+  });
+  await expect(
+    service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "max" })
+  ).rejects.toThrow("Choose one of: low, high");
+  await service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "low" });
+  expect(
+    JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].thinkingLevelMap.max
+  ).toBeNull();
+  // Removing effort metadata must also clear saved controls rather than resurrecting them.
+  f.state.body = { data: [{ ...entry, reasoning: { mandatory: true } }] };
+  expect((await service.catalog("openrouter")).models[0]).toMatchObject({
+    reasoningLevels: [],
+    defaultReasoningLevel: "off",
+  });
+  await service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "off" });
+  await expect(
+    service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "high" })
+  ).rejects.toThrow("provider default");
+  const beforeFailure = await readFile(f.path, "utf8");
+  f.state.status = 503;
+  await expect(
+    service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "off" })
+  ).rejects.toThrow("HTTP 503");
+  expect(await readFile(f.path, "utf8")).toBe(beforeFailure);
+});
+
+test("validation refuses effort on a model that does not reason", async () => {
+  const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1" } });
+  f.state.body = {
+    data: [
+      {
+        id: "author/plain",
+        architecture: { output_modalities: ["text"] },
+        supported_parameters: ["tools"],
+      },
+    ],
+  };
+  await expect(
+    f.registry.verify({ providerId: "openrouter", modelId: "author/plain", reasoning: "max" })
+  ).rejects.toThrow("Choose one of: off");
+  await f.registry.verify({ providerId: "openrouter", modelId: "author/plain", reasoning: "off" });
+});
+
+test("known providers also persist advertised capabilities instead of retaining bundled efforts", async () => {
+  const f = await fixture();
+  f.state.body = {
+    data: [
+      {
+        id: "claude-chat",
+        supported_reasoning_levels: ["low", "max"],
+        default_reasoning_level: "max",
+      },
+    ],
+  };
+  const discovered = (await f.registry.catalog("anthropic")).models[0]!;
+  const { reasoningCapabilities } = await import("../src/reasoning-capabilities");
+  expect(reasoningCapabilities(discovered)).toEqual({
+    reasoningLevels: ["low", "max"],
+    defaultReasoningLevel: "max",
+  });
+  await expect(
+    f.registry.verify({ providerId: "anthropic", modelId: "claude-chat", reasoning: "high" })
+  ).rejects.toThrow("Choose one of: low, max");
+  await f.registry.verify({ providerId: "anthropic", modelId: "claude-chat", reasoning: "max" });
+  expect(
+    JSON.parse(await readFile(f.path, "utf8")).providers.anthropic.models[0].thinkingLevelMap
+  ).toMatchObject({ high: null, max: "max" });
+  f.state.body = { data: [{ id: "claude-chat", thinking: false }] };
+  expect(reasoningCapabilities((await f.registry.catalog("anthropic")).models[0]!)).toEqual({
+    reasoningLevels: ["off"],
+    defaultReasoningLevel: "off",
+  });
+  await f.registry.verify({ providerId: "anthropic", modelId: "claude-chat", reasoning: "off" });
+  expect(JSON.parse(await readFile(f.path, "utf8")).providers.anthropic.models[0].reasoning).toBe(
+    false
+  );
 });

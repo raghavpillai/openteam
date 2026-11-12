@@ -5,16 +5,19 @@ import { join, resolve } from "node:path";
 import { createJimp } from "@jimp/core";
 import png from "@jimp/js-png";
 
+// Fake gateway controls for the manual live harness.
 for (const behavior of [
+  "completed after correct answer",
   "discovery failure",
   "no screenshot",
   "wrong answer",
   "truncated after correct answer",
   "stalled after correct answer",
 ] as const) {
+  const successful = behavior === "completed after correct answer";
   // Allow slow cold imports; inference keeps its separately asserted 1.5/5s deadlines.
-  test(`live Magpie harness rejects ${behavior}`, async () => {
-    const root = await mkdtemp(join(tmpdir(), "magpie-harness-negative-"));
+  test(`live Magpie harness ${successful ? "accepts" : "rejects"} ${behavior}`, async () => {
+    const root = await mkdtemp(join(tmpdir(), "magpie-harness-control-"));
     await writeFile(join(root, "result.json"), JSON.stringify({ success: true }));
     let imageRequests = 0;
     const server = Bun.serve({
@@ -24,7 +27,14 @@ for (const behavior of [
         if (behavior === "discovery failure") return new Response("Unavailable", { status: 503 });
         if (new URL(request.url).pathname === "/v1/models")
           return Response.json({
-            data: [{ id: "fixture/vision", modalities: { input: ["text", "image"] } }],
+            data: [
+              {
+                id: "fixture/vision",
+                modalities: { input: ["text", "image"] },
+                reasoning: true,
+                supported_reasoning_levels: [{ effort: "none" }, { effort: "low" }],
+              },
+            ],
           });
         const body = (await request.json()) as any;
         const image = body.messages
@@ -44,6 +54,7 @@ for (const behavior of [
             ffff00ff: "yellow",
           };
           if (
+            successful ||
             behavior === "stalled after correct answer" ||
             behavior === "truncated after correct answer"
           )
@@ -122,6 +133,15 @@ for (const behavior of [
         new Response(child.stdout).text(),
         new Response(child.stderr).text(),
       ]);
+      if (successful) {
+        expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+        expect(stdout).toContain("PASS:");
+        expect(imageRequests).toBe(2);
+        const result = JSON.parse(await readFile(join(root, "result.json"), "utf8"));
+        expect(result.success).toBe(true);
+        expect(result.trials).toHaveLength(2);
+        return;
+      }
       expect(code).not.toBe(0);
       expect(stdout).not.toContain("PASS:");
       if (behavior === "discovery failure") expect(stderr).toContain("discovery returned 503");

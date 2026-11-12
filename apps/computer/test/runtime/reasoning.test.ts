@@ -218,3 +218,108 @@ describe("Codex reasoning request semantics", () => {
     }
   });
 });
+
+describe("OpenRouter reasoning across inference paths", () => {
+  test.each([
+    "xhigh",
+    "max",
+    "off",
+  ] as const)("preserves %s through chat, utility inference and compaction", async (requested) => {
+    const { streamSimple: routedStream } = await import(
+      "@earendil-works/pi-ai/api/openai-completions"
+    );
+    const { openRouterReasoning } = await import("../../src/reasoning-capabilities");
+    const routedModel: Model<"openai-completions"> = {
+      ...model,
+      id: "author/dynamic",
+      provider: "openrouter",
+      api: "openai-completions",
+      ...openRouterReasoning(
+        requested === "off"
+          ? { mandatory: true }
+          : {
+              supported_efforts: ["low", "high", "xhigh", "max"],
+              mandatory: true,
+            }
+      ),
+    };
+    const directory = await mkdtemp(join(tmpdir(), "openteam-openrouter-reasoning-"));
+    directories.push(directory);
+    const modelRuntime = await ModelRuntime.create({
+      credentials: new InMemoryCredentialStore(),
+      modelsPath: null,
+      refreshOnCreate: false,
+    });
+    modelRuntime.checkAuth = async () => ({ type: "api_key" });
+    const capture = captureRequests();
+    modelRuntime.streamSimple = (_model, messages, options) =>
+      routedStream(routedModel, messages, { ...options, ...capture.options });
+    const runtime = new ComputerRuntime();
+    const internals = runtime as unknown as {
+      start: () => Promise<void>;
+      agentDir: string;
+      modelRuntime: ModelRuntime;
+      resolveModel: () => typeof routedModel;
+      customTools: () => [];
+      compactionExtension: () => { name: string; hidden: boolean; factory: () => void };
+      createStandaloneSession: (
+        cwd: string,
+        instructions: string,
+        manager: SessionManager,
+        active: ActiveTurn,
+        ref: { providerId: string; modelId: string }
+      ) => Promise<AgentSession>;
+    };
+    internals.start = async () => {};
+    internals.agentDir = directory;
+    internals.modelRuntime = modelRuntime;
+    internals.resolveModel = () => routedModel;
+    internals.customTools = () => [];
+    internals.compactionExtension = () => ({
+      name: "offline-compaction",
+      hidden: true,
+      factory() {},
+    });
+    await expect(
+      runtime.infer({
+        instructions: "Offline",
+        prompt: "Capture",
+        cwd: directory,
+        timeoutMs: 1000,
+        model: "openrouter/author/dynamic",
+        reasoning: requested,
+      })
+    ).rejects.toThrow("Offline request captured");
+    await expect(
+      inferCompaction(
+        modelRuntime,
+        () => routedModel,
+        () => [],
+        {
+          reasoning: requested,
+          modelRef: { providerId: routedModel.provider, modelId: routedModel.id },
+        } as ActiveTurn,
+        { systemPrompt: "Offline", userInfoMessage: null, messagesToSummarize: [], shorter: false },
+        new AbortController().signal
+      )
+    ).rejects.toThrow("Offline request captured");
+    const manager = SessionManager.inMemory(directory);
+    const session = await internals.createStandaloneSession(
+      directory,
+      "Offline",
+      manager,
+      { contextSessionId: manager.getSessionId(), reasoning: requested } as ActiveTurn,
+      { providerId: routedModel.provider, modelId: routedModel.id }
+    );
+    try {
+      await session.prompt("Capture request");
+      expect(capture.requests).toHaveLength(3);
+      for (const payload of capture.requests) {
+        if (requested === "off") expect(payload).not.toHaveProperty("reasoning");
+        else expect(payload.reasoning).toEqual({ effort: requested });
+      }
+    } finally {
+      session.dispose();
+    }
+  });
+});

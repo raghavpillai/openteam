@@ -139,7 +139,7 @@ test("custom endpoint: add without a model or key, discover, select, restart, in
 test("OpenRouter: discover a new namespaced model, select, restart and infer with its own API key", async () => {
   const { writeFile } = await import("node:fs/promises");
   const directory = await mkdtemp(join(tmpdir(), "openteam-openrouter-integration-"));
-  const requests: Array<{ path: string; auth: string | null; model?: string }> = [];
+  const requests: Array<{ path: string; auth: string | null; model?: string; reasoning?: unknown }> = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -149,6 +149,7 @@ test("OpenRouter: discover a new namespaced model, select, restart and infer wit
         path,
         auth: request.headers.get("authorization"),
         model: undefined as string | undefined,
+        reasoning: undefined as unknown,
       };
       requests.push(row);
       if (path === "/api/v1/models/user")
@@ -159,13 +160,16 @@ test("OpenRouter: discover a new namespaced model, select, restart and infer wit
               name: "New tool model",
               context_length: 64000,
               architecture: { input_modalities: ["text"], output_modalities: ["text"] },
-              supported_parameters: ["tools"],
+              supported_parameters: ["tools", "reasoning"],
+              reasoning: { supported_efforts: ["max", "xhigh", "high", "low"], mandatory: true, default_effort: "high" },
               top_provider: { max_completion_tokens: 4096 },
             },
           ],
         });
       if (path === "/api/v1/chat/completions") {
-        row.model = (await request.json()).model;
+        const body = await request.json();
+        row.model = body.model;
+        row.reasoning = body.reasoning;
         return new Response(
           `data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", created: 0, model: row.model, choices: [{ index: 0, delta: { role: "assistant", content: "Routed correctly" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
           { headers: { "content-type": "text/event-stream" } }
@@ -224,9 +228,13 @@ test("OpenRouter: discover a new namespaced model, select, restart and infer wit
         modelId: "author/new-tool-model",
         contextWindow: 64000,
         maxTokens: 4096,
+        reasoningLevels: ["low", "high", "xhigh", "max"],
+        defaultReasoningLevel: "high",
       },
     ]);
-    await run(["src/provider-cli.ts", "verify", "openrouter", "author/new-tool-model"]);
+    for (const effort of ["xhigh", "max"]) {
+      await run(["src/provider-cli.ts", "verify", "openrouter", "author/new-tool-model", effort]);
+    }
     const output = await run([
       "-e",
       `
@@ -235,7 +243,7 @@ test("OpenRouter: discover a new namespaced model, select, restart and infer wit
       const runtime = await createModelRuntime({ authPath: dir+'/auth.json', modelsPath: dir+'/models.json', modelsStorePath: dir+'/models-store.json', allowModelNetwork: false });
       const model = runtime.getModel('openrouter','author/new-tool-model');
       if (!model || model.api !== 'openai-completions' || model.contextWindow !== 64000) throw new Error('Model snapshot was lost');
-      const response = await runtime.completeSimple(model, {messages:[{role:'user',content:'ping',timestamp:Date.now()}]}, {maxTokens:10,signal:AbortSignal.timeout(3000)});
+      const response = await runtime.completeSimple(model, {messages:[{role:'user',content:'ping',timestamp:Date.now()}]}, {reasoning: "max", maxTokens:10,signal:AbortSignal.timeout(3000)});
       if (response.stopReason === 'error') throw new Error(response.errorMessage);
       console.log(JSON.stringify(response.content));
     `,
@@ -248,6 +256,7 @@ test("OpenRouter: discover a new namespaced model, select, restart and infer wit
           r.auth !== "Bearer synthetic-openrouter-key"
       )
     ).toEqual([]);
+    expect(requests.find((r) => r.path.endsWith("chat/completions"))?.reasoning).toEqual({effort: "max"});
     expect(requests.find((r) => r.path.endsWith("chat/completions"))?.model).toBe(
       "author/new-tool-model"
     );

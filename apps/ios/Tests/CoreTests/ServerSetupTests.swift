@@ -260,6 +260,21 @@ final class InferenceSettingsTests: XCTestCase {
         "reasoning": .string("high"),
       ]))
   }
+  func testProviderManagedReasoningUsesTheDefaultSentinel() throws {
+    let model = InferenceModel(
+      providerId: "openrouter", modelId: "author/managed", name: "Managed",
+      reasoning: true, reasoningLevels: [], defaultReasoningLevel: "off",
+      contextWindow: 128000, maxTokens: 8192)
+    var choice = ModelChoice(providerId: "openrouter", modelId: model.modelId, reasoning: "max")
+    choice.select(model: model)
+    XCTAssertEqual(choice.reasoning, "off")
+    XCTAssertEqual(choice.effectiveReasoning(model), "off")
+    XCTAssertEqual(try JSON.encode(choice.body(model: model)), .object([
+      "providerId": .string("openrouter"), "modelId": .string("author/managed"),
+      "reasoning": .string("off"),
+    ]))
+  }
+
   func testAnswersTheBrowserOrCodeChoiceWithTheCode() throws {
     let select = try decode(
       InferenceAuthSession.self,

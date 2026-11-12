@@ -32,6 +32,7 @@ async function fixture(
     input?: string[];
     nested?: boolean;
     requirements?: string;
+    reasoningLevels?: string[];
   } = {}
 ) {
   const root = await mkdtemp(join(tmpdir(), "provider-capabilities-"));
@@ -40,6 +41,7 @@ async function fixture(
     onList: async () => {},
     requests: [] as Array<{ route: string | null; body: any }>,
     input: options.input ?? ["text", "image"],
+    reasoningLevels: options.reasoningLevels,
   };
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -51,6 +53,12 @@ async function fixture(
         return Response.json({
           data: ["chat-a", "chat-b"].map((id) => ({
             id,
+            ...(state.reasoningLevels === undefined
+              ? {}
+              : {
+                  supported_reasoning_levels: state.reasoningLevels,
+                  default_reasoning_level: "high",
+                }),
             ...(options.nested
               ? { modalities: { input: state.input } }
               : { input_modalities: state.input }),
@@ -506,3 +514,89 @@ test("simultaneous create-only CLI requests cannot replace each other's provider
     await f.cleanup();
   }
 }, 15000);
+
+test("custom reasoning repair preserves request settings and serialized inference after restart", async () => {
+  const definition = {
+    ...model("chat-a", ["text", "image"]),
+    reasoning: true,
+    thinkingLevelMap: { off: "none", high: "stale-high" },
+    headers: { "x-model-route": "model-deployment" },
+    compat: { maxTokensField: "max_tokens", supportsStore: false },
+    samplingParams: { temperature: 0.25 },
+  };
+  const f = await fixture({
+    models: [definition],
+    input: ["text", "image"],
+    reasoningLevels: ["none", "high"],
+    requirements: "all",
+  });
+  try {
+    await f.registry.verify({ providerId: "relay", modelId: "chat-a", reasoning: "high" });
+    const saved = (await f.read()).providers.relay.models[0];
+    expect(saved).toEqual({
+      ...definition,
+      reasoningLevels: ["off", "high"],
+      defaultReasoningLevel: "high",
+      thinkingLevelMap: {
+        off: "none",
+        minimal: null,
+        low: null,
+        medium: null,
+        high: "high",
+        xhigh: null,
+        max: null,
+      },
+    });
+    const restarted = await f.create();
+    const restored = restarted.getModel("relay", "chat-a")!;
+    const { reasoningCapabilities } = await import("../src/reasoning-capabilities");
+    const { inferenceReasoningOptions } = await import("../src/runtime/reasoning");
+    expect(reasoningCapabilities(restored).reasoningLevels).toEqual(["off", "high"]);
+    const response = await restarted.completeSimple(
+      restored,
+      { messages: [{ role: "user", content: "reasoning check", timestamp: 0 }] },
+      { ...inferenceReasoningOptions(restored, "high"), maxTokens: 8, maxRetries: 0 }
+    );
+    expect(response.stopReason).toBe("stop");
+    expect(f.state.requests.at(-1)?.body.reasoning_effort).toBe("high");
+    expect(f.state.requests.at(-1)?.route).toBe("model-deployment");
+    f.state.reasoningLevels = [];
+    await f.verify();
+    const cleared = (await f.read()).providers.relay.models[0];
+    expect(cleared).toMatchObject({
+      reasoning: false,
+      reasoningLevels: ["off"],
+      defaultReasoningLevel: "off",
+      headers: definition.headers,
+      compat: definition.compat,
+      samplingParams: definition.samplingParams,
+    });
+    expect(Object.values(cleared.thinkingLevelMap)).toEqual(Array(7).fill(null));
+    expect(
+      reasoningCapabilities((await f.create()).getModel("relay", "chat-a")!).reasoningLevels
+    ).toEqual(["off"]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("unchanged advertised reasoning verifies without a writable configuration directory", async () => {
+  const f = await fixture({ reasoningLevels: ["none", "high"] });
+  try {
+    await f.verify();
+    const before = await readFile(f.path, "utf8");
+    await rm(`${f.path}.lock.sqlite`);
+    await chmod(f.root, 0o500);
+    await f.verify();
+    expect(await readFile(f.path, "utf8")).toBe(before);
+    expect(
+      await stat(`${f.path}.lock.sqlite`).then(
+        () => true,
+        () => false
+      )
+    ).toBe(false);
+    expect(f.runtime.getModel("relay", "chat-a")?.thinkingLevelMap?.high).toBe("high");
+  } finally {
+    await f.cleanup();
+  }
+});

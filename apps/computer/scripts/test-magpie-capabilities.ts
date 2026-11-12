@@ -8,6 +8,7 @@ import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ComputerRuntime } from "../src/runtime";
 import { InferenceProviderService } from "../src/inference-providers";
+import { ChatProviderRegistry } from "../src/chat-provider-registry";
 import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../src/bot-compaction";
 
 // Opt-in live integration check. Point it at a running Magpie with a vision model:
@@ -214,8 +215,28 @@ for (let trial = 0; trial < 2; trial++) {
   }
 }
 const saved = JSON.parse(await readFile(modelsPath, "utf8"));
-assert.deepEqual(saved.providers.magpie.models[0], { ...definition, input: ["text", "image"] });
-assert.deepEqual((await create()).getModel("magpie", modelId)?.input, ["text", "image"]);
+const refreshed = (
+  await new ChatProviderRegistry(() => provider, modelsPath).catalog("magpie")
+).models.find((model) => model.id === modelId);
+assert.ok(refreshed);
+assert.deepEqual(saved.providers.magpie.models[0], {
+  ...definition,
+  input: ["text", "image"],
+  ...(refreshed.reasoningLevels !== undefined
+    ? {
+        reasoning: refreshed.reasoning,
+        reasoningLevels: refreshed.reasoningLevels,
+        defaultReasoningLevel: refreshed.defaultReasoningLevel,
+        thinkingLevelMap: refreshed.thinkingLevelMap,
+      }
+    : {}),
+});
+const restarted = (await create()).getModel("magpie", modelId);
+assert.deepEqual(restarted?.input, ["text", "image"]);
+assert.deepEqual(
+  restarted?.thinkingLevelMap,
+  provider.getModel("magpie", modelId)?.thinkingLevelMap
+);
 await writeFile(
   join(root, "result.json"),
   JSON.stringify({ modelId, advertised, trials, success: true }, null, 2)

@@ -131,6 +131,7 @@
     "test:code-rendering": "bun scripts/test-code-rendering.ts",
     "test:scroll-stress": "bun scripts/test-scroll-stress.ts",
     "test:conversation-layout": "bun scripts/test-conversation-layout.ts",
+    "test:chat-gradient": "bun scripts/test-chat-gradient.ts",
     "test:image-attachment-layout": "bun scripts/test-image-attachment-layout.ts",
     "test:initial-conversation-layout": "bun scripts/test-image-attachment-layout.ts --conversation",
     "test:navigation-startup": "bun scripts/test-image-attachment-layout.ts --navigation",

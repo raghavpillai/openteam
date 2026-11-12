@@ -1687,6 +1687,8 @@ textarea,
 /* Desktop conversation chrome; transcript and composer horizontal gutters stay unchanged. */
 .desktop-conversation-header {
   height: 61px;
+  /* Own the entire top fade here: a second overlay starting below the title
+   * creates a visible stripe through messages as they scroll underneath. */
   background: linear-gradient(var(--background), transparent);
 }
 .desktop-conversation-title {

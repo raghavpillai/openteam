@@ -99,7 +99,6 @@ import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
-  ConversationTopDivider,
   ConversationViewportAnchor,
   glideConversationToBottom,
 } from "../ai-elements/conversation";
@@ -1471,7 +1470,6 @@ export const ChatPane = memo(function ChatPane({
     >
       {active && (
         <Conversation contextRef={conversationRef}>
-          <ConversationTopDivider />
           <ConversationTimestampPeek />
           <ConversationContent
             initialContentPending={initialHistoryPending}

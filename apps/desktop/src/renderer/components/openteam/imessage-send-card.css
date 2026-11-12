@@ -58,3 +58,21 @@
   gap: 8px;
   margin-top: 10px;
 }
+.imessage-attachments {
+  list-style: none;
+  margin: 10px 0 6px;
+  padding: 0;
+}
+.imessage-attachments li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.imessage-attachments small {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--foreground-secondary);
+}

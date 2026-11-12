@@ -2,12 +2,13 @@ import "./external-draft-card.css";
 import "./imessage-send-card.css";
 import type { ChannelMessageView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, Paperclip } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { getDesktopMachineId } from "../../client/auth";
 import { api } from "../../client/openteam-api";
 import { LoadingOrb } from "../ui/loading-orb";
 import { useMessagesIcon } from "./settings/messages-permissions-dialog";
+import { formatAttachmentSize } from "./attachment-visuals";
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -32,6 +33,8 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
   const [error, setError] = useState("");
   useEffect(() => setState(String(metadata.cardState ?? "pending")), [metadata.cardState]);
   const text = String(send.text ?? "");
+  const attachments = Array.isArray(send.attachments) ? send.attachments.map(record) : [];
+  const fileSummary = attachments.map(file => String(file.fileName ?? "Attachment")).join(", ");
   const name = typeof send.recipientName === "string" && send.recipientName ? send.recipientName : "";
   const handle = typeof send.to === "string" ? send.to : "";
   const recipient = String(send.recipientLabel ?? (name || handle));
@@ -66,7 +69,7 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
     const summary =
       state === "unknown"
         ? `The send was interrupted — check Messages on ${where} to see whether it went out`
-        : `${sent ? "Sent to" : "To"} ${name || recipient} — “${firstLine(text)}”`;
+        : `${sent ? "Sent to" : "To"} ${name || recipient} — ${[text ? `“${firstLine(text)}”` : "", fileSummary].filter(Boolean).join(" · ")}`;
     return (
       <section aria-label="Messages" className="draft-card rich-message-card imessage-card">
         <div className="draft-header">
@@ -113,9 +116,16 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
           <span className="imessage-name" dir="ltr">{recipient}</span>
         )}
       </div>
-      <div className="imessage-bubble-row">
+      {text && <div className="imessage-bubble-row">
         <div className="imessage-bubble" dir="auto">{text}</div>
-      </div>
+      </div>}
+      {attachments.length > 0 && <ul aria-label="Attachments" className="imessage-attachments">
+        {attachments.map((file, index) => <li key={index}>
+          <Paperclip aria-hidden size={14} />
+          <span>{String(file.fileName ?? "Attachment")}</span>
+          <small>{typeof file.byteSize === "number" ? formatAttachmentSize(file.byteSize) : ""}</small>
+        </li>)}
+      </ul>}
       <p className="draft-note">The message will be sent from {where}</p>
       {(error || sendError) && <p className="draft-note" role="alert">{error || sendError}</p>}
       <div className="imessage-actions">

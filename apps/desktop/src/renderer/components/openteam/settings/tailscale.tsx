@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { useCallback, useEffect, useState } from "react";
 import type { DesktopTailscaleStatus } from "@openteam/contracts/tailscale";
 import { API_BASE } from "../../../client/http";
@@ -68,7 +69,7 @@ export function TailscaleSettings() {
           anchors={["tailscale-https"]}
           description="Use a private HTTPS address to connect your devices. Tailscale must be running on the server and on each device."
           control={
-            <button
+            <ButtonPrimitive
               className={buttonClass}
               disabled={!!busy}
               onClick={() => {
@@ -77,7 +78,7 @@ export function TailscaleSettings() {
               }}
             >
               Refresh
-            </button>
+            </ButtonPrimitive>
           }
         />
         <SettingsRow title="Server address" description={status?.publicUrl || API_BASE} />
@@ -115,13 +116,13 @@ export function TailscaleSettings() {
                   : "Enabling restarts the server and creates or reuses a private Serve mapping. HTTPS must be enabled for your tailnet."
               }
               control={
-                <button
+                <ButtonPrimitive
                   className={buttonClass}
                   disabled={!!busy || !validPort}
                   onClick={() => void change("enable")}
                 >
                   {status?.enabled ? "Apply / repair" : "Enable"}
-                </button>
+                </ButtonPrimitive>
               }
             />
             {(status?.enabled || !!status?.managedRoutes) && (
@@ -129,13 +130,13 @@ export function TailscaleSettings() {
                 title="Disable Tailscale HTTPS"
                 description="Switch to local access and restart the server. Remote devices will disconnect. Only unchanged OpenTeam-managed mappings are removed."
                 control={
-                  <button
+                  <ButtonPrimitive
                     className={buttonClass}
                     disabled={!!busy}
                     onClick={() => void change("disable")}
                   >
                     Disable
-                  </button>
+                  </ButtonPrimitive>
                 }
               />
             )}

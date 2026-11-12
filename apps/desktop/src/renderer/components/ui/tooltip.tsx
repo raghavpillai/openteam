@@ -1,3 +1,4 @@
+import { ControlMotion } from "./control-motion";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
 import {
   type ComponentProps,
@@ -53,7 +54,13 @@ export function Tooltip({ open, defaultOpen = false, onOpenChange, children, ...
     </InstantDismissContext.Provider>
   );
 }
-export const TooltipTrigger = TooltipPrimitive.Trigger;
+export function TooltipTrigger(props: ComponentProps<typeof TooltipPrimitive.Trigger>) {
+  return (
+    <ControlMotion enabled={!props.asChild}>
+      <TooltipPrimitive.Trigger {...props} />
+    </ControlMotion>
+  );
+}
 
 export function TooltipProvider({
   delayDuration = 300,

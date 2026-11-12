@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { useCallback, useEffect, useState } from "react";
 import { useWindowVisible } from "../../../hooks/use-window-active";
 import { Monitor, MoreHorizontal } from "lucide-react";
@@ -39,9 +40,9 @@ function DeviceRow({ machine, current, busy, onChange }: { machine: Machine; cur
       {!current ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button aria-label={`More actions for ${machine.label}`} className="grid size-7 place-items-center rounded-md text-foreground-secondary hover:bg-black/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]" disabled={busy} type="button">
+            <ButtonPrimitive aria-label={`More actions for ${machine.label}`} className="grid size-7 place-items-center rounded-md text-foreground-secondary hover:bg-black/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]" disabled={busy} type="button">
               <MoreHorizontal className="size-4" />
-            </button>
+            </ButtonPrimitive>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {machine.transport === "relay" ? (
@@ -118,7 +119,7 @@ export function AdvancedComputerSettings() {
       <details className="animated-disclosure border-b border-black/[0.065] py-3 text-[12.5px] dark:border-white/[0.07]"><summary>Connect a bridge manually</summary>
       <form className="flex flex-wrap gap-2 pt-2.5" onSubmit={event => { event.preventDefault(); void change(async () => { await api.registerMachine(address); setAddress(""); }); }}>
         <input aria-label="Computer bridge URL" type="url" required placeholder="http://computer.local:port" value={address} onChange={event => setAddress(event.target.value)} className={`${fieldClass} min-w-0 flex-1`} />
-        <button type="submit" disabled={busy || !address.trim()} className={buttonClass}>Add computer</button>
+        <ButtonPrimitive type="submit" disabled={busy || !address.trim()} className={buttonClass}>Add computer</ButtonPrimitive>
       </form>
       </details>
       <form className="py-3" onSubmit={event=>{event.preventDefault();void change(async()=>{setDisplay(await api.saveComputerDisplay(display));setDisplaySaved(true);});}}>
@@ -127,7 +128,7 @@ export function AdvancedComputerSettings() {
           <input aria-label="Box display width" className={`${fieldClass} w-20`} type="number" min={640} max={7680} required value={display.width} onChange={e=>{setDisplaySaved(false);setDisplay({...display,width:Number(e.target.value)});}} />
           <span aria-hidden className="text-foreground-secondary">×</span>
           <input aria-label="Box display height" className={`${fieldClass} w-20`} type="number" min={480} max={4320} required value={display.height} onChange={e=>{setDisplaySaved(false);setDisplay({...display,height:Number(e.target.value)});}} />
-          <button className={buttonClass} disabled={busy} type="submit">Save display</button>
+          <ButtonPrimitive className={buttonClass} disabled={busy} type="submit">Save display</ButtonPrimitive>
         </div>
         {error && <p role="alert" className="mt-1.5 text-[12px] text-red-600 dark:text-red-400">{error}</p>}
         <p className="mt-1.5 text-[12px] leading-4 text-foreground-secondary">{displaySaved ? "Saved. " : ""}Applies to newly opened box desktops. Restart an existing box desktop to apply it there.</p>

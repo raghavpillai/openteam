@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import "./external-draft-card.css";
 import type { BotView, ChannelMessageView } from "@openteam/contracts";
 import {
@@ -12,7 +13,6 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../client/openteam-api";
-import { LoadingOrb } from "../ui/loading-orb";
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -420,47 +420,48 @@ export function ExternalDraftCard({
           value={text}
         />
         {overflowing && (
-          <button className="draft-toggle" onClick={() => setExpanded((open) => !open)} type="button">
+          <ButtonPrimitive className="draft-toggle" onClick={() => setExpanded((open) => !open)} type="button">
             {expanded ? "Show less" : "Show more"}
             {expanded ? (
               <ChevronUp aria-hidden className="draft-trigger-icon" strokeWidth={2.25} />
             ) : (
               <ChevronDown aria-hidden className="draft-trigger-icon" strokeWidth={2.25} />
             )}
-          </button>
+          </ButtonPrimitive>
         )}
         {signature && <div className="draft-signature">{signatureText(signature)}</div>}
       </div>
       {notes}
       <div className="draft-footer">
         <div className="draft-actions">
-          <button
+          <ButtonPrimitive
             className="draft-button draft-button-primary"
             data-sending={sending ? "" : undefined}
             disabled={locked || !text.trim()}
             type="submit"
+            loading={sending}
+            loadingLabel="Sending…"
           >
-            {sending && <LoadingOrb aria-hidden size={20} state="searching" />}
-            {sending ? "Sending…" : "Send"}
-          </button>
+            Send
+          </ButtonPrimitive>
           {lost ? (
-            <button
+            <ButtonPrimitive
               className="draft-button draft-button-secondary"
               disabled={busy}
               onClick={() => void checkDelivery()}
               type="button"
             >
               Check delivery
-            </button>
+            </ButtonPrimitive>
           ) : (
-            <button
+            <ButtonPrimitive
               className="draft-button draft-button-secondary"
               disabled={locked}
               onClick={() => void act("cancel")}
               type="button"
             >
               Discard
-            </button>
+            </ButtonPrimitive>
           )}
         </div>
         {menu}

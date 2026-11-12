@@ -1,10 +1,18 @@
+import { ButtonLoadingIndicator } from "./button-primitive";
+import { ControlMotion } from "./control-motion";
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
 import { cn } from "../../lib/cn";
 import { buttonVariants } from "./button";
 
 export const AlertDialog = AlertDialogPrimitive.Root;
-export const AlertDialogTrigger = AlertDialogPrimitive.Trigger;
+export function AlertDialogTrigger(props: ComponentProps<typeof AlertDialogPrimitive.Trigger>) {
+  return (
+    <ControlMotion enabled={!props.asChild}>
+      <AlertDialogPrimitive.Trigger {...props} />
+    </ControlMotion>
+  );
+}
 
 export function AlertDialogPortal(props: ComponentProps<typeof AlertDialogPrimitive.Portal>) {
   return <AlertDialogPrimitive.Portal {...props} />;
@@ -16,10 +24,7 @@ export function AlertDialogOverlay({
 }: ComponentProps<typeof AlertDialogPrimitive.Overlay>) {
   return (
     <AlertDialogPrimitive.Overlay
-      className={cn(
-        "fixed inset-0 z-50 bg-[#14141480] dark:bg-[#141414b2]",
-        className
-      )}
+      className={cn("fixed inset-0 z-50 bg-[#14141480] dark:bg-[#141414b2]", className)}
       {...props}
     />
   );
@@ -74,17 +79,33 @@ export function AlertDialogDescription({
 
 export function AlertDialogAction({
   className,
+  children,
+  loading = false,
+  disabled,
   ...props
-}: ComponentProps<typeof AlertDialogPrimitive.Action>) {
+}: ComponentProps<typeof AlertDialogPrimitive.Action> & { loading?: boolean }) {
   return (
-    <AlertDialogPrimitive.Action
-      className={cn(
-        buttonVariants({ variant: "destructive", size: "sm" }),
-        "w-full dark:bg-[#f83d45] dark:text-[#fcfcfc] dark:hover:bg-[#f95a60]",
-        className
-      )}
-      {...props}
-    />
+    <ControlMotion enabled={!props.asChild}>
+      <AlertDialogPrimitive.Action
+        className={cn(
+          buttonVariants({ variant: "destructive", size: "sm" }),
+          "w-full dark:bg-[#f83d45] dark:text-[#fcfcfc] dark:hover:bg-[#f95a60]",
+          className
+        )}
+        {...props}
+        aria-busy={loading || props["aria-busy"]}
+        disabled={disabled || loading}
+      >
+        {props.asChild ? (
+          children
+        ) : (
+          <>
+            {loading && <ButtonLoadingIndicator />}
+            {children}
+          </>
+        )}
+      </AlertDialogPrimitive.Action>
+    </ControlMotion>
   );
 }
 
@@ -93,13 +114,15 @@ export function AlertDialogCancel({
   ...props
 }: ComponentProps<typeof AlertDialogPrimitive.Cancel>) {
   return (
-    <AlertDialogPrimitive.Cancel
-      className={cn(
-        buttonVariants({ variant: "secondary", size: "sm" }),
-        "w-full dark:bg-[#282828] dark:text-[#fcfcfc] dark:shadow-[inset_0_0_0_0.5px_#484848] dark:hover:bg-[#303030]",
-        className
-      )}
-      {...props}
-    />
+    <ControlMotion enabled={!props.asChild}>
+      <AlertDialogPrimitive.Cancel
+        className={cn(
+          buttonVariants({ variant: "secondary", size: "sm" }),
+          "w-full dark:bg-[#282828] dark:text-[#fcfcfc] dark:shadow-[inset_0_0_0_0.5px_#484848] dark:hover:bg-[#303030]",
+          className
+        )}
+        {...props}
+      />
+    </ControlMotion>
   );
 }

@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { Eye, LoaderCircle, SquareMousePointer } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import "./computer-control-bar.css";
@@ -214,7 +215,7 @@ export function ComputerControlBar({
         {hint && !controlling && !anotherDevice && (
           <span className="computer-control-hint">Take control to click and type</span>
         )}
-        <button
+        <ButtonPrimitive
           type="button"
           className="computer-control-action"
           aria-label={controlling && !handoff ? "Give back control" : action}
@@ -223,16 +224,16 @@ export function ComputerControlBar({
         >
           <span className="computer-control-action-skin" aria-hidden="true" />
           <Caption text={action} />
-        </button>
+        </ButtonPrimitive>
         {anotherDevice && (
-          <button
+          <ButtonPrimitive
             type="button"
             className="computer-control-resume"
             disabled={pending}
             onClick={onResume}
           >
             Resume bot
-          </button>
+          </ButtonPrimitive>
         )}
       </div>
     </div>

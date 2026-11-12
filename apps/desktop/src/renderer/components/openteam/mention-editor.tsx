@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { ClipboardEvent, CSSProperties, KeyboardEvent, MutableRefObject } from "react";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualWindow } from "../../hooks/use-virtual-window";
@@ -402,7 +403,7 @@ export function MentionEditor({
                       role="presentation"
                       style={{ transform: `translateY(${virtualOption.start}px)` }}
                     >
-                      <button
+                      <ButtonPrimitive
                         aria-selected={virtualOption.index === activeIndex}
                         className={cn(
                           "flex h-7 w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-[6px] border-0 bg-transparent px-2 text-left text-[14px] leading-5 text-foreground outline-none",
@@ -449,7 +450,7 @@ export function MentionEditor({
                         <span className="shrink-0 text-[14px] text-[#737373] dark:text-[#a8a8a8]">
                           {option.kind === "skill" ? "Skill" : option.kind === "connection" ? option.status ?? "Connection" : "Bot"}
                         </span>
-                      </button>
+                      </ButtonPrimitive>
                     </li>
                   );
                 })}

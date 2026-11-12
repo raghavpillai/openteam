@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { BotView, ChannelView, SearchCategory, SearchResultView } from "@openteam/contracts";
 import {
   createSearchRequestGate,
@@ -554,7 +555,7 @@ function OpenSearchDialog({
                       {section}
                     </div>
                   )}
-                  <button
+                  <ButtonPrimitive
                     aria-selected={selectedIndex === index}
                     className={cn(
                       "desktop-search-result group mb-0.5 flex h-14 w-full items-center gap-4 rounded-[14px] px-3 py-2 text-left outline-none",
@@ -615,7 +616,7 @@ function OpenSearchDialog({
                     ) : (
                       <span className="sr-only">{resultTypeLabel(result)}</span>
                     )}
-                  </button>
+                  </ButtonPrimitive>
                 </div>
               );
             })

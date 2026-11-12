@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { X } from "lucide-react";
 import {
   Dialog,
@@ -52,13 +53,13 @@ export default function AboutPanel({
           OpenTeam version and copyright information.
         </DialogDescription>
         <DialogClose asChild>
-          <button
+          <ButtonPrimitive
             aria-label="Close About"
             className="absolute right-3.5 top-3.5 z-10 grid size-8 place-items-center rounded-full text-foreground-tertiary outline-none transition-colors hover:bg-black/[0.045] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35 dark:hover:bg-white/[0.06]"
             type="button"
           >
             <X className="size-4" strokeWidth={1.7} />
-          </button>
+          </ButtonPrimitive>
         </DialogClose>
         <div className="flex h-full flex-col items-center pt-[34px] text-center">
           <OpenTeamAppIcon />
@@ -69,13 +70,13 @@ export default function AboutPanel({
           <div className="mt-3 text-[12px] leading-4 text-foreground-tertiary">
             Copyright © 2026 OpenTeam contributors
           </div>
-          <button
+          <ButtonPrimitive
             className="mt-6 inline-flex h-8 items-center rounded-[8px] border border-black/[0.055] bg-black/[0.035] px-3 text-[12px] shadow-[0_1px_1px_rgba(0,0,0,0.02)] hover:bg-black/[0.06] dark:border-white/[0.07] dark:bg-white/[0.07] dark:hover:bg-white/[0.1]"
             onClick={copyVersion}
             type="button"
           >
             Copy version info
-          </button>
+          </ButtonPrimitive>
         </div>
       </DialogContent>
     </Dialog>

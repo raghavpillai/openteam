@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import type { ReactNode } from "react";
 import { OPENTEAM_DEEP_LINK_EVENT, type SettingsAnchor } from "../../../lib/app-deep-links";
 import { cn } from "../../../lib/cn";
@@ -63,7 +64,7 @@ export function InteractiveSwitch({
   label?: string;
 }) {
   return (
-    <button
+    <ButtonPrimitive
       aria-checked={checked}
       aria-label={label ?? (checked ? "On" : "Off")}
       className={cn(
@@ -81,7 +82,7 @@ export function InteractiveSwitch({
           checked ? "translate-x-4" : "translate-x-0.5"
         )}
       />
-    </button>
+    </ButtonPrimitive>
   );
 }
 

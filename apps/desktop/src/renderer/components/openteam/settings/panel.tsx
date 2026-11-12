@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import {
   BrainCircuit,
   CloudDownload,
@@ -153,7 +154,7 @@ export function SettingsPanel({
               const Icon = item.icon;
               const preload = () => void sectionLoaders[item.id]();
               return (
-                <button
+                <ButtonPrimitive
                   aria-current={view === item.id ? "page" : undefined}
                   aria-disabled={!item.available}
                   className={cn(
@@ -176,7 +177,7 @@ export function SettingsPanel({
                 >
                   <Icon className="size-[15px] shrink-0" strokeWidth={1.75} />
                   <span className="truncate">{item.label}</span>
-                </button>
+                </ButtonPrimitive>
               );
             })}
           </nav>
@@ -184,13 +185,13 @@ export function SettingsPanel({
 
         <section className="relative min-h-0 min-w-0">
           <DialogClose asChild>
-            <button
+            <ButtonPrimitive
               aria-label="Close"
               className="absolute right-2.5 top-2.5 z-10 grid size-8 place-items-center rounded-full text-foreground-tertiary outline-none transition-colors hover:bg-black/[0.045] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35 dark:hover:bg-white/[0.06]"
               type="button"
             >
               <X className="size-4" strokeWidth={1.7} />
-            </button>
+            </ButtonPrimitive>
           </DialogClose>
           <div
             className="bot-scrollbar h-full overflow-y-auto px-8 pb-8 pt-8 max-[512px]:px-6"

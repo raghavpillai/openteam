@@ -1,11 +1,24 @@
+import { ControlMotion } from "./control-motion";
 import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
 import { cn } from "../../lib/cn";
 
 export const Dialog = DialogPrimitive.Root;
-export const DialogTrigger = DialogPrimitive.Trigger;
-export const DialogClose = DialogPrimitive.Close;
+export function DialogTrigger(props: ComponentProps<typeof DialogPrimitive.Trigger>) {
+  return (
+    <ControlMotion enabled={!props.asChild}>
+      <DialogPrimitive.Trigger {...props} />
+    </ControlMotion>
+  );
+}
+export function DialogClose(props: ComponentProps<typeof DialogPrimitive.Close>) {
+  return (
+    <ControlMotion enabled={!props.asChild}>
+      <DialogPrimitive.Close {...props} />
+    </ControlMotion>
+  );
+}
 export const DialogPortal = DialogPrimitive.Portal;
 
 export function DialogOverlay({
@@ -14,10 +27,7 @@ export function DialogOverlay({
 }: ComponentProps<typeof DialogPrimitive.Overlay>) {
   return (
     <DialogPrimitive.Overlay
-      className={cn(
-        "fixed inset-0 z-50 bg-[#14141480] dark:bg-[#141414b2]",
-        className
-      )}
+      className={cn("fixed inset-0 z-50 bg-[#14141480] dark:bg-[#141414b2]", className)}
       {...props}
     />
   );

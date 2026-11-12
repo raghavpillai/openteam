@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 // Source-owned adaptation of AI Elements prompt-input.tsx.
 // https://elements.ai-sdk.dev/components/prompt-input
 import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core";
@@ -822,14 +823,14 @@ export function PromptInput({
               >
                 <BotReplyIcon className="size-3 shrink-0 text-[#777] dark:text-[rgba(240,240,240,0.60)]" />
                 <span className="min-w-0 flex-1 truncate">{reply.content}</span>
-                <button
+                <ButtonPrimitive
                   aria-label="Cancel reply"
                   className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-[#777] transition-[background-color,color] duration-[120ms] ease-linear hover:bg-[#dcdcdc] hover:text-[#141414] dark:text-[rgba(240,240,240,0.60)] dark:hover:bg-[rgba(240,240,240,0.14)] dark:hover:text-[#f0f0f0]"
                   onClick={onCancelReply}
                   type="button"
                 >
                   <BotCloseIcon className="size-3" />
-                </button>
+                </ButtonPrimitive>
               </div>
             )}
 
@@ -873,14 +874,14 @@ export function PromptInput({
                           {formatAttachmentSize(attachment.asset?.byteSize ?? attachment.file.size)}
                         </div>
                       </div>
-                      <button
+                      <ButtonPrimitive
                         aria-label={`Remove ${attachment.file.name}`}
                         className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-[#1c1c1c] text-[#fcfcfc] opacity-0 transition focus-visible:opacity-100 group-hover/file:opacity-100 dark:bg-[#f5f5f5] dark:text-[#121212]"
                         onClick={remove}
                         type="button"
                       >
                         <X className="size-3" strokeWidth={2.4} />
-                      </button>
+                      </ButtonPrimitive>
                     </div>
                   );
                 })}
@@ -902,18 +903,18 @@ export function PromptInput({
                   {voice.error ?? voice.notice}
                 </span>
                 {voice.canRetry ? (
-                  <button type="button" onClick={voice.retry} className="shrink-0 underline">
+                  <ButtonPrimitive type="button" onClick={voice.retry} className="shrink-0 underline">
                     Retry transcription
-                  </button>
+                  </ButtonPrimitive>
                 ) : null}
-                <button
+                <ButtonPrimitive
                   type="button"
                   onClick={cancelVoice}
                   aria-label="Dismiss voice note notice"
                   className="shrink-0 p-1"
                 >
                   <X className="size-3" />
-                </button>
+                </ButtonPrimitive>
               </div>
             ) : null}
             {attachmentError && (

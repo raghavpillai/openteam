@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import type { UserTimeZoneView } from "@openteam/contracts";
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -86,7 +87,7 @@ export function TimeZoneSettings() {
             }}
           >
             <PopoverTrigger asChild>
-              <button
+              <ButtonPrimitive
                 aria-label="Timezone"
                 className={`${settingsSelect} inline-flex max-w-[260px] items-center gap-1 border`}
                 disabled={saving}
@@ -94,7 +95,7 @@ export function TimeZoneSettings() {
               >
                 <span className="truncate">{override ? timeZoneLabel(override) : autoLabel}</span>
                 <ChevronDown className="size-3.5 shrink-0 opacity-60" />
-              </button>
+              </ButtonPrimitive>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-[424px] max-w-[calc(100vw-16px)] rounded-[12px] p-1.5">
               <input
@@ -112,7 +113,7 @@ export function TimeZoneSettings() {
                 {visible.map((entry) => {
                   const time = entry.zone ? timeInZone(entry.zone, now) : null;
                   return (
-                    <button
+                    <ButtonPrimitive
                       aria-selected={entry.value === selected}
                       className="flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[13px] hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
                       key={entry.value}
@@ -123,7 +124,7 @@ export function TimeZoneSettings() {
                       <span className="min-w-0 flex-1 truncate">{entry.label}</span>
                       {time ? <span className="shrink-0 text-foreground-tertiary">{time}</span> : null}
                       <Check className={`size-3.5 shrink-0 ${entry.value === selected ? "" : "invisible"}`} />
-                    </button>
+                    </ButtonPrimitive>
                   );
                 })}
               </div>

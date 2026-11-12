@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { ArrowDownToLine, ArrowUpRight, Check, LoaderCircle, RotateCw } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { desktopUpdateProgress } from "../../lib/desktop-update";
@@ -86,7 +87,7 @@ export function DesktopUpdateCard({
           </div>
         </div>
       ) : (
-        <button
+        <ButtonPrimitive
           className="mt-3 flex h-8 w-full items-center justify-center gap-1.5 rounded-[7px] bg-blue-600 px-2 text-[12px] font-medium text-white shadow-xs transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-popover dark:bg-blue-500 dark:hover:bg-blue-400"
           onClick={onUpdate}
           type="button"
@@ -94,7 +95,7 @@ export function DesktopUpdateCard({
           {ready ? <RotateCw aria-hidden="true" className="size-3.5" /> : null}
           {ready ? "Restart to update" : "Download update"}
           {!ready ? <ArrowUpRight aria-hidden="true" className="size-3.5" /> : null}
-        </button>
+        </ButtonPrimitive>
       )}
     </div>
   );

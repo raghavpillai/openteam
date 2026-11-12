@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import type { PluginConnectionView } from "@openteam/contracts";
 import { GOOGLE_PLUGIN_KEYS, pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { api } from "../../../client/openteam-api";
@@ -64,36 +65,36 @@ export function PluginAuthorization({
       </p>}
       {manual && !session.expired && <div className="mt-3 flex flex-wrap gap-2">
         <input type="password" aria-label="Browser address from sign-in" placeholder="Paste the browser address here" autoComplete="off" spellCheck={false} value={callbackUrl} onChange={event => setCallbackUrl(event.target.value)} className="min-w-0 flex-1 rounded border border-foreground/15 bg-transparent px-3 py-2 text-[12px]" />
-        <button className={action} type="button" disabled={busy || submitting || !callbackUrl.trim()} onClick={() => void finish()}>Complete sign-in</button>
+        <ButtonPrimitive className={action} type="button" disabled={busy || submitting || !callbackUrl.trim()} onClick={() => void finish()}>Complete sign-in</ButtonPrimitive>
       </div>}
       {feedback && <p role="status" className="mt-2 text-[12px]">{feedback}</p>}
       <div className="mt-2 flex gap-2">
         {session.expired ? (
-          <button className={action} type="button" disabled={busy || submitting} onClick={() => onRetry(true)}>
+          <ButtonPrimitive className={action} type="button" disabled={busy || submitting} onClick={() => onRetry(true)}>
             Try again
-          </button>
+          </ButtonPrimitive>
         ) : manual ? (
-          <button className={action} type="button" disabled={busy || submitting} onClick={() => {
+          <ButtonPrimitive className={action} type="button" disabled={busy || submitting} onClick={() => {
             window.open(session.url, "_blank", "noopener,noreferrer");
             setOpenedBrowser(true);
           }}>
             {openedBrowser ? "Reopen sign-in" : google ? "Continue to Google" : "Continue to browser"}
-          </button>
+          </ButtonPrimitive>
         ) : window.openteam?.pluginOAuth ? (
-          <button className={action} type="button" disabled={busy || submitting} onClick={() => onRetry()}>
+          <ButtonPrimitive className={action} type="button" disabled={busy || submitting} onClick={() => onRetry()}>
             Reopen sign-in
-          </button>
+          </ButtonPrimitive>
         ) : (
           <a className={action} href={session.url} target="_blank" rel="noopener noreferrer">
             Reopen sign-in
           </a>
         )}
-        {!session.expired && <button className={action} type="button" disabled={busy || submitting} onClick={() => onRetry(true)}>
+        {!session.expired && <ButtonPrimitive className={action} type="button" disabled={busy || submitting} onClick={() => onRetry(true)}>
           Start again
-        </button>}
-        <button className={action} type="button" disabled={busy || submitting} onClick={onCancel}>
+        </ButtonPrimitive>}
+        <ButtonPrimitive className={action} type="button" disabled={busy || submitting} onClick={onCancel}>
           Cancel sign-in
-        </button>
+        </ButtonPrimitive>
       </div>
     </div>
   );

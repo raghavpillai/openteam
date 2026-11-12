@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../../../lib/cn";
@@ -92,7 +93,7 @@ function EmojiGrid({ onSelect, selectedEmojis, query = "" }: EmojiPanelProps & {
               style={{ transform: `translateY(${top}px)` }}
             >
               {row.emojis.map((emoji) => (
-                <button
+                <ButtonPrimitive
                   aria-label={`React with ${emojiLabel(emoji)}`}
                   className={cn(
                     "flex size-8 items-center justify-center rounded-lg text-[20px] transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
@@ -103,7 +104,7 @@ function EmojiGrid({ onSelect, selectedEmojis, query = "" }: EmojiPanelProps & {
                   type="button"
                 >
                   {emoji}
-                </button>
+                </ButtonPrimitive>
               ))}
             </div>
           );

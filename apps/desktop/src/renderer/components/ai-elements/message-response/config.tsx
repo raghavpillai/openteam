@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import "./markdown.css";
 import type { ComponentProps } from "react";
 import {
@@ -31,7 +32,7 @@ export const botMermaidOptions: MermaidOptions = {
     <div data-chat-diagram-error className="rounded-lg bg-muted p-3 text-sm">
       <p>{error}</p>
       <pre className="overflow-x-auto whitespace-pre-wrap">{chart}</pre>
-      <button onClick={retry} type="button">Retry diagram</button>
+      <ButtonPrimitive onClick={retry} type="button">Retry diagram</ButtonPrimitive>
     </div>
   ),
   config: {
@@ -83,7 +84,7 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
 
   if (address) {
     return (
-      <button
+      <ButtonPrimitive
         aria-label={`Jump to referenced message ${address}`}
         className="message-jump-chip"
         data-message-jump={address}
@@ -93,7 +94,7 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
       >
         <span aria-hidden="true">↪</span>
         {children}
-      </button>
+      </ButtonPrimitive>
     );
   }
 
@@ -103,7 +104,7 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
   if (openTeamPath) {
     const url = `openteam:${openTeamPath}`;
     return (
-      <button
+      <ButtonPrimitive
         aria-label={`Open ${String(children)}`}
         className="message-jump-chip"
         onClick={() =>
@@ -112,7 +113,7 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
         type="button"
       >
         {children}
-      </button>
+      </ButtonPrimitive>
     );
   }
 

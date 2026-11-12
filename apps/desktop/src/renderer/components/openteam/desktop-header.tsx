@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { BotView, ChannelView } from "@openteam/contracts";
 import {
   ArrowLeftRight,
@@ -152,7 +153,7 @@ export function DesktopHeader({
                   )}
                 </div>
               ) : selected.kind === "bot_dm" ? (
-                <button
+                <ButtonPrimitive
                   ref={titleRef}
                   aria-label="View conversation details"
                   aria-expanded={detailsOpen}
@@ -179,9 +180,9 @@ export function DesktopHeader({
                     aria-hidden
                     className="desktop-conversation-chevron size-3 shrink-0"
                   />
-                </button>
+                </ButtonPrimitive>
               ) : (
-                <button
+                <ButtonPrimitive
                   aria-label="View conversation details"
                   className="electron-no-drag inline-flex min-w-0 items-center gap-1.5 rounded-[5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                   onClick={() => {
@@ -196,7 +197,7 @@ export function DesktopHeader({
                     <MessageCircle className="size-4 text-violet-500" />
                   )}
                   <span className="truncate text-[13px] font-medium">{selected.name}</span>
-                </button>
+                </ButtonPrimitive>
               )}
             </h2>
           </div>

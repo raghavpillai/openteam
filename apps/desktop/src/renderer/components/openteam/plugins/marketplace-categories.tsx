@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { ChevronDown } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../../../lib/cn";
@@ -48,7 +49,7 @@ export function MarketplaceCategories({
     if (selected >= visibleCount) setExpanded(true);
   }, [category, visibleCount]);
   const renderCategory = (item: string) => (
-    <button
+    <ButtonPrimitive
       aria-pressed={category === item}
       className={cn(
         chip,
@@ -60,14 +61,14 @@ export function MarketplaceCategories({
       type="button"
     >
       {item}
-    </button>
+    </ButtonPrimitive>
   );
   return (
     <div className="relative mt-3 grid shrink-0" role="group" aria-label="Plugin categories">
       <div className="flex min-w-0 gap-2">
         {categories.slice(0, visibleCount).map(renderCategory)}
         {visibleCount < categories.length && (
-          <button
+          <ButtonPrimitive
             aria-expanded={expanded}
             aria-controls={extraId}
             className={chip}
@@ -78,7 +79,7 @@ export function MarketplaceCategories({
             <ChevronDown
               className={cn("size-3 transition-transform duration-200 ease-out motion-reduce:transition-none", expanded && "rotate-180")}
             />
-          </button>
+          </ButtonPrimitive>
         )}
       </div>
       <AnimatedCollapse open={expanded && visibleCount < categories.length} id={extraId}>

@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { ClientSnapshot, CreateBotInput } from "@openteam/contracts";
 import { BOT_AVATAR_COLORS } from "@openteam/contracts/bot-avatar";
 import { ROBOT_AVATAR_SHAPES, type RobotAvatarShape } from "@openteam/contracts/robot-avatar";
@@ -818,7 +819,7 @@ function ModelScreen({
       {others.length ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="setup-option" type="button">
+            <ButtonPrimitive className="setup-option" type="button">
               <span className="setup-option-icon">
                 <span className="setup-more-tile">
                   <Ellipsis aria-hidden="true" className="size-5" strokeWidth={2.5} />
@@ -829,7 +830,7 @@ function ModelScreen({
                 <span>OpenAI-compatible endpoints</span>
               </span>
               <ChevronsUpDown aria-hidden="true" className="size-4" />
-            </button>
+            </ButtonPrimitive>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
@@ -1072,20 +1073,20 @@ function ConnectScreen({
       footer={
         waitingForBrowser && session?.authorizationUrl ? (
           <div className="setup-row">
-            <button
+            <ButtonPrimitive
               className="setup-secondary"
               onClick={() => openExternal(session.authorizationUrl!)}
               type="button"
             >
               Open it again
-            </button>
-            <button
+            </ButtonPrimitive>
+            <ButtonPrimitive
               className="setup-secondary"
               onClick={() => copyLink(session.authorizationUrl!)}
               type="button"
             >
               <SetupSwap active={linkCopied} off="Copy link" on="Copied" />
-            </button>
+            </ButtonPrimitive>
           </div>
         ) : null
       }
@@ -1512,7 +1513,7 @@ function SearchScreen({
         <>
           <DropdownMenu>
             <DropdownMenuTrigger asChild disabled={state === "saving"}>
-              <button aria-label={`Search provider: ${info.name}`} className="setup-option" type="button">
+              <ButtonPrimitive aria-label={`Search provider: ${info.name}`} className="setup-option" type="button">
                 <span className="setup-option-icon">
                   {icon ? <img alt="" className="setup-search-tile" src={icon} /> : null}
                 </span>
@@ -1526,7 +1527,7 @@ function SearchScreen({
                   <span>{info.description}</span>
                 </span>
                 <ChevronsUpDown aria-hidden="true" className="size-4" />
-              </button>
+              </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
@@ -1679,7 +1680,7 @@ function VoiceScreen({
             <>
               <div aria-label="Voice provider" className="setup-segmented" role="radiogroup">
                 {(["openai", "deepgram"] as const).map((option) => (
-                  <button
+                  <ButtonPrimitive
                     aria-checked={provider === option}
                     key={option}
                     onClick={() => {
@@ -1694,7 +1695,7 @@ function VoiceScreen({
                   >
                     <ProviderMark id={option} />
                     {option === "openai" ? "OpenAI" : "Deepgram"}
-                  </button>
+                  </ButtonPrimitive>
                 ))}
               </div>
               <input
@@ -1887,7 +1888,7 @@ function BotScreen({
           readOnly={creating}
           value={name}
         />
-        <button
+        <ButtonPrimitive
           aria-label="New look: shuffle the look"
           className="setup-secondary"
           onClick={() => setAvatar(randomAvatar())}
@@ -1895,12 +1896,12 @@ function BotScreen({
           type="button"
         >
           <Shuffle aria-hidden="true" className="size-4" /> New look
-        </button>
+        </ButtonPrimitive>
       </div>
       <span className="setup-label">Job</span>
       <div aria-label="Job" className="setup-chips" role="radiogroup">
         {ROLES.map((option) => (
-          <button
+          <ButtonPrimitive
             aria-checked={roleId === option.id}
             key={option.id}
             onClick={() => setRoleId(option.id)}
@@ -1908,7 +1909,7 @@ function BotScreen({
             type="button"
           >
             {option.label}
-          </button>
+          </ButtonPrimitive>
         ))}
       </div>
       {error ? (

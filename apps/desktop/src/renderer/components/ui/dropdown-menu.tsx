@@ -1,9 +1,17 @@
+import { ButtonLoadingIndicator } from "./button-primitive";
+import { ControlMotion } from "./control-motion";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
 import { cn } from "../../lib/cn";
 
 export const DropdownMenu = DropdownMenuPrimitive.Root;
-export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
+export function DropdownMenuTrigger(props: ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
+  return (
+    <ControlMotion enabled={!props.asChild}>
+      <DropdownMenuPrimitive.Trigger {...props} />
+    </ControlMotion>
+  );
+}
 export const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 
 export function DropdownMenuContent({
@@ -28,17 +36,33 @@ export function DropdownMenuContent({
 export function DropdownMenuItem({
   className,
   inset,
+  children,
+  loading = false,
+  disabled,
   ...props
-}: ComponentProps<typeof DropdownMenuPrimitive.Item> & { inset?: boolean }) {
+}: ComponentProps<typeof DropdownMenuPrimitive.Item> & { inset?: boolean; loading?: boolean }) {
   return (
-    <DropdownMenuPrimitive.Item
-      className={cn(
-        "relative flex cursor-pointer select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:opacity-50",
-        inset && "pl-8",
-        className
-      )}
-      {...props}
-    />
+    <ControlMotion enabled={!props.asChild}>
+      <DropdownMenuPrimitive.Item
+        className={cn(
+          "relative flex cursor-pointer select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:opacity-50",
+          inset && "pl-8",
+          className
+        )}
+        {...props}
+        aria-busy={loading || props["aria-busy"]}
+        disabled={disabled || loading}
+      >
+        {props.asChild ? (
+          children
+        ) : (
+          <>
+            {loading && <ButtonLoadingIndicator />}
+            {children}
+          </>
+        )}
+      </DropdownMenuPrimitive.Item>
+    </ControlMotion>
   );
 }
 
@@ -48,14 +72,16 @@ export function DropdownMenuSubTrigger({
   ...props
 }: ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> & { inset?: boolean }) {
   return (
-    <DropdownMenuPrimitive.SubTrigger
-      className={cn(
-        "relative flex cursor-pointer select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none data-[state=open]:bg-accent data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground",
-        inset && "pl-8",
-        className
-      )}
-      {...props}
-    />
+    <ControlMotion enabled={!props.asChild}>
+      <DropdownMenuPrimitive.SubTrigger
+        className={cn(
+          "relative flex cursor-pointer select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none data-[state=open]:bg-accent data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground",
+          inset && "pl-8",
+          className
+        )}
+        {...props}
+      />
+    </ControlMotion>
   );
 }
 

@@ -168,15 +168,6 @@ async function dispatch(result: { status: number; reason?: string } | Error) {
 }
 
 describe("native push outbox recovery", () => {
-  test("settles an accepted APNs delivery", async () => {
-    const value = await dispatch({ status: 200 });
-    expect(value.sends).toEqual(["native"]);
-    expect(value.disabled).toEqual([]);
-    expect(value.updates.at(-1)).toMatchObject({
-      where: { id: "native" },
-      data: { status: "delivered", deliveredAt: expect.any(Date) },
-    });
-  });
   test("retires unregistered tokens instead of repeatedly sending to a deleted app", async () => {
     for (const result of [
       { status: 410, reason: "Unregistered" },

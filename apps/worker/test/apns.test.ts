@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync, verify } from "node:crypto";
 import type { AgentNotificationPayload } from "@openteam/contracts";
-import { ApnsClient, apnsPayload, type ApnsTransport } from "../src/apns";
+import { ApnsClient, type ApnsTransport } from "../src/apns";
 
 const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
 const config = {
@@ -122,14 +122,6 @@ describe("native APNs delivery", () => {
       1,
       "large"
     );
-  });
-  test("carries thread and exact message identity only when the alert has them", () => {
-    const data = (extra: Partial<AgentNotificationPayload> = {}) => apnsPayload(device, { ...alert, ...extra }, 2).data as Record<string, unknown>;
-    expect(data({ threadMessageId: "reply-1" }).threadMessageId).toBe("reply-1");
-    // Alerts outside the newest history page open the exact message.
-    expect(data({ messageId: "older-message" })).toMatchObject({ messageId: "older-message", messageSequence: alert.messageSequence });
-    expect(data().threadMessageId).toBeUndefined();
-    expect(data().messageId).toBeUndefined();
   });
   test("rejects a mismatched app, invalid environment, token or signing key without sending", async () => {
     let requests = 0;

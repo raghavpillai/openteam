@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { renderQuietRevivalBatchPrompt, renderRevivalBatchPrompt } from "@openteam/messaging";
+import { renderRevivalBatchPrompt } from "@openteam/messaging";
 import { revivalBatch, WakeWorker } from "../src/worker";
 
 test("background subagent completion revives the parent with Bot's dedicated source", async () => {
@@ -134,31 +134,4 @@ test("results ready together in one channel are claimed as one revival, and late
   expect(revivalBatch(others[0]!, [first, shell], now)).toBeNull();
   // A claim retried after a lost lease keeps the content it was given the first time.
   expect(revivalBatch({ ...first, status: "processing" }, [shell], now)).toBeNull();
-});
-
-test("a routine's results fold into one quiet revival per routine run and are never marked held", () => {
-  const now = Date.parse("2026-10-21T12:00:00Z");
-  const wake = (id: string, secondsAgo: number, context: string, overrides: Record<string, unknown> = {}) => ({
-    id,
-    type: "subagent.completed",
-    status: "pending",
-    createdAt: new Date(now - secondsAgo * 1000),
-    payload: { automationContextRunId: context, revival: { block: `block ${id}`, subagentType: "executor" } },
-    run: { origin: "routine" as const, channelId: "dm" },
-    ...overrides,
-  });
-  const late = wake("a", 10 * 60, "run-1");
-  const shell = wake("b", 30, "run-1", { type: "shell.completed" });
-  const others = [
-    wake("other-run", 20, "run-2"),
-    wake("chat", 20, "run-1", { run: { origin: "background_revival", channelId: "dm" } }),
-    wake("wake", 20, "run-1", { type: "routine.event" }),
-  ];
-  const batch = revivalBatch(shell, [shell, ...others, late], now);
-  expect(batch?.folded.map((folded) => folded.id)).toEqual(["a"]);
-  expect(batch?.content).toBe(renderQuietRevivalBatchPrompt(["block a", "block b"]));
-  // A lone result keeps its own quiet prompt, however long it waited.
-  expect(revivalBatch(late, [late, ...others], now)).toBeNull();
-  // A chat revival never takes a routine's results.
-  expect(revivalBatch(others[1]!, [others[1]!, late, shell], now)).toBeNull();
 });

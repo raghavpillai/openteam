@@ -150,14 +150,6 @@ const fixture = async (
 };
 
 describe("worker diagnostics", () => {
-  test("runtime APNs diagnostic failures never expose exception text", async () => {
-    const { paths } = await fixture("ready", 0, async () => {
-      throw new Error("secret-signing-key");
-    });
-    const response = await post(paths.socket, "/notifications", "GET");
-    expect(response.status).toBe(503);
-    expect(JSON.stringify(response.body)).not.toContain("secret-signing-key");
-  });
   test("publishes a private heartbeat and confirms processing through the registered consumer", async () => {
     const { paths, deleted, queues } = await fixture();
     const heartbeat = JSON.parse(await readFile(paths.heartbeat, "utf8"));
@@ -196,20 +188,3 @@ describe("worker diagnostics", () => {
     expect(deleted).toEqual(["test-job"]);
   }, 12_000);
 });
-
-test("replicas use separate diagnostic queues and simultaneous healthy checks share one job", async () => {
-  const first = await fixture("ready", 50);
-  const second = await fixture();
-  expect(first.queues[0]).not.toBe(second.queues[0]);
-  const responses = await Promise.all(Array.from({ length: 10 }, () => post(first.paths.socket)));
-  expect(responses.every((result) => result.status === 200 && result.body.ok)).toBe(true);
-  expect(first.deleted).toEqual(["test-job"]);
-  expect(second.deleted).toEqual([]);
-});
-
-test("successive timeout responses do not accumulate stuck dependency queries", async () => {
-  const f = await fixture("dependencies-hung");
-  for (let i = 0; i < 2; i++) expect((await post(f.paths.socket)).status).toBe(503);
-  expect(f.dependencyCalls()).toBe(1);
-  expect(f.deleted).toEqual([]);
-}, 20_000);

@@ -1,12 +1,14 @@
 import type { BaseWindow, BrowserWindow, MenuItemConstructorOptions } from "electron";
 
-export type ApplicationMenuAction = "about" | "updates" | "settings";
+export type ApplicationMenuAction = "about" | "updates" | "settings" | "appshot";
 export type ClipboardMenuAction = "copy" | "cut" | "paste";
 
 export function applicationMenuTemplate(
   platform: NodeJS.Platform,
   onAction: (action: ApplicationMenuAction) => void,
-  onClipboard?: (action: ClipboardMenuAction, window: BaseWindow | undefined) => boolean
+  onClipboard?: (action: ClipboardMenuAction, window: BaseWindow | undefined) => boolean,
+  /** The appshot shortcut when it's an ordinary one; a two-key chord can't show in a menu. */
+  appshotAccelerator: string | null = null
 ): MenuItemConstructorOptions[] {
   const appItems: MenuItemConstructorOptions[] = [
     { label: "About OpenTeam", click: () => onAction("about") },
@@ -18,6 +20,12 @@ export function applicationMenuTemplate(
       click: () => onAction("settings"),
     },
   ];
+  // The global shortcut (or both-key chord) fires the appshot; the menu shows it and handles clicks.
+  const appshotItem: MenuItemConstructorOptions = {
+    label: "Take Appshot",
+    ...(appshotAccelerator ? { accelerator: appshotAccelerator, registerAccelerator: false } : {}),
+    click: () => onAction("appshot"),
+  };
 
   return [
     platform === "darwin"
@@ -37,9 +45,11 @@ export function applicationMenuTemplate(
         }
       : {
           label: "File",
-          submenu: [...appItems, { type: "separator" }, { role: "quit" }],
+          submenu: [appshotItem, { type: "separator" }, ...appItems, { type: "separator" }, { role: "quit" }],
         },
-    ...(platform === "darwin" ? [{ role: "fileMenu" } as const] : []),
+    ...(platform === "darwin"
+      ? [{ label: "File", submenu: [appshotItem, { type: "separator" }, { role: "close" }] } satisfies MenuItemConstructorOptions]
+      : []),
     onClipboard ? {
       label: "Edit",
       submenu: [

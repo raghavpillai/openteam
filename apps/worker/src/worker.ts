@@ -1,6 +1,8 @@
 import { settleTaskProgress, dispatchTaskContinuations, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, requestWakeAllowed, requestIsStopped, taskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
 import {
   publishMessageNotification,
+  isTreatmentDraftWake,
+  prepareDraftNotification,
   turnOwesReplyReminder,
   turnSystemReminder,
   withTurnSystemReminder,
@@ -258,6 +260,21 @@ interface RevivalWake {
   payload: unknown;
   run: { origin: RunOrigin; channelId: string | null };
 }
+
+/** Each card keeps its own receipt; ready draft outcomes share one model continuation. */
+export const draftResponseBatch = <T extends RevivalWake>(claimed: T, pending: readonly T[]): { content: string; folded: T[] } | null => {
+  if (claimed.type !== "draft.response" || claimed.status !== "pending" || claimed.run.origin !== "user" || isTreatmentDraftWake(claimed)) return null;
+  const folded = pending.filter((wake) => wake.id !== claimed.id && wake.type === "draft.response" &&
+    wake.status === "pending" && wake.run.origin === "user" && wake.run.channelId === claimed.run.channelId && !isTreatmentDraftWake(wake));
+  const notices = [claimed, ...folded].map((wake) => {
+    const content = wake.payload && typeof wake.payload === "object" ? (wake.payload as { content?: unknown }).content : undefined;
+    return typeof content === "string" ? content.replace(/^\[SAND_HIDDEN_PROMPT\]/, "") : `Draft outcome event ${wake.id}. Read its stored card outcome.`;
+  });
+  return {
+    content: `[SAND_HIDDEN_PROMPT]${folded.length + 1} external message draft outcome(s) are ready. Read the new card outcomes together and continue once. Acknowledge newly settled drafts in one brief SendToUser message. If their result was already reported, do not send another confirmation. Do not infer other cards are still open merely because their outcomes are absent.\n\n${notices.join("\n\n---\n\n")}`,
+    folded,
+  };
+};
 
 /** The raw size of a base64 data URL's payload. */
 const dataUrlBytes = (url: string): number => {
@@ -1285,6 +1302,18 @@ export class WakeWorker {
             await tx.run.update({ where: { id: candidate.runId }, data: { status: "cancelled", completedAt, error } });
             continue;
           }
+          if (isTreatmentDraftWake(candidate)) {
+            const prepared = await prepareDraftNotification(tx, candidate);
+            if (!prepared) {
+              const completedAt = new Date();
+              await tx.inboxEvent.update({ where: { id: candidate.id }, data: { status: "completed", completedAt } });
+              await tx.run.update({ where: { id: candidate.runId }, data: { status: "completed", completedAt } });
+              await tx.event.create({ data: { topic: "draft.notification.already_reported", entityId: candidate.id,
+                payload: { botId, runId: candidate.runId } } });
+              continue;
+            }
+            candidate.payload = prepared.payload as Prisma.JsonObject;
+          }
           if (candidate.run.origin === "user" || await requestWakeAllowed(tx, candidate)) candidates.push(candidate);
           else {
             const settledAt = new Date();
@@ -1351,7 +1380,7 @@ export class WakeWorker {
             attempts: { increment: 1 },
           },
         });
-        const batch = revivalBatch(inbox, candidates);
+        const batch = draftResponseBatch(inbox, candidates) ?? revivalBatch(inbox, candidates);
         if (batch) {
           const settledAt = new Date();
           const folded = batch.folded.map((wake) => wake.id);
@@ -1495,6 +1524,10 @@ export class WakeWorker {
     }, 30_000);
     let completion: Extract<ComputerEvent, { type: "turn.completed" }> | null = null;
     try {
+      if (claimed.inboxType === "draft.response") {
+        // Publish before computer dispatch: a model outage cannot lose the status acknowledgement.
+        await this.messaging.flushDraftNotification(claimed);
+      }
       await this.reconcileContextState(claimed);
       const skillAgent = pluginSkillAgent(claimed.runtimeProfile, claimed.subagentType);
       const [pluginContext, inference, configuredTasks] = await Promise.all([

@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
-import { useVoiceNote } from "../../src/renderer/hooks/use-voice-note";
+import { useVoiceRecorder } from "../../src/renderer/hooks/use-voice-recorder";
 import { BotAvatarGlyph } from "../../src/renderer/components/openteam/avatar-picker-icons";
 import VoiceMemoLayer from "../../src/renderer/components/openteam/voice-memo/voice-memo-layer";
 import { LoadingOrb, preloadLoadingOrb } from "../../src/renderer/components/ui/loading-orb";
@@ -111,7 +111,7 @@ navigator.mediaDevices.getUserMedia = async () => {
   capturedStreams.push(stream);
   return stream;
 };
-let liveVoice: ReturnType<typeof useVoiceNote>;
+let liveVoice: ReturnType<typeof useVoiceRecorder>;
 let transcript = "";
 let transcription: { bytes: number; duration: number; peak: number } | null = null;
 let finishTranscription = () => {};
@@ -124,7 +124,7 @@ api.transcribeAudio = async audio => {
   return new Promise(resolve => { finishTranscription = () => resolve({ text: "Background recording survived" } as never); });
 };
 function VoiceSurface() {
-  liveVoice = useVoiceNote(true, text => { transcript = text; });
+  liveVoice = useVoiceRecorder(true, text => { transcript = text; }, (audio, signal) => api.transcribeAudio(audio, signal));
   return <VoiceMemoLayer mode={liveVoice.state === "recording" || recording ? "recording" : "processing"}
     stream={liveVoice.stream ?? recordingStream} elapsedMs={liveVoice.elapsedMs || 1000} radius={24}
     anchor={{ right: 0, bottom: 0 }} onDiscard={() => {}} onSend={() => {}} onCancelProcessing={() => {}} />;

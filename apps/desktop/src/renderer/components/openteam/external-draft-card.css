@@ -69,6 +69,28 @@
 .draft-card p {
   margin: 0;
 }
+.draft-history { min-width: 0; }
+.draft-history > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.draft-history > summary::-webkit-details-marker { display: none; }
+.draft-history[open] > summary { margin-bottom: 10px; white-space: normal; }
+.draft-history[open] > summary svg { transform: rotate(180deg); }
+.draft-body-readonly, .draft-revision-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.draft-body-readonly { min-height: 0; }
+.draft-input[data-revised], .draft-revision-body mark {
+  background: color-mix(in srgb, var(--draft-green) 16%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  text-decoration: none;
+}
+.draft-attachments { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; }
+.draft-attachments > * { max-width: 100%; }
 .draft-header {
   display: flex;
   align-items: center;

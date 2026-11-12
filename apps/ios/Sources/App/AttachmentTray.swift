@@ -16,6 +16,9 @@ struct AttachmentTrayActions {
   var composerFrame: () -> CGRect?
   /// The chat column's edge, including a sidebar or the Duo's fold division.
   var contentLeading: () -> CGFloat = { 0 }
+  /// Keeps the composer's own focus state in step when the tray moves the
+  /// keyboard, so SwiftUI doesn't later restore a focus it still believes in.
+  var focus: (Bool) -> Void = { _ in }
 }
 
 /// The + menu and the photo and camera panels it grows into. One card morphs
@@ -118,10 +121,16 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   private var stage = Stage.menu
   private var closing = false
   private var transition: UIViewPropertyAnimator?
-  /// iOS draws the keyboard above every app window, so the panels can't cover it:
-  /// the field typing went to gives it up as a panel opens, and takes it back if
-  /// the panel is closed without adding anything.
+  /// iOS draws the keyboard above every app window, so the panels can't cover
+  /// it, and the embedded picker needs this window to be key, which takes the
+  /// keyboard from the field anyway. The menu opens above the live keyboard. As
+  /// a panel opens, the field gives the keyboard up at once beneath a still of
+  /// the chat, so neither the transcript nor the composer moves under the tray;
+  /// the keyboard rises back into the still's gap on Back or when the tray closes.
   private weak var typing: UIResponder?
+  private var still: UIView?
+  /// The composer as the still shows it, where added attachments settle.
+  private var heldComposer: CGRect?
 
   private let backdrop = UIControl()
   private let card = UIView()
@@ -147,8 +156,9 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   private let add = TrayCapsuleButton()
 
   static let menuWidth: CGFloat = 278
-  static let rowHeight: CGFloat = 68
-  static let menuInset: CGFloat = 13
+  // Measured from the reference at 3x: rows 206 px apart, 33 px above and below.
+  static let rowHeight: CGFloat = 206 / 3
+  static let menuInset: CGFloat = 11
   static let menuRadius: CGFloat = 38
   static let panelRadius: CGFloat = 24
   static let panelInset: CGFloat = 12
@@ -168,6 +178,10 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   override func viewDidLoad() {
     super.viewDidLoad()
     view.backgroundColor = .clear
+    NotificationCenter.default.addObserver(self, selector: #selector(keyboardDidShow),
+      name: UIResponder.keyboardDidShowNotification, object: nil)
+    NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide),
+      name: UIResponder.keyboardWillHideNotification, object: nil)
     backdrop.frame = view.bounds
     backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     backdrop.accessibilityLabel = "Close"
@@ -235,6 +249,42 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
 
   /// The card's corners. Glass takes them from its corner configuration, so its
   /// rim follows the shape as the menu grows into a panel.
+  /// The card's glass, present or not. Inside an animation, iOS 26 materializes
+  /// or dissolves Liquid Glass itself (refraction, rim and highlight together)
+  /// instead of fading a flattened layer; earlier systems fade the blur.
+  private func setGlass(_ visible: Bool) {
+    if #available(iOS 26, *) {
+      material.effect = visible ? UIGlassEffect(style: .regular) : nil
+    } else {
+      card.alpha = visible ? 1 : 0
+    }
+  }
+
+  private var menuFade: UIViewPropertyAnimator?
+  private var menuFadeID = 0
+  private func cancelMenuFade() {
+    menuFade?.stopAnimation(true)
+    menuFade = nil
+    menuFadeID += 1
+  }
+  private func fadeMenu(in visible: Bool) {
+    menuFade?.stopAnimation(true)
+    menuFade = nil
+    menuFadeID += 1
+    let id = menuFadeID
+    let start = { [weak self] in
+      guard let self, self.menuFadeID == id else { return }
+      let fade = UIViewPropertyAnimator(duration: visible ? 0.16 : 0.08,
+        curve: visible ? .easeOut : .linear) { self.menu.alpha = visible ? 1 : 0 }
+      self.menuFade = fade
+      fade.startAnimation()
+    }
+    // Liquid Glass takes about 130 ms to materialize; the rows come in as it
+    // finishes, and leave before it starts to dissolve. The wait is not an
+    // animator delay: one shows the final opacity until it begins.
+    if visible { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: start) } else { start() }
+  }
+
   private func round(_ radius: CGFloat) {
     if #available(iOS 26, *) {
       material.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
@@ -267,6 +317,11 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     let movedColumn = abs(current.minX - source.minX) > 0.5 || current.width != source.width
       || columnLeading != actions.contentLeading()
     guard resized || movedColumn else { return }
+    if resized && still != nil {
+      // A fold or rotation reflows the chat; the still no longer matches it.
+      releaseStill(typing: true) {}
+      heldComposer = nil
+    }
     viewport = view.bounds
     safeInsets = view.safeAreaInsets
     columnLeading = actions.contentLeading()
@@ -305,19 +360,24 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     // The card's lower-leading corner sits just outside the + button, which it covers.
     let x = min(max(view.safeAreaInsets.left + 4, actions.contentLeading() + 4, anchor.x - 31),
       view.bounds.width - view.safeAreaInsets.right - Self.menuWidth - 4)
+    // Above a keyboard, which stays live and visible beneath the menu.
     let maxY = min(anchor.y + 31, view.bounds.height - 6)
     return CGRect(x: x, y: maxY - height, width: Self.menuWidth, height: height)
   }
-  /// Both panels expand from the menu's leading edge, including beside a sidebar.
+  /// Both panels sit 12 points from the column's edges, as in the reference, and
+  /// keep its 370-point width and 4:3 shape on wider screens.
   private var panelFrame: CGRect {
     let bounds = view.bounds
     let inset = Self.panelInset
     // Clear of side regions such as the folded Duo's status strip.
     let leading = max(view.safeAreaInsets.left, actions.contentLeading()) + inset
-    let trailing = bounds.width - view.safeAreaInsets.right - inset
+    // A side inset (the folded Duo's status strip) already clears the edge, so
+    // the panel meets it, as the reference's 370-point panel does there.
+    let trailing = bounds.width - max(view.safeAreaInsets.right, inset)
     let width = min(trailing - leading, Self.panelMaxWidth)
     let height = min((width * 4 / 3).rounded(), bounds.height - inset - view.safeAreaInsets.top - 60)
-    let x = min(max(leading, menuFrame.minX + 8), trailing - width)
+    // Centred in the column when it is wider than the panel.
+    let x = leading + (trailing - leading - width) / 2
     return CGRect(x: x.rounded(), y: bounds.height - inset - height, width: width, height: height)
   }
   /// Collapsing into a point: the card's centre moves to `point` as it shrinks.
@@ -344,16 +404,22 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
       height: card.bounds.height - Self.menuInset * 2)
     guard !UIAccessibility.isReduceMotionEnabled else { return }
     card.transform = collapsed(card, into: anchor, scale: 0.16)
-    card.alpha = 0
+    setGlass(false)
+    menu.alpha = 0
     menu.isUserInteractionEnabled = false
-    animate(duration: 0.32, damping: 0.86, animations: {
+    animate(Motion.menuOpen, animations: {
       self.card.transform = .identity
-      self.card.alpha = 1
+      // Liquid Glass materializes natively as the menu springs out of +.
+      self.setGlass(true)
     }, completion: { self.menu.isUserInteractionEnabled = true })
+    // The rows follow the glass rather than leading it, so no label is ever
+    // drawn over the chat before there is glass behind it.
+    fadeMenu(in: true)
   }
 
   private func show(_ next: Stage) {
     guard stage == .menu, !closing, transition == nil else { return }
+    cancelMenuFade()
     stage = next
     let target = panelFrame
     panel.transform = .identity
@@ -372,10 +438,10 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     panel.isUserInteractionEnabled = false
     prepareMorph(from: card, radius: Self.menuRadius)
     if morphSnapshot != nil { menu.alpha = 0 }
-    typing?.resignFirstResponder()
+    freezeChat()
     // The embedded picker only takes touches in the key window.
     view.window?.makeKey()
-    animate(duration: 0.30, damping: 0.86, animations: {
+    animate(Motion.morph, animations: {
       self.card.frame = target
       self.round(Self.panelRadius)
       self.morphSnapshot?.frame = target
@@ -395,6 +461,7 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
   /// Back retraces the expansion and preserves the photo selection and grid.
   private func returnToMenu() {
     guard stage != .menu, !closing, transition == nil else { return }
+    cancelMenuFade()
     prepareMorph(from: panel, radius: Self.panelRadius)
     stage = .menu
     camera?.stop()
@@ -402,12 +469,11 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     menu.isUserInteractionEnabled = false
     menu.accessibilityElementsHidden = false
     if morphSnapshot != nil { panel.alpha = 0 }
-    if let typing {
-      (typing as? UIView)?.window?.makeKey()
-      typing.becomeFirstResponder()
-    }
+    // The keyboard rises back into the gap the still keeps for it as the panel
+    // folds into the menu, so the menu returns above a live keyboard.
+    releaseStill(typing: true) {}
     let target = menuFrame
-    animate(duration: 0.30, damping: 0.86, animations: {
+    animate(Motion.morph, animations: {
       self.card.frame = target
       self.round(Self.menuRadius)
       self.morphSnapshot?.frame = target
@@ -429,6 +495,64 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
       self.menu.isUserInteractionEnabled = true
       UIAccessibility.post(notification: .screenChanged, argument: self.menu.arrangedSubviews.first)
     })
+  }
+
+  // MARK: Keyboard
+
+
+  private func freezeChat() {
+    // The chat's own window, without this tray's menu above it (or the
+    // keyboard, which iOS composites outside the app).
+    guard still == nil, let typing, typing.isFirstResponder, let chat = sourceButton?.window,
+      let still = chat.snapshotView(afterScreenUpdates: false) else { return }
+    still.frame = view.convert(chat.bounds, from: chat)
+    still.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    still.isUserInteractionEnabled = false
+    still.accessibilityElementsHidden = true
+    view.insertSubview(still, at: 0)
+    self.still = still
+    heldComposer = actions.composerFrame()
+    UIView.performWithoutAnimation { _ = typing.resignFirstResponder() }
+    actions.focus(false)
+  }
+
+  /// Typing resumes in the chat's window. The keyboard rises into the gap the
+  /// still keeps for it, so the chat beneath never moves.
+  private func restoreTyping() {
+    guard let typing else { return }
+    (typing as? UIView)?.window?.makeKey()
+    guard !typing.isFirstResponder else { return }
+    _ = typing.becomeFirstResponder()
+    actions.focus(true)
+  }
+
+  /// Leave the still once the live chat underneath matches it again: with the
+  /// keyboard back, or (when typing doesn't resume) fading to the settled chat.
+  private func releaseStill(typing resumes: Bool, then done: @escaping () -> Void) {
+    guard let still else { done(); return }
+    self.still = nil
+    if resumes { restoreTyping() }
+    let fade = {
+      UIView.animate(withDuration: resumes ? 0.12 : 0.22, delay: 0, options: [.curveEaseOut],
+        animations: { still.alpha = 0 }, completion: { _ in still.removeFromSuperview(); done() })
+    }
+    guard resumes, !keyboardShown else { fade(); return }
+    pendingRelease = fade
+    // A hardware keyboard never shows one; nor does a field that declined focus.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.runPendingRelease() }
+  }
+  private var pendingRelease: (() -> Void)?
+  /// Whether a keyboard has finished appearing and not started to leave.
+  private var keyboardShown = false
+  @objc private func keyboardDidShow() {
+    keyboardShown = true
+    runPendingRelease()
+  }
+  @objc private func keyboardWillHide() { keyboardShown = false }
+  private func runPendingRelease() {
+    let release = pendingRelease
+    pendingRelease = nil
+    release?()
   }
 
   /// Stretch the outgoing contents with the glass outline. The live picker stays
@@ -458,12 +582,31 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     morphBlur.effect = nil
   }
 
-  private func animate(duration: TimeInterval, damping: CGFloat, animations: @escaping () -> Void,
+  /// The reference's motion, fitted frame by frame to a 60 fps recording of it.
+  private enum Motion {
+    /// The menu grows out of + on a spring that overshoots by about 1.5%,
+    /// peaking 240 ms in: damping ratio 0.8, natural frequency 22 rad/s.
+    static var menuOpen: UISpringTimingParameters { spring(damping: 0.8, frequency: 22) }
+    /// Menu ↔ panel, both ways: critically damped at 24 rad/s, half way at
+    /// 65 ms, 90% at 160 ms.
+    static var morph: UISpringTimingParameters { spring(damping: 1, frequency: 24) }
+    /// Closing shrinks into + at a steady pace and is gone in 150 ms.
+    static var close: UICubicTimingParameters { UICubicTimingParameters(animationCurve: .linear) }
+    static let closeDuration: TimeInterval = 0.15
+    static func spring(damping: CGFloat, frequency: CGFloat) -> UISpringTimingParameters {
+      UISpringTimingParameters(mass: 1, stiffness: frequency * frequency, damping: 2 * damping * frequency,
+        initialVelocity: .zero)
+    }
+  }
+
+  private func animate(_ timing: any UITimingCurveProvider, animations: @escaping () -> Void,
     completion: @escaping () -> Void = {}) {
     transition?.stopAnimation(true)
     transition = nil
     guard !UIAccessibility.isReduceMotionEnabled else { animations(); completion(); return }
-    let animation = UIViewPropertyAnimator(duration: duration, dampingRatio: damping, animations: animations)
+    // A spring's own parameters set its length; the duration only applies to a curve.
+    let animation = UIViewPropertyAnimator(duration: Motion.closeDuration, timingParameters: timing)
+    animation.addAnimations(animations)
     transition = animation
     animation.addCompletion { [weak self, weak animation] _ in
       guard let self, self.transition === animation else { return }
@@ -484,24 +627,26 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     }
     view.isUserInteractionEnabled = false
     camera?.stop()
-    if stage != .menu && action == nil, let typing {
-      // The tray became key for the picker; typing resumes in the chat's window.
-      (typing as? UIView)?.window?.makeKey()
-      typing.becomeFirstResponder()
-    }
+    // Closing without adding returns to typing: the keyboard comes back
+    // beneath the still while the card shrinks into +.
+    let resumes = action == nil && (still != nil || stage != .menu)
+    if resumes { restoreTyping() }
     let target = collapsed(card, into: anchor, scale: 0.14)
     let panelTarget = collapsed(panel, into: anchor, scale: 0.14)
     let snapshotTarget = morphSnapshot.map { collapsed($0, into: anchor, scale: 0.14) }
-    guard !UIAccessibility.isReduceMotionEnabled else { finish(action); return }
+    guard !UIAccessibility.isReduceMotionEnabled else { finish(action, resumes: resumes); return }
+    // The rows leave first, then the glass shrinks into +.
+    fadeMenu(in: false)
     // Freeze an interrupted expansion before shrinking both surfaces toward +.
-    animate(duration: 0.28, damping: 1, animations: {
+    animate(Motion.close, animations: {
       self.card.transform = target
       if let snapshotTarget { self.morphSnapshot?.transform = snapshotTarget }
       self.morphSnapshot?.alpha = 0
       if self.stage != .menu { self.panel.transform = panelTarget }
-      self.card.alpha = 0
+      // …and dematerializes as it shrinks back in.
+      self.setGlass(false)
       self.panel.alpha = 0
-    }, completion: { self.finish(action) })
+    }, completion: { self.finish(action, resumes: resumes) })
     // Presentations wait for the tray's window to leave.
   }
 
@@ -511,18 +656,21 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     closing = true
     view.isUserInteractionEnabled = false
     camera?.stop()
+    // Adding focuses the composer; start the keyboard back now, beneath the
+    // still, and settle into the composer where the still shows it.
+    if still != nil { restoreTyping() }
+    let frame = heldComposer ?? actions.composerFrame() ?? source
     action()
-    let frame = actions.composerFrame() ?? source
-    guard !UIAccessibility.isReduceMotionEnabled else { finish(nil); return }
+    guard !UIAccessibility.isReduceMotionEnabled else { finish(nil, resumes: true); return }
     let radius = min(frame.height / 2, 28)
-    animate(duration: 0.32, damping: 1, animations: {
+    animate(Motion.morph, animations: {
       self.card.frame = frame
       self.round(radius)
       self.panelMask.frame = frame.offsetBy(dx: -self.panel.frame.minX, dy: -self.panel.frame.minY)
       self.panelMask.layer.cornerRadius = radius
       self.panel.alpha = 0
-      self.card.alpha = 0
-    }, completion: { self.finish(nil) })
+      self.setGlass(false)
+    }, completion: { self.finish(nil, resumes: true) })
   }
 
   private func removePicker() {
@@ -532,13 +680,15 @@ private final class AttachmentTrayController: UIViewController, PHPickerViewCont
     picker = nil
   }
 
-  private func finish(_ action: (() -> Void)?) {
+  private func finish(_ action: (() -> Void)?, resumes: Bool) {
     transition?.stopAnimation(true)
     transition = nil
     clearMorph()
     removePicker()
-    finished()
-    action?()
+    releaseStill(typing: resumes) { [weak self] in
+      self?.finished()
+      action?()
+    }
   }
 
   // MARK: Photos

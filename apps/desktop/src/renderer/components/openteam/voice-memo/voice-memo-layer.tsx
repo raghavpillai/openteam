@@ -26,12 +26,21 @@ export interface VoiceMemoLayerProps {
   onDiscard: () => void;
   onSend: () => void;
   onCancelProcessing: () => void;
+  /** The voice's level each time the wave takes a sample (0–1), for anything listening along. */
+  onLevel?: (level: number) => void;
 }
 
 const WAVE_SAMPLE_MS = 50;
 const WAVE_STEP_PX = 4;
 const formatDuration = (ms: number) =>
   `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+
+// The wave and glow share one AudioContext per window, and it outlives them: left running it
+// keeps the audio service rendering silence (~14 wakeups a second) until the next voice note.
+// Suspend it when the last layer in this window goes (another composer can still be
+// recording), and only if one was ever started.
+let mountedLayers = 0;
+let audioStarted = false;
 
 const readDocumentDark = () => document.documentElement.dataset.theme === "dark";
 
@@ -61,7 +70,9 @@ function useReducedMotion() {
 
 // The voice across the bar: a dotted baseline the take scrolls over
 // continuously, newest sound entering at the right edge.
-function VoiceWave({ stream }: { stream: MediaStream | null }) {
+function VoiceWave({ stream, onLevel }: { stream: MediaStream | null; onLevel?: (level: number) => void }) {
+  const levelListener = useRef(onLevel);
+  levelListener.current = onLevel;
   const windowActive = useWindowActive();
   const resourcesActive = useResourceActive();
   const active = windowActive && resourcesActive;
@@ -76,6 +87,7 @@ function VoiceWave({ stream }: { stream: MediaStream | null }) {
     let tap: MediaStream | undefined;
     try {
       const audio = stream ? getAudioContext() : null;
+      if (audio) audioStarted = true;
       const track = stream?.getAudioTracks()[0];
       if (audio && track) {
         // The bars listen to their own clone of the track the glow reads.
@@ -126,6 +138,7 @@ function VoiceWave({ stream }: { stream: MediaStream | null }) {
       while (now - lastSample >= WAVE_SAMPLE_MS) {
         lastSample += WAVE_SAMPLE_MS;
         samples.push(peak);
+        levelListener.current?.(peak);
         peak = level;
         if (samples.length > capacity) samples.splice(0, samples.length - capacity);
       }
@@ -215,11 +228,19 @@ export default function VoiceMemoLayer({
   onDiscard,
   onSend,
   onCancelProcessing,
+  onLevel,
 }: VoiceMemoLayerProps) {
   const dark = useDocumentDark();
   const reducedMotion = useReducedMotion();
   const gooId = `vm-goo-${useId().replace(/:/g, "")}`;
   useEffect(() => void preloadLoadingOrb(), []);
+  useEffect(() => {
+    mountedLayers += 1;
+    return () => {
+      mountedLayers -= 1;
+      if (mountedLayers === 0 && audioStarted) void getAudioContext()?.suspend().catch(() => undefined);
+    };
+  }, []);
   return (
     <div
       className="vm-root"
@@ -252,7 +273,7 @@ export default function VoiceMemoLayer({
         <TimeChip elapsedMs={elapsedMs} gooId={gooId} processing={mode === "processing"} />
         <span className="vm-body">
           <span className="vm-wave-slot">
-            <VoiceWave stream={stream} />
+            <VoiceWave onLevel={onLevel} stream={stream} />
           </span>
           <span aria-hidden="true" className="vm-processing">
             Transcribing…

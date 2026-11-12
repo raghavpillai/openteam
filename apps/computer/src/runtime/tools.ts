@@ -1365,6 +1365,21 @@ export class RuntimeTools {
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const cleanup: Array<() => Promise<void>> = [];
     try {
+      if (tool === "DraftExternalMessage" && args && typeof args === "object") {
+        const input = args as Record<string, any>;
+        if (Array.isArray(input.attachments)) {
+          const attachments = [];
+          for (const attachment of input.attachments) {
+            const file = await stageAttachment(pathToFileURL(attachment).href, {
+              workspace: process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace",
+              agentData: process.env.OPENTEAM_AGENT_DATA_CANONICAL_ROOT ?? "/home/box/sand-data",
+            }, signal);
+            cleanup.push(file.cleanup);
+            attachments.push(fileURLToPath(file.url));
+          }
+          args = { ...input, attachments };
+        }
+      }
       if (tool === "SendIMessage" && args && typeof args === "object") {
         const input = args as Record<string, any>;
         const send = validateMessageSend(input);

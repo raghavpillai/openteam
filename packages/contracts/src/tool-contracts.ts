@@ -141,7 +141,7 @@ contracts.UploadFile!.description = editReference("UploadFile", contracts.Upload
   ...otherProviders,
   [
     /- Gmail: destination\.draftId[^\n]*/,
-    "- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same. Attach last: Gmail's update_draft removes every attachment it is not handed again, so finish recipients, subject and body before calling UploadFile, and never call update_draft on a draft that already has an attachment (make a new draft and attach again instead). The Gmail connection cannot send a draft, so it waits unsent in the user's Gmail Drafts; tell them it is there. A DraftExternalMessage card cannot carry this file. A Gmail draft here carries a file; it is not how you draft for review. The draft with its attachments must stay under 25 MB.",
+    "- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same. Attach last: Gmail's update_draft removes every attachment it is not handed again, so finish recipients, subject and body before calling UploadFile, and never call update_draft on a draft that already has an attachment (make a new draft and attach again instead). Use this only when the user asks to keep the draft in Gmail. For an email reviewed and sent in chat, use DraftExternalMessage with attachments instead. The Gmail draft with its attachments must stay under 25 MB.",
   ],
 ]);
 contracts.DownloadFile!.description = editReference("DownloadFile", contracts.DownloadFile!.description, [
@@ -479,9 +479,15 @@ adaptDescription("DraftExternalMessage", [
     "Drafting sends nothing and does not end your turn.",
     "Drafting does not end your turn and sends nothing, unless the user allowed every recipient for you or turned your drafts off; then the card sends at once and this tool's result says whether it went out.",
   ],
-  ["if they discard it, with a short note.", "if they discard it, you see that on your next turn."],
 ]);
 const draft = contracts.DraftExternalMessage!.inputSchema;
+draft.properties.forwardMessageId = {
+  type: "string", description: "Optional, email only. The provider message id to forward. The card shows the verified source and the send appends its forwarded content. Do not also set replyToMessageId. Original attachments are not automatically included; attach the intended files explicitly.",
+};
+draft.properties.attachments = {
+  type: "array", maxItems: 10, description: "Optional, email only. Files on the bot computer to show, preview and send with this review card. At most 10 files, 10 MiB each and 25 MiB combined. Copy files from a registered computer to the box first.",
+  items: { type: "string", description: "Absolute file path on the bot computer." },
+};
 // There are no meetings, no Outlook connector, and no model-proposed allow rules: the card's menu sets exact
 // recipient rules. The email HTML is rendered from body.
 draft.properties.platform.enum = ["email", "slack"];

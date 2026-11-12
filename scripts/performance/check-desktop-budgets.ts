@@ -118,7 +118,14 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // Automatic lifecycle chunking avoids a React initialization cycle in built entries.
 // Grok Bot conversation chrome, attachment stages and opt-in message colors:
 // 1,278,577 bytes after integrating main's in-app links. Library stays lazy (6,201 B).
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_280_000);
+// Main at 4bb02542 measures 1,279,660. Appshots add no startup code (the bridge is lazy),
+// but a second page shares React DOM and delivery modules: chunk glue measures 1,280,840;
+// the voice recorder taking its transcriber as a parameter (for dictation), 1,281,496;
+// the theme helper taking an explicit preference (the overlay's own storage), 1,281,509.
+// Main at 2090e228 measures 1,287,125 (over its own 1,280,000); with Appshots, 1,288,966.
+// Email review forwarding, revision highlights, validation and read-only history:
+// 1,293,288 B on this baseline. File previews reuse the lazy attachment viewer.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_294_500);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -128,7 +135,8 @@ const startupCssBytes = result.renderer.startup.files
 // v0.0.13 adds sidebar, pending-message and settings styles: 181,253 bytes.
 // v0.0.14 delivery/loading styles and background animation controls: 183,131.
 // The matching chat/details/media styling brings the measured stylesheet to 200,278 B.
-atMost("startup CSS bytes", startupCssBytes, 201_000);
+// Main at 2090e228: 201,404 B; Appshots' settings row adds 450 (201,854).
+atMost("startup CSS bytes", startupCssBytes, 202_000);
 // September 16: worker isolation and the complete memory/plugin/settings UI
 // measure 15.90 MB / 3.887 MB gzip. Account for the worker's separate runtime;
 // retain the existing entry, CSS and grammar-total ceilings.
@@ -159,7 +167,20 @@ atMost("startup CSS bytes", startupCssBytes, 201_000);
 // v0.0.14 resource/cache ownership and delivery UI: 16,542,075 after safe chunking.
 // Conversation/Library/media styling and bot-color controls: 16,572,650 bytes.
 // v0.0.17 persistent computer control and handoff completion: 16,583,992 B.
-atMost("renderer bytes", result.renderer.bytes, 16_585_000);
+// Appshots' overlay page (capture motion, mascot, composer, its styles) and lazy bridge:
+// 16,633,150 B with frame-accurate motion (soft limits, handovers, animated line growth);
+// 16,647,600 B with dictation in the composer and Settings › Appshots (shortcut recorder);
+// 16,649,756 B after the overlay's performance review (off-thread thumbnail and texture,
+// bounded goo mask, released images, race fixes);
+// 16,650,624 B with dictation on the chat's voice-note bar (the custom strip removed) and
+// the adversarial-review fixes (own storage, request guards, reserved shortcuts);
+// 16,651,901 B with one continuous card shadow (the goo's SVG copy of the card's two layers);
+// 16,652,343 B with Esc leaving early (mid-intro fade, dismissing the sent pill).
+// Rebased on main at 2090e228 (16,593,176 B on its own): 16,661,513 B; 16,662,762 B with
+// the Bot menu fitting the screen (flips below the chip) and fading where it scrolls.
+// Main at 521b9f32 grows to 16,599,431 B (+6,255, routines); with Appshots, 16,669,264 B.
+// Email review parity on this baseline: 16,673,564 B.
+atMost("renderer bytes", result.renderer.bytes, 16_675_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -177,7 +198,13 @@ atMost("renderer bytes", result.renderer.bytes, 16_585_000);
 // The same v0.0.14 build measures 4,121,192 gzip bytes, including chunk metadata.
 // Same feature baseline: 4,125,698 gzip bytes.
 // Same v0.0.17 build: 4,131,675 gzip bytes; startup ceilings stay unchanged.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_133_000);
+// With the appshot overlay page and bridge: 4,146,316 gzip bytes; with dictation and the
+// shortcut settings: 4,152,175; after the review fixes, the chat's voice bar in the composer
+// and one continuous card shadow: 4,153,604; with Esc leaving early: 4,153,714.
+// Rebased on main at 2090e228 (4,133,729 on its own): 4,157,884.
+// Main at 521b9f32: 4,135,795; with Appshots, 4,160,418.
+// Same email review feature build: 4,161,640 B gzip.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_162_500);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -215,7 +242,8 @@ const lazyBudgets: Record<string, number> = {
   // The Settings cleanup's shared Select (#187) adds about 21.6 KB to each plugin closure:
   // 73,336, 46,419, 40,512 and 36,231.
   // The Library API method adds shared client code: measured 73,850 bytes.
-  pluginDetail: 74_100,
+  // Main at 2090e228 measures 75,627 (unchanged by Appshots).
+  pluginDetail: 75_700,
   pluginConnection: 46_800,
   pluginStudio: 40_900,
   privateSkills: 36_600,
@@ -234,6 +262,10 @@ const lazyBudgets: Record<string, number> = {
   // Conversation attachment index; document parsers remain separately lazy.
   channelLibrary: 6_500,
   avatarPicker: 20_000,
+  // The main window's half of appshots: Bot list and durable delivery for the overlay.
+  appshotBridge: 3_500,
+  // Settings › Appshots: the shortcut recorder with Change and Reset.
+  appshotShortcutSettings: 10_000,
   // Persistent ownership, reconnect recovery and handoff controls: 27,676 B.
   // This closure stays dynamic; noVNC retains its separate lazy boundary.
   botScreen: 28_000,
@@ -247,7 +279,9 @@ const lazyBudgets: Record<string, number> = {
   loadingOrb: 28_000,
   // Main's compact voice glow and recording bar measure 59,665 bytes; still lazy.
   // v0.0.13 glow smoothing and transition state add 4,479 bytes: 64,144 total.
-  voiceMemo: 64_500,
+  // Suspending the shared AudioContext when the last bar unmounts, and the level callback
+  // appshot dictation uses: 64,520.
+  voiceMemo: 64_600,
   routineEditor: 100_000,
   newBot: 20_000,
   // The first-run wizard with its shared layout, step pictures, provider marks, and

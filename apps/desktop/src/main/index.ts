@@ -17,6 +17,7 @@ import {
   BrowserWindow,
   clipboard,
   dialog,
+  globalShortcut,
   ipcMain,
   Menu,
   Notification,
@@ -31,6 +32,8 @@ import {
 } from "electron";
 import type { AppUpdater } from "electron-updater";
 import { applicationMenuTemplate } from "./application-menu";
+import { DesktopAppshot } from "./appshot";
+import { AppshotShortcutController, requestInputMonitoring } from "./appshot-shortcut";
 import { desktopSignIn, desktopSignOut } from "./auth-client";
 import { downloadAssetRequests } from "./asset-downloads";
 import { createOpenTeamClient } from "@openteam/client-core";
@@ -43,7 +46,7 @@ import {
   writeBytesFully,
   writeDataUrlToFileAtomically,
 } from "./data-url-file";
-import { discardDeliveryFiles, readDeliveryFile, stageDeliveryFile } from "./delivery-file-stage";
+import { discardDeliveryFiles, readDeliveryFile, stageDeliveryFile, sweepIncompleteDeliveryStages } from "./delivery-file-stage";
 import { DurableSendJournalStore } from "./durable-send-journal-store";
 import { createLinkFavicons, LINK_FAVICON_SCHEME } from "./link-favicons";
 import { startHostBridge } from "./host/bridge";
@@ -995,8 +998,21 @@ const createWindow = async () => {
       mainWindow?.hide();
     }
   });
+  // A reload or crash mid-recording in Settings must not leave the appshot shortcut paused.
+  // ...and nothing an appshot asked of the old page (a send, a transcription) will be answered.
+  mainWindow.webContents.on("did-start-loading", () => appshotShortcut.setRecording(false));
+  // Only a new document: subframe loads and in-page navigation keep the page (and its answers).
+  mainWindow.webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) appshot.abandonRequests();
+  });
+  mainWindow.webContents.on("render-process-gone", () => {
+    appshotShortcut.setRecording(false);
+    appshot.abandonRequests();
+  });
   mainWindow.once("closed", () => {
     disposeWindowActivity();
+    appshotShortcut.setRecording(false);
+    appshot.closeOverlay();
     pluginOAuth.closeAll();
     mainWindow = null;
   });
@@ -1032,6 +1048,104 @@ const createWindow = async () => {
   else await mainWindow.loadFile(join(import.meta.dirname, "..", "dist", "index.html"));
 };
 
+// Development retains explicit remote/Tailscale renderer support, as for the main window.
+const devRendererUrl = () => (app.isPackaged ? undefined : process.env.OPENTEAM_RENDERER_URL);
+const appshot = new DesktopAppshot({
+  preloadPath: join(import.meta.dirname, "appshot-preload.cjs"),
+  loadPage: async (window) => {
+    const rendererUrl = devRendererUrl();
+    if (rendererUrl) await window.loadURL(new URL("appshot.html", rendererUrl.endsWith("/") ? rendererUrl : `${rendererUrl}/`).href);
+    else await window.loadFile(join(import.meta.dirname, "..", "dist", "appshot.html"));
+  },
+  mainWindow: () => mainWindow,
+  focusMainWindow: () => focusMainWindow(),
+  stageDelivery: (stagingId, bytes) => stageDeliveryFile(deliveryStageDirectory(), { stagingId, bytes }),
+  discardDelivery: (stagingId) => discardDeliveryFiles(deliveryStageDirectory(), [stagingId]),
+});
+
+const installApplicationMenu = (appshotAccelerator: string | null) => {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate(
+      applicationMenuTemplate(process.platform, (action) => {
+        if (action === "appshot") {
+          void appshot.take();
+          return;
+        }
+        focusMainWindow();
+        mainWindow?.webContents.send("openteam:app-menu", action);
+        if (
+          action === "updates" &&
+          !["checking", "downloading", "downloaded", "installing"].includes(
+            desktopUpdateSnapshot.status
+          )
+        ) {
+          void checkForDesktopUpdate();
+        }
+      }, (action, window) => {
+        if (!computerClipboardActive || window !== mainWindow) return false;
+        mainWindow?.webContents.send("openteam:computer-clipboard", action);
+        return true;
+      }, appshotAccelerator)
+    )
+  );
+};
+
+// The macOS helper that detects both-key chords; packaged apps run it from app.asar.unpacked.
+const appshotHelperPath = process.platform === "darwin"
+  ? join(import.meta.dirname.replace(/app\.asar(?=[\\/]|$)/, "app.asar.unpacked"), "appshot-keys")
+  : null;
+let lastShortcutMenu: string | null | undefined;
+const appshotShortcut = new AppshotShortcutController({
+  platform: process.platform,
+  settingsPath: join(app.getPath("userData"), "appshot-settings.json"),
+  helperPath: appshotHelperPath,
+  registerAccelerator: (accelerator, onPress) => globalShortcut.register(accelerator, onPress),
+  unregisterAccelerator: (accelerator) => globalShortcut.unregister(accelerator),
+  onTrigger: () => void appshot.take(),
+  onStatus: (status) => {
+    const menuAccelerator = status.shortcut.kind === "accelerator" ? status.shortcut.accelerator : null;
+    if (app.isReady() && menuAccelerator !== lastShortcutMenu) {
+      lastShortcutMenu = menuAccelerator;
+      installApplicationMenu(menuAccelerator);
+    }
+    mainWindow?.webContents.send("openteam:appshot:shortcut-changed", status);
+  },
+});
+const requireShortcutSender = (event: Electron.IpcMainInvokeEvent) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Appshot settings are unavailable");
+};
+ipcMain.handle("openteam:appshot:shortcut:get", (event) => {
+  requireShortcutSender(event);
+  return { ...appshotShortcut.status(), platform: process.platform };
+});
+ipcMain.handle("openteam:appshot:shortcut:set", async (event, value: unknown) => {
+  requireShortcutSender(event);
+  return { ...(await appshotShortcut.set(value)), platform: process.platform };
+});
+ipcMain.handle("openteam:appshot:shortcut:recording", (event, recording: unknown) => {
+  requireShortcutSender(event);
+  appshotShortcut.setRecording(recording === true);
+});
+ipcMain.handle("openteam:appshot:shortcut:request-access", async (event) => {
+  requireShortcutSender(event);
+  if (!appshotHelperPath) return false;
+  const granted = await requestInputMonitoring(appshotHelperPath);
+  // The helper picks tap or polling when it starts, so a grant needs a fresh one.
+  if (granted) appshotShortcut.restartHelper();
+  return granted;
+});
+
+// The first "Allow…" usually returns before the person has flipped the switch in System
+// Settings. When they come back to the app, look again and move to the idle event tap.
+let lastAccessCheck = 0;
+app.on("browser-window-focus", () => {
+  if (!appshotHelperPath || appshotShortcut.status().mode !== "poll" || Date.now() - lastAccessCheck < 5_000) return;
+  lastAccessCheck = Date.now();
+  void requestInputMonitoring(appshotHelperPath, true).then((granted) => {
+    if (granted && appshotShortcut.status().mode === "poll") appshotShortcut.restartHelper();
+  });
+});
+
 let hostBridge: Awaited<ReturnType<typeof startHostBridge>> | null = null;
 const hostJobs = new HostJobManager();
 
@@ -1057,26 +1171,7 @@ if (!hasSingleInstanceLock) {
   void app
     .whenReady()
     .then(async () => {
-      Menu.setApplicationMenu(
-        Menu.buildFromTemplate(
-          applicationMenuTemplate(process.platform, (action) => {
-            focusMainWindow();
-            mainWindow?.webContents.send("openteam:app-menu", action);
-            if (
-              action === "updates" &&
-              !["checking", "downloading", "downloaded", "installing"].includes(
-                desktopUpdateSnapshot.status
-              )
-            ) {
-              void checkForDesktopUpdate();
-            }
-          }, (action, window) => {
-            if (!computerClipboardActive || window !== mainWindow) return false;
-            mainWindow?.webContents.send("openteam:computer-clipboard", action);
-            return true;
-          })
-        )
-      );
+      installApplicationMenu(null);
       localMachine.machineId = await loadMachineIdentity(join(app.getPath("userData"), "machine-id"));
       authTokenStore = new DesktopAuthTokenStore(
         join(app.getPath("userData"), "auth-session.json")
@@ -1164,6 +1259,9 @@ if (!hasSingleInstanceLock) {
         },
       });
       await Promise.all([createWindow(), authStorageWarmup]);
+      await appshotShortcut.start();
+      // Screenshots and attachments half-written when the app last stopped can't be sent.
+      void sweepIncompleteDeliveryStages(deliveryStageDirectory()).catch(() => undefined);
       scheduleDesktopUpdateChecks();
       const port = Number(process.env.OPENTEAM_HOST_BRIDGE_PORT ?? 8791);
       const token = resolveControlToken({
@@ -1233,6 +1331,8 @@ if (!hasSingleInstanceLock) {
 
 app.on("before-quit", () => {
   pluginOAuth.closeAll();
+  appshotShortcut.dispose();
+  appshot.dispose();
   isQuitting = true;
   mainWindow?.webContents.send("openteam:notifications:activity-changed");
   if (desktopUpdateTimer) clearInterval(desktopUpdateTimer);

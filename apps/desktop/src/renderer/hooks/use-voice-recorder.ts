@@ -3,8 +3,8 @@ import {
   MAX_VOICE_NOTE_MS,
   MIN_VOICE_NOTE_MS,
 } from "@openteam/contracts/transcription";
+import type { TranscriptionResult } from "@openteam/contracts/transcription";
 import { useEffect, useRef, useState } from "react";
-import { api } from "../client/openteam-api";
 import {
   MICROPHONE_DISCONNECTED,
   MICROPHONE_FALLBACK,
@@ -12,7 +12,18 @@ import {
   openMicrophone,
 } from "../lib/microphone";
 
-export function useVoiceNote(configured: boolean, onTranscript: (text: string) => void) {
+export type Transcriber = (audio: Blob, signal: AbortSignal) => Promise<Pick<TranscriptionResult, "text">>;
+
+/**
+ * Records from the chosen microphone and turns the recording into text. The caller supplies
+ * the transcriber: the chat composer calls the API directly, and the appshot overlay (which
+ * holds no account token) asks the signed-in main window to.
+ */
+export function useVoiceRecorder(
+  configured: boolean,
+  onTranscript: (text: string) => void,
+  transcribe: Transcriber
+) {
   const [state, setState] = useState<"idle" | "requesting" | "recording" | "processing" | "error">(
     "idle"
   );
@@ -25,6 +36,8 @@ export function useVoiceNote(configured: boolean, onTranscript: (text: string) =
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const controller = useRef<AbortController | null>(null);
   const callback = useRef(onTranscript);
+  const transcriber = useRef(transcribe);
+  transcriber.current = transcribe;
   const pendingAudio = useRef<Blob | null>(null);
   const starting = useRef(false);
   const detachTracks = useRef<(() => void) | null>(null);
@@ -69,7 +82,7 @@ export function useVoiceNote(configured: boolean, onTranscript: (text: string) =
     const abort = new AbortController();
     controller.current = abort;
     try {
-      const result = await api.transcribeAudio(audio, abort.signal);
+      const result = await transcriber.current(audio, abort.signal);
       if (session !== generation.current) return;
       pendingAudio.current = null;
       setState("idle");

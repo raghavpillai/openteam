@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { type CSSProperties, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DurableSendRecord } from "@openteam/product-core/durable-delivery";
 import { sendRetryProgressVisible } from "../../lib/send-progress";
@@ -90,7 +91,7 @@ function DeliveryStatus({
   const details = delivery ? (
     <DropdownMenu open={detailsOpen} onOpenChange={setDetailsOpen}>
       <DropdownMenuTrigger asChild>
-        <button className={actionClass} type="button" aria-label="Message delivery details">…</button>
+        <ButtonPrimitive className={actionClass} type="button" aria-label="Message delivery details">…</ButtonPrimitive>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-w-72">
         <p role={actionError ? "alert" : undefined} className="px-2 py-1.5 text-xs text-muted-foreground">
@@ -113,14 +114,14 @@ function DeliveryStatus({
         <span className="font-medium text-destructive" role="status">
           {delivery.failure?.uncertain ? "Delivery unconfirmed" : "Not delivered"}
         </span>
-        <button
+        <ButtonPrimitive
           className={actionClass}
           disabled={busy}
           onClick={() => act(() => onResend(delivery.nonce))}
           type="button"
         >
           Retry
-        </button>
+        </ButtonPrimitive>
         {details}
       </div>
     );
@@ -129,14 +130,14 @@ function DeliveryStatus({
     return (
       <div className={`delivery-caption delivery-caption-sending text-[11px] leading-4 text-muted-foreground${actionError ? " delivery-caption-sending-error" : ""}`}>
         {delivery.phase === "queued" ? (
-          <button
+          <ButtonPrimitive
             className={`delivery-queued-cancel ${actionClass}`}
             disabled={busy}
             onClick={() => act(() => onCancel(delivery.nonce))}
             type="button"
           >
             Cancel
-          </button>
+          </ButtonPrimitive>
         ) : null}
         {sendRetryProgressVisible(delivery) ? (
           <span className="delivery-sending-bar" data-send-progress="" role="status" aria-label="Retrying message">

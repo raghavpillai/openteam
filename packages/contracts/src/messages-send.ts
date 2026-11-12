@@ -1,10 +1,40 @@
-/** A SendIMessage request as the approval card and the Mac both see it. */
+/** A normalized SendIMessage request; file paths are snapshotted before approval. */
 export interface MessagesSend {
   text: string;
+  /** Absolute paths on the agent's computer; snapshotted before approval. */
+  attachmentPaths?: string[];
   to?: string;
   chatId?: string;
   service?: "auto" | "iMessage" | "SMS";
   recipientName?: string;
+}
+
+export const MESSAGES_SEND_MAX_FILES = 10;
+export const MESSAGES_SEND_MAX_BYTES = 25 * 1024 * 1024;
+export const MESSAGES_SEND_FILES_TOOL = "SendIMessageWithAttachments";
+/** Private server-to-Mac payload. Bytes never belong in approval-card metadata. */
+export interface MessagesSendFile {
+  fileName: string;
+  bytesBase64: string;
+}
+
+export function validateMessagesSendFiles(value: unknown): MessagesSendFile[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length === 0 || value.length > MESSAGES_SEND_MAX_FILES)
+    throw new Error(`Pass 1–${MESSAGES_SEND_MAX_FILES} attachments`);
+  let total = 0;
+  return value.map((file) => {
+    if (!file || typeof file.fileName !== "string" || !file.fileName || file.fileName.length > 255 ||
+      /[/\\\p{Cc}]/u.test(file.fileName) || [".", ".."].includes(file.fileName))
+      throw new Error("Attachment filename is invalid");
+    if (typeof file.bytesBase64 !== "string" || file.bytesBase64.length > Math.ceil(MESSAGES_SEND_MAX_BYTES / 3) * 4 ||
+      file.bytesBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(file.bytesBase64) ||
+      (file.bytesBase64.length > 0 && file.bytesBase64.startsWith("=")))
+      throw new Error("Attachment data is invalid or exceeds 25 MiB");
+    total += file.bytesBase64.length / 4 * 3 - (file.bytesBase64.endsWith("==") ? 2 : file.bytesBase64.endsWith("=") ? 1 : 0);
+    if (total > MESSAGES_SEND_MAX_BYTES) throw new Error("Attachments exceed 25 MiB in total");
+    return { fileName: file.fileName, bytesBase64: file.bytesBase64 };
+  });
 }
 
 // Recent macOS stores chats under a service-neutral `any;` GUID; older ones name the service.
@@ -22,8 +52,14 @@ export function boundedRecipientName(name: unknown): string | undefined {
   return bounded || undefined;
 }
 
-export function validateMessageSend(args: Record<string, any>): MessagesSend {
-  if (typeof args.text !== "string" || args.text.length === 0) throw new Error("text is required");
+export function validateMessageSend(args: Record<string, any>, options: { hasAttachments?: boolean } = {}): MessagesSend {
+  const paths = args.attachmentPaths;
+  if (paths !== undefined && (!Array.isArray(paths) || paths.length === 0 || paths.length > MESSAGES_SEND_MAX_FILES ||
+    paths.some((path) => typeof path !== "string" || !path.startsWith("/") || /[\0\r\n]/.test(path))))
+    throw new Error(`attachmentPaths must contain 1–${MESSAGES_SEND_MAX_FILES} absolute file paths on your computer`);
+  const text = args.text ?? "";
+  if (typeof text !== "string" || (!text.length && !paths?.length && !options.hasAttachments))
+    throw new Error("Pass text or at least one attachment");
   if (args.to !== undefined && args.chatId !== undefined) throw new Error("Pass either `to` or `chatId`, not both.");
   if (!args.to && !args.chatId) throw new Error("Pass `to` (an E.164 number or email) or `chatId` (a chat guid from FindIMessageChats).");
   if (args.to && (typeof args.to !== "string" || !(E164.test(args.to) || SENDABLE_EMAIL.test(args.to))))
@@ -34,7 +70,8 @@ export function validateMessageSend(args: Record<string, any>): MessagesSend {
     throw new Error("Invalid message service");
   const recipientName = args.to ? boundedRecipientName(args.recipientName) : undefined;
   return {
-    text: args.text,
+    text,
+    ...(paths ? { attachmentPaths: [...paths] } : {}),
     ...(args.to ? { to: args.to } : {}),
     ...(args.chatId ? { chatId: args.chatId } : {}),
     ...(args.service ? { service: args.service } : {}),

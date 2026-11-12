@@ -145,8 +145,10 @@
     "test:window-sync": "bun scripts/test-window-activity.ts --sync",
     "test:window-foreground": "bun scripts/test-window-foreground.ts",
     "test:resource-lifecycle": "bun scripts/test-resource-lifecycle.ts",
+    "test:asset-resource-sharing": "bun scripts/test-asset-resource-sharing.ts",
     "test:composer-caret": "bun scripts/test-composer-caret.ts",
     "test:composer-button-parity": "bun scripts/test-composer-button-parity.ts",
+    "test:button-motion": "bun scripts/test-button-motion.ts",
     "test:message-send-motion": "bun scripts/test-message-send-motion.ts",
     "test:message-send-lifecycle": "bun scripts/test-message-send-lifecycle.ts",
     "test:sidebar-parity": "bun scripts/test-sidebar-parity.ts",
@@ -167,6 +169,7 @@
     "test:chat-transition-motion": "bun scripts/analyze-chat-transitions.ts",
     "test:browser-network": "bun scripts/test-browser-network.ts",
     "test:document-preview-cold": "bun scripts/test-document-preview-cold.ts",
+    "test:asset-downloads": "bun scripts/test-asset-downloads.ts",
     "test:desktop-media": "bun scripts/test-desktop-media.ts",
     "test:link-favicons": "bun scripts/test-link-favicons.ts"
   },

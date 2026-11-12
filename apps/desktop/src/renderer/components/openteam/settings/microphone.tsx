@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { type ReactNode, useState } from "react";
 import { useMicrophoneDevices } from "../../../hooks/use-microphone-devices";
 import { microphoneErrorMessage, setMicrophonePreference } from "../../../lib/microphone";
@@ -133,26 +134,28 @@ export function MicrophoneSettings({
                 {accessLabel}
               </span>
               {!checking && (permission === "prompt" || permission === "unknown") ? (
-                <button
+                <ButtonPrimitive
                   className={actionClass}
                   disabled={requesting || status === "unsupported"}
                   onClick={() => void requestAccess()}
                   type="button"
+                  loading={requesting}
+                  loadingLabel="Requesting…"
                 >
-                  {requesting ? "Requesting…" : "Enable microphone"}
-                </button>
+                  Enable microphone
+                </ButtonPrimitive>
               ) : !checking && canOpenSettings ? (
-                <button
+                <ButtonPrimitive
                   className={actionClass}
                   onClick={() => void showSystemSettings()}
                   type="button"
                 >
                   System settings
-                </button>
+                </ButtonPrimitive>
               ) : !checking && permission === "denied" ? (
-                <button className={actionClass} onClick={() => void refresh()} type="button">
+                <ButtonPrimitive className={actionClass} onClick={() => void refresh()} type="button">
                   Check again
-                </button>
+                </ButtonPrimitive>
               ) : null}
             </div>
           }

@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { BotView } from "@openteam/contracts";
 import { HoverCard } from "radix-ui";
 import { useState, type CSSProperties } from "react";
@@ -16,7 +17,7 @@ export function TranscriptSenderName({
   const [light, dark] = groupSenderColors(bot?.color);
   const style = { "--sender-light": light, "--sender-dark": dark } as CSSProperties;
   return bot && onOpenChat ? (
-    <button
+    <ButtonPrimitive
       aria-label={`Open ${name}'s chat`}
       className="group-sender-name"
       data-message-agent-name=""
@@ -25,7 +26,7 @@ export function TranscriptSenderName({
       type="button"
     >
       {name}
-    </button>
+    </ButtonPrimitive>
   ) : (
     <span className="group-sender-name" data-message-agent-name="" style={style}>
       {name}
@@ -50,7 +51,7 @@ export function TranscriptSenderAvatar({
   return (
     <HoverCard.Root open={open} onOpenChange={setOpen} openDelay={350} closeDelay={200}>
       <HoverCard.Trigger asChild>
-        <button
+        <ButtonPrimitive
           aria-label={`Open ${name}'s chat`}
           className="group-sender-avatar"
           onClick={() => {
@@ -60,7 +61,7 @@ export function TranscriptSenderAvatar({
           type="button"
         >
           {avatar}
-        </button>
+        </ButtonPrimitive>
       </HoverCard.Trigger>
       <HoverCard.Portal>
         <HoverCard.Content
@@ -78,7 +79,7 @@ export function TranscriptSenderAvatar({
             </div>
           </div>
           <div className="mt-2.5 flex gap-1.5">
-            <button
+            <ButtonPrimitive
               className="group-sender-profile-action"
               onClick={() => {
                 setOpen(false);
@@ -87,9 +88,9 @@ export function TranscriptSenderAvatar({
               type="button"
             >
               Open chat
-            </button>
+            </ButtonPrimitive>
             {onOpenProfile && (
-              <button
+              <ButtonPrimitive
                 className="group-sender-profile-action"
                 onClick={() => {
                   setOpen(false);
@@ -98,7 +99,7 @@ export function TranscriptSenderAvatar({
                 type="button"
               >
                 Edit Profile
-              </button>
+              </ButtonPrimitive>
             )}
           </div>
         </HoverCard.Content>

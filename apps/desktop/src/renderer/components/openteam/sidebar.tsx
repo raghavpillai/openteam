@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { PointerActivationConstraints } from "@dnd-kit/dom";
 import {
   DragDropProvider,
@@ -169,7 +170,7 @@ function UnreadJumpPill({
   onJump: (target: SidebarUnreadJumpTarget) => void;
 }) {
   return (
-    <button
+    <ButtonPrimitive
       aria-label={`More unreads ${direction}`}
       className={cn(
         "sidebar-unread-pill absolute left-1/2 z-[12] inline-flex -translate-x-1/2 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-full border-0 py-1 pl-1 pr-2 font-[inherit] text-[13px] font-normal leading-[18px] text-[#fcfcfc] outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -189,7 +190,7 @@ function UnreadJumpPill({
         )}
       </span>
       <span className={compact ? "sr-only" : "inline pr-0.5"}>More unreads</span>
-    </button>
+    </ButtonPrimitive>
   );
 }
 
@@ -1602,7 +1603,7 @@ function SectionGroup({
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <Collapsible.Trigger asChild>
-                  <button
+                  <ButtonPrimitive
                     className="group flex h-[30px] w-full touch-none items-center rounded-md px-2 text-[12px] font-normal text-foreground-tertiary outline-none transition-colors duration-[170ms] ease-out hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none dark:text-foreground-secondary dark:hover:bg-hover"
                     data-section-id={section.id}
                     ref={ref}
@@ -1612,7 +1613,7 @@ function SectionGroup({
                       {section.name}
                     </span>
                     <SectionDisclosure collapsed={section.collapsed} count={rows.length} />
-                  </button>
+                  </ButtonPrimitive>
                 </Collapsible.Trigger>
               </ContextMenuTrigger>
               <ContextMenuContent className="w-[180px]">
@@ -3080,7 +3081,7 @@ export const Sidebar = memo(function Sidebar({
                   >
                     {preferences.sections.length > 0 && (
                       <Collapsible.Trigger asChild>
-                        <button
+                        <ButtonPrimitive
                           className="group flex h-[30px] w-full items-center rounded-md px-2 text-[12px] font-normal text-foreground-tertiary outline-none transition-colors duration-[170ms] ease-out hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none dark:text-foreground-secondary dark:hover:bg-hover"
                           type="button"
                         >
@@ -3091,7 +3092,7 @@ export const Sidebar = memo(function Sidebar({
                             collapsed={preferences.unassignedCollapsed}
                             count={groups.unassigned.length}
                           />
-                        </button>
+                        </ButtonPrimitive>
                       </Collapsible.Trigger>
                     )}
                     <SidebarCollapsibleContent
@@ -3169,7 +3170,7 @@ export const Sidebar = memo(function Sidebar({
       </SidebarCollapseMotion>
       <div className="sidebar-account-footer">
         <AccountMenu compact={compact} onOpenSettings={onOpenSettings}>
-          <button
+          <ButtonPrimitive
             aria-label={`Account: ${account.name}`}
             data-sidebar-account-trigger=""
             className="sidebar-account-button"
@@ -3184,9 +3185,9 @@ export const Sidebar = memo(function Sidebar({
               {account.initials}
             </span>
             <span className="sidebar-account-name">{account.name}</span>
-          </button>
+          </ButtonPrimitive>
         </AccountMenu>
-        <button
+        <ButtonPrimitive
           aria-label="Connect apps"
           className="sidebar-connect-apps"
           data-marketplace-trigger=""
@@ -3227,7 +3228,7 @@ export const Sidebar = memo(function Sidebar({
               ))}
             </span>
           </span>
-        </button>
+        </ButtonPrimitive>
       </div>
 
       <div

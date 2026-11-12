@@ -572,6 +572,7 @@ struct RichMessageCard: View {
     let handle = send["to"].string
     let recipient = send["recipientLabel"].string
     let text = send["text"].string
+    let attachments = send["attachments"].array
     let sending = state == "sending" || draftSending
     if state == "pending" || state == "sending" {
       HStack(spacing: 8) {
@@ -587,12 +588,22 @@ struct RichMessageCard: View {
           Text(verbatim: handle).font(.system(size: 15)).foregroundStyle(DraftPalette.secondary).lineLimit(1)
         }
       }
-      HStack {
-        Spacer(minLength: 40)
-        Text(verbatim: text).font(.system(size: 16)).foregroundStyle(.white)
-          .fixedSize(horizontal: false, vertical: true)
-          .padding(.horizontal, 12).padding(.vertical, 7)
-          .background(Color(red: 0.04, green: 0.52, blue: 1), in: RoundedRectangle(cornerRadius: 18))
+      if !text.isEmpty {
+        HStack {
+          Spacer(minLength: 40)
+          Text(verbatim: text).font(.system(size: 16)).foregroundStyle(.white)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(Color(red: 0.04, green: 0.52, blue: 1), in: RoundedRectangle(cornerRadius: 18))
+        }
+      }
+      ForEach(Array(attachments.enumerated()), id: \.offset) { _, file in
+        HStack(spacing: 8) {
+          Image(systemName: "paperclip")
+          Text(verbatim: file["fileName"].string).lineLimit(2)
+          Spacer(minLength: 0)
+          Text(verbatim: ByteCountFormatter.string(fromByteCount: Int64(file["byteSize"].int), countStyle: .file))
+        }.font(.system(size: 13)).foregroundStyle(DraftPalette.secondary)
       }
       DraftNote("The message will be sent from " + machine)
       if !meta["sendError"].string.isEmpty { DraftNote(meta["sendError"].string, alert: true) }
@@ -618,9 +629,11 @@ struct RichMessageCard: View {
         DraftStatusBadge(state: state)
       }
       let line = text.split(separator: "\n").first.map(String.init) ?? text
+      let files = attachments.map { $0["fileName"].string }.joined(separator: ", ")
+      let detail = [line.isEmpty ? "" : "“" + line + "”", files].filter { !$0.isEmpty }.joined(separator: " · ")
       let summary = state == "unknown"
         ? "The send was interrupted — check Messages on " + machine + " to see whether it went out"
-        : (state == "sent" ? "Sent to " : "To ") + (name.isEmpty ? recipient : name) + " — “" + line + "”"
+        : (state == "sent" ? "Sent to " : "To ") + (name.isEmpty ? recipient : name) + " — " + detail
       Text(verbatim: summary).font(.system(size: 15)).kerning(-0.15)
         .foregroundStyle(DraftPalette.secondary).lineLimit(1).truncationMode(.tail)
       if state == "sent", !meta["allowedRecipient"].string.isEmpty {

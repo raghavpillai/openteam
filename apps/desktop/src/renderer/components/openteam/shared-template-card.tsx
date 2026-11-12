@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { type BotRecipe, type ChannelMessageView } from "@openteam/contracts";
 import { useEffect, useRef, useState } from "react";
 import { Ellipsis } from "lucide-react";
@@ -76,7 +77,7 @@ export function SharedTemplateCard({ message }: { message: ChannelMessageView })
                   : String(metadata.outcomeText ?? state)}
             </span>
           </div>
-          <button
+          <ButtonPrimitive
             type="button"
             aria-label={`View ${recipe.profile.name} template`}
             onClick={() => setDetailsOpen(true)}
@@ -92,38 +93,40 @@ export function SharedTemplateCard({ message }: { message: ChannelMessageView })
               }}
               size="lg"
             />
-          </button>
+          </ButtonPrimitive>
           <p className="line-clamp-2 whitespace-pre-wrap text-foreground-secondary">
             {recipe.profile.description}
           </p>
           {draft && <p className="text-[12px] text-foreground-tertiary">Draft: only you can see it until you publish</p>}
           <div className="flex gap-2">
             {primaryLabel && (
-              <button
+              <ButtonPrimitive
                 type="button"
                 disabled={busy}
                 onClick={primaryAction}
-                className="h-8 flex-1 rounded-[8px] bg-foreground px-3 font-medium text-background disabled:opacity-50"
+                className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[8px] bg-foreground px-3 font-medium text-background disabled:opacity-50"
+                loading={busy}
+                loadingLabel={draft ? "Publishing…" : "Working…"}
               >
-                {busy ? (draft ? "Publishing…" : "Working…") : primaryLabel}
-              </button>
+                {primaryLabel}
+              </ButtonPrimitive>
             )}
-            <button
+            <ButtonPrimitive
               type="button"
               onClick={() => setDetailsOpen(true)}
               className="h-8 flex-1 rounded-[8px] border border-foreground/10 bg-background/60 px-3 hover:bg-background"
             >
               View Details
-            </button>
+            </ButtonPrimitive>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
+                <ButtonPrimitive
                   type="button"
                   aria-label="Template actions"
                   className="grid size-8 shrink-0 place-items-center rounded-lg text-foreground-secondary hover:bg-background/60"
                 >
                   <Ellipsis className="size-4" />
-                </button>
+                </ButtonPrimitive>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="text-[13px]">
                 <DropdownMenuItem onSelect={() => void download()}>

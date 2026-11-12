@@ -7,7 +7,7 @@ import {
 } from "../client/auth";
 import { API_BASE } from "../client/http";
 import { type BlobResourceLease, createBlobResourceCache } from "../lib/blob-resource-cache";
-import { protectedResourceUrl } from "../lib/resource-url";
+import { protectedResourceUrl, resourceCacheUrl } from "../lib/resource-url";
 
 const resources = createBlobResourceCache();
 let credentialGeneration = getAuthCredentialGeneration();
@@ -84,7 +84,7 @@ export const useAuthenticatedResource = (
     setResolved((previous) =>
       retentionKey && previous?.retentionKey === retentionKey ? previous : null
     );
-    const lease = resources.acquire(`${generation}:${target}`, async (signal) => {
+    const lease = resources.acquire(`${generation}:${resourceCacheUrl(target)}`, async (signal) => {
       const response = await fetch(target, { headers, signal, redirect: "error" });
       if (response.status === 401) clearAuthToken(requestToken);
       if (!response.ok) throw new Error(`Protected resource failed (${response.status})`);

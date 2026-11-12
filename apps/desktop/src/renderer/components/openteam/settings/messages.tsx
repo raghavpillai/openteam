@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { ChevronDown, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { MachineMessagesSettings } from "@openteam/client-core";
@@ -91,14 +92,14 @@ export function MessagesSettings({
             title="macOS permissions"
             description={!permissions ? "Loading…" : missing.length ? `Needs ${missing.join(", ")}` : "Automation, Contacts and Full Disk Access are allowed"}
             control={
-              <button
+              <ButtonPrimitive
                 className={settingsSecondaryButton}
                 disabled={!permissions}
                 onClick={() => setDialogOpen(true)}
                 type="button"
               >
                 {missing.length ? "Set up" : "Review"}
-              </button>
+              </ButtonPrimitive>
             }
           />
         ) : null}
@@ -108,9 +109,9 @@ export function MessagesSettings({
             description={!send ? (sendFailed ? "Couldn't load this setting" : "Loading…") : failed === "standing" ? "Couldn't save. Try again." : "Skips the approval card for every text"}
             control={
               sendFailed ? (
-                <button className="text-[12px] text-foreground-secondary hover:text-foreground" onClick={loadSend} type="button">
+                <ButtonPrimitive className="text-[12px] text-foreground-secondary hover:text-foreground" onClick={loadSend} type="button">
                   Retry
-                </button>
+                </ButtonPrimitive>
               ) : (
                 <InteractiveSwitch
                   label="Send Without Asking"
@@ -128,7 +129,7 @@ export function MessagesSettings({
               title="Allowed recipients"
               description={failed === "recipient" ? "The change could not be applied. Try again." : "OpenTeam can text these people without asking first"}
               control={
-                <button
+                <ButtonPrimitive
                   aria-expanded={recipientsOpen}
                   className={settingsSecondaryButton}
                   onClick={() => setRecipientsOpen((open) => !open)}
@@ -136,7 +137,7 @@ export function MessagesSettings({
                 >
                   {recipients.length === 1 ? "1 person" : `${recipients.length} people`}
                   <ChevronDown aria-hidden className={`size-3.5 transition-transform ${recipientsOpen ? "rotate-180" : ""}`} strokeWidth={2.25} />
-                </button>
+                </ButtonPrimitive>
               }
             />
             {recipientsOpen ? (
@@ -147,7 +148,7 @@ export function MessagesSettings({
                       {recipient.recipientName ? <div className="truncate text-[12.5px] font-medium">{recipient.recipientName}</div> : null}
                       <div className="truncate text-[12px] text-foreground-secondary" dir="ltr">{recipient.recipient}</div>
                     </div>
-                    <button
+                    <ButtonPrimitive
                       aria-label={`Remove ${recipient.recipientName ?? recipient.recipient}`}
                       className="rounded-md p-1 text-foreground-secondary hover:bg-black/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]"
                       disabled={saving !== null}
@@ -155,7 +156,7 @@ export function MessagesSettings({
                       type="button"
                     >
                       <Trash2 aria-hidden className="size-3.5" />
-                    </button>
+                    </ButtonPrimitive>
                   </li>
                 ))}
               </ul>

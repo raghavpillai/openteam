@@ -22,6 +22,7 @@ Every plugin belongs in `packages/plugins/<plugin-name>/`. The same structure ap
 | [Notion](notion/README.md) | Remote MCP, OAuth | Work with documents, research, meetings, and tasks |
 | [Plaid](plaid/README.md) | Skills using the Plaid CLI | Query balances, transactions, recurring payments, investments, and loans |
 | [Ramp](ramp/README.md) | Remote MCP, OAuth | Analyze spend, manage expenses and approvals, and run finance workflows |
+| [T3 Code](t3-code/README.md) | Remote MCP, OAuth and bundled skills | Start coding work in T3 worktrees, follow results, and continue existing threads |
 | [Slack (managed)](slack/README.md) | Remote MCP, your Slack app's OAuth | Search channels, read threads, send messages, and work with canvases |
 | [Slack (stealth)](slack-stealth/README.md) | Packaged MCP, browser session | Search, read channels and threads, send messages, and add reactions |
 

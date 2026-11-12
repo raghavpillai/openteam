@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { BotView, ChannelView } from "@openteam/contracts";
 import { Pencil, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -129,7 +130,7 @@ export function GroupAvatarEditor({
 
   return (
     <div className="relative flex flex-col items-center" ref={root}>
-      <button
+      <ButtonPrimitive
         aria-expanded={open}
         aria-label="Edit Bot avatar"
         className="group relative grid size-16 place-items-center outline-none"
@@ -140,7 +141,7 @@ export function GroupAvatarEditor({
         <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-full bg-black/30 opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-visible:opacity-100">
           <Pencil className="size-5 text-white" />
         </span>
-      </button>
+      </ButtonPrimitive>
       {open && (
         <div
           aria-label="Avatar editor"
@@ -158,7 +159,7 @@ export function GroupAvatarEditor({
         >
           <div aria-label="Avatar source" className="flex gap-1" role="tablist">
             {(["generate", "upload"] as const).map((tab) => (
-              <button
+              <ButtonPrimitive
                 aria-selected={source === tab}
                 className={cn(
                   "rounded-md px-2 py-1 text-xs capitalize text-muted-foreground",
@@ -174,7 +175,7 @@ export function GroupAvatarEditor({
                 type="button"
               >
                 {tab}
-              </button>
+              </ButtonPrimitive>
             ))}
           </div>
           {candidate ? (
@@ -196,8 +197,10 @@ export function GroupAvatarEditor({
                   className="h-8 flex-1 text-xs"
                   disabled={saving}
                   onClick={() => void save(candidate)}
+                  loading={saving}
+                  loadingLabel="Saving…"
                 >
-                  {saving ? "Saving…" : "Set avatar"}
+                  Set avatar
                 </Button>
               </div>
             </div>
@@ -247,14 +250,14 @@ export function GroupAvatarEditor({
             </div>
           )}
           {channel.hasAvatar && !candidate && (
-            <button
+            <ButtonPrimitive
               className="mt-2 w-full text-center text-xs text-muted-foreground hover:text-foreground"
               disabled={saving}
               onClick={() => void save(null)}
               type="button"
             >
               Remove photo
-            </button>
+            </ButtonPrimitive>
           )}
           {error && <div className="mt-2 text-xs text-destructive">{error}</div>}
         </div>

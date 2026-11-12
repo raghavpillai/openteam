@@ -252,7 +252,7 @@ export function ConnectionConfiguration({
               aria-label={field.label}
               className={inputClass}
               autoComplete="off"
-              type={field.type === "number" || field.type === "integer" ? "number" : "text"}
+              type={field.format === "mcp-url" ? "url" : field.type === "number" || field.type === "integer" ? "number" : "text"}
               step={field.type === "integer" ? 1 : "any"}
               placeholder={field.placeholder}
               value={String(values[field.key] ?? field.default ?? "")}

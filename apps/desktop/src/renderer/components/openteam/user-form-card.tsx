@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import "./permission-cards.css";
 import { PermissionIcon } from "./permission-icon";
 import { openComputerHandoff } from "../../lib/computer-handoff";
@@ -230,31 +231,31 @@ export function UserFormCard({ message, form }: { message: ChannelMessageView; f
         </p>
       )}
       <div className="permission-actions">
-        <button
+        <ButtonPrimitive
           className="permission-button permission-button-primary"
           disabled={pending || !valid}
           type="submit"
         >
           Continue
-        </button>
+        </ButtonPrimitive>
         {message.senderBotId && (
-          <button
+          <ButtonPrimitive
             className="permission-button"
             disabled={pending}
             onClick={() => void submit("escalated")}
             type="button"
           >
             Open the screen
-          </button>
+          </ButtonPrimitive>
         )}
-        <button
+        <ButtonPrimitive
           className="permission-button permission-button-ghost"
           disabled={pending}
           onClick={() => void submit("dismissed")}
           type="button"
         >
           Dismiss
-        </button>
+        </ButtonPrimitive>
       </div>
     </form>
   );

@@ -4,13 +4,14 @@ import {
   type PluginConfigurationInput,
   type PluginConfigurationView,
 } from "@openteam/contracts";
-import type { PrismaClient } from "@openteam/db";
+import type { Prisma, PrismaClient } from "@openteam/db";
 import {
   applySecretEdits,
   assertComputerMcpRuntime,
   fieldsForConnector,
   isSecretKey,
   validateValues,
+  validateMcpUrl,
   type PluginField,
 } from "@openteam/plugin-sdk";
 import { serviceEffect, toJson } from "../service-utils";
@@ -24,6 +25,8 @@ import {
   oauthRedirectUrl,
   stringArray,
   stringRecord,
+  runtimeEndpoint,
+  hasPlaceholder,
 } from "./values";
 
 const authenticationFields = (auth: string): PluginField[] =>
@@ -36,6 +39,9 @@ const authenticationFields = (auth: string): PluginField[] =>
           { key: "scope", label: "OAuth scopes", required: false, secret: false },
         ]
       : [];
+
+const usesUrlField = (endpoint: string | undefined, fields: readonly PluginField[]): boolean =>
+  fields.some(field => field.format === "mcp-url" && endpoint === `\${${field.key}}`);
 
 export class PluginConfiguration {
   constructor(
@@ -78,7 +84,7 @@ export class PluginConfiguration {
       return {
         connectionId: id,
         namespace: (await loadConnectionNamespaces(this.prisma)).get(id)!,
-        endpoint: connection.endpoint,
+        endpoint: usesUrlField(connector?.endpoint, fields) ? runtimeEndpoint(connection) : connection.endpoint,
         command: typeof config.command === "string" ? config.command : null,
         runtime: "computer",
         args: stringArray(config.args),
@@ -202,7 +208,7 @@ export class PluginConfiguration {
       }
       let endpoint = connection.endpoint;
       assertComputerMcpRuntime({ ...config, env: { ...jsonObject(config.env), ...jsonObject(credentials.env) } });
-      if (input.endpoint !== undefined) {
+      if (input.endpoint !== undefined && input.endpoint !== connection.endpoint && input.endpoint !== runtimeEndpoint(connection)) {
         const url = new URL(input.endpoint);
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
           throw new ApiError(
@@ -211,6 +217,14 @@ export class PluginConfiguration {
             "Use an HTTP(S) URL without embedded credentials"
           );
         endpoint = url.toString();
+      }
+      if (usesUrlField(connector?.endpoint, fields)) {
+        const resolved = runtimeEndpoint({
+          endpoint,
+          configuration: toJson(config) as Prisma.JsonValue,
+          credentials: toJson(credentials) as Prisma.JsonValue,
+        });
+        if (resolved && !hasPlaceholder(resolved)) validateMcpUrl(resolved);
       }
       const changed =
         JSON.stringify(config) !== JSON.stringify(connection.configuration) ||

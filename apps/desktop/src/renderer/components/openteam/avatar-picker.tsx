@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { BOT_AVATAR_COLORS, resolveBotAvatarMark } from "@openteam/contracts/bot-avatar";
 import {
   ROBOT_AVATAR_LABELS,
@@ -79,7 +80,7 @@ export function AvatarPicker({
       <Tooltip open={!open && tooltipOpen} onOpenChange={setTooltipOpen}>
         <TooltipTrigger asChild>
           <PopoverPrimitive.Trigger asChild>
-            <button
+            <ButtonPrimitive
               aria-label="Edit Bot avatar"
               className="group relative grid size-16 place-items-center outline-none"
               type="button"
@@ -116,7 +117,7 @@ export function AvatarPicker({
                   strokeWidth={2}
                 />
               </span>
-            </button>
+            </ButtonPrimitive>
           </PopoverPrimitive.Trigger>
         </TooltipTrigger>
         <TooltipContent side="bottom" sideOffset={10}>
@@ -137,7 +138,7 @@ export function AvatarPicker({
             <span className="rounded-[9px] bg-[#f0f0f0] px-2 py-1 text-[13px] font-normal leading-[18px] dark:bg-[#2b2b2b]">
               Bot
             </span>
-            <button
+            <ButtonPrimitive
               className="px-1.5 py-1 text-[13px] leading-[18px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:underline"
               onClick={() => {
                 const dealt = resolveBotAvatarMark({ agentId: botId });
@@ -146,7 +147,7 @@ export function AvatarPicker({
               type="button"
             >
               Reset
-            </button>
+            </ButtonPrimitive>
           </div>
 
           <div className="px-5 pb-5 pt-[19px]">
@@ -154,7 +155,7 @@ export function AvatarPicker({
               {ROBOT_AVATAR_SHAPES.map((shape) => {
                 const selected = selectedShape === shape;
                 return (
-                  <button
+                  <ButtonPrimitive
                     aria-label={`${ROBOT_AVATAR_LABELS[shape]} bot avatar`}
                     aria-pressed={selected}
                     className="group grid size-11 place-items-center outline-none"
@@ -163,7 +164,7 @@ export function AvatarPicker({
                     type="button"
                   >
                     <PickerShape color={draft.color} selected={selected} shape={shape} />
-                  </button>
+                  </ButtonPrimitive>
                 );
               })}
             </div>
@@ -172,7 +173,7 @@ export function AvatarPicker({
               {BOT_AVATAR_COLORS.map((candidate, index) => {
                 const selected = draft.color.toLowerCase() === candidate.toLowerCase();
                 return (
-                  <button
+                  <ButtonPrimitive
                     aria-label={`${candidate} avatar color`}
                     aria-pressed={selected}
                     className={cn(
@@ -192,17 +193,17 @@ export function AvatarPicker({
                         background: botAvatarSwatchBackground(candidate),
                       }}
                     />
-                  </button>
+                  </ButtonPrimitive>
                 );
               })}
             </div>
           </div>
           <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
-            <button className="rounded-lg px-3 py-1.5 text-[13px] outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring" onClick={() => changeOpen(false)} type="button">Cancel</button>
-            <button className="rounded-lg bg-primary px-3 py-1.5 text-[13px] text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring" onClick={() => {
+            <ButtonPrimitive className="rounded-lg px-3 py-1.5 text-[13px] outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring" onClick={() => changeOpen(false)} type="button">Cancel</ButtonPrimitive>
+            <ButtonPrimitive className="rounded-lg bg-primary px-3 py-1.5 text-[13px] text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring" onClick={() => {
               onChange(draft);
               changeOpen(false);
-            }} type="button">Set avatar</button>
+            }} type="button">Set avatar</ButtonPrimitive>
           </div>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>

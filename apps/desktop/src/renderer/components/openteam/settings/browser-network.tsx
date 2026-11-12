@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import "./browser-network.css";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -265,16 +266,18 @@ export function BrowserNetworkSettings() {
               <span>Test unavailable</span>
             ) : null}
           </div>
-          <button
+          <ButtonPrimitive
             type="button"
             className={settingsSecondaryButton}
             aria-label="Test active connection"
             title="Quick latency and speed estimate from the bot computer; about 1.25 MB"
             disabled={!ready || testing}
             onClick={() => void testConnection()}
+            loading={testing}
+            loadingLabel="Testing…"
           >
-            {testing ? "Testing…" : "Test"}
-          </button>
+            Test
+          </ButtonPrimitive>
         </div>
         {sharing?.supported && (
           <label className="bn-share">
@@ -294,7 +297,7 @@ export function BrowserNetworkSettings() {
             <span>Unsaved changes</span>
             <div className="bn-buttons">
               {dirty && (
-                <button
+                <ButtonPrimitive
                   type="button"
                   disabled={busy}
                   onClick={() => {
@@ -304,21 +307,21 @@ export function BrowserNetworkSettings() {
                   className={settingsSecondaryButton}
                 >
                   Discard
-                </button>
+                </ButtonPrimitive>
               )}
-              <button
+              <ButtonPrimitive
                 type="button"
                 disabled={busy || !view || !dirty}
                 onClick={() => void apply()}
                 className={settingsPrimaryButton}
               >
                 Apply
-              </button>
+              </ButtonPrimitive>
             </div>
           </div>
         )}
         {view && !["ready", "server"].includes(view.runtime.state) && (
-          <button
+          <ButtonPrimitive
             type="button"
             disabled={busy}
             onClick={() => {
@@ -332,7 +335,7 @@ export function BrowserNetworkSettings() {
             className={`${settingsSecondaryButton} mb-2`}
           >
             Retry connection
-          </button>
+          </ButtonPrimitive>
         )}
         {error && (
           <p role="alert" className="bn-error">
@@ -389,7 +392,7 @@ function NetworkSourceRow({
         <span className="bn-status-dot" aria-hidden="true" />
         {active ? "In use" : available ? "Working" : "Not working"}
       </span>
-      <button
+      <ButtonPrimitive
         ref={handleRef}
         type="button"
         aria-label={`Reorder ${name}`}
@@ -397,7 +400,7 @@ function NetworkSourceRow({
         className="bn-handle"
       >
         <GripVertical size={14} />
-      </button>
+      </ButtonPrimitive>
     </li>
   );
 }

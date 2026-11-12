@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import type { InferenceModelView } from "@openteam/contracts/inference";
 import { Check, ChevronDown, Search } from "lucide-react";
 import {
@@ -185,7 +186,7 @@ export function ModelPicker({
   const activeId = open && shown[active] ? `${listId}-${active}` : undefined;
 
   const triggerButton = (
-    <button
+    <ButtonPrimitive
       aria-controls={open ? listId : undefined}
       aria-expanded={open}
       aria-haspopup="listbox"
@@ -212,7 +213,7 @@ export function ModelPicker({
       {selected && selected.modelId === recommended ? <em>Recommended</em> : null}
       {selected && selected.maker !== providerName ? <small>{selected.maker}</small> : null}
       <ChevronDown aria-hidden="true" className="setup-picker-chevron" />
-    </button>
+    </ButtonPrimitive>
   );
   const menu = (
     <>

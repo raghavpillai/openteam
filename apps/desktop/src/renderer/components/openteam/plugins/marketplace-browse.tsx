@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { ThisMacSection } from "./this-mac";
 import type {
   PluginCatalogItemView,
@@ -15,7 +16,6 @@ import { useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { pluginAuthorization, pluginNeedsSetup } from "@openteam/product-core/plugin-authorization";
 import { cn } from "../../../lib/cn";
-import { LoadingOrb } from "../../ui/loading-orb";
 import { PluginMark } from "./plugin-mark";
 import { MarketplaceCategories } from "./marketplace-categories";
 
@@ -58,7 +58,7 @@ function PluginRow({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-3 rounded-2xl px-3 hover:bg-foreground/[0.05]">
-      <button
+      <ButtonPrimitive
         aria-label={`Open ${plugin.name}`}
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-md py-3 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
         onClick={() => onOpen(plugin)}
@@ -73,7 +73,7 @@ function PluginRow({
             {subtitle ?? plugin.description}
           </span>
         </span>
-      </button>
+      </ButtonPrimitive>
       {action ??
         (plugin.installed ? (
           <span className="inline-flex items-center gap-1 px-1 text-[12px] text-foreground-secondary">
@@ -81,14 +81,15 @@ function PluginRow({
             Added
           </span>
         ) : (
-          <button
+          <ButtonPrimitive
             className={pill}
             disabled={busy}
             onClick={() => onInstall?.(plugin)}
             type="button"
+            loading={busy}
           >
-            {busy && <LoadingOrb aria-hidden size={12} />}Add
-          </button>
+            Add
+          </ButtonPrimitive>
         ))}
     </div>
   );
@@ -97,7 +98,7 @@ function PluginRow({
 export function InstalledPluginsSummary({ data, onShowInstalled }: { data: PluginSettingsView; onShowInstalled: () => void }) {
   const installedCount = data.installs.length;
   return (
-      <button
+      <ButtonPrimitive
         aria-label="Your plugins"
         className="flex h-8 shrink-0 cursor-pointer self-start items-center gap-2 rounded-lg text-left outline-none hover:opacity-70 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
         onClick={onShowInstalled}
@@ -120,7 +121,7 @@ export function InstalledPluginsSummary({ data, onShowInstalled }: { data: Plugi
           {installedCount ? `${installedCount} installed` : "Your plugins"}
         </span>
         <ChevronRight className="size-3 text-foreground-tertiary" />
-      </button>
+      </ButtonPrimitive>
   );
 }
 
@@ -276,17 +277,23 @@ export function InstalledPluginsView({
                   onOpen={onOpen}
                   action={
                     retry ? (
-                      <button
+                      <ButtonPrimitive
                         className={pill}
                         disabled={busy === retry.id}
                         onClick={() => (pluginNeedsSetup(retry, plugin) ? onOpen(plugin) : onRetry(retry))}
                         type="button"
+                        loading={busy === retry.id}
                       >
-                        {busy === retry.id ? (
-                          <LoadingOrb aria-hidden size={12} />
-                        ) : null}
-                        {pluginAuthorization(retry) ? pluginAuthorization(retry)?.expired ? "Try again" : "Reopen" : pluginNeedsSetup(retry, plugin) ? "Set up" : retry.auth === "oauth" && retry.status === "needs_auth" ? "Authorize" : "Retry"}
-                      </button>
+                        {pluginAuthorization(retry)
+                          ? pluginAuthorization(retry)?.expired
+                            ? "Try again"
+                            : "Reopen"
+                          : pluginNeedsSetup(retry, plugin)
+                            ? "Set up"
+                            : retry.auth === "oauth" && retry.status === "needs_auth"
+                              ? "Authorize"
+                              : "Retry"}
+                      </ButtonPrimitive>
                     ) : (
                       <span className="text-[12px] text-emerald-600 dark:text-emerald-400">{install.connections.length ? "Connected" : "Added"}</span>
                     )
@@ -304,18 +311,18 @@ export function InstalledPluginsView({
         <section className="mt-8">
           <div className="mb-2 flex items-center justify-between px-2">
             <h3 className="text-[12px] text-foreground-secondary">Private skills</h3>
-            <button
+            <ButtonPrimitive
               className="text-[12px] text-foreground-secondary hover:text-foreground"
               type="button"
               onClick={() => onManage()}
             >
               Manage skills
-            </button>
+            </ButtonPrimitive>
           </div>
           {skills
             ?.filter((s) => matches(s.name))
             .map((skill) => (
-              <button
+              <ButtonPrimitive
                 className="flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left hover:bg-black/[0.035] dark:hover:bg-white/[0.035]"
                 key={skill.id}
                 onClick={() => onManage()}
@@ -328,7 +335,7 @@ export function InstalledPluginsView({
                     {skill.description}
                   </span>
                 </span>
-              </button>
+              </ButtonPrimitive>
             ))}
           {(!skills || !skills.length) && (
             <p className="px-2 text-[12px] text-foreground-secondary">

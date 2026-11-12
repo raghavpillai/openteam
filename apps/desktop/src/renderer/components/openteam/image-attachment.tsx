@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { Download, ImageOff, X } from "lucide-react";
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { API_BASE } from "../../client/http";
@@ -102,7 +103,7 @@ export function ImageAttachment({
         )}
         style={messageStyle}
       >
-        <button
+        <ButtonPrimitive
           aria-label={`Open ${label}`}
           className={cn(
             "absolute inset-0 block overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
@@ -133,9 +134,9 @@ export function ImageAttachment({
               <ImageOff className="size-5" />
             </span>
           ) : null}
-        </button>
+        </ButtonPrimitive>
         {onRemove && (
-          <button
+          <ButtonPrimitive
             aria-label={`Remove ${label}`}
             className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-[#1c1c1c] text-[#fcfcfc] opacity-0 transition focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 group-hover/image:opacity-100 dark:bg-[#f5f5f5] dark:text-[#121212]"
             onClick={(event) => {
@@ -145,7 +146,7 @@ export function ImageAttachment({
             type="button"
           >
             <X className="size-3" strokeWidth={2.4} />
-          </button>
+          </ButtonPrimitive>
         )}
       </div>
 
@@ -208,7 +209,7 @@ function MediaThumbnail({
   const raw = image.url.startsWith("/api/") ? new URL(image.url, API_BASE).toString() : image.url;
   const source = useAuthenticatedResource(raw, { enabled: resourcesActive && (visible || active) });
   return (
-    <button
+    <ButtonPrimitive
       ref={thumbnail}
       aria-current={active || undefined}
       aria-label={`View media ${index + 1} of ${total}`}
@@ -231,7 +232,7 @@ function MediaThumbnail({
           src={source}
         />
       ) : null}
-    </button>
+    </ButtonPrimitive>
   );
 }
 
@@ -374,7 +375,7 @@ export function ImageAttachmentPreview({
       open={activeImage !== null}
       title={activeLabel}
       actions={
-        <button
+        <ButtonPrimitive
           aria-label="Download media"
           className="desktop-elevated-control"
           disabled={!activeSource}
@@ -382,7 +383,7 @@ export function ImageAttachmentPreview({
           type="button"
         >
           <Download className="size-4" strokeWidth={1.8} />
-        </button>
+        </ButtonPrimitive>
       }
     >
       {activeImage && (

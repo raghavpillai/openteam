@@ -53,6 +53,7 @@ Some installed plugins include skills and runtime instructions. These load for a
 | [Google Docs](../../packages/plugins/google-docs/README.md) | 1: `google-docs` |
 | [Google Sheets](../../packages/plugins/google-sheets/README.md) | 1: `google-sheets` |
 | [Google Slides](../../packages/plugins/google-slides/README.md) | 1: `google-slides` |
+| [T3 Code](../../packages/plugins/t3-code/README.md) | 3: `t3-code`, `t3-threads`, and `t3-setup` |
 
 Gmail, Google Calendar, GitHub, Linear, and Slack (stealth) provide tools without bundled skills. You can create a private skill that uses those tools.
 

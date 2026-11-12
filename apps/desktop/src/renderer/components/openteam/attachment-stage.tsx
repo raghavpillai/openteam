@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { X } from "lucide-react";
 import { type ReactNode, useContext, useLayoutEffect, useRef, useState } from "react";
 import { AttachmentStageChannel } from "../../hooks/attachment-stage-channel";
@@ -72,7 +73,7 @@ export function AttachmentStage({
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">Preview and download {title}</DialogDescription>
         <header className="attachment-stage-header">
-          <button
+          <ButtonPrimitive
             aria-label={closeLabel}
             className="desktop-elevated-control"
             onClick={() => onOpenChange(false)}
@@ -80,7 +81,7 @@ export function AttachmentStage({
             type="button"
           >
             <X className="size-4" strokeWidth={1.8} />
-          </button>
+          </ButtonPrimitive>
           <div className="attachment-stage-title" title={title}>
             {title}
           </div>

@@ -1,9 +1,9 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { TriangleAlert } from "lucide-react";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { useState } from "react";
 import { useServerUpdate } from "../../../hooks/use-server-update";
 import { requestDesktopUpdateRestart } from "../../../lib/desktop-update";
-import { LoadingOrb } from "../../ui/loading-orb";
 import { ServerUpdateSettings } from "./server-update";
 import { SectionLabel, SettingsGroup, SettingsLink, SettingsRow, settingsPrimaryButton, settingsSecondaryButton } from "./ui";
 
@@ -118,15 +118,13 @@ export default function UpdatesSettings() {
           anchors={["update-status", "automatic-updates"]}
           control={
             clientNeedsUpdate ? (
-              <button
+              <ButtonPrimitive
                 className={primaryButton}
                 disabled={["downloading", "installing"].includes(clientUpdate?.status ?? "")}
                 onClick={() => void updateClient()}
                 type="button"
+                loading={["downloading", "installing"].includes(clientUpdate?.status ?? "")}
               >
-                {["downloading", "installing"].includes(clientUpdate?.status ?? "") ? (
-                  <LoadingOrb aria-hidden size={14} />
-                ) : null}
                 {clientUpdate?.status === "downloaded"
                   ? "Restart to update"
                   : clientUpdate?.status === "downloading"
@@ -134,17 +132,18 @@ export default function UpdatesSettings() {
                     : clientUpdate?.status === "installing"
                       ? "Restarting…"
                       : "Update desktop"}
-              </button>
+              </ButtonPrimitive>
             ) : (
-              <button
+              <ButtonPrimitive
                 className={secondaryButton}
                 disabled={clientUpdate?.status === "checking"}
                 onClick={() => void check()}
                 type="button"
+                loading={clientUpdate?.status === "checking"}
+                loadingLabel="Checking…"
               >
-                {clientUpdate?.status === "checking" ? <LoadingOrb aria-hidden size={14} /> : null}
-                {clientUpdate?.status === "checking" ? "Checking…" : "Check for Updates"}
-              </button>
+                Check for Updates
+              </ButtonPrimitive>
             )
           }
           description={

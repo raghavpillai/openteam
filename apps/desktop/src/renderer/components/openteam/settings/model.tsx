@@ -1,7 +1,7 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { SettingsSelectContent } from "./select-content";
 import { useModelSetup } from "../../../hooks/use-model-setup";
 import { providerName } from "../../../lib/provider-names";
-import { LoadingOrb } from "../../ui/loading-orb";
 import { Select, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { ModelTestStatus, SignInProgress } from "../model-setup";
 import { ModelPicker } from "../setup/model-picker";
@@ -69,28 +69,28 @@ export default function ModelSettings() {
         <SettingsRow
           control={
             provider?.connected ? (
-              <button
+              <ButtonPrimitive
                 className={settingsSecondaryButton}
                 disabled={working || signingIn}
                 onClick={() => void setup.disconnect()}
                 type="button"
               >
                 Disconnect
-              </button>
+              </ButtonPrimitive>
             ) : signingIn ? null : (
               // The sign-in or key form below replaces these while it's open.
               <div className="flex items-center gap-2">
                 {(provider?.authMethods ?? []).map((method) => (
-                  <button
+                  <ButtonPrimitive
                     className={settingsPrimaryButton}
                     disabled={working || signingIn}
                     key={method.type}
                     onClick={() => void setup.connect(method.type)}
                     type="button"
+                    loading={busy === "connect"}
                   >
-                    {busy === "connect" ? <LoadingOrb aria-hidden size={14} /> : null}
                     {method.type === "oauth" ? "Sign in" : "Add API key"}
-                  </button>
+                  </ButtonPrimitive>
                 ))}
               </div>
             )
@@ -180,16 +180,16 @@ export default function ModelSettings() {
             provider.authType === "oauth" &&
             !signingIn ? (
               // A plan sign-in that expired is fixed by signing in again, not by disconnecting.
-              <button
+              <ButtonPrimitive
                 className={settingsSecondaryButton}
                 disabled={working}
                 onClick={() => void setup.connect("oauth")}
                 type="button"
               >
                 Sign in again
-              </button>
+              </ButtonPrimitive>
             ) : null}
-            <button
+            <ButtonPrimitive
               className={settingsSecondaryButton}
               disabled={
                 setup.changed ||
@@ -201,16 +201,16 @@ export default function ModelSettings() {
               type="button"
             >
               Test
-            </button>
-            <button
+            </ButtonPrimitive>
+            <ButtonPrimitive
               className={settingsPrimaryButton}
               disabled={!setup.changed || !provider?.connected || !setup.selectedModel || working}
               onClick={() => void setup.apply()}
               type="button"
+              loading={busy === "save"}
             >
-              {busy === "save" ? <LoadingOrb aria-hidden size={14} /> : null}
               Apply
-            </button>
+            </ButtonPrimitive>
           </div>
         </div>
       </SettingsGroup>
@@ -218,14 +218,14 @@ export default function ModelSettings() {
         <div className="mt-3 px-2 text-[12px] text-red-600 dark:text-red-400" role="alert">
           {setup.error}
           {!data ? (
-            <button
+            <ButtonPrimitive
               className={settingsSecondaryButton}
               disabled={working}
               onClick={() => void setup.reload()}
               type="button"
             >
               Try again
-            </button>
+            </ButtonPrimitive>
           ) : null}
         </div>
       ) : null}

@@ -1,14 +1,12 @@
 import { ApiError } from "@openteam/contracts";
 import { connectorHostTools } from "@openteam/plugin-sdk";
 import type { PrismaClient } from "@openteam/db";
-import { appendEvent, toJson } from "../service-utils";
+import { toJson } from "../service-utils";
 import { loadConnectionNamespaces } from "./namespaces";
 import type { PluginTransport } from "./transport";
+import { isUnknownPluginOutcome } from "./invocation-outcomes";
 import {
-  canonicalJson,
   definitionFromManifest,
-  jsonObject,
-  redact,
   toolSnapshot,
 } from "./values";
 
@@ -28,8 +26,10 @@ export class PluginInvocations {
       arguments: unknown;
       /** Server-side callers only: a host-only tool, absent from the Bot-visible snapshot. */
       hostTool?: boolean;
-    }
+    },
+    signal?: AbortSignal
   ): Promise<unknown> => {
+    signal?.throwIfAborted();
     const connection = await this.prisma.pluginConnection.findUnique({
       where: { id: request.connectionId },
       include: {
@@ -107,6 +107,8 @@ export class PluginInvocations {
       }
       if (previous?.status === "completed")
         return { completed: true as const, result: previous.result };
+      if (previous?.status === "failed" && isUnknownPluginOutcome(previous.error))
+        throw new ApiError(409, "plugin_call_outcome_unknown", previous.error!);
       if (previous) {
         throw new ApiError(
           409,
@@ -127,6 +129,6 @@ export class PluginInvocations {
       return { completed: false as const };
     });
     if (prepared.completed) return prepared.result;
-    return this.executeInvocation(request.callId);
+    return this.executeInvocation(request.callId, signal);
   };
 }

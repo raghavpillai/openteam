@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import "./template-details.css";
 import type { BotRecipe } from "@openteam/contracts";
 import { ChevronLeft, ChevronRight, Globe, LockKeyhole, Plug, X } from "lucide-react";
@@ -299,7 +300,7 @@ export function TemplateDetails({
           data-overview={page.kind === "overview"}
         >
           {page.kind !== "overview" && (
-            <button
+            <ButtonPrimitive
               ref={back}
               type="button"
               aria-label={page.kind !== "content" ? "Back to template" : `Back to ${page.parent}`}
@@ -309,7 +310,7 @@ export function TemplateDetails({
               }
             >
               <ChevronLeft className="size-4" strokeWidth={1.5} />
-            </button>
+            </ButtonPrimitive>
           )}
           <div className="min-w-0 flex-1 overflow-hidden">
             <DialogTitle
@@ -325,13 +326,13 @@ export function TemplateDetails({
           {page.kind !== "overview" && <span aria-hidden className="size-7 shrink-0" />}
         </header>
         <DialogClose asChild>
-          <button
+          <ButtonPrimitive
             type="button"
             aria-label="Close template details"
             className="sr-only focus:not-sr-only focus:absolute focus:right-3 focus:top-3 focus:z-30 focus:grid focus:size-7 focus:place-items-center focus:rounded-lg focus:bg-subtle"
           >
             <X className="size-4" />
-          </button>
+          </ButtonPrimitive>
         </DialogClose>
         <DialogDescription className="sr-only">
           Review version {version} of this Bot template before publishing.
@@ -418,14 +419,16 @@ export function TemplateDetails({
             {recipe.visibility === "public" ? "Public" : "Team only"}
           </span>
           {action && (
-            <button
+            <ButtonPrimitive
               type="button"
               disabled={busy}
               onClick={onAction}
-              className="template-publish h-8 min-w-[108px] rounded-lg px-2.5 text-[14px] font-normal leading-5"
+              className="template-publish inline-flex items-center justify-center gap-1.5 h-8 min-w-[108px] rounded-lg px-2.5 text-[14px] font-normal leading-5"
+              loading={busy}
+              loadingLabel="Working…"
             >
-              {busy ? "Working…" : action}
-            </button>
+              {action}
+            </ButtonPrimitive>
           )}
         </footer>
       </DialogContent>

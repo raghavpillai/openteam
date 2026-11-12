@@ -7,6 +7,7 @@ import type { PgBoss } from "pg-boss";
 import type { ComputerFetch } from "./service-utils";
 import { appendEvent } from "./service-utils";
 import { SUBAGENT_RECOVERY_RUN_STATUSES, subagentRestartError } from "./subagent/recovery";
+import { PLUGIN_RESTART_UNKNOWN_OUTCOME } from "./plugin/invocation-outcomes";
 
 export const RESTART_INTERRUPTED_NOTICE =
   "This reply was interrupted by a restart. Send your message again to continue.";
@@ -75,6 +76,12 @@ export async function recover(
           message: "Runtime restarted during this turn",
         },
       },
+    });
+    // The remote operation can outlive this host. Settle the local receipt,
+    // without guessing its remote outcome or dispatching it a second time.
+    await tx.pluginInvocation.updateMany({
+      where: { runId: { in: activeRunIds }, status: "running", startedAt: { lte: now } },
+      data: { status: "failed", error: PLUGIN_RESTART_UNKNOWN_OUTCOME, completedAt: now },
     });
     const wokenParents = new Set<string>();
     for (const subagent of interruptedSubagents) {

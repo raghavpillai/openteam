@@ -4,6 +4,7 @@ import { ChromeCookies } from "./chrome-cookies";
 import type { NativeActionReceipts } from "./action-receipts";
 import type { MessagesAccess } from "./messages-access";
 import { NativeCommandError } from "./native-command";
+import { MESSAGES_SEND_FILES_TOOL, validateMessagesSendFiles } from "@openteam/contracts/messages-send";
 
 const missingGrant = (grant: string) =>
   `The user's Mac has not granted OpenTeam ${grant}, so this cannot run. Ask the user to grant it to OpenTeam in System Settings under Privacy & Security, then try again.`;
@@ -49,7 +50,8 @@ export class HostCapabilities {
   private async execute(value: unknown, signal?: AbortSignal): Promise<any> {
     if (!value || typeof value !== "object" || Array.isArray(value))
       throw new Error("Invalid desktop request");
-    const { tool, botId, callId, arguments: rawArgs = {} } = value as Record<string, any>;
+    const { tool: wireTool, botId, callId, arguments: rawArgs = {} } = value as Record<string, any>;
+    const tool = wireTool === MESSAGES_SEND_FILES_TOOL ? "SendIMessage" : wireTool;
     const { parseReferenceArguments } = await import("@openteam/contracts/reference-parsers");
     const args = ["RequestCookieOriginApproval", ...DESKTOP_MESSAGES_TOOLS].includes(tool) ? parseReferenceArguments(tool, rawArgs) : rawArgs;
     if (
@@ -73,7 +75,10 @@ export class HostCapabilities {
     const { validateMessageSend } = await import("@openteam/contracts/messages-send");
     const messages = this.messages ??= new MacMessages();
     if (tool === "SendIMessage") {
-      const send = validateMessageSend(args);
+      const attachments = validateMessagesSendFiles(rawArgs.attachments);
+      if (wireTool === MESSAGES_SEND_FILES_TOOL && !attachments.length) throw new Error("Attachments are required");
+      if (args.attachmentPaths) throw new Error("Attachment paths must be copied from the box before sending to the Mac");
+      const send = { ...validateMessageSend(args, { hasAttachments: attachments.length > 0 }), ...(attachments.length ? { attachments } : {}) };
       if (!this.receipts) throw new Error("Durable send receipts are unavailable");
       signal?.throwIfAborted();
       try {

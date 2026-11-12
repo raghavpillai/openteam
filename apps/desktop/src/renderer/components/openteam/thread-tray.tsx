@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { AssetRef, BotView, ChannelMessageView } from "@openteam/contracts";
 import {
   type DurableSendPayload,
@@ -276,7 +277,7 @@ export function ThreadTray({
       data-thread-overlay=""
       inert={!open}
     >
-      <button
+      <ButtonPrimitive
         aria-label="Close thread"
         className="absolute inset-0"
         onClick={onClose}
@@ -291,14 +292,14 @@ export function ThreadTray({
       >
         <header className="flex h-12 shrink-0 items-center border-b px-4">
           <h2 className="text-sm font-semibold">Thread</h2>
-          <button
+          <ButtonPrimitive
             aria-label="Close thread"
             className="ml-auto grid size-7 place-items-center rounded-full hover:bg-accent"
             onClick={onClose}
             type="button"
           >
             <X className="size-4" />
-          </button>
+          </ButtonPrimitive>
         </header>
         {repliesTruncated && (
           <div

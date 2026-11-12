@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { useWindowVisible } from "../../hooks/use-window-active";
 import { CalendarClock, CirclePause, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -103,14 +104,14 @@ export function RoutinesSummary({
         ) : (
           <RoutineRows onOpen={onOpen} routines={sorted} />
         )}
-        <button
+        <ButtonPrimitive
           className="mt-0.5 flex h-9 w-full items-center gap-2 rounded-[9px] px-2 text-left text-[13px] text-foreground-secondary outline-none hover:bg-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/25"
           onClick={() => onOpen(null)}
           type="button"
         >
           <Plus className="size-4" strokeWidth={1.7} />
           Add routine
-        </button>
+        </ButtonPrimitive>
       </section>
     );
   }
@@ -155,7 +156,7 @@ function RoutineRows({
           : "Paused";
         return (
           <li key={routine.id}>
-            <button
+            <ButtonPrimitive
               className="group flex min-h-[42px] w-full items-center gap-2 rounded-[9px] px-2 text-left outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring/25"
               onClick={() => onOpen(routine.id)}
               style={{ containIntrinsicSize: "42px", contentVisibility: "auto" }}
@@ -174,7 +175,7 @@ function RoutineRows({
                 <span className="block truncate text-[13px] font-medium">{routine.name}</span>
                 <span className="block truncate text-[11px] text-muted-foreground">{detail}</span>
               </span>
-            </button>
+            </ButtonPrimitive>
           </li>
         );
       })}

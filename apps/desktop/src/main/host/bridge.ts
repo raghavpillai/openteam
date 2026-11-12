@@ -13,8 +13,11 @@ import { HostFileTransfers } from "./file-transfer";
 import type { HostCapabilities } from "./capabilities";
 import type { HostJobPayload } from "./job-protocol";
 import type { ComputerSettingsStore } from "../computer-settings";
+import { MESSAGES_SEND_MAX_BYTES } from "@openteam/contracts/messages-send";
 
 const MAX_BODY_BYTES = 128 * 1024;
+// Attachment bytes travel as base64; ordinary shell/read/transfer metadata keeps its small cap.
+const MAX_CAPABILITY_BODY_BYTES = Math.ceil(MESSAGES_SEND_MAX_BYTES / 3) * 4 + MAX_BODY_BYTES;
 
 const json = (response: ServerResponse, status: number, value: unknown) => {
   if (response.destroyed || response.writableEnded) return;
@@ -34,13 +37,14 @@ const authorized = (request: IncomingMessage, token: string): boolean => {
   );
 };
 
-const body = async (request: IncomingMessage): Promise<unknown> => {
+const body = async (request: IncomingMessage, maximum = MAX_BODY_BYTES): Promise<unknown> => {
+  if (Number(request.headers["content-length"]) > maximum) throw new Error("Request body is too large");
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += bytes.length;
-    if (size > MAX_BODY_BYTES) throw new Error("Request body is too large");
+    if (size > maximum) throw new Error("Request body is too large");
     chunks.push(bytes);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -80,7 +84,7 @@ export const startHostBridge = (options: {
     try {
       if (request.method === "POST" && request.url === HOST_BRIDGE_PATHS.capabilities) {
         if (!options.capabilities) return json(response, 503, { error: "Desktop capabilities are unavailable; update the connected desktop app" });
-        return json(response, 200, await options.capabilities.handle(await body(request), controller.signal));
+        return json(response, 200, await options.capabilities.handle(await body(request, MAX_CAPABILITY_BODY_BYTES), controller.signal));
       }
       if (request.method === "POST" && request.url === HOST_BRIDGE_PATHS.transfer) {
         const input = parseHostTransferRequest(await body(request));

@@ -70,7 +70,7 @@ import XCTest
     long.tap()
     let title = app.buttons["conversation-details"]
     XCTAssertTrue(title.waitForExistence(timeout: 8))
-    let back = app.buttons["chat-back"], more = app.buttons["chat-more"]
+    let back = app.chatBackButton, more = app.buttons["chat-more"]
     XCTAssertTrue(back.isHittable)
     XCTAssertTrue(more.isHittable)
     XCTAssertFalse(title.frame.intersects(more.frame))
@@ -98,7 +98,7 @@ import XCTest
     XCTAssertFalse(app.buttons["conversation-swipe-mark-read"].exists)
     capture("swipe-dismissed-by-row-tap", app)
     row.tap()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 5))
   }
 
   func testQuestionOptionsAndSwipeCancelPreserveButtons() async throws {
@@ -118,11 +118,11 @@ import XCTest
     start.press(forDuration: 0.05,
       thenDragTo: origin.withOffset(CGVector(dx: app.frame.width * 0.24, dy: app.frame.height * 0.40)),
       withVelocity: .slow, thenHoldForDuration: 0.4)
-    XCTAssertTrue(app.buttons["chat-back"].isHittable)
+    XCTAssertTrue(app.chatBackButton.isHittable)
     XCTAssertTrue(app.buttons["chat-more"].isHittable)
     XCTAssertTrue(app.buttons["Still on track"].isHittable)
     capture("question-after-cancel", app)
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     XCTAssertTrue(app.buttons["search-button"].waitForExistence(timeout: 5))
     capture("rail-after-pop", app)
   }

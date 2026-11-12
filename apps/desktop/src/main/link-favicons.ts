@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createPublicFaviconFetch } from "./public-favicon-fetch";
 
 /** Pages request `openteam-favicon://icon/<host>`; the main process answers with that site's icon. */
 export const LINK_FAVICON_SCHEME = "openteam-favicon";
@@ -23,7 +24,7 @@ type Lookup = { icon: Icon | null; lifetime: number };
 export function linkFaviconHost(raw: string): string | null {
   const host = raw.trim().toLowerCase();
   if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) || host.length > 253) return null;
-  if (/^[0-9.]+$/.test(host)) return null;
+  if (/^[0-9.]+$/.test(host) || !host.split(".").every((part) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(part))) return null;
   if ([".local", ".localhost", ".internal", ".lan", ".home.arpa"].some((suffix) => host.endsWith(suffix))) return null;
   return host;
 }
@@ -43,8 +44,23 @@ const sniffImageType = (bytes: Uint8Array, declared: string | null) => {
 async function readLimited(response: Response, limit: number): Promise<Uint8Array | null> {
   const length = Number(response.headers.get("content-length"));
   if (Number.isFinite(length) && length > limit) return null;
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  return bytes.byteLength > limit ? null : bytes;
+  const reader = response.body?.getReader();
+  if (!reader) return new Uint8Array();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) { await reader.cancel(); return null; }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  return bytes;
 }
 
 const attribute = (tag: string, name: string) =>
@@ -63,12 +79,16 @@ export function declaredIcon(html: string, base: URL): URL | null {
     } catch {
       continue;
     }
-    if (url.protocol !== "https:" && url.protocol !== "http:") continue;
+    if (!publicFaviconURL(url)) continue;
     const score = rel.includes("apple-touch-icon") ? 3 : attribute(tag, "sizes") ? 2 : 1;
     if (!best || score > best.score) best = { score, url };
   }
   return best?.url ?? null;
 }
+
+const publicFaviconURL = (url: URL) =>
+  (url.protocol === "https:" || url.protocol === "http:") &&
+  !url.username && !url.password && linkFaviconHost(url.hostname) !== null;
 
 /**
  * Site icons for chat links, fetched from the linked site itself (never a
@@ -77,21 +97,33 @@ export function declaredIcon(html: string, base: URL): URL | null {
  */
 export function createLinkFavicons({
   cacheDir,
-  fetch,
+  fetch = createPublicFaviconFetch(),
   now = Date.now,
 }: {
   cacheDir: string;
-  fetch: (url: string, init: RequestInit) => Promise<Response>;
+  fetch?: (url: string, init: RequestInit) => Promise<Response>;
   now?: () => number;
 }) {
   const memory = new Map<string, { expiresAt: number; icon: Icon | null }>();
   const pending = new Map<string, Promise<Icon | null>>();
   const file = (host: string) => join(cacheDir, `${createHash("sha256").update(host).digest("hex")}.json`);
-  const request = (url: URL | string) =>
-    fetch(String(url), { redirect: "follow", credentials: "omit", signal: AbortSignal.timeout(TIMEOUT_MS) });
+  const request = async (raw: URL | string) => {
+    let url = new URL(raw);
+    const signal = AbortSignal.timeout(TIMEOUT_MS);
+    for (let hop = 0; hop <= 5; hop++) {
+      if (!publicFaviconURL(url)) throw new Error("Favicon destination is not public");
+      const response = await fetch(String(url), { redirect: "manual", credentials: "omit", signal });
+      if (![301, 302, 303, 307, 308].includes(response.status)) return { response, url };
+      await response.body?.cancel();
+      const location = response.headers.get("location");
+      if (!location) throw new Error("Favicon redirect has no location");
+      url = new URL(location, url);
+    }
+    throw new Error("Too many favicon redirects");
+  };
 
   async function image(url: URL | string): Promise<Icon | null> {
-    const response = await request(url);
+    const { response } = await request(url);
     if (!response.ok) return null;
     const bytes = await readLimited(response, MAX_IMAGE_BYTES);
     const type = bytes && bytes.byteLength > 0 ? sniffImageType(bytes, response.headers.get("content-type")) : null;
@@ -102,11 +134,11 @@ export function createLinkFavicons({
     const root = new URL(`https://${host}/`);
     let reached = false;
     try {
-      const page = await request(root);
+      const { response: page, url: pageURL } = await request(root);
       reached = true;
       if (page.ok && page.headers.get("content-type")?.includes("html")) {
         const html = await readLimited(page, MAX_PAGE_BYTES);
-        const declared = html ? declaredIcon(new TextDecoder().decode(html), new URL(page.url || root)) : null;
+        const declared = html ? declaredIcon(new TextDecoder().decode(html), pageURL) : null;
         const icon = declared ? await image(declared).catch(() => null) : null;
         if (icon) return { icon, lifetime: HIT_LIFETIME_MS };
       }

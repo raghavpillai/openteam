@@ -45,6 +45,10 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
       Math.abs(main.x - stage.x) < 0.1 && Math.abs(main.width - stage.width) < 0.1,
       "viewer occupies chat area and preserves sidebar"
     );
+    check(
+      Math.abs(stage.y) < 0.1 && Math.abs(stage.height - p.viewportSize().height) < 0.1,
+      "production preview fills the visible viewport vertically"
+    );
     check(await p.locator("[data-composer-dock] form").isVisible(), "composer stays visible");
     const dock = await rect(p.locator("[data-composer-dock] form"));
     check(
@@ -134,6 +138,11 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
           (await p.locator(".media-stage-caption").innerText()) === "image-0.png",
         "Library image title and caption use filename"
       );
+      // Opening a warm preview transitions the composer to its viewer tone.
+      await p.waitForFunction(() => {
+        const surface = document.querySelector("[data-prompt-surface]");
+        return surface && getComputedStyle(surface).backgroundColor === "rgb(31, 31, 31)";
+      }, undefined, { timeout: 2000 });
       check(
         (await p
           .locator("[data-prompt-surface]")
@@ -262,7 +271,7 @@ module.exports = async function runDesktopMediaChecks({ port, url, out }) {
       .getByRole("button", { name: /Other bot/ })
       .first()
       .evaluate((e) => e.click());
-    await p.getByText("A different conversation.", { exact: true }).waitFor();
+    await p.locator("[data-message-id]").getByText("A different conversation.", { exact: true }).waitFor();
     await p.locator("[data-attachment-stage]").waitFor({ state: "hidden" });
     check(true, "programmatic chat switching closes a warm conversation viewer");
     phase = "file formats";

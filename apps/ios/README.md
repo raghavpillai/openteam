@@ -230,6 +230,12 @@ The v0.0.16 App Store submission uses build 67, archived with stable Xcode 27.1
 and submitted for review on November 10, 2026. Recheck both builds and build uploads
 before choosing another build number.
 
+The v0.0.17 candidate selects build 68, verified unused in both builds and uploads
+at preparation. Public TestFlight 0.0.16 (66) is valid, approved and available to
+the existing public group, and the notice advertises that build. The separate
+App Store build 67 review continues independently. Recheck both Apple inventories
+immediately before uploading the candidate.
+
 ### In-app update notice
 
 In TestFlight and Debug builds, the home-screen Update badge and the notice at

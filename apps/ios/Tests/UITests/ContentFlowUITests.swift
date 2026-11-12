@@ -125,15 +125,14 @@ import XCTest
     XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "link-actions-url").firstMatch.exists)
     capture("link-dark-actions", app)
   }
-  /// A skeleton holds each link's icon space until the site's icon arrives.
-  func testLinkFaviconShowsSkeletonWhileLoading() async throws {
+  /// Native links use a local fallback without delaying link interaction.
+  func testLinkFaviconUsesLocalFallback() async throws {
     for scene in ["plain-link", "markdown"] {
-      let app = try await launch(scene, slowFavicons: true)
+      let app = try await launch(scene)
       let link = scene == "markdown" ? app.webViews.links["safe link"] : app.links["Wikipedia's random article page"]
       XCTAssertTrue(link.waitForExistence(timeout: 12))
-      capture("favicon-\(scene)-loading", app)
-      try await Task.sleep(for: .seconds(9))
-      capture("favicon-\(scene)-loaded", app)
+      XCTAssertTrue(link.isHittable)
+      capture("favicon-\(scene)-local-fallback", app)
       app.terminate()
     }
   }

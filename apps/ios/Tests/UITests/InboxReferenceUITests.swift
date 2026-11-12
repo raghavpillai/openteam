@@ -62,7 +62,7 @@ import XCTest
     XCTAssertTrue(app.buttons["Delayed on customs"].exists)
     XCTAssertTrue(app.buttons["Not proceeding"].exists)
     capture("question-dark", app)
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     XCTAssertTrue(first.waitForExistence(timeout: 8))
     capture("returned-home", app)
     try await request("/__qa/update-message", ["id": "visual-message-inbox-1-2",
@@ -128,13 +128,13 @@ import XCTest
     let row = app.descendants(matching: .any).matching(identifier: "message-content-fixture").firstMatch
     XCTAssertTrue(row.waitForExistence(timeout: 15))
     XCTAssertTrue(app.otherElements["chat-loading"].waitForNonExistence(timeout: 15))
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 8))
     let origin = app.coordinate(withNormalizedOffset: .zero)
     let edge = origin.withOffset(CGVector(dx: 22, dy: row.frame.midY))
     edge.press(forDuration: 0.05,
       thenDragTo: origin.withOffset(CGVector(dx: app.frame.width * 0.24, dy: row.frame.midY)),
       withVelocity: .slow, thenHoldForDuration: 0.3)
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 8))
     XCTAssertTrue(row.exists, "A cancelled pop must keep the conversation visible")
     XCTAssertFalse(app.buttons["thread-back"].exists)
     capture("cancelled-native-back", app)
@@ -145,8 +145,8 @@ import XCTest
     XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 8))
     XCTAssertFalse(app.buttons["thread-back"].exists)
     app.buttons["Cancel reply"].tap()
-    XCTAssertTrue(app.buttons["chat-back"].exists)
-    app.buttons["chat-back"].tap()
+    XCTAssertTrue(app.chatBackButton.exists)
+    app.chatBackButton.tap()
     XCTAssertTrue(app.buttons["channel-channel-research"].waitForExistence(timeout: 8))
   }
 }

@@ -1452,6 +1452,8 @@ export interface BotView {
   name: string;
   title: string;
   description: string;
+  /** @deprecated Empty compatibility field required by released iOS clients. */
+  instructions: string;
   icon: string;
   color: string;
   hasAvatar: boolean;

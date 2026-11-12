@@ -57,7 +57,7 @@ export function AttachmentStage({
     <Dialog modal={false} onOpenChange={onOpenChange} open={open}>
       <DialogContent
         ref={setContent}
-        className="attachment-stage"
+        className="attachment-stage translate-none"
         data-attachment-stage=""
         data-attachment-tone={dark ? "dark" : "default"}
         onInteractOutside={(event) => {

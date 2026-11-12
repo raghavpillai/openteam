@@ -122,3 +122,54 @@ describe("link favicons", () => {
     expect(attempts).toBe(6);
   });
 });
+
+
+describe("favicon destination boundaries", () => {
+  for (const target of ["http://127.0.0.1/private.png", "http://192.168.1.1/icon", "http://printer.local/icon", "http://169.254.169.254/latest", "https://user:secret@cdn.example.com/icon"]) {
+    test(`never requests a declared private or credentialed icon: ${target}`, async () => {
+      const { serve, requests } = await fixture({
+        "https://example.com/": html(`<link rel="icon" href="${target}">`),
+        [target]: image(png),
+      });
+      expect((await serve("example.com")).status).toBe(404);
+      expect(requests.some(({ url }) => url === target)).toBe(false);
+    });
+  }
+
+  test("checks every redirect and retains the final page URL for relative icons", async () => {
+    const { serve, requests } = await fixture({
+      "https://example.com/": () => new Response(null, { status: 302, headers: { location: "https://cdn.example.com/docs/" } }),
+      "https://cdn.example.com/docs/": html('<link rel="icon" href="brand.png">'),
+      "https://cdn.example.com/docs/brand.png": image(png),
+    });
+    expect((await serve("example.com")).status).toBe(200);
+    expect(requests.every(({ init }) => init.redirect === "manual")).toBe(true);
+  });
+
+  for (const path of ["/", "/favicon.ico", "/apple-touch-icon.png", "/brand.png"]) {
+    test(`blocks a private redirect from ${path}`, async () => {
+      const target = "http://127.0.0.1/private.png";
+      const { serve, requests } = await fixture({
+        "https://example.com/": html('<link rel="icon" href="/brand.png">'),
+        [`https://example.com${path}`]: () => new Response(null, { status: 302, headers: { location: target } }),
+        [target]: image(png),
+      });
+      expect((await serve("example.com")).status).toBe(404);
+      expect(requests.some(({ url }) => url === target)).toBe(false);
+    });
+  }
+});
+
+test("bounds redirect loops and cancels oversized chunked images", async () => {
+  let canceled = false;
+  const { serve, requests } = await fixture({
+    "https://loop.example/": () => new Response(null, { status: 302, headers: { location: "/" } }),
+    "https://loop.example/favicon.ico": () => new Response(new ReadableStream({
+      pull(controller) { controller.enqueue(new Uint8Array(600_000)); },
+      cancel() { canceled = true; },
+    }), { headers: { "content-type": "image/png" } }),
+  });
+  expect((await serve("loop.example")).status).toBe(404);
+  expect(requests.filter(({ url }) => url === "https://loop.example/")).toHaveLength(6);
+  expect(canceled).toBe(true);
+});

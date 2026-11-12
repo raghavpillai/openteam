@@ -431,7 +431,7 @@ import XCTest
     let other = try XCTUnwrap(channels.first { $0["id"] as? String != channel }?["id"] as? String)
     _ = try await request("/__push/control", ["readFailures": 100])
     app.buttons["channel-" + channel].tap()
-    let back = app.buttons["chat-back"]
+    let back = app.chatBackButton
     if back.exists { back.tap() }
     let otherBot = app.buttons["channel-" + other]
     if !otherBot.isHittable { app.buttons["chat-sidebar"].tap() }
@@ -504,7 +504,7 @@ import XCTest
       try await Task.sleep(for: .milliseconds(100))
     }
     XCTAssertTrue(requested)
-    let back = app.buttons["chat-back"]
+    let back = app.chatBackButton
     if back.exists { back.tap() }
     let thirdBot = app.buttons["channel-" + third]
     if !thirdBot.isHittable { app.buttons["chat-sidebar"].tap() }
@@ -669,7 +669,7 @@ import XCTest
     _ = try await waitRegistered()
     app.buttons["channel-visual-chat"].tap()
     XCTAssertTrue(app.tables["chat-history"].staticTexts["Page message 180"].waitForExistence(timeout: 10))
-    if app.buttons["chat-back"].exists { app.buttons["chat-back"].tap() }
+    if app.chatBackButton.exists { app.chatBackButton.tap() }
     try background(app)
     _ = try await request("/__push/control", ["historyDelayMs": 15000])
     let created = try await request("/api/v0/channels/visual-chat/messages", [

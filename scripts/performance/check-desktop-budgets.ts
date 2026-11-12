@@ -158,7 +158,8 @@ atMost("startup CSS bytes", startupCssBytes, 201_000);
 // v0.0.13 measures 16,529,321 bytes after isolating SettingsSelectContent.
 // v0.0.14 resource/cache ownership and delivery UI: 16,542,075 after safe chunking.
 // Conversation/Library/media styling and bot-color controls: 16,572,650 bytes.
-atMost("renderer bytes", result.renderer.bytes, 16_575_000);
+// v0.0.17 persistent computer control and handoff completion: 16,583,992 B.
+atMost("renderer bytes", result.renderer.bytes, 16_585_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -175,7 +176,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_575_000);
 // bytes. Allow 2 KB for worker retirement, blob leases and shared activity hooks.
 // The same v0.0.14 build measures 4,121,192 gzip bytes, including chunk metadata.
 // Same feature baseline: 4,125,698 gzip bytes.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_127_000);
+// Same v0.0.17 build: 4,131,675 gzip bytes; startup ceilings stay unchanged.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_133_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -232,7 +234,9 @@ const lazyBudgets: Record<string, number> = {
   // Conversation attachment index; document parsers remain separately lazy.
   channelLibrary: 6_500,
   avatarPicker: 20_000,
-  botScreen: 20_000,
+  // Persistent ownership, reconnect recovery and handoff controls: 27,676 B.
+  // This closure stays dynamic; noVNC retains its separate lazy boundary.
+  botScreen: 28_000,
   vncProtocol: 280_000,
   fileAttachment: 20_000,
   pdfPreview: 1_500_000,

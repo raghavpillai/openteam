@@ -70,9 +70,8 @@ import XCTest
       app.launchArguments += ["--open-channel", "visual-chat"]
     }
     app.launch()
-    XCTAssertTrue(
-      app.buttons[login ? "get-started" : home ? "settings-button" : "chat-back"].waitForExistence(
-        timeout: 15))
+    let arrived = login ? app.buttons["get-started"] : home ? app.buttons["settings-button"] : app.chatBackButton
+    XCTAssertTrue(arrived.waitForExistence(timeout: 15))
     if !home && !login {
       XCTAssertTrue(app.staticTexts["Got it — here."].waitForExistence(timeout: 8))
     }
@@ -92,7 +91,7 @@ import XCTest
         try await Task.sleep(for: .milliseconds(400))
         try await expect("conversation.select", "light")
       } else {
-        app.buttons["chat-back"].tap()
+        app.chatBackButton.tap()
       }
       let second = app.buttons["channel-visual-1"]
       XCTAssertTrue(second.waitForExistence(timeout: 8))
@@ -186,7 +185,7 @@ import XCTest
     try await clear()
     app.buttons["create-confirm"].tap()
     try await expect("conversation.create", "success")
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 8))
   }
   func testOffSettingPersistsAndSuppressesEveryMessageCue() async throws {
     var app = try await launch(home: true)
@@ -278,7 +277,7 @@ import XCTest
     let log = try await events()
     XCTAssertTrue(log.allSatisfy { !$0.active && !$0.emitted })
     app.activate()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 8))
   }
   func testPluginLoadingIsSilentAndInstallHasOneOutcomeCue() async throws {
     let app = try await launch(home: true, visual: false)
@@ -421,7 +420,7 @@ import XCTest
       XCTAssertFalse(log.contains { $0.source == "conversation.swipe-action" || $0.source == "conversation.swipe-arm" })
       row.tap()
       XCTAssertTrue(action.waitForNonExistence(timeout: 3))
-      XCTAssertFalse(app.buttons["chat-back"].exists)
+      XCTAssertFalse(app.chatBackButton.exists)
       let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
         abs(row.frame.minX - closedFrame.minX) < 0.5
       }, object: nil)

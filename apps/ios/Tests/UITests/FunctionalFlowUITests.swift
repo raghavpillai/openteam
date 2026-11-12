@@ -95,9 +95,16 @@ final class FunctionalFlowUITests: XCTestCase {
       app.launch()
       let row = app.buttons["channel-channel-research"]
       XCTAssertTrue(row.waitForExistence(timeout: 15))
-      row.swipeLeft()
+      // Reveal actions without committing the new full-swipe pin gesture.
+      let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+      start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -105, dy: 0)),
+        withVelocity: .slow, thenHoldForDuration: 0.15)
+      let swipePin = app.buttons["conversation-swipe-pin"]
+      XCTAssertTrue(swipePin.waitForExistence(timeout: 5))
       XCTAssertFalse(app.buttons["conversation-swipe-hide"].exists)
       XCTAssertTrue(row.exists)
+      row.tap()
+      XCTAssertTrue(swipePin.waitForNonExistence(timeout: 5))
       row.press(forDuration: 0.8)
       XCTAssertTrue(app.buttons["Pin"].waitForExistence(timeout: 5))
       XCTAssertTrue(app.buttons["Delete bot"].exists)
@@ -645,7 +652,7 @@ final class FunctionalFlowUITests: XCTestCase {
     XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 8))
     replace(app.textFields["profile-name"], "Renamed without reordering")
     app.buttons["profile-save"].tap()
-    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.chatBackButton.waitForExistence(timeout: 8))
     let after = try await state()
     let saved = try XCTUnwrap((after["channels"] as? [[String: Any]])?.first { $0["id"] as? String == id })
     XCTAssertEqual((saved["members"] as? [[String: Any]])?.compactMap { $0["botId"] as? String }, members.compactMap { $0["botId"] as? String })
@@ -744,7 +751,7 @@ final class FunctionalFlowUITests: XCTestCase {
       (groupData["channels"] as? [[String: Any]])?.first { $0["name"] as? String == "Native group" }
     )
     XCTAssertEqual((group["members"] as? [Any])?.count, 2)
-    app.buttons["chat-back"].tap()
+    app.chatBackButton.tap()
     plugins(app)
     app.buttons["Plugin workspace"].tap()
     app.buttons["Create skill"].tap()

@@ -253,9 +253,9 @@ def prepare(server_url):
         # otherwise rejects it before nftables, deadlocking control-plane boot.
         # These rules select a route, not permission: nft still drops ordinary
         # unmarked outbound traffic, including traffic bound to these ports.
-        run('ip', family, 'rule', 'add', 'pref', '96', 'ipproto', 'tcp',
+        run('ip', family, 'rule', 'add', 'pref', '96', 'ipproto', '6',
             'sport', str(gateway_port), 'lookup', 'main')
-        run('ip', family, 'rule', 'add', 'pref', '97', 'ipproto', 'tcp',
+        run('ip', family, 'rule', 'add', 'pref', '97', 'ipproto', '6',
             'sport', '6200-6299', 'lookup', 'main')
         run('ip', family, 'rule', 'add', 'pref', '100', 'fwmark', MARK + '/0xffff', 'lookup', 'main')
         run('ip', family, 'rule', 'add', 'pref', '101', 'fwmark', MARK + '/0xffff', 'prohibit')

@@ -649,7 +649,7 @@ export const nextRoutineTriggerRun = (
 /** Infer an older row's interval phase without using manual/event run history.
  * A single relative interval's saved due time is already on its intended phase,
  * including when it was edited after creation before anchors were persisted. */
-export const routineScheduleAnchor = (
+const routineScheduleAnchor = (
   routine: { scheduleAnchorAt?: Date | null; nextRunAt: Date | null; createdAt: Date; trigger: unknown },
   _hasScheduledExecution = true
 ): Date => {

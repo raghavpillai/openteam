@@ -65,11 +65,7 @@
   },
   "dependencies": {
     "effect": "3.22.1",
-    "semver": "7.8.5",
     "@openteam/plugin-sdk": "workspace:*",
     "zod": "3.25.76"
-  },
-  "devDependencies": {
-    "@types/semver": "7.7.1"
   }
 }

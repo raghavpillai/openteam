@@ -49,7 +49,7 @@ export const groupVisibilityClauses = ({
 
 const normalizeHandle = (value: string) => value.toLocaleLowerCase("en-US");
 
-export const groupMemberMentionHandles = (name: string): string[] => {
+const groupMemberMentionHandles = (name: string): string[] => {
   const normalized = normalizeHandle(name.trim());
   if (!normalized) return [];
   const compact = normalized.replace(/\s+/g, "");

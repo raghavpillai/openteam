@@ -3,9 +3,6 @@ import platformPrompt from "./prompts/platform.json";
 import { INLINE_WORKFLOWS } from "./prompts/inline-workflows";
 import { AUTHENTICATION_INSTRUCTIONS } from "./prompts/authentication";
 
-/** Standalone, reviewed runtime asset; never load the local findings directory. */
-export const PLATFORM_SYSTEM_PROMPT_VERSION = platformPrompt.version;
-
 const DELEGATING_ID = "delegating-and-multitasking";
 /** The reference's multitask section; it follows the agent profile and the user line. */
 export const DELEGATING_SECTION = platformPrompt.sections.find(({ id }) => id === DELEGATING_ID)!.text;

@@ -474,7 +474,7 @@ export type NormalizedGroupAgentMessage =
   | { status: "empty" | "pass"; content: "" }
   | { status: "message"; content: string };
 
-export const clampAgentMessage = (message: string): string =>
+const clampAgentMessage = (message: string): string =>
   message.trim().slice(0, GROUP_AGENT_MESSAGE_LIMIT);
 
 export const normalizeGroupAgentMessage = (message: string): NormalizedGroupAgentMessage => {

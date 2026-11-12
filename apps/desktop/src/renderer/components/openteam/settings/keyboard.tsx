@@ -105,17 +105,23 @@ function ShortcutRow({
     window.addEventListener("keydown", onDown, true);
     window.addEventListener("keyup", onUp, true);
     window.addEventListener("blur", cancel);
+    // Dictation can be Fn on its own, which only main hears: listen for it while recording.
+    const fnRecordable = action === "dictate" && mac;
+    const shortcuts = window.openteam?.shortcuts;
+    if (fnRecordable) void shortcuts?.recordFn(true);
+    const stopFn = fnRecordable ? shortcuts?.onShortcut((pressed) => { if (pressed === "fn") void save(FN_KEY); }) : undefined;
     return () => {
+      stopFn?.();
+      if (fnRecordable) void shortcuts?.recordFn(false);
       window.removeEventListener("keydown", onDown, true);
       window.removeEventListener("keyup", onUp, true);
       window.removeEventListener("blur", cancel);
     };
-  }, [mac, onRecord, recording, save]);
+  }, [action, mac, onRecord, recording, save]);
 
   const label = SHORTCUT_LABELS[action];
-  const fnOffer = action === "dictate" && mac && binding !== FN_KEY;
   const description = recording
-    ? `Press the new shortcut${action === "dictate" && mac ? " (or use Fn on its own)" : ""}. Esc cancels.`
+    ? `Press the new shortcut${action === "dictate" && mac ? ", or 🌐 Fn on its own" : ""}. Esc cancels.`
     : action === "dictate" && binding === FN_KEY
       ? "Tap 🌐 Fn on its own to start or stop a voice note. If macOS also reacts, set “Press 🌐 key to” to “Do Nothing” in System Settings › Keyboard."
       : label.description;
@@ -138,11 +144,6 @@ function ShortcutRow({
                 <Keycaps keys={shortcutKeycaps(binding, mac)} chord={false} />
               )}
             </span>
-            {fnOffer && (
-              <button type="button" className={settingsSecondaryButton} title="Dictate with the 🌐 Fn key on its own" onClick={() => void save(FN_KEY)}>
-                Use Fn
-              </button>
-            )}
             <button type="button" className={settingsSecondaryButton} onClick={() => onRecord(recording ? null : action)}>
               {recording ? "Cancel" : "Change…"}
             </button>

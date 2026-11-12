@@ -1002,7 +1002,10 @@ const createWindow = async () => {
   });
   // A reload or crash mid-recording in Settings must not leave the appshot shortcut paused.
   // ...and nothing an appshot asked of the old page (a send, a transcription) will be answered.
-  mainWindow.webContents.on("did-start-loading", () => appshotShortcut.setRecording(false));
+  mainWindow.webContents.on("did-start-loading", () => {
+    appshotShortcut.setRecording(false);
+    if (recordingFn) { recordingFn = false; syncFnWatch(); }
+  });
   // Only a new document: subframe loads and in-page navigation keep the page (and its answers).
   mainWindow.webContents.on("did-start-navigation", (details) => {
     if (details.isMainFrame && !details.isSameDocument) appshot.abandonRequests();
@@ -1103,12 +1106,22 @@ const keyboardShortcuts = new KeyboardShortcutStore({
   platform: process.platform,
   appshotAccelerator: () => currentAppshotAccelerator(),
   onChange: (view) => {
-    appshotShortcut.setWatchFn(view.bindings.dictate === FN_KEY);
+    syncFnWatch(view.bindings.dictate);
     if (app.isReady()) installApplicationMenu(currentAppshotAccelerator(), view.bindings.settings);
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.webContents.send("openteam:shortcuts-changed", view);
     }
   },
+});
+// Fn is watched while dictation is bound to it, or while Settings records Dictate's shortcut
+// (a page never sees Fn on its own, so main hears it and passes it on).
+let recordingFn = false;
+const syncFnWatch = (dictate = keyboardShortcuts.get("dictate")) =>
+  appshotShortcut.setWatchFn(dictate === FN_KEY || recordingFn);
+ipcMain.handle("openteam:shortcuts:record-fn", (event, recording: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Shortcuts are unavailable");
+  recordingFn = recording === true;
+  syncFnWatch();
 });
 const isOwnWindowSender = (event: Electron.IpcMainInvokeEvent) =>
   BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.webContents === event.sender);
@@ -1121,11 +1134,12 @@ ipcMain.handle("openteam:shortcuts:set", (event, action: unknown, value: unknown
   return keyboardShortcuts.set(action, value);
 });
 
-/** Fn tapped (dictation bound to Fn): to the composer in front, the appshot's or the chat's. */
+/** Fn tapped on its own: to the window in front (its composer dictates when that's the
+ * binding; Settings records it). */
 const dictateFromFn = () => {
   const focused = BrowserWindow.getFocusedWindow();
   if (!focused || focused.isDestroyed()) return;
-  focused.webContents.send(focused === mainWindow ? "openteam:shortcut" : "appshot:shortcut", "dictate");
+  focused.webContents.send(focused === mainWindow ? "openteam:shortcut" : "appshot:shortcut", "fn");
 };
 
 // The macOS helper that detects both-key chords; packaged apps run it from app.asar.unpacked.

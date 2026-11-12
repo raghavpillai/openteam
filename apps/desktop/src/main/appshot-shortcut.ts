@@ -216,7 +216,8 @@ export class AppshotShortcutController {
   setRecording(recording: boolean) {
     if (this.recording === recording) return;
     this.recording = recording;
-    // The helper's chord and Fn both pause; an ordinary shortcut is unregistered meanwhile.
+    // The helper's chord pauses (Fn still reports, to be recorded); an ordinary shortcut is
+    // unregistered meanwhile.
     this.helper?.stdin.write(recording ? "pause\n" : "resume\n");
     if (this.shortcut.kind !== "chord") this.apply();
   }

@@ -219,8 +219,9 @@ input.readabilityHandler = { handle in
         if parts.count > 1, parts[1] == "off" { chordOn = false }
         else if parts.count > 1, let next = Chord.named(parts[1]) { detector.chord = next; chordOn = true }
       case "fn": fnDetector.enabled = parts.count > 1 && parts[1] == "on"
-      case "pause": detector.paused = true; fnDetector.paused = true
-      case "resume": detector.paused = false; fnDetector.paused = false
+      // Recording a shortcut pauses the chord; Fn keeps reporting (it can be what's recorded).
+      case "pause": detector.paused = true
+      case "resume": detector.paused = false
       default: break
       }
     }

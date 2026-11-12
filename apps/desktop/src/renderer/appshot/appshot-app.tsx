@@ -1375,7 +1375,7 @@ export function AppshotApp() {
     window.addEventListener("keydown", onKey);
     // Dictation on Fn: only main sees that key (through the native helper) and forwards it.
     const stopShortcut = bridge()?.onShortcut((action) => {
-      if (action === "dictate" && phaseRef.current === "compose" && shortcutBinding("dictate") === FN_KEY) toggleDictation();
+      if (action === "fn" && phaseRef.current === "compose" && shortcutBinding("dictate") === FN_KEY) toggleDictation();
     });
     return () => {
       window.removeEventListener("keydown", onKey);

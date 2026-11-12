@@ -76,7 +76,7 @@ export function useVoiceShortcuts(options: {
     // Fn on its own only reaches main (through the native helper), which forwards it here.
     const stopFn = window.openteam?.shortcuts?.onShortcut((action) => {
       const voice = latest.current;
-      if (action !== "dictate" || shortcutBinding("dictate") !== FN_KEY || !voice.available) return;
+      if (action !== "fn" || shortcutBinding("dictate") !== FN_KEY || !voice.available) return;
       // Only the composer on screen, and only when focus is in it (or nowhere in particular):
       // other conversations keep theirs mounted while hidden.
       const editor = voice.editor.current;

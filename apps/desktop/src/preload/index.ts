@@ -295,6 +295,7 @@ contextBridge.exposeInMainWorld("openteam", {
   shortcuts: {
     get: () => ipcRenderer.invoke("openteam:shortcuts:get"),
     set: (action: string, binding: string | null) => ipcRenderer.invoke("openteam:shortcuts:set", action, binding),
+    recordFn: (recording: boolean) => ipcRenderer.invoke("openteam:shortcuts:record-fn", recording === true),
     onChange: (callback: (view: unknown) => void) => listen("openteam:shortcuts-changed", callback),
     onShortcut: (callback: (action: string) => void) => listen("openteam:shortcut", (action) => { if (typeof action === "string") callback(action); }),
   },

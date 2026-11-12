@@ -35,6 +35,7 @@ interface Window {
     shortcuts?: {
       get(): Promise<KeyboardShortcutsView>;
       set(action: string, binding: string | null): Promise<KeyboardShortcutsView>;
+      recordFn(recording: boolean): Promise<void>;
       onChange(callback: (view: KeyboardShortcutsView) => void): () => void;
       onShortcut(callback: (action: string) => void): () => void;
     };

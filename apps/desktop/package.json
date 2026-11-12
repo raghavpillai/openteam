@@ -167,6 +167,7 @@
     "test:chat-transition-motion": "bun scripts/analyze-chat-transitions.ts",
     "test:browser-network": "bun scripts/test-browser-network.ts",
     "test:document-preview-cold": "bun scripts/test-document-preview-cold.ts",
+    "test:asset-downloads": "bun scripts/test-asset-downloads.ts",
     "test:desktop-media": "bun scripts/test-desktop-media.ts",
     "test:link-favicons": "bun scripts/test-link-favicons.ts"
   },

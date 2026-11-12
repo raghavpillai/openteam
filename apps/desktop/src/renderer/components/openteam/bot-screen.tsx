@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { isWindowVisible, WINDOW_VISIBILITY_EVENT } from "../../lib/window-visibility";
 import {
   createHandoffReleaseController,
@@ -324,7 +325,7 @@ export function BotScreen({
   return (
     <>
       {presentation === "card" ? (
-        <button
+        <ButtonPrimitive
           aria-label="Open computer"
           className="bot-computer-card"
           onClick={openViewer}
@@ -353,7 +354,7 @@ export function BotScreen({
               </span>
             )}
           </span>
-        </button>
+        </ButtonPrimitive>
       ) : (
         <div className="mt-[3px] w-full overflow-hidden rounded-[7px] border border-[#d9d9d9] bg-[#f0f0f0] dark:border-[#323232] dark:bg-[#1b1b1b]">
           <Button

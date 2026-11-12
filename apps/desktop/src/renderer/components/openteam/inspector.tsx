@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { BotView, ChannelView, UpdateBotInput } from "@openteam/contracts";
 import { Clock3, ChevronRight, Plus, Share, Trash2, X } from "lucide-react";
 import {
@@ -246,15 +247,17 @@ function BotSettings({
         />
       </Suspense>
       <div className="mt-4 grid gap-0.5 border-t border-black/[0.065] pt-3 dark:border-white/[0.07]">
-        <button
+        <ButtonPrimitive
           className={settingsAction}
           disabled={exporting}
           onClick={() => void shareTemplate()}
           type="button"
+          loading={exporting}
+          loadingLabel="Preparing template…"
         >
-          <Share className="size-4 text-foreground-secondary" strokeWidth={1.7} />
-          {exporting ? "Preparing template…" : "Share as template"}
-        </button>
+          {!exporting && <Share className="size-4 text-foreground-secondary" strokeWidth={1.7} />}
+          Share as template
+        </ButtonPrimitive>
         {exportFailed && (
           <p className="px-2 text-xs text-destructive" role="alert">
             Could not prepare the template. Try again.
@@ -262,14 +265,14 @@ function BotSettings({
         )}
         {onAction ? (
           <>
-            <button
+            <ButtonPrimitive
               className={`${settingsAction} text-destructive`}
               onClick={() => onAction("delete")}
               type="button"
             >
               <Trash2 className="size-4" strokeWidth={1.7} />
               Delete bot
-            </button>
+            </ButtonPrimitive>
           </>
         ) : null}
       </div>
@@ -626,7 +629,7 @@ export const Inspector = memo(function Inspector({
       }}
     >
       {(["activity", "library"] as const).map((tab) => (
-        <button
+        <ButtonPrimitive
           aria-controls={`${tabId}-panel`}
           aria-selected={summaryTab === tab}
           className="bot-details-tab"
@@ -638,7 +641,7 @@ export const Inspector = memo(function Inspector({
           type="button"
         >
           {tab === "activity" ? "Activity" : "Library"}
-        </button>
+        </ButtonPrimitive>
       ))}
     </div>
   );
@@ -669,13 +672,13 @@ export const Inspector = memo(function Inspector({
           fallback={<div aria-label="Loading bot details" className="size-full" role="status" />}
         >
           <section className="bot-details-profile" aria-label="Bot profile">
-            <button
+            <ButtonPrimitive
               aria-label="Edit Bot profile"
               onClick={() => onModeChange("settings")}
               type="button"
             >
               <BotAvatar bot={bot} size="lg" />
-            </button>
+            </ButtonPrimitive>
             <BotProfileName
               bot={bot}
               key={bot.id}
@@ -695,7 +698,7 @@ export const Inspector = memo(function Inspector({
               <>
                 <section aria-label="Suggested">
                   <div className="bot-details-heading">Suggested</div>
-                  <button
+                  <ButtonPrimitive
                     className="bot-details-routine"
                     type="button"
                     onClick={() => {
@@ -706,7 +709,7 @@ export const Inspector = memo(function Inspector({
                     <Clock3 className="size-4" />
                     <span>Create a routine</span>
                     <ChevronRight className="size-4" />
-                  </button>
+                  </ButtonPrimitive>
                 </section>
                 <section aria-label="Computer preview">
                   <div className="bot-details-heading">Computer</div>
@@ -758,7 +761,7 @@ export const Inspector = memo(function Inspector({
                         className="sand-group-member-row group flex h-10 items-center rounded-[9px] px-1 hover:bg-accent"
                         key={member.id}
                       >
-                        <button
+                        <ButtonPrimitive
                           aria-label={`Open ${member.name}'s chat`}
                           className="sand-group-member-open flex min-w-0 flex-1 items-center gap-2.5 rounded-[8px] px-1.5 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
                           onClick={() => onOpenTeam(member.id)}
@@ -768,8 +771,8 @@ export const Inspector = memo(function Inspector({
                           <span className="sand-group-member-name min-w-0 flex-1 truncate text-[13px]">
                             {member.name}
                           </span>
-                        </button>
-                        <button
+                        </ButtonPrimitive>
+                        <ButtonPrimitive
                           aria-label={`Remove ${member.name}`}
                           className="mr-1 grid size-6 shrink-0 place-items-center rounded-[7px] text-foreground-secondary opacity-0 outline-none transition-opacity hover:bg-black/[0.055] hover:text-foreground focus:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/35 group-hover:opacity-100 disabled:pointer-events-none dark:hover:bg-white/[0.08]"
                           disabled={members.length <= 1 || memberMutationPending}
@@ -777,12 +780,12 @@ export const Inspector = memo(function Inspector({
                           type="button"
                         >
                           <X className="size-3.5" />
-                        </button>
+                        </ButtonPrimitive>
                       </div>
                     ))}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <button
+                        <ButtonPrimitive
                           className="sand-group-member-add-row sand-group-member-add mt-0.5 flex h-9 w-full items-center gap-2 rounded-[9px] px-2 text-left text-[13px] text-foreground-secondary outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35 disabled:pointer-events-none disabled:opacity-45"
                           disabled={
                             members.length >= 6 ||
@@ -793,7 +796,7 @@ export const Inspector = memo(function Inspector({
                         >
                           <Plus className="size-4" strokeWidth={1.7} />
                           <span>Add Member</span>
-                        </button>
+                        </ButtonPrimitive>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent
                         align="start"
@@ -848,6 +851,7 @@ export const Inspector = memo(function Inspector({
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction
+                        loading={memberMutationPending}
                         disabled={memberMutationPending}
                         onClick={(event) => {
                           event.preventDefault();

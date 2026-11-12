@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { AssetRef } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import {
@@ -453,7 +454,7 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
       >
         {/* As in the reference, every card opens the viewer; a type it can't show
             offers the download there. */}
-        <button
+        <ButtonPrimitive
           aria-label={`Open ${attachment.fileName}`}
           className="flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-[22px] p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
           onClick={() => setOpen(true)}
@@ -472,7 +473,7 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
               {formatAttachmentSize(attachment.byteSize)}
             </span>
           </span>
-        </button>
+        </ButtonPrimitive>
       </article>
 
       <FileAttachmentPreview attachment={attachment} open={open} onOpenChange={setOpen} />
@@ -517,16 +518,16 @@ export function FileAttachmentPreview({
       actions={
         <>
           {(kind === "video" || kind === "pdf") && (
-            <button
+            <ButtonPrimitive
               aria-label={kind === "video" ? "Open video full screen" : "Open preview full screen"}
               className="desktop-elevated-control"
               onClick={() => document.documentElement.requestFullscreen?.()}
               type="button"
             >
               <Maximize2 className="size-4" />
-            </button>
+            </ButtonPrimitive>
           )}
-          <button
+          <ButtonPrimitive
             aria-label="Download file"
             className="desktop-elevated-control"
             onClick={() =>
@@ -537,7 +538,7 @@ export function FileAttachmentPreview({
             type="button"
           >
             <Download className="size-4" strokeWidth={1.8} />
-          </button>
+          </ButtonPrimitive>
         </>
       }
     >
@@ -581,25 +582,25 @@ export function MediaPositionControl({
   if (total < 2) return null;
   return (
     <div className="flex items-center gap-1 text-[11px] text-foreground-secondary">
-      <button
+      <ButtonPrimitive
         aria-label="Previous media"
         className="grid size-7 place-items-center"
         onClick={onPrevious}
         type="button"
       >
         <ChevronLeft className="size-4" />
-      </button>
+      </ButtonPrimitive>
       <span>
         {current + 1} of {total}
       </span>
-      <button
+      <ButtonPrimitive
         aria-label="Next media"
         className="grid size-7 place-items-center"
         onClick={onNext}
         type="button"
       >
         <ChevronRight className="size-4" />
-      </button>
+      </ButtonPrimitive>
     </div>
   );
 }

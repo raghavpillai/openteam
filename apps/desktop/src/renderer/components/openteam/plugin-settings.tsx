@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type {
 PluginCatalogItemView,
 PluginConnectionView,
@@ -386,11 +387,11 @@ export function PluginDialog({
         <DialogDescription className="sr-only">
           Browse, install, connect, and configure OpenTeam plugins.
         </DialogDescription>
-        <button aria-label="Close plugins" className="absolute right-3.5 top-3.5 z-10 grid size-8 cursor-pointer place-items-center rounded-full text-foreground-tertiary outline-none transition-colors hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500" onClick={() => onOpenChange(false)} type="button"><X className="size-4" strokeWidth={1.7} /></button>
+        <ButtonPrimitive aria-label="Close plugins" className="absolute right-3.5 top-3.5 z-10 grid size-8 cursor-pointer place-items-center rounded-full text-foreground-tertiary outline-none transition-colors hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500" onClick={() => onOpenChange(false)} type="button"><X className="size-4" strokeWidth={1.7} /></ButtonPrimitive>
         <PluginPageStack pageKey={`${page}:${page === "detail" ? selectedKey : page === "manage" ? managementSection : ""}`} direction={direction}>
         <header className={`relative flex shrink-0 items-center px-8 ${page === "marketplace" ? "h-[96px]" : "h-[64px]"}`}>
           {page !== "marketplace" ? (
-            <button
+            <ButtonPrimitive
               aria-label={backTarget?.page === "installed" ? "Back to installed plugins" : `Back to ${backLabel}`}
               className="absolute left-3.5 flex h-8 max-w-[45%] items-center justify-center gap-1 cursor-pointer rounded-full px-2 text-[12px] text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
               onClick={goBack}
@@ -398,7 +399,7 @@ export function PluginDialog({
             >
               <ChevronLeft className="size-4 shrink-0" />
               <span className="truncate">{backLabel}</span>
-            </button>
+            </ButtonPrimitive>
           ) : null}
           {page !== "marketplace" ? (
             <span className="sr-only">{title}</span>
@@ -409,10 +410,10 @@ export function PluginDialog({
                 {data && <InstalledPluginsSummary data={data} onShowInstalled={() => setPage("installed")} />}
                 <DropdownMenu onOpenChange={isOpen => { if (isOpen) void loadPluginWorkspace().then(module => module.preloadPluginManagement()).catch(() => undefined); }}>
                   <DropdownMenuTrigger asChild>
-                    <button type="button" className={secondaryButton} aria-label="Manage plugins">
+                    <ButtonPrimitive type="button" className={secondaryButton} aria-label="Manage plugins">
                       Manage
                       <ChevronDown className="size-3" />
-                    </button>
+                    </ButtonPrimitive>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="plugin-management-menu w-[190px]">
                     <DropdownMenuItem onSelect={() => setPage("installed")}>
@@ -441,14 +442,14 @@ export function PluginDialog({
             className="mx-8 mb-3 flex items-center justify-between gap-3 rounded-[8px] bg-red-500/10 px-3 py-2 text-[11px] text-red-700 dark:text-red-300"
           >
             <span>{error}</span>
-            <button
+            <ButtonPrimitive
               className={secondaryButton}
               disabled={reloading || Boolean(busy)}
               onClick={() => void reload()}
               type="button"
             >
               Reload plugins
-            </button>
+            </ButtonPrimitive>
           </div>
         ) : null}
         {data && page === "marketplace" && (

@@ -1,9 +1,9 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { PluginSelect } from "./plugin-ui";
 import type { PluginConnectionView } from "@openteam/contracts";
 import { Check, SquarePen, Plus, Settings2 } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AnimatedCollapse } from "../../ui/animated-collapse";
-import { LoadingOrb } from "../../ui/loading-orb";
 import { cn } from "../../../lib/cn";
 import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { PluginAuthorization } from "./plugin-authorization";
@@ -78,7 +78,7 @@ export function PluginAccountRow({
           ) : (
             <span className="truncate text-[13px] font-medium">{connection.alias}</span>
           )}
-          <button
+          <ButtonPrimitive
             aria-label={`${editing ? "Save" : "Edit"} ${connection.alias} account`}
             aria-expanded={editing}
             disabled={busy || (editing && alias.trim().length < 2)}
@@ -93,9 +93,9 @@ export function PluginAccountRow({
             type="button"
           >
             {editing ? <Check className="size-3" /> : <SquarePen className="size-3" />}
-          </button>
+          </ButtonPrimitive>
           {!editing && (
-            <button
+            <ButtonPrimitive
               aria-label={`${connection.alias} account settings`}
               aria-expanded={expanded}
               aria-controls={settingsId}
@@ -109,7 +109,7 @@ export function PluginAccountRow({
               type="button"
             >
               <Settings2 className="size-3" />
-            </button>
+            </ButtonPrimitive>
           )}
         </div>
         {!editing && (
@@ -132,13 +132,18 @@ export function PluginAccountRow({
           </span>
         )}
         {!editing && !ready && !authorization && !connection.deviceLink && (
-          <button className={button} type="button" disabled={busy} onClick={() => onConnect()}>
-            {busy ? <LoadingOrb aria-hidden size={12} /> : null}
+          <ButtonPrimitive
+            className={button}
+            type="button"
+            disabled={busy}
+            onClick={() => onConnect()}
+            loading={busy}
+          >
             {connection.configured ? (connection.auth === "oauth" ? "Sign in" : "Connect") : "Set up"}
-          </button>
+          </ButtonPrimitive>
         )}
         {editing && (connection.alias !== "default" || connection.status !== "needs_auth") && (
-          <button
+          <ButtonPrimitive
             aria-label={`${confirmingRemove ? "Confirm removal of" : "Remove"} ${connection.alias} account`}
             className={cn(button, "text-red-600 dark:text-red-400")}
             disabled={busy}
@@ -151,7 +156,7 @@ export function PluginAccountRow({
             }}
           >
             {confirmingRemove ? "Confirm" : "Remove"}
-          </button>
+          </ButtonPrimitive>
         )}
       </div>
       {connection.deviceLink ? (
@@ -177,12 +182,12 @@ export function PluginAccountRow({
               </>
             )}
           </p>
-          <button type="button" className={button} disabled={busy} onClick={() => onConnect()}>
+          <ButtonPrimitive type="button" className={button} disabled={busy} onClick={() => onConnect()}>
             Get new code
-          </button>
-          <button type="button" className={button} disabled={busy} onClick={onCancelAuthentication}>
+          </ButtonPrimitive>
+          <ButtonPrimitive type="button" className={button} disabled={busy} onClick={onCancelAuthentication}>
             Cancel linking
-          </button>
+          </ButtonPrimitive>
         </div>
       ) : null}
       <PluginAuthorization connection={connection} busy={busy} onCancel={onCancelAuthentication} onRetry={onConnect} />
@@ -257,10 +262,10 @@ export function AddPluginAccount({
             value={alias}
             onChange={(e) => setAlias(e.target.value)}
           />
-          <button className={button} type="submit" disabled={busy || alias.trim().length < 2}>
+          <ButtonPrimitive className={button} type="submit" disabled={busy || alias.trim().length < 2}>
             Add Account
-          </button>
-          <button
+          </ButtonPrimitive>
+          <ButtonPrimitive
             className={button}
             type="button"
             onClick={() => {
@@ -269,11 +274,11 @@ export function AddPluginAccount({
             }}
           >
             Cancel
-          </button>
+          </ButtonPrimitive>
         </form>
       </AnimatedCollapse>
       <AnimatedCollapse open={!open}>
-        <button
+        <ButtonPrimitive
           type="button"
           className="flex min-h-[42px] w-full cursor-pointer items-center gap-1.5 px-3.5 text-left text-[13px] text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 disabled:cursor-default disabled:opacity-45"
           disabled={busy}
@@ -283,7 +288,7 @@ export function AddPluginAccount({
         >
           <Plus className="size-3.5" />
           Add Another Account
-        </button>
+        </ButtonPrimitive>
       </AnimatedCollapse>
     </div>
   );

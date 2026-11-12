@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { CreateBotInput } from "@openteam/contracts";
 import {
   BOT_AVATAR_COLORS,
@@ -6,7 +7,7 @@ import {
 } from "@openteam/contracts/bot-avatar";
 import { ROBOT_AVATAR_LABELS, ROBOT_AVATAR_SHAPES } from "@openteam/contracts/robot-avatar";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { LoaderCircle, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/button";
@@ -135,7 +136,7 @@ export function NewBotDialog({
                   ].map((row, index) => (
                     <div className="flex justify-center gap-2" key={index}>
                       {row.map((shape) => (
-                        <button
+                        <ButtonPrimitive
                           aria-label={`${ROBOT_AVATAR_LABELS[shape]} character shape`}
                           aria-pressed={avatar.shape === shape}
                           className="new-bot-character group grid size-12 shrink-0 place-items-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -165,7 +166,7 @@ export function NewBotDialog({
                             outlineWidth={avatar.shape === shape ? 1.8 : 0}
                             shape={shape}
                           />
-                        </button>
+                        </ButtonPrimitive>
                       ))}
                     </div>
                   ))}
@@ -174,7 +175,7 @@ export function NewBotDialog({
                   {[CHARACTER_COLORS.slice(0, 6), CHARACTER_COLORS.slice(6)].map((row, index) => (
                     <div className="flex justify-center gap-2" key={index}>
                       {row.map((color) => (
-                        <button
+                        <ButtonPrimitive
                           aria-label={`${BOT_AVATAR_COLOR_NAMES[CHARACTER_COLORS.indexOf(color)]} character color`}
                           aria-pressed={avatar.color === color}
                           className={cn(
@@ -186,7 +187,7 @@ export function NewBotDialog({
                           type="button"
                         >
                           <span className="size-6 rounded-full" style={{ background: color }} />
-                        </button>
+                        </ButtonPrimitive>
                       ))}
                     </div>
                   ))}
@@ -213,8 +214,8 @@ export function NewBotDialog({
               className="desktop-panel-button desktop-panel-button-primary rounded-full"
               disabled={!name.trim() || busy}
               type="submit"
+              loading={busy}
             >
-              {busy && <LoaderCircle aria-label="Creating Bot" className="size-3.5 animate-spin" />}
               Create
             </Button>
           </div>

@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { PluginSelect } from "./plugins/plugin-ui";
 import type {
 PluginCatalogItemView,
@@ -24,7 +25,6 @@ import { lazy,Suspense,useEffect,useLayoutEffect,useMemo,useRef,useState } from 
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 import { AnimatedCollapse } from "../ui/animated-collapse";
-import { LoadingOrb } from "../ui/loading-orb";
 const loadPluginSettingsDetail = () => import("./plugin-settings-detail");
 const PluginAuthSelect = lazy(() =>
   loadPluginSettingsDetail().then((module) => ({ default: module.PluginAuthSelect }))
@@ -175,7 +175,7 @@ export function CustomMcpView({
           <div className="mb-1.5 text-[12px] text-foreground-secondary">Transport</div>
           <div className="inline-flex rounded-[8px] bg-black/[0.06] p-0.5 dark:bg-black/30">
             {(["http", "stdio"] as const).map((value) => (
-              <button
+              <ButtonPrimitive
                 className={cn(
                   "h-7 rounded-[6px] px-3 text-[12px]",
                   transport === value && "bg-background shadow-sm"
@@ -185,7 +185,7 @@ export function CustomMcpView({
                 type="button"
               >
                 {value === "http" ? "Remote HTTP" : "Local stdio"}
-              </button>
+              </ButtonPrimitive>
             ))}
           </div>
         </div>
@@ -273,13 +273,12 @@ export function CustomMcpView({
         </label>
       </div>
       <div className="sticky bottom-0 mt-5 flex justify-end gap-2 bg-background py-3">
-        <button className={secondaryButton} onClick={onBack} type="button">
+        <ButtonPrimitive className={secondaryButton} onClick={onBack} type="button">
           Cancel
-        </button>
-        <button className={primaryButton} disabled={!valid || busy} type="submit">
-          {busy ? <LoadingOrb aria-hidden size={12} /> : <Plus className="size-3" />}{" "}
-          Add server
-        </button>
+        </ButtonPrimitive>
+        <ButtonPrimitive className={primaryButton} disabled={!valid || busy} type="submit" loading={busy}>
+          {!busy && <Plus className="size-3" />} Add server
+        </ButtonPrimitive>
       </div>
     </form>
   );
@@ -373,7 +372,7 @@ function SquareToggle({
   onClick: () => void;
 }) {
   return (
-    <button
+    <ButtonPrimitive
       aria-label={label}
       aria-pressed={checked}
       className={cn(
@@ -385,13 +384,11 @@ function SquareToggle({
       disabled={busy}
       onClick={onClick}
       type="button"
+      loading={busy}
+      loadingSize={16}
     >
-      {busy ? (
-        <LoadingOrb aria-hidden inverse={checked} size={12} />
-      ) : checked ? (
-        <Check className="size-3" strokeWidth={2.6} />
-      ) : null}
-    </button>
+      {!busy && (checked ? <Check className="size-3" strokeWidth={2.6} /> : null)}
+    </ButtonPrimitive>
   );
 }
 
@@ -572,7 +569,7 @@ function PluginSetupCard({
                 <span className="text-[9.5px] font-medium uppercase tracking-[0.04em] text-foreground-tertiary">
                   {connection.oauthCallbackMode === "manual" ? "Manual callback URI" : "Authorized redirect URI"}
                 </span>
-                <button
+                <ButtonPrimitive
                   className="inline-flex items-center gap-1 text-[9.5px] text-foreground-secondary hover:text-foreground"
                   onClick={() => void copy("callback", connection.oauthRedirectUrl ?? "")}
                   type="button"
@@ -583,7 +580,7 @@ function PluginSetupCard({
                     <Copy className="size-3" />
                   )}
                   {copied === "callback" ? "Copied" : "Copy"}
-                </button>
+                </ButtonPrimitive>
               </div>
               <code className="mt-1 block select-all break-all text-[10px] text-foreground">
                 {connection.oauthRedirectUrl}
@@ -607,14 +604,14 @@ function PluginSetupCard({
                 <code className="min-w-0 flex-1 whitespace-pre-wrap break-all leading-4">
                   {setup.requiredScopes.join("\n")}
                 </code>
-                <button
+                <ButtonPrimitive
                   aria-label="Copy required scopes"
                   className="grid size-6 shrink-0 place-items-center rounded-[6px] hover:bg-black/[0.05] dark:hover:bg-white/[0.06]"
                   onClick={() => void copy("scopes", setup.requiredScopes.join(" "))}
                   type="button"
                 >
                   {copied === "scopes" ? <Check className="size-3" /> : <Copy className="size-3" />}
-                </button>
+                </ButtonPrimitive>
               </div>
             </details>
           ) : null}
@@ -658,17 +655,17 @@ function PluginSetupCard({
               {connection.statusMessage}
             </p>
           ) : null}
-          <button
+          <ButtonPrimitive
             data-setup-action
             className={cn(primaryButton, "mt-3")}
             disabled={busy || requiresHttps || (!connection.configured && missingRequired)}
             onClick={submit}
             type="button"
+            loading={busy}
           >
-            {busy ? <LoadingOrb aria-hidden size={12} /> : null}
             {requiresHttps ? "HTTPS required" : actionLabel}
-          </button>
-          <button className={cn(secondaryButton, "ml-2")} type="button" disabled={busy} onClick={onDismiss}>Set up later</button>
+          </ButtonPrimitive>
+          <ButtonPrimitive className={cn(secondaryButton, "ml-2")} type="button" disabled={busy} onClick={onDismiss}>Set up later</ButtonPrimitive>
         </div>
       ) : null}
     </section>
@@ -725,18 +722,18 @@ function ConnectionSettingsRow({
           {connection.transport} · {connection.status.replace("_", " ")}
         </span>
         {connection.auth === "oauth" && connection.status !== "ready" ? (
-          <button
+          <ButtonPrimitive
             className={secondaryButton}
             disabled={busy}
             onClick={onAuthenticate}
             type="button"
           >
             Authenticate
-          </button>
+          </ButtonPrimitive>
         ) : null}
-        <button className={secondaryButton} disabled={busy} onClick={onRestart} type="button">
+        <ButtonPrimitive className={secondaryButton} disabled={busy} onClick={onRestart} type="button">
           Restart
-        </button>
+        </ButtonPrimitive>
       </div>
       <div className="mt-3 grid grid-cols-[minmax(110px,0.7fr)_minmax(180px,1.4fr)_auto] gap-2 max-sm:grid-cols-1">
         <input
@@ -753,22 +750,22 @@ function ConnectionSettingsRow({
           value={instructions}
         />
         <div className="flex gap-1.5">
-          <button
+          <ButtonPrimitive
             className={secondaryButton}
             disabled={busy || alias.trim() === connection.alias}
             onClick={() => onRename(alias.trim())}
             type="button"
           >
             Rename
-          </button>
-          <button
+          </ButtonPrimitive>
+          <ButtonPrimitive
             className={secondaryButton}
             disabled={busy || instructions.trim() === connection.instructions}
             onClick={() => onInstructions(instructions)}
             type="button"
           >
             Save
-          </button>
+          </ButtonPrimitive>
         </div>
       </div>
       {connection.auth === "token" && connection.status !== "ready" ? (
@@ -781,14 +778,14 @@ function ConnectionSettingsRow({
             type="password"
             value={token}
           />
-          <button
+          <ButtonPrimitive
             className={secondaryButton}
             disabled={busy || !token}
             onClick={() => onConfigureToken(token)}
             type="button"
           >
             Save token
-          </button>
+          </ButtonPrimitive>
         </div>
       ) : null}
       {connection.auth === "oauth" && onConfigureCallback ? (
@@ -812,7 +809,7 @@ function ConnectionSettingsRow({
           </label>}
           <p className="text-foreground-secondary">Automatic uses HTTPS when your server has it, or callback paste for HTTP. For Google use a Web application client with HTTPS, or a Desktop app client for manual paste. Changing the method may require a new provider client.</p>
           {!manualSupported && <p className="text-foreground-secondary">This provider requires an HTTPS server callback. Use Tailscale Serve or your own HTTPS domain.</p>}
-          <button className={cn(secondaryButton, "justify-self-start")} type="button" disabled={busy} onClick={() => onConfigureCallback({ oauthCallbackMode: callbackMode, oauthLoopbackPort: callbackPort })}>Save callback settings</button>
+          <ButtonPrimitive className={cn(secondaryButton, "justify-self-start")} type="button" disabled={busy} onClick={() => onConfigureCallback({ oauthCallbackMode: callbackMode, oauthLoopbackPort: callbackPort })}>Save callback settings</ButtonPrimitive>
         </div>
       ) : null}
       {connection.auth === "oauth" && connection.status !== "ready" ? (
@@ -847,7 +844,7 @@ function ConnectionSettingsRow({
               value={oauthScope}
             />
           </div>
-          <button
+          <ButtonPrimitive
             className={cn(secondaryButton, "mt-2")}
             disabled={busy || !oauthClientId.trim()}
             onClick={() =>
@@ -860,17 +857,17 @@ function ConnectionSettingsRow({
             type="button"
           >
             Save client and authenticate
-          </button>
+          </ButtonPrimitive>
         </div>
       ) : null}
-      <button
+      <ButtonPrimitive
         className="mt-3 text-[10.5px] text-red-600 hover:underline dark:text-red-400"
         disabled={busy}
         onClick={onRemove}
         type="button"
       >
         Remove account
-      </button>
+      </ButtonPrimitive>
     </div>
   );
 }
@@ -952,7 +949,7 @@ export function PluginDetail({
           </div>
         </div>
         {!install ? (
-          <button
+          <ButtonPrimitive
             className={cn(primaryButton, "h-9 px-4")}
             disabled={
               busy === plugin.key ||
@@ -960,19 +957,19 @@ export function PluginDetail({
             }
             onClick={() => onInstall(plugin, setupValues)}
             type="button"
+            loading={busy === plugin.key}
           >
-            {busy === plugin.key ? <LoadingOrb aria-hidden size={12} /> : null}
             Add
-          </button>
+          </ButtonPrimitive>
         ) : (
-          <button
+          <ButtonPrimitive
             className={cn(secondaryButton, "h-9 px-4")}
             disabled={busy === plugin.key}
             onClick={() => onRemove(plugin)}
             type="button"
           >
             Uninstall
-          </button>
+          </ButtonPrimitive>
         )}
       </div>
       <p className="mt-4 max-w-[720px] text-[12px] leading-[18px] text-foreground-secondary">
@@ -1036,13 +1033,13 @@ export function PluginDetail({
                 </label>
               ))}
           </div>
-          <button
+          <ButtonPrimitive
             className={cn(secondaryButton, "mt-2 h-8 px-3")}
             disabled={busy === plugin.key || !Object.values(environmentValues).some((value) => value.trim())}
             type="submit"
           >
             Save
-          </button>
+          </ButtonPrimitive>
         </form>
       ) : null}
 
@@ -1080,13 +1077,13 @@ export function PluginDetail({
                   onRestart={() => onRestart(connection)}
                 />
                 {connection.status === "ready" && (
-                  <button
+                  <ButtonPrimitive
                     type="button"
                     className="my-2 text-[12px] text-foreground-secondary hover:text-foreground"
                     onClick={() => onToggle(connection)}
                   >
                     Disconnect
-                  </button>
+                  </ButtonPrimitive>
                 )}
               </PluginAccountRow>
             ))}

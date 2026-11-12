@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useStickToBottomContext } from "use-stick-to-bottom";
@@ -667,24 +668,28 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
       style={{ height: totalSize }}
     >
       {hasOlder && (
-        <button
+        <ButtonPrimitive
           className="sr-only focus:not-sr-only focus:absolute focus:left-1/2 focus:top-2 focus:z-20 focus:-translate-x-1/2 focus:rounded-full focus:bg-background focus:px-3 focus:py-1.5 focus:text-xs focus:shadow"
           disabled={loadingOlder}
           onClick={() => loadOlder(false)}
           type="button"
+          loading={loadingOlder}
+          loadingLabel="Loading older messages…"
         >
-          {loadingOlder ? "Loading older messages…" : "Load older messages"}
-        </button>
+          Load older messages
+        </ButtonPrimitive>
       )}
       {hasNewer && (
-        <button
+        <ButtonPrimitive
           className="sr-only focus:not-sr-only focus:absolute focus:bottom-2 focus:left-1/2 focus:z-20 focus:-translate-x-1/2 focus:rounded-full focus:bg-background focus:px-3 focus:py-1.5 focus:text-xs focus:shadow"
           disabled={loadingNewer}
           onClick={() => loadNewer(false)}
           type="button"
+          loading={loadingNewer}
+          loadingLabel="Loading newer messages…"
         >
-          {loadingNewer ? "Loading newer messages…" : "Load newer messages"}
-        </button>
+          Load newer messages
+        </ButtonPrimitive>
       )}
       {virtualItems.map((virtualItem) => {
         const entry = entries[virtualItem.index];

@@ -1,5 +1,5 @@
+import { ButtonLoadingIndicator, ButtonPrimitive } from "../../ui/button-primitive";
 import { ArrowLeft, Check, ChevronRight } from "lucide-react";
-import { LoadingOrb } from "../../ui/loading-orb";
 import {
   type CSSProperties,
   type FormEvent,
@@ -226,16 +226,16 @@ export function SetupLayout({
           </div>
           <div className="setup-nav">
             {onBack ? (
-              <button onClick={onBack} type="button">
+              <ButtonPrimitive onClick={onBack} type="button">
                 <ArrowLeft aria-hidden="true" className="size-3.5" /> Back
-              </button>
+              </ButtonPrimitive>
             ) : (
               <span />
             )}
             {onSkip ? (
-              <button onClick={onSkip} type="button">
+              <ButtonPrimitive onClick={onSkip} type="button">
                 Skip
-              </button>
+              </ButtonPrimitive>
             ) : null}
           </div>
         </header>
@@ -380,9 +380,10 @@ export function SetupPrimary({
     if (event.detail > 1) event.preventDefault();
   };
   return (
-    <button
+    <ButtonPrimitive
       className="setup-primary"
       disabled={disabled || busy}
+      aria-busy={busy}
       onClick={ignoreRepeat}
       type="submit"
     >
@@ -390,9 +391,9 @@ export function SetupPrimary({
       {/* The hint and the spinner share one spot and cross-fade, so the label never moves. */}
       <span aria-hidden="true" className="setup-primary-end" data-busy={Boolean(busy)}>
         <kbd>↵</kbd>
-        <LoadingOrb aria-hidden inverse size={16} />
+        {busy && <ButtonLoadingIndicator size={16} />}
       </span>
-    </button>
+    </ButtonPrimitive>
   );
 }
 
@@ -403,9 +404,9 @@ const singleClick = (handler: () => void) => (event: MouseEvent) => {
 
 export function SetupLink({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
-    <button className="setup-link" onClick={singleClick(onClick)} type="button">
+    <ButtonPrimitive className="setup-link" onClick={singleClick(onClick)} type="button">
       {children}
-    </button>
+    </ButtonPrimitive>
   );
 }
 
@@ -423,7 +424,7 @@ export function SetupOption({
   selected?: boolean;
 }) {
   return (
-    <button
+    <ButtonPrimitive
       aria-pressed={selected}
       className="setup-option"
       onClick={singleClick(onClick)}
@@ -441,7 +442,7 @@ export function SetupOption({
           {selected ? <Check aria-hidden="true" className="size-3.5" strokeWidth={3} /> : null}
         </span>
       )}
-    </button>
+    </ButtonPrimitive>
   );
 }
 

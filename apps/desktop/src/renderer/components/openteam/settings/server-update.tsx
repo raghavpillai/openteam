@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import type { BusyBotsView } from "@openteam/contracts";
 import { isUpdateBusyMessage, stillWorking } from "@openteam/contracts/server-updates";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
@@ -39,7 +40,7 @@ export function ConfirmButton({
   }, [armed]);
   const confirming = armed && !pending && !disabled;
   return (
-    <button
+    <ButtonPrimitive
       aria-label={confirming ? `Click Again to Confirm: ${label}` : label}
       className={cn(
         button,
@@ -47,6 +48,7 @@ export function ConfirmButton({
       )}
       data-confirming={confirming || undefined}
       disabled={pending || disabled}
+      loading={pending}
       onClick={() => {
         if (pending || disabled) return;
         if (!armed) return setArmed(true);
@@ -56,7 +58,7 @@ export function ConfirmButton({
       type="button"
     >
       {pending && pendingLabel ? pendingLabel : confirming ? "Click Again to Confirm" : label}
-    </button>
+    </ButtonPrimitive>
   );
 }
 

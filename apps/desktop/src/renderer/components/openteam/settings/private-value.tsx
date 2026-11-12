@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { useEffect, useState } from "react";
 
 /** Shared endpoint/IP privacy interaction. Hidden values are excluded from VoiceOver. */
@@ -10,7 +11,7 @@ export function PrivateSettingValue({ value, label }: { value: string; label: st
     return () => window.removeEventListener("blur", hide);
   }, [value]);
   return (
-    <button
+    <ButtonPrimitive
       aria-label={`${revealed ? "Hide" : "Reveal"} ${label}`}
       aria-pressed={revealed}
       className="min-w-0 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
@@ -23,6 +24,6 @@ export function PrivateSettingValue({ value, label }: { value: string; label: st
       >
         {value}
       </span>
-    </button>
+    </ButtonPrimitive>
   );
 }

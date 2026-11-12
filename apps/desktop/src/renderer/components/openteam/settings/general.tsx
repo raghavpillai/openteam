@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { SettingsSelectContent } from "./select-content";
 import { PrivateSettingValue } from "./private-value";
 import { SmartNotificationSettings } from "./smart-notifications";
@@ -73,7 +74,7 @@ export default function GeneralSettings() {
             <div className="mt-0.5 flex items-center gap-2 text-[12px] text-foreground-secondary">
               <span className="truncate">{account.detail}</span>
               {account.copyValue ? (
-                <button
+                <ButtonPrimitive
                   aria-label={accountCopied ? "Account name copied" : "Copy account name"}
                   className="grid size-5 shrink-0 place-items-center rounded text-foreground-tertiary hover:bg-black/[0.06] hover:text-foreground dark:hover:bg-white/[0.08]"
                   onClick={() => void copyAccount()}
@@ -81,7 +82,7 @@ export default function GeneralSettings() {
                   type="button"
                 >
                   <Copy className="size-3.5" strokeWidth={1.75} />
-                </button>
+                </ButtonPrimitive>
               ) : null}
             </div>
             <div className="mt-1 flex items-baseline gap-2 text-[12px] leading-4 text-foreground-secondary">
@@ -89,14 +90,16 @@ export default function GeneralSettings() {
               <PrivateSettingValue value={API_BASE} label="server endpoint" />
             </div>
           </div>
-          <button
+          <ButtonPrimitive
             className={`${settingsSecondaryButton} ml-auto`}
             disabled={auth.mode === "disabled" || signingOut}
             onClick={() => void logOut()}
             type="button"
+            loading={signingOut}
+            loadingLabel="Signing Out…"
           >
-            {signingOut ? "Signing Out…" : "Sign Out"}
-          </button>
+            Sign Out
+          </ButtonPrimitive>
         </div>
       </SettingsGroup>
 

@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import { useEffect, useState } from "react";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import {
@@ -69,7 +70,7 @@ export default function ComputerSettings() {
                 }}
                 value={machineLabel}
               />
-              <button
+              <ButtonPrimitive
                 className={settingsSecondaryButton}
                 disabled={
                   !computer ||
@@ -80,7 +81,7 @@ export default function ComputerSettings() {
                 type="button"
               >
                 Save
-              </button>
+              </ButtonPrimitive>
             </div>
           }
         />

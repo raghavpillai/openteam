@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { withDefaultScheme } from "@openteam/client-core/http";
 import type { SystemVersionView } from "@openteam/contracts";
 import { Bot, Check, Copy, Server, Sparkles } from "lucide-react";
@@ -255,7 +256,7 @@ export default function SignInFlow({ auth }: { auth: ReturnType<typeof useAuthSe
           <div className="setup-install">
             <div>
               <code>{INSTALL_COMMAND}</code>
-              <button
+              <ButtonPrimitive
                 aria-label={installCopied ? "Copied" : "Copy the install command"}
                 onClick={() => copyInstall(INSTALL_COMMAND)}
                 type="button"
@@ -269,7 +270,7 @@ export default function SignInFlow({ auth }: { auth: ReturnType<typeof useAuthSe
                     </>
                   }
                 />
-              </button>
+              </ButtonPrimitive>
             </div>
             Run this on the computer that will host your bots, then come back here.
           </div>
@@ -346,13 +347,13 @@ export default function SignInFlow({ auth }: { auth: ReturnType<typeof useAuthSe
           ) : localServer ? (
             <>
               Lost it? Run <code>openteam status</code> on your server, or{" "}
-              <button
+              <ButtonPrimitive
                 className="setup-link-inline"
                 onClick={() => void connectTo(localServer.url, localServer.username)}
                 type="button"
               >
                 use this computer
-              </button>
+              </ButtonPrimitive>
               .
             </>
           ) : (

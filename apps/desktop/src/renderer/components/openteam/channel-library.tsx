@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import type { AssetRef, ChannelLibraryItem } from "@openteam/contracts";
 import { parseAssetRef } from "@openteam/product-core/messages";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
@@ -186,7 +187,7 @@ export function ChannelLibrary({
               <ul aria-label={group}>
                 {groups.get(group)!.map((item) => (
                   <li className="bot-library-row" key={item.id}>
-                    <button
+                    <ButtonPrimitive
                       aria-label={item.attachment.fileName}
                       className="bot-library-open"
                       onClick={() => setSelected(item)}
@@ -202,16 +203,16 @@ export function ChannelLibrary({
                       >
                         {ageLabel(item.createdAt)}
                       </time>
-                    </button>
+                    </ButtonPrimitive>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <button
+                        <ButtonPrimitive
                           aria-label={`More actions for ${item.attachment.fileName}`}
                           className="bot-library-more"
                           type="button"
                         >
                           <MoreHorizontal className="size-4" />
-                        </button>
+                        </ButtonPrimitive>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent
                         align="end"
@@ -237,8 +238,10 @@ export function ChannelLibrary({
           onClick={() => void load(next)}
           size="sm"
           variant="ghost"
+          loading={loading}
+          loadingLabel="Loading…"
         >
-          {loading ? "Loading…" : "Load more"}
+          Load more
         </Button>
       )}
       {selected && (

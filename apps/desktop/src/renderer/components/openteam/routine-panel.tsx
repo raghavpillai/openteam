@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { isWindowVisible } from "../../lib/window-visibility";
 import {
   routineExecutionStatusPresentation,
@@ -234,10 +235,10 @@ function MultiPicker({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button aria-label={ariaLabel} className={compactControlClass} type="button">
+        <ButtonPrimitive aria-label={ariaLabel} className={compactControlClass} type="button">
           <span className="max-w-[118px] truncate">{triggerLabel}</span>
           <ChevronDown className="size-3 text-muted-foreground" />
-        </button>
+        </ButtonPrimitive>
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -247,7 +248,7 @@ function MultiPicker({
         sideOffset={3}
       >
         {emptyOptionLabel && (
-          <button
+          <ButtonPrimitive
             aria-pressed={values.length === 0}
             className="relative flex h-8 w-full items-center rounded-[6px] px-2 pr-7 text-left text-[12px] outline-none hover:bg-accent focus-visible:bg-accent dark:hover:bg-[#2a2a2a] dark:focus-visible:bg-[#2a2a2a]"
             onClick={() => onChange([])}
@@ -255,10 +256,10 @@ function MultiPicker({
           >
             {emptyOptionLabel}
             {values.length === 0 && <Check className="absolute right-2 size-3.5" />}
-          </button>
+          </ButtonPrimitive>
         )}
         {options.map((option) => (
-          <button
+          <ButtonPrimitive
             aria-pressed={values.includes(option.value)}
             className="relative flex h-8 w-full items-center rounded-[6px] px-2 pr-7 text-left text-[12px] outline-none hover:bg-accent focus-visible:bg-accent dark:hover:bg-[#2a2a2a] dark:focus-visible:bg-[#2a2a2a]"
             key={option.value}
@@ -267,7 +268,7 @@ function MultiPicker({
           >
             {option.label}
             {values.includes(option.value) && <Check className="absolute right-2 size-3.5" />}
-          </button>
+          </ButtonPrimitive>
         ))}
       </PopoverContent>
     </Popover>
@@ -670,7 +671,7 @@ function ScheduleCard({
       )}
     >
       <div className="flex min-h-10 items-center gap-2 px-2">
-        <button
+        <ButtonPrimitive
           aria-expanded={expanded}
           aria-label={description}
           className="-mx-1 flex min-w-0 flex-1 items-center gap-2 rounded-[7px] px-1 py-2 text-left outline-none transition-colors hover:bg-[#f1f1f1] focus-visible:bg-[#f1f1f1] dark:hover:bg-[#292929] dark:focus-visible:bg-[#292929]"
@@ -681,7 +682,7 @@ function ScheduleCard({
             <Clock3 className="size-3.5 text-muted-foreground" />
           </span>
           <span className="min-w-0 flex-1 truncate text-[13px]">{description}</span>
-        </button>
+        </ButtonPrimitive>
         <Button
           aria-label={`Remove trigger: ${description}`}
           className="size-7 rounded-full text-muted-foreground opacity-0 transition-opacity group-hover/schedule:opacity-100 hover:opacity-100 focus-visible:opacity-100"
@@ -1121,10 +1122,7 @@ export function RoutineEditor({
             Delete
           </Button>
           <Button
-            className={cn(
-              "h-8 rounded-[8px] px-2 text-[12px] font-normal transition-[width,background-color,color]",
-              running ? "w-[84px]" : "w-[62px]"
-            )}
+            className="h-8 rounded-[8px] px-2 text-[12px] font-normal"
             variant="secondary"
             disabled={!routine || !valid || dirty || running || saveState === "saving"}
             onClick={() => {
@@ -1135,8 +1133,10 @@ export function RoutineEditor({
                 () => setRunError(true)
               );
             }}
+            loading={running}
+            loadingLabel="Running…"
           >
-            {running ? "Running…" : "Test run"}
+            Test run
           </Button>
         </div>
       </div>

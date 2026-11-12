@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import "./external-draft-card.css";
 import "./imessage-send-card.css";
 import type { ChannelMessageView } from "@openteam/contracts";
@@ -6,7 +7,6 @@ import { MessageCircle, Paperclip } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { getDesktopMachineId } from "../../client/auth";
 import { api } from "../../client/openteam-api";
-import { LoadingOrb } from "../ui/loading-orb";
 import { useMessagesIcon } from "./settings/messages-permissions-dialog";
 import { formatAttachmentSize } from "./attachment-visuals";
 
@@ -129,18 +129,25 @@ export function IMessageSendCard({ message }: { message: ChannelMessageView }) {
       <p className="draft-note">The message will be sent from {where}</p>
       {(error || sendError) && <p className="draft-note" role="alert">{error || sendError}</p>}
       <div className="imessage-actions">
-        <button className="draft-button draft-button-primary" data-sending={sending ? "" : undefined} disabled={busy || sending} onClick={() => void act("send")} type="button">
-          {sending && <LoadingOrb aria-hidden size={14} />}
-          {sending ? "Sending…" : "Send"}
-        </button>
+        <ButtonPrimitive
+          className="draft-button draft-button-primary"
+          data-sending={sending ? "" : undefined}
+          disabled={busy || sending}
+          onClick={() => void act("send")}
+          type="button"
+          loading={sending}
+          loadingLabel="Sending…"
+        >
+          Send
+        </ButtonPrimitive>
         {send.allowable === true && handle ? (
-          <button className="draft-button draft-button-secondary" disabled={busy || sending} onClick={() => void act("allow")} type="button">
+          <ButtonPrimitive className="draft-button draft-button-secondary" disabled={busy || sending} onClick={() => void act("allow")} type="button">
             Always allow {name || handle}
-          </button>
+          </ButtonPrimitive>
         ) : null}
-        <button className="draft-button draft-button-secondary" disabled={busy || sending} onClick={() => void act("cancel")} title="Discard (Esc)" type="button">
+        <ButtonPrimitive className="draft-button draft-button-secondary" disabled={busy || sending} onClick={() => void act("cancel")} title="Discard (Esc)" type="button">
           Discard
-        </button>
+        </ButtonPrimitive>
       </div>
     </section>
   );

@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../ui/button-primitive";
 import { useDayClock } from "../../hooks/use-day-clock";
 import { ResourceActivityProvider } from "../../hooks/resource-activity";
 import { ThinkingCaption } from "./thinking-caption";
@@ -485,7 +486,7 @@ const MessageRow = memo(function MessageRow({
         data-message-id={message.id}
       >
         <span>{routineChangedActionLabel(routineEvent.action)}</span>
-        <button
+        <ButtonPrimitive
           aria-label={`Open routine ${routineEvent.automationName}`}
           className="inline-flex h-6 min-w-0 items-center gap-1 rounded-full px-1.5 outline-none transition-colors hover:bg-[#f1f1f1] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35 dark:hover:bg-[#252525]"
           data-routine-event-link=""
@@ -495,7 +496,7 @@ const MessageRow = memo(function MessageRow({
         >
           <Clock3 className="size-3 shrink-0" strokeWidth={1.7} />
           <span className="max-w-[240px] truncate">{routineEvent.automationName}</span>
-        </button>
+        </ButtonPrimitive>
       </div>
     );
   }
@@ -511,14 +512,14 @@ const MessageRow = memo(function MessageRow({
         onSelect={(emoji) => onReact(message, emoji)}
         selectedEmojis={userReactionSet}
       >
-        <button
+        <ButtonPrimitive
           aria-label="React to message"
           className="flex size-6 shrink-0 items-center justify-center rounded-full transition-colors duration-[120ms] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
           disabled={!canInteract}
           type="button"
         >
           <Smile className="size-[15px]" />
-        </button>
+        </ButtonPrimitive>
       </EmojiPicker>
       <MessageAction
         className="size-6 shrink-0 rounded-full transition-colors duration-[120ms]"
@@ -530,13 +531,13 @@ const MessageRow = memo(function MessageRow({
       </MessageAction>
       {channel.kind !== "group" && <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
+          <ButtonPrimitive
             aria-label="More message actions"
             className="flex size-6 shrink-0 items-center justify-center rounded-full transition-colors duration-[120ms] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
             type="button"
           >
             <Ellipsis className="size-[15px]" />
-          </button>
+          </ButtonPrimitive>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align={from === "user" ? "end" : "start"}
@@ -698,7 +699,7 @@ const MessageRow = memo(function MessageRow({
               {reactionPills.map(({ emoji, count }) => {
                 const selected = userReactionSet.has(emoji);
                 return (
-                  <button
+                  <ButtonPrimitive
                     aria-label={`${selected ? "Remove" : "Add"} ${emoji} reaction`}
                     aria-pressed={selected}
                     className={`inline-flex h-[22px] origin-center items-center gap-[3px] rounded-full border-0 py-0 pl-[7px] pr-2 text-xs leading-4 tabular-nums text-[#666] shadow-[0_0_0_2px_#fcfcfc] transition-[transform,background-color] duration-[120ms] active:scale-95 disabled:cursor-default dark:text-[rgba(240,240,240,0.74)] dark:shadow-[0_0_0_2px_#070707] ${
@@ -720,13 +721,13 @@ const MessageRow = memo(function MessageRow({
                       {emoji}
                     </span>
                     {count > 1 && <span>{count}</span>}
-                  </button>
+                  </ButtonPrimitive>
                 );
               })}
             </div>
           )}
           {threadReplyCount > 0 && (
-            <button
+            <ButtonPrimitive
               className={`mt-0.5 inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground ${
                 from === "user" ? "self-end" : hasAgentGutter ? "ml-[30px] self-start" : "self-start"
               }`}
@@ -736,7 +737,7 @@ const MessageRow = memo(function MessageRow({
             >
               <MessageCircle className="size-3.5" />
               {threadReplyCount} {threadReplyCount === 1 ? "reply" : "replies"}
-            </button>
+            </ButtonPrimitive>
           )}
           {from === "user" && <DeliveryFooter
             delivery={delivery}
@@ -752,7 +753,7 @@ const MessageRow = memo(function MessageRow({
           <>
             <div className="flex items-center gap-0.5 px-1 py-0.5">
               {QUICK_REACTIONS.map((emoji) => (
-                <button
+                <ButtonPrimitive
                   aria-label={`React with ${emoji}`}
                   className={`flex size-[30px] items-center justify-center rounded-lg text-[20px] hover:bg-accent ${
                     userReactionSet.has(emoji) ? "bg-accent ring-1 ring-input" : ""
@@ -764,7 +765,7 @@ const MessageRow = memo(function MessageRow({
                   type="button"
                 >
                   {emoji}
-                </button>
+                </ButtonPrimitive>
               ))}
               <ContextMenuSub>
                 <ContextMenuSubTrigger
@@ -889,7 +890,7 @@ const A2AActivityRow = memo(function A2AActivityRow({
           : `${count} ${count === 1 ? "message" : "messages"} with`}
       </span>
       {onOpen ? (
-        <button
+        <ButtonPrimitive
           aria-label={`Open A2A exchange with ${name}`}
           className="inline-flex h-6 max-w-[min(320px,55vw)] items-center gap-1 rounded-full bg-transparent pl-1 pr-2 leading-5 text-inherit transition-colors hover:bg-[#efefef] focus-visible:bg-[#efefef] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 dark:hover:bg-[#1b1b1b] dark:focus-visible:bg-[#1b1b1b]"
           data-a2a-peer-pill=""
@@ -897,7 +898,7 @@ const A2AActivityRow = memo(function A2AActivityRow({
           type="button"
         >
           {peerContent}
-        </button>
+        </ButtonPrimitive>
       ) : (
         <span
           className="inline-flex h-6 max-w-[min(320px,55vw)] items-center gap-1 rounded-full bg-transparent pl-1 pr-2 leading-5"

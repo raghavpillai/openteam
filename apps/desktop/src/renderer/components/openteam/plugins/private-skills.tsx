@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 import type {
   PluginManagementView,
   PluginPrivateSkillView,
@@ -55,7 +56,7 @@ export function PrivateSkills({
       </div>
       <div className="grid gap-2">
         {data.skills.map((skill) => (
-          <button
+          <ButtonPrimitive
             type="button"
             onClick={() => edit(skill)}
             key={skill.id}
@@ -65,7 +66,7 @@ export function PrivateSkills({
             <p className="text-[12px] leading-5 text-foreground-secondary">
               {skill.description} · {skill.enabledBotIds.length} Bot{skill.enabledBotIds.length === 1 ? "" : "s"}
             </p>
-          </button>
+          </ButtonPrimitive>
         ))}
         {!data.skills.length && !editing && (
           <p className="py-8 text-center text-[12px] leading-5 text-foreground-secondary">

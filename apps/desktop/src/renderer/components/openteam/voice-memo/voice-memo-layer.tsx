@@ -1,3 +1,4 @@
+import { ButtonPrimitive } from "../../ui/button-primitive";
 // The composer while a voice note records or transcribes: one bar with the
 // time, the voice as it's heard, discard and send, over a voice-reactive glow.
 // Loaded on demand so the glow stays out of startup.
@@ -274,7 +275,7 @@ export default function VoiceMemoLayer({
               <circle className="vm-send-drop" cx="50" cy="14" r="14" />
             </g>
           </svg>
-          <button
+          <ButtonPrimitive
             aria-hidden={mode !== "recording" || exiting}
             aria-label="Discard voice note"
             className="vm-icon-button vm-discard"
@@ -285,8 +286,8 @@ export default function VoiceMemoLayer({
             type="button"
           >
             <Trash2 className="size-3.5" />
-          </button>
-          <button
+          </ButtonPrimitive>
+          <ButtonPrimitive
             aria-hidden={exiting}
             aria-label={mode === "recording" ? "Send voice note" : "Cancel voice note"}
             className="vm-send"
@@ -302,7 +303,7 @@ export default function VoiceMemoLayer({
             <span className="vm-cancel-icon">
               <BotCloseIcon className="size-3" />
             </span>
-          </button>
+          </ButtonPrimitive>
         </span>
       </div>
       <span aria-live="polite" className="sr-only" role="status">

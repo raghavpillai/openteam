@@ -188,6 +188,6 @@ describe("routine schedules", () => {
     );
 
     await expect(service.owner(routineId)).resolves.toEqual({ kind: "group", id: channelId });
-    expect(queriedWhere).toMatchObject({ OR: [{ id: routineId }, { slug: routineId }] });
+    expect(queriedWhere).toMatchObject({ id: routineId });
   });
 });

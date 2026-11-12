@@ -466,12 +466,13 @@ export async function stopRequestProgress(
   const source = runId
     ? await tx.run.findUnique({
         where: { id: runId },
-        include: { inboxEvents: { take: 1, select: { payload: true } } },
+        include: { inboxEvents: { take: 1, select: { payload: true, type: true } } },
       })
     : null;
-  const context =
-    (source?.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined)
-      ?.taskContextRunId ?? runId;
+  const sourcePayload = source?.inboxEvents[0]?.payload as { taskContextRunId?: string; automationContextRunId?: string } | undefined;
+  const handoff = source?.inboxEvents.some(event => event.type === "automation.wake_parent")
+    ? await tx.automationResult.findUnique({ where: { wakeRunId: source.id }, select: { runId: true } }) : null;
+  const context = sourcePayload?.taskContextRunId ?? sourcePayload?.automationContextRunId ?? handoff?.runId ?? runId;
   let legacyOwners: string[] = [];
   if (!context) {
     // Older tasks may predate durable request progress. Discover their live
@@ -485,10 +486,17 @@ export async function stopRequestProgress(
         { status: { in: ["queued", "running"] } },
         { id: { in: workers.map(worker => worker.requestRunId ?? worker.parentRunId) } },
       ] },
-      select: { id: true, inboxEvents: { take: 1, select: { payload: true } } },
+      select: { id: true, inboxEvents: { take: 1, select: { payload: true, type: true } } },
     });
-    legacyOwners = active.map(run =>
-      (run.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined)?.taskContextRunId ?? run.id);
+    const handoffWakes = active.filter(run => run.inboxEvents.some(event => event.type === "automation.wake_parent"));
+    const handoffs = handoffWakes.length ? await tx.automationResult.findMany({
+      where: { wakeRunId: { in: handoffWakes.map(run => run.id) }, run: { botId } }, select: { runId: true, wakeRunId: true },
+    }) : [];
+    const handoffRoots = new Map(handoffs.map(result => [result.wakeRunId, result.runId]));
+    legacyOwners = active.map(run => {
+      const payload = run.inboxEvents[0]?.payload as { taskContextRunId?: string; automationContextRunId?: string } | undefined;
+      return payload?.taskContextRunId ?? payload?.automationContextRunId ?? handoffRoots.get(run.id) ?? run.id;
+    });
   }
   const roots = await tx.run.findMany({
     where: {

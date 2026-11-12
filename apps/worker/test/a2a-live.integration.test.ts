@@ -63,7 +63,8 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
-      if (url.pathname === "/v1/task-capabilities") return Response.json({ desktopAvailable: true, boxAvailable: true });
+      if (url.pathname === "/v1/task-capabilities")
+        return Response.json({ desktopAvailable: true, boxAvailable: true });
       if (url.pathname === "/health") {
         return Response.json({ status: "ready", inference: { ready: true, authenticated: true } });
       }
@@ -106,7 +107,10 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
       if (request.method === "POST" && /^\/v1\/turns\/[^/]+\/cancel$/.test(url.pathname)) {
         return Response.json({ ok: true });
       }
-      if (request.method === "POST" && /^\/v1\/bots\/[^/]+\/background-shells\/stop$/.test(url.pathname)) {
+      if (
+        request.method === "POST" &&
+        /^\/v1\/bots\/[^/]+\/background-shells\/stop$/.test(url.pathname)
+      ) {
         return Response.json({ stopped: 0 });
       }
       if (request.method === "POST" && url.pathname === "/v1/turns") {
@@ -214,7 +218,13 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     },
   });
 
-  const envKeys = ["DATABASE_URL", "OPENTEAM_COMPUTER_URL", "OPENTEAM_CONTROL_TOKEN", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_AGENT_DATA_ROOT"] as const;
+  const envKeys = [
+    "DATABASE_URL",
+    "OPENTEAM_COMPUTER_URL",
+    "OPENTEAM_CONTROL_TOKEN",
+    "OPENTEAM_WORKSPACE_ROOT",
+    "OPENTEAM_AGENT_DATA_ROOT",
+  ] as const;
   const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   process.env.DATABASE_URL = databaseUrl;
   process.env.OPENTEAM_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
@@ -224,7 +234,9 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
 
   try {
     app = new AppService();
-    const previousZone = await app.prisma.userTimeZoneSettings.findUnique({ where: { id: "global" } });
+    const previousZone = await app.prisma.userTimeZoneSettings.findUnique({
+      where: { id: "global" },
+    });
     restoreTimeZone = async () => {
       await app!.prisma.userTimeZoneSettings.deleteMany({ where: { id: "global" } });
       if (previousZone) await app!.prisma.userTimeZoneSettings.create({ data: previousZone });
@@ -234,7 +246,9 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     );
     await Effect.runPromise(app.boot());
     await app.agentData.writeInferenceSettings({
-      providerId: "openai-codex", modelId: "fake", reasoning: "medium",
+      providerId: "openai-codex",
+      modelId: "fake",
+      reasoning: "medium",
     });
     const runningWorker = new WakeWorker();
     worker = runningWorker;
@@ -357,8 +371,12 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
 <automation_status>
 Current routines and their runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.
 - parity-probe-handwritten [`);
-    expect(probeTurn?.content).toContain("; folder parity-probe-handwritten; never run\n- parity-probe-harmless [");
-    expect(probeTurn?.content).toContain("; folder parity-probe-harmless; last run 8/27/2026, 10:51:55 PM GMT+3 (succeeded)\n</automation_status>");
+    expect(probeTurn?.content).toContain(
+      "; folder parity-probe-handwritten; never run\n- parity-probe-harmless ["
+    );
+    expect(probeTurn?.content).toContain(
+      "; folder parity-probe-harmless; last run 8/27/2026, 10:51:55 PM GMT+3 (succeeded)\n</automation_status>"
+    );
     expect(probeTurn?.content).toContain("</system_reminder>\n<timestamp>");
     expect(probeTurn?.content).toContain(
       `</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: Source (id: ${sourceId}).`
@@ -443,12 +461,22 @@ Current routines and their runtime status. This snapshot is authoritative for th
     }
     if (process.env.OPENTEAM_A2A_PRINT_CAPTURE === "1") console.log(captureJson.trimEnd());
   } finally {
-    if (worker) await worker.stop();
+    if (worker) {
+      // This fixture explicitly starts a watcher that normal worker startup does
+      // not own. Close it before deleting its files or disconnecting its client.
+      await worker.agentData.stopWatching();
+      await worker.stop();
+    }
     worker = null;
     if (app) {
-      const owned = await app.prisma.bot.findMany({ where: { defaultDirectory: { startsWith: workspace } }, select: { id: true } });
+      const owned = await app.prisma.bot.findMany({
+        where: { defaultDirectory: { startsWith: workspace } },
+        select: { id: true },
+      });
       await app.prisma.bot.deleteMany({ where: { id: { in: owned.map((bot) => bot.id) } } });
-      await app.prisma.channel.deleteMany({ where: { kind: "group", workingDirectory: workspace } });
+      await app.prisma.channel.deleteMany({
+        where: { kind: "group", workingDirectory: workspace },
+      });
       await restoreTimeZone();
       await Effect.runPromise(app.close());
     }

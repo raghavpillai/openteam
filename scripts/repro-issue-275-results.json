@@ -1,0 +1,451 @@
+{
+  "issue": "https://github.com/raghavpillai/openteam/issues/275",
+  "testedCommit": "c0bf70b3c3f9a21953e96575bed560cca801f027",
+  "generatedAt": "2026-11-12T17:12:58.115Z",
+  "interpretation": "These are characterization checks that assert reproduced failures and controls on unmodified production code. Passing means the described behavior reproduced, not that the bugs were fixed. Cases are not a count of independent root causes.",
+  "scope": [
+    "all-listener scheduling",
+    "file reconciliation and projection",
+    "create/update/pause/resume",
+    "time-zone changes and migration",
+    "dispatch/claim/settlement",
+    "overlap and background work",
+    "error isolation and recovery fairness",
+    "callback stop and handoff fences",
+    "desktop schedule serialization",
+    "queued-execution revision consistency",
+    "UUID/folder identity collisions",
+    "creation retries after edited input"
+  ],
+  "environment": {
+    "database": "disposable local PostgreSQL with current Prisma schema",
+    "queueAndComputerExecution": "stubbed; actual messaging, worker claim and recovery code exercised",
+    "productionCodeChanged": false
+  },
+  "coverageConclusion": "A 1,152-case editor Cartesian sweep and two independent calendar/group/phased-interval passes found no additional unclassified timing/serialization failure classes. Subsequent revision, identity and retry probes found further scenarios outside those generated dimensions; all are included below.",
+  "independentOracle": {
+    "method": "minute-by-minute Intl wall-clock matching without cron-parser or production next-run functions",
+    "zones": 6,
+    "horizonDays": 8,
+    "sparseDateLimit": "Occurrences beyond the horizon were checked to remain beyond the horizon; not exhaustively enumerated",
+    "calendarCases": 384,
+    "groupedCalendarCases": 47,
+    "phasedIntervalCases": 320,
+    "additionalUnclassifiedMismatches": 0
+  },
+  "reviewedBoundaries": [
+    "Group-owned calendar routines avoid bot file-sync overwrite but still share scheduling and execution defects.",
+    "Pure event listeners do not have a cron nextRunAt.",
+    "iOS source preserves composite/event triggers and pinned zones during unrelated edits; no iOS UI run was performed.",
+    "Desktop summary cache ignores fields it does not render; this was not counted as a defect.",
+    "A waiting_approval execution hypothesis was discarded because it is not a persisted RunStatus in the current schema."
+  ],
+  "limitations": [
+    "No deployed routine inventory or production impact count was queried.",
+    "External-provider transport, real model execution, and interactive UI behavior were not exhaustively exercised.",
+    "The result is bounded to the tested commit, generated corpus, and reviewed related paths."
+  ],
+  "suites": [
+    {
+      "suite": "repro-issue-275-extent.ts",
+      "exitCode": 0,
+      "summary": {
+        "confirmedChecks": 23,
+        "failures": [],
+        "outcomes": [
+          {
+            "name": "daily schedules",
+            "result": "confirmed"
+          },
+          {
+            "name": "weekly plus daily",
+            "result": "confirmed"
+          },
+          {
+            "name": "pinned schedules in different zones",
+            "result": "confirmed"
+          },
+          {
+            "name": "long interval before short interval",
+            "result": "confirmed"
+          },
+          {
+            "name": "calendar before interval",
+            "result": "confirmed"
+          },
+          {
+            "name": "phased intervals",
+            "result": "confirmed"
+          },
+          {
+            "name": "eight schedules",
+            "result": "confirmed"
+          },
+          {
+            "name": "non-time listener preceding the only time listener still schedules correctly",
+            "result": "confirmed"
+          },
+          {
+            "name": "one cron expression with multiple hours is unaffected",
+            "result": "confirmed"
+          },
+          {
+            "name": "later invalid and too-frequent schedules pass file validation but fail API validation",
+            "result": "confirmed"
+          },
+          {
+            "name": "API-created bot routine starts correct, then unchanged file sync corrupts nextRunAt",
+            "result": "confirmed"
+          },
+          {
+            "name": "pause stays paused; resume of a single schedule is rewound to the paused period",
+            "result": "confirmed"
+          },
+          {
+            "name": "editing a single schedule is rewound to before the edit",
+            "result": "confirmed"
+          },
+          {
+            "name": "downtime catch-up is undone for single cron; historical occurrences run again on later passes",
+            "result": "confirmed"
+          },
+          {
+            "name": "downtime catch-up is undone for single interval; historical occurrences run again on later passes",
+            "result": "confirmed"
+          },
+          {
+            "name": "manual run shifts a single relative interval only after file sync",
+            "result": "confirmed"
+          },
+          {
+            "name": "event delivery shifts a mixed routine's relative interval only after file sync",
+            "result": "confirmed"
+          },
+          {
+            "name": "timezone updates of a single unpinned cron are rewound by file sync",
+            "result": "confirmed"
+          },
+          {
+            "name": "invalid later file schedule aborts dispatch before a healthy unrelated routine",
+            "result": "confirmed"
+          },
+          {
+            "name": "group-owned multi-cron routine survives bot file sync and dispatches the second listener",
+            "result": "confirmed"
+          },
+          {
+            "name": "separate grouped-schedule validation gap: two valid listeners can fire less than five minutes apart",
+            "result": "confirmed"
+          },
+          {
+            "name": "a helper-only file-sync fix must pass the installation zone explicitly",
+            "result": "confirmed"
+          },
+          {
+            "name": "separate helper limitation: relative grouped intervals lose the longer interval's cadence, including group owners",
+            "result": "confirmed"
+          }
+        ]
+      }
+    },
+    {
+      "suite": "repro-issue-275-chaos.ts",
+      "exitCode": 0,
+      "summary": {
+        "checks": 14,
+        "outcomes": [
+          {
+            "name": "a syntax error soft-deletes an existing routine even though its definition file still exists",
+            "result": "confirmed",
+            "ms": 202
+          },
+          {
+            "name": "an unreadable automation file blocks the entire sync-then-dispatch pass repeatedly",
+            "result": "confirmed",
+            "ms": 204
+          },
+          {
+            "name": "an unreadable runs.json soft-deletes a routine whose automation.json is valid",
+            "result": "confirmed",
+            "ms": 32
+          },
+          {
+            "name": "legacy schedule fallback silently strips all other listeners after a malformed group edit",
+            "result": "confirmed",
+            "ms": 45
+          },
+          {
+            "name": "crash after dispatch commit but before file projection creates a permanent duplicate-key dispatch trap",
+            "result": "confirmed",
+            "ms": 238
+          },
+          {
+            "name": "ordinary concurrent reconciliation and dispatch can erase a committed run and poison future dispatch without any crash",
+            "result": "confirmed",
+            "ms": 153
+          },
+          {
+            "name": "create rollback leaves an active ghost routine; retrying the same call ID creates a duplicate",
+            "result": "confirmed",
+            "ms": 122
+          },
+          {
+            "name": "delete rollback removes the file; later sync deletes the routine despite the DB rollback",
+            "result": "confirmed",
+            "ms": 72
+          },
+          {
+            "name": "control: overlapping executions record one skip and preserve its lastRunAt through sync",
+            "result": "confirmed",
+            "ms": 235
+          },
+          {
+            "name": "50 backlogged routines monopolize every dispatch page and create overlap skips while a healthy bot starves",
+            "result": "confirmed",
+            "ms": 2268
+          },
+          {
+            "name": "file import bypasses the 50-routines-per-owner API limit",
+            "result": "confirmed",
+            "ms": 221
+          },
+          {
+            "name": "control: eight concurrent schedulers dispatch one occurrence exactly once",
+            "result": "confirmed",
+            "ms": 46
+          },
+          {
+            "name": "100 live executions starve recovery of a completed execution on another routine",
+            "result": "confirmed",
+            "ms": 1971
+          },
+          {
+            "name": "year-old five-minute interval exceeds dispatch transaction timeout instead of catching up in constant time",
+            "result": "confirmed",
+            "ms": 13664
+          }
+        ]
+      }
+    },
+    {
+      "suite": "repro-issue-275-execution-chaos.ts",
+      "exitCode": 0,
+      "summary": {
+        "checks": 9,
+        "outcomes": [
+          {
+            "name": "one unavailable event listener blocks delivery to a healthy bot on every retry",
+            "result": "confirmed"
+          },
+          {
+            "name": "a group dispatch handoff failure leaves a queued round stuck until startup-style round recovery",
+            "result": "confirmed"
+          },
+          {
+            "name": "a late shell callback resumes an explicitly stopped and cancelled automation",
+            "result": "confirmed"
+          },
+          {
+            "name": "a callback queued before WakeParent remains claimable after the automation handed off",
+            "result": "confirmed"
+          },
+          {
+            "name": "a callback with an unknown automation run ID is routed into the user-facing foreground",
+            "result": "confirmed"
+          },
+          {
+            "name": "a failed batched continuation is marked successful because a folded newer run was marked completed",
+            "result": "confirmed"
+          },
+          {
+            "name": "an invalid Teams regex is accepted as enabled and silently never matches",
+            "result": "confirmed"
+          },
+          {
+            "name": "one failed follow-up launch rolls back root settlement and blocks recovery for another bot",
+            "result": "confirmed"
+          },
+          {
+            "name": "file imports bypass the API refusal of unscoped high-volume GitHub listeners",
+            "result": "confirmed"
+          }
+        ]
+      },
+      "diagnostic": "DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead."
+    },
+    {
+      "suite": "repro-issue-275-final-sweep.ts",
+      "exitCode": 0,
+      "summary": {
+        "checks": 20,
+        "outcomes": [
+          {
+            "name": "interval-first grouped schedules retain an invalid due time after a timezone change",
+            "result": "confirmed"
+          },
+          {
+            "name": "first timezone detection pins later floating schedules to the first pinned listener's zone",
+            "result": "confirmed"
+          },
+          {
+            "name": "first timezone detection misses floating cron listeners when an interval is first",
+            "result": "confirmed"
+          },
+          {
+            "name": "a long valid cron accepted by the schedule API is truncated and soft-deleted by file sync",
+            "result": "confirmed"
+          },
+          {
+            "name": "desktop prompt-only edit: Sunday represented as 7 becomes Saturday",
+            "result": "confirmed"
+          },
+          {
+            "name": "desktop prompt-only edit: a monthly-plus-weekly rule loses its weekday",
+            "result": "confirmed"
+          },
+          {
+            "name": "desktop prompt-only edit: an advanced rule loses its month-day constraint",
+            "result": "confirmed"
+          },
+          {
+            "name": "desktop edit makes a valid hourly */60 cron unsavable by clamping its step to 59",
+            "result": "confirmed"
+          },
+          {
+            "name": "desktop prompt-only edit replaces an explicitly pinned schedule's timezone with the device zone",
+            "result": "confirmed"
+          },
+          {
+            "name": "desktop-generated triggers ignore a settings timezone override and stay pinned across later changes",
+            "result": "confirmed"
+          },
+          {
+            "name": "stale desktop presentation hides a file schedule edit and restores the old time on the next prompt edit",
+            "result": "confirmed"
+          },
+          {
+            "name": "desktop prompt-only edit of a mixed event/time routine silently removes its event listener",
+            "result": "confirmed"
+          },
+          {
+            "name": "advanced every-N-days weekday restrictions still generate weekend runs",
+            "result": "confirmed"
+          },
+          {
+            "name": "two valid desktop cards can expand beyond the server's eight-listener limit",
+            "result": "confirmed"
+          },
+          {
+            "name": "group routine overlap protection ends while its background shell is still running",
+            "result": "confirmed"
+          },
+          {
+            "name": "control: bot routines retain overlap protection while a background shell is running",
+            "result": "confirmed"
+          },
+          {
+            "name": "worker settlement rewrites event-run history as scheduled-run history",
+            "result": "confirmed"
+          },
+          {
+            "name": "sweep: desktop round trips introduce no failure classes beyond the minimized cases",
+            "result": "confirmed"
+          },
+          {
+            "name": "sweep: independent calendar and phased-interval invariants, seed 275",
+            "result": "confirmed"
+          },
+          {
+            "name": "sweep: independent calendar and phased-interval invariants, seed 276",
+            "result": "confirmed"
+          }
+        ],
+        "sweepResults": [
+          {
+            "kind": "desktop Cartesian sweep",
+            "accepted": 1152,
+            "unchanged": 1044,
+            "rejected": 0,
+            "knownDefectVariants": {
+              "Sunday alias clamped": 2,
+              "combined calendar constraint lost": 58,
+              "step clamped below valid input": 48
+            }
+          },
+          {
+            "kind": "independent oracle sweep",
+            "seed": 275,
+            "calendarCases": 192,
+            "groupCases": 23,
+            "phaseCases": 160,
+            "unexpectedMismatches": 0
+          },
+          {
+            "kind": "independent oracle sweep",
+            "seed": 276,
+            "calendarCases": 192,
+            "groupCases": 24,
+            "phaseCases": 160,
+            "unexpectedMismatches": 0
+          }
+        ]
+      },
+      "diagnostic": "DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead."
+    },
+    {
+      "suite": "repro-issue-275-revision-chaos.ts",
+      "exitCode": 0,
+      "summary": {
+        "checks": 6,
+        "outcomes": [
+          {
+            "name": "coalescing a new event changes a queued bot run's prompt without changing its recorded revision",
+            "result": "confirmed"
+          },
+          {
+            "name": "control: coalescing a group event preserves the queued execution's original instruction",
+            "result": "confirmed"
+          },
+          {
+            "name": "a prompt-only update resets a group interval's due time without any file reconciliation",
+            "result": "confirmed"
+          },
+          {
+            "name": "an uncertain create retried with edited input silently returns the original routine",
+            "result": "confirmed"
+          },
+          {
+            "name": "a UUID-shaped folder can make a different routine resolve when addressed by UUID",
+            "result": "confirmed"
+          },
+          {
+            "name": "a run fired by a later schedule is described to the model as firing on the first schedule",
+            "result": "confirmed"
+          }
+        ]
+      },
+      "diagnostic": "DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead."
+    },
+    {
+      "suite": "repro-issue-275-advanced-cadence.ts",
+      "exitCode": 0,
+      "summary": {
+        "checks": 3,
+        "outcomes": [
+          {
+            "name": "Advanced Every 45 minutes alternates 45- and 15-minute gaps",
+            "result": "confirmed"
+          },
+          {
+            "name": "Advanced Every N days discards selected month days",
+            "result": "confirmed"
+          },
+          {
+            "name": "Advanced summaries omit selected months",
+            "result": "confirmed"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -57,11 +57,13 @@ import { type FSWatcher, watch } from "chokidar";
 import { attachmentStorageName } from "./attachment-context";
 import { snapshotWatchedFiles } from "./file-watch-snapshot";
 import {
+  automationDefinitionDigest,
   deleteAutomationFolder,
   parseAutomationFile,
   writeAutomationFiles,
 } from "./automation-files";
 import { triggerIdentity } from "./automation-trigger";
+import { nextRoutineTriggerRun, inferRoutineScheduleAnchor } from "./routines";
 import {
   atomicWrite,
   digest,
@@ -1979,103 +1981,215 @@ export class AgentDataStore {
     }
   }
 
-  private async reconcileAutomations(tx: Tx, botId: string, warnings: string[]): Promise<void> {
+  async recoverRoutineCreation(botId: string, callId: string, tx: Tx): Promise<void> {
+    // The caller already holds the owner/file locks. Recover only this uncertain
+    // creation, without a nested transaction or unrelated deletion/import work.
+    const warnings: string[] = [];
+    await this.reconcileAutomations(tx, botId, warnings, callId);
+    const recovered = await tx.routineRevision.findFirst({ where: { callId, revision: 1, routine: { botId } }, select: { id: true } });
+    if (!recovered && warnings.length) throw new Error(`Cannot recover routine creation: ${warnings.join("; ")}`);
+  }
+
+  private async reconcileAutomations(tx: Tx, botId: string, warnings: string[], creationCallId?: string): Promise<void> {
     const root = join(this.botDirectory(botId), "automations");
     const slugs = await listDirectories(root);
     const seen = new Set<string>();
+    const snapshots = new Map<string, string>();
+    const projectedFolders = new Map<string, string[]>();
+    for (const slug of slugs) {
+      try {
+        const text = await readText(join(root, slug, "automation.json"), Number.MAX_SAFE_INTEGER);
+        if (text === null) continue;
+        snapshots.set(slug, text);
+        const projection = JSON.parse(text)?.projection;
+        if (typeof projection?.routineId === "string") {
+          const folders = projectedFolders.get(projection.routineId) ?? [];
+          folders.push(slug);
+          projectedFolders.set(projection.routineId, folders);
+        }
+      } catch { /* The per-file import below reports unreadable/invalid files. */ }
+    }
     const userZone = await readUserTimeZone(tx);
     for (const slug of slugs) {
       const path = join(root, slug, "automation.json");
-      const text = await readText(path, Number.MAX_SAFE_INTEGER);
-      if (text === null) continue;
+      let text: string | null = null;
       try {
-        const parsed = await parseAutomationFile(path, text, userZone);
+        if (creationCallId) {
+          const snapshot = snapshots.get(slug);
+          if (!snapshot) continue;
+          try { if (JSON.parse(snapshot)?.projection?.creationCallId !== creationCallId) continue; }
+          catch { continue; }
+        }
+        text = snapshots.get(slug) ?? await readText(path, Number.MAX_SAFE_INTEGER);
+        if (text === null) continue;
         seen.add(slug);
-        const existing = await tx.routine.findUnique({
-          where: { botId_slug: { botId, slug } },
-        });
-        const authoredChanged =
-          !existing ||
-          existing.name !== parsed.name ||
-          existing.prompt !== parsed.prompt ||
-          triggerIdentity(existing.trigger as Record<string, unknown>) !==
-            triggerIdentity(parsed.trigger);
+        const parsed = await parseAutomationFile(path, text, userZone);
+        let existing = await tx.routine.findUnique({ where: { botId_slug: { botId, slug } } });
+        if (creationCallId && existing) continue;
+        if (existing) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${existing.id}`}))`;
+          existing = await tx.routine.findUnique({ where: { id: existing.id } });
+        }
+        let clonedProjection = false;
+        if (parsed.projection) {
+          const identified = await tx.routine.findUnique({ where: { id: parsed.projection.routineId } });
+          const originPresent = parsed.projection.originSlug && snapshots.has(parsed.projection.originSlug);
+          if ((existing && existing.id !== parsed.projection.routineId) ||
+              (identified && (identified.botId !== botId || identified.slug !== slug)) ||
+              (parsed.projection.originBotId && parsed.projection.originBotId !== botId) ||
+              (!identified && parsed.projection.originSlug !== slug && originPresent)) {
+            // Folder-authored copies replace the destination's definition or
+            // create a fresh routine. Internal source metadata must never move
+            // another routine's UUID or creation receipt into the destination.
+            parsed.projection = null;
+            parsed.projectionUnchanged = false;
+            clonedProjection = true;
+          }
+          if (!identified && parsed.projection && (projectedFolders.get(parsed.projection.routineId)?.length ?? 0) > 1 &&
+              (!parsed.projection.originBotId || !parsed.projection.originSlug || !originPresent)) {
+            // Old receipts did not record an owner/folder. If several folders
+            // claim a missing UUID, choosing by scan order would attach the
+            // original receipt to arbitrary instructions. Require disambiguation.
+            throw new Error("Ambiguous routine recovery: retain projection metadata only on the original folder, and remove it from copied definitions.");
+          }
+          // A stale, untouched projection is never a new user edit. In particular
+          // it cannot undo an edit/pause/delete committed before projection failed.
+          if (existing && parsed.projectionUnchanged && parsed.projection && parsed.projection.revision < existing.revision) {
+            if (existing.validationError) await tx.routine.update({ where: { id: existing.id }, data: { validationError: null } });
+            await this.trackFile(tx, botId, "automation", path, text);
+            continue;
+          }
+          if (existing?.deletedAt && parsed.projectionUnchanged) {
+            if (existing.validationError) await tx.routine.update({ where: { id: existing.id }, data: { validationError: null } });
+            await this.trackFile(tx, botId, "automation", path, text);
+            continue;
+          }
+        }
+        const projectedRevisionNumber = parsed.projection?.routineId === existing?.id ? parsed.projection?.revision
+          : !parsed.projection && existing && existing.revision > 1 ? existing.revision - 1 : null;
+        if (existing && projectedRevisionNumber && projectedRevisionNumber < existing.revision) {
+          const projectedRevision = await tx.routineRevision.findUnique({
+            where: { routineId_revision: { routineId: existing.id, revision: projectedRevisionNumber } },
+            select: { enabled: true },
+          });
+          // A pending prompt/name edit must not undo a more recent pause/resume.
+          // An explicit file change to enabled still takes effect.
+          if (projectedRevision && projectedRevision.enabled === parsed.enabled && projectedRevision.enabled !== existing.enabled) parsed.enabled = existing.enabled;
+        }
+        const triggerChanged = !existing || triggerIdentity(existing.trigger as Record<string, unknown>) !== triggerIdentity(parsed.trigger);
+        const authoredChanged = !existing || existing.name !== parsed.name || existing.prompt !== parsed.prompt || triggerChanged;
         const enabledChanged = Boolean(existing) && existing?.enabled !== parsed.enabled;
-        const changed = authoredChanged || enabledChanged;
+        const changed = authoredChanged || enabledChanged || Boolean(existing?.deletedAt);
         const revision = existing ? existing.revision + Number(changed) : 1;
         const schedule = parsed.schedule ?? {
-          scheduleText: JSON.stringify(parsed.trigger),
-          scheduleKind: "event" as const,
-          cronExpression: null,
-          intervalSeconds: null,
-          timezoneMode: "installation" as const,
-          timezone: userZone,
+          scheduleText: JSON.stringify(parsed.trigger), scheduleKind: "event" as const,
+          cronExpression: null, intervalSeconds: null, timezoneMode: "installation" as const, timezone: userZone,
         };
+        const now = new Date();
+        const schedulingChanged = triggerChanged || enabledChanged || Boolean(existing?.deletedAt);
+        const scheduleAnchorAt = !existing ? parsed.scheduleAnchorAt : schedulingChanged ? now :
+          await inferRoutineScheduleAnchor(tx, existing);
+        let nextRunAt = existing ? existing.nextRunAt : parsed.nextRunAt;
+        if (existing && schedulingChanged) {
+          nextRunAt = parsed.enabled && parsed.schedule
+            ? nextRoutineTriggerRun(parsed.trigger, schedule, now, userZone, scheduleAnchorAt ?? now)
+            : null;
+        } else if (existing && !existing.scheduleAnchorAt && parsed.enabled && parsed.schedule && (!existing.nextRunAt || existing.nextRunAt > now)) {
+          // Repair first-listener state across calendar and interval mixtures.
+          // Keep due occurrences for dispatch and preserve legacy interval phase
+          // when scheduled history exists, rather than re-anchor at wall time.
+          const earliest = nextRoutineTriggerRun(parsed.trigger, schedule, now, userZone, scheduleAnchorAt ?? undefined);
+          if (!existing.nextRunAt || earliest < existing.nextRunAt) nextRunAt = earliest;
+        }
+        const actualExecutions = existing ? await tx.routineExecution.count({ where: { routineId: existing.id } }) : 0;
         const common = {
-          name: parsed.name,
-          prompt: parsed.prompt,
-          trigger: asInputJson(parsed.trigger),
-          triggerPresentation: parsed.triggerPresentation
-            ? asInputJson(parsed.triggerPresentation)
-            : Prisma.JsonNull,
-          provenance: parsed.provenance,
-          ...schedule,
-          enabled: parsed.enabled,
-          revision,
-          nextRunAt: parsed.nextRunAt,
-          lastRunAt: parsed.lastRunAt,
-          pausedAt: parsed.enabled ? null : (existing?.pausedAt ?? new Date()),
-          deletedAt: null,
-          pendingNotices: parsed.pendingNotices,
-          raisedNotices: parsed.raisedNotices,
-          runLedger: asInputJson(parsed.runs),
-          createdAt: parsed.createdAt,
+          name: parsed.name, prompt: parsed.prompt, trigger: asInputJson(parsed.trigger),
+          triggerPresentation: parsed.triggerPresentation && !(triggerChanged && existing && JSON.stringify(existing.triggerPresentation) === JSON.stringify(parsed.triggerPresentation))
+            ? asInputJson(parsed.triggerPresentation) : Prisma.JsonNull,
+          provenance: parsed.provenance, ...schedule, enabled: parsed.enabled, revision, validationError: null,
+          pausedAt: parsed.enabled ? null : (existing?.pausedAt ?? now), deletedAt: null,
+          ...(!existing ? {
+            nextRunAt, scheduleAnchorAt, lastRunAt: parsed.lastRunAt,
+            pendingNotices: parsed.pendingNotices, raisedNotices: parsed.raisedNotices,
+            runLedger: asInputJson(parsed.runs), createdAt: parsed.createdAt,
+          } : {
+            // Never copy committed runtime state back from its file projection.
+            ...(schedulingChanged ? { nextRunAt, scheduleAnchorAt } :
+              {
+                ...(!existing.scheduleAnchorAt ? { scheduleAnchorAt } : {}),
+                ...(nextRunAt?.getTime() !== existing.nextRunAt?.getTime() ? { nextRunAt } : {}),
+              }),
+            // Retain the established ledger-edit contract for file-only imports,
+            // but actual execution rows make database history authoritative.
+            ...(actualExecutions === 0 && !parsed.historyError ? { runLedger: asInputJson(parsed.runs) } : {}),
+          }),
         };
         const routine = existing
-          ? await tx.routine.update({
-              where: { id: existing.id },
-              data: common,
-            })
-          : await tx.routine.create({ data: { botId, slug, ...common } });
+          ? await tx.routine.update({ where: { id: existing.id }, data: common })
+          : await tx.routine.create({ data: { ...(parsed.projection ? { id: parsed.projection.routineId } : {}), botId, slug, ...common } });
+        if (clonedProjection || !parsed.projection || changed || !parsed.projectionUnchanged) {
+          // Acknowledge imported edits without stripping authored extension
+          // fields. Later runtime projections can recognize this valid baseline.
+          const document = { ...JSON.parse(text), enabled: routine.enabled } as Record<string, unknown>;
+          const destinationCreation = existing ? await tx.routineRevision.findUnique({
+            where: { routineId_revision: { routineId: existing.id, revision: 1 } },
+            select: { callId: true, runId: true },
+          }) : parsed.projection ? {
+            // Recovery itself may roll back after this file is acknowledged.
+            // Keep the durable receipt until its database revision commits.
+            callId: parsed.projection.creationCallId,
+            runId: parsed.projection.creationRunId,
+          } : null;
+          const acknowledged = jsonFile({ ...document, projection: {
+            routineId: routine.id, revision, definitionDigest: automationDefinitionDigest(document),
+            scheduleAnchorAt: scheduleAnchorAt?.getTime() ?? null,
+            creationCallId: destinationCreation?.callId ?? null, creationRunId: destinationCreation?.runId ?? null,
+            originBotId: botId, originSlug: slug,
+          } });
+          // A later filesystem edit belongs to the next reconciliation pass.
+          // Do not replace it while acknowledging this earlier snapshot.
+          if (await readText(path, Number.MAX_SAFE_INTEGER) === text) {
+            await atomicWrite(path, acknowledged);
+            text = acknowledged;
+          }
+        }
         if (!existing || changed) {
-          await tx.routineRevision.create({
-            data: {
-              routineId: routine.id,
-              revision,
-              name: parsed.name,
-              prompt: parsed.prompt,
-              ...schedule,
-              enabled: parsed.enabled,
-              source: "filesystem",
-            },
-          });
+          await tx.routineRevision.create({ data: {
+            routineId: routine.id, revision, name: parsed.name, prompt: parsed.prompt,
+            ...schedule, enabled: parsed.enabled, source: "filesystem",
+            ...(!existing && parsed.projection ? { callId: parsed.projection.creationCallId, runId: parsed.projection.creationRunId } : {}),
+          } });
         }
         if (changed && this.timelineEventSink) {
           await this.timelineEventSink(tx, {
-            botId,
-            clientId: `automation-file:${randomUUID()}`,
+            botId, clientId: `automation-file:${randomUUID()}`,
             event: {
               type: "automation-changed",
-              action: !existing
-                ? "created"
-                : authoredChanged
-                  ? "updated"
-                  : parsed.enabled
-                    ? "enabled"
-                    : "disabled",
-              automationId: routine.id,
-              automationName: routine.name,
+              action: !existing ? "created" : authoredChanged ? "updated" : parsed.enabled ? "enabled" : "disabled",
+              automationId: routine.id, automationName: routine.name,
             },
           });
         }
         await this.trackFile(tx, botId, "automation", path, text);
+        if (parsed.historyError) {
+          warnings.push(`automations/${slug}/runs.json: ${parsed.historyError}`);
+          await this.trackFile(tx, botId, "automation-history", join(root, slug, "runs.json"), null, parsed.historyError);
+        }
       } catch (error) {
+        // A present invalid definition is quarantined, not interpreted as a
+        // deletion. Keep it visible and prevent obsolete instructions running.
+        seen.add(slug);
         const message = error instanceof Error ? error.message : String(error);
         warnings.push(`automations/${slug}/automation.json: ${message}`);
+        const invalid = await tx.routine.findUnique({ where: { botId_slug: { botId, slug } }, select: { id: true } });
+        if (invalid) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${invalid.id}`}))`;
+          await tx.routine.updateMany({ where: { id: invalid.id, deletedAt: null }, data: { enabled: false, nextRunAt: null, validationError: message } });
+        }
         await this.trackFile(tx, botId, "automation", path, text, message);
       }
     }
-    if (await this.directoryExists(root)) {
+    if (!creationCallId && await this.directoryExists(root)) {
       const removed = await tx.routine.findMany({
         where: { botId, deletedAt: null, slug: { notIn: [...seen] } },
         select: { id: true, name: true },
@@ -2400,16 +2514,47 @@ export class AgentDataStore {
     });
   }
 
-  async writeRoutine(botId: string, id: string, transaction?: Tx): Promise<void> {
+  async writeRoutine(botId: string, id: string, transaction?: Tx, options: { authored?: boolean } = {}): Promise<void> {
     const write = async (tx: Tx): Promise<void> => {
       const routine = await tx.routine.findFirst({
         where: { id, botId, deletedAt: null, bot: { status: "active" } },
       });
-      if (!routine) return;
+      // Settlement can finish after a user made an invalid file edit. Never
+      // replace that authored edit with the cached last-good definition.
+      if (!routine || routine.validationError) return;
+      if (!options.authored) {
+        const path = join(this.botDirectory(botId), "automations", routine.slug, "automation.json");
+        try {
+          const current = await readText(path, Number.MAX_SAFE_INTEGER);
+          // File deletion and unfinished edits are authored changes too. Runtime
+          // receipts must not undo them before the watcher can reconcile them.
+          if (current === null) return;
+          const document = JSON.parse(current) as Record<string, unknown>;
+          const projection = document.projection && typeof document.projection === "object" && !Array.isArray(document.projection)
+            ? document.projection as Record<string, unknown> : null;
+          if (typeof projection?.definitionDigest === "string") {
+            if (projection.routineId !== routine.id || projection.definitionDigest !== automationDefinitionDigest(document)) return;
+          } else {
+            const previous = await tx.agentFileState.findUnique({ where: { path }, select: { validDigest: true } });
+            if (!previous?.validDigest || previous.validDigest !== digest(current)) return;
+          }
+        } catch {
+          return;
+        }
+      }
+      const creation = await tx.routineRevision.findUnique({
+        where: { routineId_revision: { routineId: routine.id, revision: 1 } },
+        select: { callId: true, runId: true },
+      });
       await writeAutomationFiles(this.botDirectory(botId), {
         ...routine,
         slug: routine.slug,
         runLedger: routine.runLedger,
+        creationCallId: creation?.callId ?? null,
+        creationRunId: creation?.runId ?? null,
+      }, async (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        await this.trackFile(tx, botId, "automation-history", join(this.botDirectory(botId), "automations", routine.slug, "runs.json"), null, message);
       });
     };
     if (transaction) return write(transaction);

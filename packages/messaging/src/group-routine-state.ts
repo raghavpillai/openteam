@@ -1,4 +1,6 @@
 import type { Prisma } from "@openteam/db";
+import { automationShellState } from "./automation-results";
+import { requestIsStopped } from "./request-state";
 
 /** Include late worker continuations and the peer rounds their results start. */
 export async function groupRoutineState(tx: Prisma.TransactionClient, rootMessageId: string) {
@@ -22,10 +24,22 @@ export async function groupRoutineState(tx: Prisma.TransactionClient, rootMessag
   const currentSourceIds = rounds.flatMap((round) =>
     round.deliveries.flatMap((delivery) => (delivery.run ? [delivery.run.id] : []))
   );
-  const deliveryIds = rounds.flatMap(round => round.deliveries.map(delivery => delivery.id));
-  const priorAttempts = deliveryIds.length ? await tx.run.findMany({ where: { channelId: root.channelId, origin: "group",
-    inboxEvents: { some: { OR: deliveryIds.map(id => ({ payload: { path: ["deliveryId"], equals: id } })) } } }, select: { id: true } }) : [];
-  const sourceIds = [...new Set([...currentSourceIds, ...priorAttempts.map(run => run.id)])];
+  const deliveryIds = rounds.flatMap((round) => round.deliveries.map((delivery) => delivery.id));
+  const priorAttempts = deliveryIds.length
+    ? await tx.run.findMany({
+        where: {
+          channelId: root.channelId,
+          origin: "group",
+          inboxEvents: {
+            some: {
+              OR: deliveryIds.map((id) => ({ payload: { path: ["deliveryId"], equals: id } })),
+            },
+          },
+        },
+        select: { id: true },
+      })
+    : [];
+  const sourceIds = [...new Set([...currentSourceIds, ...priorAttempts.map((run) => run.id)])];
   const continuations = sourceIds.length
     ? await tx.run.findMany({
         where: {
@@ -40,6 +54,26 @@ export async function groupRoutineState(tx: Prisma.TransactionClient, rootMessag
       })
     : [];
   const family = [...sourceIds, ...continuations.map((run) => run.id)];
+  const owners = family.length
+    ? await tx.run.findMany({
+        where: { id: { in: family } },
+        select: { id: true, botId: true, status: true, error: true, requestStoppedAt: true },
+      })
+    : [];
+  // Stop applies even after the model turn completed. Its background work may
+  // no longer produce a callback, so it must not hold future occurrences forever.
+  const continuingOwners = owners.filter((run) => !requestIsStopped(run));
+  const shellStates = [];
+  for (const botId of new Set(continuingOwners.map((run) => run.botId))) {
+    shellStates.push(
+      await automationShellState(
+        tx,
+        botId,
+        continuingOwners.filter((run) => run.botId === botId).map((run) => run.id),
+        true
+      )
+    );
+  }
   const children = family.length
     ? await tx.subagentAttempt.findMany({
         where: { parentRunId: { in: family } },
@@ -49,14 +83,20 @@ export async function groupRoutineState(tx: Prisma.TransactionClient, rootMessag
       })
     : [];
   const deliveries = rounds.flatMap((round) => round.deliveries);
-  const completedTimes = [...rounds, ...continuations, ...children].flatMap(item => item.completedAt ? [item.completedAt.getTime()] : []);
+  const completedTimes = [...rounds, ...continuations, ...children, ...shellStates].flatMap(
+    (item) => (item.completedAt ? [item.completedAt.getTime()] : [])
+  );
   return {
     completedAt: completedTimes.length ? new Date(Math.max(...completedTimes)) : null,
     active:
+      shellStates.some((state) => state.active) ||
       rounds.some((round) => ["queued", "running"].includes(round.status)) ||
       continuations.some((run) => ["queued", "running"].includes(run.status)) ||
-      children.some((child) => ["provisioning", "queued", "running", "waiting"].includes(child.status)),
+      children.some((child) =>
+        ["provisioning", "queued", "running", "waiting"].includes(child.status)
+      ),
     failed:
+      shellStates.some((state) => state.failed) ||
       rounds.some((round) => round.status === "failed") ||
       deliveries.some((delivery) => delivery.status === "failed") ||
       (deliveries.length > 0 && deliveries.every((delivery) => delivery.status === "skipped")) ||

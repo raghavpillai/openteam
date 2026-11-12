@@ -1,0 +1,446 @@
+{
+  "baseCommit": "c0bf70b3c3f9a21953e96575bed560cca801f027",
+  "execution": "serial isolated files; fresh database with actual db:push/raw schema; unchanged production transaction deadlines",
+  "files": [
+    {
+      "file": "packages/messaging/test/routine-file-sync-regressions.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 31.65,
+      "pass": 16,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-file-sync-stress.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 2.58,
+      "pass": 18,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-scheduling-regressions.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 1.89,
+      "pass": 9,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-scheduler-stress.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 18.71,
+      "pass": 34,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-scheduling-regressions.test.ts",
+      "exitCode": 0,
+      "seconds": 0.78,
+      "pass": 7,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-editor-schedule-oracle.test.ts",
+      "exitCode": 0,
+      "seconds": 1.07,
+      "pass": 3,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/routine-275-regressions.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 43.24,
+      "pass": 12,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/routine-stop-ordering.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 9.96,
+      "pass": 6,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/a2a-live.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 16.1,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/desktop/test/routine-editor-preservation.test.ts",
+      "exitCode": 0,
+      "seconds": 0.07,
+      "pass": 25,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/desktop/test/routine-definition-error.test.tsx",
+      "exitCode": 0,
+      "seconds": 0.06,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/client-core/test/routine-create-idempotency.test.ts",
+      "exitCode": 0,
+      "seconds": 0.04,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-concurrency.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 2.16,
+      "pass": 6,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-time-lifecycle.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 0.79,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/user-time-zone.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 0.97,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/group-execution.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 4.17,
+      "pass": 13,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/routine-recovery.test.ts",
+      "exitCode": 0,
+      "seconds": 0.85,
+      "pass": 5,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/routine-event-coalescing.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 5.12,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/group-routine-event-coalescing.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 5.29,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/routine-revival-batch.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 1.12,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/request-stop.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 2.71,
+      "pass": 21,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent-stop-resume.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 3.92,
+      "pass": 15,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/bot-parity.test.ts",
+      "exitCode": 0,
+      "seconds": 0.28,
+      "pass": 5,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/busy-bots.test.ts",
+      "exitCode": 0,
+      "seconds": 0.21,
+      "pass": 5,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/dispatch-results.test.ts",
+      "exitCode": 0,
+      "seconds": 0.19,
+      "pass": 4,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/inference-authority.test.ts",
+      "exitCode": 0,
+      "seconds": 0.19,
+      "pass": 2,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/lifecycle.test.ts",
+      "exitCode": 0,
+      "seconds": 0.19,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/message-interrupts.test.ts",
+      "exitCode": 0,
+      "seconds": 0.22,
+      "pass": 4,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/recovery.test.ts",
+      "exitCode": 0,
+      "seconds": 0.02,
+      "pass": 2,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/status.test.ts",
+      "exitCode": 0,
+      "seconds": 0.19,
+      "pass": 6,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/stop-cancellation.test.ts",
+      "exitCode": 0,
+      "seconds": 0.21,
+      "pass": 10,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/user-stop.test.ts",
+      "exitCode": 0,
+      "seconds": 0.24,
+      "pass": 14,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/view.test.ts",
+      "exitCode": 0,
+      "seconds": 0.03,
+      "pass": 5,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-retest-scheduling.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 1.33,
+      "pass": 15,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-retest-sync.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 1.43,
+      "pass": 10,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/desktop/test/routine-retest-editor.test.ts",
+      "exitCode": 0,
+      "seconds": 0.08,
+      "pass": 11,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/routine-retest-execution.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 3.4,
+      "pass": 6,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routines.test.ts",
+      "exitCode": 0,
+      "seconds": 0.4,
+      "pass": 19,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/automation-trigger-validation.test.ts",
+      "exitCode": 0,
+      "seconds": 0.29,
+      "pass": 9,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/automation-events.test.ts",
+      "exitCode": 0,
+      "seconds": 0.05,
+      "pass": 4,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/routine-validation.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 1.13,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    }
+  ],
+  "totals": {
+    "pass": 331,
+    "fail": 0,
+    "skip": 0
+  },
+  "subagents": [
+    "retest_schedule",
+    "retest_sync",
+    "retest_editor"
+  ],
+  "newParentChecks": "group shell completion outcomes, single/folded/legacy receipt consumers",
+  "sourceDigestSha256": "9015644fa7fb9a95338346177adbfd4182758aaa55e9d57ac2a75511406713b6",
+  "sourceDigestMethod": "SHA256 of sorted modified/untracked apps/packages .ts/.tsx/.prisma plus repair CLI: each relative path, NUL, file bytes, NUL",
+  "sourceFiles": [
+    "apps/desktop/src/renderer/components/openteam/routine-definition-error.tsx",
+    "apps/desktop/src/renderer/components/openteam/routine-panel.tsx",
+    "apps/desktop/src/renderer/lib/routines.ts",
+    "apps/desktop/test/routine-definition-error.test.tsx",
+    "apps/desktop/test/routine-editor-preservation.test.ts",
+    "apps/desktop/test/routine-retest-editor.test.ts",
+    "apps/server/src/services/subagent/service.ts",
+    "apps/worker/src/worker.ts",
+    "apps/worker/test/a2a-live.integration.test.ts",
+    "apps/worker/test/background-revival.test.ts",
+    "apps/worker/test/fixtures/routine-context.ts",
+    "apps/worker/test/routine-275-regressions.integration.test.ts",
+    "apps/worker/test/routine-recovery.test.ts",
+    "apps/worker/test/routine-retest-execution.integration.test.ts",
+    "apps/worker/test/routine-stop-ordering.integration.test.ts",
+    "packages/client-core/src/client.ts",
+    "packages/client-core/test/routine-create-idempotency.test.ts",
+    "packages/contracts/src/routine-types.ts",
+    "packages/db/prisma/schema.prisma",
+    "packages/messaging/src/agent-data.ts",
+    "packages/messaging/src/automation-files.ts",
+    "packages/messaging/src/automation-results.ts",
+    "packages/messaging/src/automation-trigger.ts",
+    "packages/messaging/src/background-request-delivery.ts",
+    "packages/messaging/src/group-routine-state.ts",
+    "packages/messaging/src/index.ts",
+    "packages/messaging/src/request-progress.ts",
+    "packages/messaging/src/routines.ts",
+    "packages/messaging/test/file/state-adversarial.test.ts",
+    "packages/messaging/test/routine-editor-schedule-oracle.test.ts",
+    "packages/messaging/test/routine-file-sync-regressions.integration.test.ts",
+    "packages/messaging/test/routine-file-sync-stress.integration.test.ts",
+    "packages/messaging/test/routine-retest-scheduling.integration.test.ts",
+    "packages/messaging/test/routine-retest-sync.integration.test.ts",
+    "packages/messaging/test/routine-scheduler-stress.integration.test.ts",
+    "packages/messaging/test/routine-scheduling-regressions.integration.test.ts",
+    "packages/messaging/test/routine-scheduling-regressions.test.ts",
+    "packages/messaging/test/routines.test.ts",
+    "scripts/repair-routine-scheduling.ts"
+  ],
+  "verification": {
+    "workspaceTypecheck": {
+      "successful": 12,
+      "total": 12,
+      "cached": 8
+    },
+    "architectureChecks": {
+      "passed": 4
+    },
+    "builds": [
+      {
+        "target": "server",
+        "exitCode": 0
+      },
+      {
+        "target": "worker",
+        "exitCode": 0
+      },
+      {
+        "target": "worker-syntax",
+        "exitCode": 0
+      },
+      {
+        "target": "renderer",
+        "exitCode": 0
+      }
+    ],
+    "schemaUpgrade": {
+      "baseline": "HEAD Prisma schema with paused and active grouped routine fixtures",
+      "command": "bun run db:push (including raw schema SQL)",
+      "existingFieldsAndHistoryHashUnchanged": true
+    },
+    "repairCli": [
+      {
+        "step": "preview",
+        "changes": 1,
+        "errors": 0
+      },
+      {
+        "step": "apply",
+        "changes": 1,
+        "errors": 0
+      },
+      {
+        "step": "repeat",
+        "changes": 0,
+        "errors": 0
+      }
+    ]
+  },
+  "limits": [
+    "No live browser layout or external provider smoke test; editor component tests execute real component with controlled React/API/timer harness.",
+    "Calendar schedules retain cron DST gap/overlap semantics, not strict elapsed-time cadence.",
+    "Filesystem snapshot checks remain optimistic; SQL and files are not one atomic transaction.",
+    "Ambiguous legacy missing-UUID projections in multiple folders without origin metadata need manual projection disambiguation.",
+    "Historical complete-trigger-only edits may lack sufficient anchor history; client creation nonce does not persist across application restarts.",
+    "Known unrelated baseline/harness failures documented in issue-275-fixes.md are outside the targeted passing set."
+  ]
+}

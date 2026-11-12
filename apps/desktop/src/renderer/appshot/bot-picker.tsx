@@ -39,21 +39,29 @@ export function BotPicker({
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  /** Only a highlight moved by the keyboard scrolls the list; one under the pointer stays put,
+   * or hovering a half-hidden Bot at the edge would yank the list while you aim. */
+  const scrollToActive = useRef(true);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const searchable = bots.length >= SEARCH_THRESHOLD;
   const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return needle
-      ? bots.filter((bot) => `${bot.name} ${bot.title}`.toLowerCase().includes(needle))
+    // Every word typed must appear somewhere ("help 1" finds "Helper 1"), in any order.
+    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return words.length
+      ? bots.filter((bot) => {
+          const haystack = `${bot.name} ${bot.title}`.toLowerCase();
+          return words.every((word) => haystack.includes(word));
+        })
       : bots;
   }, [bots, query]);
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
+    scrollToActive.current = true;
     setActive(Math.max(0, bots.findIndex((bot) => bot.id === selected.id)));
     requestAnimationFrame(() => (searchable ? searchRef.current : listRef.current)?.focus());
     // Open with the current choice highlighted; later renders keep the pointer's choice.
@@ -90,9 +98,17 @@ export function BotPicker({
     list.style.maxHeight = `${Math.max(120, Math.min(LIST_MAX, up ? above : below))}px`;
     menu.dataset.side = up ? "above" : "below";
     markOverflow();
+    // Chosen once per opening: a search narrowing the list mustn't flip the menu mid-typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (open) markOverflow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, visible.length]);
 
   useEffect(() => {
+    if (!scrollToActive.current) return;
     listRef.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
@@ -105,9 +121,11 @@ export function BotPicker({
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
+      scrollToActive.current = true;
       setActive((index) => (index + 1) % Math.max(1, visible.length));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
+      scrollToActive.current = true;
       setActive((index) => (index - 1 + visible.length) % Math.max(1, visible.length));
     } else if (event.key === "Enter") {
       event.preventDefault();
@@ -154,7 +172,13 @@ export function BotPicker({
               placeholder="Search Bots"
               value={query}
               spellCheck={false}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                // A new search starts from its first match, with the list back at the top.
+                setQuery(event.target.value);
+                scrollToActive.current = true;
+                setActive(0);
+                if (listRef.current) listRef.current.scrollTop = 0;
+              }}
             />
           )}
           <div
@@ -178,7 +202,11 @@ export function BotPicker({
                   className="appshot-menu-item"
                   data-active={index === active || undefined}
                   data-index={index}
-                  onPointerMove={() => setActive(index)}
+                  onPointerMove={() => {
+                    if (index === active) return;
+                    scrollToActive.current = false;
+                    setActive(index);
+                  }}
                   onClick={() => choose(bot)}
                 >
                   <span className="appshot-menu-check" aria-hidden="true">

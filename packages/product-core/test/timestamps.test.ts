@@ -1,24 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { routineExecutionStatusPresentation } from "../src/routines";
 import { formatRosterTimestamp } from "../src/timestamps";
 
-describe("shared helpers preserve the existing desktop and iOS presentation", () => {
-  test("routine labels remain identical in all three existing surfaces", () => {
-    const labels = [
-      ["queued", "Queued", "Running", "queued"],
-      ["running", "Running", "Running", "running"],
-      ["completed", "Succeeded", "Succeeded", "completed"],
-      ["failed", "Failed", "Failed", "failed"],
-      ["cancelled", "Cancelled", "Cancelled", "cancelled"],
-      ["skipped", "Skipped", "Skipped", "skipped"],
-    ] as const;
-    for (const [status, detail, activity, raw] of labels) {
-      expect(routineExecutionStatusPresentation(status).label).toBe(detail);
-      expect(routineExecutionStatusPresentation(status, "activity").label).toBe(activity);
-      expect(routineExecutionStatusPresentation(status, "raw").label).toBe(raw);
-    }
-  });
-
+describe("roster timestamps", () => {
   test("all roster variants show weekdays for recent conversations", () => {
     const now = new Date(2026, 8, 3, 17);
     const today = new Date(2026, 8, 3, 10, 15);

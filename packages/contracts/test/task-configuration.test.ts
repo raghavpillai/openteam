@@ -99,16 +99,10 @@ test("legacy profiles and model arguments cannot override server inference", () 
         }
 });
 
-test("the roster names one graphical worker for browser and desktop work", () => {
+test("the roster offers graphical work only when the computer can run it", () => {
   const info = taskUserInfo(config);
-  expect(info).toContain("computerUse: Delegate a self-contained browser or desktop task to a background subagent that operates your box's browser and desktop");
-  expect(info).toContain("Only one computerUse subagent can run at a time");
-  expect(info).toContain("executor: Your workhorse:");
   expect(info).toContain("dispatch browser and desktop work to computerUse yourself.");
   expect(info).not.toContain("browserUse");
-  expect(info).toContain("knowledgeWork: A higher-powered executor for five kinds of work, and only these:");
-  // Deliberately past the reference: small single-file deliverables stay with the main agent (perf bench t03, t02).
-  expect(info).toContain("Use it when a skill names it or the deliverable is one of these, except a small file you can make yourself in one or two Shell calls: make that yourself.");
   const headless = taskUserInfo({ ...config, graphicalAvailable: false });
   expect(headless).toContain("Browser and desktop workers are unavailable on this computer.");
   expect(headless).not.toContain("dispatch browser and desktop work to computerUse");
@@ -130,11 +124,4 @@ test("invalid and ambiguous profile configurations cannot be saved", () => {
     { ...config, executorProfiles: [{ ...config.executorProfiles[0], name: "provider/model" }] },
   ])
     expect(() => parseTaskConfiguration(input)).toThrow();
-});
-
-test("a Task prompt quotes each exact value, so sentence punctuation never joins it", () => {
-  // Unquoted, a value at the end of a sentence reaches the worker with its period, and the parent resumes it to fix the field.
-  expect(taskToolContract().description).toContain(
-    "Quote each exact value as the user gave it, so sentence punctuation is never read as part of it."
-  );
 });

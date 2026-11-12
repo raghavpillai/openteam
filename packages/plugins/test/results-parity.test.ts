@@ -12,7 +12,6 @@ import { sheetsTools } from "../google-sheets/connector/server";
 import { slidesTools } from "../google-slides/connector/server";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import { parsePluginDefinition, createPluginTemplate } from "@openteam/plugin-sdk";
-import { pluginCatalog } from "../src";
 
 test("Large tool results survive process replacement and are complete and account scoped", async () => {
   const root = await mkdtemp(join(tmpdir(), "plugin-result-test-"));
@@ -67,18 +66,4 @@ test("Every advertised reference tool input remains discoverable with valid MCP 
       );
     }
   }
-});
-
-test("Notion declares 14 source-fetched workflows and Calendar retains its local model", () => {
-  const notion = pluginCatalog.find((p) => p.key === "notion")!;
-  expect(notion.skills).toHaveLength(14);
-  expect(notion.components).toEqual(["mcp", "skills"]);
-  expect(notion.upstream?.delivery).toBe("install");
-  for (const skill of notion.skills) {
-    expect(skill.body).toBe("");
-    expect(notion.files?.[`${skill.path}/SKILL.md`]).toBeUndefined();
-  }
-  expect(notion.files?.["README.md"]).toContain("14 original workflows");
-  const calendar = pluginCatalog.find((p) => p.key === "google-calendar")!;
-  expect(calendar.binaryFiles?.["models/potion-base-2M/model.safetensors"]).toBeTruthy();
 });

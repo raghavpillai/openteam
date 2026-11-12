@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
   applySecretEdits,
+  assertComputerMcpRuntime,
+  clonePluginDefinition,
+  createPluginTemplate,
   discoverAllTools,
   environmentFields,
   exportPackage,
   fieldsForConnector,
   importPackage,
+  packageChanges,
   parsePluginDefinition,
+  type PluginDefinition,
   pluginIconUrl,
   scopedProcessEnvironment,
   skillIsForAgent,
@@ -370,4 +375,92 @@ test("skill folders supply bodies and imports reject literal credentials", () =>
   expect(() =>
     parsePluginDefinition({ ...definition, binaryFiles: { "../escape": "YWJj" } })
   ).toThrow("Unsafe package path");
+});
+
+test("packaged MCP configurations require the computer runtime", () => {
+  expect(() => assertComputerMcpRuntime({ command: "bun" })).not.toThrow();
+  expect(() => assertComputerMcpRuntime({ runtime: "computer", command: "bun" })).not.toThrow();
+  const configuration = { runtime: "desktop", provider: "1password", command: "1password-mcp" };
+  expect(() => assertComputerMcpRuntime(configuration)).toThrow("Unsupported");
+  expect(() => assertComputerMcpRuntime({ runtime: "unknown" })).toThrow("Unsupported");
+  const plugin = createPluginTemplate("packaged-mcp", "desktop-test");
+  plugin.connections[0]!.configuration = configuration;
+  expect(() => parsePluginDefinition(plugin)).toThrow("Unsupported");
+});
+
+const fixture = (): PluginDefinition => ({
+  key: "copy-test", version: "1.0.0", name: "Copy test", description: "Fixture",
+  publisher: "Example", category: "Test", featured: false,
+  components: ["mcp"], skills: [],
+  connections: [{ key: "api", name: "API", transport: "http", auth: "none",
+    endpoint: "https://example.test/mcp", configuration: { headers: { Accept: "application/json" } }, tools: [] }],
+  files: { "server.js": "export const value = 1;" },
+  binaryFiles: { "model.bin": "AAECAw==" },
+});
+
+test("cloning isolates mutable metadata and file maps in both directions", () => {
+  const source = fixture();
+  const original = structuredClone(source);
+  const result = clonePluginDefinition(source);
+  expect(result).toStrictEqual(original);
+  // Deliberately bypass the public readonly type to verify runtime isolation.
+  (result.connections[0]!.configuration as Record<string, unknown>).headers = { Accept: "changed" };
+  result.components.push("skills");
+  result.files!["server.js"] = "changed";
+  delete result.binaryFiles!["model.bin"];
+  expect(source).toStrictEqual(original);
+  const second = clonePluginDefinition(source);
+  source.connections[0]!.name = "changed";
+  source.files!["extra.txt"] = "new";
+  expect(second).toStrictEqual(original);
+});
+
+const example = () => {
+  const definition = createPluginTemplate("packaged-mcp", "oauth-example");
+  definition.connections[0]!.auth = "oauth";
+  definition.connections[0]!.oauth = {
+    registration: "manual",
+    clientType: "confidential",
+    tokenEndpointAuthMethod: "client_secret_post",
+    accessTokenEnv: "PROVIDER_ACCESS_TOKEN",
+    authorizationServer: {
+      issuer: "https://provider.example",
+      authorizationUrl: "https://provider.example/authorize",
+      tokenUrl: "https://provider.example/token",
+    },
+  };
+  return definition;
+};
+
+test("packaged OAuth rejects unsafe endpoints and incomplete token delivery configuration", () => {
+  expect(parsePluginDefinition(example()).connections[0]!.auth).toBe("oauth");
+  for (const tokenUrl of [
+    "http://provider.example/token",
+    "https://user:pass@provider.example/token",
+    "https://provider.example/token#fragment",
+  ]) {
+    const definition = example();
+    definition.connections[0]!.oauth!.authorizationServer!.tokenUrl = tokenUrl;
+    expect(() => parsePluginDefinition(definition)).toThrow();
+  }
+  const missingEnv = example();
+  missingEnv.connections[0]!.oauth!.accessTokenEnv = "BAD-NAME";
+  expect(() => parsePluginDefinition(missingEnv)).toThrow("environment variable");
+  const dynamic = example();
+  dynamic.connections[0]!.oauth!.registration = "dynamic";
+  expect(() => parsePluginDefinition(dynamic)).toThrow("manual client");
+});
+
+test("package review ignores JSON key ordering but identifies changed OAuth issuers", () => {
+  const before = example();
+  const reordered = JSON.parse(
+    JSON.stringify(before, (_key, value) =>
+      value && typeof value === "object" && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value).reverse())
+        : value
+    )
+  );
+  expect(packageChanges(before, reordered)).toEqual([]);
+  reordered.connections[0].oauth.authorizationServer.issuer = "https://other.example";
+  expect(packageChanges(before, reordered)[0]).toContain("requires reconnect");
 });

@@ -16,6 +16,7 @@ import {
   messageAssets,
   messageDisplayProjection,
   messageReactionPills,
+  parseAssetRef,
   ownReactionEmojiSet,
   mergeLoadedChannelHistoryPage,
   mergeLoadedChannelMessageContext,
@@ -215,6 +216,19 @@ describe("shared desktop and iOS product policy", () => {
       images: [asset],
       files: [],
     });
+  });
+
+  test("accepts empty assets, rejects negative sizes and caps staged files at twenty", () => {
+    const asset = { assetId: "a".repeat(64), fileName: "empty.csv", mimeType: "text/csv", byteSize: 0, kind: "file" };
+    expect(parseAssetRef(asset)?.byteSize).toBe(0);
+    expect(parseAssetRef({ ...asset, byteSize: -1 })).toBeNull();
+    const staged = Array.from({ length: 21 }, (_, index) => ({
+      stagingId: `stage-file-${index}`, fileName: `資料 ${index}.pdf`,
+      mimeType: "application/pdf", byteSize: 100, kind: "pdf" as const,
+    }));
+    expect(
+      messageDisplayProjection(message({ clientStagedAttachments: staged })).stagedAttachments
+    ).toEqual(staged.slice(0, 20));
   });
 
   test("summarizes the latest message as one line of plain text", () => {

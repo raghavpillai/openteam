@@ -2,7 +2,8 @@ import { test, expect } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { persistShellEnvironment } from "../src/environment";
+import { closeSync, openSync, writeSync } from "node:fs";
+import { createShellEnvironmentCapture, persistShellEnvironment } from "../src/environment";
 
 const capture=(env:Record<string,string>)=>[Buffer.from(Object.entries(env).map(([k,v])=>`${k}=${v}\0`).join(""))];
 
@@ -37,4 +38,22 @@ test("first write, sequential deletion, exclusions and recovery after a failed w
     await persistShellEnvironment(path,capture({BASE:"updated"}),[],{BASE:"yes"});
     expect(JSON.parse(await readFile(path,"utf8"))).toEqual({BASE:"updated"});
   } finally {await rm(root,{recursive:true,force:true});}
+});
+
+test("capture cleanup never closes an unrelated file that reused its descriptor number", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openteam-capture-descriptor-"));
+  const capture = createShellEnvironmentCapture(root);
+  // Bun can close an inherited numeric descriptor during spawn. Another asynchronous file open
+  // may reuse that number before the command completes and its parent runs cleanup.
+  closeSync(capture.fd);
+  const unrelated = openSync(join(root, "unrelated"), "wx", 0o600);
+  try {
+    expect(unrelated).toBe(capture.fd);
+    capture.closeParent();
+    expect(() => writeSync(unrelated, "keep")).not.toThrow();
+    expect(() => capture.closeParent()).not.toThrow();
+  } finally {
+    try { closeSync(unrelated); } catch {}
+    await rm(root, { recursive: true, force: true });
+  }
 });

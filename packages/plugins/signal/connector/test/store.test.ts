@@ -591,3 +591,37 @@ test("conversation non-expiring fallback anchors and edited revisions are recogn
   );
   expect(value.list().messages.map((m) => m.body)).toEqual(["after"]);
 });
+
+test("a storage write failure rolls back every target in a deletion batch", () => {
+  const value = store();
+  value.capture(incoming(1000, "first", { attachments: [{ id: "first-file" }] }));
+  value.capture(incoming(2000, "second", { attachments: [{ id: "second-file" }] }));
+  const before = value.list().messages;
+  value.db.exec(`CREATE TEMP TRIGGER injected_storage_failure BEFORE INSERT ON messages
+    WHEN NEW.timestamp=2000 BEGIN SELECT RAISE(ABORT,'synthetic disk write failure'); END;`);
+  const deletion = {
+    account: self.aci,
+    envelope: {
+      sourceUuid: self.aci,
+      syncMessage: {
+        deleteForMe: {
+          messageDeletes: [
+            {
+              conversation: { kind: "contact", id: "alice" },
+              messages: [1000, 2000].map((sentTimestamp) => ({ author: "alice", sentTimestamp })),
+            },
+          ],
+        },
+      },
+    },
+  };
+  expect(() => value.capture(deletion)).toThrow("synthetic disk write failure");
+  expect(value.list().messages).toEqual(before);
+  for (const message of before)
+    expect(value.attachment(message.id, message.attachments[0]!.id)).toBeDefined();
+  value.db.exec("DROP TRIGGER injected_storage_failure");
+  value.capture(deletion);
+  expect(value.list().messages).toEqual([]);
+  for (const message of before)
+    expect(() => value.attachment(message.id, message.attachments[0]!.id)).toThrow("unavailable");
+});

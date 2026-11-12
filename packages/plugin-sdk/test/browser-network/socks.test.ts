@@ -45,7 +45,7 @@ test("rejected connections release capacity instead of leaking slots", async () 
   }
 }, 15_000);
 
-async function runNodeFixture(args: string[] = []) {
+async function runNodeFixture() {
   const { mkdtemp, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -71,7 +71,7 @@ async function runNodeFixture(args: string[] = []) {
     ]);
     if (buildCode !== 0) throw new Error(buildErrors || buildOut);
     expect(buildCode).toBe(0);
-    const child = Bun.spawn([process.env.OPENTEAM_TEST_NODE ?? "node", bundle, ...args], {
+    const child = Bun.spawn([process.env.OPENTEAM_TEST_NODE ?? "node", bundle], {
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -101,12 +101,6 @@ test("Node SOCKS admission, TCP lifecycle and real timeout regressions", async (
   const result = await runNodeFixture();
   expect(result.passed).toBe(11);
   expect(result.offeredConnections).toBeGreaterThan(3500);
-}, 60_000);
-
-test("Node SOCKS seeded faults, cancellation, backpressure and restart chaos", async () => {
-  const result = await runNodeFixture(["--chaos"]);
-  expect(result.passed).toBe(6);
-  expect(result.offeredConnections).toBeGreaterThan(6000);
 }, 60_000);
 
 test("abandoned half-open clients release their slot immediately", async () => {

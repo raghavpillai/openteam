@@ -81,25 +81,13 @@ and exercises event reconnect, overdue runtime refresh, offline delivery, and
 notification projection through the production preload. APIs/event transport and
 the OS notification adapter are fixture-controlled; this does not post OS banners.
 
-For a foreground comparison, prepare a separate checkout of the PR's base with
-the same dependencies, then run:
-
-```sh
-bun run --cwd apps/desktop test:window-foreground /absolute/path/to/base-checkout
-```
-
-The same fixture is served against each checkout without editing the base. It
-compares 16 foreground screenshots (light/dark, 600/900 px widths, idle/active
-chat, recording/processing), visible canvas pixels, layout geometry, and draft
-preservation. Animation clocks and CSS poses are fixed only in the fixture.
-
 Use `bun apps/desktop/scripts/test-window-activity.ts --native` for a separate
 native QA window. Exercise Cover, Hide, native minimize/restore, and Finish with
 CUA; `output/window-activity/native-events.jsonl` records the real native events
 and renderer state. This runs the same native activity binder as the app, with
 an isolated profile. Automated signal tests do not replace this OS-level check.
 
-Results are retained under `output/window-activity` and `output/window-foreground`.
+Results are retained under `output/window-activity`.
 
 Run `bun run --cwd apps/desktop test:resource-lifecycle` for the production-built
 resource ownership fixture. It exercises shared authenticated blobs, credential

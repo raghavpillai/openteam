@@ -10,6 +10,7 @@ import {
   durableSendPromptDigest,
   durableSendVisualState,
   type MessageDeliveryAcceptance,
+  nextDurableSendJournalGeneration,
   parseDurableSendJournal,
 } from "../src/durable-delivery";
 
@@ -1228,4 +1229,16 @@ test("a stalled acceptance lookup after a temporary failure cannot keep the retr
   expect(controller.getSnapshot()[0]?.phase).toBe("failed");
   expect(controller.getSnapshot()[0]?.failure?.uncertain).toBe(true);
   controller.dispose();
+});
+
+test("journal generations alternate slots regardless of clock and refuse unsafe integers", () => {
+  let generation = nextDurableSendJournalGeneration(undefined, 1_000);
+  expect(generation).toBe(1_000);
+  for (const now of [2_000, 2_000, 1, 1_000_000, 0]) {
+    const next = nextDurableSendJournalGeneration(generation, now);
+    expect(next).toBe(generation + 1);
+    generation = next;
+  }
+  expect(() => nextDurableSendJournalGeneration(Number.MAX_SAFE_INTEGER)).toThrow();
+  expect(() => nextDurableSendJournalGeneration(undefined, Number.NaN)).toThrow();
 });

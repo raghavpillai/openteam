@@ -1,8 +1,16 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPluginTemplate, pluginIconUrl } from "@openteam/plugin-sdk";
+import {
+  createPluginTemplate,
+  parsePluginRuntimeComponents,
+  pluginIconUrl,
+  substituteConfiguration,
+  validateValues,
+} from "@openteam/plugin-sdk";
+import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { discoverPackages } from "../scripts/generate";
 import { pluginCatalog } from "../src";
 
@@ -49,4 +57,62 @@ test("contributions discover without imports and folder names do not change pack
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("every registry package declares its origin and shipped provider files survive export byte for byte", async () => {
+  for (const plugin of pluginCatalog) {
+    const audit = await Bun.file(new URL(`../${plugin.key}/upstream.json`, import.meta.url)).json();
+    if (audit.origin === "openteam") {
+      expect(plugin.upstream).toBeUndefined();
+      continue;
+    }
+    expect(plugin.upstream).toEqual(audit);
+    expect(plugin.sourceRevision).toBe(audit.revision);
+    const roundtrip = importPackageArchive(exportPackageArchive(plugin)).definition;
+    if (audit.delivery === "install") {
+      expect(plugin.skills.every((skill) => skill.body === "")).toBe(true);
+      expect(Object.keys(roundtrip.files ?? {}).some((path) => path.startsWith("upstream/"))).toBe(
+        false
+      );
+      continue;
+    }
+    for (const [path, expected] of Object.entries(audit.files)) {
+      const local = await readFile(new URL(`../${plugin.key}/upstream/${path}`, import.meta.url));
+      expect(createHash("sha256").update(local).digest("hex")).toBe(expected as string);
+      const key = `upstream/${path}`;
+      const exported = roundtrip.binaryFiles?.[key]
+        ? Buffer.from(roundtrip.binaryFiles[key]!, "base64")
+        : Buffer.from(roundtrip.files?.[key] ?? "");
+      expect(exported).toEqual(local);
+    }
+    expect(plugin.files?.["OPENTEAM.md"]).toBeUndefined();
+  }
+}, 30_000);
+
+const roundtrip = (key: string) =>
+  importPackageArchive(exportPackageArchive(pluginCatalog.find((plugin) => plugin.key === key)!));
+
+test.each(["ramp", "t3-code"])(
+  "%s connects with a dynamic public OAuth client and never shares client credentials",
+  (key) => {
+    const { definition, warnings } = roundtrip(key);
+    expect(warnings).toEqual([]);
+    expect(definition.connections[0]).toMatchObject({
+      transport: "http",
+      auth: "oauth",
+      oauth: { registration: "dynamic", clientType: "public", shareClientCredentials: false },
+    });
+    expect(definition.connections[0]!.configuration).not.toHaveProperty("clientId");
+  }
+);
+
+test("Ramp keeps its always-on rule; T3 substitutes each account's MCP URL", () => {
+  expect(parsePluginRuntimeComponents(roundtrip("ramp").definition.files ?? {}).rules).toMatchObject([
+    { name: "ramp-openteam", alwaysApply: true },
+  ]);
+  const t3 = roundtrip("t3-code").definition;
+  for (const mcpUrl of ["https://first.example/mcp", "https://second.example/mcp"])
+    expect(
+      substituteConfiguration(t3.connections[0]!.endpoint, validateValues(t3.setup!.fields, { mcpUrl }))
+    ).toBe(mcpUrl);
 });

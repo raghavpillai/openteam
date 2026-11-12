@@ -641,3 +641,52 @@ test("Library pages retain conversation scope, cursor escaping, and cancellation
   );
   expect(calls[0]?.init?.signal).toBe(controller.signal);
 });
+
+test("routine creation preserves a supplied retry nonce and defaults other callers to fresh IDs", async () => {
+  const calls: unknown[] = [];
+  let nonce = 0;
+  const client = createOpenTeamClient({
+    baseUrl: "http://fixture",
+    createId: () => `generated-${++nonce}`,
+    fetch: (async (_url, init) => {
+      calls.push(JSON.parse(String(init?.body)));
+      return Response.json({});
+    }) as typeof fetch,
+  });
+  const input = { name: "Audit", prompt: "Inspect", schedule: "@every 1h", enabled: true };
+  await client.createRoutine("bot", "bot", input, "stable-create");
+  await client.createRoutine("bot", "bot", input, "stable-create");
+  await client.createRoutine("bot", "bot", input);
+  expect(calls).toEqual([
+    { ...input, clientId: "stable-create" },
+    { ...input, clientId: "stable-create" },
+    { ...input, clientId: "generated-1" },
+  ]);
+});
+
+test("imports the reserved Unassigned section without a duplicate heading or assignment", () => {
+  const result = sidebarPreferencesFromRootSettings(
+    {
+      valid: true,
+      settings: {
+        sidebarSections: [
+          { id: "work", name: "Work", agentIds: ["a"], isCollapsed: true },
+          { id: "__agents__", name: "Unassigned", agentIds: ["b"], isCollapsed: false },
+        ],
+      },
+    },
+    {
+      version: 2,
+      pinnedIds: [],
+      unreadIds: ["b"],
+      sections: [],
+      sectionByChannel: {},
+      channelOrderByGroup: {},
+      unassignedCollapsed: true,
+    }
+  );
+  expect(result?.sections).toEqual([{ id: "work", name: "Work", collapsed: true }]);
+  expect(result?.sectionByChannel).toEqual({ a: "work" });
+  expect(result?.unassignedCollapsed).toBe(false);
+  expect(result?.unreadIds).toEqual(["b"]);
+});

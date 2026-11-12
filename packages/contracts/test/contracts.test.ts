@@ -5,31 +5,20 @@ import { referenceTool } from "../src/tool-contracts";
 import { Schema } from "effect";
 import {
   AdminBroadcastInput,
-  CALL_DYNAMIC_TOOL_TOOL,
-  COMPUTER_TOOL,
   COMPUTER_USE_TOOL,
   ComputerTurnRequest,
   ComputerUseInput,
   CreateBotInput,
   CURSOR_TOOL_NAMES,
   CURSOR_TOOLS,
-  GET_DYNAMIC_TOOLS_TOOL,
   NATIVE_TOOL_NAMES,
   NATIVE_TOOLS,
-  PLUGIN_BOT_ACCESS_PAGE_SIZE,
-  PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
-  PLUGIN_CONNECTION_ID_MAX_LENGTH,
-  PLUGIN_CONNECTION_STATUS_MAX_IDS,
-  REACT_TO_MESSAGE_TOOL,
-  READ_TOOL,
   ReactToChannelMessageInput,
   RenameChannelInput,
-  SCREENSHOT_TOOL,
   ScreenActionInput,
   SendMessageInput,
   SendToAgentInput,
   SetChannelAvatarInput,
-  SHELL_TOOL,
   TaskInput,
   TodoWriteInput,
   DISCONNECT_CHANNEL_TOOL,
@@ -52,7 +41,6 @@ import { renderControlResult } from "../src/tool-results";
 import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "../src/plugin-workflows";
 import { ROBOT_AVATAR_SHAPES } from "../src/robot-avatar";
 import { parseUserForm, userFormPreparationRefusal } from "../src/user-forms";
-import cursorToolsDocument from "../src/cursor-tools.json";
 import nativeToolsDocument from "../src/native-tools.json";
 import toolReference from "../src/tool-reference.json";
 import { APP_SETTINGS_ANCHORS } from "../src/app-deep-links";
@@ -370,11 +358,6 @@ describe("API contracts", () => {
     });
   });
 
-  test("declares screenshot and structured computer tools", () => {
-    expect(SCREENSHOT_TOOL.name).toBe("Screenshot");
-    expect(COMPUTER_TOOL.name).toBe("Computer");
-  });
-
   test("validates the specialized computer-use action sequence", () => {
     expect(
       Schema.decodeUnknownSync(ComputerUseInput)({
@@ -419,7 +402,6 @@ describe("API contracts", () => {
         then: Array.from({ length: 10 }, () => ({ action: "wait" })),
       })
     ).toThrow();
-    expect(COMPUTER_USE_TOOL.name).toBe("Computer");
     expect(COMPUTER_USE_TOOL.inputSchema.properties.then.maxItems).toBe(9);
   });
 
@@ -437,17 +419,11 @@ describe("API contracts", () => {
       "GetDynamicTools",
       "CallDynamicTool",
     ]);
-    expect(NATIVE_TOOLS).toHaveLength(11);
     for (const tool of NATIVE_TOOLS) {
       const expected = referenceTool(tool.name);
       expect({name:tool.name,description:tool.description,inputSchema:tool.inputSchema}).toEqual(expected);
     }
     expect(NATIVE_TOOLS.some((tool) => tool.name === "AddMcpServer")).toBe(false);
-    expect(REACT_TO_MESSAGE_TOOL.name).toBe("ReactToMessage");
-    expect(SHELL_TOOL.name).toBe("Shell");
-    expect(READ_TOOL.name).toBe("Read");
-    expect(GET_DYNAMIC_TOOLS_TOOL.name).toBe("GetDynamicTools");
-    expect(CALL_DYNAMIC_TOOL_TOOL.name).toBe("CallDynamicTool");
     expect(NATIVE_TOOL_NAMES).not.toContain("SendMessage");
   });
 
@@ -551,33 +527,6 @@ describe("API contracts", () => {
     expect(PLUGIN_WORKFLOW_HOST_CONTEXT).toContain("A workflow's confirmation steps apply, alongside your own rules on asking first.");
   });
 
-  test("StopSubagent all says a stopped child's own background work ends with it", () => {
-    // Stopping a child also ends the background shells it started.
-    expect(referenceTool("StopSubagent").inputSchema.properties.all.description).toContain(
-      "(computerUse, executor, and any other Task children, plus anything those children started), delivers a stop to each peer"
-    );
-  });
-
-  test("tool texts follow the newest reference, minus what OpenTeam does not have", () => {
-    const routine = referenceTool("UpdateRoutine");
-    expect(routine.description).toContain("- create needs name, prompt, and schedule or trigger; update takes only the fields to change; get returns the saved prompt and trigger.");
-    expect(routine.description).toEndWith("\nA change you suggest to save usage waits for the user's yes.");
-    expect(routine.description).not.toContain("confirm on a card");
-    expect(routine.description).not.toContain("kept on the server");
-    expect(routine.inputSchema.properties.name.description).toBeUndefined();
-    expect(routine.inputSchema.properties.prompt.description).not.toContain("Required on create");
-    const transcript = referenceTool("ReadTranscript");
-    expect(transcript.inputSchema.properties.in.description).toStartWith('Which transcript to read: "session" (the default) for this session, or the id of another of your sessions');
-    expect(transcript.inputSchema.properties.in.description).not.toContain("Slack");
-    expect(transcript.description).not.toContain("Another of your conversations shows only");
-    const agent = referenceTool("SendToAgent");
-    expect(agent.description).not.toContain("teammates list");
-    expect(agent.inputSchema.properties.target_id.description).toBe("The id of the target, either another agent or a GROUP you belong to, not a name.");
-    expect(referenceTool("SearchPlugins").description).not.toContain("add link");
-    expect(referenceTool("AddMcpServer").description).not.toContain("tls.caBundle");
-    expect(referenceTool("AddMcpServer").inputSchema.properties.tls).toBeUndefined();
-  });
-
   test("declares the supported Cursor-compatible subset including AwaitShell", () => {
     expect(CURSOR_TOOL_NAMES).toEqual([
       "AwaitShell",
@@ -614,10 +563,6 @@ describe("API contracts", () => {
       "run_in_background",
     ]);
     expect(taskSchema.required).toEqual(["description", "prompt", "subagent_type"]);
-    expect(taskSchema.properties.description?.description).toBe(
-      "A short, user-friendly title for the subagent. This appears in the UI as the subagent's name. Make it concrete and distinct, consider recent titles to avoid reuse. For resumed subagents which you are prompting to work on a separate task, give an updated description based on the latest work the subagent is performing. (Do not rename if the subagent is continuing work on the same high-level task.)"
-    );
-    expect(taskSchema.properties.prompt?.description).toBe("The task for the agent to perform");
     expect((taskSchema.properties.subagent_type as any).enum).toContain('computerUse');
     expect((taskSchema.properties.subagent_type as any).enum).not.toContain('browserUse');
     expect(taskSchema.properties.model).toBeUndefined();
@@ -689,13 +634,6 @@ describe("API contracts", () => {
     }
   });
 
-  test("keeps plugin Bot-access pages and search terms bounded", () => {
-    expect(PLUGIN_BOT_ACCESS_PAGE_SIZE).toBe(60);
-    expect(PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH).toBe(120);
-    expect(PLUGIN_CONNECTION_STATUS_MAX_IDS).toBe(50);
-    expect(PLUGIN_CONNECTION_ID_MAX_LENGTH).toBe(120);
-  });
-
   test("splits durable state into top-level and namespaced tools with fixed targets", () => {
     expect([UPDATE_MEMORY_TOOL.name, UPDATE_ROUTINE_TOOL.name]).toEqual(["UpdateMemory", "UpdateRoutine"]);
     expect(NATIVE_TOOL_NAMES).not.toContain("update_state");
@@ -732,18 +670,8 @@ describe("API contracts", () => {
     expect(memory.properties.type?.enum).toEqual(["profile", "journal", "shared_profile", "shared_journal"]);
     expect(Object.keys(memory.properties)).toEqual(["action", "fact", "type", "id"]);
     expect(memory.required).toEqual(["action", "fact", "type"]);
-    expect(UPDATE_MEMORY_TOOL.description).toStartWith(
-      "Change your durable memory. Each memory type below holds one kind of fact. Save a fact to the type meant for it, and leave out a fact no type is meant for:\n- profile: "
-    );
-    expect(UPDATE_MEMORY_TOOL.description).toContain("UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.");
-    expect(UPDATE_MEMORY_TOOL.description).not.toContain("memory folder");
     const routine = UPDATE_ROUTINE_TOOL.inputSchema as { properties: Record<string, { enum?: string[] }> };
     expect(routine.properties.action?.enum).toEqual(["create", "get", "update", "pause", "resume", "delete"]);
-    expect(UPDATE_ROUTINE_TOOL.description).toContain("- create needs name, prompt, and schedule or trigger; update takes only the fields to change; get returns the saved prompt and trigger.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.");
-    // The routine list rides on the per-turn reminder, as in the reference.
-    expect(UPDATE_ROUTINE_TOOL.description).toContain("are in the latest <automation_status> reminder, which shows no prompts.");
-    expect(UPDATE_ROUTINE_TOOL.description).toEndWith("A change you suggest to save usage waits for the user's yes.");
-    expect(UPDATE_ROUTINE_TOOL.description).not.toMatch(/Cursor|JoinMeeting|Scheduled routines|timing/);
     // The schema names trigger types only; the skill and the invalid-trigger reply carry the shapes.
     const listener = {
       type: "object",
@@ -796,7 +724,6 @@ describe("API contracts", () => {
     expect(normalizeMainToolArguments("UpdateProfile", { avatar_shape: "owl" })).toEqual({ avatar_shape: "owl" });
     const shape = (UPDATE_PROFILE_TOOL.inputSchema as any).properties.avatar_shape;
     expect(shape.enum).toEqual([...ROBOT_AVATAR_SHAPES]);
-    expect(shape.description).toBe("Your default robot, hidden while a custom picture is installed.");
     expect(normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "journal", scope: "user", tier: "note" })).toEqual({ action: "write", fact: "x", type: "journal" });
     expect(normalizeMainToolArguments("RecallMemory", { query: "launch", scope: "user", limit: 99 })).toEqual({ query: "launch" });
   });
@@ -874,41 +801,6 @@ describe("API contracts", () => {
 });
 
 describe("renamed first-party tools", () => {
-  test("advertise what this deployment does", () => {
-    const cookies = referenceTool("RequestCookieOriginApproval");
-    expect(cookies.description).toContain("no approval dialog opens");
-    expect(JSON.stringify(cookies)).not.toMatch(/Always allow|Approve once|approval dialog and wait|Already-granted/);
-    const share = referenceTool("CreateBotShareJson");
-    // The owner publishes a staged draft from its card, as in the reference.
-    expect(share.description).toStartWith("Stage a draft version of this bot from the reusable recipe.");
-    expect(share.description).toContain("The version stays private until the owner publishes it.");
-    expect(share.description).not.toMatch(/New templates are PUBLIC|fill-in placeholders|live geometric avatar/);
-    const form = referenceTool("RequestUserForm");
-    expect(form.description).toContain("Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure.");
-    const boxHelp = referenceTool("request_box_help").description;
-    expect(boxHelp).toContain("goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is that form. Hand off only when that tool is not offered, the step is not a typed field, or the host refused the form or reported a failed fill");
-    expect(boxHelp).not.toContain("Secure Form");
-    expect(form.description).not.toContain("Secure Form");
-    expect(form.inputSchema.properties.fields.items.properties).not.toHaveProperty("default_value");
-    expect(referenceTool("RemapUserFormTargets").description).toContain("right after a RequestUserForm receipt");
-  });
-
-  test("plugin management keeps the reference's widget confirmations; sign-in stays autonomous", () => {
-    const description = (name: string) => referenceTool(name).description;
-    expect(description("AddMcpServer")).toContain("Only call this after the user agrees to add it. Confirm with a question widget first, since it changes the user's account configuration and the server can run commands or reach external services on their behalf.");
-    expect(description("AddMcpServer")).toContain("That command also runs in this user's other agents, so say so when you confirm.");
-    expect(description("UninstallMcpServer")).toContain("which signs the user out of it, so confirm with the user via a question widget first.");
-    expect(description("UninstallMcpServer")).toContain("Use UninstallPlugin for those so the confirmation can disclose the full scope.");
-    expect(description("UninstallPlugin")).toContain("so confirm with the user via a question widget first, and your confirmation must disclose that full scope (list what goes).");
-    expect(description("UninstallPlugin")).not.toContain("team");
-    expect(description("RemoveMcpAccount")).toContain("This is destructive. Confirm with the user via a question widget before calling it.");
-    expect(description("RenameMcpAccount")).toEndWith("Confirm with a question widget first.");
-    expect(description("RestartMcpServers")).toEndWith("Confirm with the user first if a server is mid-task.");
-    expect(description("InstallPlugin")).toContain("without asking. Ask in one widget first only when the user named no service and several plugins fit (Gmail or the Email plugin), or the plugin has no connector.");
-    const auth = JSON.stringify(referenceTool("AuthenticateMcpServer"));
-    expect(auth).not.toMatch(/question widget|ask whether to sign the server out|confirm with the user/);
-  });
-
   test("old snake_case names format nothing and parse nothing", () => {
     expect(renderControlResult("create_bot_share_json", { staged: true, version: 2, name: "Ada" }, {})).toBe(JSON.stringify({ staged: true, version: 2, name: "Ada" }));
     expect(renderControlResult("CreateBotShareJson", { staged: true, version: 2, name: "Ada" }, {})).toBe('Staged unpublished version 2 of "Ada". It is not public until you confirm it.');

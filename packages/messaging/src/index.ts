@@ -2271,6 +2271,7 @@ export class AgentMessaging {
       // Peer sends touch two owners. A fixed order prevents reciprocal sends from deadlocking
       // and makes retirement include the accepted wake before taking its cancellation snapshot.
       for (const id of [...new Set([context.botId, input.target_id])].sort()) await lockAgentLifecycle(tx, id);
+      await assertBackgroundRequestDeliveryAllowed(tx, context);
       await lockGroupExecution(tx, input.target_id);
       const source = await tx.bot.findUnique({
         where: { id: context.botId },

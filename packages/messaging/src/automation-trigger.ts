@@ -1,3 +1,4 @@
+import { RE2JS } from "re2js";
 const MAX_GROUP_TRIGGERS = 8;
 const GITHUB_EVENT_KINDS = new Set([
   "pr-opened",
@@ -192,6 +193,13 @@ const parseTeams = (trigger: Record<string, unknown>): Record<string, unknown> =
     200
   );
   if (teamIds.length === 0) throw new Error("microsoftTeams trigger requires a team id");
+  if (trigger.messageContainsIsRegex === true && typeof trigger.messageContains === "string") {
+    try {
+      RE2JS.compile(trigger.messageContains.slice(0, 2_000), RE2JS.CASE_INSENSITIVE);
+    } catch {
+      throw new Error("microsoftTeams trigger messageContains must be a valid regular expression");
+    }
+  }
   return {
     type: "microsoftTeams",
     tenantId,
@@ -292,7 +300,7 @@ export const parseStoredTrigger = (input: unknown): Record<string, unknown> => {
     return validateGroup(listeners);
   }
   if (type === "cron") {
-    return { type, schedule: line(trigger.schedule, "trigger.schedule", 120) };
+    return { type, schedule: line(trigger.schedule, "trigger.schedule", Number.MAX_SAFE_INTEGER) };
   }
   if (type === "slack") return parseSlack(trigger);
   if (type === "github" || type === "origin") return parseGithubLike(trigger, type);
@@ -350,4 +358,11 @@ export const cronSchedules = (trigger: Record<string, unknown>): string[] => {
 export const triggerIdentity = (trigger: Record<string, unknown>): string =>
   trigger.type === "cron" && typeof trigger.schedule === "string"
     ? `cron:${trigger.schedule}`
-    : JSON.stringify(trigger);
+    // PostgreSQL jsonb changes object key order. Equivalent saved listeners must
+    // keep their identity when parsed again, including nested event filters.
+    // Arrays retain their authored order and every value remains unchanged.
+    : JSON.stringify(trigger, (_key, value: unknown) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+        const object = value as Record<string, unknown>;
+        return Object.fromEntries(Object.keys(object).sort().map((key) => [key, object[key]]));
+      });

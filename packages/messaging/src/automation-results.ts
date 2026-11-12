@@ -1,6 +1,12 @@
 import { ApiError, type WakeParentInput } from "@openteam/contracts";
 import { Prisma } from "@openteam/db";
-import { renderAutomationHandoffPrompt, type AgentMessaging, type ToolContext, type WakeInput } from "./index";
+import {
+  renderAutomationHandoffPrompt,
+  type AgentMessaging,
+  type ToolContext,
+  type WakeInput,
+} from "./index";
+import { requestIsStopped } from "./request-state";
 
 export function automationContextRunId(runId: string, payload: unknown): string {
   const id =
@@ -10,10 +16,11 @@ export function automationContextRunId(runId: string, payload: unknown): string 
   return typeof id === "string" ? id : runId;
 }
 
-async function pendingAutomationShells(
+export async function automationShellState(
   tx: Prisma.TransactionClient,
   botId: string,
-  familyIds: string[]
+  familyIds: string[],
+  waitForCompletionTurn = false
 ) {
   type ShellRecord = {
     shellKind?: string;
@@ -34,7 +41,7 @@ async function pendingAutomationShells(
   const pending = items
     .map((item) => item.content as ShellRecord)
     .filter((item) => item.result?.details?.status === "running");
-  if (!pending.length) return false;
+  if (!pending.length) return { active: false, failed: false, completedAt: null as Date | null };
   const waits = await tx.runItem.findMany({
     where: {
       runId: { in: familyIds },
@@ -45,15 +52,62 @@ async function pendingAutomationShells(
     select: { content: true },
   });
   const records = waits.map((item) => item.content as ShellRecord);
-  const receipts = await tx.inboxEvent.findMany({
-    where: { botId, type: "shell.completed" },
-    select: { payload: true },
+  const paths = new Set(
+    pending.flatMap((item) => {
+      const path = item.result?.details?.outputPath ?? item.result?.details?.output_path;
+      return path ? [`Full output: ${path}`] : [];
+    })
+  );
+  const receipts = (
+    await tx.inboxEvent.findMany({
+      where: { botId, type: "shell.completed" },
+      select: {
+        id: true,
+        runId: true,
+        payload: true,
+        status: true,
+        run: { select: { status: true, completedAt: true } },
+      },
+    })
+  ).filter((receipt) => {
+    const payload = receipt.payload as { content?: string; revival?: { block?: string } };
+    return (payload.revival?.block ?? payload.content ?? "")
+      .split("\n")
+      .some((line) => paths.has(line));
   });
-  return pending.some((item) => {
+  const consumers = new Map<string, string>();
+  if (waitForCompletionTurn && receipts.length) {
+    // Older folded receipts recorded the consumer in the event journal only.
+    const batches = await tx.event.findMany({
+      where: {
+        topic: "inbox.completed",
+        entityId: { in: receipts.map((receipt) => receipt.id) },
+      },
+      select: { payload: true },
+    });
+    for (const event of batches) {
+      const payload = event.payload as { runId?: string; batchedIntoRunId?: string };
+      if (payload.runId && payload.batchedIntoRunId)
+        consumers.set(payload.runId, payload.batchedIntoRunId);
+    }
+    for (const receipt of receipts) {
+      const target = (receipt.payload as { batchedIntoRunId?: string }).batchedIntoRunId;
+      if (target) consumers.set(receipt.runId, target);
+    }
+  }
+  const consumerRuns =
+    waitForCompletionTurn && consumers.size
+      ? await tx.run.findMany({
+          where: { botId, id: { in: [...consumers.values()] } },
+          select: { id: true, status: true, completedAt: true },
+        })
+      : [];
+  const consumerById = new Map(consumerRuns.map((run) => [run.id, run]));
+  const states = pending.map((item) => {
     const details = item.result!.details!;
     const path = details.outputPath ?? details.output_path;
-    if (!path) return false;
-    // AwaitShell may consume the completion itself, suppressing the callback.
+    if (!path) return { active: false, failed: false, completedAt: null as Date | null };
+    // AwaitShell may consume completion itself; its owning turn records the outcome.
     if (
       records.some(
         (record) =>
@@ -61,14 +115,48 @@ async function pendingAutomationShells(
           ["completed", "failed"].includes(record.result?.details?.status ?? "") &&
           (record.result?.details?.outputPath ?? record.result?.details?.output_path) === path
       )
-    )
-      return false;
-    // A completion's block names its output on its own line, also once batched into another wake.
-    return !receipts.some((receipt) => {
+    ) {
+      return { active: false, failed: false, completedAt: null as Date | null };
+    }
+    const receipt = receipts.find((receipt) => {
       const payload = receipt.payload as { content?: string; revival?: { block?: string } };
-      return (payload.revival?.block ?? payload.content ?? "").split("\n").includes(`Full output: ${path}`);
+      return (payload.revival?.block ?? payload.content ?? "")
+        .split("\n")
+        .includes(`Full output: ${path}`);
     });
+    const consumerId = receipt ? consumers.get(receipt.runId) : undefined;
+    // Folded receipts are synthetic completions. Their actual processing turn
+    // determines both overlap and outcome, including after it stops running.
+    const turn = consumerId ? consumerById.get(consumerId) : receipt?.run;
+    return {
+      active:
+        !receipt ||
+        (waitForCompletionTurn &&
+          (["pending", "processing"].includes(receipt.status) ||
+            ["queued", "running"].includes(turn?.status ?? ""))),
+      failed:
+        waitForCompletionTurn &&
+        ["failed", "cancelled", "interrupted"].includes(turn?.status ?? ""),
+      completedAt: waitForCompletionTurn ? (turn?.completedAt ?? null) : null,
+    };
   });
+  const completedTimes = states.flatMap((state) =>
+    state.completedAt ? [state.completedAt.getTime()] : []
+  );
+  return {
+    active: states.some((state) => state.active),
+    failed: states.some((state) => state.failed),
+    completedAt: completedTimes.length ? new Date(Math.max(...completedTimes)) : null,
+  };
+}
+
+export async function pendingAutomationShells(
+  tx: Prisma.TransactionClient,
+  botId: string,
+  familyIds: string[],
+  waitForCompletionTurn = false
+): Promise<boolean> {
+  return (await automationShellState(tx, botId, familyIds, waitForCompletionTurn)).active;
 }
 
 /** Whether background work an automation context started (background subagents, or background
@@ -78,17 +166,32 @@ export async function automationBackgroundWorkRunning(
   botId: string,
   rootId: string
 ): Promise<boolean> {
-  const family = (await tx.run.findMany({
-    where: {
-      botId,
-      origin: "routine",
-      OR: [{ id: rootId }, { inboxEvents: { some: { payload: { path: ["automationContextRunId"], equals: rootId } } } }],
-    },
-    select: { id: true },
-  })).map((entry) => entry.id);
-  if (await tx.subagent.count({
-    where: { parentRunId: { in: family }, status: { in: ["provisioning", "queued", "running", "waiting"] } },
-  })) return true;
+  const family = (
+    await tx.run.findMany({
+      where: {
+        botId,
+        origin: "routine",
+        OR: [
+          { id: rootId },
+          {
+            inboxEvents: {
+              some: { payload: { path: ["automationContextRunId"], equals: rootId } },
+            },
+          },
+        ],
+      },
+      select: { id: true },
+    })
+  ).map((entry) => entry.id);
+  if (
+    await tx.subagent.count({
+      where: {
+        parentRunId: { in: family },
+        status: { in: ["provisioning", "queued", "running", "waiting"] },
+      },
+    })
+  )
+    return true;
   return pendingAutomationShells(tx, botId, family);
 }
 
@@ -108,6 +211,7 @@ export async function reconcileRoutineExecution(
     where: { id: rootId, botId: run.botId, channelId: run.channelId, origin: "routine" },
   });
   if (!root) return;
+  const stopped = requestIsStopped(root);
   const family = await tx.run.findMany({
     where: {
       botId: root.botId,
@@ -120,14 +224,27 @@ export async function reconcileRoutineExecution(
         },
       ],
     },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, status: true, completedAt: true, error: true },
+    orderBy: [
+      { startedAt: { sort: "desc", nulls: "last" } },
+      { createdAt: "desc" },
+      { id: "desc" },
+    ],
+    select: {
+      id: true,
+      status: true,
+      completedAt: true,
+      error: true,
+      inboxEvents: { select: { payload: true } },
+    },
   });
-  if (family.some((entry) => ["queued", "running"].includes(entry.status)))
-    return;
-  const handoff = await tx.automationResult.findUnique({ where: { runId: rootId }, select: { wakeRunId: true } });
+  if (!stopped && family.some((entry) => ["queued", "running"].includes(entry.status))) return;
+  const handoff = await tx.automationResult.findUnique({
+    where: { runId: rootId },
+    select: { wakeRunId: true },
+  });
   // A handoff ends the automation; background work it started no longer reports to it.
   if (
+    !stopped &&
     !handoff?.wakeRunId &&
     (await tx.subagent.count({
       where: {
@@ -138,6 +255,7 @@ export async function reconcileRoutineExecution(
   )
     return;
   if (
+    !stopped &&
     !handoff?.wakeRunId &&
     (await pendingAutomationShells(
       tx,
@@ -146,27 +264,79 @@ export async function reconcileRoutineExecution(
     ))
   )
     return;
-  const final = family[0]!;
-  const failedHandoff = !handoff?.wakeRunId && await tx.runItem.findFirst({ where: {
-    runId: { in: family.map(entry => entry.id) }, status: "failed", kind: "tool",
-    OR: [{ title: "WakeParent" }, { content: { path: ["arguments", "toolName"], equals: "WakeParent" } }],
-  }, select: { id: true } });
-  const status =
-    failedHandoff ? "failed" : final.status === "completed"
-      ? "completed"
-      : final.status === "cancelled"
-        ? "cancelled"
-        : "failed";
+  // Folded wakes are receipts for the turn consuming their batch. Their synthetic
+  // completion cannot override that turn's failure. Events cover older receipts
+  // written before batchedIntoRunId was also stored on their inbox payload.
+  const foldedEvents = await tx.event.findMany({
+    where: {
+      topic: "inbox.completed",
+      OR: family.map((entry) => ({ payload: { path: ["runId"], equals: entry.id } })),
+    },
+    select: { payload: true },
+  });
+  const foldedIds = new Set(
+    foldedEvents.flatMap((event) => {
+      const payload = event.payload as { runId?: string; batchedIntoRunId?: string };
+      return payload.batchedIntoRunId && payload.runId ? [payload.runId] : [];
+    })
+  );
+  const final =
+    family.find(
+      (entry) =>
+        !foldedIds.has(entry.id) &&
+        !entry.inboxEvents.some(
+          (inbox) => !!(inbox.payload as { batchedIntoRunId?: string }).batchedIntoRunId
+        ) &&
+        (entry.error as { code?: string } | null)?.code !== "automation_context_ended"
+    ) ?? root;
+  const failedHandoff =
+    !handoff?.wakeRunId &&
+    (await tx.runItem.findFirst({
+      where: {
+        runId: { in: family.map((entry) => entry.id) },
+        status: "failed",
+        kind: "tool",
+        OR: [
+          { title: "WakeParent" },
+          { content: { path: ["arguments", "toolName"], equals: "WakeParent" } },
+        ],
+      },
+      select: { id: true },
+    }));
+  const status = stopped
+    ? "cancelled"
+    : failedHandoff
+      ? "failed"
+      : final.status === "completed"
+        ? "completed"
+        : final.status === "cancelled"
+          ? "cancelled"
+          : "failed";
   const updated = await tx.routineExecution.updateMany({
     where: { runId: rootId, status: { in: ["queued", "running"] } },
     data: {
       status,
-      completedAt: final.completedAt ?? new Date(),
-      ...(status === "completed" ? {} : { error: failedHandoff ? { code: "automation_handoff_failed", message: "The required parent handoff failed; no result was delivered", runItemId: failedHandoff.id } : final.error ?? Prisma.JsonNull }),
+      completedAt: (stopped ? root.completedAt : final.completedAt) ?? new Date(),
+      ...(status === "completed"
+        ? {}
+        : {
+            error: stopped
+              ? (root.error ?? { code: "automation_stopped" })
+              : failedHandoff
+                ? {
+                    code: "automation_handoff_failed",
+                    message: "The required parent handoff failed; no result was delivered",
+                    runItemId: failedHandoff.id,
+                  }
+                : (final.error ?? Prisma.JsonNull),
+          }),
     },
   });
   if (!updated.count) return;
-  const settled = await tx.routineExecution.findUnique({ where: { runId: rootId }, select: { id: true, routineId: true } });
+  const settled = await tx.routineExecution.findUnique({
+    where: { runId: rootId },
+    select: { id: true, routineId: true },
+  });
   return settled ? { executionId: settled.id, routineId: settled.routineId } : undefined;
 }
 
@@ -177,13 +347,23 @@ export async function automationContinuationRoute(
   botId: string,
   sourceRunId: string
 ): Promise<Pick<WakeInput, "origin" | "automationContextRunId"> | null> {
+  if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(sourceRunId)) return null;
   const source = await tx.run.findFirst({
     where: { id: sourceRunId, botId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
   });
-  if (source?.origin !== "routine") return { origin: "background_revival" };
+  if (!source) return null;
+  if (source.origin !== "routine")
+    return requestIsStopped(source) ? null : { origin: "background_revival" };
   const payload = source.inboxEvents[0]?.payload;
   const rootId = automationContextRunId(source.id, payload);
+  const root =
+    rootId === source.id
+      ? source
+      : await tx.run.findFirst({
+          where: { id: rootId, botId, channelId: source.channelId, origin: "routine" },
+        });
+  if (!root || requestIsStopped(root)) return null;
   const handoff = await tx.automationResult.findUnique({
     where: { runId: rootId },
     select: { wakeRunId: true },
@@ -215,6 +395,9 @@ export async function wakeAutomationParent(
       "message must contain the complete handoff"
     );
   return messaging.prisma.$transaction(async (tx) => {
+    // Serialize handoff with Stop and claim, so a stopped context cannot notify
+    // its parent through a still-running continuation.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${context.botId}`}))`;
     await tx.$executeRaw`SELECT 1 FROM "Run" WHERE "id" = ${context.runId}::uuid FOR UPDATE`;
     const run = await tx.run.findUnique({
       where: { id: context.runId },
@@ -237,7 +420,7 @@ export async function wakeAutomationParent(
     const root = await tx.run.findFirst({
       where: { id: rootId, botId: run.botId, origin: "routine", channelId: run.channelId },
     });
-    if (!root)
+    if (!root || requestIsStopped(root))
       throw new ApiError(
         403,
         "wake_parent_unavailable",
@@ -245,16 +428,25 @@ export async function wakeAutomationParent(
       );
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`automation-result:${rootId}`}))`;
     // The caller stops the background work these runs started.
-    const automation_run_ids = (await tx.run.findMany({
-      where: {
-        botId: run.botId,
-        channelId: run.channelId,
-        origin: "routine",
-        OR: [{ id: rootId }, { inboxEvents: { some: { payload: { path: ["automationContextRunId"], equals: rootId } } } }],
-      },
-      orderBy: { createdAt: "asc" },
-      select: { id: true },
-    })).map((entry) => entry.id);
+    const automation_run_ids = (
+      await tx.run.findMany({
+        where: {
+          botId: run.botId,
+          channelId: run.channelId,
+          origin: "routine",
+          OR: [
+            { id: rootId },
+            {
+              inboxEvents: {
+                some: { payload: { path: ["automationContextRunId"], equals: rootId } },
+              },
+            },
+          ],
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+      })
+    ).map((entry) => entry.id);
     const existing = await tx.automationResult.findUnique({ where: { runId: rootId } });
     if (existing?.wakeRunId) return { woken: true, run_id: existing.wakeRunId, automation_run_ids };
     const wake = await messaging.enqueueWake(tx, {
@@ -314,12 +506,7 @@ export async function saveSilentAutomationResult(tx: Prisma.TransactionClient, r
     },
     select: { id: true, status: true },
   });
-  if (
-    family.some(
-      (entry) =>
-        entry.id !== runId && ["queued", "running"].includes(entry.status)
-    )
-  )
+  if (family.some((entry) => entry.id !== runId && ["queued", "running"].includes(entry.status)))
     return;
   const children = await tx.subagent.count({
     where: {

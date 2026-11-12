@@ -1,4 +1,9 @@
-import type { RoutineExecutionView, RoutineView } from "@openteam/contracts";
+import type {
+  CreateRoutineInput,
+  RoutineExecutionView,
+  RoutineView,
+  UpdateRoutineInput,
+} from "@openteam/contracts";
 import {
   formatRoutineExecutionCalendarTime,
   routineOrdinalLabel,
@@ -26,6 +31,7 @@ export const routineSummaryProjectionEqual = (
       routine.revision === candidate.revision &&
       routine.name === candidate.name &&
       routine.enabled === candidate.enabled &&
+      routine.validationError === candidate.validationError &&
       routine.schedule === candidate.schedule &&
       routine.latestExecution?.id === candidate.latestExecution?.id &&
       routine.latestExecution?.status === candidate.latestExecution?.status
@@ -76,6 +82,8 @@ export interface RoutineScheduleDraft {
   advancedFromTime: string;
   advancedToTime: string;
   customSchedule: string;
+  /** Explicit listener zone; absent listeners follow the installation setting. */
+  timeZone?: string;
 }
 
 export const DEFAULT_ROUTINE_SCHEDULE: RoutineScheduleDraft = {
@@ -103,6 +111,11 @@ const clock = (hour: string, minute: string) =>
   `${String(Number(hour)).padStart(2, "0")}:${String(Number(minute)).padStart(2, "0")}`;
 
 export const parseRoutineSchedule = (schedule: string): RoutineScheduleDraft => {
+  const timeZone = schedule.trim().match(/^(?:CRON_TZ|TZ)=([^\s]+)\s+/)?.[1];
+  return { ...parseUnzonedRoutineSchedule(schedule), ...(timeZone ? { timeZone } : {}) };
+};
+
+const parseUnzonedRoutineSchedule = (schedule: string): RoutineScheduleDraft => {
   const raw = schedule.trim().replace(/^(?:CRON_TZ|TZ)=[^\s]+\s+/, "");
   const interval = raw.match(/^@every\s+(\d+)(m|h|d)$/i);
   if (interval?.[1] && interval[2]) {
@@ -141,15 +154,20 @@ export const parseRoutineSchedule = (schedule: string): RoutineScheduleDraft => 
     };
     if (day === "*" && weekday === "1-5") return { ...base, preset: "weekdays" };
     if (day === "*" && weekday !== "*" && /^\d$/.test(weekday ?? "")) {
-      return { ...base, preset: "weekly", weekDay: Number(weekday) };
+      return { ...base, preset: "weekly", weekDay: Number(weekday) % 7 };
     }
-    if (day !== "*" && /^\d+$/.test(day ?? "")) {
+    if (day !== "*" && weekday === "*" && /^\d+$/.test(day ?? "")) {
       return { ...base, preset: "monthly", monthDay: Number(day) };
     }
     if (day === "*" && weekday === "*") return { ...base, preset: "daily" };
   }
   const steppedMinutes = raw.match(/^\*\/(\d+) (\*|\d+-\d+) (\*|[\d,]+) (\*|[\d,]+) (\*|[\d,]+)$/);
-  if (steppedMinutes?.[1]) {
+  if (
+    steppedMinutes?.[1] &&
+    Number(steppedMinutes[1]) < 60 &&
+    60 % Number(steppedMinutes[1]) === 0 &&
+    (steppedMinutes[3] === "*" || steppedMinutes[5] === "*")
+  ) {
     const hourRange = steppedMinutes[2]?.match(/^(\d+)-(\d+)$/);
     const parseList = (value: string | undefined) =>
       value && value !== "*" ? value.split(",").map(Number).filter(Number.isFinite) : [];
@@ -190,7 +208,7 @@ export const routineScheduleValue = (draft: RoutineScheduleDraft): string => {
     case "weekdays":
       return `${minute} ${hour} * * 1-5`;
     case "weekly":
-      return `${minute} ${hour} * * ${Math.max(0, Math.min(6, draft.weekDay))}`;
+      return `${minute} ${hour} * * ${((draft.weekDay % 7) + 7) % 7}`;
     case "monthly":
       return `${minute} ${hour} ${Math.max(1, Math.min(31, draft.monthDay))} * *`;
     case "interval":
@@ -214,7 +232,7 @@ export const routineScheduleValue = (draft: RoutineScheduleDraft): string => {
         return `0 ${hourRange === "*" ? `*/${Math.min(23, amount)}` : `${hourRange}/${Math.min(23, amount)}`} ${dayField} ${monthField} ${weekField}`;
       }
       if (draft.advancedEveryUnit === "d") {
-        return `0 ${fromHour} */${Math.min(31, amount)} ${monthField} ${weekField}`;
+        return `0 ${fromHour} ${amount === 1 ? dayField : `*/${Math.min(31, amount)}`} ${monthField} ${weekField}`;
       }
       return `*/${Math.min(59, amount)} ${hourRange} ${dayField} ${monthField} ${weekField}`;
     }
@@ -224,8 +242,25 @@ export const routineScheduleValue = (draft: RoutineScheduleDraft): string => {
 };
 
 export const routineScheduleValues = (draft: RoutineScheduleDraft): string[] => {
-  if (draft.preset !== "advanced" || draft.advancedTimeMode !== "at-times") {
-    return [routineScheduleValue(draft)];
+  if (draft.preset !== "advanced") return [routineScheduleValue(draft)];
+  if (draft.advancedTimeMode === "every") {
+    if (draft.advancedEveryUnit !== "m" || 60 % draft.advancedEveryAmount === 0) {
+      return [routineScheduleValue(draft)];
+    }
+    const [fromHour] = timeFields(draft.advancedFromTime);
+    const [toHour] = timeFields(draft.advancedToTime);
+    const step = Math.max(1, draft.advancedEveryAmount);
+    const hoursByMinute = new Map<number, number[]>();
+    for (let time = fromHour * 60; time < (toHour + 1) * 60; time += step) {
+      const minute = time % 60;
+      const hours = hoursByMinute.get(minute) ?? [];
+      hours.push(Math.floor(time / 60));
+      hoursByMinute.set(minute, hours);
+    }
+    return [...hoursByMinute].map(
+      ([minute, hours]) =>
+        `${minute} ${hours.length === 24 ? "*" : listField(hours)} ${draft.advancedDayMode === "month-days" ? listField(draft.advancedMonthDays) : "*"} ${listField(draft.advancedMonths)} ${draft.advancedDayMode === "weekdays" ? listField(draft.advancedWeekDays) : "*"}`
+    );
   }
   const monthField = listField(draft.advancedMonths);
   const dayField =
@@ -249,8 +284,10 @@ export const routineTriggerValue = (
     routineScheduleValues(draft).map((schedule) => ({
       type: "cron",
       schedule:
-        timeZone && !schedule.startsWith("@every ") && !/^(?:CRON_TZ|TZ)=/.test(schedule)
-          ? `CRON_TZ=${timeZone} ${schedule}`
+        (draft.timeZone ?? timeZone) &&
+        !schedule.startsWith("@every ") &&
+        !/^(?:CRON_TZ|TZ)=/.test(schedule)
+          ? `CRON_TZ=${draft.timeZone ?? timeZone} ${schedule}`
           : schedule,
     }))
   );
@@ -260,10 +297,231 @@ export const routineTriggerValue = (
 };
 
 export const routineScheduleDrafts = (routine: RoutineView): RoutineScheduleDraft[] => {
+  if (routine.scheduleKind === "event" && routine.schedules.length === 0) return [];
   const presented = routinePresentationDrafts(routine.triggerPresentation);
-  if (presented) return presented;
+  if (presented && presentationMatchesRoutine(presented, routine)) {
+    // Zones are authored by the trigger, not presentation metadata.
+    const zones = (routine.schedules.length ? routine.schedules : [routine.schedule]).map(
+      (schedule) => schedule.match(/^(?:CRON_TZ|TZ)=([^\s]+)\s+/)?.[1]
+    );
+    let index = 0;
+    return presented.map((draft) => {
+      const timeZone = zones[index];
+      index += routineScheduleValues(draft).length;
+      const { timeZone: _presentedZone, ...fields } = draft;
+      return { ...fields, ...(timeZone ? { timeZone } : {}) };
+    });
+  }
   const schedules = routine.schedules.length > 0 ? routine.schedules : [routine.schedule];
   return schedules.map(parseRoutineSchedule);
+};
+
+const stripZone = (schedule: string) => schedule.trim().replace(/^(?:CRON_TZ|TZ)=[^\s]+\s+/, "");
+
+const presentationMatchesRoutine = (
+  drafts: RoutineScheduleDraft[],
+  routine: RoutineView
+): boolean => {
+  const generated = drafts.flatMap(routineScheduleValues).map(stripZone);
+  const actual = (routine.schedules.length ? routine.schedules : [routine.schedule]).map(stripZone);
+  if (JSON.stringify(generated) !== JSON.stringify(actual)) return false;
+  let offset = 0;
+  for (const draft of drafts) {
+    const count = routineScheduleValues(draft).length;
+    const zones = routine.schedules
+      .slice(offset, offset + count)
+      .map((schedule) => schedule.match(/^(?:CRON_TZ|TZ)=([^\s]+)\s+/)?.[1]);
+    if (new Set(zones).size > 1) return false;
+    offset += count;
+  }
+  return true;
+};
+
+const editedCronListeners = (
+  routine: RoutineView,
+  drafts: readonly RoutineScheduleDraft[]
+): unknown[] => {
+  const originalDrafts = routineScheduleDrafts(routine);
+  const originalSchedules = routine.schedules.length ? routine.schedules : [routine.schedule];
+  let offset = 0;
+  const groups = originalDrafts.map((draft) => {
+    const count = routineScheduleValues(draft).length;
+    const schedules = originalSchedules.slice(offset, offset + count);
+    offset += count;
+    return schedules;
+  });
+  return drafts.flatMap((draft) => {
+    const index = originalDrafts.findIndex(
+      (original) => JSON.stringify(original) === JSON.stringify(draft)
+    );
+    if (index >= 0) return groups[index]!.map((schedule) => ({ type: "cron", schedule }));
+    const generated = routineTriggerValue([draft]);
+    return generated.type === "group" ? (generated.listeners as unknown[]) : [generated];
+  });
+};
+
+/** Omit scheduling fields on unrelated edits so every original listener survives. */
+export const routineScheduleUpdate = (
+  routine: RoutineView,
+  drafts: readonly RoutineScheduleDraft[]
+): { trigger?: unknown; presentation?: unknown } => {
+  if (JSON.stringify(drafts) === JSON.stringify(routineScheduleDrafts(routine))) return {};
+  const original = routine.trigger as
+    | { type?: string; listeners?: Array<{ type?: string }> }
+    | undefined;
+  const events =
+    original?.type === "group"
+      ? (original.listeners ?? []).filter((listener) => listener.type !== "cron")
+      : original && original.type !== "cron"
+        ? [original]
+        : [];
+  const cron = editedCronListeners(routine, drafts);
+  const listeners = [...cron, ...events];
+  return {
+    trigger: listeners.length === 1 ? listeners[0] : { type: "group", listeners },
+    presentation: routinePresentationValue(drafts),
+  };
+};
+
+/** Content autosaves may be queued before a later Pause/Resume click. */
+export const routineUpdateInput = (
+  routine: RoutineView,
+  input: { name: string; prompt: string; schedules: readonly RoutineScheduleDraft[] },
+  desiredEnabled: boolean
+): UpdateRoutineInput => ({
+  name: input.name.trim(),
+  prompt: input.prompt.trim(),
+  ...routineScheduleUpdate(routine, input.schedules),
+  ...(routine.enabled !== desiredEnabled ? { enabled: desiredEnabled } : {}),
+  expectedRevision: routine.revision,
+});
+
+export const routineSchedulesError = (
+  drafts: readonly RoutineScheduleDraft[],
+  routine?: RoutineView | null
+): string | null => {
+  const existingDrafts = routine ? routineScheduleDrafts(routine) : [];
+  for (const draft of drafts) {
+    if (existingDrafts.some((existing) => JSON.stringify(existing) === JSON.stringify(draft)))
+      continue;
+    if (draft.preset === "advanced" && draft.advancedTimeMode === "every") {
+      if (
+        draft.advancedEveryUnit === "d" &&
+        draft.advancedEveryAmount > 1 &&
+        draft.advancedDayMode !== "every-day"
+      ) {
+        return "Every N days cannot also restrict weekdays or month days. Use At times to schedule the selected days.";
+      }
+      const [from] = timeFields(draft.advancedFromTime);
+      const [to] = timeFields(draft.advancedToTime);
+      if (from > to) return "The end hour must be after the start hour.";
+    }
+  }
+  const original = routine?.trigger as
+    | { type?: string; listeners?: Array<{ type?: string }> }
+    | undefined;
+  const eventCount =
+    original?.type === "group"
+      ? (original.listeners ?? []).filter((listener) => listener.type !== "cron").length
+      : original && original.type !== "cron"
+        ? 1
+        : 0;
+  const timeCount = routine
+    ? editedCronListeners(routine, drafts).length
+    : drafts.flatMap(routineScheduleValues).length;
+  if (timeCount + eventCount > 8)
+    return "These schedules expand to more than 8 triggers. Remove a time or schedule before saving.";
+  return null;
+};
+
+/** Apply Pause/Resume independently of content validity once a create's ID is known. */
+export const synchronizeRoutineEnabled = async (
+  routine: RoutineView,
+  desired: () => boolean,
+  change: (routine: RoutineView, enabled: boolean) => Promise<RoutineView>,
+  refresh: (id: string) => Promise<RoutineView>,
+  isConflict: (error: unknown) => boolean
+): Promise<RoutineView> => {
+  const enabled = desired();
+  if (routine.enabled === enabled) return routine;
+  try {
+    return await change(routine, enabled);
+  } catch (error) {
+    if (!isConflict(error)) throw error;
+    const latest = await refresh(routine.id);
+    const nextEnabled = desired();
+    return latest.enabled === nextEnabled ? latest : change(latest, nextEnabled);
+  }
+};
+
+export type RoutineEditorSaveState = "idle" | "saving" | "saved" | "error" | "conflict";
+
+/** Hidden editors retain outstanding local work; clean existing records reload normally. */
+export const routineEditorResumeState = <Draft>(
+  context: {
+    routine: RoutineView | null;
+    draft: Draft;
+    dirty: boolean;
+    saving: boolean;
+    toggling?: boolean;
+    pending: Draft | null;
+    createAttempt?: RoutineCreateAttempt;
+    saveState?: RoutineEditorSaveState;
+  },
+  routineId: string | null
+) => {
+  const retain =
+    context.dirty ||
+    context.saving ||
+    context.toggling ||
+    context.pending !== null ||
+    (!routineId && (context.routine || context.createAttempt));
+  if (!retain) return null;
+  return {
+    routine: context.routine,
+    draft: context.draft,
+    dirty: context.dirty,
+    saveState: context.saving
+      ? ("saving" as const)
+      : (context.saveState ?? (context.dirty ? ("idle" as const) : ("saved" as const))),
+  };
+};
+
+/** A control-only conflict retry must not grant permission to overwrite newer instructions. */
+export const routineDefinitionEqual = (left: RoutineView, right: RoutineView): boolean => {
+  const definition = (routine: RoutineView) => [
+    routine.name,
+    routine.prompt,
+    routine.trigger,
+    routine.triggerPresentation,
+    routine.schedule,
+    routine.schedules,
+    routine.scheduleKind,
+    routine.timezone,
+    routine.timezoneMode,
+    routine.cronExpression,
+    routine.intervalSeconds,
+    routine.validationError,
+  ];
+  return JSON.stringify(definition(left)) === JSON.stringify(definition(right));
+};
+
+export interface RoutineCreateAttempt {
+  clientId: string;
+  input: CreateRoutineInput;
+}
+
+/** Recover the original receipt before applying edits made after an uncertain create. */
+export const recoverRoutineCreation = async (
+  attempt: RoutineCreateAttempt,
+  desired: CreateRoutineInput,
+  create: (input: CreateRoutineInput, clientId: string) => Promise<RoutineView>,
+  recovered: (routine: RoutineView) => RoutineView | void | Promise<RoutineView | void>,
+  update: (routine: RoutineView) => Promise<RoutineView>
+): Promise<RoutineView> => {
+  const routine = await create(attempt.input, attempt.clientId);
+  const prepared = (await recovered(routine)) ?? routine;
+  return JSON.stringify(attempt.input) === JSON.stringify(desired) ? prepared : update(prepared);
 };
 
 const schedulePresets = new Set<RoutineSchedulePreset>([
@@ -404,6 +662,15 @@ const describeAdvancedTimes = (draft: RoutineScheduleDraft): string => {
 };
 
 export const describeRoutineSchedule = (draft: RoutineScheduleDraft): string => {
+  const description = describeSchedule(draft);
+  if (draft.preset !== "advanced" || draft.advancedMonths.length === 0) return description;
+  const months = draft.advancedMonths.map((month) =>
+    new Date(2026, month - 1, 1).toLocaleDateString([], { month: "long" })
+  );
+  return `${description} in ${months.join(", ")}`;
+};
+
+const describeSchedule = (draft: RoutineScheduleDraft): string => {
   switch (draft.preset) {
     case "hourly":
       return draft.minute === 0

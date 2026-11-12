@@ -317,7 +317,7 @@ export class SubagentService {
   stopRun = (runId: string) =>
     serviceEffect(async () => {
       const run = await this.prisma.run.findUnique({ where: { id: runId }, select: { botId: true, status: true, error: true, completedAt: true, requestStoppedAt: true,
-        inboxEvents: { take: 1, select: { payload: true } } } });
+        inboxEvents: { take: 1, select: { payload: true, type: true } } } });
       if (!run) throw new ApiError(404, "run_not_found", "Run not found");
       const callId = `user-stop:${runId}`;
       const worker = await this.prisma.subagent.findFirst({
@@ -332,14 +332,17 @@ export class SubagentService {
       const userCancelled = run.error && typeof run.error === "object" && !Array.isArray(run.error) &&
         (run.error as { code?: unknown }).code === "cancelled_by_user";
       const stoppedAt = run.status === "cancelled" && userCancelled ? run.completedAt ?? run.requestStoppedAt : null;
-      const requestRunId = (run.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined)?.taskContextRunId ?? runId;
+      const payload = run.inboxEvents[0]?.payload as { taskContextRunId?: string; automationContextRunId?: string } | undefined;
+      const handoff = run.inboxEvents.some(event => event.type === "automation.wake_parent")
+        ? await this.prisma.automationResult.findUnique({ where: { wakeRunId: runId }, select: { runId: true } }) : null;
+      const requestRunId = payload?.taskContextRunId ?? payload?.automationContextRunId ?? handoff?.runId ?? runId;
       // A retry after a partial stop still owns its old workers, but must not
       // cancel a worker attached to a fresh request after the failed attempt.
       // A finished model turn may still own live delegated work. Stop that
       // request's workers too, without reaching independent sibling requests.
       const workerScope: Prisma.SubagentWhereInput = ["queued", "running"].includes(run.status) ? {}
-        : stoppedAt ? { OR: [{ parentRunId: runId }, { requestRunId }, { requestRun: { requestStoppedAt: { lte: stoppedAt } } }] }
-        : { OR: [{ parentRunId: runId }, { requestRunId }] };
+        : stoppedAt ? { OR: [{ parentRunId: { in: [runId, requestRunId] } }, { requestRunId }, { requestRun: { requestStoppedAt: { lte: stoppedAt } } }] }
+        : { OR: [{ parentRunId: { in: [runId, requestRunId] } }, { requestRunId }] };
       // A transport failure stopping the parent must not leave its workers
       // untouched or delay their stop, and child failures must reach the caller.
       const [cancellation, workers] = await Promise.all([

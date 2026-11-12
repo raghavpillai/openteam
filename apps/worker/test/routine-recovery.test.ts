@@ -226,7 +226,7 @@ describe("routine execution restart reconciliation", () => {
         },
       });
       await worker.agentData.initializeBot(botId);
-      await worker.agentData.writeRoutine(botId, routineId);
+      await worker.agentData.writeRoutine(botId, routineId, undefined, { authored: true });
 
       await (
         worker as unknown as { recoverRoutineExecutions(): Promise<void> }

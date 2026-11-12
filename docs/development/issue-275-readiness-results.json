@@ -1,0 +1,310 @@
+{
+  "execution": "one file per process, serial; 30-second test-runner I/O budget; product transaction timeouts unchanged",
+  "baseCommit": "c0bf70b3c3f9a21953e96575bed560cca801f027",
+  "schema": "current Prisma schema plus production raw SQL objects, installed with db:push",
+  "files": [
+    {
+      "file": "packages/messaging/test/routine-file-sync-regressions.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 4.35,
+      "pass": 16,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-file-sync-stress.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 3.13,
+      "pass": 18,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-scheduling-regressions.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 1.21,
+      "pass": 9,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-scheduler-stress.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 4.47,
+      "pass": 34,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-scheduling-regressions.test.ts",
+      "exitCode": 0,
+      "seconds": 0.19,
+      "pass": 7,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-editor-schedule-oracle.test.ts",
+      "exitCode": 0,
+      "seconds": 0.33,
+      "pass": 3,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/routine-275-regressions.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 1.6,
+      "pass": 12,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/routine-stop-ordering.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 1.57,
+      "pass": 6,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/a2a-live.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 3.48,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/desktop/test/routine-editor-preservation.test.ts",
+      "exitCode": 0,
+      "seconds": 0.04,
+      "pass": 25,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/desktop/test/routine-definition-error.test.tsx",
+      "exitCode": 0,
+      "seconds": 0.05,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/client-core/test/routine-create-idempotency.test.ts",
+      "exitCode": 0,
+      "seconds": 0.03,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-concurrency.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 0.95,
+      "pass": 6,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/routine-time-lifecycle.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 0.45,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/user-time-zone.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 0.38,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "packages/messaging/test/group-execution.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 1.79,
+      "pass": 13,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/routine-recovery.test.ts",
+      "exitCode": 0,
+      "seconds": 0.47,
+      "pass": 5,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/routine-event-coalescing.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 4.44,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/group-routine-event-coalescing.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 4.95,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/worker/test/routine-revival-batch.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 0.47,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/request-stop.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 1.98,
+      "pass": 21,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent-stop-resume.integration.test.ts",
+      "exitCode": 0,
+      "seconds": 2.86,
+      "pass": 15,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/bot-parity.test.ts",
+      "exitCode": 0,
+      "seconds": 0.2,
+      "pass": 5,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/busy-bots.test.ts",
+      "exitCode": 0,
+      "seconds": 0.23,
+      "pass": 5,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/dispatch-results.test.ts",
+      "exitCode": 0,
+      "seconds": 0.24,
+      "pass": 4,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/inference-authority.test.ts",
+      "exitCode": 0,
+      "seconds": 0.22,
+      "pass": 2,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/lifecycle.test.ts",
+      "exitCode": 0,
+      "seconds": 0.26,
+      "pass": 1,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/message-interrupts.test.ts",
+      "exitCode": 0,
+      "seconds": 0.24,
+      "pass": 4,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/recovery.test.ts",
+      "exitCode": 0,
+      "seconds": 0.02,
+      "pass": 2,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/status.test.ts",
+      "exitCode": 0,
+      "seconds": 0.29,
+      "pass": 6,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/stop-cancellation.test.ts",
+      "exitCode": 0,
+      "seconds": 0.29,
+      "pass": 10,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/user-stop.test.ts",
+      "exitCode": 0,
+      "seconds": 0.23,
+      "pass": 14,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "file": "apps/server/test/subagent/view.test.ts",
+      "exitCode": 0,
+      "seconds": 0.02,
+      "pass": 5,
+      "fail": 0,
+      "skip": 0
+    }
+  ],
+  "totals": {
+    "pass": 256,
+    "fail": 0,
+    "skip": 0
+  },
+  "postHarnessFixVerification": {
+    "testsPassed": 29,
+    "files": 3,
+    "failed": 0,
+    "exitCode": 0,
+    "note": "Reran the watcher cleanup and two high-I/O fixture cases after harness fixes; production transaction timeouts and all scenario assertions remain unchanged."
+  },
+  "harnessChanges": [
+    "24 seeded schedules now have independent test clocks and fixtures; all original scenarios and arithmetic assertions retained.",
+    "Two fixture-heavy regression tests declare a 30-second setup/I/O budget.",
+    "The peer messaging fixture explicitly closes the file watcher it starts."
+  ],
+  "finalRun": "fresh database with production raw schema; serial isolated processes after all code and fixture fixes",
+  "earlierHarnessIssue": "An earlier A2A test process was terminated because its test-owned watcher was never closed. Cleanup was fixed; the entire acceptance set is rerun here.",
+  "sourceDigestSha256": "872d7f21f9b9360cceee64d788ab83e7a62801b9a7d21ed676b5092c375be0c7",
+  "checks": {
+    "typecheckTasksPassed": 12,
+    "architectureChecksPassed": 4,
+    "buildsPassed": [
+      "server",
+      "worker",
+      "desktop renderer",
+      "Electron main",
+      "Electron utility",
+      "Electron preload",
+      "CLI"
+    ],
+    "upgradePreservedLegacyRows": 3,
+    "repairCliPreviewApplyRepeatChanges": [
+      1,
+      1,
+      0
+    ]
+  }
+}

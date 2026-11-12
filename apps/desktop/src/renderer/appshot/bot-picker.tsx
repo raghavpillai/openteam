@@ -1,6 +1,6 @@
 import { normalizeRobotAvatarShape } from "@openteam/contracts/robot-avatar";
 import { Check, ChevronsUpDown } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { BotAvatarGlyph } from "../components/openteam/avatar-picker-icons";
 import type { AppshotBot } from "./types";
 
@@ -18,6 +18,10 @@ export function AppshotBotAvatar({ bot, size }: { bot: AppshotBot; size: number 
 }
 
 const SEARCH_THRESHOLD = 7;
+/** The list's tallest, and the gap kept from the screen's edge. */
+const LIST_MAX = 296;
+const EDGE = 12;
+const GAP = 8;
 
 /** The one choice an appshot offers: which Bot it goes to. */
 export function BotPicker({
@@ -38,6 +42,7 @@ export function BotPicker({
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const searchable = bots.length >= SEARCH_THRESHOLD;
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -58,6 +63,34 @@ export function BotPicker({
   useEffect(() => {
     if (active >= visible.length) setActive(Math.max(0, visible.length - 1));
   }, [active, visible.length]);
+
+  /** Fades the list's edge where more Bots are scrolled out of view. */
+  const markOverflow = () => {
+    const list = listRef.current;
+    if (!list) return;
+    const more = list.scrollHeight - list.clientHeight > 1;
+    list.style.setProperty("--fade-top", more && list.scrollTop > 1 ? "18px" : "0px");
+    list.style.setProperty("--fade-bottom", more && list.scrollTop < list.scrollHeight - list.clientHeight - 1 ? "18px" : "0px");
+  };
+
+  // Opens above the chip, or below it when the card sits near the top of the screen, with
+  // the list no taller than the room there. Before paint, and before the card measures the
+  // menu's frosted backdrop.
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const list = listRef.current;
+    const chip = chipRef.current;
+    if (!open || !menu || !list || !chip) return;
+    const box = chip.getBoundingClientRect();
+    const chrome = menu.offsetHeight - list.offsetHeight;
+    const natural = Math.min(LIST_MAX, list.scrollHeight);
+    const above = box.top - GAP - EDGE - chrome;
+    const below = window.innerHeight - box.bottom - GAP - EDGE - chrome;
+    const up = above >= natural || above >= below;
+    list.style.maxHeight = `${Math.max(120, Math.min(LIST_MAX, up ? above : below))}px`;
+    menu.dataset.side = up ? "above" : "below";
+    markOverflow();
+  }, [open, visible.length]);
 
   useEffect(() => {
     listRef.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
@@ -112,7 +145,7 @@ export function BotPicker({
         <ChevronsUpDown aria-hidden="true" size={12} strokeWidth={2.2} />
       </button>
       {open && (
-        <div className="appshot-menu" data-hit="" onKeyDown={onKeyDown}>
+        <div ref={menuRef} className="appshot-menu" data-hit="" data-side="above" onKeyDown={onKeyDown}>
           <div className="appshot-menu-glass" data-glass="" aria-hidden="true" />
           {searchable && (
             <input
@@ -131,6 +164,7 @@ export function BotPicker({
             tabIndex={-1}
             aria-label="Send to"
             aria-activedescendant={visible[active] ? `appshot-bot-${visible[active].id}` : undefined}
+            onScroll={markOverflow}
           >
             {!searchable && <div className="appshot-menu-heading">Send to</div>}
             {visible.map((bot, index) => {

@@ -49,7 +49,7 @@ const sendableBots = (snapshot: ClientBootstrapView): BotView[] => {
   return snapshot.bots
     .filter((bot) => bot.status !== "archived" && bot.status !== "failed")
     .sort((left, right) =>
-      (latest.get(right.dmChannelId) ?? 0) - (latest.get(left.dmChannelId) ?? 0) || left.name.localeCompare(right.name)
+      (latest.get(right.dmChannelId) ?? 0) - (latest.get(left.dmChannelId) ?? 0) || left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
     );
 };
 

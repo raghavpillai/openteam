@@ -567,7 +567,24 @@ body {
   position: relative;
   max-height: 296px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   outline: none;
+  /* More Bots above or below: that edge fades, so the list reads as scrollable. */
+  --fade-top: 0px;
+  --fade-bottom: 0px;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent 100%);
+}
+
+/* Near the top of the screen the menu opens downward instead. */
+.appshot-menu[data-side="below"] {
+  top: calc(100% + 8px);
+  bottom: auto;
+  transform-origin: 18px 0;
+  animation-name: appshot-menu-in-below;
+}
+
+@keyframes appshot-menu-in-below {
+  from { opacity: 0; transform: scale(0.92) translateY(-4px); }
 }
 
 .appshot-menu-list::-webkit-scrollbar {

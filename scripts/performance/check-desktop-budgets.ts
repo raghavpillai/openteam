@@ -174,8 +174,9 @@ atMost("startup CSS bytes", startupCssBytes, 202_000);
 // the adversarial-review fixes (own storage, request guards, reserved shortcuts);
 // 16,651,901 B with one continuous card shadow (the goo's SVG copy of the card's two layers);
 // 16,652,343 B with Esc leaving early (mid-intro fade, dismissing the sent pill).
-// Rebased on main at 2090e228 (16,593,176 B on its own): 16,661,513 B.
-atMost("renderer bytes", result.renderer.bytes, 16_662_500);
+// Rebased on main at 2090e228 (16,593,176 B on its own): 16,661,513 B; 16,662,762 B with
+// the Bot menu fitting the screen (flips below the chip) and fading where it scrolls.
+atMost("renderer bytes", result.renderer.bytes, 16_663_500);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the

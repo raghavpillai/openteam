@@ -56,6 +56,97 @@ export const openRouterEndpointPromptCap = (body: unknown): number | undefined =
     .filter((cap) => cap > 0);
   return caps.length ? Math.min(...caps) : undefined;
 };
+const costKeys = {
+  prompt: "input",
+  completion: "output",
+  input_cache_read: "cacheRead",
+  input_cache_write: "cacheWrite",
+} as const;
+const tokenPrice = (value: unknown): number | undefined => {
+  if (
+    (typeof value !== "string" && typeof value !== "number") ||
+    (typeof value === "string" && !value.trim())
+  )
+    return;
+  const price = Number(value) * 1_000_000;
+  return Number.isFinite(price) && price >= 0 ? price : undefined;
+};
+/** Normalize token-only overrides to Pi's request-wide, strictly-above tiers. */
+export const openRouterCost = (pricing: Record<string, unknown>): ChatModel["cost"] => {
+  const base: ChatModel["cost"] = {
+    input: tokenPrice(pricing.prompt) ?? 0,
+    output: tokenPrice(pricing.completion) ?? 0,
+    cacheRead: tokenPrice(pricing.input_cache_read) ?? 0,
+    cacheWrite: tokenPrice(pricing.input_cache_write) ?? 0,
+  };
+  const overrides = (Array.isArray(pricing.overrides) ? pricing.overrides : []).filter(
+    (entry): entry is Record<string, unknown> =>
+      object(entry) &&
+      Number.isSafeInteger(entry.min_prompt_tokens) &&
+      Number(entry.min_prompt_tokens) >= 0 &&
+      Object.keys(entry).every(
+        (key) => key === "min_prompt_tokens" || Object.hasOwn(costKeys, key)
+      ) &&
+      Object.keys(costKeys).every(
+        (key) => entry[key] === undefined || tokenPrice(entry[key]) !== undefined
+      )
+  );
+  // OpenRouter applies matching entries in document order, with later values winning
+  // per key. Compile that result at each threshold before Pi selects the highest tier.
+  const thresholds = [...new Set(overrides.map((entry) => Number(entry.min_prompt_tokens)))].sort(
+    (a, b) => a - b
+  );
+  if (thresholds.length)
+    base.tiers = thresholds.map((threshold) => {
+      const rates = {
+        input: base.input,
+        output: base.output,
+        cacheRead: base.cacheRead,
+        cacheWrite: base.cacheWrite,
+      };
+      for (const entry of overrides) {
+        if (Number(entry.min_prompt_tokens) > threshold) continue;
+        for (const [key, target] of Object.entries(costKeys)) {
+          if (entry[key] !== undefined) rates[target] = tokenPrice(entry[key])!;
+        }
+      }
+      return { inputTokensAbove: threshold, ...rates };
+    });
+  return base;
+};
+/** Never attach another route's tiers to this model's base prices. */
+export const openRouterEndpointCost = (
+  body: unknown,
+  base: unknown
+): ChatModel["cost"] | undefined => {
+  if (
+    !object(base) ||
+    !Object.values(costKeys).every(
+      (key) => typeof base[key] === "number" && Number.isFinite(base[key]) && Number(base[key]) >= 0
+    )
+  )
+    return;
+  const data = object(body) && object(body.data) ? body.data : undefined;
+  const costs = (Array.isArray(data?.endpoints) ? data.endpoints : [])
+    .map((entry) => (object(entry) && object(entry.pricing) ? entry.pricing : undefined))
+    .filter(
+      (pricing): pricing is Record<string, unknown> =>
+        Boolean(pricing) &&
+        Object.keys(costKeys).every((key) => tokenPrice(pricing![key]) !== undefined)
+    )
+    .map(openRouterCost)
+    .filter((cost) =>
+      Object.values(costKeys).every(
+        (key) =>
+          Math.abs(cost[key] - Number(base[key])) <=
+          Number.EPSILON * Math.max(1, cost[key], Number(base[key])) * 4
+      )
+    );
+  const first = costs[0];
+  return first && costs.every((cost) => JSON.stringify(cost) === JSON.stringify(first))
+    ? first
+    : undefined;
+};
 const validId = (v: unknown): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= 256 && !/[\p{Cc}\p{Cf}]/u.test(v);
 const advertisedInput = (entry: Entry): ChatModel["input"] | undefined => {
@@ -136,10 +227,6 @@ const applyOpenRouterMetadata = (model: ChatModel, entry: Entry): void => {
   const architecture = object(entry.architecture) ? entry.architecture : {};
   const top = object(entry.top_provider) ? entry.top_provider : {};
   const pricing = object(entry.pricing) ? entry.pricing : {};
-  const price = (value: unknown): number => {
-    const number = typeof value === "string" || typeof value === "number" ? Number(value) : NaN;
-    return Number.isFinite(number) && number >= 0 ? number * 1_000_000 : 0;
-  };
   model.api = "openai-completions";
   model.contextWindow = positive(entry.context_length, model.contextWindow);
   model.maxTokens = Math.min(
@@ -156,12 +243,7 @@ const applyOpenRouterMetadata = (model: ChatModel, entry: Entry): void => {
     Array.isArray(architecture.input_modalities) && architecture.input_modalities.includes("image")
       ? ["text", "image"]
       : ["text"];
-  model.cost = {
-    input: price(pricing.prompt),
-    output: price(pricing.completion),
-    cacheRead: price(pricing.input_cache_read),
-    cacheWrite: price(pricing.input_cache_write),
-  };
+  model.cost = openRouterCost(pricing);
 };
 
 const configFile = async (path: string): Promise<Config> => {
@@ -498,8 +580,11 @@ export class ChatProviderRegistry {
       )
         throw new Error("Provider settings changed. Reload the model list and retry.");
       if (provider.id === "openrouter") {
-        const cap = await this.openRouterPromptCap(model);
+        const endpoints = await this.openRouterEndpoints(model);
+        const cap = openRouterEndpointPromptCap(endpoints);
         if (cap) model.contextWindow = Math.min(model.contextWindow, cap);
+        if (!model.cost.tiers)
+          model.cost = openRouterEndpointCost(endpoints, model.cost) ?? model.cost;
       }
       const {
         id,
@@ -538,22 +623,46 @@ export class ChatProviderRegistry {
   /**
    * Bound saved OpenRouter models by their endpoints' current prompt cap, so a model
    * saved before the cap was published (or checked) compacts in time without re-selection.
+   * Also refresh matching endpoint prices so already-selected models gain pricing tiers.
    */
   async refreshPromptCaps(): Promise<void> {
-    const caps = new Map<string, number>();
+    const updates = new Map<
+      string,
+      { baseUrl: string; oldCost: unknown; cost?: ChatModel["cost"]; cap?: number }
+    >();
     for (const model of (await configFile(this.modelsPath)).providers?.openrouter?.models ?? []) {
       if (!validId(model.id) || typeof model.baseUrl !== "string") continue;
-      const cap = await this.openRouterPromptCap({ id: model.id, baseUrl: model.baseUrl });
-      if (cap && cap < positive(model.contextWindow, Infinity)) caps.set(model.id, cap);
+      const endpoints = await this.openRouterEndpoints({ id: model.id, baseUrl: model.baseUrl });
+      const cap = openRouterEndpointPromptCap(endpoints);
+      const cost = openRouterEndpointCost(endpoints, model.cost);
+      if (
+        (cap && cap < positive(model.contextWindow, Infinity)) ||
+        (cost && JSON.stringify(cost) !== JSON.stringify(model.cost))
+      ) {
+        updates.set(model.id, { baseUrl: model.baseUrl, oldCost: model.cost, cap, cost });
+      }
     }
-    if (!caps.size) return;
+    if (!updates.size) return;
     // Re-read so a selection saved during the lookups isn't overwritten.
     const document = await configFile(this.modelsPath);
+    let changed = false;
     for (const model of document.providers?.openrouter?.models ?? []) {
-      const cap = caps.get(String(model.id));
-      if (cap) model.contextWindow = Math.min(positive(model.contextWindow, cap), cap);
+      const update = updates.get(String(model.id));
+      if (!update || model.baseUrl !== update.baseUrl) continue;
+      if (update.cap && update.cap < positive(model.contextWindow, Infinity)) {
+        model.contextWindow = update.cap;
+        changed = true;
+      }
+      if (
+        update.cost &&
+        JSON.stringify(model.cost) === JSON.stringify(update.oldCost) &&
+        JSON.stringify(model.cost) !== JSON.stringify(update.cost)
+      ) {
+        model.cost = update.cost;
+        changed = true;
+      }
     }
-    await this.save(document);
+    if (changed) await this.save(document);
   }
   private async save(document: Config): Promise<void> {
     await mkdir(dirname(this.modelsPath), { recursive: true, mode: 0o700 });
@@ -566,10 +675,8 @@ export class ChatProviderRegistry {
     }
     await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
   }
-  /** The model's endpoint prompt cap, or nothing when OpenRouter doesn't publish one. */
-  private async openRouterPromptCap(
-    model: Pick<ChatModel, "id" | "baseUrl">
-  ): Promise<number | undefined> {
+  /** Endpoint metadata is shared by prompt-cap and pricing refreshes. */
+  private async openRouterEndpoints(model: Pick<ChatModel, "id" | "baseUrl">): Promise<unknown> {
     try {
       const signal = AbortSignal.timeout(8_000);
       const url = modelsEndpoint(model.baseUrl);
@@ -582,7 +689,7 @@ export class ChatProviderRegistry {
         await response.body?.cancel();
         return undefined;
       }
-      return openRouterEndpointPromptCap(await responseJson(response));
+      return await responseJson(response);
     } catch {
       return undefined;
     }

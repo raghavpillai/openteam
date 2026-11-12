@@ -193,9 +193,6 @@ private struct MarkdownDocument: UIViewRepresentable {
     init(_ parent: MarkdownDocument) {
       self.parent = parent
       super.init()
-      #if DEBUG
-      SuspendedDocumentFixture.observe()
-      #endif
       NotificationCenter.default.addObserver(
         self, selector: #selector(suspend), name: UIApplication.didEnterBackgroundNotification, object: nil)
       NotificationCenter.default.addObserver(
@@ -289,12 +286,7 @@ private struct MarkdownDocument: UIViewRepresentable {
       }
       armTimeout()
       DocumentMeasurer.shared.beginVisibleRender(lease)
-      var delay = 0
-      #if DEBUG
-      if ProcessInfo.processInfo.arguments.contains("--ui-testing-delay-document") { delay = 1000 }
-      if SuspendedDocumentFixture.hanging { delay = 60_000 }
-      if ProcessInfo.processInfo.arguments.contains("--ui-testing-stall-document") { delay = 12000 }
-      #endif
+      let delay = 0
       var colors = NativePalette.documentColors(dark: parent.dark)
       if let text = parent.messageTextColor {
         colors["text"] = text
@@ -390,23 +382,6 @@ private struct MarkdownDocument: UIViewRepresentable {
     }
   }
 }
-
-#if DEBUG
-/// `--ui-testing-suspend-document`: renders that start before the app first
-/// returns to the foreground never finish, as when iOS suspends WebKit with the
-/// app. That includes renders started just after the app left, which is when
-/// the renderer page usually finishes loading in the test.
-@MainActor enum SuspendedDocumentFixture {
-  private static var active = ProcessInfo.processInfo.arguments.contains("--ui-testing-suspend-document")
-  private static let observer = NotificationCenter.default.addObserver(
-    forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
-  ) { _ in MainActor.assumeIsolated { active = false } }
-  /// Called before the first document observes the app returning, so this
-  /// observer runs first and the renders documents restart on return finish.
-  static func observe() { _ = observer }
-  static var hanging: Bool { observe(); return active }
-}
-#endif
 
 @MainActor enum MessageDocuments {
   /// Load idle renderers before the first document scrolls into view. A cold

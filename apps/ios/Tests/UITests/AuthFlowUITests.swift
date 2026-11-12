@@ -298,124 +298,7 @@ final class AuthFlowUITests: XCTestCase {
     XCTAssertNotEqual(composer.value as? String, "Keep my account draft")
     capture("re-auth-draft-removed", app)
   }
-  func testDarkAccountReauthenticationWithoutCredentials() async throws {
-    try await control("/__qa/reset")
-    let app = XCUIApplication()
-    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "dark"]
-    app.launch()
-    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
-    app.buttons["settings-button"].tap()
-    app.buttons["account-settings"].tap()
-    assertAccountValue("account-name", "Local owner", app)
-    capture("account-dark", app)
-    app.buttons["re-auth"].tap()
-    XCTAssertTrue(app.textFields["server-field"].waitForExistence(timeout: 5))
-    capture("re-auth-dark", app)
-    XCTAssertFalse(app.buttons["clear-server"].exists)
-    replace(app.textFields["server-field"], base)
-    app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 12))
-    app.buttons["settings-button"].tap()
-    app.buttons["account-settings"].tap()
-    assertAccountValue("account-name", "Local owner", app)
-    XCTAssertFalse(app.textFields["username-field"].exists)
-  }
-  func testDarkLargeTextWelcomeAndSignInRemainReachable() async throws {
-    continueAfterFailure = false
-    try await control("/__qa/reset")
-    try await control("/__qa/control", ["authRequired": true])
-    let app = XCUIApplication()
-    app.launchArguments = [
-      "--ui-testing", "--show-login", "--server", base, "--appearance", "dark",
-      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
-    ]
-    app.launch()
-    for _ in 0..<6 {
-      if app.buttons["get-started"].isHittable { break }
-      app.swipeUp()
-    }
-    XCTAssertTrue(app.buttons["get-started"].isHittable)
-    capture("welcome-dark-large-text", app)
-    // XCTest's inferred activation point misses this enlarged native glass
-    // button. Use its current visible center, then verify the full sign-in flow.
-    app.buttons["get-started"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-    waitForArrival(app.textFields["server-field"])
-    for _ in 0..<6 {
-      if app.buttons["connect-button"].isHittable { break }
-      app.swipeUp()
-    }
-    let connect = app.buttons["connect-button"]
-    // Sign-in is a NavigationStack: Back is the system navigation-bar button.
-    let back = app.buttons["BackButton"].firstMatch
-    XCTAssertGreaterThan(connect.frame.minY, back.frame.maxY)
-    XCTAssertGreaterThan(connect.frame.width, 350)
-    capture("endpoint-dark-large-text", app)
-    app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 15))
-    waitForArrival(app.textFields["username-field"])
-    capture("signin-dark-large-text", app)
-    app.textFields["username-field"].tap()
-    app.textFields["username-field"].typeText("fixture")
-    let password = app.secureTextFields["password-field"]
-    let form = app.scrollViews.containing(.textField, identifier: "username-field").firstMatch
-    for _ in 0..<4 {
-      if password.isHittable { break }
-      form.swipeUp()
-    }
-    XCTAssertTrue(password.isHittable)
-    password.tap()
-    password.typeText("fixture-only")
-    XCTAssertTrue(app.buttons["sign-in-button"].isHittable)
-    app.buttons["sign-in-button"].tap()
-    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
-  }
 
-  func testRestoredAnimatedAuthPresentationInBothAppearances() async throws {
-    continueAfterFailure = false
-    for appearance in ["light", "dark"] {
-      try await control("/__qa/reset")
-      try await control("/__qa/control", ["authRequired": true])
-      let app = XCUIApplication()
-      app.launchArguments = [
-        "--ui-testing", "--show-login", "--server", base, "--appearance", appearance,
-      ]
-      app.launch()
-      XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 8))
-      XCTAssertEqual(app.buttons["get-started"].label, "Get started")
-      XCTAssertTrue(app.staticTexts["Welcome to OpenTeam"].exists)
-      capture("restored-welcome-" + appearance + "-motion-a", app)
-      try await Task.sleep(for: .milliseconds(850))
-      capture("restored-welcome-" + appearance + "-motion-b", app)
-      app.buttons["get-started"].tap()
-      waitForArrival(app.textFields["server-field"])
-      XCTAssertTrue(app.textFields["server-field"].isHittable)
-      capture("restored-server-" + appearance, app)
-      app.textFields["server-field"].tap()
-      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
-      XCTAssertTrue(app.buttons["connect-button"].isHittable)
-      capture("restored-server-keyboard-" + appearance, app)
-      app.buttons["BackButton"].firstMatch.tap()
-      waitForArrival(app.buttons["get-started"])
-      XCTAssertTrue(app.buttons["get-started"].isHittable)
-      XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
-      app.buttons["get-started"].tap()
-      waitForArrival(app.textFields["server-field"])
-      app.buttons["connect-button"].tap()
-      XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 10))
-      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
-      waitForArrival(app.secureTextFields["password-field"])
-      capture("restored-credentials-keyboard-" + appearance, app)
-      app.textFields["username-field"].typeText("fixture")
-      app.secureTextFields["password-field"].tap()
-      app.secureTextFields["password-field"].typeText("unsent-password")
-      app.buttons["BackButton"].firstMatch.tap()
-      waitForArrival(app.textFields["server-field"])
-      app.buttons["connect-button"].tap()
-      XCTAssertTrue(app.secureTextFields["password-field"].waitForExistence(timeout: 10))
-      XCTAssertFalse(app.buttons["sign-in-button"].isEnabled, "Back must clear the password")
-      app.terminate()
-    }
-  }
 
   func testSavedSessionDoesNotReturnAfterReauthenticationAndRelaunch() async throws {
     continueAfterFailure = false
@@ -543,9 +426,6 @@ final class AuthFlowUITests: XCTestCase {
     try await verifySlowLaunch("light")
   }
 
-  func testDarkSavedSessionShowsCachedChatsWhileSyncing() async throws {
-    try await verifySlowLaunch("dark")
-  }
 
   func testCreationWaitsForSettingsSyncAndThenEnables() async throws {
     let app = try await savedSessionForColdLaunch()

@@ -138,7 +138,7 @@ app_ref = reference(app_target, 'OpenTeamNative.app'); test_ref = reference(test
 (schemes / 'OpenTeamNative.xcscheme').write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="2660" version="1.7">
 <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES"><BuildActionEntries><BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">{app_ref}</BuildActionEntry></BuildActionEntries></BuildAction>
-<TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"><Testables><TestableReference skipped="NO">{test_ref}<SkippedTests><Test Identifier="LiveBackendUITests"/><Test Identifier="QAAuditUITests"/><Test Identifier="SettingsPluginAuditUITests"/><Test Identifier="NativePushUITests"/></SkippedTests></TestableReference></Testables></TestAction>
+<TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"><Testables><TestableReference skipped="NO">{test_ref}<SkippedTests><Test Identifier="NativePushUITests"/><Test Identifier="RoutineScheduleUITests"/><Test Identifier="SearchNavigationUITests"/></SkippedTests></TestableReference></Testables></TestAction>
 <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" debugServiceExtension="internal" allowLocationSimulation="YES"><BuildableProductRunnable runnableDebuggingMode="0">{app_ref}</BuildableProductRunnable></LaunchAction>
 <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES"><BuildableProductRunnable runnableDebuggingMode="0">{app_ref}</BuildableProductRunnable></ProfileAction>
 <AnalyzeAction buildConfiguration="Debug"/><ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
@@ -152,51 +152,7 @@ system_scheme = system_scheme.replace('shouldUseLaunchSchemeArgsEnv="YES"', 'sho
 system_scheme = system_scheme.replace('</Testables></TestAction>', '</Testables><EnvironmentVariables><EnvironmentVariable key="OPENTEAM_SYSTEM_TEST_HOST" value="1" isEnabled="YES"/></EnvironmentVariables></TestAction>')
 (schemes / 'SystemIntents.xcscheme').write_text(system_scheme)
 
-visual_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<SkippedTests><Test Identifier="LiveBackendUITests"/><Test Identifier="QAAuditUITests"/><Test Identifier="SettingsPluginAuditUITests"/><Test Identifier="NativePushUITests"/></SkippedTests>', '<SelectedTests><Test Identifier="SelectedUITests"/></SelectedTests>')
-
-
-(schemes / "LiveBackend.xcscheme").write_text(visual_scheme.replace("SelectedUITests", "LiveBackendUITests"))
-
-
-(schemes / "QAAudit.xcscheme").write_text(visual_scheme.replace("SelectedUITests", "QAAuditUITests"))
-
-(schemes / "SettingsPluginAudit.xcscheme").write_text(visual_scheme.replace("SelectedUITests", "SettingsPluginAuditUITests"))
-
-(schemes / "NativePush.xcscheme").write_text(visual_scheme.replace("SelectedUITests", "NativePushUITests"))
-
-(schemes / "RealServer.xcscheme").write_text(visual_scheme.replace("SelectedUITests", "RealServerUITests"))
-# Real inference is explicitly opt-in; regular UI verification stays deterministic.
-(schemes / 'VNCValidation.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'VNCValidationUITests'))
-(schemes / 'LaunchRobot.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'LaunchRobotUITests'))
-(schemes / 'SiriSkills.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'SiriSkillsUITests'))
-(schemes / 'Palette.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'PaletteUITests'))
-(schemes / 'Haptics.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'HapticsUITests'))
-(schemes / 'RoutineSchedule.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'RoutineScheduleUITests'))
-for scheme in ['OpenTeamNative.xcscheme']:
-    path = schemes / scheme
-    path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="RoutineScheduleUITests"/></SkippedTests>'))
-    path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="RealServerUITests"/><Test Identifier="VNCValidationUITests"/><Test Identifier="LaunchRobotUITests"/><Test Identifier="PaletteUITests"/><Test Identifier="HapticsUITests"/></SkippedTests>'))
-
-# A real Tailscale address is required to catch HTTP policy bugs hidden by loopback fixtures.
-(schemes / 'LiveHTTP.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'LiveHTTPUITests'))
-for scheme in ['OpenTeamNative.xcscheme']:
-    path = schemes / scheme
-    path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="LiveHTTPUITests"/></SkippedTests>'))
-
-(schemes / 'GlassSections.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'GlassSectionsUITests'))
-(schemes / 'EdgeBack.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'EdgeBackUITests'))
-(schemes / 'MessagePerformance.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'MessagePerformanceUITests'))
-(schemes / 'ChatMotion.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'ChatMotionUITests'))
-for scheme in ['OpenTeamNative.xcscheme']:
-    path = schemes / scheme
-    path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="GlassSectionsUITests"/><Test Identifier="EdgeBackUITests"/><Test Identifier="MessagePerformanceUITests"/><Test Identifier="ChatMotionUITests"/></SkippedTests>'))
-
-# Broader acceptance: routines, edge gestures and local installation (fixture ports 20032/20043/20039).
-(schemes / 'Acceptance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', ''.join(f'<Test Identifier="{name}"/>' for name in ['RoutineScheduleUITests', 'EdgeBackUITests', 'LiveHTTPUITests'])))
-
-(schemes / 'MotionPerformance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', '<Test Identifier="ChatMotionUITests"/><Test Identifier="MessagePerformanceUITests"/>'))
-
-# Search/navigation fixtures run separately on port 20124.
-(schemes / 'SearchNavigation.xcscheme').write_text(visual_scheme.replace('SelectedUITests', 'SearchNavigationUITests'))
-path = schemes / 'OpenTeamNative.xcscheme'
-path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="SearchNavigationUITests"/></SkippedTests>'))
+visual_scheme = (schemes / 'OpenTeamNative.xcscheme').read_text().replace('<SkippedTests><Test Identifier="NativePushUITests"/><Test Identifier="RoutineScheduleUITests"/><Test Identifier="SearchNavigationUITests"/></SkippedTests>', '<SelectedTests><Test Identifier="SelectedUITests"/></SelectedTests>')
+# Suites that need their own fixture port (or a disposable push simulator) run separately.
+for name in ['NativePush', 'RoutineSchedule', 'SearchNavigation']:
+    (schemes / f'{name}.xcscheme').write_text(visual_scheme.replace('SelectedUITests', f'{name}UITests'))

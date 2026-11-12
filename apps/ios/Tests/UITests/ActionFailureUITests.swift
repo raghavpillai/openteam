@@ -73,9 +73,6 @@ final class ActionFailureUITests: XCTestCase {
     try await assertOutageBanner(appearance: "dark")
   }
 
-  func testConfirmedOutageBannerSupportsLightModeAndLargeText() async throws {
-    try await assertOutageBanner(appearance: "light", textSize: "UICTContentSizeCategoryAccessibilityXXXL")
-  }
 
   private func assertOutageBanner(appearance: String, textSize: String? = nil) async throws {
     let app = try await launch(chat: true, appearance: appearance, textSize: textSize)

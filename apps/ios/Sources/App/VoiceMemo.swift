@@ -10,11 +10,10 @@ import VoiceGlowKit
 // The + button and the message pill merge (gooey) into one recording bar, and a voice glow
 // rises from the bottom of the screen behind it. The draft stays untouched underneath.
 
-/// Uses the device preference in production and the same code path for
-/// deterministic reduced-motion simulator audits.
+/// Follows the device's reduced-motion preference.
 @propertyWrapper struct VoiceMotionPreference: DynamicProperty {
   @Environment(\.accessibilityReduceMotion) private var systemReducedMotion
-  var wrappedValue: Bool { systemReducedMotion || VoiceMemoController.previewsReducedMotion }
+  var wrappedValue: Bool { systemReducedMotion }
 }
 
 /// Shared geometry of the recording bar.
@@ -132,17 +131,7 @@ final class VoiceMemoController: ObservableObject {
   static func motion(reduceMotion: Bool) -> Animation {
     reduceMotion ? .easeInOut(duration: 0.2) : morph
   }
-  /// Deterministic accessibility preview for simulator audits; release builds
-  /// always follow the device setting.
-  nonisolated static var previewsReducedMotion: Bool {
-    #if DEBUG
-      ProcessInfo.processInfo.arguments.contains("--ui-testing")
-        && ProcessInfo.processInfo.arguments.contains("--qa-reduce-motion")
-    #else
-      false
-    #endif
-  }
-  private var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled || Self.previewsReducedMotion }
+  private var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled }
 
   /// Groups one transition's changes. Deliberately not `withAnimation`: it first flushes
   /// pending changes (the meter updates the recorder every 100 ms), and a view re-evaluated by

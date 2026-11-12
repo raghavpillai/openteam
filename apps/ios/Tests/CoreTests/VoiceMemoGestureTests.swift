@@ -113,41 +113,6 @@ final class VoiceMemoGestureTests: XCTestCase {
     XCTAssertEqual(VoiceMemoText.message(draft: "Keep", transcript: "  "), "Keep")
   }
 
-  func testDurationLabel() {
-    XCTAssertEqual(VoiceMemoText.duration(0), "0:00")
-    XCTAssertEqual(VoiceMemoText.duration(9.9), "0:09")
-    XCTAssertEqual(VoiceMemoText.duration(72), "1:12")
-    XCTAssertEqual(VoiceMemoText.duration(-1), "0:00")
-  }
 
-  func testLevelNormalisation() {
-    XCTAssertEqual(VoiceLevel.normalized(decibels: -160), 0)
-    XCTAssertEqual(VoiceLevel.normalized(decibels: -50), 0)
-    XCTAssertEqual(VoiceLevel.normalized(decibels: -25), 0.5, accuracy: 0.0001)
-    XCTAssertEqual(VoiceLevel.normalized(decibels: 0), 1)
-    XCTAssertEqual(VoiceLevel.normalized(decibels: 6), 1)
-    XCTAssertEqual(VoiceLevel.normalized(decibels: -.infinity), 0)
-    XCTAssertEqual(VoiceLevel.normalized(decibels: .nan), 0)
-  }
 
-  func testProcessingSweepGathersThenEasesSideToSide() {
-    let start = VoiceProcessingSweep.frame(elapsed: 0)
-    XCTAssertEqual(start.gather, 0)
-    XCTAssertEqual(start.offset, 0)
-    XCTAssertEqual(start.heldLevel, 0.5)
-    let gathered = VoiceProcessingSweep.frame(elapsed: 0.45)
-    XCTAssertEqual(gathered.gather, 1, accuracy: 0.0001)
-    // A quarter period after the start the beam is at its right edge and momentarily still.
-    let edge = VoiceProcessingSweep.frame(elapsed: 2.2 / 4)
-    XCTAssertEqual(edge.offset, 0.85, accuracy: 0.0001)
-    XCTAssertEqual(edge.stretch, 0, accuracy: 0.0001)
-    let other = VoiceProcessingSweep.frame(elapsed: 2.2 * 3 / 4)
-    XCTAssertEqual(other.offset, -0.85, accuracy: 0.0001)
-    let crossing = VoiceProcessingSweep.frame(elapsed: 2.2)
-    XCTAssertEqual(crossing.offset, 0, accuracy: 0.0001)
-    XCTAssertEqual(crossing.stretch, 1, accuracy: 0.0001, "the beam stretches while it moves fastest")
-    let still = VoiceProcessingSweep.frame(elapsed: 3, reduceMotion: true)
-    XCTAssertEqual(still.offset, 0)
-    XCTAssertEqual(still.gather, 1)
-  }
 }

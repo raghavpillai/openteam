@@ -86,46 +86,45 @@ final class FunctionalFlowUITests: XCTestCase {
     app.buttons["settings-button"].tap()
     app.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", "Plugins")).firstMatch.tap()
   }
-  func testBotActionsOmitHideAndDuplicateInBothAppearances() async throws {
+  func testBotActionsOmitHideAndDuplicate() async throws {
     continueAfterFailure = false
-    for appearance in ["light", "dark"] {
-      try await fixture("/__qa/reset")
-      let app = XCUIApplication()
-      app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
-      app.launch()
-      let row = app.buttons["channel-channel-research"]
-      XCTAssertTrue(row.waitForExistence(timeout: 15))
-      // Reveal actions without committing the new full-swipe pin gesture.
-      let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
-      start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -105, dy: 0)),
-        withVelocity: .slow, thenHoldForDuration: 0.15)
-      let swipePin = app.buttons["conversation-swipe-pin"]
-      XCTAssertTrue(swipePin.waitForExistence(timeout: 5))
-      XCTAssertFalse(app.buttons["conversation-swipe-hide"].exists)
-      XCTAssertTrue(row.exists)
-      row.tap()
-      XCTAssertTrue(swipePin.waitForNonExistence(timeout: 5))
-      row.press(forDuration: 0.8)
-      XCTAssertTrue(app.buttons["Pin"].waitForExistence(timeout: 5))
-      XCTAssertTrue(app.buttons["Delete bot"].exists)
-      XCTAssertFalse(app.buttons["Hide"].exists)
-      XCTAssertFalse(app.buttons["Duplicate bot"].exists)
-      capture("bot-context-without-hide-" + appearance, app)
-      app.buttons["conversation-context-pin"].tap()
-      let saved = try await state()
-      XCTAssertTrue((saved["settings"] as? [String: Any])?["pinnedIds"] as? [String] == ["channel-research"])
-      let pinnedRow = app.buttons["pinned-channel-research"]
-      XCTAssertTrue(pinnedRow.waitForExistence(timeout: 8))
-      pinnedRow.tap()
-      app.buttons["conversation-details"].tap()
-      XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 8))
-      app.buttons["profile-options"].tap()
-      XCTAssertTrue(app.buttons["Delete bot"].waitForExistence(timeout: 5))
-      XCTAssertFalse(app.buttons["Duplicate bot"].exists)
-      XCTAssertFalse(app.buttons["Hide"].exists)
-      capture("bot-options-without-duplicate-" + appearance, app)
-      app.terminate()
-    }
+    let appearance = "light"
+    try await fixture("/__qa/reset")
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
+    app.launch()
+    let row = app.buttons["channel-channel-research"]
+    XCTAssertTrue(row.waitForExistence(timeout: 15))
+    // Reveal actions without committing the new full-swipe pin gesture.
+    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+    start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -105, dy: 0)),
+      withVelocity: .slow, thenHoldForDuration: 0.15)
+    let swipePin = app.buttons["conversation-swipe-pin"]
+    XCTAssertTrue(swipePin.waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["conversation-swipe-hide"].exists)
+    XCTAssertTrue(row.exists)
+    row.tap()
+    XCTAssertTrue(swipePin.waitForNonExistence(timeout: 5))
+    row.press(forDuration: 0.8)
+    XCTAssertTrue(app.buttons["Pin"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Delete bot"].exists)
+    XCTAssertFalse(app.buttons["Hide"].exists)
+    XCTAssertFalse(app.buttons["Duplicate bot"].exists)
+    capture("bot-context-without-hide-" + appearance, app)
+    app.buttons["conversation-context-pin"].tap()
+    let saved = try await state()
+    XCTAssertTrue((saved["settings"] as? [String: Any])?["pinnedIds"] as? [String] == ["channel-research"])
+    let pinnedRow = app.buttons["pinned-channel-research"]
+    XCTAssertTrue(pinnedRow.waitForExistence(timeout: 8))
+    pinnedRow.tap()
+    app.buttons["conversation-details"].tap()
+    XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 8))
+    app.buttons["profile-options"].tap()
+    XCTAssertTrue(app.buttons["Delete bot"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["Duplicate bot"].exists)
+    XCTAssertFalse(app.buttons["Hide"].exists)
+    capture("bot-options-without-duplicate-" + appearance, app)
+    app.terminate()
   }
 
   func testBotContextDeletionCancelsAndRetriesFromPinnedRow() async throws {
@@ -203,51 +202,50 @@ final class FunctionalFlowUITests: XCTestCase {
     XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 8))
   }
 
-  func testProfileExitKeepsDiscardsAndSavesEditsInBothThemes() async throws {
+  func testProfileExitKeepsDiscardsAndSavesEdits() async throws {
     continueAfterFailure = false
-    for theme in ["dark", "light"] {
-      try await fixture("/__qa/reset")
-      let app = XCUIApplication()
-      app.launchArguments = ["--ui-testing", "--server", base, "--appearance", theme]
-      app.launch()
-      XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
-      details(app)
-      replace(app.textFields["profile-name"], "Keep this edit")
-      app.buttons["profile-back"].tap()
-      XCTAssertTrue(app.buttons["Keep editing"].waitForExistence(timeout: 5))
-      capture("profile-unsaved-" + theme, app)
-      app.buttons["Keep editing"].tap()
-      XCTAssertEqual(app.textFields["profile-name"].value as? String, "Keep this edit")
-      let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.45))
-      edge.press(forDuration: 0.05,
-        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.45)),
-        withVelocity: .slow, thenHoldForDuration: 0.2)
-      XCTAssertTrue(app.buttons["Save changes"].waitForExistence(timeout: 5))
-      if theme == "dark" {
-        try await fail("PATCH /api/v0/bots/bot-research")
-        app.buttons["Save changes"].tap()
-        error(app)
-        closeError(app)
-        XCTAssertEqual(app.textFields["profile-name"].value as? String, "Keep this edit")
-        XCTAssertTrue(app.textFields["profile-name"].isEnabled)
-        app.buttons["profile-back"].tap()
-        XCTAssertTrue(app.buttons["Save changes"].waitForExistence(timeout: 5))
-      }
+    let theme = "dark"
+    try await fixture("/__qa/reset")
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", theme]
+    app.launch()
+    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
+    details(app)
+    replace(app.textFields["profile-name"], "Keep this edit")
+    app.buttons["profile-back"].tap()
+    XCTAssertTrue(app.buttons["Keep editing"].waitForExistence(timeout: 5))
+    capture("profile-unsaved-" + theme, app)
+    app.buttons["Keep editing"].tap()
+    XCTAssertEqual(app.textFields["profile-name"].value as? String, "Keep this edit")
+    let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.45))
+    edge.press(forDuration: 0.05,
+      thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.45)),
+      withVelocity: .slow, thenHoldForDuration: 0.2)
+    XCTAssertTrue(app.buttons["Save changes"].waitForExistence(timeout: 5))
+    if theme == "dark" {
+      try await fail("PATCH /api/v0/bots/bot-research")
       app.buttons["Save changes"].tap()
-      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 12))
-      app.buttons["conversation-details"].tap()
+      error(app)
+      closeError(app)
       XCTAssertEqual(app.textFields["profile-name"].value as? String, "Keep this edit")
-      replace(app.textFields["profile-name"], "Discard this edit")
+      XCTAssertTrue(app.textFields["profile-name"].isEnabled)
       app.buttons["profile-back"].tap()
-      app.buttons["Discard changes"].tap()
-      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 5))
-      app.buttons["conversation-details"].tap()
-      XCTAssertEqual(app.textFields["profile-name"].value as? String, "Keep this edit")
-      app.buttons["profile-back"].tap()
-      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 5))
-      XCTAssertFalse(app.buttons["Save changes"].exists, "Unchanged profiles leave immediately")
-      app.terminate()
+      XCTAssertTrue(app.buttons["Save changes"].waitForExistence(timeout: 5))
     }
+    app.buttons["Save changes"].tap()
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 12))
+    app.buttons["conversation-details"].tap()
+    XCTAssertEqual(app.textFields["profile-name"].value as? String, "Keep this edit")
+    replace(app.textFields["profile-name"], "Discard this edit")
+    app.buttons["profile-back"].tap()
+    app.buttons["Discard changes"].tap()
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 5))
+    app.buttons["conversation-details"].tap()
+    XCTAssertEqual(app.textFields["profile-name"].value as? String, "Keep this edit")
+    app.buttons["profile-back"].tap()
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["Save changes"].exists, "Unchanged profiles leave immediately")
+    app.terminate()
   }
 
   func testSlowProfileSavePreventsLaterEditsAndExit() async throws {

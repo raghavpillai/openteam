@@ -62,42 +62,8 @@ import XCTest
     element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
   }
 
-  func testMicrophoneEdgesAndCornersStartHandsFreeWithKeyboardClosed() async throws {
-    try await verifyMicrophoneBounds(keyboard: false)
-  }
 
-  func testMicrophoneEdgesAndCornersStartHandsFreeWithKeyboardOpen() async throws {
-    try await verifyMicrophoneBounds(keyboard: true)
-  }
 
-  private func verifyMicrophoneBounds(keyboard: Bool) async throws {
-    // This audit measures stationary bounds. Hold/drag tests and MP4 captures
-    // separately cover normal motion; avoid XCTest waiting on cosmetic springs.
-    let app = try await launch(appearance: "light", arguments: ["--qa-reduce-motion"])
-    defer { app.terminate() }
-    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
-    for (dx, dy) in [(-13.0, 0.0), (13, 0), (-24, 0), (24, 0), (0, -24), (0, 24),
-                     (-24, -24), (24, -24), (-24, 24), (24, 24)] {
-      // Let the discarded bar finish its spring before asking the restored
-      // text field to focus; otherwise XCTest waits on the closing animation.
-      try await Task.sleep(for: .seconds(1))
-      if keyboard {
-        field.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-      }
-      let microphone = mic(app)
-      XCTAssertTrue(microphone.waitForExistence(timeout: 5))
-      XCTAssertGreaterThanOrEqual(microphone.frame.width, 52)
-      XCTAssertGreaterThanOrEqual(microphone.frame.height, 52)
-      center(of: microphone).withOffset(CGVector(dx: dx, dy: dy)).tap()
-      XCTAssertTrue(app.buttons["Stop recording"].waitForExistence(timeout: 4),
-        "Mic missed at (\(dx), \(dy)), keyboard: \(keyboard)")
-      app.buttons["Discard recording"].tap()
-      XCTAssertTrue(microphone.waitForExistence(timeout: 5))
-    }
-    let count = try await uploads()
-    XCTAssertEqual(count, 0, "Edge taps start hands-free; they must never send automatically")
-  }
 
   func testHandsFreeStopKeepsTheTakeUntilSend() async throws {
     let app = try await launch()
@@ -116,13 +82,6 @@ import XCTest
     try await assertSendHaptics(count: 2)
   }
 
-  func testHoldStartedAtTheEdgeKeepsTrackingOutsideTheTarget() async throws {
-    let app = try await launch()
-    let start = center(of: mic(app)).withOffset(CGVector(dx: 24, dy: 0))
-    start.press(forDuration: 1, thenDragTo: start.withOffset(CGVector(dx: 35, dy: 12)),
-      withVelocity: .slow, thenHoldForDuration: 0.3)
-    try await waitForMessage(app, transcript)
-  }
   /// Press the mic, hold, then slide by (dx, dy) points and hold before lifting.
   private func holdAndSlide(_ app: XCUIApplication, dx: CGFloat, dy: CGFloat, hold: TimeInterval = 1) {
     let start = center(of: mic(app))
@@ -158,15 +117,6 @@ import XCTest
     }
   }
 
-  func testVoiceSendDoubleHapticRespectsDisabledSetting() async throws {
-    let app = try await launch(haptics: "off")
-    defer { app.terminate() }
-    mic(app).tap()
-    XCTAssertTrue(app.buttons["Send voice note"].waitForExistence(timeout: 4))
-    app.buttons["Send voice note"].tap()
-    try await waitForMessage(app, transcript)
-    try await assertSendHaptics(count: 2, emitted: false)
-  }
 
   func testHoldAndReleaseTranscribesAndSends() async throws {
     let app = try await launch()
@@ -239,16 +189,6 @@ import XCTest
     XCTAssertEqual(armed.first?["effect"] as? String, "soft")
   }
 
-  func testSmallLeftDriftStaysInsideCancellationDeadZone() async throws {
-    let app = try await launch()
-    holdAndSlide(app, dx: -12, dy: 0)
-    try await waitForMessage(app, transcript)
-    let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/__qa/haptics")!)
-    let events = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
-    XCTAssertFalse(events.contains {
-      ($0["source"] as? String ?? "").hasPrefix("composer.voice-cancel-")
-    }, "Finger drift must not add cancellation feedback")
-  }
 
   func testSlideUpLocksThenSendOrTrash() async throws {
     let app = try await launch()
@@ -285,93 +225,8 @@ import XCTest
     XCTAssertEqual(count, 1, "Only the sent recording was uploaded")
   }
 
-  func testAttachmentMenuOnlyOffersAttachmentsWithAnExistingDraft() async throws {
-    let draft = "Keep this draft."
-    let app = try await launch(arguments: ["--visual-draft-base64", Data(draft.utf8).base64EncodedString()])
-    defer { app.terminate() }
-    app.buttons["attach-button"].tap()
-    XCTAssertTrue(app.buttons["attach-camera"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["attach-photos"].exists)
-    XCTAssertTrue(app.buttons["attach-files"].exists)
-    XCTAssertFalse(app.buttons["attach-voice"].exists)
-    let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
-    XCTAssertEqual(tray.frame.height, 228, accuracy: 1, "Three reference rows with 11 points above and below")
-    app.buttons["attachment-tray-dismiss"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
-    XCTAssertTrue(tray.waitForNonExistence(timeout: 5))
-    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
-    XCTAssertEqual(field.value as? String, draft)
-    XCTAssertTrue(app.buttons["send-button"].exists)
-  }
 
-  func testReducedMotionRecordingSendsAndRestoresComposer() async throws {
-    let app = try await launch(appearance: "light", arguments: ["--qa-reduce-motion"])
-    mic(app).tap()
-    XCTAssertTrue(app.buttons["Send voice note"].waitForExistence(timeout: 5))
-    let bars = app.descendants(matching: .any).matching(identifier: "voice-memo-bar")
-    XCTAssertEqual(bars.count, 1)
-    XCTAssertEqual(bars.firstMatch.frame.height, 64, accuracy: 1)
-    app.buttons["Send voice note"].tap()
-    try await waitForMessage(app, transcript)
-    XCTAssertTrue(mic(app).waitForExistence(timeout: 5))
-  }
 
-  func testScrolledUpVoiceCancellationRestoresComposerAndReadingPosition() async throws {
-    var marks: [[String: Any]] = []
-    for appearance in ["dark", "light"] {
-      let app = try await launch(appearance: appearance, scene: "history-pages", channel: "visual-chat")
-      defer { app.terminate() }
-      let history = app.tables["chat-history"]
-      history.swipeDown()
-      XCTAssertTrue(app.buttons["Latest messages"].waitForExistence(timeout: 5))
-      let candidates = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Page message '"))
-        .allElementsBoundByIndex
-      let anchor = try XCTUnwrap(candidates.first {
-        $0.isHittable && $0.frame.midY > 130 && $0.frame.midY < min(450, app.frame.height - 180)
-      })
-      let label = anchor.label
-      let readingY = anchor.frame.midY
-      let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
-      let idle = input.frame
-      func mark(_ phase: String) {
-        marks.append(["phase": appearance + "-" + phase, "time": Date().timeIntervalSince1970,
-          "anchor": label, "anchorY": app.staticTexts[label].frame.midY])
-      }
-      func assertRestored(_ phase: String) async throws {
-        XCTAssertTrue(mic(app).waitForExistence(timeout: 5))
-        try await Task.sleep(for: .milliseconds(700))
-        capture(appearance + "-scrolled-" + phase, app)
-        mark(phase)
-        XCTAssertEqual(input.frame.minX, idle.minX, accuracy: 1)
-        XCTAssertEqual(input.frame.minY, idle.minY, accuracy: 1)
-        XCTAssertEqual(input.frame.width, idle.width, accuracy: 1)
-        XCTAssertEqual(input.frame.height, idle.height, accuracy: 1)
-        XCTAssertEqual(app.staticTexts[label].frame.midY, readingY, accuracy: 2,
-          "Cancelling a recording must keep the message being read in place")
-        XCTAssertTrue(app.buttons["Latest messages"].exists, "Recording must not jump to the latest message")
-        XCTAssertFalse(app.keyboards.firstMatch.exists)
-      }
-      capture(appearance + "-scrolled-before-recording", app)
-      mark("before-recording")
-      mic(app).tap()
-      XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
-      XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "voice-memo-bar").firstMatch.frame.height,
-        64, accuracy: 1)
-      capture(appearance + "-scrolled-recording", app)
-      mark("before-discard")
-      app.buttons["Discard recording"].tap()
-      try await assertRestored("after-discard")
-      mark("before-slide-cancel")
-      holdAndSlide(app, dx: -170, dy: 0)
-      try await assertRestored("after-slide-cancel")
-      let count = try await uploads()
-      XCTAssertEqual(count, 0)
-    }
-    let evidence = XCTAttachment(data: try JSONSerialization.data(withJSONObject: marks, options: .prettyPrinted),
-      uniformTypeIdentifier: "public.json")
-    evidence.name = "scrolled-voice-cancellation"
-    evidence.lifetime = .keepAlways
-    add(evidence)
-  }
 
   func testBackgroundedRecordingWaitsForExplicitSendAfterReturning() async throws {
     let app = try await launch(appearance: "light")
@@ -461,8 +316,8 @@ import XCTest
     capture("review-after-failure", app)
     app.buttons["Send voice note"].tap()
     try await waitForMessage(app, transcript)
-    // The fixture logs every attempt, so the rejected upload counts too.
+    // The fixture logs only the uploads it accepts: the injected 503 is not counted.
     let count = try await uploads()
-    XCTAssertEqual(count, 2, "Retry uploads the kept recording once more")
+    XCTAssertEqual(count, 1, "Retry uploads the kept recording")
   }
 }

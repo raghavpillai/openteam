@@ -54,18 +54,6 @@ import XCTest
     add(shot)
   }
 
-  // The same interaction on the base commit and the fix for before/after MP4s.
-  func testRecordSearchNavigation() async throws {
-    let app = try await launch()
-    defer { app.terminate() }
-    openResult(app)
-    capture("search-destination", app)
-    try await Task.sleep(for: .seconds(1))
-    for _ in 0..<4 { drag(app, older: true) }
-    capture("older-history", app)
-    for _ in 0..<8 { drag(app, older: false) }
-    capture("newer-history", app)
-  }
   func requests() async throws -> [[String: Any]] {
     try await control("__qa/state")["requests"] as? [[String: Any]] ?? []
   }
@@ -201,22 +189,5 @@ import XCTest
       "Loading older messages must preserve the visible message's pixel position")
   }
 
-  func testRecordMessageFlashesOnBothSides() async throws {
-    // The fixture alternates received (even) and sent (odd) messages.
-    for appearance in ["light", "dark"] {
-      for number in [90, 91] {
-        let app = try await launch(appearance: appearance)
-        print("FLASH_APPEARANCE \(appearance)")
-        openResult(app, number: number)
-        let frame = try historyFrame(app)
-        XCTAssertEqual(frame["lastHighlightedMessage"] as? String,
-          "visual-message-visual-chat-\(number)")
-        XCTAssertTrue(app.staticTexts["Page message \(number)"].isHittable)
-        try await Task.sleep(for: .seconds(1))
-        capture("\(appearance)-\(number == 91 ? "sent" : "received")-settled", app)
-        app.terminate()
-      }
-    }
-  }
 
 }

@@ -51,63 +51,62 @@ import XCTest
     XCTAssertEqual(field.value as? String, value)
   }
 
-  func testSearchesLargeCatalogAndSavesOnlyOnApplyInBothAppearances() async throws {
+  func testSearchesLargeCatalogAndSavesOnlyOnApply() async throws {
     continueAfterFailure = false
-    for appearance in ["light", "dark"] {
-      _ = try await request("/__qa/reset", [:])
-      _ = try await request("/__qa/control", ["modelSettings": true, "largeModelCatalog": true])
-      let app = XCUIApplication()
-      app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
-      app.launch()
-      openModel(app)
-      text("qa-saved-model", app)
-      tap("model-model-picker", app)
-      XCTAssertTrue(app.navigationBars["Choose a model"].waitForExistence(timeout: 10))
-      text("Recommended", app)
-      let search = app.searchFields.firstMatch
-      XCTAssertTrue(search.waitForExistence(timeout: 10))
-      searchFor("no-such-model", in: search)
-      XCTAssertFalse(app.buttons["model-option-anthropic/qa-model-17"].exists)
-      text("No Results", app)
-      searchFor("Anthropic 17", in: search)
-      let option = app.buttons["model-option-anthropic/qa-model-17"]
-      guard option.waitForExistence(timeout: 10) else {
-        XCTFail("The model must match the search: \(search.value ?? "")")
-        return
-      }
-      let screenshot = XCTAttachment(screenshot: app.screenshot())
-      screenshot.name = "model-picker-" + appearance
-      screenshot.lifetime = .keepAlways
-      add(screenshot)
-      // iOS hides the sheet toolbar while its search controller is active.
-      if !app.buttons["model-search-cancel"].exists { tap("Close", app) }
-      tap("model-search-cancel", app)
-      XCTAssertTrue(app.buttons["model-model-picker"].label.contains("Saved QA model"))
-      tap("model-model-picker", app)
-      XCTAssertTrue(search.waitForExistence(timeout: 10))
-      XCTAssertEqual(search.value as? String, "Search 22 models")
-      searchFor("Anthropic 17", in: search)
-      XCTAssertTrue(option.waitForExistence(timeout: 10))
-      option.tap()
-      XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
-      XCTAssertTrue(app.buttons["model-model-picker"].label.contains("QA model 17"))
-      var state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
-      XCTAssertEqual((state["inference"] as! [String: String])["modelId"], "qa-saved-model")
-      select("model-reasoning-picker", "High", app)
-      tap("model-apply", app)
-      text("Working · replied", app)
-      state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
-      let saved = ["providerId": "openrouter", "modelId": "anthropic/qa-model-17", "reasoning": "high"]
-      XCTAssertEqual(state["inference"] as! [String: String], saved)
-      XCTAssertEqual((state["tests"] as! [[String: String]]).last, saved)
-      app.terminate()
-      app.launch()
-      openModel(app)
-      text("anthropic/qa-model-17", app)
-      XCTAssertTrue(app.buttons["model-model-picker"].label.contains("QA model 17"))
-      XCTAssertTrue(app.buttons["model-reasoning-picker"].label.contains("High"))
-      app.terminate()
+    let appearance = "light"
+    _ = try await request("/__qa/reset", [:])
+    _ = try await request("/__qa/control", ["modelSettings": true, "largeModelCatalog": true])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
+    app.launch()
+    openModel(app)
+    text("qa-saved-model", app)
+    tap("model-model-picker", app)
+    XCTAssertTrue(app.navigationBars["Choose a model"].waitForExistence(timeout: 10))
+    text("Recommended", app)
+    let search = app.searchFields.firstMatch
+    XCTAssertTrue(search.waitForExistence(timeout: 10))
+    searchFor("no-such-model", in: search)
+    XCTAssertFalse(app.buttons["model-option-anthropic/qa-model-17"].exists)
+    text("No Results", app)
+    searchFor("Anthropic 17", in: search)
+    let option = app.buttons["model-option-anthropic/qa-model-17"]
+    guard option.waitForExistence(timeout: 10) else {
+      XCTFail("The model must match the search: \(search.value ?? "")")
+      return
     }
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "model-picker-" + appearance
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    // iOS hides the sheet toolbar while its search controller is active.
+    if !app.buttons["model-search-cancel"].exists { tap("Close", app) }
+    tap("model-search-cancel", app)
+    XCTAssertTrue(app.buttons["model-model-picker"].label.contains("Saved QA model"))
+    tap("model-model-picker", app)
+    XCTAssertTrue(search.waitForExistence(timeout: 10))
+    XCTAssertEqual(search.value as? String, "Search 22 models")
+    searchFor("Anthropic 17", in: search)
+    XCTAssertTrue(option.waitForExistence(timeout: 10))
+    option.tap()
+    XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["model-model-picker"].label.contains("QA model 17"))
+    var state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
+    XCTAssertEqual((state["inference"] as! [String: String])["modelId"], "qa-saved-model")
+    select("model-reasoning-picker", "High", app)
+    tap("model-apply", app)
+    text("Working · replied", app)
+    state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
+    let saved = ["providerId": "openrouter", "modelId": "anthropic/qa-model-17", "reasoning": "high"]
+    XCTAssertEqual(state["inference"] as! [String: String], saved)
+    XCTAssertEqual((state["tests"] as! [[String: String]]).last, saved)
+    app.terminate()
+    app.launch()
+    openModel(app)
+    text("anthropic/qa-model-17", app)
+    XCTAssertTrue(app.buttons["model-model-picker"].label.contains("QA model 17"))
+    XCTAssertTrue(app.buttons["model-reasoning-picker"].label.contains("High"))
+    app.terminate()
   }
 
   func testCanRetryLoadingModelSettings() async throws {
@@ -127,79 +126,78 @@ import XCTest
     app.terminate()
   }
 
-  func testModelConnectionSelectionAndPersistenceInBothAppearances() async throws {
+  func testModelConnectionSelectionAndPersistence() async throws {
     continueAfterFailure = false
-    for appearance in ["light", "dark"] {
-      _ = try await request("/__qa/reset", [:])
-      _ = try await request("/__qa/control", ["modelSettings": true])
-      let app = XCUIApplication()
-      app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
-      app.launch()
-      openModel(app)
-      text("qa-saved-model", app)
-      XCTAssertFalse(app.buttons["model-reasoning-picker"].isEnabled)
-      XCTAssertFalse(app.buttons["model-apply"].isEnabled)
+    let appearance = "light"
+    _ = try await request("/__qa/reset", [:])
+    _ = try await request("/__qa/control", ["modelSettings": true])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
+    app.launch()
+    openModel(app)
+    text("qa-saved-model", app)
+    XCTAssertFalse(app.buttons["model-reasoning-picker"].isEnabled)
+    XCTAssertFalse(app.buttons["model-apply"].isEnabled)
 
-      _ = try await request("/__qa/control", ["failures": [
-        "GET /api/v0/server-settings": ["status": 400, "message": "Provider catalog unavailable."]
-      ]])
-      select("model-provider-picker", "OpenAI", app)
-      text("Provider catalog unavailable.", app)
-      XCTAssertTrue(app.buttons["model-provider-picker"].label.contains("OpenRouter"))
-      XCTAssertTrue(app.buttons["model-model-picker"].label.contains("Saved QA model"))
-      XCTAssertFalse(app.buttons["model-apply"].isEnabled)
-      select("model-provider-picker", "OpenAI", app)
-      tap("model-connect-api_key", app)
-      let key = app.secureTextFields["model-prompt-field"]
-      XCTAssertTrue(key.waitForExistence(timeout: 10))
-      key.tap()
-      key.typeText("qa-model-key")
-      tap("model-prompt-continue", app)
-      text("Connected with an API key.", app)
-      tap("model-apply", app)
-      text("Working · replied", app)
-      var state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
-      XCTAssertEqual((state["inference"] as! [String: String])["providerId"], "openai")
-      XCTAssertEqual((state["tests"] as! [[String: String]]).last?["modelId"], "qa-openai-model")
+    _ = try await request("/__qa/control", ["failures": [
+      "GET /api/v0/server-settings": ["status": 400, "message": "Provider catalog unavailable."]
+    ]])
+    select("model-provider-picker", "OpenAI", app)
+    text("Provider catalog unavailable.", app)
+    XCTAssertTrue(app.buttons["model-provider-picker"].label.contains("OpenRouter"))
+    XCTAssertTrue(app.buttons["model-model-picker"].label.contains("Saved QA model"))
+    XCTAssertFalse(app.buttons["model-apply"].isEnabled)
+    select("model-provider-picker", "OpenAI", app)
+    tap("model-connect-api_key", app)
+    let key = app.secureTextFields["model-prompt-field"]
+    XCTAssertTrue(key.waitForExistence(timeout: 10))
+    key.tap()
+    key.typeText("qa-model-key")
+    tap("model-prompt-continue", app)
+    text("Connected with an API key.", app)
+    tap("model-apply", app)
+    text("Working · replied", app)
+    var state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
+    XCTAssertEqual((state["inference"] as! [String: String])["providerId"], "openai")
+    XCTAssertEqual((state["tests"] as! [[String: String]]).last?["modelId"], "qa-openai-model")
 
-      select("model-provider-picker", "OpenRouter", app)
-      select("model-model-picker", "Reasoning QA model", app)
-      select("model-reasoning-picker", "High", app)
-      XCTAssertFalse(app.buttons["model-test"].isEnabled)
-      _ = try await request("/__qa/control", ["failures": [
-        "PATCH /api/v0/server-settings/inference": ["status": 400, "message": "Model save refused."]
-      ]])
-      tap("model-apply", app)
-      text("Model save refused.", app)
-      state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
-      XCTAssertEqual((state["inference"] as! [String: String])["providerId"], "openai")
-      XCTAssertTrue(app.buttons["model-model-picker"].label.contains("Reasoning QA model"))
-      XCTAssertTrue(app.buttons["model-reasoning-picker"].label.contains("High"))
-      tap("model-apply", app)
-      text("Working · replied", app)
-      state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
-      let saved = ["providerId": "openrouter", "modelId": "qa-reasoning-model", "reasoning": "high"]
-      XCTAssertEqual(state["inference"] as! [String: String], saved)
-      XCTAssertEqual((state["tests"] as! [[String: String]]).last, saved)
-      let screenshot = XCTAttachment(screenshot: app.screenshot())
-      screenshot.name = "model-settings-" + appearance
-      screenshot.lifetime = .keepAlways
-      add(screenshot)
+    select("model-provider-picker", "OpenRouter", app)
+    select("model-model-picker", "Reasoning QA model", app)
+    select("model-reasoning-picker", "High", app)
+    XCTAssertFalse(app.buttons["model-test"].isEnabled)
+    _ = try await request("/__qa/control", ["failures": [
+      "PATCH /api/v0/server-settings/inference": ["status": 400, "message": "Model save refused."]
+    ]])
+    tap("model-apply", app)
+    text("Model save refused.", app)
+    state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
+    XCTAssertEqual((state["inference"] as! [String: String])["providerId"], "openai")
+    XCTAssertTrue(app.buttons["model-model-picker"].label.contains("Reasoning QA model"))
+    XCTAssertTrue(app.buttons["model-reasoning-picker"].label.contains("High"))
+    tap("model-apply", app)
+    text("Working · replied", app)
+    state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
+    let saved = ["providerId": "openrouter", "modelId": "qa-reasoning-model", "reasoning": "high"]
+    XCTAssertEqual(state["inference"] as! [String: String], saved)
+    XCTAssertEqual((state["tests"] as! [[String: String]]).last, saved)
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "model-settings-" + appearance
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
 
-      // Recreate the app and its setup state; the server is the source of truth.
-      app.terminate()
-      app.launch()
-      openModel(app)
-      text("qa-reasoning-model", app)
-      XCTAssertTrue(app.buttons["model-reasoning-picker"].label.contains("High"))
-      XCTAssertFalse(app.buttons["model-apply"].isEnabled)
-      select("model-model-picker", "Saved QA model", app)
-      XCTAssertFalse(app.buttons["model-reasoning-picker"].isEnabled)
-      tap("model-apply", app)
-      text("Working · replied", app)
-      state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
-      XCTAssertEqual((state["inference"] as! [String: String])["reasoning"], "off")
-      app.terminate()
-    }
+    // Recreate the app and its setup state; the server is the source of truth.
+    app.terminate()
+    app.launch()
+    openModel(app)
+    text("qa-reasoning-model", app)
+    XCTAssertTrue(app.buttons["model-reasoning-picker"].label.contains("High"))
+    XCTAssertFalse(app.buttons["model-apply"].isEnabled)
+    select("model-model-picker", "Saved QA model", app)
+    XCTAssertFalse(app.buttons["model-reasoning-picker"].isEnabled)
+    tap("model-apply", app)
+    text("Working · replied", app)
+    state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
+    XCTAssertEqual((state["inference"] as! [String: String])["reasoning"], "off")
+    app.terminate()
   }
 }

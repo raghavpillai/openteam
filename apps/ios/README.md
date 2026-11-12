@@ -73,13 +73,6 @@ Store builds don't enable preview testing, and the Simulator verifies actions an
 indexing only. See Apple's [preview requirements](https://developer.apple.com/documentation/appintents/siri-ai-developer-preview)
 and [app skills guide](https://developer.apple.com/documentation/appintents/orchestrating-complex-actions-with-app-skills).
 
-The opt-in `SiriSkills` scheme runs device-only `SiriEvaluations` tests for server
-search, named-group drafting and a conversational follow-up. Use an isolated QA
-account with a group named `Release review`, and set `OPENTEAM_LIVE_SIRI_TESTS=1` and
-`OPENTEAM_SIRI_QA_CONVERSATION_ID` (the group's `TeamConversationEntity` ID, not the
-raw server channel ID) in the test runner's environment. Without them the tests skip.
-The tests open drafts, so clear them between runs.
-
 ## Shortcuts and Spotlight
 
 App Shortcuts (`Sources/App/TeamIntents.swift`) expose **Open a Bot**, **Record a
@@ -135,34 +128,26 @@ The script needs `bun`, `curl` and ripgrep (`rg`):
 bash apps/ios/scripts/verify.sh <simulator-udid> [result-dir]
 ```
 
-It starts fixtures on ports 19997, 19992, 19994, 20070, 20071, 20072, 20081, 20085,
-20093, 20137 and 20171 (reusing any already running) and writes logs and the result
+It starts fixtures on ports 19997, 19992, 20070, 20071, 20072, 20081, 20085, 20093
+and 20137 (reusing any already running) and writes logs and the result
 bundle to `output/swift-native-<timestamp>/` unless you pass a result directory. It
 uses ad hoc simulator signing so the discovery tests can exercise Keychain persistence
 across cold launches.
 
-Other schemes in `OpenTeamNative.xcodeproj/xcshareddata/xcschemes` run separately;
-see `Tests/UITests` for the current checks:
+Suites that need their own fixture run from separate schemes in
+`OpenTeamNative.xcodeproj/xcshareddata/xcschemes`:
 
-- `Acceptance` runs `RoutineScheduleUITests` (fixture on port 20032),
-  `EdgeBackUITests` (port 20043, or set `EDGE_BACK_SERVER`) and `LiveHTTPUITests`.
-  `LiveHTTPUITests` (also its own `LiveHTTP` scheme) checks discovery and sign-in
-  against a real installation over HTTP and HTTPS. Its two server addresses are
-  hard-coded in `Tests/UITests/LiveHTTPUITests.swift`; replace them with your own
-  server's before running it.
-- `MotionPerformance` covers composer motion and history performance (fixtures 20070
-  and 19996). Run it after other simulator suites finish.
+- `RoutineSchedule` runs `RoutineScheduleUITests` (fixture on port 20032).
 - `SearchNavigation` checks search, result highlighting and history paging against a
   fixture started with `SWIFT_PARITY_PORT=20124`.
-- `RealServer` includes `testLiveVoiceTranscriptionThroughMicrophone`, which uses
-  `scripts/real-server-qa.ts`. Other optional schemes cover message motion and
-  performance, widgets, settings and VNC; live-server tests need their own isolated
-  backend.
+- `NativePush` checks notification delivery, read sync and notification taps against
+  `scripts/native-push-fixture.ts` (port 20016), which proxies a parity fixture on
+  20015 and injects real notifications into the disposable simulator named by
+  `SWIFT_PUSH_QA_SIMULATOR`.
 
 Some suites read their fixture address from an environment variable. Pass it to
 `xcodebuild` with a `TEST_RUNNER_` prefix, for example
-`TEST_RUNNER_FUNCTIONAL_FLOW_SERVER=http://127.0.0.1:<fixture-port>` (default 19992)
-or `TEST_RUNNER_CHAT_MOTION_SERVER=…` (default 20070).
+`TEST_RUNNER_FUNCTIONAL_FLOW_SERVER=http://127.0.0.1:<fixture-port>` (default 19992).
 
 The `SystemIntents` scheme runs hosted tests of the real intents, Keychain and
 Spotlight with synthetic data. Start the fixture and the upload proxy (port 20086,

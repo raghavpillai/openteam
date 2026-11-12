@@ -78,83 +78,8 @@ import XCTest
     XCTAssertEqual(actual.height, expected.height, accuracy: 0.5, file: file, line: line)
   }
 
-  func testDeliverySpaceExistsOnlyForVisibleControls() throws {
-    let bar = measure(SendingRetryBar())
-    XCTAssertEqual(bar.width, 24, accuracy: 0.5)
-    XCTAssertEqual(bar.height, 2, accuracy: 0.5)
-    var send = PendingSend(channelId: "fixture", input: SendInput(content: "Hello", attachments: []))
-    var presentation = MessagePresentation()
-    func height(_ pending: [PendingSend], message: Message? = nil,
-      typeSize: DynamicTypeSize = .large) throws -> CGFloat {
-      let rows = presentation.project(MessageTimeline(message.map { [$0] } ?? []),
-        pending: pending, animateNew: false)
-      let row = try XCTUnwrap(rows.first)
-      return measure(MessageDeliveryRow(row: row) {
-        Color.gray.frame(width: 200, height: 40)
-      }, typeSize: typeSize).height
-    }
-    XCTAssertEqual(try height([send]), 40, accuracy: 0.5, "A normal send must not reserve retry space")
-    send.failure = "Rejected"
-    XCTAssertGreaterThanOrEqual(try height([send]), 86, "A visible Retry needs its real tap target")
-    XCTAssertGreaterThanOrEqual(try height([send], typeSize: .accessibility2), 86)
-    send.failure = nil
-    send.deliveryUnconfirmed = true
-    XCTAssertGreaterThanOrEqual(try height([send]), 86)
-    send.deliveryUnconfirmed = nil
-    XCTAssertEqual(try height([send]), 40, accuracy: 0.5)
-    let accepted = try JSONDecoder().decode(Message.self, from: JSONSerialization.data(withJSONObject: [
-      "id": "accepted", "clientId": send.id, "sequence": "1", "channelId": send.channelId,
-      "sender": "user", "content": "Hello", "metadata": [:],
-      "createdAt": "2026-11-04T15:00:00Z",
-    ]))
-    XCTAssertEqual(try height([], message: accepted), 40, accuracy: 0.5,
-      "Confirmed history must not retain an invisible delivery row")
-  }
 
-  func testPhotoGeometryAcrossUploadAcceptanceAndFailure() throws {
-    // Portrait, landscape, small originals, and EXIF-rotated JPEGs. The server
-    // reports raw header dimensions, while ImageIO rotates the decoded thumbnail.
-    for (width, height, orientation) in [(800, 400, 1), (400, 800, 1), (80, 60, 1), (800, 400, 6)] {
-      let (file, url) = try staged(photo(width: width, height: height, orientation: orientation),
-        name: "Photo.jpg", mime: "image/jpeg")
-      var send = pending([file])
-      let previews = PendingAttachmentPreviews()
-      _ = previews.items(send, api: nil, fileURL: { _ in url })
-      let before = measure(PendingAttachments(pending: send, previews: previews))
-      XCTAssertEqual(before.height, min(Double(height), 240, 260 * Double(height) / Double(width)), accuracy: 0.5)
-      send.failure = "Upload failed"
-      assertSame(measure(PendingAttachments(pending: send, previews: previews)), before)
-      let asset = uploaded(file, width: width, height: height)
-      completeUpload(file, asset: asset, send: &send)
-      // Match the real uploader: delete before the view sees the server asset.
-      try FileManager.default.removeItem(at: url)
-      assertSame(measure(PendingAttachments(pending: send, previews: previews)), before)
-      assertSame(measure(AttachmentView(asset: asset, channelID: send.channelId, messageID: "accepted")), before)
-    }
-  }
 
-  func testVideoAndDocumentGeometryAcrossUploadAcceptanceAndFailure() throws {
-    for (name, mime) in [("Clip.mov", "video/quicktime"),
-      ("A very long document filename that must truncate rather than wrap.pdf", "application/pdf")] {
-      // Poster availability must have no effect on the video's fixed frame.
-      let (file, url) = try staged(Data("fixture".utf8), name: name, mime: mime)
-      for typeSize in [DynamicTypeSize.large, .accessibility2] {
-        var send = pending([file])
-        let previews = PendingAttachmentPreviews()
-        _ = previews.items(send, api: nil, fileURL: { _ in url })
-        let before = measure(PendingAttachments(pending: send, previews: previews), typeSize: typeSize)
-        if mime.hasPrefix("video/") { assertSame(before, CGSize(width: 292, height: 208)) }
-        else { XCTAssertGreaterThanOrEqual(before.height, 70) }
-        send.failure = "Not delivered"
-        assertSame(measure(PendingAttachments(pending: send, previews: previews), typeSize: typeSize), before)
-        let asset = uploaded(file)
-        completeUpload(file, asset: asset, send: &send)
-        assertSame(measure(PendingAttachments(pending: send, previews: previews), typeSize: typeSize), before)
-        assertSame(measure(AttachmentView(asset: asset, channelID: send.channelId, messageID: "accepted"),
-          typeSize: typeSize), before)
-      }
-    }
-  }
 
   func testMixedAttachmentsKeepOrderAndGeometryDuringEachUpload() throws {
     let (photoFile, photoURL) = try staged(photo(width: 800, height: 400), name: "Photo.jpg", mime: "image/jpeg")

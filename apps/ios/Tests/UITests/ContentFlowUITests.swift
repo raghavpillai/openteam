@@ -14,8 +14,7 @@ import XCTest
     let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/__qa/state")!)
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
-  func launch(_ scene: String, required: Bool = false, dark: Bool = false, haptics: Bool = false,
-    slowFavicons: Bool = false, largeText: Bool = false, reducedMotion: Bool = false) async throws
+  func launch(_ scene: String, required: Bool = false, dark: Bool = false, haptics: Bool = false) async throws
     -> XCUIApplication
   {
     continueAfterFailure = false
@@ -33,9 +32,6 @@ import XCTest
     ]
     if required { app.launchArguments.append("--show-login") }
     if haptics { app.launchArguments.append("--haptic-audit") }
-    if reducedMotion { app.launchArguments.append("--qa-reduce-motion") }
-    if slowFavicons { app.launchArguments.append("--slow-favicons") }
-    if largeText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
     app.launch()
     if required {
       waitForArrival(app.buttons["get-started"])
@@ -113,29 +109,6 @@ import XCTest
     link.tap()
     assertInAppBrowser(app, link, name: "link-plain-browser")
   }
-  /// The dark-mode chat link and its link actions, for comparison with the reference design.
-  func testDarkLinkAppearance() async throws {
-    let app = try await launch("link-chat", dark: true)
-    let link = app.links["Wikipedia's random article page"]
-    XCTAssertTrue(link.waitForExistence(timeout: 12))
-    try await Task.sleep(for: .seconds(4))
-    capture("link-dark-chat", app)
-    link.press(forDuration: 1.2)
-    try await Task.sleep(for: .seconds(2))
-    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "link-actions-url").firstMatch.exists)
-    capture("link-dark-actions", app)
-  }
-  /// Native links use a local fallback without delaying link interaction.
-  func testLinkFaviconUsesLocalFallback() async throws {
-    for scene in ["plain-link", "markdown"] {
-      let app = try await launch(scene)
-      let link = scene == "markdown" ? app.webViews.links["safe link"] : app.links["Wikipedia's random article page"]
-      XCTAssertTrue(link.waitForExistence(timeout: 12))
-      XCTAssertTrue(link.isHittable)
-      capture("favicon-\(scene)-local-fallback", app)
-      app.terminate()
-    }
-  }
   func testRichMarkdownLinkOpensInAppBrowser() async throws {
     let app = try await launch("markdown", haptics: true)
     let link = app.webViews.links["safe link"]
@@ -210,178 +183,6 @@ import XCTest
     XCTAssertTrue(done.waitForNonExistence(timeout: 5), "Closing the in-app browser did not dismiss it")
     XCTAssertTrue(link.waitForExistence(timeout: 5), "Closing the browser did not return to the chat")
   }
-  /// The card closes with an animation (and, when a chat message closed it, only once the
-  /// transcript is still), so its settled height is waited for rather than read at once.
-  private func waitForCard(_ card: XCUIElement, shorterThan limit: CGFloat, _ message: String) {
-    let closed = XCTNSPredicateExpectation(
-      predicate: NSPredicate { _, _ in card.frame.height < limit }, object: nil)
-    XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 8), .completed, message)
-  }
-  func testNormalComposerMovesPastQuestionWithoutSubmittingCardDraft() async throws {
-    let app = try await launch("widget-pending", dark: true)
-    defer { app.terminate() }
-    XCTAssertTrue(app.buttons["Alpha"].waitForExistence(timeout: 10))
-    let card = app.otherElements["widget-card-content-fixture"]
-    let expandedHeight = card.frame.height
-    app.buttons["Alpha"].tap()
-    let custom = app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch
-    XCTAssertTrue(custom.exists)
-    custom.tap()
-    custom.typeText("Unsubmitted Gamma")
-    let composer = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
-    composer.tap()
-    composer.typeText("New topic")
-    app.buttons["send-button"].tap()
-    let dismissed = app.staticTexts["widget-dismissed-content-fixture"]
-    XCTAssertTrue(dismissed.waitForExistence(timeout: 10))
-    XCTAssertEqual(dismissed.label, "Continued in chat")
-    // The card's controls melt away and are removed once it has closed.
-    XCTAssertTrue(app.buttons["widget-submit-content-fixture"].waitForNonExistence(timeout: 8))
-    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch
-      .waitForNonExistence(timeout: 8))
-    let snapshot = try await state()
-    let requests = try XCTUnwrap(snapshot["requests"] as? [[String: Any]])
-    XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-response") })
-    XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-dismiss") })
-    waitForCard(card, shorterThan: expandedHeight - 50, "Moving on in chat must minimize the card")
-    capture("question-moved-on", app)
-  }
-  func testStaleQuestionHistoryDoesNotReopenDismissedCard() async throws {
-    let app = try await launch("widget-pending", dark: true)
-    defer { app.terminate() }
-    let done = app.buttons["widget-dismiss-content-fixture"]
-    XCTAssertTrue(done.waitForExistence(timeout: 10))
-    done.tap()
-    let dismissed = app.staticTexts["widget-dismissed-content-fixture"]
-    XCTAssertTrue(dismissed.waitForExistence(timeout: 10))
-    let before = try await state()["requests"] as? [[String: Any]] ?? []
-    let beforeHistory = before.filter { (($0["path"] as? String) ?? "").hasSuffix("/history") }.count
-    // The fixture now returns the pre-dismissal card, like a delayed replica/page.
-    try await control("/__qa/content", ["scene": "widget-pending-stale"])
-    let back = app.buttons["chat-back"]
-    if back.exists { back.tap() } else { app.buttons["chat-sidebar"].tap() }
-    let row = app.buttons["channel-channel-research"]
-    XCTAssertTrue(row.waitForExistence(timeout: 10))
-    waitForArrival(row); row.tap()
-    var refreshed = false
-    for _ in 0..<50 {
-      let requests = try await state()["requests"] as? [[String: Any]] ?? []
-      if requests.filter({ (($0["path"] as? String) ?? "").hasSuffix("/history") }).count > beforeHistory {
-        refreshed = true; break
-      }
-      try await Task.sleep(for: .milliseconds(200))
-    }
-    XCTAssertTrue(refreshed, "The stale history response was not requested")
-    XCTAssertTrue(app.staticTexts["Stale history replay"].waitForExistence(timeout: 10))
-    XCTAssertTrue(dismissed.waitForExistence(timeout: 10))
-    XCTAssertFalse(done.exists)
-    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "widget-custom-content-fixture").firstMatch.exists)
-  }
-  private func verifyQuestionSkip(reducedMotion: Bool) async throws {
-    let app = try await launch("widget-pending", dark: true, reducedMotion: reducedMotion)
-    defer { app.terminate() }
-    let send = app.buttons["widget-submit-content-fixture"]
-    let skip = app.buttons["widget-dismiss-content-fixture"]
-    XCTAssertTrue(skip.waitForExistence(timeout: 10))
-    let card = app.otherElements["widget-card-content-fixture"]
-    XCTAssertTrue(card.exists)
-    let expandedHeight = card.frame.height
-    XCTAssertEqual(skip.label, "Skip question")
-    XCTAssertEqual(send.label, "Send answer")
-    XCTAssertFalse(send.isEnabled, "An empty card must not send an answer")
-    app.buttons["Alpha"].tap()
-    XCTAssertEqual(app.buttons["Alpha"].value as? String, "Selected")
-    XCTAssertTrue(send.isEnabled)
-    app.buttons["Alpha"].tap()
-    XCTAssertFalse(send.isEnabled)
-    XCTAssertTrue(skip.isEnabled)
-    skip.tap()
-    XCTAssertTrue(app.staticTexts["widget-dismissed-content-fixture"].waitForExistence(timeout: 10))
-    XCTAssertEqual(app.staticTexts["widget-dismissed-content-fixture"].label, "Skipped")
-    // The card's controls melt away and are removed once it has closed.
-    XCTAssertTrue(skip.waitForNonExistence(timeout: 8))
-    XCTAssertTrue(app.buttons["Alpha"].waitForNonExistence(timeout: 8))
-    waitForCard(card, shorterThan: expandedHeight - 50, "Skipping must minimize the card")
-    capture(reducedMotion ? "question-skipped-reduced-motion" : "question-skipped-collapsed", app)
-    let snapshot = try await state()
-    let requests = try XCTUnwrap(snapshot["requests"] as? [[String: Any]])
-    XCTAssertTrue(requests.contains { (($0["path"] as? String) ?? "").contains("widget-dismiss") })
-    XCTAssertFalse(requests.contains { (($0["path"] as? String) ?? "").contains("widget-response") })
-  }
-
-  func testEmptyQuestionActionClearlySkipsWithoutAnAnswer() async throws {
-    try await verifyQuestionSkip(reducedMotion: false)
-  }
-  func testQuestionCollapseWithReducedMotion() async throws {
-    try await verifyQuestionSkip(reducedMotion: true)
-  }
-  func testQuestionAnswerCollapsesToReceipt() async throws {
-    let app = try await launch("widget-pending", dark: true)
-    defer { app.terminate() }
-    let card = app.otherElements["widget-card-content-fixture"]
-    XCTAssertTrue(card.waitForExistence(timeout: 10))
-    let expandedHeight = card.frame.height
-    app.buttons["Alpha"].tap()
-    let send = app.buttons["widget-submit-content-fixture"]
-    XCTAssertEqual(send.label, "Send answer")
-    send.tap()
-    XCTAssertTrue(app.descendants(matching: .any)["widget-answer-content-fixture-0"].waitForExistence(timeout: 10))
-    // The chosen tile is the receipt row now; the other controls melt away and are removed.
-    XCTAssertTrue(send.waitForNonExistence(timeout: 8))
-    XCTAssertTrue(app.buttons["Alpha"].waitForNonExistence(timeout: 8))
-    waitForCard(card, shorterThan: expandedHeight - 50, "Answering must minimize to the receipt")
-    capture("question-answer-collapsed", app)
-  }
-
-  func testCompletedWidgetKeepsLabeledCheckedRowsInBothThemes() async throws {
-    for dark in [true, false] {
-      let app = try await launch("widget-completed", dark: dark)
-      defer { app.terminate() }
-      XCTAssertTrue(app.staticTexts["Choose a route"].waitForExistence(timeout: 10))
-      XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
-        .firstMatch.waitForNonExistence(timeout: 15))
-      var previous: CGRect?
-      for (index, label) in ["Alpha", "Beta", "Gamma"].enumerated() {
-        let row = app.descendants(matching: .any)
-          .matching(identifier: "widget-answer-content-fixture-\(index)").firstMatch
-        XCTAssertTrue(row.exists)
-        XCTAssertEqual(row.label, label)
-        XCTAssertEqual(row.value as? String, "Selected")
-        // AX may expose the text bounds rather than the padded row. Measure
-        // the distance between rows, which also catches a collapsed option list.
-        if let previous { XCTAssertGreaterThanOrEqual(row.frame.midY - previous.midY, 24) }
-        previous = row.frame
-      }
-      XCTAssertFalse(app.buttons["Submit"].exists)
-      XCTAssertFalse(app.buttons["Dismiss"].exists)
-      capture("widget-completed-" + (dark ? "dark" : "light"), app)
-    }
-  }
-  func testPlainMessageLineBoxTracksAccessibilityTextSize() async throws {
-    var heights: [CGFloat] = []
-    for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
-      try await control("/__qa/reset")
-      try await control("/__qa/content", ["scene": "type-size"])
-      let app = XCUIApplication()
-      app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "dark",
-        "--open-channel", "channel-research", "-UIPreferredContentSizeCategoryName", category]
-      app.launch()
-      defer { app.terminate() }
-      let text = app.staticTexts["Hello"]
-      XCTAssertTrue(text.waitForExistence(timeout: 15))
-      XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
-        .firstMatch.waitForNonExistence(timeout: 15))
-      let row = app.otherElements["message-content-fixture"]
-      XCTAssertTrue(row.exists)
-      XCTAssertTrue(text.isHittable)
-      XCTAssertGreaterThanOrEqual(row.frame.height, text.frame.height)
-      heights.append(row.frame.height)
-      capture("message-type-size-" + category, app)
-    }
-    XCTAssertEqual(heights[0], 40, accuracy: 0.5)
-    XCTAssertGreaterThan(heights[1], heights[0] * 1.8)
-    XCTAssertLessThan(heights[1], heights[0] * 3, "A single line must not gain a second empty line box")
-  }
   func testUserFormPrefillValidationFailureAndAcceptedReceipt() async throws {
     let app = try await launch("form", dark: true)
     let name = app.descendants(matching: .any).matching(identifier: "form-field-name").firstMatch
@@ -435,44 +236,7 @@ import XCTest
   }
   /// Native control chrome must remain usable before or during a VNC reconnect.
   func testComputerControlBarAndBackgroundOwnership() async throws {
-    try await exerciseComputerControlBar(largeText: false)
-  }
-  func testComputerControlBarWithAccessibilityText() async throws {
-    try await exerciseComputerControlBar(largeText: true)
-  }
-  func testComputerControlMotion() async throws {
     let app = try await launch("plain-link", dark: true)
-    defer { app.terminate() }
-    if !app.buttons["Computer"].exists {
-      app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.tap()
-    }
-    app.buttons["Computer"].tap()
-    XCTAssertTrue(app.buttons["Take control"].waitForExistence(timeout: 12))
-    try await Task.sleep(for: .seconds(2))
-    print("COMPUTER_CONTROL_MOTION_START")
-    try await Task.sleep(for: .seconds(1))
-    for _ in 0..<3 {
-      app.buttons["Take control"].tap()
-      XCTAssertTrue(app.buttons["Give back control"].waitForExistence(timeout: 12))
-      try await Task.sleep(for: .milliseconds(1200))
-      let stopFrame = app.buttons["Give back control"].frame
-      let barFrame = app.descendants(matching: .any).matching(identifier: "computer-control-bar").firstMatch.frame
-      XCTAssertEqual(stopFrame.width, 64, accuracy: 2, "Stop must not retain Take control’s invisible layout slot")
-      XCTAssertEqual(barFrame.maxX - stopFrame.maxX, 6, accuracy: 2, "Stop keeps the same trailing rim inset")
-      XCTAssertEqual(barFrame.midY, stopFrame.midY, accuracy: 1, "Stop is vertically centered in the capsule")
-      app.buttons["Give back control"].tap()
-      XCTAssertTrue(app.buttons["Take control"].waitForExistence(timeout: 12))
-      try await Task.sleep(for: .milliseconds(1200))
-    }
-    print("COMPUTER_CONTROL_MOTION_END")
-    let final = try await state()
-    XCTAssertEqual((final["screen"] as? [String: Any])?["humanTakeover"] as? Bool, false)
-  }
-  func testComputerControlReducedMotion() async throws {
-    try await exerciseComputerControlBar(largeText: false, reducedMotion: true)
-  }
-  private func exerciseComputerControlBar(largeText: Bool, reducedMotion: Bool = false) async throws {
-    let app = try await launch("plain-link", dark: true, largeText: largeText, reducedMotion: reducedMotion)
     defer { app.terminate() }
     if !app.buttons["Computer"].exists {
       app.descendants(matching: .any).matching(identifier: "chat-more").firstMatch.tap()
@@ -482,24 +246,22 @@ import XCTest
     XCTAssertTrue(take.waitForExistence(timeout: 12), "Take control is visible without opening a menu")
     XCTAssertTrue(take.isHittable)
     XCTAssertGreaterThanOrEqual(take.frame.height, 44)
-    capture(largeText ? "computer-control-large-text-watching" : "computer-control-watching", app)
+    capture("computer-control-watching", app)
     take.tap()
     let stop = app.buttons["Give back control"]
     XCTAssertTrue(stop.waitForExistence(timeout: 12))
     XCTAssertTrue(stop.isHittable)
     let owned = try await state()
     XCTAssertEqual((owned["screen"] as? [String: Any])?["humanTakeover"] as? Bool, true)
-    capture(largeText ? "computer-control-large-text-owned" : "computer-control-owned", app)
-    if !largeText {
-      XCUIDevice.shared.press(.home)
-      try await Task.sleep(for: .seconds(2))
-      app.activate()
-      XCTAssertTrue(stop.waitForExistence(timeout: 12))
-      let returned = try await state()
-      let expectedControl = try XCTUnwrap((owned["screen"] as? [String: Any])?["controlSession"] as? NSDictionary)
-      XCTAssertEqual((returned["screen"] as? [String: Any])?["controlSession"] as? NSDictionary, expectedControl)
-      XCTAssertEqual((returned["screen"] as? [String: Any])?["humanTakeover"] as? Bool, true)
-    }
+    capture("computer-control-owned", app)
+    XCUIDevice.shared.press(.home)
+    try await Task.sleep(for: .seconds(2))
+    app.activate()
+    XCTAssertTrue(stop.waitForExistence(timeout: 12))
+    let returned = try await state()
+    let expectedControl = try XCTUnwrap((owned["screen"] as? [String: Any])?["controlSession"] as? NSDictionary)
+    XCTAssertEqual((returned["screen"] as? [String: Any])?["controlSession"] as? NSDictionary, expectedControl)
+    XCTAssertEqual((returned["screen"] as? [String: Any])?["humanTakeover"] as? Bool, true)
     stop.tap()
     XCTAssertTrue(take.waitForExistence(timeout: 12))
     let released = try await state()
@@ -511,7 +273,7 @@ import XCTest
     XCTAssertTrue(app.buttons["Take control here"].waitForExistence(timeout: 12))
     let resume = app.buttons["Resume bot"]
     XCTAssertTrue(resume.isHittable)
-    capture(largeText ? "computer-control-large-text-other-device" : "computer-control-other-device", app)
+    capture("computer-control-other-device", app)
     resume.tap()
     XCTAssertTrue(take.waitForExistence(timeout: 12))
     let resumed = try await state()

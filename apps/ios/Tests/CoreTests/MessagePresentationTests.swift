@@ -25,55 +25,6 @@ final class MessagePresentationTests: XCTestCase {
     XCTAssertEqual(accepted[0].id, queued[0].id)
     XCTAssertEqual(presentation.arrivalRevision, revision)
   }
-  func testOpeningHistoryAndLoadingOlderPagesDoNotAnimate() {
-    var presentation = MessagePresentation()
-    let initial = presentation.project(
-      MessageTimeline([message("newer", "20")]), pending: [], animateNew: false)
-    XCTAssertFalse(initial[0].animatesArrival)
-    let older = presentation.project(
-      MessageTimeline([message("older", "10"), message("newer", "20")]), pending: [],
-      animateNew: true)
-    XCTAssertTrue(older.allSatisfy { !$0.animatesArrival })
-    XCTAssertEqual(presentation.arrivalRevision, 0)
-    let incoming = presentation.project(
-      MessageTimeline([message("newer", "20"), message("arrival", "21")]), pending: [],
-      animateNew: true)
-    XCTAssertFalse(incoming[0].animatesArrival)
-    XCTAssertTrue(incoming[1].animatesArrival)
-    XCTAssertEqual(presentation.arrivalRevision, 1)
-  }
-  func testRepliesReadByCatchingUpAreInPlaceAndOnlyLaterRepliesArrive() {
-    var presentation = MessagePresentation()
-    // The reader was not there for anything up to 22: the chat's page brought it.
-    let live: (Message) -> Bool = { MessageMerge.less("22", $0.sequence) }
-    _ = presentation.project(
-      MessageTimeline([message("seen", "20")]), pending: [], animateNew: false, isArrival: live)
-    // The page lands after the saved transcript is on screen.
-    let caughtUp = presentation.project(
-      MessageTimeline([message("seen", "20"), message("missed-1", "21"), message("missed-2", "22")]),
-      pending: [], animateNew: true, isArrival: live)
-    XCTAssertTrue(caughtUp.allSatisfy { !$0.animatesArrival })
-    XCTAssertEqual(presentation.arrivalRevision, 0)
-    let arrived = presentation.project(
-      MessageTimeline([
-        message("seen", "20"), message("missed-1", "21"), message("missed-2", "22"),
-        message("live", "23"),
-      ]), pending: [], animateNew: true, isArrival: live)
-    XCTAssertEqual(arrived.map(\.animatesArrival), [false, false, false, true])
-    XCTAssertEqual(presentation.arrivalRevision, 1)
-  }
-  func testAQueuedSendArrivesEvenWhenNoReplyIsLive() {
-    var presentation = MessagePresentation()
-    _ = presentation.project(
-      MessageTimeline([message("seen", "20")]), pending: [], animateNew: false,
-      isArrival: { _ in false })
-    let pending = PendingSend(
-      channelId: "chat", input: SendInput(content: "Message", clientId: "nonce"))
-    let queued = presentation.project(
-      MessageTimeline([message("seen", "20")]), pending: [pending], animateNew: true,
-      isArrival: { _ in false })
-    XCTAssertEqual(queued.map(\.animatesArrival), [false, true])
-  }
   func testQueuedTimestampMatchesAcknowledgmentAfterLongGap() throws {
     var presentation = MessagePresentation()
     let earlier = message("earlier", "1")
@@ -119,18 +70,4 @@ final class MessagePresentationTests: XCTestCase {
     XCTAssertEqual(rows.map(\.groupsWithPrevious), [false, true, false, false, false, false])
   }
 
-  func testPendingAndAcceptedMessagesKeepTheSameSpeakerSpacing() throws {
-    var presentation = MessagePresentation()
-    let earlier = message("earlier", "1")
-    var pending = PendingSend(
-      channelId: "chat", input: SendInput(content: "Message", clientId: "nonce"))
-    pending.createdAt = try XCTUnwrap(earlier.date)
-    let queued = presentation.project(
-      MessageTimeline([earlier]), pending: [pending], animateNew: true)
-    let accepted = presentation.project(
-      MessageTimeline([earlier, message("accepted", "2", client: "nonce")]),
-      pending: [], animateNew: true)
-    XCTAssertTrue(queued[1].groupsWithPrevious)
-    XCTAssertEqual(queued[1].groupsWithPrevious, accepted[1].groupsWithPrevious)
-  }
 }

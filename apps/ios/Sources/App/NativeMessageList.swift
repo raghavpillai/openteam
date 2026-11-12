@@ -1602,28 +1602,6 @@ extension HistoryListController {
     willLayout?()
     if animatesLayout { super.layoutSubviews() } else { UIView.performWithoutAnimation { super.layoutSubviews() } }
     didLayout?()
-    #if DEBUG
-    if ProcessInfo.processInfo.arguments.contains("--ui-testing-layout-geometry") {
-      // Read native frames in rotation tests: WebKit's remote accessibility
-      // nodes can disappear or return zero rectangles during a width change.
-      var documents: [[String: Any]] = []
-      func collect(_ view: UIView) {
-        if let document = view as? HistoryLayoutReadiness {
-          let frame = view.convert(view.bounds, to: self)
-          if frame.intersects(bounds), view.alpha > 0 {
-            documents.append(["width": view.bounds.width, "height": view.bounds.height,
-              "y": frame.minY, "ready": document.historyLayoutReady])
-          }
-        }
-        for child in view.subviews { collect(child) }
-      }
-      for cell in visibleCells { collect(cell) }
-      documents.sort { ($0["y"] as? CGFloat ?? 0) < ($1["y"] as? CGFloat ?? 0) }
-      if let data = try? JSONSerialization.data(withJSONObject: documents) {
-        accessibilityValue = String(data: data, encoding: .utf8)
-      }
-    }
-    #endif
   }
 }
 

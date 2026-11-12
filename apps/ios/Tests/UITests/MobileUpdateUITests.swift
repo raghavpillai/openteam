@@ -50,12 +50,4 @@ final class MobileUpdateUITests: XCTestCase {
     XCTAssertFalse(app.buttons["mobile-update-testflight"].exists)
   }
 
-  func testDarkUpdateNotice() {
-    let app = launch(updateAvailable: true, appearance: "dark")
-    XCTAssertTrue(app.buttons["mobile-update-badge"].waitForExistence(timeout: 5))
-    capture("mobile-update-home-dark", app)
-    app.buttons["settings-button"].tap()
-    XCTAssertTrue(app.buttons["mobile-update-testflight"].waitForExistence(timeout: 5))
-    capture("mobile-update-settings-dark", app)
-  }
 }

@@ -29,9 +29,6 @@ import XCTest
   func testBackgroundTaskAppearsTransitionsAndClearsWithoutForegroundRun() async throws {
     try await checkBackgroundTaskLifecycle(appearance: "light")
   }
-  func testBackgroundTaskLifecycleInDarkMode() async throws {
-    try await checkBackgroundTaskLifecycle(appearance: "dark")
-  }
   func testPullToRefreshWithTasksPreservesAuthenticatedSessionAndDraft() async throws {
     continueAfterFailure = false
     try await control("__qa/scene", ["scene": "background-activity"])

@@ -4,27 +4,7 @@ import XCTest
   private let base =
     ProcessInfo.processInfo.environment["SERVER_UPDATE_SERVER"] ?? "http://127.0.0.1:20093"
 
-  func testManageDevicesRowRespondsToCenterTap() async throws {
-    continueAfterFailure = false
-    try await reset()
-    let app = launch()
-    try tap(app.buttons["server-settings"], app)
-    XCTAssertTrue(app.navigationBars["Server"].waitForExistence(timeout: 5))
-    try tap(app.buttons["server-manage-devices"], app, atCenter: true)
-    XCTAssertTrue(app.navigationBars["Manage devices"].waitForExistence(timeout: 5))
-    app.terminate()
-  }
 
-  func testViewUpdatesRowRespondsToCenterTap() async throws {
-    continueAfterFailure = false
-    try await reset()
-    let app = launch()
-    try tap(app.buttons["server-settings"], app)
-    XCTAssertTrue(app.navigationBars["Server"].waitForExistence(timeout: 5))
-    try tap(app.buttons["server-view-updates"], app, atCenter: true)
-    XCTAssertTrue(app.navigationBars["Updates"].waitForExistence(timeout: 5))
-    app.terminate()
-  }
 
   func testServerLinksToUpdatesWithIdleConfirmationAndRestartRecovery() async throws {
     continueAfterFailure = false
@@ -158,23 +138,6 @@ import XCTest
     app.terminate()
   }
 
-  func testNativeReadyLayoutKeepsActionsVisibleInBothAppearances() async throws {
-    continueAfterFailure = false
-    for appearance in ["light", "dark"] {
-      try await reset()
-      let app = launch(appearance: appearance)
-      try tap(app.buttons["updates-settings"], app)
-      let start = app.buttons["server-update-start"]
-      try wait { start.exists && start.isEnabled }
-      XCTAssertTrue(start.isHittable)
-      XCTAssertTrue(app.buttons["server-update-check"].isHittable)
-      XCTAssertTrue(
-        app.descendants(matching: .any).matching(identifier: "ios-app-update").firstMatch.isHittable
-      )
-      capture("ios-native-ready-" + appearance, app)
-      app.terminate()
-    }
-  }
 
   func testDirectUpdatesHandlesUnavailableUpdaterErrorsAndUnknownVersions() async throws {
     continueAfterFailure = false

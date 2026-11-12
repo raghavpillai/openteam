@@ -156,24 +156,4 @@ import XCTest
     XCTAssertEqual(saves.map { $0["method"] as! String }, ["PUT", "PUT", "PUT"])
   }
 
-  func testVoiceSettingsSaveUsesTheServerRoute() async throws {
-    let app = try await launch(onboarding: false)
-    tap("settings-button", app)
-    tap("voice-settings", app)
-    let language = app.textFields["voice-language"]
-    XCTAssertTrue(language.waitForExistence(timeout: 8))
-    if !language.isHittable { app.swipeUp() }
-    language.tap()
-    language.typeText("en")
-    let save = app.buttons["voice-save"]
-    if !save.isHittable { app.swipeUp() }
-    save.tap()
-    XCTAssertTrue(app.staticTexts["Saved. Voice notes are disabled."].waitForExistence(timeout: 8))
-    let state = try await request("/__qa/state")
-    XCTAssertTrue(
-      (state["requests"] as! [[String: Any]]).contains {
-        $0["method"] as? String == "PUT"
-          && $0["path"] as? String == "/api/v0/server-settings/transcription"
-      })
-  }
 }

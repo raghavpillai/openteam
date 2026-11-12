@@ -1,3 +1,4 @@
+import { dictateHowTo } from "../hooks/dictate-gesture";
 import { Mic, Square } from "lucide-react";
 
 /** Inserts dictated text at the caret, with a space where it meets other words. */
@@ -34,7 +35,7 @@ export function DictationButton({
       disabled={disabled || state === "processing"}
       aria-label={recording ? "Stop dictation and insert text" : `Dictate (${shortcut})`}
       aria-pressed={recording}
-      title={recording ? "Stop (↩)" : `Dictate (${shortcut})`}
+      title={recording ? "Stop (↩)" : `Click to dictate. ${dictateHowTo(shortcut)}`}
       onClick={recording ? onStop : onStart}
     >
       {recording ? <Square size={10} strokeWidth={0} fill="currentColor" /> : <Mic size={15} strokeWidth={2.2} />}

@@ -4,7 +4,8 @@
 //
 // Usage: screenbot-keys --chord command|option|shift|control|off [--fn]
 // stdout: "ready tap" | "ready poll", then "trigger" for each chord, and with --fn (or after
-//         "fn on") "fn" each time the Fn key is tapped on its own (dictation can use it).
+//         "fn on") "fn-down" / "fn-up" for the Fn key on its own, or "fn-cancel" when it
+//         turns into Fn+key (dictation can use it).
 // stdin:  "chord <name|off>", "fn on|off", "pause" / "resume", EOF exits.
 //
 // With Input Monitoring granted it listens to modifier changes through a passive event tap,
@@ -79,30 +80,36 @@ let fnFlag = CGEventFlags.maskSecondaryFn.rawValue
 let plainModifiers = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskAlternate.rawValue
   | CGEventFlags.maskShift.rawValue | CGEventFlags.maskControl.rawValue
 
-/// The Fn (🌐) key tapped on its own: down and up within a moment, with no other modifier and
-/// no key typed meanwhile. Fires on release, so Fn+arrow (Page Up) or Fn+F-key never counts.
+/// The Fn (🌐) key on its own, for dictation (hold to dictate, press twice to keep going):
+/// "fn-down" when it goes down clean, "fn-up" when it's released, or "fn-cancel" once if another
+/// modifier or key joins in (Fn+arrow is Page Up, not dictation).
 final class FnDetector {
   var enabled = false
-  var paused = false
-  private var downAt: TimeInterval?
-  private var clean = false
-  static let longest: TimeInterval = 0.6
+  private var down = false
+  private var live = false
+  private var downAt: TimeInterval = 0
 
-  func update(flags: UInt64, now: TimeInterval, lastKeyDown: TimeInterval? = nil) -> Bool {
+  func update(flags: UInt64, now: TimeInterval, lastKeyDown: TimeInterval? = nil) -> String? {
     let fn = flags & fnFlag != 0
-    if fn {
-      if downAt == nil {
-        downAt = now
-        clean = flags & plainModifiers == 0
-      } else if flags & plainModifiers != 0 {
-        clean = false
-      }
-      return false
+    if fn && !down {
+      down = true
+      downAt = now
+      live = enabled && flags & plainModifiers == 0
+      return live ? "fn-down" : nil
     }
-    guard let started = downAt else { return false }
-    downAt = nil
-    let typed = lastKeyDown.map { $0 >= started } ?? false
-    return enabled && !paused && clean && !typed && now - started <= FnDetector.longest
+    let typed = lastKeyDown.map { $0 >= downAt } ?? false
+    if fn {
+      if live && (flags & plainModifiers != 0 || typed) {
+        live = false
+        return "fn-cancel"
+      }
+      return nil
+    }
+    guard down else { return nil }
+    down = false
+    let was = live
+    live = false
+    return was ? (typed ? "fn-cancel" : "fn-up") : nil
   }
 
   func holding(_ flags: UInt64) -> Bool { enabled && flags & fnFlag != 0 }
@@ -150,19 +157,21 @@ if CommandLine.arguments.contains("--self-test") {
   }
   run("both control keys", "control", [(ctrl | 0x01, 0), (ctrl | 0x2001, 0.05), (0, 0.3)], expect: 1)
   // Fn on its own, for dictation.
-  func fn(_ name: String, _ steps: [(UInt64, TimeInterval, TimeInterval?)], enabled: Bool = true, expect: Int) {
+  func fn(_ name: String, _ steps: [(UInt64, TimeInterval, TimeInterval?)], enabled: Bool = true, expect: [String]) {
     let detector = FnDetector()
     detector.enabled = enabled
-    let fired = steps.filter { detector.update(flags: $0.0, now: $0.1, lastKeyDown: $0.2) }.count
-    if fired != expect { failures.append("\(name): fired \(fired), expected \(expect)") }
+    let events = steps.compactMap { detector.update(flags: $0.0, now: $0.1, lastKeyDown: $0.2) }
+    if events != expect { failures.append("\(name): \(events), expected \(expect)") }
   }
   let fnBit = CGEventFlags.maskSecondaryFn.rawValue
-  fn("fn tapped", [(fnBit, 0, nil), (0, 0.15, nil)], expect: 1)
-  fn("fn held a long time", [(fnBit, 0, nil), (0, 1.2, nil)], expect: 0)
-  fn("fn with an arrow (Page Up)", [(fnBit, 0, nil), (0, 0.3, 0.1)], expect: 0)
-  fn("fn with command", [(fnBit, 0, nil), (fnBit | cmd, 0.05, nil), (0, 0.2, nil)], expect: 0)
-  fn("fn while off", [(fnBit, 0, nil), (0, 0.15, nil)], enabled: false, expect: 0)
-  fn("key typed before fn", [(fnBit, 1, 0.5), (0, 1.15, 0.5)], expect: 1)
+  fn("fn tapped", [(fnBit, 0, nil), (0, 0.15, nil)], expect: ["fn-down", "fn-up"])
+  fn("fn held", [(fnBit, 0, nil), (fnBit, 1.0, nil), (0, 2.5, nil)], expect: ["fn-down", "fn-up"])
+  fn("fn twice", [(fnBit, 0, nil), (0, 0.1, nil), (fnBit, 0.25, nil), (0, 0.35, nil)], expect: ["fn-down", "fn-up", "fn-down", "fn-up"])
+  fn("fn with an arrow (Page Up)", [(fnBit, 0, nil), (fnBit, 0.1, 0.1), (0, 0.3, 0.1)], expect: ["fn-down", "fn-cancel"])
+  fn("fn then command", [(fnBit, 0, nil), (fnBit | cmd, 0.05, nil), (0, 0.2, nil)], expect: ["fn-down", "fn-cancel"])
+  fn("command then fn", [(cmd, 0, nil), (fnBit | cmd, 0.05, nil), (0, 0.2, nil)], expect: [])
+  fn("fn while off", [(fnBit, 0, nil), (0, 0.15, nil)], enabled: false, expect: [])
+  fn("key typed before fn", [(fnBit, 1, 0.5), (0, 1.15, 0.5)], expect: ["fn-down", "fn-up"])
   print(failures.isEmpty ? "ok" : failures.joined(separator: "\n"))
   exit(failures.isEmpty ? 0 : 1)
 }
@@ -196,7 +205,7 @@ func handle(flags: UInt64) {
   let sinceKey = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
   let lastKeyDown = max(tapKeyDownAt, now - sinceKey)
   if detector.update(flags: flags, now: now, lastKeyDown: lastKeyDown) && chordOn { emit("trigger") }
-  if fnDetector.update(flags: flags, now: now, lastKeyDown: lastKeyDown) { emit("fn") }
+  if let event = fnDetector.update(flags: flags, now: now, lastKeyDown: lastKeyDown) { emit(event) }
 }
 
 /// Polling speeds up while a watched key is held, so a quick press is never missed.
@@ -245,7 +254,11 @@ if CGPreflightListenEventAccess() {
       handle(flags: event.flags.rawValue)
     case .keyDown:
       // Only matters while a chord key is held (it cancels the chord); otherwise ignore it.
-      if holdingWatched(event.flags.rawValue) { tapKeyDownAt = ProcessInfo.processInfo.systemUptime }
+      if holdingWatched(event.flags.rawValue) {
+        tapKeyDownAt = ProcessInfo.processInfo.systemUptime
+        // A key while Fn is held makes it Fn+key: tell the detector now, not at release.
+        handle(flags: event.flags.rawValue)
+      }
     case .tapDisabledByTimeout, .tapDisabledByUserInput:
       // macOS can disable a tap; turn it back on right here instead of on a timer.
       if let port = tapPort { CGEvent.tapEnable(tap: port, enable: true) }

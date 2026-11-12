@@ -109,7 +109,7 @@ function ShortcutRow({
     const fnRecordable = action === "dictate" && mac;
     const shortcuts = window.openteam?.shortcuts;
     if (fnRecordable) void shortcuts?.recordFn(true);
-    const stopFn = fnRecordable ? shortcuts?.onShortcut((pressed) => { if (pressed === "fn") void save(FN_KEY); }) : undefined;
+    const stopFn = fnRecordable ? shortcuts?.onShortcut((pressed) => { if (pressed === "fn-up") void save(FN_KEY); }) : undefined;
     return () => {
       stopFn?.();
       if (fnRecordable) void shortcuts?.recordFn(false);

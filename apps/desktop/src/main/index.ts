@@ -1134,12 +1134,13 @@ ipcMain.handle("openteam:shortcuts:set", (event, action: unknown, value: unknown
   return keyboardShortcuts.set(action, value);
 });
 
-/** Fn tapped on its own: to the window in front (its composer dictates when that's the
- * binding; Settings records it). */
-const dictateFromFn = () => {
+/** Fn on its own ("fn-down", "fn-up", or "fn-cancel" when it turned into Fn+key): to the
+ * window in front. Its composer dictates while Fn is held (or after a double press), and
+ * Settings records it. */
+const dictateFromFn = (event: string) => {
   const focused = BrowserWindow.getFocusedWindow();
   if (!focused || focused.isDestroyed()) return;
-  focused.webContents.send(focused === mainWindow ? "openteam:shortcut" : "screenbot:shortcut", "fn");
+  focused.webContents.send(focused === mainWindow ? "openteam:shortcut" : "screenbot:shortcut", event);
 };
 
 // The macOS helper that detects both-key chords; packaged apps run it from app.asar.unpacked.
@@ -1154,7 +1155,7 @@ const screenBotShortcut = new ScreenBotShortcutController({
   registerAccelerator: (accelerator, onPress) => globalShortcut.register(accelerator, onPress),
   unregisterAccelerator: (accelerator) => globalShortcut.unregister(accelerator),
   onTrigger: () => void screenbot.take(),
-  onFn: () => dictateFromFn(),
+  onFn: (event) => dictateFromFn(event),
   onStatus: (status) => {
     const menuAccelerator = status.shortcut.kind === "accelerator" ? status.shortcut.accelerator : null;
     if (app.isReady() && menuAccelerator !== lastShortcutMenu) {

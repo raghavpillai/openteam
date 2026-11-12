@@ -1,4 +1,5 @@
 import { ArrowUp, X } from "lucide-react";
+import { createDictateGesture, releasesDictate } from "../hooks/dictate-gesture";
 import { isMac, isShortcut, shortcutBinding, useShortcutBindings } from "../hooks/use-shortcut-bindings";
 import { FN_KEY, shortcutText } from "../lib/keyboard-shortcuts";
 import {
@@ -1316,11 +1317,28 @@ export function ScreenBotApp() {
   // Leaving the composer (sending, closing, a new shot) always releases the microphone.
   useEffect(() => {
     // A retake ("intro") finishes a recording in onShot; anything else releases the mic.
+    if (phase !== "compose") dictateGesture.current?.reset();
     if (phase !== "compose" && phase !== "intro" && (voiceRef.current.active || voiceRef.current.state === "error")) {
       sendAfterDictation.current = false;
       voiceRef.current.cancel();
     }
   }, [phase]);
+
+  // The Dictate shortcut: hold to dictate, press twice to keep dictating (dictate-gesture.ts).
+  // The mic button still toggles.
+  const dictateGesture = useRef<ReturnType<typeof createDictateGesture> | null>(null);
+  dictateGesture.current ??= createDictateGesture({
+    state: () => voiceRef.current.state,
+    active: () => voiceRef.current.state === "recording" || voiceRef.current.state === "requesting",
+    start: () => {
+      if (!voiceRef.current.available) return;
+      input.current?.focus();
+      voiceRef.current.start();
+    },
+    stop: () => voiceRef.current.stop(),
+    cancel: () => voiceRef.current.cancel(),
+    elapsedMs: () => voiceRef.current.elapsedMs,
+  });
 
   const toggleDictation = useCallback(() => {
     const current = voiceRef.current;
@@ -1366,7 +1384,7 @@ export function ScreenBotApp() {
       // keyboard layout.
       if (isShortcut(event, "dictate")) {
         event.preventDefault();
-        if (!event.repeat) toggleDictation();
+        if (!event.repeat && voiceRef.current.available) dictateGesture.current?.press();
         return;
       }
       const step = menuOpen ? 0 : isShortcut(event, "nextBot") ? 1 : isShortcut(event, "previousBot") ? -1 : 0;
@@ -1392,11 +1410,22 @@ export function ScreenBotApp() {
     };
     window.addEventListener("keydown", onKey);
     // Dictation on Fn: only main sees that key (through the native helper) and forwards it.
+    const onKeyUp = (event: globalThis.KeyboardEvent) => {
+      if (releasesDictate(event)) dictateGesture.current?.release();
+    };
+    const onBlur = () => dictateGesture.current?.release();
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
     const stopShortcut = bridge()?.onShortcut((action) => {
-      if (action === "fn" && phaseRef.current === "compose" && shortcutBinding("dictate") === FN_KEY) toggleDictation();
+      if (shortcutBinding("dictate") !== FN_KEY || !voiceRef.current.available) return;
+      if (action === "fn-down" && phaseRef.current === "compose") dictateGesture.current?.press();
+      else if (action === "fn-up") dictateGesture.current?.release();
+      else if (action === "fn-cancel") dictateGesture.current?.abort();
     });
     return () => {
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
       stopShortcut?.();
     };
   }, [close, finishSent, menuOpen, roster.bots, toggleDictation]);
@@ -1595,7 +1624,7 @@ export function ScreenBotApp() {
             )}
             <span className="screenbot-hint" aria-hidden="true">
               <kbd>↩</kbd> send <span className="screenbot-hint-dot">·</span> <kbd>⇧↩</kbd> new line
-              {voice.available && <><span className="screenbot-hint-dot">·</span> <kbd>{dictateText}</kbd> dictate</>}
+              {voice.available && <><span className="screenbot-hint-dot">·</span> hold <kbd>{dictateText}</kbd> to dictate</>}
             </span>
             {voice.available && (
               <DictationButton

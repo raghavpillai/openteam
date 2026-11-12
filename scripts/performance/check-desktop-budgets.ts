@@ -128,7 +128,8 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // Rebindable shortcuts: windows match key presses against the saved bindings and show them in
 // hints (the rules and labels load with Settings): 1,292,846.
 // Both together on main at 3f91add4 (#309 email review + rebindable shortcuts): 1,297,183.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_298_000);
+// Hold-to-dictate and double-press gestures for the Dictate shortcut: 1,298,156.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_298_800);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -185,7 +186,8 @@ atMost("startup CSS bytes", startupCssBytes, 202_000);
 // Email review parity on this baseline: 16,673,564 B.
 // Settings › Keyboard and rebindable shortcuts: 16,678,696 B.
 // Both together on main at 3f91add4: 16,683,510 B.
-atMost("renderer bytes", result.renderer.bytes, 16_684_500);
+// With the Dictate hold/double-press gestures: 16,685,425 B.
+atMost("renderer bytes", result.renderer.bytes, 16_686_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the

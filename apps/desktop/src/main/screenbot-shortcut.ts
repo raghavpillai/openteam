@@ -116,8 +116,8 @@ export interface ScreenBotShortcutOptions {
   unregisterAccelerator: (accelerator: string) => void;
   onTrigger: () => void;
   onStatus: (status: ScreenBotShortcutStatus) => void;
-  /** The Fn key was tapped on its own (only while watching for it: dictation is bound to Fn). */
-  onFn?: () => void;
+  /** The Fn key on its own went down, came up, or turned into Fn+key (only while watching). */
+  onFn?: (event: "fn-down" | "fn-up" | "fn-cancel") => void;
 }
 
 /** Keeps the screenbot trigger listening: one helper process for chords, or a global shortcut. */
@@ -274,7 +274,7 @@ export class ScreenBotShortcutController {
     if (this.recording) child.stdin.write("pause\n");
     createInterface({ input: child.stdout }).on("line", (line) => {
       if (line === "trigger") this.options.onTrigger();
-      else if (line === "fn") this.options.onFn?.();
+      else if (line === "fn-down" || line === "fn-up" || line === "fn-cancel") this.options.onFn?.(line);
       else if (line === "ready tap" || line === "ready poll") {
         this.helperMode = line === "ready tap" ? "tap" : "poll";
         this.options.onStatus(this.status());

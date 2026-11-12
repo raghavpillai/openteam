@@ -1,8 +1,9 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ComputerRuntime } from "../src/runtime";
+import { assertSessionPath, disposableSessionPath } from "../src/runtime/session-path";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -96,4 +97,41 @@ test("a final-component symlink is unlinked while its external target is preserv
   await f.runtime.deleteContextSession("context", link);
   expect(await stat(link).catch(() => null)).toBeNull();
   expect(await readFile(target, "utf8")).toBe("keep");
+});
+
+const piSessionsDir = "/home/box/.pi/agent/sessions/openteam";
+
+describe("Pi session paths", () => {
+  test("a turn only reopens a session inside the current session root", () => {
+    expect(assertSessionPath(piSessionsDir, `${piSessionsDir}/one_ctx.jsonl`)).toBe(
+      `${piSessionsDir}/one_ctx.jsonl`
+    );
+    expect(() =>
+      assertSessionPath(piSessionsDir, "/home/box/.pi/agent/sessions/legacy/x.jsonl")
+    ).toThrow("outside the OpenTeam session directory");
+    expect(() => assertSessionPath(piSessionsDir, `${piSessionsDir}/../escape.jsonl`)).toThrow(
+      "outside the OpenTeam session directory"
+    );
+  });
+
+  test("discarding a context also cleans a session recorded under a previous root", () => {
+    expect(disposableSessionPath(piSessionsDir, `${piSessionsDir}/one_ctx.jsonl`)).toBe(
+      `${piSessionsDir}/one_ctx.jsonl`
+    );
+    expect(
+      disposableSessionPath(
+        piSessionsDir,
+        "/home/box/.pi/agent/sessions/legacy/2026-11-07T15-01-21-131Z_588d944c.jsonl"
+      )
+    ).toBe("/home/box/.pi/agent/sessions/legacy/2026-11-07T15-01-21-131Z_588d944c.jsonl");
+  });
+
+  test("discarding never leaves the sessions parent directory or drops a non-session file", () => {
+    expect(disposableSessionPath(piSessionsDir, "/etc/passwd")).toBeNull();
+    expect(disposableSessionPath(piSessionsDir, "/home/box/.pi/agent/credentials.json")).toBeNull();
+    expect(
+      disposableSessionPath(piSessionsDir, "/home/box/.pi/agent/sessions/../../secret.jsonl")
+    ).toBeNull();
+    expect(disposableSessionPath(piSessionsDir, "/home/box/.pi/agent/sessions")).toBeNull();
+  });
 });

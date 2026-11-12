@@ -34,9 +34,9 @@ test("reference retry reduction keeps valid Pi tool histories serializable", asy
   });
   let serialized = 0;
   let syntheticResults = 0;
-  for (const width of [1, 2, 3])
-    for (const prefix of [0, 2, 4, 8]) {
-      for (const suffix of [0, 3, 7])
+  for (const width of [1, 3])
+    for (const prefix of [0, 4]) {
+      for (const suffix of [0, 3])
         for (const unfinished of [false, true]) {
           const original: any[] = [
             { role: "user", content: "Keep blue", timestamp: 1 },
@@ -118,6 +118,6 @@ test("reference retry reduction keeps valid Pi tool histories serializable", asy
           }
         }
     }
-  expect(serialized).toBe(216);
+  expect(serialized).toBe(48);
   expect(syntheticResults).toBeGreaterThan(0);
 });

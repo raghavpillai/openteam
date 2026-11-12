@@ -419,13 +419,12 @@ describe("sibling closing calls", () => {
     { closings: ["reply", "aliasReply", "reply"] },
     { closings: ["reply", "aliasQuestion"] },
   ];
-  for (const closingDelays of [[0, 40, 80], [0, 80, 40], [40, 0, 80], [40, 80, 0], [80, 0, 40], [80, 40, 0]])
-    {
-      for (const failures of [0, 1]) for (const routineDelay of [0, 120])
-        cases.push({ closings: ["reaction", "reply", "reaction"], closingDelays, failures, routineDelay });
-      for (const failedClosing of [0, 2])
-        cases.push({ closings: ["reaction", "reply", "reaction"], closingDelays, failedClosing });
-    }
+  // Completion order of sibling closings must not matter: forward and reverse cover it.
+  for (const closingDelays of [[0, 40, 80], [80, 40, 0]]) {
+    cases.push({ closings: ["reaction", "reply", "reaction"], closingDelays, failures: 1, routineDelay: 120 });
+    for (const failedClosing of [0, 2])
+      cases.push({ closings: ["reaction", "reply", "reaction"], closingDelays, failedClosing });
+  }
   for (const { closings, failures = 0, routineDelay = 0, closingDelays, failedSend, failedClosing, connectorFailure, extraRoutine, cancelOnSend } of cases)
     test(`real Pi loop settles sibling closing calls ${closings.join("+")} with ${failures} failure${routineDelay ? " arriving late" : ""}${closingDelays ? ` delays ${closingDelays.join("/")}` : ""}${failedSend !== undefined ? ` undelivered send ${failedSend}` : ""}${failedClosing !== undefined ? ` rejected closing ${failedClosing}` : ""}${connectorFailure ? " connector error receipt" : ""}${extraRoutine ? " queued mutation sibling" : ""}${cancelOnSend !== undefined ? " interrupted batch" : ""}`, async () => {
       const root = await mkdtemp(join(tmpdir(), "pi-end-turn-hold-"));

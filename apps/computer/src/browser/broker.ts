@@ -660,8 +660,6 @@ export class BrowserBroker {
 export const browserCookieInternals = { asCookie, cookieKey, cookieParameter };
 
 export const browserStateInternals = {
-  exportExpression: BROWSER_STATE_EXPORT_EXPRESSION,
-  importFunction: BROWSER_STATE_IMPORT_FUNCTION,
   originForUrl,
   stateDigest,
 };

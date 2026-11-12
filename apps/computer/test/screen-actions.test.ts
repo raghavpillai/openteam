@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { normalizeKey, performComputerUseBatch } from "../src/screen/actions";
-import { inferenceFailure } from "../src/inference-error";
 import { RuntimeTools } from "../src/runtime/tools";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -33,12 +32,6 @@ test("a partial Computer batch reports its applied prefix and does not execute l
   await expect(performComputerUseBatch([{ action: "screenshot" }], async () => {
     throw new Error("Must not run");
   }, abort.signal)).rejects.toThrow("Stopped by user");
-});
-
-test("inference failures expose useful stable codes without provider secrets", () => {
-  expect(inferenceFailure(new Error("Memory inference timed out"))).toMatchObject({ status: 504, error: { code: "inference_timeout" } });
-  expect(inferenceFailure(new Error("provider 401 secret-token"))).toMatchObject({ status: 422 });
-  expect(JSON.stringify(inferenceFailure(new Error("upstream failure secret-token")))).not.toContain("secret-token");
 });
 
 test("switching from browser to desktop returns a fresh frame before any pointer mutation", async () => {

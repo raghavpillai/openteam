@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ScreenSession } from "../src/screen/types";
-import { ScreenBroker } from "../src/screen-broker";
+import { createViewerPassword, ScreenBroker } from "../src/screen-broker";
 
 describe("graphical screen lifecycle", () => {
   let home: string | undefined;
@@ -27,16 +27,6 @@ describe("graphical screen lifecycle", () => {
     await broker.withAgentBrowserInput("nova", "/workspace", async () => undefined);
     expect(broker.takeBrowserUse("nova")).toBe("chrome-profile-2");
     expect(broker.takeBrowserUse("nova")).toBeNull();
-  });
-
-  test("does not advertise per-tab state that a restart cannot bring back", () => {
-    const broker = new ScreenBroker("/tmp/no-io-needed") as unknown as {
-      statusFor(session: Partial<ScreenSession>): { browserStateCoverage: string[] };
-    };
-    const coverage = broker.statusFor({ botId: "nova", state: "ready", humanTakeoverUntil: 0 }).browserStateCoverage;
-    expect(coverage).toContain("local-storage");
-    expect(coverage).not.toContain("session-storage");
-    expect(coverage).not.toContain("open-tabs");
   });
 
   test("tombstones destroyed bots so a late inspector poll cannot recreate them", async () => {
@@ -98,11 +88,9 @@ while :; do sleep 1 & wait $!; done
     expect(await readFile(published, "utf8")).toBe("saved-on-exit\n");
   });
 
-  test("ships the screenshot executable used by the screen broker", async () => {
-    const dockerfile = await Bun.file(
-      new URL("../../../docker/computer.Dockerfile", import.meta.url)
-    ).text();
-
-    expect(dockerfile).toMatch(/apt-get install[\s\S]*?\bimagemagick\b/);
+  test("viewer passwords use the full 48 bits classic VNC authentication supports", () => {
+    const passwords = new Set(Array.from({ length: 32 }, createViewerPassword));
+    expect(passwords.size).toBe(32);
+    for (const password of passwords) expect(password).toMatch(/^[A-Za-z0-9_-]{8}$/);
   });
 });

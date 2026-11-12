@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { ComputerEvent } from "@openteam/contracts";
-import { AsyncQueue } from "../src/async-queue";
 import {
   AGENT_DELTA_FLUSH_INTERVAL_MS,
   AGENT_DELTA_MAX_CHARS,
@@ -10,19 +9,7 @@ import { computerEventStream } from "../src/computer-event-stream";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-describe("computer stream backpressure", () => {
-  test("AsyncQueue preserves a large buffered sequence with amortized dequeue", async () => {
-    const queue = new AsyncQueue<number>();
-    for (let index = 0; index < 20_000; index += 1) queue.push(index);
-    queue.end();
-
-    const values: number[] = [];
-    for await (const value of queue) values.push(value);
-    expect(values).toHaveLength(20_000);
-    expect(values[0]).toBe(0);
-    expect(values.at(-1)).toBe(19_999);
-  });
-
+describe("computer event stream", () => {
   test("coalesces adjacent token fragments and flushes before a boundary", async () => {
     const queue = new ComputerEventQueue();
     queue.push({ type: "agent.delta", turnId: "run", itemId: "item", delta: "butter" });
@@ -109,5 +96,113 @@ describe("computer stream backpressure", () => {
     expect(errorChunk).toContain('"type":"runtime.error"');
     expect(errorChunk).toContain("stream exploded");
     expect((await failedReader.read()).done).toBe(true);
+  });
+
+  test("an aborted HTTP consumer releases the runtime waiting on an approval", async () => {
+    let release!: () => void;
+    let cancelled = 0;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        return new Response(
+          computerEventStream(
+            (async function* () {
+              yield { type: "turn.started", turnId: "disconnect" } as any;
+              await waiting;
+            })(),
+            undefined,
+            {
+              onCancel: () => {
+                cancelled++;
+                release();
+              },
+            }
+          )
+        );
+      },
+    });
+    const abort = new AbortController();
+    try {
+      const response = await fetch(server.url, { signal: abort.signal });
+      const reader = response.body!.getReader();
+      await reader.read();
+      abort.abort();
+      await reader.read().catch(() => {});
+      for (let i = 0; i < 100 && !cancelled; i++) await Bun.sleep(10);
+      expect(cancelled).toBe(1);
+    } finally {
+      release();
+      server.stop(true);
+    }
+  });
+
+  test("quiet foreground tasks keep their HTTP event stream alive", async () => {
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      idleTimeout: 1,
+      fetch() {
+        return new Response(
+          computerEventStream(
+            (async function* () {
+              yield { type: "turn.started", turnId: "quiet-routine" } as any;
+              await Bun.sleep(2200);
+              yield { type: "turn.completed", turnId: "quiet-routine", status: "completed" } as any;
+            })(),
+            undefined,
+            { heartbeatMs: 100 }
+          ),
+          { headers: { "content-type": "application/x-ndjson" } }
+        );
+      },
+    });
+    try {
+      const response = await fetch(server.url);
+      const body = await response.text();
+      expect(body).toContain("\n\n");
+      const events = body
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      expect(events.map((event) => event.type)).toEqual(["turn.started", "turn.completed"]);
+    } finally {
+      server.stop(true);
+    }
+  }, 10000);
+
+  test("disconnect cancels the owning runtime before returning its iterator", async () => {
+    const order: string[] = [];
+    const stream = computerEventStream(
+      {
+        [Symbol.asyncIterator]() {
+          return {
+            async next() {
+              return {
+                done: false as const,
+                value: { type: "turn.started", turnId: "cancel" } as any,
+              };
+            },
+            async return() {
+              order.push("iterator");
+              return { done: true as const, value: undefined };
+            },
+          };
+        },
+      },
+      undefined,
+      {
+        onCancel: async () => {
+          order.push("runtime");
+        },
+      }
+    );
+    const reader = stream.getReader();
+    await reader.read();
+    await reader.cancel();
+    expect(order).toEqual(["runtime", "iterator"]);
   });
 });

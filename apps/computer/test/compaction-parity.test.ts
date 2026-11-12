@@ -13,7 +13,6 @@ import {
   botPersistThreshold,
   botSummaryRetryDirective,
   botDurableBlocks,
-  botSummaryMessage,
   botSummaryText,
   isValidBotEarlyThreshold,
   partitionForBotSummary,
@@ -22,7 +21,6 @@ import {
   estimateBotContextTokens,
   RESUME_RECORDED_INPUT_PROMPT,
   TRANSCRIPT_LOCATION,
-  botSummaryPrompt,
 } from "../src/bot-compaction";
 import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
 
@@ -124,23 +122,6 @@ test("host nudges and resume prompts are never preserved as the latest user requ
     .toBe(SEND_TO_USER_REPLY_NUDGE_PROMPT);
 });
 
-test("the summary request and shorter-output retry are the reference's generalized texts", () => {
-  expect(botSummaryPrompt()).toBe(`<user_query>
-<summary_request>
-Please summarize the conversation so far.
-
-This summary (everything after your thinking) will be provided to another AI assistant to continue working on the task. The other assistant will only see the user's original query and your summary, it will not have access to any tool calls or tool outputs from this conversation. The purpose of the summary is to compress the conversation context while preserving the essential information needed to seamlessly continue.
-
-Useful things to include: the user's requests and especially corrections, constraints and preferences, what you've done so far, key decisions and their reasons, names of relevant skills that were followed, relevant files/artifacts and specifics, any issues encountered and how they were resolved, and what remains to be done.
-
-DO NOT call any tools in your response.
-</summary_request>
-</user_query>`);
-  expect(botSummaryPrompt(true).slice(botSummaryPrompt().length)).toBe(
-    "\n\nAdditional instruction: Write a shorter summary that focuses on the highest-signal context. Avoid long code snippets and avoid unnecessarily exhaustive detail. Prioritize the most recent user intent, recent implementation work, and unresolved blockers.\nIMPORTANT: When listing user messages, you do not need to repeat each message verbatim. Concisely capture user intent."
-  );
-});
-
 test("all attached skills survive alongside supported deterministic context", () => {
   const blocks = botDurableBlocks(
     text(
@@ -216,34 +197,6 @@ test("skill extraction matches exact tags within each user text segment", () => 
     )
   ).toEqual([block]);
   expect(botDurableBlocks(text("assistant", block), {})).toEqual([]);
-});
-
-test("the generic summary carrier preserves raw text and exact reference delimiters", () => {
-  const message = botSummaryMessage(
-    " \nKeep blue.\n ",
-    2,
-    0,
-    botDurableBlocks(text("user", "goal"), {
-      transcriptPath: "/private/session.jsonl",
-      todoUpdate: "Check <blue>",
-    })
-  );
-  expect((message.content as { text: string }[])[0]!.text).toBe(
-    "\n\nYour conversation was summarized due to context constraints. Here is the summary of the conversation so far:\n\n" +
-      "<summary_content>\n \nKeep blue.\n \n</summary_content>\n\n" +
-      "<transcript_location>\nThis is the full transcript of your past conversation with the user (pre- and post-summary): read it with cursor.ReadTranscript and no id.\n\n" +
-      "If anything about the task or current state is unclear (missing context, ambiguous requirements, uncertain decisions, exact wording, IDs/paths, errors/logs), you should consult this transcript.\n\n" +
-      "How to use it:\n" +
-      "- It returns the newest messages first; page back with `before` until you reach the part you need (task name, filenames, IDs, errors, tool names).\n" +
-      "- Then read a small window around it to reconstruct intent and state.\n" +
-      "- Avoid reading linearly end-to-end; the transcript can be very large and some single entries can be huge.\n" +
-      "- It contains one structured json event per entry, including user/assistant messages, tool calls and tool results.\n" +
-      "</transcript_location>\n\n" +
-      "NOTE: There was an active todo list in the conversation. Here is the latest update before summarization:\n" +
-      "<todo_update>\nCheck <blue>\n</todo_update>\n\n" +
-      "Total summaries generated so far for this user query: 2\n\n" +
-      "If the task is complete, respond to the user. Otherwise, continue working on the task."
-  );
 });
 
 test("resource exhaustion caused by malformed input is terminal", () => {

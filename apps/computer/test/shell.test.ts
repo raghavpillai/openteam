@@ -1,8 +1,83 @@
 import { expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NativeToolExecutor } from "../src/native-tool-executor";
+
+test("shell restores scoped cwd/env after errors, honors overrides and refuses a deleted cwd", async () => {
+  const root=await mkdtemp(join(tmpdir(),"edge-shell-"));
+  try {
+    await mkdir(join(root,"sub"));
+    const ex=new NativeToolExecutor({agentDir:root,controlToken:"fixture"});
+    const run=(command:string,working_directory?:string,scope="a")=>ex.shell({command,working_directory},root,undefined,undefined,scope);
+    await run(`cd '${root}/sub' && export EDGE_VALUE=kept && (exit 7)`);
+    expect(await ex.shellWorkingDirectory({},root,"a")).toBe(join(root,"sub"));
+    expect(JSON.stringify(await run('pwd; printf "%s" "$EDGE_VALUE"'))).toContain(`${root}/sub\\nkept`);
+    expect(await ex.shellWorkingDirectory({},root,"b")).toBe(root);
+    await run("pwd",root);
+    expect(await ex.shellWorkingDirectory({},root,"a")).toBe(root);
+    await run(`cd '${root}/sub'`);
+    await rm(join(root,"sub"),{recursive:true});
+    // A deleted directory stops the command instead of running it somewhere else.
+    const refused = await run("touch should-not-exist");
+    expect(refused.details.exitCode).toBe(1);
+    expect((refused.content[0] as {text:string}).text).toContain(`The shell's working directory no longer exists: ${root}/sub. The command did not run. Re-run it with working_directory set to an existing directory.`);
+    expect((await run("touch should-not-exist")).details.exitCode).toBe(1);
+    expect(await stat(join(root,"should-not-exist")).catch(()=>null)).toBeNull();
+    expect((await run("printf recovered",root)).details.exitCode).toBe(0);
+    expect(await ex.shellWorkingDirectory({},root,"a")).toBe(root);
+    expect((await run("printf recovered")).details.exitCode).toBe(0);
+    await expect(run("pwd",join(root,"missing"))).rejects.toThrow(`Error: Command failed to spawn: working directory does not exist: ${root}/missing; the command did not run`);
+  } finally { await rm(root,{recursive:true,force:true}); }
+});
+
+test("background completion preserves newer foreground cwd and exported/unset variables", async () => {
+  const root=await mkdtemp(join(tmpdir(),"shell-overlap-"));
+  try {
+    await mkdir(join(root,"older")); await mkdir(join(root,"newer"));
+    const ex=new NativeToolExecutor({agentDir:root,controlToken:"fixture"});
+    const run=(command:string,block_until_ms?:number)=>ex.shell({command,block_until_ms},root,undefined,undefined,"one");
+    await run(`cd '${root}/older'; export STATEQA_VALUE=initial STATEQA_REMOVE=remove_me`);
+    const bg=await run(`while ! test -f '${root}/release'; do sleep 0.05; done; sleep 0.1; printf background`,0);
+    await run(`cd '${root}/newer'; export STATEQA_VALUE=foreground; unset STATEQA_REMOVE; touch '${root}/release'`);
+    await ex.awaitShell({shell_id:String(bg.details.shellId),block_until_ms:5000},undefined,"one");
+    const result=await run('printf "%s|%s|%s" "$PWD" "$STATEQA_VALUE" "${STATEQA_REMOVE-unset}"');
+    expect(JSON.stringify(result)).toContain(`${root}/newer|foreground|unset`);
+  } finally {await rm(root,{recursive:true,force:true});}
+});
+
+test("named secrets enter the real shell without appearing in results, logs or persisted environment", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openteam-process-secret-"));
+  try {
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "unused-fixture" });
+    const secret = "fixture-secrét-密-private";
+    const result = await executor.shell(
+      {
+        command: 'test -n "$FIXTURE_PROCESS_SECRET" && printf "%s" "$FIXTURE_PROCESS_SECRET"',
+        block_until_ms: 5000,
+        working_directory: root,
+      },
+      root,
+      undefined,
+      undefined,
+      "fixture-bot",
+      { secretEnvironment: { FIXTURE_PROCESS_SECRET: secret }, secrets: [secret] }
+    );
+    expect((result.content[0] as any).text).toContain("```\n[REDACTED]\n```");
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(await readFile(String(result.details.outputPath), "utf8")).not.toContain(secret);
+    const inspect = async (path: string): Promise<void> => {
+      for (const entry of await readdir(path, { withFileTypes: true })) {
+        const file = join(path, entry.name);
+        if (entry.isDirectory()) await inspect(file);
+        else expect((await readFile(file)).includes(Buffer.from(secret))).toBe(false);
+      }
+    };
+    await inspect(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 for (const command of ["echo READY; sleep 3; echo UNEXPECTED", "trap '' TERM; echo READY; sleep 3; echo UNEXPECTED", "(trap '' TERM; sleep 3) & wait; echo UNEXPECTED"]) test(`foreground cancellation stops descendants: ${command}`, async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-shell-cancel-"));
@@ -127,3 +202,31 @@ test("stopping a subagent ends its background commands, TERM-trapping ones too, 
     await rm(root, {recursive: true, force: true});
   }
 });
+
+test("retiring a room stops its background commands without stopping members' other conversations", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openteam-room-shell-retirement-"));
+  await chmod(root, 0o755);
+  const executor = new NativeToolExecutor({ agentDir: root, controlToken: "fixture" });
+  const room = crypto.randomUUID();
+  const otherRoom = crypto.randomUUID();
+  const bots = [crypto.randomUUID(), crypto.randomUUID()];
+  const jobs: Array<{ id: string; botId: string; channelId: string }> = [];
+  const status = async (job: typeof jobs[number], wait = 0) =>
+    (await executor.awaitShell({ shell_id: job.id, block_until_ms: wait }, undefined, job.botId)).details.status;
+  try {
+    for (const botId of bots) {
+      for (const channelId of [room, otherRoom]) {
+        const result = await executor.shell({ command: "sleep 20", block_until_ms: 0 }, root, undefined, undefined, botId, { channelId });
+        jobs.push({ id: String(result.details?.shellId), botId, channelId });
+      }
+    }
+    expect(executor.stopBackgroundShells(room)).toBe(2);
+    for (const job of jobs) {
+      expect(await status(job, job.channelId === room ? 3000 : 0)).toBe(job.channelId === room ? "completed" : "running");
+    }
+  } finally {
+    for (const botId of bots) executor.stopBackgroundShells(botId);
+    await Promise.all(jobs.map((job) => status(job, 5000).catch(() => {})));
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15_000);

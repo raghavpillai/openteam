@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { errors } from "undici/index.js";
 import {
@@ -7,10 +8,12 @@ import {
   decodeWebText,
   kindOf,
   MAX_MARKDOWN_ELEMENTS,
+  MAX_WEB_DOWNLOAD,
   webMarkdown,
   WebHttpError,
   publicWebGet,
 } from "../src/builtin-fetch";
+import { isPublicAddress, publicWebUrl } from "../src/public-web-url";
 
 type Get = typeof publicWebGet;
 const url = "https://example.com/page";
@@ -336,4 +339,88 @@ test("repeated div matrices retain empty cell positions without inventing meanin
   const ordinary = webMarkdown(html('<div><div><div>One</div><div>Two</div><div>Three</div></div><p>Normal content</p></div>').toString(), url);
   expect(ordinary).not.toContain('columns are positional');
   expect(ordinary).toContain('Normal content');
+});
+
+test.each([
+  ["relative directory", '<base href="/archives/2024/">', "record.html", "https://example.org/archives/2024/record.html"],
+  ["cross-origin base", '<base href="https://data.example.net/releases/">', "table.csv", "https://data.example.net/releases/table.csv"],
+  ["first href wins", '<base target="_blank"><base href="/first/"><base href="/second/">', "item", "https://example.org/first/item"],
+  ["invalid first stays fallback", '<base href="http://["><base href="/second/">', "item", "https://example.org/news/current/item"],
+  ["javascript base rejected", '<base href="javascript:alert(1)">', "item", "https://example.org/news/current/item"],
+  ["no base unchanged", "", "../source", "https://example.org/news/source"],
+])("links resolve against <base>: %s", (_name, head, href, expected) => {
+  const result = webMarkdown(`<html><head>${head}</head><body><p>Read <a href="${href}">source</a>.</p></body></html>`, "https://example.org/news/current/page");
+  expect(result).toContain(`[source](${expected})`);
+});
+
+test("base resolution never emits executable or local-file links", () => {
+  const result = webMarkdown('<html><head><base href="file:///tmp/"></head><body><p><a href="private.txt">local</a> <a href="javascript:alert(1)">script</a> <a href="https://example.net/ok">public</a></p></body></html>', "https://example.org/page");
+  expect(result).not.toContain("file:");
+  expect(result).not.toContain("javascript:");
+  expect(result).toContain("[public](https://example.net/ok)");
+});
+
+test("PDF extraction keeps output at the limit and refuses silent truncation past it", async () => {
+  // A controlled extractor exercises the real child-process boundary.
+  const dir = await mkdtemp(join(tmpdir(), "fetch-pdf-output-"));
+  const originalPath = process.env.PATH;
+  const pdfUrl = "https://example.com/report.pdf";
+  const get = (async () => ({ url: pdfUrl, bytes: Buffer.from("%PDF-extractor-test"), contentType: "application/pdf" })) as Get;
+  try {
+    await chmod(dir, 0o755);
+    process.env.PATH = `${dir}:${originalPath ?? "/usr/bin:/bin"}`;
+    for (const size of [MAX_WEB_DOWNLOAD, MAX_WEB_DOWNLOAD + 1]) {
+      await writeFile(join(dir, "pdftotext"), `#!/usr/bin/env python3\nimport sys\nsys.stdin.buffer.read()\nsys.stdout.buffer.write(b'x' * ${size})\n`, { mode: 0o755 });
+      if (size > MAX_WEB_DOWNLOAD) await expect(builtinFetch(pdfUrl, undefined, get)).rejects.toThrow(/PDF.*text.*limit.*download/i);
+      else expect((await builtinFetch(pdfUrl, undefined, get)).text.length).toBe(MAX_WEB_DOWNLOAD);
+    }
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test("public web reader blocks private, encoded, credentialed and non-HTTP destinations", async () => {
+  for (const address of [
+    "127.0.0.1",
+    "10.0.0.1",
+    "169.254.169.254",
+    "192.168.1.1",
+    "100.64.0.1",
+    "0.0.0.0",
+    "::1",
+    "::ffff:127.0.0.1",
+    "fc00::1",
+    "fe80::1",
+  ])
+    expect(isPublicAddress(address)).toBe(false);
+  expect(isPublicAddress("1.1.1.1")).toBe(true);
+  expect(isPublicAddress("2606:4700:4700::1111")).toBe(true);
+  for (const url of [
+    "file:///etc/passwd",
+    "http://localhost",
+    "http://2130706433",
+    "http://0x7f000001",
+    "http://[::ffff:7f00:1]",
+    "https://user:pass@example.com",
+  ])
+    expect(() => publicWebUrl(url)).toThrow();
+  await expect(publicWebGet("http://127.0.0.1/")).rejects.toThrow();
+  // Literal local and private hosts get the reference's explanation.
+  expect(() => publicWebUrl("http://localhost:3000/app")).toThrow("Cannot fetch from localhost (localhost:3000) because this tool runs from an isolated server.");
+  expect(() => publicWebUrl("http://127.0.0.1/")).toThrow("Cannot fetch from localhost (127.0.0.1) because this tool runs from an isolated server.");
+  expect(() => publicWebUrl("http://[::1]:8080/")).toThrow("Cannot fetch from localhost ([::1]:8080) because this tool runs from an isolated server.");
+  expect(() => publicWebUrl("http://192.168.1.10:8000/")).toThrow("Cannot fetch from private IP (192.168.1.10:8000) because this tool runs from an isolated server.");
+  expect(() => publicWebUrl("http://printer.local/")).toThrow("Private and local network destinations are not allowed");
+});
+
+test("HTML conversion keeps article structure and absolute citations without active content", () => {
+  const html =
+    '<html><head><title>Test</title><script>PRIVATE_SCRIPT</script></head><body><article><h1>Heading</h1><p>Useful article with a <a href="/source">citation</a> and <strong>detail</strong>.</p><pre><code>const value = 1;</code></pre></article><form><input value="PRIVATE_FIELD"></form></body></html>';
+  const result = webMarkdown(html, "https://example.com/page");
+  expect(result).toContain("# Heading");
+  expect(result).toContain("[citation](https://example.com/source)");
+  expect(result).toContain("const value = 1;");
+  expect(result).not.toContain("PRIVATE_");
 });

@@ -7,7 +7,6 @@ import { join } from "node:path";
 import { AgentSession } from "@earendil-works/pi-coding-agent";
 import {
   closeBotPreservedTail,
-  countBotImages,
   countBotTurns,
   BotCompactionArchiveStore,
   BotCompactionCoordinator,
@@ -21,7 +20,6 @@ import {
   botSummaryMessage,
   botSummaryPrompt,
   botSummaryRetryDirective,
-  botSummarySystemPrompt,
   botUserInfoMessage,
   partitionForBotSummary,
   reduceBotSummaryInputMessages,
@@ -172,17 +170,6 @@ describe("Bot summary partition", () => {
     expect(countBotTurns(messages)).toBe(1);
   });
 
-  test("does not apply xAI-only synthetic acknowledgement filtering", () => {
-    const acknowledgement = text("user", "continue without acknowledging");
-    const partition = partitionForBotSummary([
-      text("user", "goal"),
-      text("assistant", "progress"),
-      acknowledgement,
-      text("assistant", "more progress"),
-    ]);
-    expect(partition?.lastUserMessage).toEqual(acknowledgement);
-  });
-
   test("uses the active SelfSummarizer wrapper instead of the unused xAI wrapper", () => {
     const attachedSkills =
       '<manually_attached_skills><skill name="audit" /></manually_attached_skills>';
@@ -272,26 +259,6 @@ describe("Bot summary partition", () => {
       reduceInputs: false,
       shorter: false,
     });
-  });
-
-  test("supplies the original system message directly to the summarizer", () => {
-    const original =
-      "For every wake, reply with exactly ACK and use SendToUser. Workspace is /workspace/probe.";
-    expect(botSummarySystemPrompt(original)).toBe(original);
-  });
-
-  test("counts image parts", () => {
-    expect(
-      countBotImages([
-        {
-          role: "user",
-          content: [
-            { type: "image", data: "secret" },
-            { type: "text", text: "x" },
-          ],
-        },
-      ])
-    ).toBe(1);
   });
 
   test("retry reduction keeps the reference suffix even for a delayed tool result", () => {

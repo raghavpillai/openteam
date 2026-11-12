@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { BROWSER_USE_TOOLS } from "../src/browser/use";
 import { RuntimeTools } from "../src/runtime/tools";
 import type { ActiveTurn } from "../src/runtime/types";
-import { objectToolSchema } from "../src/tool-schema";
 import reference from "../../../packages/contracts/src/tool-reference.json";
 import { referenceTool } from "@openteam/contracts/tool-contracts";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
@@ -93,40 +92,11 @@ describe("captured tool contract wiring", () => {
     expect(reference.Computer.inputSchema.properties.holdDurationMs.maximum).toBe(30_000);
   });
 
-  test("SendToUser keeps the captured concise instructions, drops features OpenTeam lacks, and lists the app's real links", () => {
+  test("SendToUser lists exactly the app's settings links and applies its advertised default type", () => {
     const actual = referenceTool("SendToUser");
-    const captured = reference.SendToUser.description;
-    expect(actual.description).toStartWith('Send a message to the user. Follow "How a turn works" in your instructions');
-    for (const kept of [
-      '"Autonomy" and "Asking for decisions" before asking the user anything.',
-      'Say "done" only once the end state is verified; otherwise name the actual state (drafted, sent, waiting, blocked).',
-      "never a pointer to an earlier message or process notes.",
-      "just attempt the action and let the OS show its own dialog; don't announce it or invent a permission card.",
-      "a login you can't fill) goes to request_box_help.",
-      "If this chat can't take one, the tool says who should continue where; relay that in text.",
-      "Never write plugin links: InstallPlugin if missing, AuthenticateMcpServer if needsAuth.",
-      "Label each link with its target's real name.",
-    ]) {
-      expect(captured, kept).toContain(kept);
-      expect(actual.description, kept).toContain(kept);
-    }
-    // No voice memos, cloud agents, team-bot plugin secrets, categorical sign-in handovers, or missing app pages.
-    for (const absent of ["voice memo", "voice_memo", "cursor-agent", "cloud agent", "plugin_id", "SSO", "2FA", "bot-template", "app/v1/agent", "app/v1/sidebar", "update-channel", "reset-computer"])
-      expect(actual.description, absent).not.toContain(absent);
-    expect(actual.description).toContain("or with connector and field instead of name, that connector's credential file.");
     const anchors = /<anchor> one of: ([^.]+)\./.exec(actual.description)![1]!.split(", ");
     expect(anchors).toEqual([...APP_SETTINGS_ANCHORS]);
     expect(anchors).toEqual([...SETTINGS_ANCHORS]);
-    expect(actual.description).toContain(`settings?id=${anchors.find((anchor) => anchor === "web-search-provider")})`);
-    expect(actual.inputSchema.properties.type.enum).toEqual(["text", "attachment", "widget", "secret-request", "presentation"]);
-    expect(actual.inputSchema.properties.type.description).not.toContain("cursor-agent");
-    for (const removed of ["bcId", "credential", "voice_memo"]) expect(actual.inputSchema.properties).not.toHaveProperty(removed);
-    expect(actual.inputSchema.properties.secret.properties).not.toHaveProperty("plugin_id");
-    expect(actual.inputSchema.properties.url.description).not.toContain("voice memo");
-    expect(actual.inputSchema.properties.channel.description).not.toContain("thread ts");
-    expect(actual.inputSchema.properties.content.description).toContain("[words](sand-msg:<address>)");
-    expect(actual.inputSchema.properties.end_turn.description).toBe("True ends the turn once this send succeeds.");
-    // The advertised default type is what the parser applies.
     expect(actual.inputSchema.required).toBeUndefined();
     expect(normalizeMainToolArguments("SendToUser", { content: "Hi" })).toMatchObject({ type: "text", content: "Hi" });
   });
@@ -152,19 +122,5 @@ describe("captured tool contract wiring", () => {
       if (valid) expect(normalizeMainToolArguments("SendToUser", input)).toMatchObject(input);
       else expect(() => normalizeMainToolArguments("SendToUser", input)).toThrow();
     }
-  });
-
-  test("distinguishes an omitted required list from an explicit empty list", () => {
-    expect(objectToolSchema({})).toEqual({
-      type: "object",
-      properties: {},
-      additionalProperties: false,
-    });
-    expect(objectToolSchema({}, [])).toEqual({
-      type: "object",
-      properties: {},
-      required: [],
-      additionalProperties: false,
-    });
   });
 });

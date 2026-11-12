@@ -3,6 +3,7 @@ import type { CallDynamicToolInput, GetDynamicToolsInput } from "@openteam/contr
 import {
   type DynamicNamespaceDefinition,
   DynamicLookupMiss,
+  decodeDynamicArguments,
   discoverDynamicTools,
   renderDynamicDiscovery,
   resolveDynamicTool,
@@ -147,5 +148,13 @@ describe("OpenTeam dynamic tool gateway", () => {
     // A ready namespace never carries a stale reason.
     const ready = catalog().map((namespace) => ({ ...namespace, statusMessage: reason }));
     expect(JSON.stringify(renderDynamicDiscovery(discoverDynamicTools(ready, input), input))).not.toContain(reason);
+  });
+
+  test("repairs only a unique structural interpretation of malformed arguments", () => {
+    expect(decodeDynamicArguments('{"path":"file}name"}}')).toEqual({ path: "file}name" });
+    expect(decodeDynamicArguments('{"q":"hello"}<parameter name="description">Find the page</parameter>')).toEqual({ q: "hello" });
+    for (const malformed of ['{"q":"hello"}<parameter name="target">another account</parameter>', '{"q":', "[1,2]", null])
+      expect(() => decodeDynamicArguments(malformed)).toThrow();
+    expect(decodeDynamicArguments({ a: [1, 2] })).toEqual({ a: [1, 2] });
   });
 });

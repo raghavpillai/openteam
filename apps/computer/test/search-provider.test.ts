@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   SEARCH_PROVIDERS,
   SearchProviderClient,
@@ -212,4 +212,50 @@ test("an in-flight request receives cancellation and is never retried on another
   }) as SearchFetch);
   await expect(client.search("reference", controller.signal)).rejects.toThrow();
   expect(requests).toBe(1);
+});
+
+describe("Exa capacity recovery", () => {
+  const exa = (respond: (count: number, init: RequestInit) => Response) => {
+    let count = 0;
+    const client = new SearchProviderClient(() => ({ provider: "exa", apiKey: key }), (async (_url, init) => respond(++count, init ?? {})) as SearchFetch);
+    return { client, count: () => count };
+  };
+  const capacity = (headers?: HeadersInit) => Response.json({ error: `capacity ${key}` }, { status: 503, headers });
+
+  test("a capacity rejection is retried with the same request", async () => {
+    const bodies: unknown[] = [];
+    const { client, count } = exa((n, init) => { bodies.push(init.body); return n === 1 ? capacity() : Response.json(SPECS.exa.success); });
+    expect((await client.search("reference")).details.results[0]?.title).toBe("Reference");
+    expect(count()).toBe(2);
+    expect(bodies[0]).toEqual(bodies[1]);
+  });
+
+  test("persistent capacity stops after three attempts and redacts the key", async () => {
+    const { client, count } = exa(() => capacity());
+    await expect(client.search("reference")).rejects.toThrow("capacity [redacted]");
+    expect(count()).toBe(3);
+  }, 10_000);
+
+  test("credential, billing, quota and validation failures, and Retry-After past the budget, are not retried", async () => {
+    for (const respond of [
+      ...[400, 401, 402, 403, 429].map((status) => () => Response.json({ error: "rejected" }, { status })),
+      () => capacity({ "retry-after": "60" }),
+      () => capacity({ "retry-after": new Date(Date.now() + 60_000).toUTCString() }),
+    ]) {
+      const { client, count } = exa(respond);
+      await expect(client.search("reference")).rejects.toThrow("HTTP");
+      expect(count()).toBe(1);
+    }
+    let brave = 0;
+    const other = new SearchProviderClient(() => ({ provider: "brave", apiKey: key }), (async () => { brave++; return Response.json({}, { status: 503 }); }) as SearchFetch);
+    await expect(other.search("reference")).rejects.toThrow("HTTP 503");
+    expect(brave).toBe(1);
+  });
+
+  test("aborting the backoff prevents another request", async () => {
+    const controller = new AbortController();
+    const { client, count } = exa(() => { setTimeout(() => controller.abort(new Error("cancelled by caller")), 20); return capacity(); });
+    await expect(client.search("reference", controller.signal)).rejects.toThrow("cancelled by caller");
+    expect(count()).toBe(1);
+  });
 });

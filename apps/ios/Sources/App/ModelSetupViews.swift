@@ -452,15 +452,18 @@ private struct ModelSettingsForm: View {
           selection: Binding(get: { setup.effectiveReasoning }, set: { setup.setReasoning($0) })
         ) {
           ForEach(setup.reasoningLevels.isEmpty ? ["off"] : setup.reasoningLevels, id: \.self) {
-            Text(ModelSetupCatalog.reasoningLabel($0)).tag($0)
+            Text(setup.reasoningLevels.isEmpty && setup.selectedModel?.reasoning == true
+              ? "Provider default" : ModelSetupCatalog.reasoningLabel($0)).tag($0)
           }
-        }.pickerStyle(.menu).disabled(busy || setup.selectedModel?.reasoning != true)
+        }.pickerStyle(.menu).disabled(busy || setup.selectedModel?.reasoning != true || setup.reasoningLevels.isEmpty)
           .accessibilityIdentifier("model-reasoning-picker")
       } footer: {
         SettingsFooter(
           provider?.modelMessage
             ?? (setup.selectedModel?.reasoning == true
-              ? "Used for every bot's work and background tasks. Higher effort is slower but more careful."
+              ? (setup.reasoningLevels.isEmpty
+                ? "Used for every bot's work and background tasks. This model manages reasoning automatically."
+                : "Used for every bot's work and background tasks. Higher effort is slower but more careful.")
               : "Used for every bot's work and background tasks."))
       }
       Section {

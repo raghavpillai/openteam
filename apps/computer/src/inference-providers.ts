@@ -1,17 +1,12 @@
 import { randomUUID } from "node:crypto";
-import {
-  type AuthEvent,
-  type AuthPrompt,
-  type AuthType,
-  getSupportedThinkingLevels,
-} from "@earendil-works/pi-ai";
+import { type AuthEvent, type AuthPrompt, type AuthType } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
-  DEFAULT_PI_REASONING_LEVEL,
   type InferenceProviderAuthSessionView,
   normalizeInferenceProviderId,
   type ServerInferenceSettings,
 } from "@openteam/contracts";
+import { reasoningCapabilities } from "./reasoning-capabilities";
 import { ChatProviderRegistry } from "./chat-provider-registry";
 
 interface AuthSessionState extends InferenceProviderAuthSessionView {
@@ -55,19 +50,12 @@ export class InferenceProviderService {
     return {
       ...catalog,
       models: catalog.models.map((model) => {
-        const levels = getSupportedThinkingLevels(model);
         return {
           providerId: model.provider,
           modelId: model.id,
           name: model.name,
           reasoning: model.reasoning,
-          reasoningLevels: levels,
-          defaultReasoningLevel:
-            model.defaultReasoningLevel ??
-            (levels.includes(DEFAULT_PI_REASONING_LEVEL)
-              ? DEFAULT_PI_REASONING_LEVEL
-              : levels[0]) ??
-            "off",
+          ...reasoningCapabilities(model),
           contextWindow: model.contextWindow,
           maxTokens: model.maxTokens,
           ...(model.recommended ? { recommended: true } : {}),

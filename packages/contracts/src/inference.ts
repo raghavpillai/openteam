@@ -54,7 +54,9 @@ export interface InferenceModelView {
   modelId: string;
   name: string;
   reasoning: boolean;
+  /** Empty for provider-managed reasoning with no effort selector. */
   reasoningLevels: PiReasoningLevel[];
+  /** With no levels, off is a storage sentinel: inference omits effort, rather than disabling it. */
   defaultReasoningLevel: PiReasoningLevel;
   contextWindow: number;
   maxTokens: number;

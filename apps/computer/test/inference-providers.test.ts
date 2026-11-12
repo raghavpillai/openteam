@@ -150,7 +150,7 @@ describe("inference provider service", () => {
     expect(catalog.models[1]).not.toHaveProperty("recommended");
   });
 
-  test("defaults to medium reasoning and never offers off where OpenRouter requires reasoning", async () => {
+  test("does not invent effort controls when OpenRouter omits supported efforts", async () => {
     const openrouter = {
       id: "openrouter",
       name: "OpenRouter",
@@ -195,9 +195,9 @@ describe("inference provider service", () => {
         model.defaultReasoningLevel,
       ])
     ).toEqual([
-      ["openrouter/auto", ["off", "minimal", "low", "medium", "high"], "medium"],
-      ["anthropic/claude-sonnet-5.5", ["minimal", "low", "medium", "high"], "medium"],
-      ["anthropic/claude-haiku-5.5", ["off", "minimal", "low", "medium", "high"], "medium"],
+      ["openrouter/auto", [], "off"],
+      ["anthropic/claude-sonnet-5.5", [], "off"],
+      ["anthropic/claude-haiku-5.5", [], "off"],
       ["author/no-reasoning", ["off"], "off"],
     ]);
   });

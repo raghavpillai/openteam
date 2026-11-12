@@ -8,7 +8,6 @@ import {
   type AuthEvent,
   type AuthPrompt,
   type AuthType,
-  getSupportedThinkingLevels,
   type OAuthCredential,
 } from "@earendil-works/pi-ai";
 import {
@@ -25,6 +24,7 @@ import {
   KEYLESS_API_KEY,
   modelsEndpoint,
 } from "./chat-provider-registry";
+import { reasoningCapabilities } from "./reasoning-capabilities";
 import { createModelRuntime } from "./model-runtime";
 import {
   authOptionLabel,
@@ -386,9 +386,7 @@ const main = async (): Promise<void> => {
       modelId: model.id,
       name: model.name,
       reasoning: model.reasoning,
-      reasoningLevels: getSupportedThinkingLevels(model),
-      defaultReasoningLevel:
-        model.defaultReasoningLevel ?? getSupportedThinkingLevels(model)[0] ?? "off",
+      ...reasoningCapabilities(model),
       input: model.input,
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
@@ -423,7 +421,7 @@ const main = async (): Promise<void> => {
       const model = catalog.models.find((candidate) => candidate.id === rawArgument);
       await registry.verify({
         ...ref,
-        reasoning: model?.defaultReasoningLevel ?? "off",
+        reasoning: model ? reasoningCapabilities(model).defaultReasoningLevel : "off",
       });
     }
     console.log(`${formatPiModelRef(ref)} is ready.`);

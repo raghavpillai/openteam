@@ -5,6 +5,8 @@ import { markDelivered } from "./events";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import { stageAttachment } from "../attachment-staging";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { validateMessageSend } from "@openteam/contracts/messages-send";
 import { buildUserFormRemapReceipt } from "@openteam/contracts/reference-form-results";
 import { renderDesktopResult, renderControlResult, sendToUserFailure, todoCleanupReminder, toolErrorDetail } from "@openteam/contracts/tool-results";
 import { coerceArgumentsToJsonSchema, invalidArgumentsMessage } from "@openteam/contracts/tool-arguments";
@@ -1363,6 +1365,22 @@ export class RuntimeTools {
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const cleanup: Array<() => Promise<void>> = [];
     try {
+      if (tool === "SendIMessage" && args && typeof args === "object") {
+        const input = args as Record<string, any>;
+        const send = validateMessageSend(input);
+        if (send.attachmentPaths) {
+          const paths: string[] = [];
+          for (const path of send.attachmentPaths) {
+            const file = await stageAttachment(pathToFileURL(path).href, {
+              workspace: process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace",
+              agentData: process.env.OPENTEAM_AGENT_DATA_CANONICAL_ROOT ?? "/home/box/sand-data",
+            }, signal);
+            cleanup.push(file.cleanup);
+            paths.push(fileURLToPath(file.url));
+          }
+          args = { ...input, attachmentPaths: paths };
+        }
+      }
       if (tool === "SendToUser" && args && typeof args === "object") {
         const input = args as Record<string, any>;
         const stage = async (url: string) => {

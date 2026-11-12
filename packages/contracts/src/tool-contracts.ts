@@ -3,6 +3,7 @@ import native from "./native-tools.json";
 import { APP_SETTINGS_ANCHORS } from "./app-deep-links";
 import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
 import { DESKTOP_MESSAGES_TOOLS, MESSAGES_MACHINE_ID_DESCRIPTION } from "./desktop-capability-names";
+import { MESSAGES_SEND_MAX_FILES } from "./messages-send";
 import { defaultTaskConfiguration, taskTypeNames, type TaskConfiguration } from "./task-configuration";
 
 export interface ToolContract {
@@ -506,6 +507,16 @@ adaptDescription("SendIMessage", [[
   "; send once. The result says whether it went out at once or waits on the card, and you're woken with the card's outcome; nothing waiting on a card has been sent. In a send's outcome, `via` echoes how it was addressed, and `verified` is whether the text has already appeared in the local chat log, so `false` means not seen yet, not failed. Never resend on `verified: false`.",
 ]]);
 // A user can connect several Macs: every Messages tool may name the one it runs on.
+const imessageSend = contracts.SendIMessage!;
+imessageSend.description += " Attach photos (JPEG, PNG, HEIC and other formats), videos, audio, PDFs or other files with attachmentPaths: absolute paths on your box, not paths on the user's Mac. Files are copied into the approval card before sending. At most 10 files totaling 25 MiB. Text and files are sent as separate Messages items; a partial send is uncertain and must never be retried automatically.";
+imessageSend.inputSchema.required = [];
+delete imessageSend.inputSchema.properties.text.minLength;
+imessageSend.inputSchema.properties.text.description = "The message body, sent verbatim. Optional when attaching files.";
+imessageSend.inputSchema.properties.attachmentPaths = {
+  type: "array", minItems: 1, maxItems: MESSAGES_SEND_MAX_FILES,
+  items: { type: "string", pattern: "^/" },
+  description: "Absolute paths of photos, videos, audio, PDFs or other files on your box (for example /workspace/photo.heic or /workspace/report.pdf). At most 10 files totaling 25 MiB. Omit text for an attachment-only message. Copy files from the user's Mac to your box first.",
+};
 for (const name of DESKTOP_MESSAGES_TOOLS) {
   contracts[name]!.inputSchema.properties.machineId = { type: "string", minLength: 1, description: MESSAGES_MACHINE_ID_DESCRIPTION };
 }

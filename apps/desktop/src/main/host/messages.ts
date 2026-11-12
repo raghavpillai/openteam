@@ -2,9 +2,9 @@ import { NativeContacts } from "./contacts";
 import { isoMs, messageBody, messageDate, messageMsSql, wireAttachment } from "./message-body";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, sep } from "node:path";
-import { readFile, realpath, stat, mkdtemp, rm } from "node:fs/promises";
+import { readFile, realpath, stat, mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { nativeCommand, NativeCommandError, sqliteRows, sqlText, type NativeCommand } from "./native-command";
-import { validateMessageSend } from "@openteam/contracts/messages-send";
+import { validateMessageSend, validateMessagesSendFiles } from "@openteam/contracts/messages-send";
 
 /** Page sizes and the per-result character budget every Messages read shares. */
 const PAGE_LIMITS = {
@@ -97,7 +97,9 @@ export class MacMessages {
       return new NativeContacts(this.run).find(query, signal);
     }
     if (name === "SendIMessage") {
-      validateMessageSend(args);
+      const attachments = validateMessagesSendFiles(args.attachments);
+      validateMessageSend(args, { hasAttachments: attachments.length > 0 });
+      if (args.attachmentPaths) throw new Error("Attachment paths must be copied from the box before sending to the Mac");
       if (
         args.chatId &&
         !(
@@ -111,57 +113,94 @@ export class MacMessages {
       const previousId = await this.query("SELECT COALESCE(MAX(ROWID),0) id FROM message", signal)
         .then((rows) => Number(rows[0]?.id ?? 0))
         .catch(() => null);
-      // argv carries the exact body and handle: never concatenate user text into AppleScript source.
+      // argv carries bodies, handles and file paths; none is executable AppleScript source.
       const script = `on run argv
 set bodyText to item 1 of argv
 set recipient to item 2 of argv
 set targetKind to item 3 of argv
 set requestedService to item 4 of argv
+set payloads to {}
+if bodyText is not "" then set end of payloads to bodyText
+if (count of argv) > 4 then
+repeat with fileIndex from 5 to (count of argv)
+set end of payloads to (POSIX file (item fileIndex of argv)) as alias
+end repeat
+end if
+set submittedCount to 0
 try
 tell application "Messages"
 if targetKind is "chat" then
-send bodyText to chat id recipient
+set destination to chat id recipient
 else
 if requestedService is "SMS" then
 set targetService to first service whose service type is SMS
 else
 set targetService to first service whose service type is iMessage
 end if
+set destination to buddy recipient of targetService
+end if
+repeat with payload in payloads
 try
-send bodyText to buddy recipient of targetService
+send (contents of payload) to destination
 on error errorMessage number errorNumber
-if requestedService is "auto" and (errorMessage contains "not registered with iMessage" or errorMessage contains "not on iMessage") then
+if submittedCount is 0 and targetKind is "participant" and requestedService is "auto" and (errorMessage contains "not registered with iMessage" or errorMessage contains "not on iMessage") then
 set targetService to first service whose service type is SMS
-send bodyText to buddy recipient of targetService
+set destination to buddy recipient of targetService
+send (contents of payload) to destination
 else
 error errorMessage number errorNumber
 end if
 end try
-end if
+set submittedCount to submittedCount + 1
+end repeat
 end tell
 on error errorMessage number errorNumber
+if submittedCount > 0 then return "partial"
 -- macOS refused Automation before anything was sent; report it on stdout instead of failing.
 if errorNumber is -1743 then return "automation_denied"
 error errorMessage number errorNumber
 end try
 return "submitted"
 end run`;
-      const submitted = await this.run(
-        "/usr/bin/osascript",
-        [
-          "-e",
-          script,
-          args.text,
-          args.chatId ?? args.to,
-          args.chatId ? "chat" : "participant",
-          args.service ?? "auto",
-        ],
-        signal
-      );
+      const directory = attachments.length ? await mkdtemp(join(tmpdir(), "openteam-message-send-")) : undefined;
+      let submitted: string;
+      try {
+        const paths: string[] = [];
+        for (const [index, file] of attachments.entries()) {
+          // Separate directories preserve duplicate filenames without overwriting either file.
+          const parent = join(directory!, String(index));
+          await mkdir(parent, { mode: 0o700 });
+          const path = join(parent, file.fileName);
+          await writeFile(path, Buffer.from(file.bytesBase64, "base64"), { mode: 0o600, flag: "wx" });
+          paths.push(path);
+        }
+        try {
+          submitted = await this.run(
+            "/usr/bin/osascript",
+            [
+              "-e",
+              script,
+              args.text ?? "",
+              args.chatId ?? args.to,
+              args.chatId ? "chat" : "participant",
+              args.service ?? "auto",
+              ...paths,
+            ],
+            signal
+          );
+        } catch (error) {
+          // A process failure can follow an earlier successful item. Never claim nothing went out.
+          if (attachments.length) throw new Error("Messages send outcome is uncertain; some items may have been sent. Check ChatItems and do not resend automatically.");
+          throw error;
+        }
+      } finally {
+        if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
+      }
       if (submitted.trim() === "automation_denied")
         throw new NativeCommandError("macOS refused to let OpenTeam control Messages (Automation)", "automation_denied");
+      if (submitted.trim() !== "submitted") throw new Error("Messages send outcome is uncertain; some items may have been sent. Check ChatItems and do not resend automatically.");
       let verified = false;
-      if (previousId !== null) {
+      if (previousId !== null && !attachments.length) {
         try {
           const rows = await this.query(
             `SELECT m.guid,m.text,hex(m.attributedBody) bodyHex FROM message m WHERE m.ROWID>${previousId} AND m.is_from_me=1 AND ${args.chatId ? `EXISTS(SELECT 1 FROM chat_message_join cm JOIN chat c ON c.ROWID=cm.chat_id WHERE cm.message_id=m.ROWID AND c.guid=${sqlText(args.chatId)})` : `EXISTS(SELECT 1 FROM chat_message_join cm JOIN chat_handle_join ch ON ch.chat_id=cm.chat_id JOIN handle h ON h.ROWID=ch.handle_id WHERE cm.message_id=m.ROWID AND h.id=${sqlText(args.to)})`} ORDER BY m.ROWID DESC LIMIT 25`,
@@ -176,7 +215,8 @@ end run`;
       }
       return {
         kind: "send",
-        text: args.text,
+        text: args.text ?? "",
+        ...(attachments.length ? { attachments: attachments.map(file => ({ fileName: file.fileName, byteSize: Buffer.byteLength(file.bytesBase64, "base64") })) } : {}),
         ...(args.to ? { to: args.to } : { chatId: args.chatId }),
         verified,
         via: args.chatId ? "chat_id" : "participant",

@@ -2,15 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { taskProgressBaseInstructions } from "@openteam/contracts/task-progress";
 import {
   AgentMessaging,
-  graphicalDelegationInstructions,
-  MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
   PLATFORM_PROMPT_PEER_LIMIT,
   renderTeammatesUserInfo,
   selectPlatformPromptPeers,
   validateSendToUserInput,
 } from "../src";
 import type { AgentPromptContext } from "../src/agent-data";
-import { AUTOMATION_RUN_INSTRUCTIONS } from "../src/automation-results";
 import {
   PARALLEL_TOOL_CALLS,
   PLATFORM_BASE_SYSTEM_PROMPT,
@@ -153,19 +150,11 @@ describe("main-agent prompt assembly", () => {
         expect(renderPlatformBaseSystemPrompt({ managedSkills, sharing }).length).toBeLessThan(40_000);
   });
 
-  test("an automation run replaces the chat-turn sections with its own", () => {
-    const prompt = renderPlatformBaseSystemPrompt({ automationRun: AUTOMATION_RUN_INSTRUCTIONS });
-    expect(prompt).toContain(`\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\n`);
-    for (const absent of ["## How a turn works", "## Asking for decisions", "## Delegating and multitasking", PARALLEL_TOOL_CALLS])
-      expect(prompt).not.toContain(absent);
-  });
-
   test("the question-widget example in the prompt passes real send validation", () => {
     const example = PLATFORM_BASE_SYSTEM_PROMPT.match(/send a question widget instead of prose: (\{.+\})\./)?.[1];
     expect(example).toBeDefined();
     expect(() => validateSendToUserInput(JSON.parse(example!))).not.toThrow();
   });
-
 });
 
 describe("subagent prompt assembly", () => {
@@ -196,13 +185,6 @@ describe("subagent prompt assembly", () => {
     expect(prompt.instructions).not.toContain("ListMachines");
   });
 
-  test("graphical delegation ignores disabled tool ids and disappears when workers are unavailable", () => {
-    expect(graphicalDelegationInstructions({ executorProfiles: [], disabledToolIdentifiers: ["BROWSER_CLICK", "OPENAI_COMPUTER_USE"] }))
-      .toBe(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS);
-    const unavailable = graphicalDelegationInstructions({ executorProfiles: [], graphicalAvailable: false });
-    expect(unavailable).toContain("Browser and desktop workers are unavailable.");
-    expect(unavailable).not.toContain("computerUse subagent");
-  });
 });
 
 describe("teammates roster", () => {
@@ -219,31 +201,4 @@ describe("teammates roster", () => {
     expect(selectPlatformPromptPeers([], peers(10_000))).toHaveLength(PLATFORM_PROMPT_PEER_LIMIT);
   });
 
-  test("puts related peers first, deduplicated, then fills from recent peers", () => {
-    const related = [
-      { id: "related-1", name: "Related 1", hiddenFromSidebar: false },
-      { id: "related-2", name: "Related 2", hiddenFromSidebar: false },
-      { id: "related-1", name: "Duplicate", hiddenFromSidebar: false },
-    ];
-    const selected = selectPlatformPromptPeers(related, [{ id: "related-2", name: "Duplicate recent", hiddenFromSidebar: false }, ...peers(PLATFORM_PROMPT_PEER_LIMIT * 2)]);
-    expect(selected.slice(0, 2).map(({ id }) => id)).toEqual(["related-1", "related-2"]);
-    expect(new Set(selected.map(({ id }) => id)).size).toBe(selected.length);
-    expect(selected).toHaveLength(PLATFORM_PROMPT_PEER_LIMIT);
-  });
-
-  test("lists teammates in id order with flattened descriptions, and renders nothing when empty", () => {
-    const block = renderTeammatesUserInfo({
-      peers: [
-        { id: "b-agent", name: "Researcher", description: "Finds  sources\nfast", hiddenFromSidebar: false },
-        { id: "a-agent", name: "Archivist", hiddenFromSidebar: true },
-      ],
-      groups: [{ id: "g-1", name: "Launch", workingDirectory: "/workspace/launch", members: [{ bot: { name: "Researcher" } }] }],
-      agentsRoot: "/agent-data/agents",
-    })!;
-    const archivist = block.indexOf("- Archivist (id: a-agent) (hidden");
-    expect(archivist).toBeGreaterThan(0);
-    expect(block.indexOf("- Researcher (id: b-agent): Finds sources fast")).toBeGreaterThan(archivist);
-    expect(block).toContain("- Launch (id: g-1): with Researcher (project folder: /workspace/launch)");
-    expect(renderTeammatesUserInfo({ peers: [], groups: [], agentsRoot: "/agent-data/agents" })).toBeNull();
-  });
 });

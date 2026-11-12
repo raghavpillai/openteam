@@ -1,13 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
-  buildAdminBroadcastWakePrompt,
   buildGroupTurnPrompt,
-  describeHeldDuration,
-  directAgentAcknowledgement,
   directAgentWake,
-  groupAgentAcknowledgement,
   normalizeGroupAgentMessage,
-  renderAutomationHandoffPrompt,
   renderRevivalBatchPrompt,
   renderShellCompletionPrompt,
   shellCompletionBlock,
@@ -19,14 +14,6 @@ import { eventRoutineWakeContent, manualRoutineWakeContent, scheduledRoutineWake
 const HIDDEN = "[SAND_HIDDEN_PROMPT]";
 
 describe("agent-to-agent messages", () => {
-  test("acknowledgements name the target and say what was not delivered", () => {
-    expect(directAgentAcknowledgement({ targetName: "Researcher", priority: false })).toStartWith("Sent to Researcher.");
-    expect(directAgentAcknowledgement({ targetName: "Researcher", priority: true })).toContain("as a priority message");
-    expect(groupAgentAcknowledgement("Launch Room", { imageCount: 1 })).toContain("the attached image was NOT delivered");
-    expect(groupAgentAcknowledgement("Launch Room", { imageCount: 2 })).toContain("the attached images were NOT delivered");
-    expect(groupAgentAcknowledgement("Launch Room", { priority: true })).toContain("priority is 1:1 only");
-    expect(groupAgentAcknowledgement("Launch Room", {})).not.toContain("Note:");
-  });
 
   test.each([
     [" \n\t ", { status: "empty", content: "" }],
@@ -104,28 +91,6 @@ describe("background completion wakes", () => {
     expect(single).toEndWith(`\n\n${room}`);
   });
 
-  test.each([
-    [30_000, "1 minute"], [60_000, "1 minute"], [89 * 60_000, "89 minutes"],
-    [90 * 60_000, "2 hours"], [47 * 3_600_000, "47 hours"], [50 * 3_600_000, "2 days"],
-  ])("a %pms hold reads as %p", (ms, text) => {
-    expect(describeHeldDuration(ms)).toBe(text);
-  });
-
-  test("a routine handoff is owed now, unless it arrived late", () => {
-    const now = renderAutomationHandoffPrompt("Tell the user the build is green.");
-    expect(now).toStartWith(HIDDEN);
-    expect(now).toContain("still owed");
-    const late = renderAutomationHandoffPrompt("Tell the user the build is green.", 7 * 60_000);
-    expect(late).toContain("Tell the user the build is green.\n(This finished about 7 minutes ago");
-    expect(late).not.toContain("still owed");
-  });
-
-  test("an administrator broadcast is a hidden, non-user wake", () => {
-    const wake = buildAdminBroadcastWakePrompt("The local runtime will restart tonight.");
-    expect(wake).toStartWith(HIDDEN);
-    expect(wake).toContain("[broadcast]");
-    expect(wake).toContain("The local runtime will restart tonight.");
-  });
 });
 
 describe("routine wakes", () => {

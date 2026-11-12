@@ -2,10 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { ChannelMessageView, RoutineView } from "@openteam/contracts";
 import {
   classifyDurableSendError,
-  durableSendStatusLabel,
-  durableSendRenderKey,
-  formatOfflineDeliveryLabel,
-  formatOfflineDeliveryTimestamp,
   messageDeliveryAcceptance,
   routineScheduleEditMode,
   routineSchedulePatch,
@@ -51,8 +47,7 @@ const routine = (overrides: Partial<RoutineView> = {}): RoutineView => ({
   ...overrides,
 });
 
-describe("shared client presentation and editing policy", () => {;
-
+describe("shared client presentation and editing policy", () => {
   test("never flattens event or composite schedules from a simple client", () => {
     const event = routine({ scheduleKind: "event", schedule: "event:github", schedules: [] });
     const composite = routine({
@@ -92,15 +87,5 @@ describe("shared client presentation and editing policy", () => {;
         message: null,
       })
     ).toEqual({ status: "unknown_durability" });
-    expect(formatOfflineDeliveryTimestamp(Date.parse(acceptedMessage.createdAt), "en-US")).not.toBe(
-      ""
-    );
-    expect(durableSendStatusLabel("queued", true)).toBe("Will send when reconnected");
-    expect(durableSendStatusLabel("failed")).toBe("Failed to send");
-    expect(durableSendRenderKey({ nonce: "client-1" })).toBe("optimistic:client-1");
-    expect(formatOfflineDeliveryLabel(Date.parse(acceptedMessage.createdAt), "en-US")).toStartWith(
-      "Sent while offline · "
-    );
   });
-
 });

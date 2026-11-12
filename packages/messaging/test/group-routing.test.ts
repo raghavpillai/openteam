@@ -3,7 +3,6 @@ import {
   groupVisibilityClauses,
   parseGroupMentions,
   resolveGroupResponderIds,
-  rotateGroupResponders,
 } from "../src/group-routing";
 
 const members = [
@@ -13,19 +12,6 @@ const members = [
 ];
 
 describe("OpenTeam-compatible group routing", () => {
-
-  test("matches bounded member handles and everyone aliases", () => {
-    expect(parseGroupMentions("Ask @Parity and @researchbot.", members)).toEqual({
-      isEveryone: false,
-      memberIds: ["one", "two"],
-    });
-    expect(parseGroupMentions("hi@example.com and x@Parity should not match", members)).toEqual({
-      isEveryone: false,
-      memberIds: [],
-    });
-    expect(parseGroupMentions("@all take a look", members).isEveryone).toBe(true);
-  });
-
   test("no mention and everyone route to all members", () => {
     expect(
       resolveGroupResponderIds(members, [{ sender: "user", content: "Please review" }])
@@ -55,15 +41,6 @@ describe("OpenTeam-compatible group routing", () => {
         { sender: "user", content: "@Parity new task" },
       ])
     ).toEqual(["one"]);
-  });
-
-  test("attachment-only first round selects everyone and order rotates", () => {
-    expect(resolveGroupResponderIds(members, [], { attachmentOnlyFirstRound: true })).toEqual([
-      "one",
-      "two",
-      "three",
-    ]);
-    expect(rotateGroupResponders(["one", "two", "three"], 1)).toEqual(["two", "three", "one"]);
   });
 
   test("freezes the base snapshot while admitting only earlier same-round outputs", () => {

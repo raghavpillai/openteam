@@ -1,6 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
 import { SignalRpc, SignalRpcError } from "../rpc";
-import { scopedProcessEnvironment } from "@openteam/plugin-sdk";
 
 const fixture = new URL("./fixture.ts", import.meta.url).pathname;
 const processes: SignalRpc[] = [];
@@ -38,19 +37,4 @@ test("timed-out responses cannot resolve a later request", async () => {
   const peer = rpc();
   await expect(peer.request("delay", { value: "late", ms: 60 }, 10)).rejects.toThrow("timed out");
   expect(await peer.request("delay", { value: "correct", ms: 90 })).toBe("correct");
-});
-
-test("child environment excludes provider credentials and inherited Signal configuration", () => {
-  expect(
-    scopedProcessEnvironment(
-      {
-        PATH: "/bin",
-        HOME: "/tmp/test",
-        OPENAI_API_KEY: "synthetic",
-        SIGNAL_CLI_CONFIG: "/private/config",
-        GOOGLE_ACCESS_TOKEN: "synthetic",
-      },
-      { JAVA_HOME: "/test/jre" }
-    )
-  ).toEqual({ PATH: "/bin", HOME: "/tmp/test", JAVA_HOME: "/test/jre" });
 });

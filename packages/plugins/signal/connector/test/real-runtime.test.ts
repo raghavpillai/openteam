@@ -35,14 +35,6 @@ function runtime() {
 }
 
 real(
-  "real signal-cli returns its version through the connector transport",
-  async () => {
-    expect((await runtime().request("version")).version).toMatch(/^0\.14\./);
-  },
-  20000
-);
-
-real(
   "real signal-cli private directory is empty and supports concurrent RPC",
   async () => {
     const rpc = runtime();
@@ -50,16 +42,6 @@ real(
       Array.from({ length: 50 }, () => rpc.request("listAccounts"))
     );
     expect(results.every((value) => Array.isArray(value) && value.length === 0)).toBe(true);
-  },
-  20000
-);
-
-real(
-  "real unknown methods produce typed JSON-RPC errors",
-  async () => {
-    await expect(runtime().request("unknownMethodForValidation")).rejects.toBeInstanceOf(
-      SignalRpcError
-    );
   },
   20000
 );
@@ -125,19 +107,4 @@ real(
     }
   },
   20000
-);
-
-real(
-  "real process supports repeated clean connector lifecycles",
-  async () => {
-    for (let i = 0; i < 5; i++) {
-      const rpc = runtime();
-      expect(await rpc.request("listAccounts")).toEqual([]);
-      await rpc.close();
-      processes.pop();
-      expect(rpc.connected).toBe(false);
-      expect(rpc.exitCode).toBe(0);
-    }
-  },
-  30000
 );

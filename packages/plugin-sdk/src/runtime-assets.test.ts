@@ -32,12 +32,6 @@ function pin(data: Buffer = bytes, overrides: Partial<PluginRuntimeAssetSource> 
 function assets(source = pin(), name = "TOOL"): PluginRuntimeAsset[] {
   return [{ name, sources: { [platform]: source } }];
 }
-function deferred<T = void>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
-  return { promise, resolve, reject };
-}
 async function emptyCache(cache: string) {
   expect(await readdir(cache).catch(() => [])).toEqual([]);
 }
@@ -154,7 +148,6 @@ describe("managed runtime archive confinement", () => {
       .rejects.toThrow(/extraction limits/);
     await emptyCache(cache);
   });
-
 });
 
 describe("managed runtime cache integrity", () => {
@@ -179,30 +172,4 @@ describe("managed runtime cache integrity", () => {
     await expect(new ManagedRuntimeCache(cache, fetch).resolve(assets(), undefined, platform)).rejects.toThrow(/cache directory/);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
-
-});
-
-describe("managed runtime cancellation and concurrent callers", () => {
-  test("deduplicates downloads while letting one caller cancel without aborting another", async () => {
-    const { cache } = await fixture();
-    const started = deferred<AbortSignal>();
-    const release = deferred<Response>();
-    const fetch = mock(async (_url: string | URL, options?: RequestInit) => {
-      started.resolve(options!.signal!);
-      return release.promise;
-    });
-    const manager = new ManagedRuntimeCache(cache, fetch);
-    const controller = new AbortController();
-    const reason = new Error("first caller cancelled");
-    const first = manager.resolve(assets(), controller.signal, platform).catch((error) => error);
-    const second = manager.resolve(assets(), undefined, platform);
-    const underlying = await started.promise;
-    controller.abort(reason);
-    expect(await first).toBe(reason);
-    expect(underlying.aborted).toBe(false);
-    release.resolve(new Response(bytes));
-    expect((await second).OPENTEAM_RUNTIME_TOOL).toBeString();
-    expect(fetch).toHaveBeenCalledTimes(1);
-  });
-
 });

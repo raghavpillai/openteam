@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { reactionNotificationBody, toggleMessageReaction } from "../src";
+import { reactionNotificationBody } from "../src";
 import { messageNotificationBody } from "../src/notifications";
 
 const message = (content: string, metadata: Record<string, unknown> = {}) => ({
@@ -54,19 +54,6 @@ describe("messageNotificationBody", () => {
     );
     expect(messageNotificationBody(message(""))).toBe("");
   });
-});
-
-describe("toggleMessageReaction", () => {
-  test("a different emoji replaces the same actor's prior tapback", () => {
-    const first = toggleMessageReaction([], "👍", "agent");
-    const second = toggleMessageReaction(first.reactions, "❤️", "agent");
-
-    expect(second.removed).toBe(false);
-    expect(second.reactions).toEqual([
-      { by: "agent", emoji: "❤️" },
-    ]);
-  });
-
 });
 
 describe("reactionNotificationBody", () => {

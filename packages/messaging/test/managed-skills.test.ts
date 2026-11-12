@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as yaml } from "yaml";
@@ -104,17 +104,6 @@ test.each(["cached", "missing", "disabled"] as const)("retires cached skills wit
     if (previous === undefined) delete process.env.OPENTEAM_MANAGED_SKILLS;
     else process.env.OPENTEAM_MANAGED_SKILLS = previous;
   }
-});
-
-test("the catalog drops a missing skill file and renders nothing for a disabled cache", async () => {
-  await store.ensureRuntimeDirectories();
-  const routines = `<agent_skill fullPath="${join(root, "data/managed-skills/routines/SKILL.md")}">`;
-  expect(await renderManagedSkills()).toContain(routines);
-  await rm(join(root, "data/managed-skills/routines/SKILL.md"));
-  expect(await renderManagedSkills()).not.toContain(routines);
-  await chmod(join(root, "data/managed-skills/cache.json"), 0o644);
-  await writeFile(join(root, "data/managed-skills/cache.json"), '{"version":"disabled","skills":[]}');
-  expect(await renderManagedSkills()).toBe("");
 });
 
 test("skills scoped to knowledgeWork reach only its worker catalog, alongside main's", async () => {

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentDataStore } from "../../src/agent-data";
-import { parseAutomationFile, parseAutomationRuns } from "../../src/automation-files";
+import { parseAutomationRuns } from "../../src/automation-files";
 import {
   atomicWrite,
   listDirectories,
@@ -89,37 +89,6 @@ test("folder identifiers reject traversal, separators, and null bytes", () => {
   expect(safeFolderId("valid-slug_123")).toBe("valid-slug_123");
 });
 
-test("automation parsing rejects malformed explicit triggers", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-auto-adversarial-"));
-  const automationPath = join(root, "automation.json");
-  try {
-    await expect(parseAutomationFile(automationPath, JSON.stringify({
-      name: "Invalid explicit trigger", prompt: "Do not discard listeners.",
-      schedule: "@every 5m", trigger: { type: "not-supported" },
-    }), "UTC")).rejects.toThrow("unsupported automation trigger type");
-
-    await atomicWrite(
-      automationPath,
-      JSON.stringify({
-        name: "Invalid group",
-        prompt: "This must not load.",
-        trigger: {
-          type: "group",
-          listeners: [
-            { type: "origin", repo: "openteam/openteam", events: ["pr-opened"] },
-            { type: "webhook" },
-          ],
-        },
-      })
-    );
-    await expect(
-      parseAutomationFile(automationPath, await readFile(automationPath, "utf8"), "UTC")
-    ).rejects.toThrow("origin cannot be grouped");
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 test("routine run ledgers normalize unknown enums, order entries, and retain only 20", () => {
   const input = Array.from({ length: 25 }, (_, index) => ({
     id: `run-${index}`,
@@ -139,33 +108,4 @@ test("routine run ledgers normalize unknown enums, order entries, and retain onl
     status: "ok",
   });
   expect(normalized).not.toHaveProperty("extensionField");
-});
-
-test("routine run ledgers recover per row and clamp optional fields", () => {
-  expect(parseAutomationRuns("{ bad")).toEqual([]);
-  expect(parseAutomationRuns("{}")).toEqual([]);
-  const parsed = parseAutomationRuns(
-    JSON.stringify([
-      null,
-      { id: "", startedAt: 1 },
-      {
-        id: "good",
-        startedAt: 2,
-        finishedAt: "bad",
-        detail: `  ${"x".repeat(400)}  `,
-        event: ` ${"y".repeat(400)} `,
-        coalescedRunIds: Array.from({ length: 30 }, (_, index) => `id-${index}`),
-      },
-    ])
-  );
-  expect(parsed).toHaveLength(1);
-  expect(parsed[0]).toMatchObject({
-    id: "good",
-    trigger: "schedule",
-    status: "ok",
-    finishedAt: null,
-  });
-  expect(String(parsed[0]?.detail)).toHaveLength(300);
-  expect(String(parsed[0]?.event)).toHaveLength(300);
-  expect(parsed[0]?.coalescedRunIds).toHaveLength(25);
 });

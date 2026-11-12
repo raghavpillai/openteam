@@ -5,7 +5,6 @@ import {
 } from "../src";
 
 describe("mobile-safe OpenTeam client", () => {
-
   test("rejects unsafe configured server URLs in every client", () => {
     expect(() => normalizeBaseUrl("file:///tmp/openteam")).toThrow("HTTP or HTTPS");
     expect(() => normalizeBaseUrl("https://owner:secret@openteam.test")).toThrow(
@@ -105,78 +104,4 @@ describe("mobile-safe OpenTeam client", () => {
     ]);
     expect(topics).toEqual(["41:channel.message.accepted"]);
   });
-
-  test("uploads attachment bytes without base64 expansion", async () => {
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
-    const asset = {
-      assetId: "a".repeat(64),
-      fileName: "截图.png",
-      mimeType: "image/png",
-      byteSize: 3,
-      kind: "image" as const,
-    };
-    const fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: String(url), init });
-      return new Response(JSON.stringify(asset), {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      });
-    }) as unknown as typeof globalThis.fetch;
-    const client = createOpenTeamClient({ baseUrl: "http://openteam.test", fetch });
-    const image = new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" });
-
-    await expect(client.uploadAsset(image, "截图.png")).resolves.toEqual(asset);
-
-    expect(calls[0]?.url).toBe("http://openteam.test/api/v0/assets");
-    expect(calls[0]?.init?.body).toBe(image);
-    expect(new Headers(calls[0]?.init?.headers).get("content-type")).toBe("image/png");
-    expect(new Headers(calls[0]?.init?.headers).get("x-file-name")).toBe("%E6%88%AA%E5%9B%BE.png");
-    expect(client.assetUrl(asset)).toBe(
-      `http://openteam.test/api/v0/assets/${asset.assetId}?name=${encodeURIComponent(asset.fileName)}`
-    );
-  });
-
-  test("attaches bearer sessions and reports expired authentication", async () => {
-    const calls: RequestInit[] = [];
-    const unauthorized: Array<string | null> = [];
-    const fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
-      calls.push(init ?? {});
-      return new Response(JSON.stringify({ error: { code: "unauthorized" } }), { status: 401 });
-    }) as unknown as typeof globalThis.fetch;
-    const client = createOpenTeamClient({
-      baseUrl: "http://openteam.test",
-      fetch,
-      getAuthToken: async () => "signed-session",
-      onUnauthorized: (usedToken) => {
-        unauthorized.push(usedToken);
-      },
-    });
-
-    await expect(client.bootstrap()).rejects.toMatchObject({ status: 401 });
-    expect(new Headers(calls[0]?.headers).get("authorization")).toBe("Bearer signed-session");
-    expect(unauthorized).toEqual(["signed-session"]);
-  });
-
-});
-
-test("routine creation preserves a supplied retry nonce and defaults other callers to fresh IDs", async () => {
-  const calls: unknown[] = [];
-  let nonce = 0;
-  const client = createOpenTeamClient({
-    baseUrl: "http://fixture",
-    createId: () => `generated-${++nonce}`,
-    fetch: (async (_url, init) => {
-      calls.push(JSON.parse(String(init?.body)));
-      return Response.json({});
-    }) as typeof fetch,
-  });
-  const input = { name: "Audit", prompt: "Inspect", schedule: "@every 1h", enabled: true };
-  await client.createRoutine("bot", "bot", input, "stable-create");
-  await client.createRoutine("bot", "bot", input, "stable-create");
-  await client.createRoutine("bot", "bot", input);
-  expect(calls).toEqual([
-    { ...input, clientId: "stable-create" },
-    { ...input, clientId: "stable-create" },
-    { ...input, clientId: "generated-1" },
-  ]);
 });

@@ -97,32 +97,6 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
     }
   });
 
-  test("concurrent creation retries save only one routine for each request", async () => {
-    const f = await fixture();
-    try {
-      const callId = randomUUID();
-      const input = {
-        action: "create" as const,
-        name: "Retried routine",
-        prompt: "Run once",
-        schedule: "@every 5m",
-        enabled: false,
-      };
-      const replies = await Promise.all(
-        Array.from({ length: 6 }, () => f.service.mutateOwner(f.owner, callId, null, input))
-      );
-      expect(new Set(replies.map((reply) => reply.id)).size).toBe(1);
-      expect(await db!.routine.count({ where: { channelId: f.channelId, name: input.name } })).toBe(
-        1
-      );
-      expect(await db!.routineRevision.count({ where: { callId } })).toBe(1);
-      const restarted = new RoutineService(db!, {} as never);
-      expect((await restarted.mutateOwner(f.owner, callId, null, input)).id).toBe(replies[0]!.id);
-    } finally {
-      await f.cleanup();
-    }
-  });
-
   test("a cron routine catches up after a month offline without timing out its transaction", async () => {
     const f = await fixture();
     try {

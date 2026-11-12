@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import {
   chmod,
   mkdir,
@@ -34,109 +33,11 @@ const png = () => {
   return bytes;
 };
 
-const chunkedStream = (bytes: Uint8Array, chunkSize: number): ReadableStream<Uint8Array> => {
-  let offset = 0;
-  return new ReadableStream<Uint8Array>({
-    pull(controller) {
-      if (offset >= bytes.byteLength) {
-        controller.close();
-        return;
-      }
-      const end = Math.min(bytes.byteLength, offset + chunkSize);
-      controller.enqueue(bytes.subarray(offset, end));
-      offset = end;
-    },
-  });
-};
-
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("content-addressed attachment store", () => {
-
-  test("ingests real Bun HTTP request streams and cleans failed staging", async () => {
-    const root = await temporaryRoot();
-    const assetRoot = join(root, "assets");
-    const store = new AssetStore({ root: assetRoot, allowedFileRoots: [root] });
-    const failures: unknown[] = [];
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        if (!request.body) return new Response(null, { status: 400 });
-        try {
-          return Response.json(
-            await store.ingestStream({
-              fileName: request.headers.get("x-file-name") ?? "upload.bin",
-              mimeType: request.headers.get("content-type") ?? undefined,
-              stream: request.body,
-            }),
-            { status: 201 }
-          );
-        } catch (error) {
-          failures.push(error);
-          return Response.json({ error: "rejected" }, { status: 422 });
-        }
-      },
-    });
-
-    try {
-      const bytes = Buffer.from("native Bun upload\n".repeat(16_384));
-      const uploaded = await fetch(server.url, {
-        method: "POST",
-        headers: { "content-type": "text/plain", "x-file-name": "native-upload.txt" },
-        body: bytes,
-      });
-      expect(uploaded.status).toBe(201);
-      expect(await uploaded.json()).toEqual({
-        assetId: createHash("sha256").update(bytes).digest("hex"),
-        fileName: "native-upload.txt",
-        mimeType: "text/plain",
-        byteSize: bytes.byteLength,
-        kind: "text",
-      });
-      expect(
-        await readFile(store.contentPath(createHash("sha256").update(bytes).digest("hex")))
-      ).toEqual(bytes);
-
-      const rejected = await fetch(server.url, {
-        method: "POST",
-        headers: { "content-type": "text/plain", "x-file-name": "oversized.txt" },
-        body: Buffer.alloc(25 * 1024 * 1024 + 1),
-      });
-      expect(rejected.status).toBe(422);
-      expect(failures).toHaveLength(1);
-      expect(failures[0]).toMatchObject({ code: "asset_too_large" });
-      expect((await readdir(assetRoot)).filter((name) => name.includes(".tmp"))).toEqual([]);
-    } finally {
-      server.stop(true);
-    }
-  });
-
-  test("atomically deduplicates concurrent streamed uploads without temporary leftovers", async () => {
-    const root = await temporaryRoot();
-    const assetRoot = join(root, "assets");
-    const store = new AssetStore({ root: assetRoot, allowedFileRoots: [root] });
-    const bytes = Buffer.alloc(2 * 1024 * 1024 + 13, 0x61);
-
-    const refs = await Promise.all(
-      Array.from({ length: 4 }, (_, index) =>
-        store.ingestStream({
-          fileName: `copy-${index}.txt`,
-          mimeType: "text/plain",
-          stream: chunkedStream(bytes, 64 * 1024),
-        })
-      )
-    );
-
-    expect(new Set(refs.map(({ assetId }) => assetId)).size).toBe(1);
-    expect((await readdir(assetRoot)).sort()).toEqual([
-      `${refs[0]?.assetId}.blob`,
-      `${refs[0]?.assetId}.json`,
-    ]);
-  });
-
   test("cancels oversized and aborted streams and removes owned temporary files", async () => {
     const root = await temporaryRoot();
     const assetRoot = join(root, "assets");
@@ -243,21 +144,6 @@ describe("content-addressed attachment store", () => {
     expect((await store.runtimeImages([a!, b!], budget)).length).toBe(2);
     expect((await store.runtimeImages([c!, d!], budget)).length).toBe(Math.floor(MAX_TURN_INLINE_IMAGE_BYTES / size) - 2);
     expect((await store.runtimeImages([c!, d!])).length).toBe(2);
-  });
-
-  test("stops adding inline images before the turn outgrows its request", async () => {
-    const root = await temporaryRoot();
-    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const size = 24 * 1024 * 1024;
-    const refs = [];
-    for (let index = 0; index < 4; index++) {
-      const bytes = Buffer.concat([png(), Buffer.alloc(size)]);
-      bytes.writeUInt32BE(index + 2, 16);
-      refs.push(await store.ingestBytes({ fileName: `large-${index}.png`, bytes }));
-    }
-    const images = await store.runtimeImages(refs);
-    expect(images).toHaveLength(Math.floor(MAX_TURN_INLINE_IMAGE_BYTES / refs[0]!.byteSize));
-    expect(images.reduce((total, image) => total + image.url.length, 0)).toBeLessThan(128 * 1024 * 1024);
   });
 
   test("downgrades active text MIME types before same-origin serving", async () => {

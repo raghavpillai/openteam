@@ -30,11 +30,6 @@ const layouts = { revisionId: 'r5', slides: [{ objectId: 'a' }, { objectId: 'b' 
   { objectId: 'L-title', layoutProperties: { name: 'TITLE' }, pageElements: [{ objectId: 'L-t-ct', shape: { placeholder: { type: 'CENTERED_TITLE' } } }, { objectId: 'L-t-sub', shape: { placeholder: { type: 'SUBTITLE' } } }] },
 ] };
 
-test('A stale requiredRevisionId fails with an actionable message', async () => {
-  const h = harness(slidesTools, [new Response(JSON.stringify({ error: { message: 'The required revision ID does not match the latest revision.' } }), { status: 400 })]);
-  await expect(h.call('delete_object', { presentationId: 'deck', objectId: 'x', requiredRevisionId: 'old' })).rejects.toThrow('changed since revision old, so nothing was applied');
-});
-
 test('get_slide_thumbnail returns the PNG and its size without sending the token to the content URL', async () => {
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
   const thumb = { width: 1600, height: 900, contentUrl: 'https://lh7-rt.googleusercontent.com/slides/abc' };

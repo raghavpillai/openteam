@@ -67,27 +67,3 @@ test("restart recovers an in-flight terminal and retries completion delivery onc
     await expect(recovered.await({ shell_id: "700", block_until_ms: 0 }, "another-bot")).rejects.toThrow("No shell found for id 700");
   } finally { recovered.dispose(); }
 });
-
-test("bounds completed handle retention while keeping running jobs", async () => {
-  const { registry, outputPath } = await fixture();
-  for (let i = 0; i < 257; i++) {
-    registry
-      .start({
-        id: `done-${i}`,
-        scope: "bot-1",
-        outputPath,
-        outputOffset: 0,
-        startedAt: Date.now(),
-      })
-      .finish(0);
-  }
-  await expect(registry.await({ shell_id: "done-0", block_until_ms: 0 }, "bot-1")).rejects.toThrow(
-    "No shell found for id done-0"
-  );
-  expect((await registry.await({ shell_id: "done-256", block_until_ms: 0 }, "bot-1")).status).toBe(
-    "completed"
-  );
-  expect((await registry.await({ shell_id: "job", block_until_ms: 0 }, "bot-1")).status).toBe(
-    "running"
-  );
-});

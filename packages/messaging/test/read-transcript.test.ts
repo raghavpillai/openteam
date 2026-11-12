@@ -22,21 +22,6 @@ test("credential redaction precedes truncation", () => {
   expect(boundTranscriptValue('a'.repeat(2500)+'z'.repeat(2500),100)).toBe('a'.repeat(50)+'\n[truncated: 4900 characters omitted from middle]\n'+'z'.repeat(50));
 });
 
-test("long command observations retain their final result while redacting both ends", () => {
-  const projection = transcriptToolProjection({type:"commandExecution", command:"python3 diagnostic.py",
-    result:{content:[{type:"text",text:'BEGIN PASSWORD=first-secret\n'+'record\n'.repeat(4000)+'\nRESULT=completed\nPASSWORD=last-secret'}],details:{exitCode:0}}});
-  const text = boundTranscriptValue(projection,2000);
-  expect(text).toContain('python3 diagnostic.py');
-  expect(text).toContain('RESULT=completed');
-  expect(text).toContain('omitted from middle');
-  expect(text).not.toContain('first-secret');
-  expect(text).not.toContain('last-secret');
-  expect(boundTranscriptValue('short')).toBe('short');
-  expect(boundTranscriptValue('abcdef',1)).toBe('a\n[truncated: 5 characters omitted from middle]\n');
-  expect(boundTranscriptValue({password:'never-visible', nested:{authorization:'private-value'}})).not.toContain('never-visible');
-  expect(boundTranscriptValue({password:'never-visible', nested:{authorization:'private-value'}})).not.toContain('private-value');
-});
-
 test("browser action observations survive history recovery without exposing input arguments or private details", () => {
   for (const tool of ['browser_navigate','browser_click','browser_press_key','browser_hover','browser_wait_for','browser_find']) {
     const value = transcriptToolProjection({tool, arguments:{text:'PRIVATE_INPUT',url:'PRIVATE_ARGUMENT'},

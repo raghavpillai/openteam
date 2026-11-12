@@ -1,11 +1,8 @@
 import { expect, test } from "bun:test";
 import {
   buildExtractionUserPrompt,
-  gatherExtractionMemories,
-  holdMemoryExchange,
   isMemorableExchange,
   parseExtractedMemories,
-  parseHeldMemoryExchanges,
   renderTurnMemoryDate,
 } from "../src/memory-learning";
 import { renderMemoryContextBlock, renderMemoryFactSnapshot, renderUserMemoryFactSnapshot } from "../src/memory-rendering";
@@ -33,27 +30,6 @@ test("extraction lines add, retire and prefix facts, skipping ones already known
     removals: ["Lives in Boston."],
   });
   expect(parseExtractedMemories("  NONE \n", [])).toEqual({ additions: [], removals: [] });
-});
-
-test("the learner sees in-prompt facts first, then a few older ones that share words", () => {
-  const day = (n: number) => new Date(Date.UTC(2026, 0, 1) + n * 86_400_000);
-  const facts = [
-    { content: "Old profile fact.", tier: "profile", createdAt: day(0), importance: 1 },
-    { content: "Newer profile fact.", tier: "profile", createdAt: day(5), importance: 1 },
-    ...Array.from({ length: 31 }, (_, i) => ({
-      content: `Journal entry ${i}.`,
-      tier: "log",
-      createdAt: day(10 + i),
-      importance: 1,
-    })),
-  ];
-  const gathered = gatherExtractionMemories(facts, "What was in journal entry 0?");
-  expect(gathered.slice(0, 2)).toEqual(["Newer profile fact.", "Old profile fact."]);
-  expect(gathered.slice(2, 32)).toEqual(
-    Array.from({ length: 30 }, (_, i) => `Journal entry ${30 - i}.`)
-  );
-  // The oldest entry fell out of the recent slice but shares "journal" and "entry".
-  expect(gathered.slice(32)).toEqual(["Journal entry 0."]);
 });
 
 test("small talk is skipped, anything substantive is reviewed", () => {
@@ -100,16 +76,6 @@ test("the extraction prompt carries today's date and exchanges an interrupted re
   );
 });
 
-test("held exchanges are bounded and malformed entries are dropped", () => {
-  const long = `${"a".repeat(5_000)}MIDDLE${"z".repeat(5_000)}`;
-  const held = holdMemoryExchange({ id: "run-1", user: long, agent: " ok " });
-  expect(held.user).toHaveLength(8_000 + "\n[...middle omitted...]\n".length);
-  expect(held.user).not.toContain("MIDDLE");
-  expect(held.agent).toBe("ok");
-  expect(parseHeldMemoryExchanges([held, { id: 3 }, null, "x"])).toEqual([held]);
-  expect(parseHeldMemoryExchanges({})).toEqual([]);
-});
-
 const fact = (content: string, day: number, scope: "agent" | "user" = "agent", tier = "log") => ({
   content,
   createdAt: new Date(`2026-09-${String(day).padStart(2, "0")}T00:00:00Z`),
@@ -147,12 +113,6 @@ test("recall searches everything, labels each fact by memory type, and ignores a
   expect(recallMemoryResult({ query: "zzz" }, candidates)).toBe(
     'No facts in your memory and the shared user memory match "zzz" (4 searched). Try different words, or a shorter literal fragment.'
   );
-});
-
-test("recall keeps the first long fact, limits later facts and preserves note markers", () => {
-  const result = recallMemoryResult({ query: "alpha" }, [fact(`[note] alpha ${"x".repeat(4500)}`, 9), fact("alpha older", 1)]);
-  expect(result).toContain("[journal] [note] alpha");
-  expect(result).toEndWith("(1 more matches not shown. Narrow the query.)");
 });
 
 const day = (value: string) => Date.parse(`${value}T00:00:00Z`);

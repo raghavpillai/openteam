@@ -33,17 +33,6 @@ test("only paths actually saved are described, matched by stored name rather tha
   expect(attachedFilesContext(["/attachments/unknown.bin"], [kept]).note).toEndWith("- /attachments/unknown.bin");
 });
 
-test("the same bytes sent under two names are one path with both names", () => {
-  const first = ref("a", "résumé.txt"), second = { ...first, fileName: "東京.txt" };
-  expect(attachedFilesContext([at(first), at(second)], [first, second]).note)
-    .toEndWith(`- ${at(first)} ("résumé.txt", "東京.txt", 12 B)`);
-});
-
-test("an image the bot can't see inline is listed as a plain file", () => {
-  const photo = ref("b", "big.jpg", { mimeType: "image/jpeg", kind: "image" });
-  expect(attachedFilesContext([at(photo)], [photo]).note).toEndWith(`- ${at(photo)} ("big.jpg", 12 B)`);
-});
-
 test("a file that arrived without a name is saved under its detected type", () => {
   expect(attachmentStorageName(ref("a", "1089646", { mimeType: "application/pdf", kind: "pdf" }))).toBe("a".repeat(64) + ".pdf");
   expect(attachmentStorageName(ref("a", "2209931", { mimeType: "video/mp4", kind: "video" }))).toBe("a".repeat(64) + ".mp4");

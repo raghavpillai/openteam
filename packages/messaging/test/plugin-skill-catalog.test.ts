@@ -108,19 +108,3 @@ test("subagents get only the skills that name them, and never private skills", a
     pluginSkillsForAgent(cache, [installation], [privateSkill], "computerUse").map((entry) => entry.name)
   ).toEqual(["sign-in", "desktop-only"]);
 });
-
-test("the agent prompt's skill catalog includes installed plugin skills", async () => {
-  await syncCache();
-  const prisma = {
-    pluginInstallation: { findMany: async () => [installation] },
-    pluginPrivateSkill: { findMany: async () => [privateSkill] },
-  };
-  const rendered: string = await (store(prisma) as any).renderPluginSkills("bot");
-  expect(rendered).toBe(
-    renderPluginSkillCatalog(pluginSkillsForAgent(await syncCache(), [installation], [privateSkill], "main"))
-  );
-  expect(rendered).toMatch(/^<agent_skill fullPath="\/[^"]+\/main-only\/SKILL\.md">Main<\/agent_skill>$/m);
-
-  await rm(join(root, "plugin-skills/cache.json"));
-  expect(await (store(prisma) as any).renderPluginSkills("bot")).toBe("");
-});

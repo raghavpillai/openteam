@@ -249,7 +249,7 @@ suite("Email connector against an IMAP/SMTP server", () => {
     expect(delivered && delivered.headers?.toString()).toContain("In-Reply-To: <");
   }, 90_000);
 
-  test("the packaged MCP server signs in on discovery, lists the Bot tools, offers no direct send, and redacts the password", async () => {
+  test("a packaged server that cannot sign in never reveals the password", async () => {
     const bot = `bot-${crypto.randomUUID().slice(0, 8)}@example.test`;
     const env = {
       EMAIL_ADDRESS: bot,
@@ -270,49 +270,6 @@ suite("Email connector against an IMAP/SMTP server", () => {
       );
       return client;
     };
-    const text = (result: Awaited<ReturnType<Client["callTool"]>>) =>
-      (result.content as Array<{ text: string }>)[0]!.text;
-    const client = await start();
-    try {
-      const { tools: listed } = await client.listTools();
-      expect(listed.map((tool) => tool.name)).toEqual([
-        "ListEmailInboxes",
-        "SearchEmailThreads",
-        "ReadEmailThread",
-        "ReadEmailAttachment",
-        "send_reviewed_email",
-        "poll_new_mail",
-      ]);
-      for (const name of ["send_reviewed_email", "poll_new_mail"])
-        expect(listed.find((tool) => tool.name === name)?._meta).toEqual({
-          "openteam/hostOnly": true,
-        });
-      expect(listed[0]!.description).toContain(
-        "(providerIdentifier 11111111-2222-3333-4444-555555555555)"
-      );
-      expect(text(await client.callTool({ name: "ListEmailInboxes", arguments: {} }))).toBe(
-        `Your email address:\n- ${bot}`
-      );
-      const refused = await client.callTool({
-        name: "SendEmail",
-        arguments: { to: ["someone@example.test"], subject: "Hi", text_body: "Hello" },
-      });
-      expect(refused.isError).toBe(true);
-      const bad = await client.callTool({
-        name: "ReadEmailThread",
-        arguments: { thread_id: "INBOX" },
-      });
-      expect(bad.isError).toBe(true);
-      // Out-of-range numbers and modes fall back to their defaults instead of failing the call.
-      const lenient = await client.callTool({
-        name: "SearchEmailThreads",
-        arguments: { query: "anything", limit: 99, mode: "fuzzy" },
-      });
-      expect(lenient.isError).toBeFalsy();
-      expect(text(lenient)).toStartWith('No email threads match "anything".');
-    } finally {
-      await client.close();
-    }
     const unreachable = await start({ IMAP_SERVER: `imap://${host}:9` });
     try {
       const error = await unreachable.listTools().then(

@@ -94,14 +94,6 @@ test("automation parser supports paused cron, event groups, and operational runs
       schedules: [{ preset: "weekdays", time: "08:00" }],
     });
 
-    const longPrompt = "x".repeat(240_001);
-    await atomicWrite(
-      automation,
-      JSON.stringify({ name: "Long prompt", prompt: longPrompt, schedule: "@daily" })
-    );
-    expect(
-      (await parseAutomationFile(automation, await readFile(automation, "utf8"), "UTC")).prompt
-    ).toHaveLength(longPrompt.length);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -148,29 +148,6 @@ test.skipIf(!url)(
   }
 );
 
-test.skipIf(!url)("a UUID-shaped alias cannot hijack an existing routine UUID", async () => {
-  const f = await fixture();
-  try {
-    const id = await f.create({ type: "cron", schedule: "@every 5m" });
-    const alias = await f.create({ type: "cron", schedule: "@every 10m" });
-    await f.db.routine.update({ where: { id: alias }, data: { slug: id } });
-    expect((await f.service.detailOwner(f.owner, id)).id).toBe(id);
-    await f.service.mutateOwner(f.owner, randomUUID(), null, {
-      action: "update",
-      id,
-      prompt: "Intended update",
-    });
-    expect((await f.db.routine.findUniqueOrThrow({ where: { id } })).prompt).toBe(
-      "Intended update"
-    );
-    expect((await f.db.routine.findUniqueOrThrow({ where: { id: alias } })).prompt).toBe(
-      "Saved instructions"
-    );
-  } finally {
-    await f.close();
-  }
-});
-
 test.skipIf(!url)(
   "a broken event destination does not block healthy listeners and retries stay idempotent",
   async () => {

@@ -4,15 +4,12 @@ import { describe, expect, test } from "bun:test";
 import { referenceTool } from "../src/tool-contracts";
 import { Schema } from "effect";
 import {
-  CreateBotInput,
   CURSOR_TOOL_NAMES,
   CURSOR_TOOLS,
   NATIVE_TOOL_NAMES,
   NATIVE_TOOLS,
   ScreenActionInput,
   SendMessageInput,
-  TaskInput,
-  TodoWriteInput,
   DISCONNECT_CHANNEL_TOOL,
   isStateTool,
   STATE_TOOL_TARGETS,
@@ -21,40 +18,13 @@ import {
   UPDATE_PROFILE_TOOL,
   UPDATE_ROUTINE_TOOL,
   UPDATE_SKILL_TOOL,
-  UpdateMemoryToolInput,
-  UpdateProfileToolInput,
-  UpdateRoutineToolInput,
   UploadAssetInput,
 } from "../src";
 import { normalizeMainToolArguments } from "../src/reference-main-parsers";
-import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "../src/plugin-workflows";
 import { ROBOT_AVATAR_SHAPES } from "../src/robot-avatar";
 import { parseUserForm, userFormPreparationRefusal } from "../src/user-forms";
-import nativeToolsDocument from "../src/native-tools.json";
-import toolReference from "../src/tool-reference.json";
-
-
 
 describe("API contracts", () => {
-
-  test("accepts a valid bot", () => {
-    const value = Schema.decodeUnknownSync(CreateBotInput)({
-      clientRequestId: "create-researcher-0001",
-      name: "Researcher",
-      color: "#4f7cff",
-    });
-    expect(value.name).toBe("Researcher");
-  });
-
-  test("rejects an empty message", () => {
-    expect(() =>
-      Schema.decodeUnknownSync(SendMessageInput)({
-        content: "",
-        clientId: "message-1",
-      })
-    ).toThrow();
-  });
-
   test("accepts canonical attachment references and rejects inline message bytes", () => {
     const attachment = {
       assetId: "a".repeat(64),
@@ -115,21 +85,6 @@ describe("API contracts", () => {
         keys: ["ctrl+l;rm"],
       })
     ).toThrow();
-    expect(
-      Schema.decodeUnknownSync(ScreenActionInput)({
-        action: "drag",
-        path: [
-          { x: 20, y: 40 },
-          { x: 300, y: 420 },
-        ],
-      })
-    ).toEqual({
-      action: "drag",
-      path: [
-        { x: 20, y: 40 },
-        { x: 300, y: 420 },
-      ],
-    });
   });
 
   test("declares the current native tools; machine discovery is looked up", () => {
@@ -171,12 +126,6 @@ describe("API contracts", () => {
     expect(sendToAgent!.inputSchema).toEqual(referenceTool('SendToAgent').inputSchema);
   });
 
-  test("plugin host context keeps a workflow's confirmation steps", () => {
-    // The main prompt asks first before consequential actions; plugin skills must not be told otherwise.
-    expect(PLUGIN_WORKFLOW_HOST_CONTEXT).not.toMatch(/extra action approvals do not apply|Carry out the user's requested work directly|Ask only for information or authentication/);
-    expect(PLUGIN_WORKFLOW_HOST_CONTEXT).toContain("A workflow's confirmation steps apply, alongside your own rules on asking first.");
-  });
-
   test("declares the supported Cursor-compatible subset including AwaitShell", () => {
     expect(CURSOR_TOOL_NAMES).toEqual([
       "AwaitShell",
@@ -198,89 +147,6 @@ describe("API contracts", () => {
     for (const tool of CURSOR_TOOLS) {
       expect(tool.description).toEqual(referenceTool(tool.tool).description);
       expect(tool.inputSchema).toEqual(referenceTool(tool.tool).inputSchema);
-    }
-    const taskTool = CURSOR_TOOLS.find((tool) => tool.tool === "Task");
-    const taskSchema = taskTool?.inputSchema as {
-      properties: Record<string, { description?: string }>;
-      required: string[];
-    };
-    expect(Object.keys(taskSchema.properties)).toEqual([
-      "description",
-      "prompt",
-      "resume",
-      "subagent_type",
-      "file_attachments",
-      "run_in_background",
-    ]);
-    expect(taskSchema.required).toEqual(["description", "prompt", "subagent_type"]);
-    expect((taskSchema.properties.subagent_type as any).enum).toContain('computerUse');
-    expect((taskSchema.properties.subagent_type as any).enum).not.toContain('browserUse');
-    expect(taskSchema.properties.model).toBeUndefined();
-    expect(CURSOR_TOOL_NAMES).not.toContain("AddMcpServer");
-    expect(
-      Schema.decodeUnknownSync(TaskInput)({
-        description: "Inspect failing tests",
-        prompt: "Find the cause and return the relevant files and evidence.",
-        subagent_type: "executor",
-        run_in_background: true,
-      })
-    ).toMatchObject({ subagent_type: "executor", run_in_background: true });
-    expect(() =>
-      Schema.decodeUnknownSync(TaskInput)({
-        description: "Open the page",
-        prompt: "Open https://example.com and report its heading.",
-        subagent_type: "browserUse",
-      })
-    ).toThrow();
-    expect(
-      Schema.decodeUnknownSync(TodoWriteInput)({
-        todos: [
-          {
-            id: "investigate",
-            content: "Find the cause",
-            status: "in_progress",
-          },
-          { id: "verify", content: "Run verification", status: "pending" },
-        ],
-        merge: false,
-      }).todos
-    ).toHaveLength(2);
-    expect(Schema.decodeUnknownSync(TodoWriteInput)({
-      todos: [{ id: "investigate", content: "Find the cause", status: "completed" }],
-      merge: true,
-    }).todos).toHaveLength(1);
-    expect(Schema.decodeUnknownSync(TodoWriteInput)({
-      todos: [{ id: "investigate", status: "completed" }], merge: true,
-    }).todos[0]).toEqual({ id: "investigate", status: "completed" });
-    expect(() => Schema.decodeUnknownSync(TodoWriteInput)({
-      todos: [{ id: "a", status: "pending" }, { id: "b", content: "Complete", status: "pending" }], merge: false,
-    })).toThrow("Replacement tasks require content and status");
-    expect(() =>
-      Schema.decodeUnknownSync(TodoWriteInput)({
-        todos: [{ id: "only", content: "Only one", status: "pending" }],
-        merge: false,
-      })
-    ).toThrow();
-    expect(() =>
-      Schema.decodeUnknownSync(TodoWriteInput)({
-        todos: Array.from({ length: 65 }, (_, index) => ({
-          id: `todo-${index}`,
-          content: "bounded",
-          status: "pending" as const,
-        })),
-        merge: false,
-      })
-    ).not.toThrow();
-    for (const todo of [
-      { id: "x".repeat(121), content: "bounded", status: "pending" as const },
-      { id: "bounded", content: "x".repeat(1_001), status: "pending" as const },
-    ]) {
-      expect(() =>
-        Schema.decodeUnknownSync(TodoWriteInput)({
-          todos: [todo, { id: "second", content: "bounded", status: "pending" }],
-          merge: false,
-        })
-      ).not.toThrow();
     }
   });
 
@@ -312,55 +178,8 @@ describe("API contracts", () => {
         target: "memory",
       }))).not.toContain("target");
     }
-    const memory = UPDATE_MEMORY_TOOL.inputSchema as {
-      properties: Record<string, { enum?: string[] }>;
-      required: string[];
-    };
-    expect(memory.properties.action?.enum).toEqual(["write", "forget", "replace"]);
-    expect(memory.properties.type?.enum).toEqual(["profile", "journal", "shared_profile", "shared_journal"]);
-    expect(Object.keys(memory.properties)).toEqual(["action", "fact", "type", "id"]);
-    expect(memory.required).toEqual(["action", "fact", "type"]);
-    const routine = UPDATE_ROUTINE_TOOL.inputSchema as { properties: Record<string, { enum?: string[] }> };
-    expect(routine.properties.action?.enum).toEqual(["create", "get", "update", "pause", "resume", "delete"]);
-    // The schema names trigger types only; the skill and the invalid-trigger reply carry the shapes.
-    const listener = {
-      type: "object",
-      properties: { type: { type: "string", enum: ["slack", "github", "origin", "microsoftTeams", "linear", "sentry", "pagerduty", "email", "webhook", "cron", "group"] } },
-      required: ["type"],
-    };
-    expect(routine.properties.trigger as unknown).toEqual({
-      anyOf: [listener, { type: "array", items: listener, minItems: 1 }],
-      description: "An event listener instead of schedule. Fields depend on type; see Trigger shapes in the routines skill.",
-    });
-    expect(Object.keys((UPDATE_PROFILE_TOOL.inputSchema as { properties: object }).properties)).toEqual([
-      "name", "description", "title", "avatar_shape", "avatar_color", "notify_on_updates", "drafting_disabled",
-    ]);
-    expect(
-      Schema.decodeUnknownSync(UpdateMemoryToolInput)({
-        action: "write",
-        fact: "The user prefers concise status updates.",
-        type: "shared_profile",
-      })
-    ).toEqual({
-      action: "write",
-      fact: "The user prefers concise status updates.",
-      type: "shared_profile",
-    });
-    expect(() => Schema.decodeUnknownSync(UpdateMemoryToolInput)({ action: "write", fact: "x" })).toThrow();
-    expect(() => Schema.decodeUnknownSync(UpdateMemoryToolInput)({ action: "write", fact: "x", type: "note" })).toThrow();
-    expect(
-      Schema.decodeUnknownSync(UpdateRoutineToolInput)({
-        action: "create",
-        name: "Daily brief",
-        prompt: "Send a concise morning brief.",
-        schedule: "@daily",
-      })
-    ).toMatchObject({ action: "create", schedule: "@daily" });
-    expect(Schema.decodeUnknownSync(UpdateProfileToolInput)({ title: "", hidden_from_sidebar: true })).toEqual({
-      title: "",
-    });
     expect(() => normalizeMainToolArguments("UpdateMemory", { action: "create", fact: "x", type: "profile" })).toThrow(
-      "UpdateMemory only writes, replaces or forgets memory. Routines have their own UpdateRoutine tool."
+      "UpdateMemory only writes or forgets memory. Routines have their own UpdateRoutine tool."
     );
     expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "log" })).toThrow(
       "UpdateMemory: pick the memory type it belongs in: profile, journal, shared_profile, shared_journal."

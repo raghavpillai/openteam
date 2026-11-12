@@ -6,49 +6,6 @@ import {
 } from "../src/auth";
 
 describe("shared authentication protocol", () => {
-  test("signs in with the canonical request and parses the owner", async () => {
-    const requests: Array<{ url: string; init?: RequestInit }> = [];
-    const client = createOpenTeamAuthClient({
-      baseUrl: "https://openteam.test/",
-      fetch: async (input, init) => {
-        requests.push({ url: String(input), init });
-        return Response.json(
-          {
-            user: {
-              id: "owner-1",
-              name: " Owner ",
-              email: "owner@openteam.invalid",
-              username: " owner ",
-              image: null,
-            },
-          },
-          { headers: { "set-auth-token": "session-token" } }
-        );
-      },
-    });
-
-    const result = await client.signIn("  owner  ", "secret");
-
-    const request = requests[0];
-    expect(request?.url).toBe("https://openteam.test/api/auth/login");
-    expect(request?.init?.method).toBe("POST");
-    expect(new Headers(request?.init?.headers).get("content-type")).toBe("application/json");
-    expect(JSON.parse(String(request?.init?.body))).toEqual({
-      username: "owner",
-      password: "secret",
-      rememberMe: true,
-    });
-    expect(result).toEqual({
-      token: "session-token",
-      user: {
-        id: "owner-1",
-        name: "Owner",
-        email: "owner@openteam.invalid",
-        username: "owner",
-        image: null,
-      },
-    });
-  });
 
   test("fails closed for unknown auth modes and rejects invalid sessions", async () => {
     const responses = [

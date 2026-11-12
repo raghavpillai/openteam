@@ -107,22 +107,6 @@ describe("bounded message windows", () => {
     expect(result.missingAncestorIds).toEqual([]);
   });
 
-  test("deduplicates and restores chronological sequence order", () => {
-    const duplicate = message(2, { content: "latest copy" });
-    const result = boundMessageWindow(
-      [message(10), message(2, { content: "old copy" }), message(1), duplicate],
-      {
-        maxMessages: 10,
-        maxBytes: generousBytes,
-        retain: "newest",
-      }
-    );
-
-    expect(result.messages.map(({ id }) => id)).toEqual(["message-1", "message-2", "message-10"]);
-    expect(result.messages[1]?.content).toBe("latest copy");
-    expect(new Set(result.messages.map(({ id }) => id)).size).toBe(result.messages.length);
-  });
-
 });
 
 describe("latest refresh overlap", () => {

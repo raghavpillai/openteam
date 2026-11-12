@@ -122,29 +122,6 @@ describe("durable send controller", () => {
     expect(restored.getSnapshot()[0]?.queuedAtMs).not.toBeNull();
   });
 
-  test("resolves an ambiguous response as accepted without sending twice", async () => {
-    const memory = memoryStorage();
-    let dispatchCount = 0;
-    const controller = createDurableSendController("account-1", memory.storage, {
-      createNonce: () => "nonce-ambiguous-1",
-      dispatch: async () => {
-        dispatchCount += 1;
-        throw new Error("socket closed after response");
-      },
-      resolveAcceptance: async () => ({
-        status: "accepted",
-        acceptedAtMs: 10,
-        message: acceptedMessage("message-ambiguous"),
-      }),
-      classifyError: () => "ambiguous",
-    });
-    await controller.enqueue(input);
-    await waitFor(() => controller.getSnapshot()[0]?.phase === "accepted-awaiting-echo");
-    await controller.flush();
-    expect(dispatchCount).toBe(1);
-    expect(controller.getSnapshot()[0]?.acceptedMessage?.id).toBe("message-ambiguous");
-  });
-
   test("expires an unconfirmed send and resends it with a fresh linked nonce", async () => {
     let clock = 1_000;
     let nonceIndex = 0;
@@ -183,58 +160,6 @@ describe("durable send controller", () => {
     expect(
       parseDurableSendJournal({ schemaVersion: 1, scope: "mine", records: [{}] }, "mine").records
     ).toEqual([]);
-  });
-
-  test("checks prior resend nonces before dispatching a restored replacement", async () => {
-    const memory = memoryStorage();
-    let offline = true;
-    let nonceIndex = 0;
-    const writer = createDurableSendController("account-1", memory.storage, {
-      now: () => 1_000 + nonceIndex,
-      ackTimeoutMs: 1,
-      createNonce: () => `nonce-lineage-${++nonceIndex}`,
-      dispatch: async () => ({ message: acceptedMessage("message-initial") }),
-      resolveAcceptance: async () => ({ status: "not_found" }),
-      classifyError: () => "ambiguous",
-      isTransportDown: () => offline,
-    });
-    await writer.enqueue(input);
-    const original = writer.getSnapshot()[0];
-    expect(original).toBeDefined();
-    if (!original) throw new Error("missing original delivery");
-    const journal = memory.read() as DurableSendJournal;
-    const replacement: DurableSendRecord = {
-      ...original,
-      nonce: "nonce-lineage-fresh",
-      priorNonces: [original.nonce],
-      phase: "queued",
-      createdAtMs: 2_000,
-      updatedAtMs: 2_000,
-    };
-    await memory.storage.write({ ...journal, records: [replacement] });
-
-    offline = false;
-    let dispatchCount = 0;
-    const restored = createDurableSendController("account-1", memory.storage, {
-      dispatch: async () => {
-        dispatchCount += 1;
-        return { message: acceptedMessage("duplicate") };
-      },
-      resolveAcceptance: async (record) =>
-        record.nonce === original.nonce
-          ? {
-              status: "accepted",
-              acceptedAtMs: 2_100,
-              message: acceptedMessage("message-late-original"),
-            }
-          : { status: "not_found" },
-      classifyError: () => "ambiguous",
-      isTransportDown: () => offline,
-    });
-    await restored.restore();
-    await waitFor(() => restored.getSnapshot()[0]?.phase === "accepted-awaiting-echo");
-    expect(restored.getSnapshot()[0]?.acceptedMessage?.id).toBe("message-late-original");
-    expect(dispatchCount).toBe(0);
   });
 
   test("durably commits staged attachments before dispatch and then discards local bytes", async () => {

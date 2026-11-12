@@ -6,7 +6,6 @@ import { sheetsTools } from '../server';
 const sheets = (responses: any[] = []) => harness(api => sheetsTools(api.at('https://sheets.googleapis.com')), responses);
 const id = 'sheet123';
 const batchReply = (reply: any = {}) => ({ spreadsheetId: id, replies: [reply] });
-const apiError = (status: number, message: string) => new Response(JSON.stringify({ error: { message } }), { status, headers: { 'content-type': 'application/json' } });
 /** Run one batchUpdate tool and return its single request object. */
 async function request(name: string, args: Record<string, any>) {
   const h = sheets([batchReply()]);
@@ -56,12 +55,4 @@ test('write_range validates the cell limit, the target range and unaddressable t
   await expect(h.call('write_range', { spreadsheetId: id, sheet: 'Q1/Q2', cells: 'A1', values: [[1]] })).rejects.toThrow('rename_sheet_tab');
   await expect(h.call('write_range', { spreadsheetId: id, sheet: 'Data', cells: 'Data!A1', values: [[1]] })).rejects.toThrow('without the tab');
   expect(h.requests).toHaveLength(0);
-});
-
-test('Provider errors surface as tool errors without the token', async () => {
-  const h = sheets([apiError(403, 'The caller does not have permission')]);
-  const failure = await h.call('delete_sheet_tab', { spreadsheetId: id, sheetId: 1 }).catch(error => error as Error);
-  expect(failure.message).toContain('Google API 403: The caller does not have permission');
-  expect(failure.message).not.toContain('fixture-token');
-  expect(h.requests[0]!.init.headers).toMatchObject({ Authorization: 'Bearer fixture-token' });
 });

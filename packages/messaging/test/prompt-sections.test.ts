@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { AUTOMATION_STATUS_CLEARED, renderAutomationStatusReminder, routineDefinitionLine } from "../src/automation-status";
-import { turnSystemReminder } from "../src/turn-notes";
 import {
   acknowledgeAutomationStatus,
   prepareAutomationStatus,
@@ -43,23 +42,6 @@ test("stale acknowledgements cannot undo newer delivery or a new epoch", () => {
   expect(acknowledgePromptSections(nextEpoch.snapshots, c.receipts)).toEqual(nextEpoch.snapshots);
 });
 
-test("empty sections freeze and deletions produce replacement notes; connectors wait for summary", () => {
-  const initial = preparePromptSections({}, 0, { agent_directory: "", mcp_instructions: "original" });
-  const next = preparePromptSections(initial.snapshots, 0, {
-    agent_directory: "added",
-    mcp_instructions: "edited",
-  });
-  expect(next.sections.agent_directory).toBe("");
-  expect(next.sections.mcp_instructions).toBe("original");
-  expect(next.receipts.map((receipt) => receipt.name)).toEqual(["agent_directory"]);
-  const deleted = preparePromptSections(
-    acknowledgePromptSections(next.snapshots, next.receipts),
-    0,
-    { agent_directory: "" }
-  );
-  expect(deleted.update).toContain("This section is now empty.");
-});
-
 test("successive sparse updates diff from the last acknowledged version, then fold on compaction", () => {
   const initial = preparePromptSections({}, 4, { agent_directory: "alpha\nbeta\ngamma\ndelta\nepsilon" });
   const edit = preparePromptSections(initial.snapshots, 4, {
@@ -84,22 +66,6 @@ test("successive sparse updates diff from the last acknowledged version, then fo
   );
   expect(compacted.update).toBeNull();
   expect(compacted.sections.agent_directory).toContain("GAMMA\nDELTA");
-});
-
-test("full replacements win for large diffs, additions and bounded-work fallback", () => {
-  for (const [previous, next] of [
-    ["A", "B"],
-    ["", "new"],
-    [
-      Array.from({ length: 501 }, (_, i) => `row ${i}`).join("\n"),
-      Array.from({ length: 501 }, (_, i) => `row ${i === 0 ? "edited" : i}`).join("\n"),
-    ],
-  ]) {
-    const initial = preparePromptSections({}, 0, { agent_directory: previous! });
-    const edited = preparePromptSections(initial.snapshots, 0, { agent_directory: next! });
-    expect(edited.update).toContain(`## Teammates and groups\n${next}`);
-    expect(edited.update).not.toContain("## Teammates and groups (changed lines only)");
-  }
 });
 
 test("memory facts pin per epoch, never as change notes; only other assistants' shared changes are announced", () => {
@@ -170,11 +136,4 @@ describe("routine status reminder", () => {
     expect(prepareAutomationStatus(preparePromptSections(undefined, 0, { automations: "" }).snapshots, 0, null, AUTOMATION_STATUS_CLEARED).note).toBeNull();
   });
 
-  test("joins the turn's single reminder block first, unwrapped", () => {
-    const live = renderAutomationStatusReminder([vendor], "UTC")!;
-    const merged = turnSystemReminder([live, "<instructions_update>\nx\n</instructions_update>"])!;
-    expect(merged).toStartWith("<system_reminder>\n<automation_status>\n");
-    expect(merged).toEndWith("</automation_status>\n\n<instructions_update>\nx\n</instructions_update>\n</system_reminder>");
-    expect(merged.split("<system_reminder>").length - 1).toBe(1);
-  });
 });

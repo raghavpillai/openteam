@@ -85,7 +85,7 @@ OpenTeam uses the highest available connection. **Server connection** is always 
 
 Everything on the bot computer is routed, including its browser, terminal commands and plugins that run there. Model requests, web fetch and plugins in other containers keep the server's connection. UDP other than DNS isn't supported.
 
-Through a shared computer's connection, local and private network destinations are blocked. With **Server connection**, bots can reach private devices and services on networks accessible from the bot computer's container on your server. Web fetch blocks local and private destinations regardless of the selected connection.
+Shared-computer connections block local and private destinations. **Server connection** can reach private networks accessible from the bot computer's container. Web fetch always blocks local and private destinations.
 
 When a computer sleeps, quits the app or stops sharing, OpenTeam moves to the next connection. Switching drops open downloads and connections. Pages stay open, but nothing is replayed, so check whether an action went through before retrying it. **Connection test → Test** checks the active connection's speed, and **Exit IP** shows the address and approximate location websites see.
 

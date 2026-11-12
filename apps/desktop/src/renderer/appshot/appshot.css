@@ -1,0 +1,838 @@
+/* The appshot overlay: a transparent, click-through layer the size of the display. Colors
+   follow macOS materials: a frosted pane of the captured screen under a light or dark tint. */
+
+:root {
+  --ink: #1d1d1f;
+  --ink-secondary: rgb(60 60 67 / 62%);
+  --ink-tertiary: rgb(60 60 67 / 34%);
+  --fill: rgb(120 120 128 / 12%);
+  --fill-strong: rgb(120 120 128 / 20%);
+  --separator: rgb(60 60 67 / 12%);
+  --accent: #007aff;
+  --tint: linear-gradient(180deg, rgb(255 255 255 / 80%), rgb(246 246 248 / 74%));
+  --goo-tint: rgb(250 250 252 / 78%);
+  --glass-solid: rgb(244 244 246);
+  --rim: inset 0 0.5px 0 rgb(255 255 255 / 95%), inset 0 0 0 0.5px rgb(255 255 255 / 55%);
+  --edge: 0 0 0 0.5px rgb(0 0 0 / 13%);
+  --shadow: 0 26px 64px -14px rgb(0 0 0 / 34%), 0 10px 22px -8px rgb(0 0 0 / 16%);
+  /* The same two layers' strengths, for the goo's SVG copy of this shadow. */
+  --shadow-far: 0.34;
+  --shadow-near: 0.16;
+  --menu-tint: rgb(248 248 250 / 82%);
+  --mascot-body-top: #62dacb;
+  --mascot-body-bottom: #22a99d;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: #f5f5f7;
+    --ink-secondary: rgb(235 235 245 / 60%);
+    --ink-tertiary: rgb(235 235 245 / 30%);
+    --fill: rgb(120 120 128 / 24%);
+    --fill-strong: rgb(120 120 128 / 34%);
+    --separator: rgb(255 255 255 / 9%);
+    --accent: #0a84ff;
+    --tint: linear-gradient(180deg, rgb(44 44 48 / 84%), rgb(28 28 30 / 88%));
+    --goo-tint: rgb(40 40 43 / 80%);
+    --glass-solid: rgb(40 40 43);
+    --rim: inset 0 0.5px 0 rgb(255 255 255 / 18%), inset 0 0 0 0.5px rgb(255 255 255 / 9%);
+    --edge: 0 0 0 0.5px rgb(0 0 0 / 65%);
+    --shadow: 0 26px 64px -14px rgb(0 0 0 / 62%), 0 10px 22px -8px rgb(0 0 0 / 42%);
+    --shadow-far: 0.62;
+    --shadow-near: 0.42;
+    --menu-tint: rgb(40 40 44 / 84%);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ink: #f5f5f7;
+  --ink-secondary: rgb(235 235 245 / 60%);
+  --ink-tertiary: rgb(235 235 245 / 30%);
+  --fill: rgb(120 120 128 / 24%);
+  --fill-strong: rgb(120 120 128 / 34%);
+  --separator: rgb(255 255 255 / 9%);
+  --accent: #0a84ff;
+  --tint: linear-gradient(180deg, rgb(44 44 48 / 84%), rgb(28 28 30 / 88%));
+  --goo-tint: rgb(40 40 43 / 80%);
+  --glass-solid: rgb(40 40 43);
+  --rim: inset 0 0.5px 0 rgb(255 255 255 / 18%), inset 0 0 0 0.5px rgb(255 255 255 / 9%);
+  --edge: 0 0 0 0.5px rgb(0 0 0 / 65%);
+  --shadow: 0 26px 64px -14px rgb(0 0 0 / 62%), 0 10px 22px -8px rgb(0 0 0 / 42%);
+    --shadow-far: 0.62;
+    --shadow-near: 0.42;
+  --menu-tint: rgb(40 40 44 / 84%);
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: var(--ink);
+  user-select: none;
+  cursor: default;
+}
+
+.appshot-stage {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.appshot-stage [data-hit],
+.appshot-stage [data-hit] * {
+  pointer-events: auto;
+}
+
+/* ---- Capture --------------------------------------------------------------------------- */
+
+/* Only exists during the intro: an invisible full-display layer would still cost GPU memory. */
+.appshot-flash {
+  position: absolute;
+  inset: 0;
+  display: none;
+  opacity: 0;
+  background: #fff;
+}
+
+.appshot-stage[data-phase="intro"] .appshot-flash {
+  display: block;
+}
+
+.appshot-fly {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  opacity: 0;
+  background: #000;
+  contain: layout paint;
+}
+
+.appshot-fly img,
+.appshot-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  -webkit-user-drag: none;
+}
+
+/* ---- The robot -------------------------------------------------------------------------- */
+
+.appshot-mascot-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.appshot-mascot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 50% 100%;
+  will-change: transform;
+  filter: drop-shadow(0 5px 8px rgb(0 0 0 / 22%));
+}
+
+.appshot-mascot svg {
+  display: block;
+}
+
+/* No idle loop at all: even a compositor-only animation makes the GPU composite this
+   full-screen window every frame (~13% of a core). Between blinks the robot is still. */
+.appshot-mascot-gaze,
+.appshot-mascot-visor {
+  transition: transform 140ms cubic-bezier(0.25, 0.8, 0.3, 1);
+}
+
+.appshot-mascot-eyes {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  transition: transform 70ms ease-in-out, opacity 120ms ease;
+}
+
+.appshot-mascot-eyes.is-blinking {
+  transform: scaleY(0.12);
+}
+
+.appshot-mascot-happy {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.appshot-mascot[data-happy] .appshot-mascot-eyes { opacity: 0; }
+.appshot-mascot[data-happy] .appshot-mascot-happy { opacity: 1; }
+
+.appshot-hand {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #9af3e7 0, #4fd1c2 38%, #22a99d 100%);
+  box-shadow:
+    0 1.5px 3px rgb(0 0 0 / 26%),
+    inset 0 -1px 1.5px rgb(0 0 0 / 14%),
+    inset 0 0 0 0.5px rgb(255 255 255 / 35%);
+  transform: scale(0);
+  will-change: transform;
+  z-index: 4;
+}
+
+.appshot-sparks i {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  opacity: 0;
+  background: #5ed8ca;
+  box-shadow: 0 0 6px rgb(94 216 202 / 70%);
+}
+
+.appshot-sparks i[data-tone="1"] { background: #ffffff; box-shadow: 0 0 6px rgb(255 255 255 / 80%); width: 4px; height: 4px; }
+.appshot-sparks i[data-tone="2"] { background: #ffd66b; box-shadow: 0 0 6px rgb(255 214 107 / 70%); width: 5px; height: 5px; }
+
+/* ---- Goo -------------------------------------------------------------------------------- */
+
+.appshot-goo {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  overflow: visible;
+}
+
+/* While a scene animates, the shot and the goo get their own layers, so their per-frame
+   repaints don't drag the rest of the stage along. At rest they drop them again: an idle
+   full-display layer would hold GPU memory for nothing. */
+.appshot-stage:is([data-phase="intro"], [data-phase="sending"], [data-phase="closing"]) .appshot-fly {
+  will-change: transform;
+}
+
+.appshot-stage:is([data-phase="intro"], [data-phase="sending"], [data-phase="closing"]) .appshot-goo {
+  will-change: opacity;
+}
+
+.appshot-goo-tint {
+  fill: var(--goo-tint);
+}
+
+/* ---- Card ------------------------------------------------------------------------------- */
+
+.appshot-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  border-radius: 22px;
+  --glass-in: 0;
+  --content-in: 0;
+  --shadow-in: 0;
+}
+
+/* The card's shadow on its own layer, so it can hand over to the goo's independently of the
+   glass (which must be opaque before the goo leaves). */
+.appshot-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: var(--shadow);
+  opacity: var(--shadow-in);
+  pointer-events: none;
+  transition: box-shadow 200ms ease;
+}
+
+.appshot-card[data-dragging]::before {
+  box-shadow: 0 34px 80px -14px rgb(0 0 0 / 40%), 0 12px 26px -8px rgb(0 0 0 / 18%);
+}
+
+.appshot-goo-shadow-far { flood-color: #000; flood-opacity: var(--shadow-far); }
+.appshot-goo-shadow-near { flood-color: #000; flood-opacity: var(--shadow-near); }
+
+.appshot-card-glass {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-repeat: no-repeat;
+  background-color: var(--goo-tint);
+  box-shadow: var(--edge);
+  opacity: var(--glass-in);
+}
+
+.appshot-card[data-dragging] {
+  cursor: grabbing;
+}
+
+.appshot-card-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--tint);
+  box-shadow: var(--rim);
+}
+
+/* Bottom-anchored: a growing text field lifts the card top while the send button stays put. */
+.appshot-card-body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 12px 12px 14px;
+}
+
+.appshot-in,
+.appshot-thumb {
+  opacity: var(--content-in);
+  transform: translateY(calc((1 - var(--content-in)) * 6px));
+}
+
+.appshot-thumb {
+  position: relative;
+  width: 104px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 16%), 0 2px 8px rgb(0 0 0 / 12%);
+  transition: transform 220ms cubic-bezier(0.3, 1.4, 0.5, 1), box-shadow 220ms ease;
+}
+
+.appshot-thumb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 30%);
+}
+
+.appshot-thumb:hover {
+  transform: scale(1.03) rotate(-0.6deg);
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 16%), 0 8px 20px rgb(0 0 0 / 18%);
+}
+
+.appshot-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 22px;
+  max-height: 220px;
+  margin: 12px 0 0;
+  padding: 0 2px;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow-y: hidden;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  letter-spacing: -0.08px;
+  caret-color: var(--accent);
+  user-select: text;
+  cursor: text;
+}
+
+.appshot-input[data-scrolls] {
+  overflow-y: auto;
+  mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+}
+
+.appshot-input::placeholder {
+  color: var(--ink-tertiary);
+}
+
+.appshot-input::-webkit-scrollbar {
+  width: 0;
+}
+
+.appshot-error {
+  margin: 8px 2px 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: #ff3b30;
+}
+
+.appshot-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.appshot-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ink-tertiary);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.appshot-card:hover .appshot-hint,
+.appshot-card:focus-within .appshot-hint {
+  opacity: 1;
+}
+
+.appshot-hint kbd {
+  font: inherit;
+  color: var(--ink-secondary);
+}
+
+.appshot-hint-dot {
+  margin: 0 2px;
+}
+
+.appshot-send {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--send, var(--accent)), black 6%);
+  color: #fff;
+  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 35%), 0 1px 2px rgb(0 0 0 / 20%);
+  transition: transform 160ms cubic-bezier(0.3, 1.6, 0.5, 1), filter 160ms ease, background 200ms ease;
+}
+
+.appshot-send:hover {
+  transform: scale(1.06);
+  filter: brightness(1.06);
+}
+
+.appshot-send:active {
+  transform: scale(0.94);
+  filter: brightness(0.94);
+}
+
+.appshot-send:focus-visible,
+.appshot-chip:focus-visible,
+.appshot-close:focus-visible,
+.appshot-sent-open:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent), transparent 50%);
+  outline-offset: 1px;
+}
+
+.appshot-stage[data-inactive] .appshot-send {
+  background: var(--fill-strong);
+  color: var(--ink-secondary);
+  box-shadow: none;
+}
+
+/* The macOS notification close badge: on the corner, only while hovering. */
+.appshot-close {
+  position: absolute;
+  left: -6px;
+  top: -6px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ink-secondary);
+  background-color: var(--goo-tint);
+  background-repeat: no-repeat;
+  box-shadow: var(--edge), 0 1px 3px rgb(0 0 0 / 16%), var(--rim);
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 140ms ease, transform 180ms cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+
+/* Only while composing: never during the intro, the send or the close. */
+.appshot-stage[data-phase="compose"] .appshot-card:hover .appshot-close,
+.appshot-stage[data-phase="compose"] .appshot-close:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.appshot-close:hover {
+  color: var(--ink);
+}
+
+/* ---- Bot picker ------------------------------------------------------------------------- */
+
+.appshot-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.appshot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 28px;
+  padding: 0 9px 0 5px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--fill);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.08px;
+  transition: background 140ms ease;
+}
+
+.appshot-chip:hover,
+.appshot-chip[data-open] {
+  background: var(--fill-strong);
+}
+
+.appshot-chip svg:last-child {
+  flex: none;
+  color: var(--ink-secondary);
+}
+
+.appshot-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appshot-avatar-image {
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.appshot-menu {
+  position: absolute;
+  left: -4px;
+  bottom: calc(100% + 8px);
+  z-index: 5;
+  box-sizing: border-box;
+  width: 264px;
+  padding: 5px;
+  border-radius: 12px;
+  box-shadow: var(--edge), 0 18px 48px -10px rgb(0 0 0 / 34%), 0 4px 12px rgb(0 0 0 / 12%);
+  transform-origin: 18px 100%;
+  animation: appshot-menu-in 180ms cubic-bezier(0.25, 1.35, 0.45, 1);
+}
+
+@keyframes appshot-menu-in {
+  from { opacity: 0; transform: scale(0.92) translateY(4px); }
+}
+
+.appshot-menu-glass {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: var(--goo-tint);
+  background-repeat: no-repeat;
+  box-shadow: var(--rim);
+}
+
+.appshot-menu-search {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 26px;
+  margin: 0 0 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  outline: none;
+  background: var(--fill);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  user-select: text;
+}
+
+.appshot-menu-search::placeholder {
+  color: var(--ink-tertiary);
+}
+
+.appshot-menu-list {
+  position: relative;
+  max-height: 296px;
+  overflow-y: auto;
+  outline: none;
+}
+
+.appshot-menu-list::-webkit-scrollbar {
+  width: 0;
+}
+
+.appshot-menu-heading {
+  padding: 3px 9px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-tertiary);
+}
+
+.appshot-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 8px 0 4px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.appshot-menu-item[data-active] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.appshot-menu-check {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  flex: none;
+}
+
+.appshot-menu-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.appshot-menu-name {
+  flex: none;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appshot-menu-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.appshot-menu-item[data-active] .appshot-menu-title,
+.appshot-menu-item[data-active] .appshot-menu-key {
+  color: rgb(255 255 255 / 78%);
+}
+
+.appshot-menu-key {
+  flex: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-tertiary);
+}
+
+.appshot-menu-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+/* ---- Sent ------------------------------------------------------------------------------- */
+
+.appshot-sent {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 6px 0 9px;
+  border-radius: 18px;
+  font-size: 13px;
+  letter-spacing: -0.08px;
+  color: var(--ink);
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  box-shadow: var(--edge), 0 16px 40px -10px rgb(0 0 0 / 34%), 0 4px 10px rgb(0 0 0 / 12%);
+  animation: appshot-sent-in 420ms cubic-bezier(0.22, 1.5, 0.4, 1) both;
+}
+
+.appshot-sent[data-leaving] {
+  animation: appshot-sent-out 200ms ease-in both;
+}
+
+@keyframes appshot-sent-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.6); filter: blur(4px); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: blur(0); }
+}
+
+@keyframes appshot-sent-out {
+  to { opacity: 0; transform: translate(-50%, -40%) scale(0.94); filter: blur(2px); }
+}
+
+.appshot-sent-glass {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: var(--goo-tint);
+  background-repeat: no-repeat;
+  box-shadow: var(--rim);
+}
+
+.appshot-sent > :not(.appshot-sent-glass) {
+  position: relative;
+}
+
+.appshot-sent-text strong {
+  font-weight: 600;
+}
+
+.appshot-sent-open {
+  height: 24px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--fill);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: background 140ms ease;
+}
+
+.appshot-sent-open:hover {
+  background: var(--fill-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appshot-card-glass, .appshot-in, .appshot-thumb { transition: opacity 160ms ease; }
+  .appshot-sent,
+  .appshot-sent[data-leaving],
+  .appshot-menu { animation-duration: 1ms; }
+}
+
+/* ---- Dictation -------------------------------------------------------------------------- */
+
+.appshot-mic {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-secondary);
+  transition: background 140ms ease, color 140ms ease, transform 160ms cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+.appshot-mic:hover:not(:disabled) {
+  background: var(--fill);
+  color: var(--ink);
+}
+
+.appshot-mic:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.appshot-mic[data-state="recording"],
+.appshot-mic[data-state="requesting"] {
+  background: color-mix(in srgb, #ff3b30, transparent 86%);
+  color: #ff3b30;
+}
+
+.appshot-mic:disabled {
+  opacity: 0.5;
+}
+
+.appshot-mic:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent), transparent 50%);
+  outline-offset: 1px;
+}
+
+/* Dictation: the chat composer's voice-note bar, laid over the footer row. The footer fades
+   out under it, then back once the bar has retreated (the layer's own exit timing). */
+/* Clipped to the card: in the chat the glow lights the conversation, but over the overlay it
+   would paint on whatever app is behind it. */
+.appshot-voice {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* Concentric with the card: the same 4 px all round its bottom, and its 18 px radius is the
+   card's 22 less that inset, so the corners run parallel. Its top edge lands on the footer
+   row's, and Send stays where Send was. */
+.appshot-voice-bar {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  height: 36px;
+}
+
+/* The card's type scale, not the chat window's. */
+.appshot-voice .vm-bar {
+  gap: 10px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.appshot-voice .vm-chip-time {
+  font-size: 12px;
+}
+
+.appshot-voice .vm-wave {
+  height: 18px;
+}
+
+.appshot-footer > * {
+  transition: opacity 280ms cubic-bezier(0.22, 1, 0.36, 1) 340ms;
+}
+
+.appshot-card[data-voice-mode] .appshot-footer > * {
+  opacity: 0;
+  pointer-events: none;
+  transition-delay: 0ms;
+}
+
+/* The few utilities the shared layer's markup uses; the overlay doesn't load Tailwind. */
+.appshot-voice .size-3 { width: 12px; height: 12px; }
+.appshot-voice .size-3\.5 { width: 14px; height: 14px; }
+.appshot-voice .block { display: block; }
+.appshot-voice .shrink-0 { flex-shrink: 0; }
+.appshot-voice .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.appshot-error-retry {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+}
+

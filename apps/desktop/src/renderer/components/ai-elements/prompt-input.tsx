@@ -26,7 +26,11 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { useVoiceNote } from "../../hooks/use-voice-note";
+import { api } from "../../client/openteam-api";
+import { useVoiceRecorder } from "../../hooks/use-voice-recorder";
+
+/** Looked up per call, so the API client stays replaceable. */
+const transcribeVoiceNote = (audio: Blob, signal: AbortSignal) => api.transcribeAudio(audio, signal);
 import { useVoiceShortcuts } from "../../hooks/use-voice-shortcuts";
 import { cn } from "../../lib/cn";
 import { fileDragContainsFiles } from "../../lib/file-drop";
@@ -171,14 +175,15 @@ export function PromptInput({
   const trailingRef = useRef<HTMLDivElement>(null);
   const [trailingWidth, setTrailingWidth] = useState(28);
   const voiceBookmark = useRef<Range | null>(null);
-  const voice = useVoiceNote(transcriptionConfigured, (text) => {
+  // Voice notes in the chat composer: the server transcribes the recording.
+  const voice = useVoiceRecorder(transcriptionConfigured, (text) => {
     const editor = textareaRef.current;
     if (!editor) return;
     insertVoiceTranscript(editor, voiceBookmark.current, text);
     voiceBookmark.current = null;
     setVoiceReadyToSend(sendAfterVoice.current && Boolean(text.trim()));
     sendAfterVoice.current = false;
-  });
+  }, transcribeVoiceNote);
   useLayoutEffect(() => {
     if (focusRequest !== undefined && !disabled)
       textareaRef.current?.focus({ preventScroll: true });

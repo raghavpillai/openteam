@@ -1,3 +1,16 @@
+type AppshotShortcutView =
+  | { kind: "chord"; modifier: "command" | "option" | "shift" | "control" }
+  | { kind: "accelerator"; accelerator: string };
+
+interface AppshotShortcutStatusView {
+  shortcut: AppshotShortcutView;
+  isDefault: boolean;
+  active: boolean;
+  mode: "tap" | "poll" | "shortcut" | null;
+  error: string | null;
+  platform: string;
+}
+
 interface Window {
   openteam?: {
     platform: string;
@@ -11,6 +24,31 @@ interface Window {
     visibility?: {
       subscribe: (callback: (visible: boolean) => void) => () => void;
       subscribeActivity?: (callback: (active: boolean) => void) => () => void;
+    };
+    /** Feeds the floating appshot composer (src/renderer/lib/appshot-bridge.ts).. */
+    appshot?: {
+      publishRoster(roster: {
+        bots: Array<{ id: string; name: string; title: string; color: string; icon: string; channelId: string; avatarDataUrl?: string }>;
+        dictation: boolean;
+      }): void;
+      onTranscribe(handler: (request: { audio: Uint8Array; mimeType: string }) => Promise<string>): () => void;
+      onDeliver(
+        handler: (request: {
+          botId: string;
+          content: string;
+          nonce: string;
+          staged: { stagingId: string; fileName: string; mimeType: string; byteSize: number; width: number; height: number };
+        }) => Promise<void>
+      ): () => void;
+      onRosterRequest(callback: () => void): () => void;
+      shortcut: {
+        get(): Promise<AppshotShortcutStatusView>;
+        set(shortcut: AppshotShortcutView): Promise<AppshotShortcutStatusView>;
+        reset(): Promise<AppshotShortcutStatusView>;
+        setRecording(recording: boolean): Promise<void>;
+        requestAccess(): Promise<boolean>;
+        onChange(callback: (status: AppshotShortcutStatusView) => void): () => void;
+      };
     };
     auth: {
       connectMachine: (serverUrl: string) => Promise<{ machineId: string }>;

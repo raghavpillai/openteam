@@ -18,11 +18,18 @@ function Workspace() {
     let active = true;
     // Commit as soon as the module resolves. Suspense retries can deliberately
     // retain a just-shown fallback for 300 ms, delaying the workspace bootstrap.
+    let stopAppshots: (() => void) | undefined;
     void import("./App").then(
       ({ default: component }) => { if (active) setLoaded({ component }); },
       (error: unknown) => { if (active) setLoaded({ error }); }
     );
-    return () => { active = false; };
+    // Appshots (the floating screenshot composer) send through this signed-in window.
+    if (window.openteam?.appshot) {
+      void import("./lib/appshot-bridge").then(({ startAppshotBridge }) => {
+        if (active) stopAppshots = startAppshotBridge();
+      });
+    }
+    return () => { active = false; stopAppshots?.(); };
   }, []);
   if (loaded && "error" in loaded) throw loaded.error;
   // A first run keeps setup's empty frame up while the workspace loads (first-run-shell.tsx).

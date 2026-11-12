@@ -3,6 +3,14 @@ import { parseNotificationTarget } from "../main/notifications";
 import type { DesktopNotificationTarget } from "@openteam/contracts/notification-content";
 import type { ApplicationMenuAction } from "../main/application-menu";
 
+
+/** What the appshot overlay shows when the chat window couldn't do what it asked. Network
+ * failures surface from fetch as a bare "Failed to fetch"; say what that means instead. */
+const appshotError = (error: unknown, fallback: string) => {
+  if (error instanceof TypeError && /fetch|network/i.test(error.message)) return "Couldn’t reach OpenTeam. Check your connection and try again.";
+  return error instanceof Error && error.message ? error.message : fallback;
+};
+
 const appVersionArgument = process.argv.find((argument) =>
   argument.startsWith("--openteam-app-version=")
 );
@@ -97,6 +105,13 @@ const deliveryJournal = (value: unknown): unknown => {
   }
   return value;
 };
+
+interface AppshotDelivery {
+  botId: string;
+  content: string;
+  nonce: string;
+  staged: { stagingId: string; fileName: string; mimeType: string; byteSize: number; width: number; height: number };
+}
 
 const notificationSnapshot = (value: unknown) => {
   const input = record(value, "Notification snapshot");
@@ -270,6 +285,58 @@ contextBridge.exposeInMainWorld("openteam", {
     },
     status: () => ipcRenderer.invoke("openteam:notifications:status"),
     openSettings: () => ipcRenderer.invoke("openteam:notifications:open-settings"),
+  },
+  appshot: {
+    /** Bots the floating appshot composer can send to, most recent first. */
+    publishRoster: (roster: unknown) => ipcRenderer.send("openteam:appshot:roster", record(roster, "Appshot roster")),
+    /** Delivers an appshot already staged on disk by main (which validated it): only a
+     * reference crosses IPC. */
+    onDeliver: (handler: (request: AppshotDelivery) => Promise<void>) => {
+      const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+        const request = record(value, "Appshot delivery") as unknown as AppshotDelivery & { requestId: string };
+        const reply = (result: object) => ipcRenderer.send("openteam:appshot:delivered", { requestId: request.requestId, ...result });
+        stagingId(request.staged?.stagingId);
+        handler(request).then(
+          () => reply({ ok: true }),
+          (error: unknown) => reply({ ok: false, error: appshotError(error, "This appshot couldn’t be sent.") })
+        );
+      };
+      ipcRenderer.on("openteam:appshot:deliver", listener);
+      return () => ipcRenderer.removeListener("openteam:appshot:deliver", listener);
+    },
+    /** Dictation in the appshot composer: transcribe a recording made by the overlay. */
+    onTranscribe: (handler: (request: { audio: Uint8Array; mimeType: string }) => Promise<string>) => {
+      const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+        const { requestId, audio, mimeType } = record(value, "Appshot transcription");
+        const reply = (result: object) => ipcRenderer.send("openteam:appshot:delivered", { requestId, ...result });
+        if (!(audio instanceof Uint8Array) || typeof mimeType !== "string") return reply({ ok: false, error: "That recording couldn’t be used." });
+        handler({ audio, mimeType }).then(
+          (text) => reply({ ok: true, text }),
+          (error: unknown) => reply({ ok: false, error: appshotError(error, "Transcription failed. Try again.") })
+        );
+      };
+      ipcRenderer.on("openteam:appshot:transcribe", listener);
+      return () => ipcRenderer.removeListener("openteam:appshot:transcribe", listener);
+    },
+    /** The appshot trigger: both ⌘ keys by default, or a shortcut of the person's choosing. */
+    shortcut: {
+      get: () => ipcRenderer.invoke("openteam:appshot:shortcut:get"),
+      set: (shortcut: unknown) => ipcRenderer.invoke("openteam:appshot:shortcut:set", shortcut),
+      reset: () => ipcRenderer.invoke("openteam:appshot:shortcut:set", null),
+      setRecording: (recording: boolean) => ipcRenderer.invoke("openteam:appshot:shortcut:recording", recording === true),
+      requestAccess: () => ipcRenderer.invoke("openteam:appshot:shortcut:request-access"),
+      onChange: (callback: (status: unknown) => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, status: unknown) => callback(status);
+        ipcRenderer.on("openteam:appshot:shortcut-changed", listener);
+        return () => ipcRenderer.removeListener("openteam:appshot:shortcut-changed", listener);
+      },
+    },
+    /** Main asks for a fresh Bot list each time an appshot is taken. */
+    onRosterRequest: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on("openteam:appshot:roster-request", listener);
+      return () => ipcRenderer.removeListener("openteam:appshot:roster-request", listener);
+    },
   },
   getProcessMetrics: () => ipcRenderer.invoke("openteam:performance-snapshot"),
   onNotificationClick: (

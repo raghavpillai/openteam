@@ -236,6 +236,8 @@ details.animated-disclosure[open]::details-content {
   --tw-enter-translate-x: 0.5rem;
 }
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+/* The appshot overlay is its own page with its own stylesheet (appshot/appshot.css). */
+@source not "./appshot";
 @source "../../node_modules/streamdown/dist/*.js";
 @source "../../node_modules/@streamdown/cjk/dist/*.js";
 @source "../../node_modules/@streamdown/math/dist/*.js";

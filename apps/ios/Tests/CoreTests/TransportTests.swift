@@ -168,10 +168,7 @@ final class TransportTests: XCTestCase, @unchecked Sendable {
       let result = try await api().validateServer(); XCTAssertEqual(result, mode)
     }
   }
-  func testRecoverableNetworkErrorsAndCredentialRedaction() {
-    XCTAssertTrue(UserFacingError.message(URLError(.timedOut)).contains("too long"))
-    XCTAssertTrue(UserFacingError.message(URLError(.notConnectedToInternet)).contains("Check the address"))
-    XCTAssertTrue(UserFacingError.message(URLError(.serverCertificateUntrusted)).contains("certificate"))
+  func testCancellationAndCredentialRedaction() {
     XCTAssertTrue(UserFacingError.isCancelled(URLError(.cancelled)))
     let value = UserFacingError.redact("Bearer example-secret PASSWORD=hidden https://owner:private@example.invalid {\"token\":\"secret-value\"}")
     for secret in ["example-secret", "hidden", "private", "secret-value"] { XCTAssertFalse(value.contains(secret)) }

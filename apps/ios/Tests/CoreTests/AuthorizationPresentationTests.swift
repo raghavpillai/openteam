@@ -26,17 +26,6 @@ final class AuthorizationPresentationTests: XCTestCase {
     XCTAssertTrue(recovery.shouldPoll(.object(["status": .string("needs_auth")]), now: start))
   }
 
-  func testCompatiblePackageUpdateReconnectsWithoutAnotherSignIn() {
-    var connection: JSON = .object([
-      "auth": .string("oauth"), "status": .string("disconnected"),
-      "configured": .bool(true), "setupPhase": .string("ready_to_connect"),
-    ])
-    XCTAssertTrue(PluginConnectionPresentation(connection).canReconnect)
-    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Reconnect needed")
-    connection["setupPhase"] = .string("ready_to_authorize")
-    XCTAssertFalse(PluginConnectionPresentation(connection).canReconnect)
-    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Sign-in needed")
-  }
   func testActiveDeviceApprovalKeepsPollingWhileItsChallengeIsInvalidatedOrExpired() {
     let now = Date(timeIntervalSince1970: 1_000)
     var connection: JSON = .object([
@@ -77,6 +66,12 @@ final class AuthorizationPresentationTests: XCTestCase {
     XCTAssertFalse(MobilePluginAuthorization.requiresDesktop(connection))
     connection["auth"] = .string("token")
     XCTAssertFalse(MobilePluginAuthorization.requiresDesktop(connection))
+    let manual: JSON = .object([
+      "auth": .string("oauth"), "status": .string("needs_auth"), "oauthCallbackMode": .string("manual"),
+      "authorizationUrl": .string("https://accounts.example.test/start?state=one&redirect_uri=http%3A%2F%2F127.0.0.1%3A42813%2Fcallback"),
+    ])
+    XCTAssertTrue(PluginAuthorizationSession(manual)?.usesLoopbackCallback == true)
+    XCTAssertFalse(MobilePluginAuthorization.requiresDesktop(manual))
   }
   func testOAuthSessionRequiresStateAndSafeScheme() {
     var connection: JSON = .object([
@@ -95,14 +90,5 @@ final class AuthorizationPresentationTests: XCTestCase {
     connection["authorizationUrl"] = .string("https://accounts.example.test/start?state=x")
     connection["status"] = .string("ready")
     XCTAssertNil(PluginAuthorizationSession(connection))
-  }
-  func testManualLoopbackCanBeCompletedOnMobile() {
-    let connection: JSON = .object([
-      "auth": .string("oauth"), "status": .string("needs_auth"),
-      "oauthCallbackMode": .string("manual"),
-      "authorizationUrl": .string("https://accounts.example.test/start?state=one&redirect_uri=http%3A%2F%2F127.0.0.1%3A42813%2Fcallback"),
-    ])
-    XCTAssertTrue(PluginAuthorizationSession(connection)?.usesLoopbackCallback == true)
-    XCTAssertFalse(MobilePluginAuthorization.requiresDesktop(connection))
   }
 }

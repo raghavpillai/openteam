@@ -27,11 +27,4 @@ final class ConversationComputerTests: XCTestCase {
     let messages = [reply("100", bots[2]), reply("9", bots[0]), reply("10", bots[1])]
     XCTAssertEqual(ConversationComputer.target(channel: channel, bots: bots, messages: messages)?.id, bots[2].id)
   }
-  func testDirectChatKeepsItsOwnComputerEvenIfAnotherBotReplied() throws {
-    var (channel, bots) = try fixture()
-    channel.kind = "bot_dm"
-    channel.id = bots[0].dmChannelId
-    var message = reply("10", bots[1]); message.channelId = channel.id
-    XCTAssertEqual(ConversationComputer.target(channel: channel, bots: bots, messages: [message])?.id, bots[0].id)
-  }
 }

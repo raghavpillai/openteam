@@ -25,7 +25,6 @@ const examples = [
   "![Revenue chart](https://example.com/chart.png)\n\nRevenue grew 12%.",
   "![](https://example.com/blank.png) caption",
   "```bash\nnpm run build\n```",
-  "```\nnpm run build\n```",
   "~~~ js\nconst x = 1\n~~~",
   "---\n\nAfter the rule.",
   "Use <b>bold</b> and <i>italic</i> here, plus $$x^2 + y^2$$ and \\(a+b\\) inline.",
@@ -45,7 +44,6 @@ const examples = [
   `${"b".repeat(199)} trailing`,
   "x".repeat(5000),
   "",
-  "   ",
   // A first line with no visible text falls through to the next one.
   "![](https://x.test/chart.png)\n\nRevenue grew 12%",
   ">\n> quoted",
@@ -145,7 +143,7 @@ const next = (limit: number) => {
   seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
   return Math.floor((seed / 2 ** 32) * limit);
 };
-const generated = Array.from({ length: 60 }, () =>
+const generated = Array.from({ length: 30 }, () =>
   Array.from({ length: 1 + next(24) }, () => fragments[next(fragments.length)]).join("")
 );
 

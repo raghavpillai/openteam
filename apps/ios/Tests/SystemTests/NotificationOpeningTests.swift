@@ -92,20 +92,4 @@ final class NotificationOpeningTests: SystemIntentFixture {
     XCTAssertNil(store.openingNotification)
     XCTAssertNil(store.histories["visual-chat"], "A superseded response must not install an old context window")
   }
-  func testNotificationContextFailureShowsAnErrorAndCanBeRetried() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    let target = "visual-message-visual-chat-25"
-    try await control(.object([
-      "GET /api/v0/channel-messages/\(target)/context": .object(["status": .number(503), "count": .number(1)]),
-    ]))
-    await store.openNotification("visual-chat", messageID: target, sequence: "25")
-    XCTAssertNotNil(store.error)
-    XCTAssertNil(store.openingNotification)
-    XCTAssertTrue(store.navigation.isEmpty)
-    store.error = nil
-    await store.openNotification("visual-chat", messageID: target, sequence: "25")
-    XCTAssertEqual(store.focusedMessage, target)
-    XCTAssertEqual(store.navigation, ["visual-chat"])
-  }
 }

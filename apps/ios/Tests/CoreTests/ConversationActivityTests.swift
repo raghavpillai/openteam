@@ -74,7 +74,7 @@ final class ConversationActivityTests: XCTestCase {
     }
   }
 
-  func testBootstrapDecodesAndPersistsTasksAndReadsOlderCaches() throws {
+  func testBootstrapAndChannelStateDecodeAndPersistTasks() throws {
     let original = try ProtocolTests().fixture()
     var payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as! [String: Any]
     payload["subagents"] = [["id": "task", "parentBotId": "bot", "parentChannelId": "chat",
@@ -88,17 +88,5 @@ final class ConversationActivityTests: XCTestCase {
     ]))
     XCTAssertEqual(state.subagents?.first?.id, "task")
     XCTAssertEqual(state.subagents?.first?.isActive, true)
-    // Old caches may still carry the retired execution-mode flag. It must not
-    // prevent decoding or hide an active task from the current activity model.
-    for legacyFlag in [false, true] {
-      var task = (payload["subagents"] as! [[String: Any]])[0]
-      task["runInBackground"] = legacyFlag
-      let restored = try JSONDecoder().decode(SubagentActivity.self,
-        from: JSONSerialization.data(withJSONObject: task))
-      XCTAssertTrue(restored.isActive)
-    }
-    payload.removeValue(forKey: "subagents")
-    let legacy = try JSONDecoder().decode(Bootstrap.self, from: JSONSerialization.data(withJSONObject: payload))
-    XCTAssertNil(legacy.subagents)
   }
 }

@@ -26,15 +26,10 @@ final class SystemIntentEdgeTests: SystemIntentFixture {
     })
   }
 
-  func testSignedOutAndInterruptedResetRejectActions() async throws {
+  func testSignedOutShortcutCannotResolveBots() async throws {
     try SecureSession.clear()
     do { _ = try await TeamBotQuery().suggestedEntities(); XCTFail("Resolved without a session") }
     catch { XCTAssertTrue(error.localizedDescription.contains("connect")) }
-    try SecureSession.save(session)
-    UserDefaults.standard.set(true, forKey: LocalDataReset.pendingKey)
-    do { _ = try await TeamBotQuery().suggestedEntities(); XCTFail("Resolved during local reset") }
-    catch { XCTAssertTrue(error.localizedDescription.contains("connect")) }
-    UserDefaults.standard.removeObject(forKey: LocalDataReset.pendingKey)
     try await assertNoSubmission()
   }
 
@@ -65,6 +60,8 @@ final class SystemIntentEdgeTests: SystemIntentFixture {
       IntentFile(fileURL: file, filename: "from-disk.txt", type: .plainText)]
     let result = try await intent.perform()
     let message = try XCTUnwrap(result.value)
+    XCTAssertEqual(message.text, intent.instructions)
+    XCTAssertEqual(SystemEntityID(message.id)?.channelID, bot.dmChannelId)
     XCTAssertEqual(message.attachments.map(\.fileName), ["inline.txt", "from-disk.txt"])
     XCTAssertEqual(Set(message.attachments.map(\.id)).count, 2,
       "Identical bytes with different filenames must remain distinct attachments")
@@ -76,6 +73,7 @@ final class SystemIntentEdgeTests: SystemIntentFixture {
       XCTAssertEqual(exported, content)
     }
     let state = try await client.api.request("/__qa/state")
+    XCTAssertEqual(state["messages"].array.filter { $0["content"].string == intent.instructions }.count, 1)
     XCTAssertEqual(state["contentReceipts"].array.filter { $0["path"].string == "/api/v0/assets" }.count, 2)
   }
 

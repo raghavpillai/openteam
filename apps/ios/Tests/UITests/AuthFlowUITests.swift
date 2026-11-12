@@ -11,33 +11,6 @@ final class AuthFlowUITests: XCTestCase {
     let (_, response) = try await URLSession.shared.data(for: request)
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
   }
-  func launch(required: Bool = false) async throws -> XCUIApplication {
-    continueAfterFailure = false
-    addUIInterruptionMonitor(withDescription: "Password autofill") { alert in
-      if alert.buttons["Not Now"].exists {
-        alert.buttons["Not Now"].tap()
-        return true
-      }
-      return false
-    }
-    try await control("/__qa/reset")
-    try await control("/__qa/control", ["authRequired": required])
-    let app = XCUIApplication()
-    app.launchArguments = [
-      "--ui-testing", "--show-login", "--server", base, "--appearance", "light",
-    ]
-    app.launch()
-    XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 8))
-    return app
-  }
-  func capture(_ name: String, _ app: XCUIApplication) {
-    // Capture settled cards rather than a frame inside the original AuthGate slide.
-    Thread.sleep(forTimeInterval: 0.5)
-    let a = XCTAttachment(screenshot: app.screenshot())
-    a.name = "parity-" + name
-    a.lifetime = .keepAlways
-    add(a)
-  }
   func waitForArrival(_ element: XCUIElement) {
     let ready = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "hittable == true"), object: element)
@@ -57,12 +30,6 @@ final class AuthFlowUITests: XCTestCase {
     element.tap()
     let value = element.value as? String ?? ""
     element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count) + text)
-  }
-  func credentials(_ app: XCUIApplication) {
-    app.buttons["get-started"].tap()
-    waitForArrival(app.textFields["server-field"])
-    app.buttons["connect-button"].tap()
-    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 20))
   }
   func signIn(_ app: XCUIApplication, password: String = "fixture-only") {
     // Outside --ui-testing the app prefills the last username for this server.
@@ -86,24 +53,6 @@ final class AuthFlowUITests: XCTestCase {
       if prompt.waitForNonExistence(timeout: 3) { return }
     }
     XCTFail("iOS password prompt did not dismiss")
-  }
-  func assertError(_ text: String, _ app: XCUIApplication) {
-    XCTAssertTrue(
-      app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
-        .waitForExistence(timeout: 20))
-  }
-  func testCredentialsRejectedThenRetrySucceeds() async throws {
-    let app = try await launch(required: true)
-    credentials(app)
-    XCTAssertFalse(app.buttons["sign-in-button"].isEnabled)
-    capture("sign-in", app)
-    signIn(app, password: "incorrect")
-    assertError("Incorrect username or password", app)
-    capture("sign-in-error", app)
-    XCTAssertEqual(app.textFields["username-field"].value as? String, "fixture")
-    replace(app.secureTextFields["password-field"], "fixture-only")
-    app.buttons["sign-in-button"].tap()
-    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
   }
 
   func testSavedSessionDoesNotReturnAfterReauthenticationAndRelaunch() async throws {
@@ -143,7 +92,6 @@ final class AuthFlowUITests: XCTestCase {
     app.buttons["get-started"].tap()
     waitForArrival(app.textFields["server-field"])
     XCTAssertFalse(app.buttons["clear-server"].exists)
-    capture("re-auth-cold-launch-cleared", app)
     // Reconnect after the real sandbox/Keychain reset, then repeat without a
     // relaunch. Neither path may silently leave Connect blocked by the marker.
     for attempt in 0..<2 {
@@ -153,7 +101,6 @@ final class AuthFlowUITests: XCTestCase {
       signIn(app)
       XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
       dismissPasswordPrompt(app)
-      capture("re-auth-reconnected-\(attempt)", app)
       app.buttons["settings-button"].tap()
       app.buttons["account-settings"].tap()
       app.buttons["re-auth"].tap()

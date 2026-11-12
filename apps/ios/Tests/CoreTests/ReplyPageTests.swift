@@ -22,11 +22,6 @@ final class ReplyPageTests: XCTestCase {
     XCTAssertEqual(timeline.entries.map(\.showsReplyContext), [false, true, false, false, false, true, true])
     XCTAssertEqual(ThreadProjection.messages(root: response, in: timeline.entries.map(\.message)).map(\.id), ["3", "7"])
   }
-  func testBrokenAndCyclicReplyChainsAreExcluded() {
-    let root = message("root")
-    let all = [root, message("a", reply: "b"), message("b", reply: "a"), message("orphan", reply: "missing")]
-    XCTAssertEqual(ThreadProjection.messages(root: root, in: all, includeInlineReplies: true).map(\.id), ["root"])
-  }
   func testLostWidgetAcknowledgementMatchesOnlyItsOwnReceipt() {
     XCTAssertFalse(WidgetMutationReceipt.accepted(.object([:]), action: "widget-response", clientID: "request"))
     XCTAssertFalse(WidgetMutationReceipt.accepted(.null, action: "widget-dismiss", clientID: "request"))

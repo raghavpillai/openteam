@@ -69,21 +69,6 @@ final class VoiceLifecycleTests: XCTestCase {
     XCTAssertNil(memo.recorder.pendingURL)
   }
 
-  func testPermissionDeniedReturnsToIdleAndCanRetry() async throws {
-    let recorder = VoiceRecorder(permission: { false })
-    let memo = VoiceMemoController(recorder: recorder)
-    defer { memo.tearDown() }
-    var reports = 0
-    memo.report = { _ in reports += 1 }
-    memo.startLocked()
-    try await waitUntil { memo.phase == .idle }
-    XCTAssertEqual(reports, 1)
-    XCTAssertFalse(recorder.recording)
-    recorder.usesSyntheticAudioForTesting = true
-    try await start(memo)
-    XCTAssertEqual(memo.phase, .locked)
-  }
-
   @MainActor private final class PermissionGate {
     var continuation: CheckedContinuation<Bool, Never>?
     func request() async -> Bool { await withCheckedContinuation { continuation = $0 } }

@@ -50,6 +50,10 @@ final class ConnectionStatusTests: SystemIntentFixture {
     XCTAssertTrue(store.online, "The independent server check succeeds")
     XCTAssertFalse(store.connectionUnavailable)
     XCTAssertEqual(store.messages(channel.id), cached)
+    XCTAssertNil(store.error)
+    try await control(.object(["failures": .object([:])]))
+    await store.loadHistory(channel.id)
+    XCTAssertFalse(store.historyLoadFailures.contains(channel.id))
     store.beginReauthentication()
   }
 

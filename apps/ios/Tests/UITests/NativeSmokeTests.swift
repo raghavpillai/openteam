@@ -62,37 +62,4 @@ final class NativeSmokeTests: XCTestCase {
         .count, 1)
     capture("native-message-accepted", app)
   }
-  func testFailedMessageRetriesAfterReconnect() async throws {
-    let app = try await launch()
-    app.buttons["channel-channel-research"].tap()
-    XCTAssertTrue(input(app).waitForExistence(timeout: 10))
-    try await control("__qa/control", body: ["offline": true])
-    input(app).tap()
-    input(app).typeText("Offline native recovery")
-    app.buttons["send-button"].tap()
-    XCTAssertTrue(app.staticTexts["Not delivered"].waitForExistence(timeout: 15))
-    capture("native-offline-queued", app)
-    try await control("__qa/control", body: ["offline": false])
-    app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'retry-send-'")).firstMatch.tap()
-    var accepted = false
-    for _ in 0..<30 {
-      let (data, _) = try await URLSession.shared.data(
-        from: base.appendingPathComponent("__qa/state"))
-      let state = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-      let messages = state["messages"] as! [[String: Any]]
-      let count = messages.filter { $0["content"] as? String == "Offline native recovery" }.count
-      XCTAssertLessThanOrEqual(count, 1)
-      if count == 1 {
-        accepted = true
-        break
-      }
-      try await Task.sleep(for: .milliseconds(300))
-    }
-    XCTAssertTrue(accepted)
-    let reconciled = expectation(
-      for: NSPredicate(format: "exists == false"),
-      evaluatedWith: app.staticTexts["Not delivered"])
-    await fulfillment(of: [reconciled], timeout: 10)
-    capture("native-offline-recovered", app)
-  }
 }

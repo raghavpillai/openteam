@@ -131,8 +131,8 @@ bash apps/ios/scripts/verify.sh <simulator-udid> [result-dir]
 It starts fixtures on ports 19997 and 19992 (reusing any already running) and writes
 logs and the result bundle to `output/swift-native-<timestamp>/` unless you pass a
 result directory. The default UI suites are a lean smoke set: sign-in and saved-session
-reset (`AuthFlowUITests`), send and retry (`NativeSmokeTests`) and private attachments
-(`AttachmentUITests`). It uses ad hoc simulator signing so the saved-session test can
+reset (`AuthFlowUITests`), keyboard send with a lost acknowledgement (`NativeSmokeTests`)
+and private attachments (`AttachmentUITests`). It uses ad hoc simulator signing so the saved-session test can
 exercise Keychain persistence across cold launches.
 
 The `NativePush` scheme checks notification taps and read sync against

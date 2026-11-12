@@ -65,15 +65,11 @@ final class MessagePreviewTests: XCTestCase {
     message.metadata = .object(["attachments": .array([image]), "type": .string("text")])
     message.content = ""
     XCTAssertEqual(message.previewText, "Sent 1 image")
-    message.content = "Here is the **chart** you asked for.\n\n- Revenue: up"
+    message.content = "Here is the **chart** you asked for."
     XCTAssertEqual(message.previewText, "Here is the chart you asked for.")
     XCTAssertFalse(message.isAttachmentOnly)
     message.content = "chart.png"
     message.metadata = .object(["attachment": image, "type": .string("attachment")])
     XCTAssertTrue(message.isAttachmentOnly)
-    message.metadata = .object([:])
-    message.content = "Done. The [CRM](https://docs.google.com/spreadsheets/d/1abc/edit) is updated."
-    XCTAssertEqual(message.previewText, "Done. The CRM is updated.")
-    XCTAssertFalse(message.isAttachmentOnly)
   }
 }

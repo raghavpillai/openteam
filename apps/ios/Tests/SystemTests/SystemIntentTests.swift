@@ -35,21 +35,6 @@ class SystemIntentFixture: XCTestCase {
 
 @MainActor
 final class SystemIntentTests: SystemIntentFixture {
-  func testTaskIntentSendsInstructionsAndReturnsAcceptedMessage() async throws {
-    let client = try await SystemIntentClient.connect()
-    let bot = try XCTUnwrap(client.bootstrap.bots.first)
-    var intent = SendBotTaskIntent()
-    intent.bot = TeamBotEntity(bot, scope: scope)
-    intent.instructions = "Compare the fixture vendors"
-    intent.attachments = []
-    let result = try await intent.perform()
-    let message = try XCTUnwrap(result.value)
-    XCTAssertEqual(message.text, intent.instructions)
-    XCTAssertEqual(SystemEntityID(message.id)?.channelID, bot.dmChannelId)
-    let state = try await client.api.request("/__qa/state")
-    XCTAssertEqual(state["messages"].array.filter { $0["content"].string == intent.instructions }.count, 1)
-  }
-
   func testSavedShortcutCannotSendAfterAccountChanges() async throws {
     let client = try await SystemIntentClient.connect()
     let bot = try XCTUnwrap(client.bootstrap.bots.first)

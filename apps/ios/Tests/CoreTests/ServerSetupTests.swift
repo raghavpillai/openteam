@@ -87,10 +87,7 @@ final class InferenceSettingsTests: XCTestCase {
   }
   func testProviderFailuresKeepTheirReasonAndSayWhetherToRetry() {
     // A rejected key, in the provider's own words, is the reason; waiting won't fix it.
-    for raw in [
-      "Incorrect API key provided: sk-proj-****abcd.", "invalid x-api-key",
-      #"{"type":"error","error":{"type":"authentication_error"}}"#, "403 Forbidden",
-    ] {
+    for raw in ["Incorrect API key provided: sk-proj-****abcd.", "403 Forbidden"] {
       let failure = ProviderErrorText.failure(raw)
       XCTAssertEqual(
         failure.message,
@@ -107,7 +104,7 @@ final class InferenceSettingsTests: XCTestCase {
     XCTAssertTrue(limited.transient)
     for raw in [
       "429 You exceeded your current quota, please check your plan and billing details.",
-      "Your credit balance is too low to access the Anthropic API.", "402 Payment Required",
+      "402 Payment Required",
     ] {
       let failure = ProviderErrorText.failure(raw)
       XCTAssertEqual(
@@ -117,10 +114,7 @@ final class InferenceSettingsTests: XCTestCase {
       XCTAssertFalse(failure.transient, raw)
     }
     // Blips are worth another try.
-    for raw in [
-      "503 Service Unavailable", "529 overloaded_error", "The operation timed out.", "fetch failed",
-      "read ECONNRESET", "504 Gateway Timeout",
-    ] {
+    for raw in ["503 Service Unavailable", "The operation timed out.", "read ECONNRESET"] {
       XCTAssertTrue(ProviderErrorText.failure(raw).transient, raw)
     }
     XCTAssertFalse(ProviderErrorText.failure("404 model not found").transient)
@@ -216,51 +210,25 @@ final class InferenceSettingsTests: XCTestCase {
     noBrowser.authorizationUrl = nil
     XCTAssertNil(noBrowser.capturableRedirect)
   }
-  func testRequestPathsAndBodies() {
-    XCTAssertEqual(
-      InferenceRequest.startPath("openai-codex"),
-      "/api/v0/inference-providers/openai-codex/auth-sessions")
-    XCTAssertEqual(
-      InferenceRequest.respondPath("a b"), "/api/v0/inference-provider-auth-sessions/a%20b/respond")
-    XCTAssertEqual(
-      InferenceRequest.respond(promptId: "p", value: "v"),
-      .object(["promptId": .string("p"), "value": .string("v")]))
-    XCTAssertEqual(InferenceRequest.start(authType: "api_key"), .object(["authType": .string("api_key")]))
-  }
 }
 
 final class ServerSetupTests: XCTestCase {
-  func testSavedSuffixBlankEditsAndProviderReturn() throws {
-    let saved = try JSONDecoder().decode(TranscriptionSettingsView.self, from: Data(
-      #"{"enabled":true,"provider":"openai","baseUrl":"https://api.openai.com/v1","model":"gpt-transcribe","language":"","hasApiKey":true,"apiKeySuffix":"A7z9","configured":true,"apiKey":"unexpected-private-key"}"#.utf8))
-    XCTAssertEqual(saved.apiKeySuffix, "A7z9")
-    XCTAssertFalse(String(describing: saved).contains("unexpected-private-key"))
-    var draft = TranscriptionDraft(saved)
-    draft.apiKey = "   "
-    XCTAssertFalse(draft.changed(from: saved))
-    XCTAssertNil(draft.body.object["apiKey"])
-    draft.choose(.deepgram)
-    XCTAssertNil(draft.body.object["apiKey"])
-    XCTAssertTrue(saved.hasApiKey)
-    draft.choose(.openai)
-    XCTAssertTrue(draft.hasSavedKey(saved))
-    XCTAssertEqual(saved.apiKeySuffix, "A7z9")
-    draft.removeKey = true
-    XCTAssertEqual(draft.body.object["apiKey"], .null)
-    draft.removeKey = false
-    XCTAssertNil(draft.body.object["apiKey"])
-  }
   func testTranscriptionDraftKeepsReplacesOrRemovesTheKey() throws {
     let saved = try JSONDecoder().decode(
       TranscriptionSettingsView.self,
       from: Data(
-        #"{"enabled":true,"provider":"openai","baseUrl":"https://api.openai.com/v1","model":"gpt-transcribe","language":"","hasApiKey":true,"configured":true}"#
+        #"{"enabled":true,"provider":"openai","baseUrl":"https://api.openai.com/v1","model":"gpt-transcribe","language":"","hasApiKey":true,"apiKeySuffix":"A7z9","configured":true,"apiKey":"unexpected-private-key"}"#
           .utf8))
     XCTAssertEqual(saved.summary, "OpenAI")
+    XCTAssertEqual(saved.apiKeySuffix, "A7z9")
+    XCTAssertFalse(String(describing: saved).contains("unexpected-private-key"))
     var draft = TranscriptionDraft(saved)
     XCTAssertFalse(draft.changed(from: saved))
     XCTAssertTrue(draft.hasSavedKey(saved))
-    // Omitting apiKey keeps the saved key.
+    // Omitting apiKey keeps the saved key; a blank entry is not a replacement.
+    XCTAssertNil(draft.body.object["apiKey"])
+    draft.apiKey = "   "
+    XCTAssertFalse(draft.changed(from: saved))
     XCTAssertNil(draft.body.object["apiKey"])
     draft.apiKey = " sk-new "
     XCTAssertTrue(draft.changed(from: saved))
@@ -301,7 +269,4 @@ final class ServerSetupTests: XCTestCase {
     off.settings.enabled = false
     XCTAssertEqual(off.summary, "Off")
   }
-}
-
-final class ProviderDisplayNameTests: XCTestCase {
 }

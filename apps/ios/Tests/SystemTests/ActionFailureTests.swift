@@ -229,28 +229,4 @@ final class ActionFailureTests: SystemIntentFixture {
     let state = try await API(server: server).request("/__qa/state")
     XCTAssertFalse(state["requests"].array.contains { $0["method"].string == "POST" })
   }
-
-  func testFailedHistoryRefreshKeepsCachedMessagesAndClearsAfterRetry() async throws {
-    let store = await connectedStore()
-    let channel = try XCTUnwrap(store.channels.first)
-    await store.loadHistory(channel.id)
-    let cached = store.messages(channel.id)
-    XCTAssertFalse(cached.isEmpty)
-    try await control(
-      .object([
-        "failures": .object([
-          "GET /api/v0/channels/\(channel.id)/history": .object([
-            "status": .number(503), "count": .number(100),
-          ])
-        ])
-      ]))
-    await store.loadHistory(channel.id)
-    XCTAssertTrue(store.historyLoadFailures.contains(channel.id))
-    XCTAssertEqual(store.messages(channel.id), cached)
-    XCTAssertNil(store.error)
-    try await control(.object(["failures": .object([:])]))
-    await store.loadHistory(channel.id)
-    XCTAssertFalse(store.historyLoadFailures.contains(channel.id))
-    XCTAssertEqual(store.messages(channel.id), cached)
-  }
 }

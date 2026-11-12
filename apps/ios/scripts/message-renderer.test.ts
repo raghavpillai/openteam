@@ -29,25 +29,18 @@ test("reports the width associated with the measured height and lease", () => {
   expect(reports[1]).toEqual({ height: 890, width: 298, lease: "current-document", ready: false });
 });
 
-test("reports a valid width even when adopting it does not change height", () => {
+test("reports a width-only change but never duplicate unchanged geometry", () => {
   const { bounds, reports, report } = reporter();
   report();
+  report();
   bounds.width = 298;
+  report();
   report();
   expect(reports).toEqual([
     { height: 21, width: 0, lease: "current-document", ready: false },
     { height: 21, width: 298, lease: "current-document", ready: false },
   ]);
 });
-
-test("does not send duplicate unchanged geometry", () => {
-  const { bounds, reports, report } = reporter();
-  bounds.width = 298;
-  report();
-  report();
-  expect(reports).toHaveLength(1);
-});
-
 
 test("signals readiness even when fonts settle without changing height", () => {
   const { context, reports, report } = reporter();

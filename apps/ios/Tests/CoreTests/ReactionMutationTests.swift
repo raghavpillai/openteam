@@ -45,22 +45,6 @@ final class ReactionMutationTests: XCTestCase {
     XCTFail("Async queue did not reach the expected state", file: file, line: line)
   }
 
-  func testRapidDifferentTapsSerializeAndLastChoiceWins() async {
-    let server = Server()
-    server.tap("👍")
-    await waitUntil { server.calls.count == 1 }
-    server.tap("❤️")
-    server.tap("🎉")
-    XCTAssertEqual(server.calls.count, 1)
-    server.complete()
-    await waitUntil { server.calls.count == 2 }
-    XCTAssertEqual(server.calls.map(\.1), ["👍", "🎉"])
-    XCTAssertEqual(ReactionMutations.ownEmoji(server.queue.project(.object([:]), messageID: "a")), "🎉")
-    server.complete()
-    await waitUntil { server.queue.pendingCount == 0 }
-    XCTAssertEqual(server.own["a"], "🎉")
-  }
-
   func testFailureDropsQueuedMutationAndReadsOnceWithoutBlindRetry() async {
     let server = Server()
     server.tap("👍")

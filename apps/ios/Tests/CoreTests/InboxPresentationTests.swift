@@ -38,15 +38,11 @@ final class InboxPresentationTests: XCTestCase {
       InboxPresentation.activity(latest: nil, runs: [run("completed"), run("running")]), .working)
   }
 
-  func testPendingQuestionTakesPriorityOverRunningWork() {
-    XCTAssertEqual(InboxPresentation.activity(latest: question(), runs: []), .needsAnswer)
+  func testPendingQuestionsOutrankWorkUntilAnsweredDismissedOrTerminal() {
     XCTAssertEqual(InboxPresentation.activity(latest: question(), runs: [run("running")]), .needsAnswer)
     var pending = question()
     pending.metadata["cardState"] = .string("pending")
     XCTAssertEqual(InboxPresentation.activity(latest: pending, runs: []), .needsAnswer)
-  }
-
-  func testAnsweredDismissedAndTerminalQuestionsClearWaiting() {
     for (key, value) in [
       ("respondedValue", JSON.string("yes")), ("respondedValue", .string("")),
       ("widgetDismissed", .bool(true)), ("cardState", .string("answered")),
@@ -58,15 +54,5 @@ final class InboxPresentationTests: XCTestCase {
       XCTAssertEqual(
         InboxPresentation.activity(latest: resolved, runs: [run("running")]), .working, key)
     }
-  }
-
-  private var calendar: Calendar {
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = TimeZone(identifier: "America/New_York")!
-    return calendar
-  }
-
-  private func date(_ value: String) -> Date {
-    ISO8601DateFormatter().date(from: value)!
   }
 }

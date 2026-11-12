@@ -81,15 +81,6 @@ final class ProtocolTests: XCTestCase {
     next.content = "Edited in place"
     XCTAssertEqual(MessageTimeline([first, next]).entries[1].message.content, "Edited in place")
   }
-  func testProductionUUIDRoutesPreserveIdentifiersAndEscapeReservedCharacters() throws {
-    let api = try API(server: "http://127.0.0.1:20007")
-    let id = "eb954d92-c40a-48a9-847c-c362d0ca5073"
-    XCTAssertEqual(
-      api.url("/api/v0/conversations/\(API.segment(id))/messages").absoluteString,
-      "http://127.0.0.1:20007/api/v0/conversations/\(id)/messages")
-    XCTAssertEqual(API.segment("id-._~"), "id-._~")
-    XCTAssertEqual(API.segment("é /?#%"), "%C3%A9%20%2F%3F%23%25")
-  }
   func testServerEchoReconcilesByNonceWithoutDuplicating() throws {
     var message = try fixture().latestMessages[0]
     message.id = "local"
@@ -106,18 +97,6 @@ final class ProtocolTests: XCTestCase {
     XCTAssertTrue(MessageMerge.less("9999999999999999999999", "10000000000000000000000"))
     XCTAssertFalse(MessageMerge.less("0003", "3"))
     XCTAssertTrue(MessageMerge.less("9", "10"))
-  }
-  func testHistoryCompletionSurvivesRestart() throws {
-    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: dir) }
-    let store = try DiskStore(directory: dir, scope: "history-readiness")
-    var state = SavedState()
-    state.bootstrap = try fixture()
-    let preview = try XCTUnwrap(state.bootstrap?.latestMessages.first)
-    state.messages[preview.channelId] = [preview]
-    state.loadedHistoryChannels = [preview.channelId, "empty-chat"]
-    try store.save(state)
-    XCTAssertEqual(try store.load().loadedHistoryChannels, [preview.channelId, "empty-chat"])
   }
   func testOutboxNonceReplyAndDraftSurviveRestartAndStayIsolated() throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

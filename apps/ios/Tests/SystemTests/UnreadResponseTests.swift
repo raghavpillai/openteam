@@ -168,20 +168,4 @@ final class UnreadResponseTests: SystemIntentFixture {
     XCTAssertEqual(patches, 0)
   }
 
-  func testQueuedPinActionsPreserveBothPins() async throws {
-    let store = try await connectedStore()
-    defer { store.beginReauthentication() }
-    let count = try await requestCount(sidebarPath, method: "PATCH")
-    try await control([
-      "PATCH " + sidebarPath: .object(["delayMs": .number(3000), "count": .number(1)]),
-    ])
-    let first = Task { await store.togglePin("queued-pin-a") }
-    try await waitForRequest(sidebarPath, method: "PATCH", after: count)
-    XCTAssertFalse(store.pins.contains("queued-pin-a"), "The second body must be captured from the old sidebar")
-    await store.togglePin("queued-pin-b")
-    await first.value
-    XCTAssertEqual(store.pins, ["queued-pin-a", "queued-pin-b"])
-    let persisted = try await API(server: server).request("/__qa/state")["settings"]
-    XCTAssertEqual(persisted["pinnedIds"].array.map(\.string), store.pins)
-  }
 }

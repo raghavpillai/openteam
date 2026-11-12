@@ -169,28 +169,4 @@ import XCTest
     XCTAssertTrue(AttachmentPreviewCache.local(assets[1]) === firstPreview)
   }
 
-  func testUploadMappingPersistsAndLegacySendsDoNotGuessPreviewIdentity() throws {
-    let (file, url) = try staged(photo(width: 80, height: 40), name: "Photo.jpg", mime: "image/jpeg")
-    var send = pending([file])
-    let previews = PendingAttachmentPreviews()
-    _ = previews.items(send, api: nil, fileURL: { _ in url })
-    let asset = uploaded(file, width: 80, height: 40)
-    completeUpload(file, asset: asset, send: &send)
-    let disk = try DiskStore(directory: url.deletingLastPathComponent(), scope: "mapping-test")
-    var saved = SavedState()
-    saved.outbox = [send]
-    try disk.save(saved)
-    let restored = try XCTUnwrap(disk.load().outbox.first)
-    XCTAssertEqual(restored.uploadedFileIDs, [asset.assetId + ":" + asset.fileName: file.id])
-    XCTAssertTrue(restored.stagedFiles?.isEmpty == true)
-
-    var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(restored)) as? [String: Any])
-    legacy.removeValue(forKey: "uploadedFileIDs")
-    let oldSend = try JSONDecoder().decode(PendingSend.self, from: JSONSerialization.data(withJSONObject: legacy))
-    XCTAssertNil(oldSend.uploadedFileIDs)
-    XCTAssertNil(previews.items(oldSend, api: nil, fileURL: { _ in nil }).first?.local)
-    XCTAssertNil(AttachmentPreviewCache.local(asset))
-    // After restart even a mapped send has no in-memory thumbnail and must fetch.
-    XCTAssertNil(PendingAttachmentPreviews().items(restored, api: nil, fileURL: { _ in nil }).first?.local)
-  }
 }

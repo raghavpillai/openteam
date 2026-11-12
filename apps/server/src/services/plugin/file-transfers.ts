@@ -162,22 +162,25 @@ export class ConnectorFileTransfers {
         "Transfer is already running or its write outcome is uncertain; inspect the destination before retrying"
       );
     let stagedDownload: StagedFile | undefined;
+    let uploadStarted = false;
     try {
       const api = this.provider(await this.token(connection));
-      const upload = () =>
-        api.upload(
+      const upload = () => {
+        uploadStarted = true;
+        return api.upload(
           connection.installation.pluginKey,
           input.sourcePath,
           input.destination,
           bytes!,
           signal
         );
+      };
       const result =
         raw.tool === "UploadFile"
           ? connection.installation.pluginKey === "gmail"
             ? await this.db.$transaction(
                 async (tx) => {
-                  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`gmail-draft:${connection.id}:${input.destination.draftId}`}, 0))`;
+                  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`gmail-draft:${connection.id}:${input.destination.draftId}`}, 0))`;
                   signal?.throwIfAborted();
                   return upload();
                 },
@@ -214,6 +217,8 @@ export class ConnectorFileTransfers {
       if (status === 401) return {outcome:{kind:"needs_auth"}};
       if (status === 404) return {outcome:{kind:raw.tool === "DownloadFile" ? "not_found" : "invalid_destination",message:"The selected file or destination was not found in this account."}};
       if (status >= 400 && status < 500) return {outcome:{kind:"rejected",message:`The provider rejected the request (HTTP ${status}). Check this account's access and the destination.`}};
+      if (raw.tool === "UploadFile" && !uploadStarted)
+        return {outcome:{kind:"unavailable",message:"OpenTeam could not prepare the upload before contacting the provider."}};
       // A dropped response can follow a successful write. Never turn an uncertain
       // upload into the reference's "nothing uploaded; retry" message.
       return {outcome:{kind:raw.tool === "UploadFile" ? "uncertain" : "unavailable",message:raw.tool === "UploadFile"

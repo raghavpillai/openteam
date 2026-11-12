@@ -12,6 +12,7 @@ on:
       - "apps/server/src/services/plugin/**"
       - "apps/server/src/services/plugin-service.ts"
       - "apps/server/test/plugin/device-link*"
+      - "apps/server/test/plugin/file-transfer*"
       - ".github/workflows/whatsapp-plugin.yml"
   workflow_dispatch:
 
@@ -53,6 +54,8 @@ jobs:
           apps/server/test/plugin/device-link.test.ts
           apps/server/test/plugin/device-link.integration.test.ts
           apps/server/test/plugin/mcp-transport.test.ts
+          apps/server/test/plugin/file-transfer-providers.test.ts
+          apps/server/test/plugin/file-transfers.integration.test.ts
           apps/computer/test/runtime/managed-account-state.test.ts
           apps/computer/test/plugin-package-cache.test.ts
       - run: bun run --cwd packages/plugins typecheck && bun run --cwd packages/plugin-sdk typecheck && bun run --cwd apps/computer typecheck && bun run --cwd apps/server typecheck

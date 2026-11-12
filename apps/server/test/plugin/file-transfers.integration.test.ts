@@ -4,9 +4,9 @@ import { ConnectorFileTransfers } from "../../src/services/plugin/file-transfers
 import { describeUploadFileOutcome } from "@openteam/contracts/reference-formatters";
 import { createHash } from "node:crypto";
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
-test.skipIf(!databaseUrl)(
-  "file transfers pin account, hash and call identity and do not replay writes after restart",
-  async () => {
+test.skipIf(!databaseUrl).each(["google-drive", "gmail"] as const)(
+  "%s file transfers pin account, hash and call identity and do not replay writes after restart",
+  async (pluginKey) => {
     const db = createPrismaClient(databaseUrl!);
     const botId = crypto.randomUUID();
     const installationId = crypto.randomUUID();
@@ -14,6 +14,7 @@ test.skipIf(!databaseUrl)(
     const callId = crypto.randomUUID();
     let writes = 0;
     let providerFailure: Error | undefined;
+    let preparationFailure: Error | undefined;
     try {
       await db.bot.create({
         data: {
@@ -27,8 +28,8 @@ test.skipIf(!databaseUrl)(
       await db.pluginInstallation.create({
         data: {
           id: installationId,
-          pluginKey: "google-drive",
-          name: "File fixture",
+          pluginKey,
+          name: `${pluginKey} fixture`,
           version: "fixture",
           publisher: "OpenTeam",
           description: "Fixture",
@@ -39,8 +40,8 @@ test.skipIf(!databaseUrl)(
       const connection = await db.pluginConnection.create({
         data: {
           installationId,
-          connectorKey: "drive",
-          name: "Fixture Drive",
+          connectorKey: pluginKey === "gmail" ? "gmail" : "drive",
+          name: `${pluginKey} fixture`,
           transport: "stdio",
           authType: "oauth",
           status: "ready",
@@ -51,7 +52,10 @@ test.skipIf(!databaseUrl)(
       const service = () =>
         new ConnectorFileTransfers(
           db,
-          async () => "fixture-token",
+          async () => {
+            if (preparationFailure) throw preparationFailure;
+            return "fixture-token";
+          },
           () =>
             ({
               upload: async () => {
@@ -65,7 +69,7 @@ test.skipIf(!databaseUrl)(
       const bytes = Buffer.from("abc");
       const raw = {
         tool: "UploadFile",
-        input: { connection: connection.id, sourcePath: "/workspace/file.bin", destination: {} },
+        input: { connection: connection.id, sourcePath: "/workspace/file.bin", destination: pluginKey === "gmail" ? { draftId: "fixture-draft" } : {} },
         sha256: createHash("sha256").update(bytes).digest("hex"),
         sizeBytes: 3,
       };
@@ -96,6 +100,25 @@ test.skipIf(!databaseUrl)(
       const stored = await db.connectorFileTransfer.findUniqueOrThrow({ where: { callId } });
       expect(JSON.stringify(stored)).not.toContain("bytesBase64");
       expect(JSON.stringify(stored)).not.toContain("fixture-token");
+      const preparationContext = { ...context, callId: crypto.randomUUID() };
+      await service().prepare(preparationContext, raw);
+      preparationFailure = new Error("Private preparation diagnostic");
+      const preparationResult = await service().execute(preparationContext, {
+        ...raw,
+        bytesBase64: bytes.toString("base64"),
+      });
+      expect(preparationResult).toMatchObject({ outcome: {
+        kind: "unavailable",
+        message: "OpenTeam could not prepare the upload before contacting the provider.",
+      } });
+      expect(describeUploadFileOutcome((preparationResult as any).outcome, raw.input)).toContain("Nothing was uploaded");
+      expect(JSON.stringify(preparationResult)).not.toContain("Private preparation diagnostic");
+      expect(writes).toBe(1);
+      await expect(service().execute(preparationContext, {
+        ...raw,
+        bytesBase64: bytes.toString("base64"),
+      })).rejects.toThrow("uncertain");
+      preparationFailure = undefined;
       for (const [status,kind] of [[401,"needs_auth"],[404,"invalid_destination"],[403,"rejected"],[503,"uncertain"]] as const) {
         const failedContext={...context,callId:crypto.randomUUID()};
         await service().prepare(failedContext,raw);
@@ -109,12 +132,12 @@ test.skipIf(!databaseUrl)(
       }
       // Two accounts of one service: the short name names both instead of calling the service unknown.
       const second = await db.pluginConnection.create({ data: {
-        installationId, connectorKey: "drive", name: "Fixture Drive", alias: "home", transport: "stdio", authType: "oauth", status: "ready", configuration: {}, credentials: {},
+        installationId, connectorKey: pluginKey === "gmail" ? "gmail" : "drive", name: `${pluginKey} fixture`, alias: "home", transport: "stdio", authType: "oauth", status: "ready", configuration: {}, credentials: {},
       } });
-      const ambiguous = await service().prepare({ ...context, callId: crypto.randomUUID() }, { ...raw, input: { ...raw.input, connection: "google-drive" } });
-      expect(ambiguous).toMatchObject({ outcome: { kind: "ambiguous_connection", service: "File fixture" } });
-      expect(describeUploadFileOutcome((ambiguous as any).outcome, { connection: "google-drive", sourcePath: "/workspace/file.bin" })).toBe(
-        `"google-drive" matches several connected File fixture accounts: ${(ambiguous as any).outcome.candidates.join(", ")}. Pass one of those identifiers as connection (GetMcpServerStatus shows which account each one is) so the right account is used. Nothing was uploaded.`
+      const ambiguous = await service().prepare({ ...context, callId: crypto.randomUUID() }, { ...raw, input: { ...raw.input, connection: pluginKey } });
+      expect(ambiguous).toMatchObject({ outcome: { kind: "ambiguous_connection", service: `${pluginKey} fixture` } });
+      expect(describeUploadFileOutcome((ambiguous as any).outcome, { connection: pluginKey, sourcePath: "/workspace/file.bin" })).toBe(
+        `${JSON.stringify(pluginKey)} matches several connected ${pluginKey} fixture accounts: ${(ambiguous as any).outcome.candidates.join(", ")}. Pass one of those identifiers as connection (GetMcpServerStatus shows which account each one is) so the right account is used. Nothing was uploaded.`
       );
       expect((ambiguous as any).outcome.candidates).toHaveLength(2);
       await db.pluginConnection.delete({where:{id:second.id}});

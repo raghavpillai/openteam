@@ -185,6 +185,9 @@ def update_families(value):
 
 def prepare(server_url):
     url, port = management_url(server_url)
+    gateway_port = int(os.environ.get('OPENTEAM_COMPUTER_PORT', '8790'))
+    if not 1 <= gateway_port <= 65535:
+        raise ValueError('Invalid computer gateway port')
     families = network_families()
     # The server can start only after the computer is healthy. Do not perform
     # hostname resolution here: the marked worker discovers it asynchronously.
@@ -242,9 +245,18 @@ def prepare(server_url):
         subprocess.run(['ip', family, 'route', 'del', 'default', 'dev', TUN,
                         'metric', '10', 'table', TABLE], capture_output=True)
         # Dedicated priorities are owned by this container's network service.
-        for priority in ['98', '99', '100', '101', '110']:
+        for priority in ['96', '97', '98', '99', '100', '101', '110']:
             while subprocess.run(['ip', family, 'rule', 'del', 'pref', priority], capture_output=True).returncode == 0:
                 pass
+        # An unmarked SYN-ACK needs an initial route before the OUTPUT hook
+        # can identify/mark it as a conntrack reply. The disabled-family guard
+        # otherwise rejects it before nftables, deadlocking control-plane boot.
+        # These rules select a route, not permission: nft still drops ordinary
+        # unmarked outbound traffic, including traffic bound to these ports.
+        run('ip', family, 'rule', 'add', 'pref', '96', 'ipproto', 'tcp',
+            'sport', str(gateway_port), 'lookup', 'main')
+        run('ip', family, 'rule', 'add', 'pref', '97', 'ipproto', 'tcp',
+            'sport', '6200-6299', 'lookup', 'main')
         run('ip', family, 'rule', 'add', 'pref', '100', 'fwmark', MARK + '/0xffff', 'lookup', 'main')
         run('ip', family, 'rule', 'add', 'pref', '101', 'fwmark', MARK + '/0xffff', 'prohibit')
         run('ip', family, 'rule', 'add', 'pref', '110', 'lookup', TABLE)

@@ -18,38 +18,11 @@ export const SEARCH_SECTIONS: ReadonlyArray<{ id: SearchSection; label: string }
 export const isDefaultSearchResultKind = (kind: SearchResultKind) =>
   kind === "bot" || kind === "channel";
 
-export const searchSectionDirectionForKey = ({
-  key,
-  query,
-  shiftKey = false,
-}: {
-  key: string;
-  query: string;
-  shiftKey?: boolean;
-}): -1 | 1 | null => {
-  if (key === "Tab") return shiftKey ? -1 : 1;
-  if (query.length > 0) return null;
-  if (key === "ArrowLeft") return -1;
-  if (key === "ArrowRight") return 1;
-  return null;
-};
-
-export const moveSearchSection = (current: SearchSection, direction: -1 | 1): SearchSection => {
-  const index = SEARCH_SECTIONS.findIndex((section) => section.id === current);
-  return (
-    SEARCH_SECTIONS[(index + direction + SEARCH_SECTIONS.length) % SEARCH_SECTIONS.length]?.id ??
-    "all"
-  );
-};
-
 export const moveSearchSelection = (current: number, count: number, direction: -1 | 1) => {
   if (count === 0) return -1;
   if (current < 0) return 0;
   return Math.max(0, Math.min(count - 1, current + direction));
 };
-
-export const normalizeClientSearch = (value: string) =>
-  normalizeSearchQuery(value, { lowercase: true });
 
 export { searchTextMatches };
 

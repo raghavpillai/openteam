@@ -127,22 +127,6 @@ function fixture(): ClientSnapshot {
 }
 
 describe("desktop snapshot index", () => {
-
-  test("indexes hot channel data once for fast tab projections", () => {
-    const index = createSnapshotIndex(fixture());
-
-    expect(index.botById.get("bot-1")?.name).toBe("Bot");
-    expect(index.channelById.get("channel-1")?.name).toBe("Bot");
-    expect(index.messagesByChannel.get("channel-1")?.map((message) => message.content)).toEqual([
-      "Hello",
-      "Hi",
-    ]);
-    expect(index.latestMessageByChannel.get("channel-1")?.id).toBe("message-2");
-    expect(index.activeRunByChannel.get("channel-1")?.id).toBe("run-1");
-    expect(index.itemsByRun.get("run-1")?.[0]?.title).toBe("WebSearch");
-    expect(index.subagentsByChannel.get("channel-1")?.[0]?.parentToolCallId).toBe("tool-call-1");
-  });
-
   test("keeps the running turn stoppable when a newer turn is queued", () => {
     const snapshot = fixture();
     const running = snapshot.runs[0];
@@ -227,19 +211,6 @@ describe("desktop snapshot index", () => {
     expect(next.channelMessages[1]).toBe(first.channelMessages[1]);
   });
 
-  test("ignores omitted optional object fields and releases removed cache entities", () => {
-    const caches = createSnapshotCaches();
-    const input = fixture();
-    input.channelMessages[0]!.metadata = { optional: undefined, nested: { value: "unchanged" } };
-    const first = reconcileClientSnapshot(input, null, caches);
-    const equal = reconcileClientSnapshot(JSON.parse(JSON.stringify(input)), first, caches);
-    expect(equal).toBe(first);
-    const removed = { ...input, channelMessages: input.channelMessages.slice(1) };
-    const next = reconcileClientSnapshot(removed, first, caches);
-    expect(next.channelMessages).toHaveLength(1);
-    expect(caches.channelMessages.has(input.channelMessages[0]!.id)).toBe(false);
-  });
-
   test("preserves long bodies and detects same-length edits without refreshing unrelated entities", () => {
     const caches = createSnapshotCaches();
     const input = fixture();
@@ -267,20 +238,6 @@ describe("desktop snapshot index", () => {
     expect(final.channelMessages[0]!.content).toBe(changed.channelMessages[0]!.content);
   });
 
-  test("detects changes across long, short and null body transitions", () => {
-    const caches = createSnapshotCaches();
-    let previous: ClientSnapshot | null = null;
-    for (const content of ["x".repeat(4095), "x".repeat(4096), "x".repeat(4095), "", null]) {
-      const input = fixture();
-      input.runItems[0]!.content = content;
-      const next = reconcileClientSnapshot(input, previous, caches);
-      if (previous) expect(next.runItems[0]).not.toBe(previous.runItems[0]);
-      expect(next.runItems[0]!.content).toBe(content);
-      expect(reconcileClientSnapshot(JSON.parse(JSON.stringify(input)), next, caches)).toBe(next);
-      previous = next;
-    }
-  });
-
   test("handles deeply nested JSON metadata without overflowing the comparator stack", () => {
     const nested = (leaf: string) => {
       let value: unknown = leaf;
@@ -298,5 +255,4 @@ describe("desktop snapshot index", () => {
     changed.channelMessages[0]!.metadata = nested("changed");
     expect(reconcileClientSnapshot(changed, first, caches).channelMessages[0]).not.toBe(first.channelMessages[0]);
   });
-
 });

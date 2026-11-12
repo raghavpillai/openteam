@@ -304,22 +304,6 @@ export const ConversationViewportAnchor = ({ active }: { active: boolean }) => {
   return null;
 };
 
-export const ConversationEmptyState = ({
-  title = "Start a conversation",
-  description = "This bot keeps one durable Pi session across restarts.",
-  icon,
-}: {
-  title?: string;
-  description?: string;
-  icon?: ReactNode;
-}) => (
-  <div className="flex h-full min-h-80 flex-col items-center justify-center gap-2 text-center">
-    {icon && <div className="mb-2 text-muted-foreground">{icon}</div>}
-    <div className="text-base font-medium">{title}</div>
-    <div className="max-w-sm text-sm text-muted-foreground">{description}</div>
-  </div>
-);
-
 const ScrollDownIcon = ({ className }: { className: string }) => (
   <svg
     aria-hidden="true"

@@ -146,7 +146,6 @@ export const highlightAsync = async (
 };
 
 
-export const getEngineStats = () => ({ activeCreations, creationQueue: creationQueue.length, highlighterEntries: highlighterCache.size });
 export const clearEngine = () => {
   for (const entry of highlighterCache.values()) { entry.evicted = true; disposeEntry(entry); }
   highlighterCache.clear();

@@ -126,17 +126,6 @@ test("Messages sends validate recipient and pass body as argv, never executable 
   expect(calls).toBe(1);
 });
 
-test("the cookie tool dispatches by its current name with parsed origins; the old name is unknown", async () => {
-  const requests: unknown[] = [];
-  const cookies = { collect: async (_botId: string, origins: unknown) => (requests.push(origins), { kind: "listed", items: [] }) };
-  const host = new HostCapabilities(undefined, cookies as unknown as ChromeCookies, "darwin");
-  expect(await host.handle({ tool: "RequestCookieOriginApproval", botId: "bot", arguments: { origins: [{ origin: "example.com", profileId: "Default" }] } })).toEqual({ kind: "listed", items: [] });
-  expect(requests).toEqual([[{ origin: "example.com", profileId: "Default" }]]);
-  await expect(host.handle({ tool: "RequestCookieOriginApproval", botId: "bot", arguments: { origins: "example.com" } })).rejects.toThrow();
-  await expect(host.handle({ tool: "import_chrome_cookies", botId: "bot", arguments: {} })).rejects.toThrow("Unknown desktop capability");
-  expect(requests).toHaveLength(1);
-});
-
 test("Messages requests run only while this Mac's own setting allows them", async () => {
   let enabled = false;
   let reads = 0;

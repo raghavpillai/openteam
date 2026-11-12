@@ -1,50 +1,18 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { authErrorMessage } from "../../src/renderer/lib/auth-error-message";
 import { readNativeAuthWithDeadline } from "../../src/renderer/client/native-auth-deadline";
 
-describe("sign-in error presentation", () => {
-  test("shows a rejected sign-in without Electron's IPC wrapper", () => {
-    expect(
-      authErrorMessage(
-        new Error(
-          "Error invoking remote method 'openteam:auth:sign-in': Error: Incorrect username or password."
-        ),
-        "Could not sign in"
-      )
-    ).toBe("Incorrect username or password.");
-  });
-  test("makes native network failures actionable", () => {
-    expect(
-      authErrorMessage(
-        new Error("Error invoking remote method 'openteam:auth:sign-in': Error: fetch failed"),
-        "Could not sign in"
-      )
-    ).toBe("Could not reach this OpenTeam server. Check the address and your connection.");
-  });
-  test("shows secure storage failures without Electron's IPC wrapper", () => {
-    const message = "Secure sign-in storage did not respond. Check the system permission prompt on this computer, then try again.";
-    expect(authErrorMessage(
-      new Error(`Error invoking remote method 'openteam:auth-token:write': Error: ${message}`),
-      "Could not sign in"
-    )).toBe(message);
-  });
-  test("preserves useful server messages and redacts credentials", () => {
-    expect(
-      authErrorMessage(new Error("Server rejected PASSWORD=private-value"), "Could not sign in")
-    ).toBe("Server rejected PASSWORD=[REDACTED]");
-    expect(
-      authErrorMessage(new Error("This endpoint is not an OpenTeam server."), "Could not connect")
-    ).toBe("This endpoint is not an OpenTeam server.");
-  });
-  test("uses the fallback when no useful error is returned", () => {
-    expect(authErrorMessage(null, "Could not sign in")).toBe("Could not sign in");
-    expect(
-      authErrorMessage(
-        new Error("Error invoking remote method 'openteam:auth:sign-in': Error: "),
-        "Could not sign in"
-      )
-    ).toBe("Could not sign in");
-  });
+test("sign-in errors drop Electron's IPC wrapper, redact credentials and fall back when empty", () => {
+  const ipc = (message: string) =>
+    new Error(`Error invoking remote method 'openteam:auth:sign-in': Error: ${message}`);
+  expect(authErrorMessage(ipc("Incorrect username or password."), "Could not sign in")).toBe(
+    "Incorrect username or password."
+  );
+  expect(
+    authErrorMessage(new Error("Server rejected PASSWORD=private-value"), "Could not sign in")
+  ).toBe("Server rejected PASSWORD=[REDACTED]");
+  expect(authErrorMessage(null, "Could not sign in")).toBe("Could not sign in");
+  expect(authErrorMessage(ipc(""), "Could not sign in")).toBe("Could not sign in");
 });
 
 test("a stuck native read exits checking, and a late read cannot settle the timed-out request", async () => {

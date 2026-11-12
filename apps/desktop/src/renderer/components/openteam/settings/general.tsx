@@ -45,7 +45,7 @@ void microphone.preload();
 const MicrophoneSettings = microphone.Component;
 
 // Reuse the selector already loaded for Theme; device discovery stays lazy.
-export const renderMicrophoneControl = ({ options, ...props }: MicrophoneControlProps) => (
+const renderMicrophoneControl = ({ options, ...props }: MicrophoneControlProps) => (
   <Select {...props}>
     <SelectTrigger
       aria-label="Microphone"

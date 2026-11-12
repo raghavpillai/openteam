@@ -1,4 +1,4 @@
-export const MICROPHONE_STORAGE_KEY = "openteam:microphone";
+const MICROPHONE_STORAGE_KEY = "openteam:microphone";
 export const MICROPHONE_CHANGE_EVENT = "openteam:microphone-change";
 export const MICROPHONE_ACCESS_EVENT = "openteam:microphone-access";
 

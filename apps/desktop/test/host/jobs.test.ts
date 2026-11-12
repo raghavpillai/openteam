@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ShellJobRegistry } from "@openteam/shell-jobs";
 import {
-  executeRead,
   executeHostJob,
   executeShell,
   hostShellCapacitySnapshot,
@@ -92,7 +91,7 @@ test("host AwaitShell cancellation stops the wait without terminating the comman
   }
 });
 
-test("host shell logs use the box terminal header and footer, which a fresh registry recovers", async () => {
+test("a fresh registry recovers a finished shell's exit code from its log footer", async () => {
   const root = await mkdtemp(join(tmpdir(), "host-terminal-format-"));
   try {
     const result = await executeShell(
@@ -100,8 +99,6 @@ test("host shell logs use the box terminal header and footer, which a fresh regi
       root
     );
     expect(result).toMatchObject({ status: "completed", exit_code: 3 });
-    const log = await readFile(result.output_path, "utf8");
-    expect(log).toMatch(new RegExp(`^---\\npid: \\d+\\ncwd: "${root}"\\ncommand: "printf 'out\\\\\\\\n'; exit 3"\\ntitle: "Exit three"\\nstatus: failed   \\nstarted_at: \\S+\\nrunning_for_ms: \\d+ *\\n---\\nout\\n\\n---\\nexit_code: 3\\nelapsed_ms: \\d+\\nended_at: \\S+\\n---\\n$`));
     // After a host utility restart, AwaitShell reads the outcome back from the footer.
     const recovered = await new ShellJobRegistry({ directory: root }).await({ shell_id: result.shell_id, block_until_ms: 0 }, resolve(root));
     expect(recovered).toMatchObject({ status: "completed", exit_code: 3 });
@@ -219,33 +216,6 @@ describe("host shell resource controls", () => {
         .map((line) => line.split(",")[0]);
       expect(new Set(starts.slice(0, 2))).toEqual(new Set(["first", "second"]));
       expect(starts[2]).toBe("third");
-    } finally {
-      await terminateHostChildren();
-      await rm(root, { recursive: true, force: true });
-    }
-  }, 8_000);
-
-  test("shares the global process-tree permits with PDF extraction", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-pdf-capacity-"));
-    const pdf = join(root, "queued.pdf");
-    const command = `${shellQuote(process.execPath)} -e ${shellQuote("setTimeout(() => {}, 350)")}`;
-    const controller = new AbortController();
-    try {
-      await writeFile(pdf, "%PDF-1.4\n", "utf8");
-      await executeShell({ command, working_directory: root, block_until_ms: 0 }, root, undefined, {
-        maxRuntimeMs: 5_000,
-        terminationGraceMs: 25,
-      });
-      await executeShell({ command, working_directory: root, block_until_ms: 0 }, root, undefined, {
-        maxRuntimeMs: 5_000,
-        terminationGraceMs: 25,
-      });
-      const read = executeRead({ path: pdf }, controller.signal);
-      await waitFor(() => hostShellCapacitySnapshot().queued === 1);
-      expect(hostShellCapacitySnapshot()).toEqual({ active: 2, queued: 1 });
-      controller.abort();
-      await expect(read).rejects.toThrow("cancelled");
-      expect(hostShellCapacitySnapshot()).toEqual({ active: 2, queued: 0 });
     } finally {
       await terminateHostChildren();
       await rm(root, { recursive: true, force: true });

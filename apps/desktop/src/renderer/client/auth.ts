@@ -291,6 +291,3 @@ export const signOut = async (): Promise<void> => {
     // Local sign-out must still succeed if the server is unavailable.
   }
 };
-
-export const hasValidSession = async (): Promise<boolean> =>
-  (await refreshAuthSession()).status === "authenticated";

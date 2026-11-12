@@ -6,7 +6,6 @@ import { isWindowActive, subscribeWindowActivity } from "../../../lib/window-vis
 // Never fall back to synchronous tokenization on the renderer after a worker error.
 let worker: Worker | undefined;
 let nextId = 0;
-let stats = { activeCreations: 0, creationQueue: 0, highlighterEntries: 0 };
 let localEngine: typeof import("./code-engine") | undefined;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
 let unsubscribeActivity: (() => void) | undefined;
@@ -29,7 +28,6 @@ const resetWorker = (error: Error) => {
   }
   worker?.terminate();
   worker = undefined;
-  stats = { activeCreations: 0, creationQueue: 0, highlighterEntries: 0 };
   for (const request of pending.values()) {
     clearTimeout(request.timer);
     request.reject(error);
@@ -71,7 +69,6 @@ export const highlightAsync = async (
       if (!request) return;
       pending.delete(data.id);
       clearTimeout(request.timer);
-      if (data.stats) stats = data.stats;
       if (data.error) request.reject(new Error(data.error));
       else request.resolve(data.result);
       scheduleIdleRelease();
@@ -92,7 +89,6 @@ export const highlightAsync = async (
   });
 };
 
-export const getHighlightEngineStats = () => localEngine?.getEngineStats() ?? stats;
 export const clearHighlightEngine = () => {
   localEngine?.clearEngine();
   resetWorker(new Error("Code highlighting cache disposed"));

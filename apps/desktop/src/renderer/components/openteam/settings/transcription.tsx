@@ -91,7 +91,7 @@ export default function VoiceNotesSettings() {
   return <TranscriptionSettingsPanel />;
 }
 
-export function TranscriptionSettingsPanel() {
+function TranscriptionSettingsPanel() {
   const [saved, setSaved] = useState<TranscriptionSettingsView | null>(null);
   const [draft, setDraft] = useState<TranscriptionSettings>(defaultTranscriptionSettings);
   const [apiKey, setApiKey] = useState("");

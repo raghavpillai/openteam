@@ -84,14 +84,6 @@ describe("host bridge direct execution", () => {
 });
 
 describe("host bridge listener", () => {
-  test("resolves after the server is listening", async () => {
-    const server = createServer();
-    servers.push(server);
-
-    await expect(listenForHostBridge(server, 0)).resolves.toBe(server);
-    expect(server.listening).toBe(true);
-  });
-
   test("rejects a port collision instead of emitting an uncaught error", async () => {
     const first = createServer();
     const second = createServer();

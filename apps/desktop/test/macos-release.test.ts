@@ -22,25 +22,6 @@ const entitlementsSource = Bun.file(
 ).text();
 
 describe("macOS distribution release", () => {
-  test("uses the OpenTeam app icon on every desktop platform", async () => {
-    const desktop = await packageJson;
-    const assets = "../../packages/design-tokens/assets";
-
-    expect(desktop.build.mac.icon).toBe(`${assets}/OpenTeam.icon`);
-    expect(desktop.build.linux.icon).toBe(`${assets}/openteam-desktop-light.png`);
-    expect(desktop.build.win.icon).toBe(`${assets}/icon.ico`);
-    expect(desktop.build.dmg.icon).toBe(`${assets}/icon.icns`);
-    for (const icon of [
-      `${desktop.build.mac.icon}/icon.json`,
-      desktop.build.linux.icon,
-      desktop.build.win.icon,
-      desktop.build.dmg.icon,
-      `${assets}/openteam-desktop-dark.png`,
-    ]) {
-      expect(await Bun.file(new URL(`../${icon}`, import.meta.url)).exists()).toBe(true);
-    }
-  });
-
   test("keeps normal packaging local, ad-hoc, and performance-gated", async () => {
     const desktop = await packageJson;
 

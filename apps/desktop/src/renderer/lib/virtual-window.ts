@@ -81,12 +81,6 @@ export function isVirtualScopeVisible({
   );
 }
 
-export const preservePrependScrollOffset = (
-  previousScrollTop: number,
-  previousScrollHeight: number,
-  nextScrollHeight: number
-) => Math.max(0, previousScrollTop + Math.max(0, nextScrollHeight - previousScrollHeight));
-
 export const computeVirtualLayout = (
   count: number,
   sizeAt: (index: number) => number

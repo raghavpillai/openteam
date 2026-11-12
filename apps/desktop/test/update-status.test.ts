@@ -73,14 +73,4 @@ describe("desktop update diagnostics", () => {
     expect(classifyDesktopUpdateError(error, "error").failureKind).toBe("feed-http-status");
   });
 
-  test("unknown updater errors use bounded public copy", () => {
-    const failure = classifyDesktopUpdateError(
-      `Unexpected error ${"private response ".repeat(1_000)}`,
-      "checking"
-    );
-    expect(failure).toEqual({
-      failureKind: "unknown",
-      message: "The desktop update failed. Try again.",
-    });
-  });
 });

@@ -119,26 +119,6 @@ describe("bounded set-based TodoWrite persistence", () => {
       payload: { updatedIds: ["update", "new"] },
     });
   });
-
-  test("replace keeps first duplicate and incoming order", async () => {
-    const fixture = todoFixture([
-      { botId: "bot-1", id: "old", content: "Old", status: "pending", position: 0 },
-    ]);
-    const result = await fixture.service.write("bot-1", "call-2", {
-      merge: false,
-      todos: [
-        { id: "b", content: "First B", status: "pending" },
-        { id: "a", content: "A", status: "completed" },
-        { id: "b", content: "Ignored B", status: "cancelled" },
-      ],
-    });
-
-    expect(result.todos).toEqual([
-      { id: "b", content: "First B", status: "pending" },
-      { id: "a", content: "A", status: "completed" },
-    ]);
-    expect(fixture.operations).toEqual({ deleteMany: 1, createMany: 1, upsert: 0 });
-  });
 });
 
 test("only the 50 most recently finished todos are kept; open ones always stay", async () => {

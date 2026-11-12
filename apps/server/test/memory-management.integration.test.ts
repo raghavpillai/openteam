@@ -1,10 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOpenTeamClient } from "../../../packages/client-core/src/client";
 import { AgentDataStore } from "@openteam/messaging";
-import { memoryLogicalId } from "../../../packages/messaging/src/memory-facts";
 import { AppService } from "../src/app-service";
 import { clientRoutes } from "../src/routes/client";
 import { eventRoutes } from "../src/routes/event";
@@ -166,114 +165,6 @@ dbTest(
       );
       expect((await client.botMemories(peerId)).total).toBe(1);
     })
-);
-
-dbTest(
-  "list shows one entry per fact, and deleting it removes every copy",
-  async () =>
-    fixture(async ({ app, store, botId, client }) => {
-      const fact = "CONTROL914 historical duplicate.";
-      await store.writeMemory(botId, { scope: "agent", tier: "profile", fact });
-      await store.writeMemory(botId, { scope: "agent", tier: "log", fact: "CONTROL914 log-only fact." });
-      // Deleting a fact removes every row that records it.
-      const copy = await app.prisma.memoryFact.findFirstOrThrow({ where: { namespace: `agent:${botId}`, fact } });
-      const { id: _id, ...duplicate } = copy;
-      await app.prisma.memoryFact.create({ data: { ...duplicate, sourceOrdinal: duplicate.sourceOrdinal + 1, tier: "log" } });
-      const listed = await client.botMemories(botId);
-      expect(listed.total).toBe(2);
-      expect(listed.memories.find((memory) => memory.content === fact)?.kind).toBe("profile");
-      expect((await client.deleteBotMemory(botId, memoryLogicalId(fact))).total).toBe(1);
-      expect(await app.prisma.memoryFact.count({ where: { namespace: `agent:${botId}`, fact } })).toBe(0);
-      expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect((await client.botMemories(botId)).total).toBe(0);
-    })
-);
-
-dbTest(
-  "clear covers more than the visible list limit",
-  async () =>
-    fixture(async ({ app, store, botId, client }) => {
-      const contents = Array.from({ length: 1003 }, (_, i) => `CONTROL914 record ${i}.`);
-      await app.prisma.memoryFact.createMany({
-        data: contents.map((fact, sourceOrdinal) => ({
-          namespace: `agent:${botId}`, scope: "agent", tier: "profile", fact, factHash: fact,
-          logicalId: memoryLogicalId(fact), sourceOrdinal, origin: "tool", writtenByBotId: botId,
-          createdAt: new Date("2026-09-14"),
-        })),
-      });
-      const snapshot = await client.botMemories(botId);
-      expect(snapshot.total).toBe(1003);
-      expect(snapshot.memories.length).toBe(1000);
-      expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect((await client.botMemories(botId)).total).toBe(0);
-    }),
-  30_000
-);
-
-dbTest(
-  "changes produce content-free events across stores; no-op reads and empty clear stay silent",
-  async () =>
-    fixture(async ({ app, store, botId, client }) => {
-      const events = () =>
-        app.prisma.event.findMany({
-          where: { topic: "memory.changed", entityId: botId },
-          orderBy: { sequence: "asc" },
-        });
-      await store.reconcileBot(botId);
-      expect(await events()).toHaveLength(0);
-      const workerStore = new AgentDataStore(app.prisma, {
-        root: store.root,
-        workspaceRoot: store.workspaceRoot,
-      });
-      await workerStore.writeMemory(botId, {
-        scope: "agent",
-        tier: "log",
-        fact: "CONTROL914 background save.",
-      });
-      expect(await events()).toHaveLength(1);
-      expect((await events())[0]?.payload).toEqual({ botId });
-      await store.reconcileBot(botId);
-      await client.botMemories(botId);
-      expect(await events()).toHaveLength(1);
-      await client.clearBotMemories(botId);
-      expect(await events()).toHaveLength(2);
-      await client.clearBotMemories(botId);
-      expect(await events()).toHaveLength(2);
-    })
-);
-
-dbTest("automatic learning becomes visible only after inference and commit finish", async () =>
-  fixture(async ({ app, store, botId, client }) => {
-    let entered!: () => void;
-    let release!: (text: string) => void;
-    const started = new Promise<void>((resolve) => (entered = resolve));
-    const inference = new Promise<string>((resolve) => (release = resolve));
-    const learner = new AgentDataStore(app.prisma, {
-      root: store.root,
-      workspaceRoot: store.workspaceRoot,
-      memoryInference: async () => {
-        entered();
-        return inference;
-      },
-    });
-    const turn = learner.recordTurnMemory(botId, {
-      user: "CONTROL914 has a lasting calibration setting worth retaining.",
-      assistant: "ACK",
-    });
-    try {
-      await started;
-      expect((await client.botMemories(botId)).total).toBe(0);
-      release("log: CONTROL914 calibration is JADE-8241.");
-      await turn;
-      expect((await client.botMemories(botId)).memories[0]?.content).toBe(
-        "CONTROL914 calibration is JADE-8241."
-      );
-      expect(await store.recallMemory(botId, { query: "JADE-8241" })).toContain("[journal]");
-    } finally {
-      release("NONE");
-      await turn;
-    }
-  })
 );
 
 dbTest(

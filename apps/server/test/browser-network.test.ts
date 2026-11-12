@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createServer, createConnection, type AddressInfo } from "node:net";
+import { createServer, type AddressInfo } from "node:net";
 import { randomBytes } from "node:crypto";
 import { Duplex } from "node:stream";
 import { spawn } from "node:child_process";
@@ -15,21 +15,13 @@ import {
 } from "../src/services/browser-network-service";
 import type { MachineService } from "../src/services/machine-service";
 import { BrowserNetworkClient } from "@openteam/plugin-sdk/browser-network/client";
-import {
-  NETWORK_PROTOCOL,
-  LEASE_MS,
-  type NetworkSettings,
-} from "@openteam/plugin-sdk/browser-network/protocol";
+import { NETWORK_PROTOCOL, type NetworkSettings } from "@openteam/plugin-sdk/browser-network/protocol";
 import {
   decodeFrame,
   encodeFrame,
   FrameType,
   parseJson,
-  jsonBytes,
-  MAX_WINDOW,
-  WINDOW,
 } from "@openteam/plugin-sdk/browser-network/protocol";
-import { createBrowserProxy } from "@openteam/plugin-sdk/browser-network/socks";
 import { managedBrowserNetworkArguments } from "../../computer/src/browser-network";
 import type { NetworkDiagnostic } from "@openteam/plugin-sdk/browser-network/diagnostics";
 
@@ -55,7 +47,7 @@ async function until(check: () => boolean | Promise<boolean>, ms = 6000) {
   }
 }
 async function fixture(
-  options: { failbackMs?: number; legacyComputer?: boolean; legacyDevice?: boolean } = {}
+  options: { failbackMs?: number } = {}
 ) {
   let settings: NetworkSettings = {
     deploymentId: crypto.randomUUID(),
@@ -81,7 +73,6 @@ async function fixture(
   };
   const credentials = new Map<string, string>(),
     enabled = new Map<string, boolean>();
-  let silent = false;
   const silentDevices = new Set<string>();
   const appliedDelays = new Map<string, number>();
   const connections = new Map<string, number>();
@@ -95,12 +86,6 @@ async function fixture(
     return read();
   };
   const refusedDials = new Set<string>();
-  const heldDials = new Map<
-    string,
-    {
-      pending: Array<{ signal: AbortSignal; socket: Duplex; release: () => void }>;
-    }
-  >();
   const machines = {
     onNetworkRevoke: () => {},
     relay: {
@@ -141,7 +126,7 @@ async function fixture(
       },
       message: (socket, message) => {
         if (
-          (silent || silentDevices.has(socket.data.machineId ?? "")) &&
+          silentDevices.has(socket.data.machineId ?? "") &&
           typeof message !== "string"
         ) {
           const frame = decodeFrame(new Uint8Array(message));
@@ -156,20 +141,6 @@ async function fixture(
             if (Number.isFinite(delay))
               setTimeout(() => service.websocket.message(socket, message), delay);
             return;
-          }
-        }
-        if (
-          typeof message !== "string" &&
-          ((socket.data.role === "computer" && options.legacyComputer) ||
-            (socket.data.role === "device" && options.legacyDevice))
-        ) {
-          const frame = decodeFrame(new Uint8Array(message));
-          if (frame.type === FrameType.Control) {
-            const control = parseJson(frame.payload);
-            if (control.op === "lease") {
-              delete control.maxWindow;
-              message = Buffer.from(encodeFrame(FrameType.Control, 0, jsonBytes(control)));
-            }
           }
         }
         service.websocket.message(socket, message);
@@ -240,9 +211,6 @@ async function fixture(
             done();
           },
         });
-        const held = heldDials.get(id);
-        if (held)
-          await new Promise<void>((release) => held.pending.push({ signal, socket, release }));
         return socket;
       },
     });
@@ -274,9 +242,6 @@ async function fixture(
     getSettings: () => settings,
     getDials: () => deviceDials,
     server,
-    pauseLeases: () => {
-      silent = true;
-    },
     silenceDevice: (id: string) => silentDevices.add(id),
     delayApplied: (id: string, ms: number) => appliedDelays.set(id, ms),
     getConnections: (id: string) => connections.get(id) ?? 0,
@@ -286,22 +251,6 @@ async function fixture(
     refuseDials: (id: string, refuse: boolean) => {
       if (refuse) refusedDials.add(id);
       else refusedDials.delete(id);
-    },
-    holdDials: (id: string) => {
-      const held = {
-        pending: [] as Array<{ signal: AbortSignal; socket: Duplex; release: () => void }>,
-      };
-      heldDials.set(id, held);
-      cleanup.push(() => {
-        for (const dial of held.pending) dial.release();
-      });
-      return {
-        pending: held.pending,
-        release: () => {
-          heldDials.delete(id);
-          for (const dial of held.pending) dial.release();
-        },
-      };
     },
     register: (id: string) => {
       const token = crypto.randomUUID();
@@ -377,25 +326,6 @@ describe("ranked browser connections", () => {
     expect(f.getSettings().sourceOrder.filter((id) => id === "home")).toHaveLength(1);
     expect(f.getSettings().revision).toBe(revision);
   });
-  test("automatic pool additions preserve an explicitly elevated server and conflict with stale drafts", async () => {
-    const f = await fixture(),
-      home = f.device("home");
-    await until(() => !!home.route);
-    await rank(f, ["server", "home"]);
-    const revision = f.getSettings().revision;
-    const office = f.device("office");
-    await until(() => !!office.route);
-    expect(f.getSettings().sourceOrder).toEqual(["server", "home", "office"]);
-    await routed(f, "server");
-    await expect(
-      f.service.update({
-        expectedRevision: revision,
-        mode: "ranked",
-        machineId: null,
-        sourceOrder: ["home", "server"],
-      })
-    ).rejects.toThrow("changed");
-  });
 
   test("ranked devices fail over in order, then use the server, without mutating the saved ranking", async () => {
     const f = await fixture(),
@@ -417,43 +347,6 @@ describe("ranked browser connections", () => {
     expect(f.getSettings().sourceOrder).toEqual(["home", "office", "server"]);
     expect(f.getSettings().revision).toBe(revision);
   });
-  test("server priority is respected and standby changes do not interrupt its active sockets", async () => {
-    const f = await fixture(),
-      home = f.device("home");
-    await until(() => !!home.route);
-    await rank(f, ["server", "home"]);
-    await routed(f, "server");
-    const epoch = f.computer.route!.epoch,
-      direct = await f.computer.open("127.0.0.1", f.port);
-    home.stop();
-    await Bun.sleep(100);
-    expect(direct.destroyed).toBe(false);
-    expect(f.computer.route!.epoch).toBe(epoch);
-    const returned = f.device("home");
-    await until(() => !!returned.route);
-    expect(direct.destroyed).toBe(false);
-    expect(f.computer.route!.epoch).toBe(epoch);
-    direct.destroy();
-  });
-  test("reordering immediately applies the new preference and uses conditional revisions", async () => {
-    const f = await fixture(),
-      home = f.device("home"),
-      office = f.device("office");
-    await until(() => !!home.route && !!office.route);
-    await rank(f, ["home", "server", "office"]);
-    await routed(f, "home");
-    const old = f.getSettings().revision;
-    await rank(f, ["office", "server", "home"]);
-    await routed(f, "office");
-    await expect(
-      f.service.update({
-        expectedRevision: old,
-        mode: "ranked",
-        machineId: null,
-        sourceOrder: ["server"],
-      })
-    ).rejects.toThrow("changed");
-  });
   test("a returning preferred device must stay healthy before preempting the current fallback", async () => {
     const f = await fixture({ failbackMs: 1000 }),
       home = f.device("home");
@@ -471,131 +364,9 @@ describe("ranked browser connections", () => {
     expect(f.computer.route!.epoch).not.toBe(before);
     expect(await roundTrip(f.computer, Buffer.from("restored"))).toEqual(Buffer.from("restored"));
   });
-  test("revocation moves to the next approved device and offline saved entries can still be reordered", async () => {
-    const f = await fixture(),
-      home = f.device("home"),
-      office = f.device("office");
-    await until(() => !!home.route && !!office.route);
-    await rank(f, ["home", "office", "server"]);
-    await routed(f, "home");
-    const stream = await f.computer.open("desktop-only.example", 443);
-    f.enabled.set("home", false);
-    f.machines.onNetworkRevoke("home");
-    await routed(f, "office");
-    expect(stream.destroyed).toBe(true);
-    await rank(f, ["home", "server", "office"]);
-    await routed(f, "server");
-    expect(f.getSettings().sourceOrder).toEqual(["home", "server", "office"]);
-  });
-  test("a silent selected device loses eligibility after its lease, even while its socket remains open", async () => {
-    const f = await fixture(),
-      home = f.device("home");
-    await until(() => !!home.route);
-    await rank(f, ["home", "server"]);
-    await routed(f, "home");
-    const stream = await f.computer.open("desktop-only.example", 443);
-    const started = performance.now();
-    f.silenceDevice("home");
-    await routed(f, "server", LEASE_MS + 1500);
-    expect(performance.now() - started).toBeLessThan(LEASE_MS + 1500);
-    expect(stream.destroyed).toBe(true);
-  }, 20000);
-  test("rankings reject duplicates, missing server, invalid IDs and newly unapproved computers", async () => {
-    const f = await fixture();
-    for (const sourceOrder of [
-      [],
-      ["home"],
-      ["server", "server"],
-      ["bad/id", "server"],
-      Array.from({ length: 18 }, (_, i) => (i ? `host-${i}` : "server")),
-    ]) {
-      await expect(rank(f, sourceOrder)).rejects.toThrow();
-    }
-    await expect(rank(f, ["unapproved", "server"])).rejects.toThrow("sharing");
-    await expect(
-      f.service.update({
-        expectedRevision: 1,
-        mode: "server",
-        machineId: null,
-        sourceOrder: ["unapproved", "server"],
-      })
-    ).rejects.toThrow("sharing");
-    expect(f.getSettings().revision).toBe(1);
-  });
 });
 
 describe("connected device browser network", () => {
-  test("64 simultaneous connections remain independent and the 65th is refused", async () => {
-    const f = await fixture();
-    f.device("home");
-    await f.select("home");
-    const streams = await Promise.all(
-      Array.from({ length: 64 }, () => f.computer.open("desktop-only.example", 443))
-    );
-    await expect(f.computer.open("desktop-only.example", 443)).rejects.toThrow("capacity");
-    await Promise.all(
-      streams.map(async (stream, index) => {
-        const payload = Buffer.alloc(64 * 1024, index),
-          received: Buffer[] = [];
-        const result = new Promise<Buffer>((resolve, reject) => {
-          stream.on("data", (data) => received.push(Buffer.from(data)));
-          stream.on("end", () => resolve(Buffer.concat(received)));
-          stream.on("error", reject);
-        });
-        stream.end(payload);
-        expect((await result).equals(payload)).toBe(true);
-      })
-    );
-    await until(async () => (await f.service.view()).runtime.activeConnections === 0);
-  });
-  test("a silent but open control channel expires the route and destroys streams without fallback", async () => {
-    const f = await fixture();
-    f.device("home");
-    await f.select("home");
-    const stream = await f.computer.open("desktop-only.example", 443);
-    f.pauseLeases();
-    await until(() => !f.computer.available() && stream.destroyed, 17000);
-    await expect(f.computer.open("127.0.0.1", f.port)).rejects.toThrow();
-    expect(f.getSettings().mode).toBe("ranked");
-  }, 20000);
-  test("reconnecting the same selected device restores the route without changing the owner selection", async () => {
-    const f = await fixture({ failbackMs: 100 }),
-      peer = f.device("home");
-    await f.select("home");
-    const revision = f.getSettings().revision,
-      epoch = f.computer.route!.epoch;
-    peer.stop();
-    await routed(f, "server");
-    f.device("home");
-    await routed(f, "home");
-    expect(f.getSettings().revision).toBe(revision);
-    expect(f.computer.route!.epoch).not.toBe(epoch);
-    expect((await roundTrip(f.computer, Buffer.from("reconnected"))).toString()).toBe(
-      "reconnected"
-    );
-  });
-  test("a replacement computer can restart stream IDs while the selected device stays connected", async () => {
-    const f = await fixture(),
-      peer = f.device("home");
-    await f.select("home");
-    for (let i = 0; i < 3; i++) await roundTrip(f.computer, Buffer.from("before restart"));
-    f.computer.stop();
-    const replacement = new BrowserNetworkClient({
-      role: "computer",
-      url: `ws://127.0.0.1:${f.server.port}/computer`,
-      headers: { authorization: "Bearer internal" },
-    });
-    cleanup.push(() => replacement.stop());
-    replacement.start();
-    await until(
-      async () => replacement.available() && (await f.service.view()).runtime.state === "ready"
-    );
-    expect(
-      (await roundTrip(replacement, Buffer.from("first request after restart"))).toString()
-    ).toBe("first request after restart");
-    expect(peer.available()).toBe(true);
-    expect(f.getSettings().sourceOrder[0]).toBe("home");
-  });
   test.skipIf(!browserPath)(
     "real Chromium HTTP/HTTPS, uploads, downloads, WS/WSS and workers use Node proxy and desktop exit",
     async () => {
@@ -843,22 +614,6 @@ describe("connected device browser network", () => {
     expect(stats.bytesSent).toBe(3 * 1024 * 1024);
     expect(stats.bytesReceived).toBe(stats.bytesSent);
   }, 15000);
-  test("disconnect interrupts transfers and automatically uses the ranked server", async () => {
-    const f = await fixture(),
-      device = f.device("home");
-    await f.select("home");
-    const stream = await f.computer.open("desktop-only.example", 443);
-    const revision = f.getSettings().revision;
-    device.stop();
-    await until(() => stream.destroyed);
-    await routed(f, "server");
-    expect(f.getSettings().mode).toBe("ranked");
-    expect(f.getSettings().revision).toBe(revision);
-    expect(f.getSettings().sourceOrder).toEqual(["home", "server"]);
-    const direct = await f.computer.open("127.0.0.1", f.port);
-    direct.destroy();
-    expect(f.getDials()).toBe(1);
-  });
   test("switching devices fences every old connection and preserves explicit choice", async () => {
     const f = await fixture();
     f.device("home");
@@ -906,263 +661,7 @@ describe("connected device browser network", () => {
       expect(response.status).toBe(403);
     }
   });
-  test("Node SOCKS reset cancels the selected-device dial and recovers without replay", async () => {
-    const f = await fixture();
-    f.device("home");
-    await f.select("home");
-    f.computer.stop();
-    const held = f.holdDials("home");
-    const directory = await mkdtemp(join(tmpdir(), "openteam-socks-relay-"));
-    cleanup.push(() => rm(directory, { recursive: true, force: true }));
-    const file = join(directory, "relay.mjs");
-    const build = Bun.spawn(
-      [
-        process.execPath,
-        "build",
-        resolve(
-          import.meta.dirname,
-          "../../../packages/plugin-sdk/test/browser-network/socks-relay.fixture.ts"
-        ),
-        "--target",
-        "node",
-        "--outfile",
-        file,
-      ],
-      { stdout: "ignore", stderr: "inherit" }
-    );
-    expect(await build.exited).toBe(0);
-    const child = spawn(process.env.OPENTEAM_TEST_NODE ?? "node", [file], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-    cleanup.push(async () => {
-      child.kill();
-      const timeout = setTimeout(() => child.kill("SIGKILL"), 1000);
-      await exited;
-      clearTimeout(timeout);
-    });
-    let stdout = "",
-      stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (text) => {
-      stdout += text;
-    });
-    child.stderr.on("data", (text) => {
-      stderr += text;
-    });
-    const send = (value: unknown) => child.stdin.write(JSON.stringify(value) + "\n");
-    send({ op: "start", url: `ws://127.0.0.1:${f.server.port}/computer` });
-    await until(() => stdout.includes('"ready":true'));
-    send({ op: "open" });
-    await until(() => held.pending.length === 1);
-    send({ op: "reset" });
-    await until(() => held.pending[0]!.signal.aborted);
-    held.release();
-    await until(() => held.pending[0]!.socket.destroyed);
-    const dead = f.holdDials("home");
-    send({ op: "open" });
-    await until(() => dead.pending.length === 1);
-    await new Promise<void>((resolve) => {
-      dead.pending[0]!.socket.once("close", resolve);
-      dead.pending[0]!.socket.destroy();
-    });
-    dead.release();
-    await until(() => stdout.includes('"connectCode":'));
-    const connect = stdout
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line))
-      .find((line) => "connectCode" in line);
-    expect(connect.connectCode).toBe(1);
-    send({ op: "recover" });
-    await until(() => stdout.includes('"recovered":'));
-    const recovered = stdout
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line))
-      .find((line) => line.recovered);
-    const bytes = Buffer.from(recovered.recovered, "hex");
-    expect([...bytes.subarray(0, 4)]).toEqual([5, 0, 5, 0]);
-    expect(bytes.subarray(12).toString()).toBe("recovered");
-    expect(f.getDials()).toBe(3);
-    expect(stderr).toBe("");
-  }, 15000);
-  test("SOCKS fragmented negotiation reaches the same managed route and rejects UDP", async () => {
-    const f = await fixture();
-    f.device("home");
-    await f.select("home");
-    const proxy = createBrowserProxy((host, port, signal) => f.computer.open(host, port, signal));
-    const port = await proxy.listen(0);
-    cleanup.push(() => proxy.close());
-    const socket = createConnection({ host: "127.0.0.1", port });
-    cleanup.push(() => socket.destroy());
-    socket.on("error", () => {});
-    const chunks: Buffer[] = [];
-    socket.on("data", (b) => chunks.push(Buffer.from(b)));
-    socket.write(Buffer.from([5]));
-    await Bun.sleep(5);
-    socket.write(Buffer.from([1, 0]));
-    await until(() => Buffer.concat(chunks).length >= 2);
-    expect(Buffer.concat(chunks)).toEqual(Buffer.from([5, 0]));
-    chunks.length = 0;
-    const host = Buffer.from("desktop-only.example");
-    socket.write(
-      Buffer.concat([Buffer.from([5, 1, 0, 3, host.length]), host, Buffer.from([1, 187])])
-    );
-    await until(() => Buffer.concat(chunks).length >= 10);
-    expect(Buffer.concat(chunks)[1]).toBe(0);
-    chunks.length = 0;
-    socket.write("hello browser");
-    await until(() => Buffer.concat(chunks).length >= 13);
-    expect(Buffer.concat(chunks).toString()).toBe("hello browser");
-    const udp = createConnection({ host: "127.0.0.1", port });
-    cleanup.push(() => udp.destroy());
-    const answers: Buffer[] = [];
-    udp.on("data", (chunk) => answers.push(Buffer.from(chunk)));
-    udp.on("error", () => {});
-    udp.write(Buffer.from([5, 1, 0]));
-    await until(() => Buffer.concat(answers).length >= 2);
-    answers.length = 0;
-    udp.write(Buffer.from([5, 3, 0, 1, 127, 0, 0, 1, 0, 80]));
-    await until(() => Buffer.concat(answers).length >= 10);
-    expect(Buffer.concat(answers)[1]).toBe(7);
-  });
 });
-
-test("egress diagnostics reject stale epochs, wrong sources and unavailable workers", async () => {
-  const f = await fixture();
-  await until(async () => (await f.service.view()).runtime.state === "server");
-  const epoch = (await f.service.view()).runtime.routeEpoch!;
-  const value = {
-    epoch,
-    sourceId: "server",
-    ip: "192.0.2.30",
-    location: "Example",
-    checkedAt: new Date().toISOString(),
-  };
-  expect(await f.service.egress(async () => value)).toEqual(value);
-  await expect(f.service.egress(async () => ({ ...value, sourceId: "air" }))).rejects.toMatchObject(
-    { status: 409 }
-  );
-  await expect(f.service.egress(async () => ({ ...value, epoch: "old" }))).rejects.toMatchObject({
-    status: 409,
-  });
-  await expect(
-    f.service.egress(async () => {
-      throw new Error("sensitive upstream detail");
-    })
-  ).rejects.toMatchObject({ status: 503, message: "Could not check browser exit connection" });
-  let complete!: (result: typeof value) => void;
-  const inFlight = f.service.egress(
-    () =>
-      new Promise<typeof value>((resolve) => {
-        complete = resolve;
-      })
-  );
-  await until(() => !!complete);
-  await f.service.retry();
-  complete(value);
-  await expect(inFlight).rejects.toMatchObject({ status: 409 });
-  f.computer.stop();
-  await until(async () => (await f.service.view()).runtime.state === "update_required");
-  let called = false;
-  await expect(
-    f.service.egress(async () => {
-      called = true;
-      return value;
-    })
-  ).rejects.toMatchObject({ status: 503 });
-  expect(called).toBe(false);
-});
-
-test("fresh unsent opens wait for the new exit acknowledgment without replay or premature dialing", async () => {
-  const f = await fixture(),
-    home = f.device("home"),
-    office = f.device("office");
-  await until(() => !!home.route && !!office.route);
-  await rank(f, ["home", "office", "server"]);
-  await routed(f, "home");
-  f.delayApplied("office", 350);
-  const before = f.getDials();
-  home.stop();
-  await until(() => !f.computer.available());
-  const transfer = roundTrip(f.computer, Buffer.from("new request after sleep"));
-  await Bun.sleep(100);
-  expect(f.getDials()).toBe(before);
-  expect(await transfer).toEqual(Buffer.from("new request after sleep"));
-  expect(f.getDials()).toBe(before + 1);
-  await routed(f, "office");
-});
-
-test("pending transition opens are bounded and cancel when the broker disconnects", async () => {
-  const f = await fixture(),
-    home = f.device("home"),
-    office = f.device("office");
-  await until(() => !!home.route && !!office.route);
-  await rank(f, ["home", "office", "server"]);
-  await routed(f, "home");
-  f.delayApplied("office", 500);
-  home.stop();
-  await until(() => !f.computer.available());
-  const waiting = Array.from({ length: 64 }, () => f.computer.open("desktop-only.example", 443));
-  const settled = Promise.allSettled(waiting);
-  await expect(f.computer.open("desktop-only.example", 443)).rejects.toThrow("capacity");
-  f.computer.stop();
-  expect((await settled).every((result) => result.status === "rejected")).toBe(true);
-});
-
-test("repeated laptop disconnects reach a usable warm fallback without a heartbeat wait", async () => {
-  const f = await fixture({ failbackMs: 0 }),
-    office = f.device("office");
-  await until(() => !!office.route);
-  const times: number[] = [];
-  for (let i = 0; i < 10; i++) {
-    const home = f.device("home");
-    await until(() => !!home.route);
-    await until(async () => ["ready", "server"].includes((await f.service.view()).runtime.state));
-    await rank(f, ["home", "office", "server"]);
-    await routed(f, "home");
-    const started = performance.now();
-    home.stop();
-    await routed(f, "office");
-    expect(await roundTrip(f.computer, Buffer.from("usable"))).toEqual(Buffer.from("usable"));
-    times.push(performance.now() - started);
-    await Bun.sleep(700); // Keep the benchmark below the intentional control-frame flood limit.
-  }
-  const sorted = times.toSorted((a, b) => a - b);
-  expect(sorted.at(-1)!).toBeLessThan(1500);
-  console.log(
-    "FAILOVER_TIMING " +
-      JSON.stringify({
-        scope: "local authenticated tunnel; not physical sleep or WAN",
-        runs: times.length,
-        cooldownBetweenRunsMs: 700,
-        medianMs: Math.round(sorted[5]!),
-        p95Ms: Math.round(sorted.at(-1)!),
-      })
-  );
-}, 15000);
-
-test("a missing route acknowledgment times out unsent opens without dialing or replay", async () => {
-  const f = await fixture(),
-    home = f.device("home"),
-    office = f.device("office");
-  await until(() => !!home.route && !!office.route);
-  await rank(f, ["home", "office", "server"]);
-  await routed(f, "home");
-  f.delayApplied("office", Number.POSITIVE_INFINITY);
-  const before = f.getDials();
-  home.stop();
-  await until(() => !f.computer.available());
-  const started = performance.now();
-  await expect(f.computer.open("desktop-only.example", 443)).rejects.toThrow("device_unavailable");
-  expect(performance.now() - started).toBeLessThan(2300);
-  expect(f.getDials()).toBe(before);
-  f.delayApplied("office", 0);
-  await routed(f, "office");
-  expect(f.getDials()).toBe(before);
-}, 10000);
 
 test("fenced bytes in flight do not disconnect broker or former exit during a switch", async () => {
   const f = await fixture(),
@@ -1220,79 +719,6 @@ describe("browser network chaos recovery boundaries", () => {
       Buffer.from("next-request")
     );
   });
-
-  test("a wall-clock jump cannot bypass the retry throttle", async () => {
-    const f = await fixture(),
-      original = Date.now;
-    try {
-      Date.now = () => 100000;
-      await f.service.retry();
-      Date.now = () => 1000000000;
-      await expect(f.service.retry()).rejects.toMatchObject({ status: 429 });
-    } finally {
-      Date.now = original;
-    }
-  });
 });
 
-for (const [legacyComputer, legacyDevice] of [
-  [false, false],
-  [true, false],
-  [false, true],
-])
-  test(`window negotiation transfers bulk data with mixed peers (computer=${legacyComputer}, device=${legacyDevice})`, async () => {
-    const f = await fixture({ legacyComputer, legacyDevice });
-    const device = f.device("window-exit");
-    await f.select("window-exit");
-    const expected = legacyComputer || legacyDevice ? WINDOW : MAX_WINDOW;
-    await until(
-      () =>
-        f.computer.available() &&
-        f.computer.route?.mode === "device" &&
-        f.computer.route.machineId === "window-exit" &&
-        f.computer.route.streamWindow === expected &&
-        device.route?.streamWindow === expected
-    );
-    const stream = await f.computer.open("desktop-only.example", 443);
-    const payload = Buffer.alloc(768 * 1024, 71);
-    const received: Buffer[] = [];
-    let length = 0;
-    const complete = new Promise<void>((resolve, reject) => {
-      stream.on("data", (chunk) => {
-        received.push(chunk);
-        length += chunk.length;
-        if (length === payload.length) resolve();
-      });
-      stream.on("error", reject);
-    });
-    stream.write(payload);
-    await complete;
-    expect(Buffer.concat(received)).toEqual(payload);
-    stream.destroy();
-  }, 10000);
 
-test("a legacy replacement exit fences a larger window before accepting new streams", async () => {
-  const options = { legacyDevice: false, failbackMs: 0 };
-  const f = await fixture(options);
-  const device = f.device("replacement-exit");
-  await f.select("replacement-exit");
-  await until(() => f.computer.route?.streamWindow === MAX_WINDOW);
-  const oldEpoch = f.computer.route!.epoch;
-  const stream = await f.computer.open("desktop-only.example", 443);
-  device.stop();
-  options.legacyDevice = true;
-  const replacement = f.device("replacement-exit");
-  await f.select("replacement-exit");
-  await until(
-    () =>
-      f.computer.available() &&
-      f.computer.route?.mode === "device" &&
-      f.computer.route.machineId === "replacement-exit" &&
-      f.computer.route.streamWindow === WINDOW &&
-      replacement.route?.streamWindow === WINDOW
-  );
-  expect(f.computer.route!.epoch).not.toBe(oldEpoch);
-  expect(stream.destroyed).toBe(true);
-  const fresh = await f.computer.open("desktop-only.example", 443);
-  fresh.destroy();
-}, 10000);

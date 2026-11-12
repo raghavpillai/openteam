@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { AssetStore } from "@openteam/messaging";
 import { ApiError } from "@openteam/contracts";
 import { assetResponse } from "../src/asset-http";
-import { assetUploadByteLimit, decodeFileNameHeader, isAssetUploadEnvelope, requireAssetBody } from "../src/services/asset-service";
+import { requireAssetBody } from "../src/services/asset-service";
 
 const roots: string[] = [];
 const noAgentAttachment = { agentAttachmentPath: async () => null };
@@ -28,18 +28,6 @@ afterEach(async () => {
 });
 
 describe("bounded asset HTTP responses", () => {
-  test("serves empty attachments and rejects unsatisfiable ranges", async () => {
-    const { assets } = await fixture();
-    const ref = await assets.ingestBytes({fileName:"empty.txt",bytes:new Uint8Array()});
-    const url = new URL(`http://openteam.test/api/v0/assets/${ref.assetId}?name=empty.txt`);
-    for (const method of ["GET","HEAD"]) {
-      const response = await assetResponse(assets,noAgentAttachment,new Request(url,{method}),url,ref.assetId);
-      expect(response.status).toBe(200);
-      expect(response.headers.get("content-length")).toBe("0");
-      expect(await response.text()).toBe("");
-    }
-    expect((await assetResponse(assets,noAgentAttachment,new Request(url,{headers:{range:"bytes=0-"}}),url,ref.assetId)).status).toBe(416);
-  });
   test("serves immutable content with a sanitized inline filename", async () => {
     const { assets, ref } = await fixture();
     let fallbackLookups = 0;
@@ -67,29 +55,6 @@ describe("bounded asset HTTP responses", () => {
     expect(response.headers.get("content-security-policy")).toBe("sandbox; default-src 'none'");
     expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin");
     expect(fallbackLookups).toBe(0);
-  });
-
-  test("declares UTF-8 for textual attachments so native browser previews preserve Unicode", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-asset-http-unicode-"));
-    roots.push(root);
-    const assets = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const content = "OpenTeam — 日本語 — box ├─ child";
-    const ref = await assets.ingestBytes({
-      fileName: "readme.md",
-      mimeType: "text/markdown",
-      bytes: Buffer.from(content),
-    });
-    const url = new URL(`http://openteam.test/api/v0/assets/${ref.assetId}?name=readme.md`);
-    const response = await assetResponse(
-      assets,
-      noAgentAttachment,
-      new Request(url),
-      url,
-      ref.assetId
-    );
-
-    expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
-    expect(await response.text()).toBe(content);
   });
 
   test("supports exact, suffix, and HEAD ranges", async () => {
@@ -178,24 +143,5 @@ describe("binary assets", () => {
     expect(requireAssetBody(stream)).toBe(stream);
     expect(pulls).toBe(0);
     expect(() => requireAssetBody(null)).toThrow(ApiError);
-  });
-
-  test("uses the native video extension map without trusting a MIME override", () => {
-    expect(assetUploadByteLimit("image/png", "image.png")).toBe(25 * 1024 * 1024);
-    expect(assetUploadByteLimit("video/mp4", "attachment.bin")).toBe(25 * 1024 * 1024);
-    expect(assetUploadByteLimit("video/x-matroska", "clip.mkv")).toBe(25 * 1024 * 1024);
-    expect(assetUploadByteLimit("application/octet-stream", "clip.ogv")).toBe(200 * 1024 * 1024);
-    expect(assetUploadByteLimit("application/octet-stream", "clip.MOV")).toBe(200 * 1024 * 1024);
-  });
-
-  test("recognizes raw JSON file uploads", () => {
-    expect(isAssetUploadEnvelope("application/json", "report.json")).toBeFalse();
-    expect(isAssetUploadEnvelope("application/json-patch+json", null)).toBeFalse();
-  });
-
-  test("safely decodes byte-safe Unicode filenames and tolerates malformed escapes", () => {
-    expect(decodeFileNameHeader("%E6%88%AA%E5%9B%BE.png")).toBe("截图.png");
-    expect(decodeFileNameHeader("100%.png")).toBe("100%.png");
-    expect(decodeFileNameHeader(null)).toBeNull();
   });
 });

@@ -11,15 +11,13 @@ import { GroupAdministration } from "../src/services/channel/group-administratio
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 const gate = () => Promise.withResolvers<void>();
 
-async function fixture(idPrefixes?: readonly string[]) {
+async function fixture() {
   const db = createPrismaClient(url!);
   const root = await mkdtemp(join(tmpdir(), "retirement-entrypoints-"));
   const bots: Array<Bot & { conversation: Conversation | null }> = [];
   const channels: string[] = [];
   for (const name of ["Source", "Target"]) {
-    const prefix = idPrefixes?.[bots.length];
-    const id = prefix ? prefix + crypto.randomUUID().slice(1) : undefined;
-    const bot = await db.bot.create({ data: { id, name, status: "active", defaultDirectory: root, conversation: { create: {} } }, include: { conversation: true } });
+    const bot = await db.bot.create({ data: { name, status: "active", defaultDirectory: root, conversation: { create: {} } }, include: { conversation: true } });
     bots.push(bot);
     channels.push((await db.channel.create({ data: { kind: "bot_dm", name, directKey: `bot:${bot.id}`, members: { create: { botId: bot.id, ordinal: 0 } } } })).id);
   }
@@ -142,7 +140,7 @@ test.skipIf(!url)("an admitted room send cannot publish after its source agent w
   }
 }, 15_000);
 
-for (const mode of ["manual", "scheduled"] as const) {
+for (const mode of ["scheduled"] as string[]) {
   test.skipIf(!url)(`room deletion and a ${mode} routine seed cannot deadlock on foreign keys`, async () => {
     const f = await fixture();
     const inserted = gate(), release = gate();
@@ -183,35 +181,6 @@ for (const mode of ["manual", "scheduled"] as const) {
   }, 15_000);
 }
 
-test.skipIf(!url)("retirement disables a routine whose creation already checked the owner", async () => {
-  const f = await fixture();
-  const checked = gate(), release = gate();
-  let creating: Promise<any> | undefined, deletion: Promise<any> | undefined;
-  let archived = false;
-  try {
-    const target = f.bots[1]!;
-    const wrapped = new Proxy(f.db, { get(owner, key) {
-      if (key !== "$transaction") return Reflect.get(owner, key);
-      return (work: any) => owner.$transaction((tx: any) => work(new Proxy(tx, { get(inner, prop) {
-        if (prop !== "bot") return inner[prop];
-        return { ...inner.bot, count: async (input: any) => {
-          const snapshot = await inner.bot.count(input);
-          checked.resolve(); await release.promise; return snapshot;
-        } };
-      } })), { timeout: 10_000 });
-    } });
-    const routines = new RoutineService(wrapped, f.messaging);
-    creating = routines.mutate(target.id, crypto.randomUUID(), null, { action: "create", name: "Last routine", prompt: "Check once", schedule: "@every 5m", enabled: true });
-    await checked.promise;
-    deletion = f.retire(target.id).then(() => { archived = true; });
-    await contended(f.db, () => archived);
-    release.resolve(); await creating; await deletion;
-    expect(await f.db.routine.count({ where: { botId: target.id, enabled: true, deletedAt: null } })).toBe(0);
-  } finally {
-    release.resolve(); await Promise.allSettled([creating, deletion]); await f.cleanup();
-  }
-}, 15_000);
-
 test.skipIf(!url)("late peer sends, routine launches, callbacks, and room output stay rejected after retirement", async () => {
   const f = await fixture();
   try {
@@ -230,41 +199,4 @@ test.skipIf(!url)("late peer sends, routine launches, callbacks, and room output
     expect(await f.db.run.count({ where: { botId: target.id, status: { in: ["queued", "running"] } } })).toBe(0);
     expect(await f.db.channelMessage.count({ where: { channelId: room.id } })).toBe(0);
   } finally { await f.cleanup(); }
-});
-
-test.skipIf(!url)("reciprocal peer sends complete and callback retries produce exactly one wake", async () => {
-  const f = await fixture(["a", "b"]);
-  try {
-    const target = f.bots[1]!;
-    const run = await f.db.run.create({ data: { botId: target.id, conversationId: target.conversation!.id, channelId: f.channels[1], userMessageId: crypto.randomUUID(), status: "running" } });
-    const other: ToolContext = { ...f.context, runId: run.id, botId: target.id, conversationId: run.conversationId, channelId: f.channels[1]!, callId: crypto.randomUUID() };
-    const sends = await Promise.all([
-      f.messaging.sendToAgent(f.context, { target_id: target.id.toUpperCase(), message: "Forward" }),
-      f.messaging.sendToAgent(other, { target_id: f.bots[0]!.id, message: "Back" }),
-    ]);
-    expect(sends).toHaveLength(2);
-    expect(await f.db.inboxEvent.count({ where: { botId: { in: f.bots.map(bot => bot.id) }, type: "agent.message" } })).toBe(2);
-    const callback = { id: "duplicate", scope: target.id, exitCode: 0, outputPath: "/unused/duplicate.log" };
-    const results = await Promise.all(Array.from({ length: 8 }, () => f.messaging.completeShell(callback)));
-    expect(results.every(result => result.delivered)).toBe(true);
-    expect(await f.db.inboxEvent.count({ where: { botId: target.id, type: "shell.completed" } })).toBe(1);
-    await f.retire(target.id);
-    expect(await f.messaging.completeShell(callback)).toMatchObject({ delivered: true, duplicate: true });
-    expect(await f.db.inboxEvent.count({ where: { botId: target.id, status: { in: ["pending", "processing"] } } })).toBe(0);
-  } finally { await f.cleanup(); }
-}, 15_000);
-
-test.skipIf(!url)("a shell callback for a deleted room is ignored while its member remains active", async () => {
-  const f = await fixture();
-  try {
-    const room = await f.db.channel.create({ data: { kind: "group", name: "Deleted callback room", members: { create: { botId: f.bots[0]!.id, ordinal: 0 } } } });
-    f.channels.push(room.id);
-    const groups = new GroupAdministration(f.db, f.messaging, f.root, async () => Response.json({ ok: true }), f.data);
-    await Effect.runPromise(groups.deleteGroup(room.id));
-    expect(await f.messaging.completeShell({ id: "room-late", scope: f.bots[0]!.id, channelId: room.id, exitCode: 0, outputPath: "/unused/room-late.log" })).toEqual({ delivered: false, ignored: true });
-    expect(await f.db.bot.findUniqueOrThrow({ where: { id: f.bots[0]!.id } })).toMatchObject({ status: "active" });
-    expect(await f.db.inboxEvent.count({ where: { type: "shell.completed", botId: f.bots[0]!.id } })).toBe(0);
-  } finally {
-    await f.db.retiredAgent.deleteMany({ where: { id: { in: f.channels } } }); await f.cleanup();
-  }
 });

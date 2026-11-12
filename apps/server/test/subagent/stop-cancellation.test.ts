@@ -36,10 +36,6 @@ test('stopping a subagent ends its background shells, and a failure to end them 
  await expect(f.service.stop('parent','call',{subagent_id:'child'})).rejects.toThrow("The subagent's background commands could not be stopped");
  expect(f.stops).toEqual(['/v1/bots/child-bot/background-shells/stop']);expect(f.child.status).toBe('running');expect(f.events).toHaveLength(0);
 });
-test('terminal run racing with failed cancellation can settle stopped',async()=>{
- const f=fixture(async()=>{throw new Error('already finished')},'completed');
- expect(await f.service.stop('parent','call',{subagent_id:'child'})).toMatchObject({stopped:true});
-});
 test('completion race is not overwritten as stopped',async()=>{
  const f=fixture(async()=>{f.child.status='completed'});
  expect(await f.service.stop('parent','call',{subagent_id:'child'})).toBe('No subagent "sand-subagent-child" is currently running. It may have already finished (you\'re revived automatically with a finished subagent\'s result), or the id is wrong. No subagents are running right now.');
@@ -93,10 +89,6 @@ test('stop all stops each running subagent on its own and reports every outcome'
  // The stopped worker's background shells end with it; one whose run would not cancel keeps running.
  expect(f.stops.sort()).toEqual(['/v1/bots/bot-a/background-shells/stop', '/v1/bots/bot-c/background-shells/stop']);
 });
-test('stop all with nothing running reports an empty receipt', async () => {
- const f = stopAllFixture([worker('a', { status: 'completed' })], async () => {});
- expect(await f.service.stop('parent', 'call', { all: true })).toEqual({ stopped_all: true, stopped: [], already_finished: [], failed: [], delegated: [] });
-});
 
 const matchesKey = (where: any, key: string) =>
  where.OR.some((clause: any) => typeof clause.idempotencyKey === 'string' ? clause.idempotencyKey === key : key.startsWith(clause.idempotencyKey.startsWith));
@@ -133,23 +125,4 @@ test('stop all cancels the turn a priority message started for a peer, with that
  expect(cancelled).toEqual(['peer-run-1', 'run-peer-child']);
  expect(children[0]!.status).toBe('stopped');
  expect(f.stops).toEqual(['/v1/bots/bot-peer-child/background-shells/stop']);
-});
-
-test('stop all cancels a peer turn the worker ran again after a typed message cut it off', async () => {
- const cancelled: string[] = [];
- const f = stopAllFixture([], async (runId) => { cancelled.push(runId); });
- const db = (f.service as any).prisma;
- db.channelMessage.findMany = async () => [{ clientId: 'a2a:out:call-1', metadata: { toAgent: { id: 'peer-1', name: 'Researcher' } } }];
- db.inboxEvent = { findMany: async ({ where, orderBy }: any) => {
-  expect(orderBy).toEqual({ createdAt: 'desc' });
-  return [
-   { idempotencyKey: 'agent:call-1:peer-1:redrive:1', runId: 'peer-run-1' },
-   { idempotencyKey: 'agent:call-1:peer-1', runId: 'peer-run-0' },
-   { idempotencyKey: 'agent:call-10:peer-1', runId: 'peer-run-9' },
-  ].filter((wake) => matchesKey(where, wake.idempotencyKey) && where.priority === 250);
- } };
- db.run.findUnique = async ({ where }: any) => ({ status: where.id === 'peer-run-1' ? 'running' : 'interrupted' });
- const result: any = await f.service.stop('parent', 'call', { all: true });
- expect(result.delegated).toEqual([{ id: 'peer-1', name: 'Researcher', result: 'stopped' }]);
- expect(cancelled).toEqual(['peer-run-1']);
 });

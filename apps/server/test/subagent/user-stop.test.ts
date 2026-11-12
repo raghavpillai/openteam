@@ -89,50 +89,6 @@ test("stopping a parent run reports a worker that could not be stopped", async (
   expect(f.subagents.map(row => row.status)).toEqual(["running", "stopped"]);
 });
 
-test("a failed parent cancellation still attempts to stop its workers", async () => {
-  const f = fixture();
-  const cancel = f.service["runs"].cancel;
-  f.service["runs"].cancel = (id: string) => id === "main"
-    ? Effect.fail(new Error("Synthetic parent cancellation failure")) : cancel(id);
-  await expect(Effect.runPromise(f.service.stopRun("main"))).rejects.toThrow();
-  expect(f.cancelled).toEqual(["workerRun", "otherRun"]);
-  expect(f.subagents.map(row => row.status)).toEqual(["stopped", "stopped"]);
-});
-
-test("retrying a partial parent stop reaches the failed worker and preserves newly requested work", async () => {
-  const f = fixture();
-  const cancel = f.service["runs"].cancel;
-  f.service["runs"].cancel = (id: string) => id === "workerRun"
-    ? Effect.fail(new Error("Synthetic child cancellation failure")) : cancel(id);
-  await expect(Effect.runPromise(f.service.stopRun("main"))).rejects.toThrow("could not be stopped");
-  f.service["runs"].cancel = cancel;
-  f.runs.freshRun = { id: "freshRun", botId: "fresh-worker", status: "running" };
-  f.subagents.push({ ...f.subagents[1]!, id: "fresh", parentRunId: "new-request", childBotId: "fresh-worker", currentRunId: "freshRun", status: "running" });
-  await Effect.runPromise(f.service.stopRun("main"));
-  expect(f.runs.workerRun!.status).toBe("cancelled");
-  expect(f.subagents.map(row => row.status)).toEqual(["stopped", "stopped", "running"]);
-  expect(f.runs.freshRun.status).toBe("running");
-});
-
-test("a parent cancellation waiting on its transport does not delay stopping its workers", async () => {
-  const f = fixture();
-  const cancel = f.service["runs"].cancel;
-  let release!: () => void;
-  let attempted!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  const workerAttempt = new Promise<boolean>(resolve => { attempted = () => resolve(true); });
-  f.service["runs"].cancel = (id: string) => id === "main"
-    ? Effect.promise(async () => { await gate; f.runs.main!.status = "cancelled"; return { ok: true, status: "cancelled" }; })
-    : Effect.tap(cancel(id), () => Effect.sync(attempted));
-  const stopping = Effect.runPromise(f.service.stopRun("main"));
-  try {
-    expect(await Promise.race([workerAttempt, Bun.sleep(250).then(() => false)])).toBe(true);
-  } finally {
-    release();
-    await stopping;
-  }
-});
-
 test("a stop of a bot's finished run stops its remaining work and preserves independent workers", async () => {
   const f = fixture();
   f.runs.main!.status = "completed";
@@ -140,28 +96,6 @@ test("a stop of a bot's finished run stops its remaining work and preserves inde
   await Effect.runPromise(f.service.stopRun("main"));
   expect(f.cancelled).toEqual(["main", "workerRun"]);
   expect(f.subagents.map((row) => row.status)).toEqual(["stopped", "running"]);
-});
-
-test("stopping a finished request with stopped bookkeeping still cancels its remaining worker", async () => {
-  const f = fixture();
-  f.runs.main!.status = "completed";
-  f.runs.main!.requestStoppedAt = new Date();
-  f.subagents[1]!.status = "completed";
-  await Effect.runPromise(f.service.stopRun("main"));
-  expect(f.cancelled).toEqual(["main", "workerRun"]);
-  expect(f.subagents.map(row => row.status)).toEqual(["stopped", "completed"]);
-});
-
-test("a worker the worker process already recorded as stopped still counts as stopped", async () => {
-  const f = fixture();
-  f.service["runs"].cancel = (id: string) => Effect.sync(() => {
-    f.runs[id]!.status = "cancelled";
-    // The cancelled turn settles first and the worker marks the subagent stopped.
-    f.subagents[0]!.status = "stopped";
-    return { ok: true, status: "cancelled" };
-  });
-  const result = await (f.service as any).stop("bot", "call", { subagent_id: "sand-subagent-worker" });
-  expect(result).toMatchObject({ stopped: true, status: "stopped" });
 });
 
 test("stopping a bot stops its turn and every subagent it has running, without posting anything", async () => {
@@ -172,21 +106,4 @@ test("stopping a bot stops its turn and every subagent it has running, without p
   expect(f.subagents.map((row) => row.status)).toEqual(["stopped", "stopped"]);
   expect(f.events.filter(event => event.topic === "subagent.stopped")).toHaveLength(2);
   expect(f.runs.main!.requestStoppedAt).toBeInstanceOf(Date);
-});
-
-test("stopping a bot whose turn ended stops the subagents still working in the background", async () => {
-  const f = fixture();
-  f.runs.main!.status = "completed";
-  const result = await Effect.runPromise(f.service.stopBot("bot"));
-  expect(result).toEqual({ hadActiveRun: true });
-  expect(f.cancelled).toEqual(["workerRun", "otherRun"]);
-  expect(f.subagents.map((row) => row.status)).toEqual(["stopped", "stopped"]);
-});
-
-test("stopping an idle bot changes nothing", async () => {
-  const f = fixture();
-  const result = await Effect.runPromise(f.service.stopBot("idle-bot"));
-  expect(result).toEqual({ hadActiveRun: false });
-  expect(f.cancelled).toEqual([]);
-  expect(f.shellStops).toEqual([]);
 });

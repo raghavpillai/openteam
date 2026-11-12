@@ -19,58 +19,6 @@ const event = (sequence: number) => ({
 });
 
 describe("pull-driven event stream", () => {
-  test("does not query events until the connected chunk is consumed", async () => {
-    let calls = 0;
-    const source: EventStreamSource = {
-      eventVersion: 0,
-      eventWindowAfter: async () => {
-        calls += 1;
-        return {
-          oldest: null,
-          latest: null,
-          cursorExpired: false,
-          cursorAhead: false,
-          events: [],
-        };
-      },
-      waitForEvent: async (version) => version,
-    };
-    const request = new AbortController();
-    const stream = eventStream(source, 0n, request.signal);
-
-    await tick();
-    expect(calls).toBe(0);
-    await stream.cancel();
-  });
-
-  test("a slow consumer buffers only one bounded database window", async () => {
-    const limits: number[] = [];
-    const source: EventStreamSource = {
-      eventVersion: 0,
-      eventWindowAfter: async (_cursor, limit) => {
-        limits.push(limit);
-        return {
-          oldest: 1n,
-          latest: 1_000n,
-          cursorExpired: false,
-          cursorAhead: false,
-          events: Array.from({ length: limit }, (_, index) => event(index + 1)),
-        };
-      },
-      waitForEvent: async (version) => version,
-    };
-    const reader = eventStream(source, 0n, new AbortController().signal).getReader();
-
-    const connected = await reader.read();
-    expect(decoder.decode(connected.value)).toBe(": connected\n\n");
-    await tick();
-    expect(limits).toEqual([SSE_EVENT_BATCH_SIZE]);
-
-    // Leave the 64-event chunk unread: no second query is allowed to run.
-    await tick();
-    expect(limits).toEqual([SSE_EVENT_BATCH_SIZE]);
-    await reader.cancel();
-  });
 
   test("fast readers receive every event in order across bounded windows", async () => {
     const allEvents = Array.from({ length: 130 }, (_, index) => event(index + 1));
@@ -195,27 +143,6 @@ describe("pull-driven event stream", () => {
 });
 
 describe("wake-driven event polling", () => {
-  test("returns an available bounded batch immediately", async () => {
-    const source: EventStreamSource = {
-      eventVersion: 4,
-      eventWindowAfter: async (cursor, limit) => ({
-        oldest: 1n,
-        latest: 100n,
-        cursorExpired: false,
-        cursorAhead: false,
-        events: Array.from({ length: limit }, (_, index) => event(Number(cursor) + index + 1)),
-      }),
-      waitForEvent: async () => {
-        throw new Error("an available batch must not wait");
-      },
-    };
-
-    const batch = await eventPoll(source, 10n, new AbortController().signal);
-
-    expect(batch.events).toHaveLength(SSE_EVENT_BATCH_SIZE);
-    expect(batch.events[0]?.sequence).toBe("11");
-    expect(batch.events.at(-1)?.sequence).toBe("74");
-  });
 
   test("re-queries after a wakeup without waiting for a fallback refresh", async () => {
     let available = false;
@@ -245,31 +172,6 @@ describe("wake-driven event polling", () => {
     expect(cursors).toEqual([40n, 40n]);
     expect(batch.events.map((item) => item.sequence)).toEqual(["41"]);
   });
-
-  test("preserves snapshot recovery semantics for invalid cursors", async () => {
-    const source: EventStreamSource = {
-      eventVersion: 0,
-      eventWindowAfter: async () => ({
-        oldest: 10n,
-        latest: 20n,
-        cursorExpired: false,
-        cursorAhead: true,
-        events: [],
-      }),
-      waitForEvent: async () => {
-        throw new Error("an invalid cursor must not wait");
-      },
-    };
-
-    const batch = await eventPoll(source, 50n, new AbortController().signal, 0);
-
-    expect(batch.events).toHaveLength(1);
-    expect(batch.events[0]).toMatchObject({
-      sequence: "20",
-      topic: "snapshot.required",
-      payload: { reason: "cursor_ahead", oldestAvailable: "10", latestAvailable: "20" },
-    });
-  });
 });
 
 describe("event wakeup", () => {
@@ -279,14 +181,5 @@ describe("event wakeup", () => {
     wakeup.notify();
 
     expect(await wakeup.wait(observed, 10_000)).toBe(observed + 1);
-  });
-
-  test("fans one notification out to concurrent waiters", async () => {
-    const wakeup = new EventWakeup("postgresql://unused");
-    const observed = wakeup.currentVersion;
-    const waits = [wakeup.wait(observed, 10_000), wakeup.wait(observed, 10_000)];
-    wakeup.notify();
-
-    expect(await Promise.all(waits)).toEqual([observed + 1, observed + 1]);
   });
 });

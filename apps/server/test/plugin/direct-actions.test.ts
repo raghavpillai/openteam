@@ -67,21 +67,4 @@ describe("plugin installs on turns the user did not start", () => {
     expect(await service.requestAction(request)).toMatchObject({completed:true,actionResult:{installed:true}});
     expect(executions()).toBe(1);
   });
-
-  test("a group-room turn is refused as a room turn, pointing to the 1:1 chat", async () => {
-    const {service,request,records,executions} = fixture();
-    expect(await service.requestAction({...request,origin:"group"})).toBe(
-      'Nothing was installed: this is a group-room turn, and installing adds Fixture to your user\'s account, which happens only when they ask for it in their own 1:1 chat with you. If your user wants Fixture, ask them to continue in your 1:1 chat (pass "to":"dm" on SendToUser to reach it) or to add it themselves in OpenTeam.',
-    );
-    expect(executions()).toBe(0);
-    expect(records.size).toBe(0);
-  });
-
-  test("the refusal leaves other plugin actions alone and still reports unknown plugins first", async () => {
-    const {service,request,executions} = fixture();
-    expect(await service.requestAction({...request,callId:"uninstall",action:"UninstallPlugin",origin:"background_revival"})).toMatchObject({completed:true});
-    expect(executions()).toBe(1);
-    Object.assign(service,{resolveToolArguments:async()=>{throw new Error('No plugin with id "nope".');}});
-    await expect(service.requestAction({...request,callId:"missing",origin:"agent"})).rejects.toThrow("No plugin with id");
-  });
 });

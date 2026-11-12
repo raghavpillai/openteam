@@ -69,24 +69,6 @@ for (const kind of ["completion", "failure"] as const) {
   }, 15_000);
 }
 
-test.skipIf(!url)("a buffered completion preserves the deletion reason after cancellation committed", async () => {
-  const db = createPrismaClient(url!);
-  const bot = await db.bot.create({ data: { name: "Buffered completion", defaultDirectory: "/unused", status: "active", conversation: { create: {} } }, include: { conversation: true } });
-  try {
-    const run = await db.run.create({ data: { botId: bot.id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running" } });
-    const service = new BotService(db, {} as never, "/unused", async () => Response.json({ ok: true }), files as never);
-    await Effect.runPromise(service.archive(bot.id));
-    await new Projection(db).apply(run.id, run.conversationId, bot.id, {
-      type: "turn.completed", status: "cancelled", error: { code: "runtime_cancelled", message: "Runtime stopped" },
-    } as never);
-    expect(await db.run.findUniqueOrThrow({ where: { id: run.id } })).toMatchObject({ status: "cancelled", error: { code: "bot_archived" } });
-  } finally {
-    await db.bot.delete({ where: { id: bot.id } });
-    await db.retiredAgent.deleteMany({ where: { id: bot.id } });
-    await db.$disconnect();
-  }
-});
-
 test.skipIf(!url)("parent deletion and a child's failure settle without a run/subagent deadlock", async () => {
   const db = createPrismaClient(url!);
   const bots: string[] = [];

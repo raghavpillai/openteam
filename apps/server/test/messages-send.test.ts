@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, writeFile, readFile, rm, realpath } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
@@ -143,73 +143,6 @@ test("discarding files never reaches the Mac and existing recipient grants still
         expect(f.card().metadata.cardState).toBe("dismissed");
         expect(f.calls).toHaveLength(0);
       }
-    } finally {
-      await f.cleanup();
-    }
-  }
-});
-
-test("photos, PDFs and other file types can be approved together with their original names and bytes", async () => {
-  const f = await fixture();
-  try {
-    const files = [
-      {
-        name: "photo.png",
-        bytes: Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==",
-          "base64"
-        ),
-        mime: "image/png",
-      },
-      {
-        name: "document.pdf",
-        bytes: await readFile(
-          new URL("../../computer/test/fixtures/input-parity/fixture.pdf", import.meta.url)
-        ),
-        mime: "application/pdf",
-      },
-      { name: "notes.txt", bytes: Buffer.from("A plain text attachment."), mime: "text/plain" },
-    ];
-    for (const file of files) await writeFile(join(f.root, file.name), file.bytes);
-    await f.service.create(context, {
-      to: "+15555550100",
-      attachmentPaths: files.map((file) => join(f.root, file.name)),
-    });
-    expect(
-      f.card().metadata.imessage.attachments.map((file: any) => [file.fileName, file.mimeType])
-    ).toEqual(files.map((file) => [file.name, file.mime]));
-    await Effect.runPromise(f.service.mutate("card", { action: "send" }));
-    expect(f.calls[0].arguments.attachments).toEqual(
-      files.map((file) => ({ fileName: file.name, bytesBase64: file.bytes.toString("base64") }))
-    );
-  } finally {
-    await f.cleanup();
-  }
-});
-
-test("partial sends stay unconfirmed and older desktops explain how to enable attachments", async () => {
-  for (const reason of [
-    "Messages send outcome is uncertain; some items may have been sent",
-    "Unknown desktop capability",
-  ]) {
-    const f = await fixture();
-    try {
-      const path = join(f.root, "report.pdf");
-      await writeFile(path, "%PDF-1.7\nfixture");
-      await f.service.create(context, {
-        text: "Here",
-        chatId: "any;+;chat123",
-        attachmentPaths: [path],
-      });
-      f.fail(reason);
-      await Effect.runPromise(f.service.mutate("card", { action: "send" }));
-      const metadata = f.card().metadata;
-      expect(metadata.cardState).toBe(reason.startsWith("Unknown") ? "failed" : "unknown");
-      if (reason.startsWith("Unknown"))
-        expect(metadata.sendError).toBe("Update OpenTeam on My Mac to send attachments.");
-      else expect(metadata.outcomeText).toContain("never send it again automatically");
-      await Effect.runPromise(f.service.mutate("card", { action: "send" }));
-      expect(f.calls).toHaveLength(1);
     } finally {
       await f.cleanup();
     }

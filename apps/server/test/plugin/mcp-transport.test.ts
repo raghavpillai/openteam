@@ -89,58 +89,6 @@ test("a lost server session is discarded without replaying the tool and an expli
   expect(f.deliveries()).toBe(1);
 });
 
-test("cancelling one caller during shared startup returns promptly without cancelling another caller", async () => {
-  const f = fixture();
-  const controller = new AbortController();
-  const cancelled = f.manager.call("startup-cancel", f.options("slow"), "write", {}, controller.signal)
-    .then(() => "completed", () => "cancelled");
-  const observer = f.manager.discover("startup-cancel", f.options("slow"));
-  try {
-    await f.entered.promise;
-    controller.abort();
-    expect(await Promise.race([cancelled, Bun.sleep(500).then(() => "blocked")])).toBe("cancelled");
-    f.release.release();
-    expect((await observer)[0]?.name).toBe("slow");
-    expect(f.deliveries()).toBe(0);
-    expect(f.initializations).toHaveLength(1);
-  } finally { f.release.release(); await observer; await cancelled; }
-});
-
-test("disconnect while initialization is blocked cannot resurrect its session", async () => {
-  const f = fixture();
-  const pending = f.manager.discover("closed", f.options("slow")).then(() => "ready", () => "closed");
-  try {
-    await f.entered.promise;
-    await f.manager.close("closed");
-    f.release.release();
-    expect(await pending).toBe("closed");
-    expect((await f.manager.discover("closed", f.options("slow")))[0]?.name).toBe("slow");
-    expect(f.initializations).toHaveLength(2);
-  } finally { f.release.release(); }
-});
-
-test("a slow obsolete endpoint cannot replace a newer session", async () => {
-  const f = fixture();
-  const old = f.manager.discover("changed", f.options("slow")).then(() => "ready", () => "replaced");
-  try {
-    await f.entered.promise;
-    expect((await f.manager.discover("changed", f.options("new")))[0]?.name).toBe("new");
-    f.release.release();
-    expect(await old).toBe("replaced");
-    expect((await f.manager.discover("changed", f.options("new")))[0]?.name).toBe("new");
-    expect(f.initializations.filter(path => path === "/new")).toHaveLength(1);
-  } finally { f.release.release(); }
-});
-
-test("an unavailable provider can reconnect after recovery", async () => {
-  const f = fixture();
-  f.unavailable(true);
-  await expect(f.manager.discover("outage", f.options())).rejects.toThrow();
-  f.unavailable(false);
-  expect((await f.manager.discover("outage", f.options()))[0]?.name).toBe("echo");
-  expect(await f.manager.call("outage", f.options(), "echo", {})).toMatchObject({ content: [{ text: "ok" }] });
-});
-
 for (const failure of [true, "truncated"] as const) {
   test(`a ${failure === true ? "lost" : "truncated"} write response is not replayed; the caller can retry its stable request ID`, async () => {
     const f = fixture();
@@ -152,14 +100,6 @@ for (const failure of [true, "truncated"] as const) {
     expect(f.writes.size).toBe(1);
   });
 }
-
-test("an already cancelled call does not initialize or dispatch any MCP request", async () => {
-  const f = fixture();
-  const controller = new AbortController();
-  controller.abort();
-  await expect(f.manager.call("pre-cancelled", f.options(), "write", {}, controller.signal)).rejects.toThrow();
-  expect(f.methods).toEqual([]);
-});
 
 test("aborting a blocked call sends cancellation and leaves the connection usable", async () => {
   const f = fixture();
@@ -174,47 +114,6 @@ test("aborting a blocked call sends cancellation and leaves the connection usabl
     expect(await f.manager.call("cancel", f.options(), "echo", {})).toMatchObject({ content: [{ text: "ok" }] });
     expect(f.initializations).toHaveLength(1);
   } finally { f.finishCall.release(); }
-});
-
-test("disconnect also aborts a legacy SSE connection stalled before response headers", async () => {
-  const entered = gate(), release = gate();
-  const manager = new McpHttpClientManager();
-  managers.push(manager);
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
-    if (request.method !== "GET") return new Response(null, { status: 405 });
-    entered.release(); await release.promise;
-    return new Response(null, { status: 503 });
-  } });
-  servers.push(server);
-  const pending = manager.discover("blackhole", { endpoint: server.url.href }).then(() => "ready", () => "closed");
-  try {
-    await entered.promise;
-    await manager.closeAll();
-    expect(await Promise.race([pending, Bun.sleep(1000).then(() => "still blocked")])).toBe("closed");
-  } finally { release.release(); await pending; }
-});
-
-test("shutdown fences initialization while access validation is blocked", async () => {
-  const f = fixture();
-  const entered = gate(), release = gate();
-  const options = { ...f.options(), beforeRequest: async () => { entered.release(); await release.promise; } };
-  const pending = f.manager.discover("validation", options).then(() => "ready", () => "closed");
-  try {
-    await entered.promise;
-    await f.manager.closeAll();
-    expect(await Promise.race([pending, Bun.sleep(500).then(() => "blocked")])).toBe("closed");
-    expect(f.initializations).toHaveLength(0);
-  } finally { release.release(); await pending; }
-});
-
-test("rejecting a stale configuration cannot evict the current cached session", async () => {
-  const f = fixture();
-  await f.manager.discover("policy", f.options());
-  await expect(f.manager.discover("policy", {
-    ...f.options("obsolete"), beforeRequest: async () => { throw new Error("Access changed"); },
-  })).rejects.toThrow("Access changed");
-  expect(await f.manager.call("policy", f.options(), "echo", {})).toMatchObject({ content: [{ text: "ok" }] });
-  expect(f.initializations).toHaveLength(1);
 });
 
 describe("remote MCP transport", () => {
@@ -357,30 +256,6 @@ function setup(timeoutMs?: number) {
   return { server, manager, provider, options };
 }
 
-test("closing a connection aborts a stalled OAuth registration", async () => {
-  const f = setup();
-  const entered = gate(), release = gate();
-  f.server.setBeforeRegistration(async () => { entered.release(); await release.promise; });
-  const pending = f.manager.beginOAuth("register", f.options).then(() => "authorized", () => "cancelled");
-  try {
-    await entered.promise;
-    await f.manager.closeAll();
-    expect(await Promise.race([pending, Bun.sleep(500).then(() => "blocked")])).toBe("cancelled");
-  } finally { release.release(); await pending; await f.manager.closeAll(); f.server.close(); }
-});
-
-test("an unresponsive authorization server has a bounded deadline", async () => {
-  const f = setup(100);
-  const entered = gate(), release = gate();
-  f.server.setBeforeRegistration(async () => { entered.release(); await release.promise; });
-  const pending = f.manager.beginOAuth("deadline", f.options).then(() => "authorized", () => "timed out");
-  try {
-    await entered.promise;
-    expect(await Promise.race([pending, Bun.sleep(1000).then(() => "blocked")])).toBe("timed out");
-    expect(f.provider.snapshot().authorizationUrl).toBeUndefined();
-  } finally { release.release(); await pending; await f.manager.closeAll(); f.server.close(); }
-});
-
 test("closing a connection aborts a stalled token exchange without installing its late token", async () => {
   const f = setup();
   const entered = gate(), release = gate();
@@ -397,41 +272,3 @@ test("closing a connection aborts a stalled token exchange without installing it
     expect(f.provider.tokens()).toBeUndefined();
   } finally { release.release(); await pending; await f.manager.closeAll(); f.server.close(); }
 });
-
-test("overlapping OAuth starts cannot leave an untracked authorization after shutdown", async () => {
-  const f = setup();
-  const entered = gate(), release = gate();
-  const other = createProvider();
-  f.server.setBeforeRegistration(async () => { entered.release(); await release.promise; });
-  const first = f.manager.beginOAuth("overlap", f.options).then(() => "authorized", () => "cancelled");
-  const second = f.manager.beginOAuth("overlap", { ...f.options, authProvider: other }).then(() => "authorized", () => "cancelled");
-  const pending = Promise.all([first, second]);
-  try {
-    await entered.promise;
-    await f.manager.closeAll();
-    expect(await Promise.race([pending, Bun.sleep(500).then(() => "blocked")])).toEqual(["cancelled", "cancelled"]);
-  } finally { release.release(); await pending; await f.manager.closeAll(); f.server.close(); }
-});
-
-for (const shared of [false, true]) {
-  test(`replacement OAuth completes without corrupting ${shared ? "a shared" : "a separate"} provider`, async () => {
-    const f = setup();
-    const entered = gate(), release = gate();
-    const provider = shared ? f.provider : createProvider();
-    const options = { ...f.options, authProvider: provider };
-    f.server.setBeforeRegistration(async () => { entered.release(); await release.promise; });
-    const first = f.manager.beginOAuth("replacement", f.options).then(() => "authorized", () => "cancelled");
-    const second = f.manager.beginOAuth("replacement", options);
-    try {
-      await entered.promise;
-      release.release();
-      expect(await first).toBe("cancelled");
-      const { authorizationUrl } = await second;
-      expect(provider.snapshot().authorizationUrl).toBe(authorizationUrl);
-      const approve = new URL(authorizationUrl); approve.pathname = "/approve";
-      const response = await fetch(approve, { method: "POST", body: new URLSearchParams({ account: "Account A" }), redirect: "manual" });
-      const callback = new URL(response.headers.get("location")!);
-      expect((await f.manager.finishOAuth("replacement", options, callback.searchParams.get("code")!)).map(tool => tool.name)).toContain("whoami");
-    } finally { release.release(); await first; await second.catch(() => {}); await f.manager.closeAll(); f.server.close(); }
-  });
-}

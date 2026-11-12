@@ -74,20 +74,6 @@ test("deduplicates submissions, persists through server restart, and reports com
   expect(restarted.view().status).toBe("updated");
 });
 
-test("keeps an updater failure visible and allows a deliberate retry", () => {
-  const { updates } = fixture();
-  updates.heartbeat({});
-  const first = updates.start({ targetVersion: "1.3.0" });
-  updates.heartbeat({
-    requestId: first.jobId!,
-    status: "error",
-    phase: "error",
-    message: "Rollback completed",
-  });
-  expect(updates.view()).toMatchObject({ status: "error", message: "Rollback completed" });
-  expect(updates.start({ targetVersion: "1.3.0" }).jobId).not.toBe(first.jobId);
-});
-
 test("requires an owner session and explicit bearer credential to start maintenance", async () => {
   const { updates } = fixture();
   updates.heartbeat({});

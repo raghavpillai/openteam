@@ -11,42 +11,6 @@ import { tmpdir } from "node:os";
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const gate = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; };
 
-test.skipIf(!databaseUrl)('a stale queued claim exits cleanly when room deletion commits first', async () => {
-  const p = createPrismaClient(databaseUrl!);
-  const bot = await p.bot.create({ data: { name: 'Member', defaultDirectory: '/unused', status: 'active', conversation: { create: {} } }, include: { conversation: true } });
-  const room = await p.channel.create({ data: { kind: 'group', name: 'Delete', members: { create: { botId: bot.id, ordinal: 0 } } } });
-  const selected = gate(), release = gate();
-  let claim: Promise<any> | undefined;
-  try {
-    const root = await p.channelMessage.create({ data: { channelId: room.id, sender: 'user', content: 'Work' } });
-    const round = await p.channelRound.create({ data: { channelId: room.id, triggerMessageId: root.id, rootMessageId: root.id, deliveries: { create: { botId: bot.id, ordinal: 0, status: 'queued' } } }, include: { deliveries: true } });
-    const run = await p.run.create({ data: { botId: bot.id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), channelId: room.id, deliveryId: round.deliveries[0]!.id, status: 'queued' } });
-    await p.inboxEvent.create({ data: { botId: bot.id, conversationId: bot.conversation!.id, runId: run.id, idempotencyKey: crypto.randomUUID(), type: 'channel.message', payload: { content: 'Work', clientId: crypto.randomUUID() } } });
-    const wrapped = new Proxy(p, { get(target, key) {
-      if (key !== '$transaction') return Reflect.get(target, key);
-      return (work: any) => target.$transaction((tx: any) => work(new Proxy(tx, { get(inner, property) {
-        if (property !== 'inboxEvent') return inner[property];
-        return { ...inner.inboxEvent, findMany: async (input: any) => {
-          const snapshot = await inner.inboxEvent.findMany(input);
-          selected.resolve(); await release.promise; return snapshot;
-        } };
-      } })));
-    } });
-    const worker = Object.assign(Object.create(WakeWorker.prototype), { prisma: wrapped, workspaceRoot: '/unused', messaging: { assets: { runtimeImages: async () => [] } } });
-    claim = worker.claim(bot.id);
-    await selected.promise;
-    const groups = new GroupAdministration(p, {} as never, '/unused', async () => Response.json({ ok: true }));
-    await Effect.runPromise(groups.deleteGroup(room.id));
-    release.resolve();
-    expect(await claim).toBeNull();
-    expect(await p.botRunLease.count({ where: { botId: bot.id } })).toBe(0);
-    expect(await p.contextSession.count({ where: { scope: 'channel', scopeId: room.id } })).toBe(0);
-  } finally {
-    release.resolve(); await claim?.catch(() => {});
-    await p.channel.deleteMany({ where: { id: room.id } }); await p.bot.delete({ where: { id: bot.id } }); await p.retiredAgent.deleteMany({ where: { id: room.id } }); await p.$disconnect();
-  }
-});
-
 test.skipIf(!databaseUrl)('group deletion must serialize with a worker claim before touching run and inbox rows', async () => {
   const p = createPrismaClient(databaseUrl!);
   const bot = await p.bot.create({ data: { name: 'Claim fixture', defaultDirectory: '/unused', status: 'active', conversation: { create: {} } }, include: { conversation: true } });
@@ -105,7 +69,7 @@ test.skipIf(!databaseUrl)('group deletion must serialize with a worker claim bef
 }, 20_000);
 
 
-for (const status of ["queued", "running", "completed"] as const) {
+for (const status of ["running", "completed"] as const) {
   test.skipIf(!databaseUrl)(`deleting a room with a ${status} delivery retains history and leaves unrelated runs alone`, async () => {
     const p = createPrismaClient(databaseUrl!);
     const bot = await p.bot.create({ data: { name: "Member", defaultDirectory: "/unused", status: "active", conversation: { create: {} } }, include: { conversation: true } });

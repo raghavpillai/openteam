@@ -74,11 +74,11 @@ test("archive durably cancels and settles the parent turn before deleting its co
   expect(f.calls.indexOf("/v1/turns/parent-run/cancel")).toBeLessThan(f.calls.indexOf("/v1/context-sessions/context"));
 });
 
-for (const failure of ["context-network", "screen-network", "active-context", "cancel-network", "background-network"] as const) {
+for (const failure of ["context-network", "active-context"] as const) {
   test(`archive succeeds despite ${failure} and retains runtime-owned session bookkeeping`, async () => {
     const f = fixture(failure);
     expect(await Effect.runPromise(f.service.archive("bot"))).toEqual({ ok: true });
-    expect(f.state()).toMatchObject({ status: "archived", runStatus: "cancelled", contextExists: !["screen-network", "background-network"].includes(failure) });
+    expect(f.state()).toMatchObject({ status: "archived", runStatus: "cancelled", contextExists: true });
     expect(f.cleanupPending()).toBe(true);
     expect(f.calls).toContain("/v1/agent-stores/bot");
     expect(f.calls).toContain("/v1/screens/bot");

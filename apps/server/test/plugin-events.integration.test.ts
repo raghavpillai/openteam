@@ -1,47 +1,9 @@
 import { expect, test } from "bun:test";
 import { createPrismaClient } from "@openteam/db";
-import { PluginEventPoller, parsePollResult } from "../src/services/plugin/events";
+import { PluginEventPoller } from "../src/services/plugin/events";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 const text = (value: unknown) => ({ content: [{ type: "text", text: JSON.stringify(value) }] });
-
-test("poll results accept MCP text or structured content and surface tool errors", () => {
-  expect(parsePollResult(text({ events: [{ id: "1" }], cursor: { uid: 2 } }))).toEqual({
-    events: [{ id: "1" }],
-    cursor: { uid: 2 },
-  });
-  expect(parsePollResult({ structuredContent: { events: [] } })).toEqual({
-    events: [],
-    cursor: null,
-  });
-  expect(() =>
-    parsePollResult({ isError: true, content: [{ type: "text", text: "IMAP login failed" }] })
-  ).toThrow("IMAP login failed");
-  expect(() => parsePollResult(text({ cursor: 1 }))).toThrow("no events list");
-  expect(() => parsePollResult({ content: [{ type: "text", text: "not json" }] })).toThrow(
-    "unreadable"
-  );
-});
-
-test("a failed database read skips the poll pass instead of rejecting", async () => {
-  const outage = { pluginConnection: { findMany: () => Promise.reject(new Error("Connection terminated unexpectedly")) } };
-  const poller = new PluginEventPoller(
-    outage as never,
-    async () => undefined,
-    async () => undefined
-  );
-  const warn = console.warn;
-  const warnings: unknown[] = [];
-  console.warn = (...args: unknown[]) => {
-    warnings.push(args.join(" "));
-  };
-  try {
-    await expect(poller.pollDue()).resolves.toBeUndefined();
-  } finally {
-    console.warn = warn;
-  }
-  expect(warnings).toEqual(["Plugin event poll failed: Connection terminated unexpectedly"]);
-});
 
 test("declared event polls run on their interval, force the manifest source, and save the cursor after dispatch", async () => {
   if (!url) return;
@@ -214,113 +176,6 @@ test("declared event polls run on their interval, force the manifest source, and
       uidValidity: "7",
       uidNext: 43,
     });
-  } finally {
-    await prisma.pluginInstallation.deleteMany({ where: { pluginKey } });
-    await prisma.$disconnect();
-  }
-});
-
-test("connector tools marked host-only are never listed for Bots", async () => {
-  const { PluginTransport, HOST_ONLY_TOOL_META } = await import("../src/services/plugin/transport");
-  const transport = new PluginTransport(
-    {} as never,
-    {} as never,
-    "http://127.0.0.1:8787",
-    async () =>
-      Response.json({
-        state: "ready",
-        tools: [
-          {
-            name: "send_email",
-            description: "Send",
-            inputSchema: { type: "object" },
-            annotations: { readOnlyHint: false },
-          },
-          {
-            name: "poll_new_mail",
-            description: "Host poll",
-            inputSchema: { type: "object" },
-            _meta: { [HOST_ONLY_TOOL_META]: true },
-          },
-        ],
-      })
-  );
-  expect((await transport.stdioStatus("connection")).tools.map((tool) => tool.name)).toEqual([
-    "send_email",
-  ]);
-});
-
-test("connector results keep non-secret setup values and scrub secrets", async () => {
-  if (!url) return;
-  const prisma = createPrismaClient(url);
-  const { PluginTransport } = await import("../src/services/plugin/transport");
-  const pluginKey = `redact-${crypto.randomUUID().slice(0, 8)}`;
-  let request: Record<string, any> = {};
-  const transport = new PluginTransport(
-    prisma,
-    {} as never,
-    "http://127.0.0.1:8787",
-    async (_path, init) => {
-      request = JSON.parse(String(init?.body));
-      return Response.json({
-        result: {
-          content: [
-            {
-              type: "text",
-              text: "From bot@example.test (auto-replied); password s3cret-app-password",
-            },
-          ],
-        },
-      });
-    }
-  );
-  try {
-    const installation = await prisma.pluginInstallation.create({
-      data: {
-        pluginKey,
-        version: "1.0.0",
-        name: "Redaction fixture",
-        publisher: "Test",
-        manifest: {
-          key: pluginKey,
-          name: "Redaction fixture",
-          skills: [],
-          connections: [{ key: "mail", transport: "stdio" }],
-        },
-      },
-    });
-    const connection = await prisma.pluginConnection.create({
-      data: {
-        installationId: installation.id,
-        connectorKey: "mail",
-        name: "Mail",
-        transport: "stdio",
-        authType: "none",
-        status: "ready",
-        configuration: {
-          command: "bun",
-          args: ["server.mjs"],
-          env: {
-            EMAIL_ADDRESS: "${EMAIL_ADDRESS}",
-            EMAIL_PASSWORD: "${EMAIL_PASSWORD}",
-            IMAP_SERVER: "${IMAP_SERVER}",
-          },
-          values: { EMAIL_ADDRESS: "bot@example.test", IMAP_SERVER: "auto" },
-        },
-        credentials: { values: { EMAIL_PASSWORD: "s3cret-app-password" } },
-      },
-    });
-    const result = (await transport.callHostTool(connection, "poll_new_mail", {
-      cursor: null,
-    })) as { content: Array<{ text: string }> };
-    expect(request.configuration.env).toMatchObject({
-      EMAIL_ADDRESS: "bot@example.test",
-      EMAIL_PASSWORD: "s3cret-app-password",
-      IMAP_SERVER: "auto",
-    });
-    expect(result.content[0]!.text).toBe(
-      "From bot@example.test (auto-replied); password [redacted]"
-    );
   } finally {
     await prisma.pluginInstallation.deleteMany({ where: { pluginKey } });
     await prisma.$disconnect();

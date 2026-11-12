@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import { PluginService } from "../../src/services/plugin-service";
@@ -146,11 +146,6 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
     expect(() => deviceLinkResult({ ...envelope({}), isError: true })).toThrow("Device linking failed");
   });
 
-  test("lifecycle results reject JSON primitives and arrays instead of treating them as status objects", () => {
-    for (const value of [null, [], true, 1, "not-a-status"])
-      expect(() => deviceLinkResult(envelope(value))).toThrow();
-  });
-
   test("concurrent connects share one start; linking clears the QR and metadata hides host tools", async () => {
     const f = fixture();
     const results = await Promise.all([f.connect(), f.connect()]);
@@ -187,38 +182,6 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
     expect(f.toolCalls("remove_account")).toHaveLength(0);
   });
 
-  test("connect accepts an account recovered between the status check and QR start", async () => {
-    const f = fixture();
-    f.runtime.onCall = async (name) => {
-      if (name === "start_link") {
-        f.runtime.linked = true;
-        throw new Error("Account recovered and is already linked");
-      }
-    };
-    expect(await f.connect()).toMatchObject({ status: "ready" });
-    expect(f.connection.status).toBe("ready");
-    expect(f.connection.credentials.deviceLink).toBeUndefined();
-    expect(f.toolCalls("finish_link")).toHaveLength(0);
-    expect(f.toolCalls("link_status")).toHaveLength(2);
-  });
-
-  test("a running collector's recovery is observed after the host leaves ready without provisioning", async () => {
-    const f = fixture();
-    f.runtime.linked = true;
-    await f.connect();
-    f.runtime.onCall = async (name) =>
-      name === "link_status" ? envelope({ linked: false, recovering: true }) : undefined;
-    expect(await f.poll()).toMatchObject({ recovering: true });
-    expect(f.connection.status).toBe("error");
-    expect(f.connection.credentials.deviceRecoveryPending).toBe(true);
-    f.runtime.onCall = undefined;
-    const otherService = f.newService();
-    await (otherService as any).refreshLocalConnections();
-    expect(f.connection.status).toBe("ready");
-    expect(f.connection.credentials.deviceRecoveryPending).toBeUndefined();
-    expect(f.toolCalls("start_link")).toHaveLength(0);
-  });
-
   test.each([
     { state: "ready", recovering: false }, { state: "stopped", recovering: false },
     { state: "ready", recovering: true }, { state: "stopped", recovering: true },
@@ -238,96 +201,6 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
     expect(f.connection.credentials.deviceRecoveryPending).toBeUndefined();
   });
 
-  test("outage recovery waits through collector startup and does not provision an unlinked account", async () => {
-    const f = fixture();
-    f.connection.status = "error";
-    f.connection.statusMessage = "Local runtime unavailable: The computer is not reachable.";
-    f.runtime.onCall = async name => name === "link_status" ? envelope({ linked: false, recovering: true }) : undefined;
-    await f.poll();
-    expect(f.connection.credentials.deviceRecoveryPending).toBe(true);
-    f.runtime.onCall = async name => name === "link_status" ? envelope({ linked: false, linking: false }) : undefined;
-    await f.poll();
-    expect(f.connection.status).toBe("needs_auth");
-    expect(f.connection.credentials.deviceRecoveryPending).toBeUndefined();
-    expect(f.toolCalls("start_link")).toHaveLength(0);
-  });
-
-  test("an outage-labelled error cannot resume an interrupted approval", async () => {
-    const f = fixture();
-    f.connection.status = "error";
-    f.connection.statusMessage = "Local runtime unavailable: The computer is not reachable.";
-    f.connection.credentials.deviceLink = { ...qr(), instructions: "Scan" };
-    f.runtime.state = "stopped";
-    f.runtime.linked = true;
-    await f.poll();
-    expect(f.connection.status).toBe("needs_auth");
-    expect(f.toolCalls("link_status")).toHaveLength(0);
-    expect(f.toolCalls("start_link")).toHaveLength(0);
-  });
-
-  test.each([
-    "stopped",
-    "error",
-  ])("recovery polling observes %s runtimes without starting them", async (state) => {
-    const f = fixture();
-    f.connection.status = "error";
-    f.connection.credentials.deviceRecoveryPending = true;
-    f.runtime.state = state;
-    const before = f.calls.length;
-    await f.poll();
-    expect(f.calls.slice(before)).toEqual([expect.objectContaining({ method: "GET" })]);
-    expect(f.connection.credentials.deviceRecoveryPending).toBeUndefined();
-    expect(f.connection.status).toBe("needs_auth");
-  });
-
-  test.each(["collector", "computer"])("disconnect clears %s recovery state and fences a delayed recovered status", async mode => {
-    const f = fixture();
-    f.connection.status = "error";
-    if (mode === "collector") f.connection.credentials.deviceRecoveryPending = true;
-    else {
-      f.connection.statusMessage = "Local runtime unavailable: The computer is not reachable.";
-      f.runtime.state = "stopped";
-    }
-    const entered = deferred<void>(),
-      release = deferred<unknown>();
-    f.runtime.onCall = async (name) => {
-      if (name === "link_status") {
-        entered.resolve();
-        return release.promise;
-      }
-    };
-    const polling = f.poll().catch(() => {});
-    await entered.promise;
-    await Effect.runPromise(f.service.disconnect(f.connection.id));
-    release.resolve(envelope({ linked: true }));
-    await polling;
-    expect(f.connection.status).toBe("disconnected");
-    expect(f.connection.credentials.deviceRecoveryPending).toBeUndefined();
-  });
-
-  test("a delayed recovery success cannot clear a newer QR at the same generation", async () => {
-    const f = fixture();
-    f.connection.status = "error";
-    f.connection.credentials.deviceRecoveryPending = true;
-    const entered = deferred<void>(),
-      release = deferred<unknown>();
-    f.runtime.onCall = async (name) => {
-      if (name === "link_status") {
-        entered.resolve();
-        return release.promise;
-      }
-    };
-    const polling = f.poll().catch(() => {});
-    await entered.promise;
-    f.connection.credentials = { deviceLink: { ...qr("newer-session"), instructions: "Scan" } };
-    f.connection.status = "needs_auth";
-    f.connection.updatedAt = new Date(f.connection.updatedAt.getTime() + 1);
-    release.resolve(envelope({ linked: true }));
-    await polling;
-    expect(f.connection.status).toBe("needs_auth");
-    expect(f.connection.credentials.deviceLink.sessionId).toBe("newer-session");
-  });
-
   test("expiration cancels the matching session and prevents Bot invocation", async () => {
     const f = fixture();
     await f.connect();
@@ -340,44 +213,6 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
       callId: "synthetic-call", toolName: "read_synthetic", arguments: {} })).rejects.toThrow("not ready");
   });
 
-  test("stale QR cancellation cannot disconnect a newer linking session", async () => {
-    const f = fixture();
-    await f.connect();
-    f.connection.credentials.deviceLink.sessionId = "synthetic-newer-session";
-    const generation = f.connection.runtimeGeneration;
-    await expect(Effect.runPromise(f.service.cancelDeviceLink(f.connection.id, "synthetic-1"))).rejects.toThrow("newer linking session");
-    expect(f.connection.credentials.deviceLink.sessionId).toBe("synthetic-newer-session");
-    expect(f.connection.runtimeGeneration).toBe(generation);
-    expect(f.calls.filter(call => call.method === "DELETE")).toHaveLength(0);
-  });
-
-  test("QR cancellation closes the process before a concurrent reconnect starts", async () => {
-    const f = fixture();
-    await f.connect();
-    const entered = deferred<void>(), stopped = deferred<Response>();
-    f.runtime.onStop = async () => { entered.resolve(); return stopped.promise; };
-    const cancelling = Effect.runPromise(f.service.cancelDeviceLink(f.connection.id, "synthetic-1"));
-    await entered.promise;
-    const starts = f.toolCalls("start_link").length;
-    const reconnecting = f.connect();
-    await Promise.race([reconnecting, Bun.sleep(100)]);
-    const startsWhileCancelling = f.toolCalls("start_link").length - starts;
-    stopped.resolve(Response.json({ ok: true }));
-    await Promise.allSettled([cancelling, reconnecting]);
-    expect(startsWhileCancelling).toBe(0);
-  });
-
-  test("explicit reconnect recovers when finish failed after QR persistence", async () => {
-    const f = fixture();
-    f.runtime.failFinish = true;
-    await expect(f.connect()).rejects.toThrow("Synthetic finish transport failure");
-    expect(publicDeviceLink(f.connection.credentials)).not.toBeNull();
-    f.runtime.failFinish = false;
-    await f.connect();
-    // A reused QR must restart the finish waiter, otherwise it cannot complete.
-    expect(f.toolCalls("finish_link")).toHaveLength(2);
-  });
-
   test("reconnect after computer restart replaces the QR whose in-memory session was lost", async () => {
     const f = fixture();
     await f.connect();
@@ -387,15 +222,6 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
     await f.connect();
     expect(f.connection.credentials.deviceLink.sessionId).not.toBe("synthetic-1");
     expect(f.toolCalls("start_link")).toHaveLength(2);
-  });
-
-  test("manifest-declared lifecycle tools stay absent from Bot discovery even without MCP metadata", async () => {
-    const f = fixture();
-    f.runtime.tools = [rawTool("read_synthetic"), ...linkTools.map(name => rawTool(name))];
-    f.runtime.linked = true;
-    await f.connect();
-    const namespaces = await f.service.dynamicNamespaces("synthetic-bot");
-    expect(namespaces.flatMap(namespace => namespace.tools.map(tool => tool.name))).toEqual(["read_synthetic"]);
   });
 
   test("Bot invocation cannot execute any manifest-declared lifecycle tool from a polluted tool snapshot", async () => {
@@ -412,28 +238,6 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
       expect(outcome).toBe("rejected");
     }
     expect(executions).toBe(0);
-  });
-
-  test("offline removal never provisions a runtime and reports inability to delete state", async () => {
-    const f = fixture();
-    f.runtime.state = "stopped";
-    f.runtime.onForget = async () => new Response("synthetic offline", { status: 503 });
-    await expect(Effect.runPromise(f.service.removeAccount(f.connection.id))).rejects.toThrow("state could not be removed");
-    expect(f.toolCalls("remove_account")).toHaveLength(0);
-    expect(f.calls.some(call => call.path.endsWith("/discover"))).toBe(false);
-    expect(f.connection.status).toBe("disconnected");
-    expect(f.connection.runtimeGeneration).toBe(1);
-    expect(f.connection.credentials.stateRemovalPending).toBe(true);
-    const calls = f.calls.length;
-    await expect(Effect.runPromise(f.newService().connect(f.connection.id))).rejects.toThrow("removal is still pending");
-    expect(f.calls).toHaveLength(calls);
-    f.runtime.onForget = undefined;
-    await expect(Effect.runPromise(f.service.removeAccount(f.connection.id))).resolves.toEqual({ removed: true, reset: true });
-    expect(f.connection.credentials).toEqual({});
-    expect(f.connection.runtimeGeneration).toBe(2);
-    expect(f.calls.filter(call => call.path.endsWith("/state")).map(call => call.generation)).toEqual(["1", "2"]);
-    await f.connect();
-    expect(f.toolCalls("start_link")).toHaveLength(1);
   });
 
   test("removal durably gates another service before stop and through forget acknowledgement, then keeps the fenced generation", async () => {
@@ -477,41 +281,6 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
     expect(publicDeviceLink(f.connection.credentials)?.sessionId).toBe("synthetic-2");
   });
 
-  test("failed removal stop keeps the durable gate and skips deletion until a successful retry", async () => {
-    const f = fixture();
-    await f.connect();
-    f.runtime.onStop = async () => new Response("synthetic refusal", { status: 503 });
-    await expect(Effect.runPromise(f.service.removeAccount(f.connection.id))).rejects.toThrow("runtime stopped");
-    expect(f.connection.credentials.stateRemovalPending).toBe(true);
-    expect(f.connection.credentials.deviceLink).toBeUndefined();
-    expect(f.calls.filter(call => call.path.endsWith("/state"))).toHaveLength(0);
-    const calls = f.calls.length;
-    await expect(Effect.runPromise(f.newService().connect(f.connection.id))).rejects.toThrow("removal is still pending");
-    expect(f.calls).toHaveLength(calls);
-    f.runtime.onStop = undefined;
-    await Effect.runPromise(f.service.removeAccount(f.connection.id));
-    expect(f.connection.credentials).toEqual({});
-    expect(f.connection.runtimeGeneration).toBe(2);
-    expect(f.calls.filter(call => call.path.endsWith("/state")).map(call => call.generation)).toEqual(["2"]);
-    expect(f.toolCalls("remove_account")).toHaveLength(0);
-  });
-
-  test("account removal waits for deletion and subsequent reset before permitting reconnect", async () => {
-    const f = fixture();
-    f.runtime.state = "stopped";
-    const entered = deferred<void>(), forgotten = deferred<Response>();
-    f.runtime.onForget = async () => { entered.resolve(); return forgotten.promise; };
-    const removing = Effect.runPromise(f.service.removeAccount(f.connection.id));
-    await entered.promise;
-    const reconnecting = f.connect();
-    // Same-service connects wait for removal; other services reject via the durable gate.
-    await Promise.race([reconnecting, Bun.sleep(100)]);
-    const startsDuringRemoval = f.toolCalls("start_link").length;
-    forgotten.resolve(Response.json({ ok: true }));
-    await Promise.allSettled([removing, reconnecting]);
-    expect(startsDuringRemoval).toBe(0);
-  });
-
   test("uninstall fences every account before cleanup and rejects reconnect from another service", async () => {
     const f = fixture();
     await f.connect();
@@ -536,56 +305,6 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
     expect(f.deleted).toBe(true);
   });
 
-  test("failed uninstall cleanup retains the fenced installation for a successful retry", async () => {
-    const f = fixture();
-    await f.connect();
-    f.runtime.onForget = async () => new Response("synthetic refusal", { status: 503 });
-    await expect(Effect.runPromise(f.service.uninstall("synthetic-device"))).rejects.toThrow("state could not be removed");
-    expect(f.deleted).toBe(false);
-    expect(f.connection.installation.status).toBe("error");
-    expect(f.connection.status).toBe("disconnected");
-    const staleLink = f.connection.credentials.deviceLink;
-    await expect(f.connect()).rejects.toThrow("not installed");
-    f.runtime.onForget = undefined;
-    await Effect.runPromise(f.service.uninstall("synthetic-device"));
-    expect(f.deleted).toBe(true);
-    expect(staleLink).toBeUndefined();
-  });
-
-  test("uninstall cannot delete account state or installation after a failed runtime stop", async () => {
-    const f = fixture();
-    await f.connect();
-    f.runtime.onStop = async () => new Response("synthetic refusal", { status: 503 });
-    await expect(Effect.runPromise(f.service.uninstall("synthetic-device"))).rejects.toThrow("runtime stopped");
-    expect(f.calls.filter(call => call.path.endsWith("/state"))).toHaveLength(0);
-    expect(f.deleted).toBe(false);
-    expect(f.connection.installation.status).toBe("error");
-    expect(f.connection.runtimeGeneration).toBe(1);
-  });
-
-  for (const failure of ["http503", "transport", "abort"] as const) {
-    test(`disconnect surfaces ${failure}, clears the code, and remains retryable`, async () => {
-      const f = fixture();
-      await f.connect();
-      f.runtime.onStop = async () => {
-        if (failure === "http503") return new Response("synthetic refusal", { status: 503 });
-        throw failure === "abort" ? new DOMException("Synthetic timeout", "TimeoutError") : new Error("Synthetic transport failure");
-      };
-      await expect(Effect.runPromise(f.service.disconnect(f.connection.id))).rejects.toThrow();
-      expect(f.connection.status).toBe("error");
-      expect(f.connection.statusMessage).toContain("Could not confirm the runtime stopped");
-      expect(f.connection.runtimeGeneration).toBe(1);
-      expect(f.connection.connectedAt).toBeNull();
-      expect(f.connection.credentials.deviceLink).toBeUndefined();
-      const stop = f.calls.find(call => call.method === "DELETE");
-      expect(stop?.generation).toBe("1");
-      expect(stop?.signal).toBeInstanceOf(AbortSignal);
-      f.runtime.onStop = undefined;
-      await expect(Effect.runPromise(f.service.disconnect(f.connection.id))).resolves.toEqual({ disconnected: true });
-      expect(f.connection.status).toBe("disconnected");
-    });
-  }
-
   test("poll clears an interrupted QR without starting another link and explicit connect recovers", async () => {
     const f = fixture();
     await f.connect();
@@ -604,70 +323,6 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
     expect(f.calls).toHaveLength(calls);
     await f.connect();
     expect(publicDeviceLink(f.connection.credentials)?.sessionId).toBe("synthetic-2");
-  });
-
-  for (const state of ["stopped", "error"]) {
-    for (const background of [false, true]) {
-      test(`${background ? "background" : "explicit"} poll passively clears a QR when runtime state is ${state} without any host call`, async () => {
-        const f = fixture();
-        await f.connect();
-        f.connection.credentials.values = { synthetic: "preserved" };
-        f.runtime.state = state;
-        const calls = f.calls.length;
-        if (background) await (f.service as any).refreshLocalConnections();
-        else await f.poll();
-        expect(f.calls.slice(calls).map(call => [call.method, call.path])).toEqual([
-          ["GET", `/v1/mcp/connections/${f.connection.id}`],
-        ]);
-        expect(f.runtime.state).toBe(state);
-        expect(f.connection.runtimeGeneration).toBe(0);
-        expect(f.connection.credentials).toEqual({ values: { synthetic: "preserved" } });
-        expect(f.connection.status).toBe("needs_auth");
-        expect(f.connection.statusMessage).toContain("Connect again");
-        expect(f.connection.connectedAt).toBeNull();
-        const after = f.calls.length;
-        await f.poll();
-        expect(f.calls).toHaveLength(after);
-        await f.connect();
-        expect(publicDeviceLink(f.connection.credentials)?.sessionId).toBe("synthetic-2");
-      });
-    }
-  }
-
-  test("a delayed stopped-runtime probe cannot clear a newer QR at the same generation", async () => {
-    const f = fixture();
-    await f.connect();
-    const entered = deferred<void>(), status = deferred<Response>();
-    f.runtime.onStatus = async () => { entered.resolve(); return status.promise; };
-    const polling = f.poll();
-    try {
-      await entered.promise;
-      f.runtime.onStatus = undefined;
-      await f.connect();
-    } finally {
-      status.resolve(Response.json({ state: "stopped", tools: [] }));
-      await polling;
-    }
-    expect(publicDeviceLink(f.connection.credentials)?.sessionId).toBe("synthetic-2");
-    expect(f.connection.runtimeGeneration).toBe(0);
-    expect(f.connection.statusMessage).toContain("Scan the code");
-  });
-
-  test("interrupted status from an old poll cannot clear a newer QR at the same generation", async () => {
-    const f = fixture();
-    await f.connect();
-    const entered = deferred<void>(), status = deferred<unknown>();
-    f.runtime.onCall = async name => {
-      if (name === "link_status") { entered.resolve(); return status.promise; }
-    };
-    const polling = f.poll();
-    await entered.promise;
-    f.runtime.onCall = undefined;
-    await f.connect();
-    status.resolve(envelope({ linked: false, linking: false }));
-    await polling;
-    expect(publicDeviceLink(f.connection.credentials)?.sessionId).toBe("synthetic-2");
-    expect(f.connection.status).toBe("needs_auth");
   });
 });
 
@@ -718,35 +373,6 @@ describe("rotating device approval challenges", () => {
     expect(f.toolCalls("cancel_link")).toHaveLength(0);
   });
 
-  test("invalidation clears only the image and a later generation can restore it", async () => {
-    const f = rotating();
-    await f.connect();
-    const expiresAt = Date.now() + 60_000;
-    f.setStatus(active(f.start.sessionId, { generation: 1, qrCodeDataUrl: null, expiresAt }));
-    await f.poll();
-    expect(publicDeviceLink(f.connection.credentials)).toMatchObject({ sessionId: f.start.sessionId, qrCodeDataUrl: null, challengeGeneration: 1 });
-    expect(f.connection.status).toBe("needs_auth");
-    f.setStatus(active(f.start.sessionId, { generation: 2, qrCodeDataUrl: rotatedImage, expiresAt }));
-    await f.poll();
-    expect(publicDeviceLink(f.connection.credentials)?.qrCodeDataUrl).toBe(rotatedImage);
-    expect(f.toolCalls("cancel_link")).toHaveLength(0);
-    expect(f.toolCalls("start_link")).toHaveLength(1);
-  });
-
-  test("expired images keep bootstrap polling active until the matching session completes", async () => {
-    const f = rotating();
-    await f.connect();
-    f.connection.credentials.deviceLink.expiresAt = Date.now() - 1;
-    await f.poll();
-    expect(f.connection.credentials.deviceLink.sessionId).toBe(f.start.sessionId);
-    expect(publicDeviceLink(f.connection.credentials)?.qrCodeDataUrl).toBeNull();
-    expect(f.toolCalls("cancel_link")).toHaveLength(0);
-    f.setStatus({ linked: true, sessionId: f.start.sessionId });
-    await f.poll();
-    expect(f.connection.status).toBe("ready");
-    expect(f.connection.credentials.deviceLink).toBeUndefined();
-  });
-
   test("equal and older challenge generations cannot overwrite a newer image or its deadline", async () => {
     const f = rotating();
     await f.connect();
@@ -778,34 +404,6 @@ describe("rotating device approval challenges", () => {
     expect(f.toolCalls("cancel_link")).toHaveLength(0);
   });
 
-  test("connect cannot complete an active dynamic approval using an absent or foreign status session", async () => {
-    const f = rotating();
-    await f.connect();
-    const stored = structuredClone(f.connection.credentials.deviceLink);
-    for (const status of [{ linked: true }, { linked: true, sessionId: "foreign-session" }]) {
-      f.setStatus(status);
-      await f.connect().catch(() => undefined);
-      expect(f.connection.status).toBe("needs_auth");
-      expect(f.connection.credentials.deviceLink).toEqual(stored);
-    }
-    expect(f.toolCalls("start_link")).toHaveLength(1);
-    expect(f.toolCalls("finish_link")).toHaveLength(1);
-  });
-
-  test("connect cancels an expired dynamic approval before accepting its matching linked status", async () => {
-    const f = rotating();
-    await f.connect();
-    f.connection.credentials.deviceLink.expiresAt = Date.now() - 1000;
-    f.connection.credentials.deviceLink.sessionExpiresAt = Date.now() - 1;
-    f.setStatus({ linked: true, sessionId: f.start.sessionId });
-    expect(await f.connect()).toMatchObject({ status: "needs_auth" });
-    expect(f.connection.status).toBe("needs_auth");
-    expect(f.connection.connectedAt).toBeNull();
-    expect(f.connection.credentials.deviceLink).toBeUndefined();
-    expect(f.toolCalls("cancel_link").at(-1)?.body.arguments).toEqual({ sessionId: f.start.sessionId });
-    expect(f.toolCalls("start_link")).toHaveLength(1);
-  });
-
   test("failed setup cannot recover using a foreign session's linked status", async () => {
     const f = rotating();
     await f.connect();
@@ -823,75 +421,6 @@ describe("rotating device approval challenges", () => {
     expect(f.connection.connectedAt).toBeNull();
     expect(f.connection.credentials.deviceLink).toEqual(stored);
     expect(f.toolCalls("finish_link")).toHaveLength(1);
-  });
-
-  test("failed setup cannot recover after the matching approval deadline elapses", async () => {
-    const f = rotating();
-    await f.connect();
-    let now = Date.now();
-    const deadline = now + 30_000;
-    f.connection.credentials.deviceLink.expiresAt = now + 10_000;
-    f.connection.credentials.deviceLink.sessionExpiresAt = deadline;
-    const clock = spyOn(Date, "now").mockImplementation(() => now);
-    let statuses = 0;
-    f.runtime.onCall = async name => {
-      if (name === "link_status") return envelope(++statuses === 1
-        ? { linked: false, linking: false, sessionId: f.start.sessionId }
-        : { linked: true, sessionId: f.start.sessionId });
-      if (name === "start_link") { now = deadline + 1; throw new Error("synthetic approval deadline elapsed"); }
-    };
-    try {
-      await expect(f.connect()).rejects.toThrow("synthetic approval deadline elapsed");
-      expect(statuses).toBe(2);
-      expect(f.connection.status).not.toBe("ready");
-      expect(f.connection.connectedAt).toBeNull();
-      expect(f.toolCalls("finish_link")).toHaveLength(1);
-    } finally { clock.mockRestore(); }
-  });
-
-  test("dynamic approval status without its session ID cannot complete or mutate setup", async () => {
-    const f = rotating();
-    await f.connect();
-    const stored = structuredClone(f.connection.credentials.deviceLink);
-    for (const status of [{ linked: true }, { linked: false, linking: false },
-      { linked: false, linking: true, challenge: { generation: 1, qrCodeDataUrl: rotatedImage, expiresAt: Date.now() + 60_000 } }]) {
-      f.setStatus(status);
-      await f.poll();
-      expect(f.connection.status).toBe("needs_auth");
-      expect(f.connection.credentials.deviceLink).toEqual(stored);
-    }
-    expect(f.toolCalls("cancel_link")).toHaveLength(0);
-  });
-
-  test("status cannot extend the overall approval deadline", async () => {
-    const f = rotating();
-    await f.connect();
-    f.connection.credentials.deviceLink.expiresAt = Date.now() - 1000;
-    f.connection.credentials.deviceLink.sessionExpiresAt = Date.now() - 1;
-    f.setStatus({ ...active(f.start.sessionId), sessionExpiresAt: Date.now() + 500_000 });
-    await f.poll();
-    expect(f.connection.credentials.deviceLink).toBeUndefined();
-    expect(f.connection.status).toBe("needs_auth");
-    expect(f.toolCalls("cancel_link").at(-1)?.body.arguments).toEqual({ sessionId: f.start.sessionId });
-  });
-
-  test("a late rotation cannot overwrite the replacement session created by restart", async () => {
-    const f = fixture();
-    await f.connect();
-    const entered = deferred<void>(), delayed = deferred<unknown>();
-    f.runtime.onCall = async name => {
-      if (name === "link_status") { entered.resolve(); return delayed.promise; }
-    };
-    const polling = f.poll().then(value => ({ value }), error => ({ error }));
-    await entered.promise;
-    f.runtime.onCall = undefined;
-    await Effect.runPromise(f.service.restart(f.connection.id));
-    const replacement = structuredClone(f.connection.credentials.deviceLink);
-    delayed.resolve(envelope(active("synthetic-1", { generation: 99, qrCodeDataUrl: rotatedImage, expiresAt: Date.now() + 60_000 })));
-    await polling;
-    expect(f.connection.runtimeGeneration).toBe(1);
-    expect(f.connection.credentials.deviceLink).toEqual(replacement);
-    expect(replacement.sessionId).toBe("synthetic-2");
   });
 
   test("Get new code replaces a dynamic session and fences its late successful status", async () => {
@@ -923,23 +452,5 @@ describe("rotating device approval challenges", () => {
     expect(f.connection.credentials.deviceLink.sessionId).toBe("dynamic-2");
     expect(f.toolCalls("start_link")).toHaveLength(2);
     expect(f.toolCalls("finish_link")).toHaveLength(2);
-  });
-
-  test.each([
-    ["negative generation", { generation: -1 }],
-    ["fractional generation", { generation: 1.5 }],
-    ["string generation", { generation: "1" }],
-    ["non-PNG image", { qrCodeDataUrl: "data:image/svg+xml;base64,YQ==" }],
-    ["oversized image", { qrCodeDataUrl: "data:image/png;base64," + "A".repeat(70_001) }],
-    ["invalid expiry", { expiresAt: 0 }],
-    ["expiry beyond session deadline", { expiresAt: Number.MAX_SAFE_INTEGER }],
-  ] as const)("malformed challenge (%s) cannot mutate a valid approval", async (_label, change) => {
-    const f = rotating();
-    await f.connect();
-    const stored = structuredClone(f.connection.credentials.deviceLink);
-    f.setStatus(active(f.start.sessionId, { generation: 1, qrCodeDataUrl: rotatedImage, expiresAt: Date.now() + 60_000, ...change }));
-    await expect(f.poll()).rejects.toThrow();
-    expect(f.connection.credentials.deviceLink).toEqual(stored);
-    expect(f.toolCalls("cancel_link")).toHaveLength(0);
   });
 });

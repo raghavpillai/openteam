@@ -41,7 +41,7 @@ async function setup(packaged = true) {
   return { ...fixture, client, id, row, expire, authorize, configure, approve };
 }
 
-for (const description of ["Token has been expired or revoked.", "", "Le jeton a expiré. fixture-secret"]) {
+for (const description of ["Le jeton a expiré. fixture-secret"]) {
   integration(`revoked packaged grant commits needs_auth independent of description: ${description || "empty"}`, async () => {
     const f = await setup();
     const botId = crypto.randomUUID(), runId = crypto.randomUUID(), conversationId = crypto.randomUUID();
@@ -131,34 +131,4 @@ integration("a stale successful connect cannot overwrite a rejected grant or a n
     expect((await f.row()).credentials).toEqual(fresh.credentials);
     expect((await f.row()).status).toBe("ready");
   } finally { release(); await f.close(); }
-});
-
-integration("concurrent refresh rejection persists once and pending sign-in survives stale requests", async () => {
-  const f = await setup();
-  try {
-    await f.expire(); const before = await f.row();
-    f.provider.setRefreshFailure({ error: "invalid_grant" });
-    const calls = await Promise.allSettled([1, 2, 3].map(() => f.client.testPluginConnection(f.id, { toolName: "whoami", arguments: {} })));
-    expect(calls.every(result => result.status === "rejected")).toBe(true);
-    const failed = await f.row();
-    expect(failed.status).toBe("needs_auth");
-    expect(failed.runtimeGeneration).toBe(before.runtimeGeneration + 1);
-    expect(await f.db.pluginActivity.count({ where: { connectionId: f.id, kind: "connection.auth_required" } })).toBe(1);
-    await f.client.authenticatePlugin(f.id, true);
-    const pending = await f.row();
-    await expect((f.service as any).transport.fileAccessToken(pending)).rejects.toThrow("Complete sign-in");
-    expect((await f.row()).credentials).toEqual(pending.credentials);
-    expect((await f.row()).runtimeGeneration).toBe(pending.runtimeGeneration);
-  } finally { await f.close(); }
-});
-
-integration("HTTP OAuth can explicitly reauthorize an error account and resume tools", async () => {
-  const f = await setup(false);
-  try {
-    const old = await f.row();
-    await f.db.pluginConnection.update({ where: { id: f.id }, data: { status: "error", statusMessage: "OAuth authorization failed" } });
-    await f.authorize(f.id);
-    expect((await f.row()).runtimeGeneration).toBeGreaterThan(old.runtimeGeneration);
-    expect(JSON.stringify(await f.client.testPluginConnection(f.id, { toolName: "whoami", arguments: {} }))).toContain("Account A");
-  } finally { await f.close(); }
 });

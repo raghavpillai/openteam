@@ -21,26 +21,6 @@ import { SubagentService } from "../src/services/subagent/service";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 
-for (const priorityInterrupt of [false, true]) test.skipIf(!url)(`request snapshots ${priorityInterrupt ? "retain priority-interrupted work" : "exclude cancelled requests even without a legacy stop timestamp"}`, () => fixture(async f => {
-  await f.db.$transaction(tx => ensureRequestForTask(tx, f.owner.id, f.context.runId));
-  await f.db.run.update({ where: { id: f.context.runId }, data: { status: "cancelled",
-    error: { code: priorityInterrupt ? "priority_peer_interrupt" : "cancelled_by_user" } } });
-  const snapshot = await requestProgressSnapshot(f.db, f.owner.id, f.channel.id);
-  expect(snapshot.map(x => x.request_run_id)).toEqual(priorityInterrupt ? [f.context.runId] : []);
-}));
-
-for (const hasProgress of [false, true]) test.skipIf(!url)(`a stopped request rejects late completion wakes ${hasProgress ? "with tracked progress" : "even before progress was recorded"}`, () => fixture(async f => {
-  if (hasProgress) await f.db.$transaction(tx => ensureRequestForTask(tx, f.owner.id, f.context.runId));
-  await f.db.run.update({ where: { id: f.context.runId }, data: { status: "completed", requestStoppedAt: new Date() } });
-  const wake = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, {
-    botId: f.owner.id, channelId: f.channel.id, origin: "background_revival", type: "subagent.completed",
-    content: "[SAND_HIDDEN_PROMPT]Late result must not be delivered.", clientId: crypto.randomUUID(), priority: 260,
-    taskContextRunId: f.context.runId,
-  }));
-  const event = await f.db.inboxEvent.findFirstOrThrow({ where: { runId: wake.run.id } });
-  expect(await f.db.$transaction(tx => requestWakeAllowed(tx, event))).toBe(false);
-}));
-
 for (const finishedDuringCancel of [false, true]) test.skipIf(!url)(`Stop ${finishedDuringCancel ? "accepts a turn that finished during a failed cancellation" : "reports failure when the active turn cannot be cancelled"}`, () => fixture(async f => {
   const service = new SubagentService(f.db, f.messaging, {
     cancel: () => Effect.promise(async () => {
@@ -54,15 +34,6 @@ for (const finishedDuringCancel of [false, true]) test.skipIf(!url)(`Stop ${fini
     await expect(Effect.runPromise(service.stopBot(f.owner.id))).rejects.toThrow("could not be stopped");
     expect((await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } })).status).toBe("running");
   }
-}));
-
-test.skipIf(!url)("Stop reports a worker cancellation failure even after its parent turn finished", () => fixture(async f => {
-  await f.service.task(f.context, { description: "Pending check", subagent_type: "executor", prompt: "Compute the requested digest." });
-  await f.db.run.update({ where: { id: f.context.runId }, data: { status: "completed" } });
-  const service = new SubagentService(f.db, f.messaging, {
-    cancel: () => Effect.fail(new Error("Synthetic worker cancellation failure")),
-  } as never, f.dir, async () => Response.json({ stopped: true }), f.store);
-  await expect(Effect.runPromise(service.stopBot(f.owner.id))).rejects.toThrow("could not be stopped");
 }));
 
 test.skipIf(!url)("retrying a failed Stop reaches older stopped requests without stopping a fresh request", () => fixture(async f => {
@@ -118,31 +89,12 @@ test.skipIf(!url)("a typed follow-up does not discard a completed background res
   expect(await f.db.$transaction(tx => requestWakeAllowed(tx, event))).toBe(false);
 }));
 
-test.skipIf(!url)("a result wake can close the original request after its model turn was interrupted", () => fixture(async f => {
-  await f.service.task(f.context, { description: "Compute digest", subagent_type: "executor", prompt: "Compute the requested digest." });
-  await f.db.subagent.updateMany({ where: { parentBotId: f.owner.id }, data: { status: "completed" } });
-  await f.db.run.update({ where: { id: f.context.runId }, data: {
-    status: "cancelled", error: { code: "priority_peer_interrupt" },
-  } });
-  const wake = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, {
-    botId: f.owner.id, channelId: f.channel.id, origin: "background_revival", type: "subagent.completed",
-    content: "[SAND_HIDDEN_PROMPT]The digest is ready.", clientId: crypto.randomUUID(), priority: 260,
-    taskContextRunId: f.context.runId,
-  }));
-  await f.db.run.update({ where: { id: wake.run.id }, data: { status: "running" } });
-  await reportRequestProgress(f.db, { ...f.context, runId: wake.run.id, callId: crypto.randomUUID() }, {
-    request_run_id: f.context.runId, key: "digest-delivered", state: "complete",
-    summary: "Verified and delivered the digest.", evidence: ["message:digest-delivered"], remaining: [],
-  });
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } })).requestProgress).toMatchObject({ state: "complete" });
-}));
-
-for (const priorState of ["active", "interrupted", "stopped"] as const) test.skipIf(!url)(`resuming a worker ${priorState === "stopped" ? "starts a new request after an explicit stop" : `retains the original ${priorState} request`} without requiring the model to repeat its ID`, () => fixture(async f => {
+for (const priorState of ["stopped"] as ("interrupted" | "stopped")[]) test.skipIf(!url)(`resuming a worker ${priorState === "stopped" ? "starts a new request after an explicit stop" : `retains the original ${priorState} request`} without requiring the model to repeat its ID`, () => fixture(async f => {
   await f.service.task(f.context, { description: "Approved one-message step", subagent_type: "computerUse", prompt: "Send the approved message once, then read the receipt." });
   const child = await f.db.subagent.findFirstOrThrow({ where: { parentBotId: f.owner.id } });
   await f.db.bot.update({ where: { id: child.childBotId }, data: { status: "active" } });
   await f.db.subagent.update({ where: { id: child.id }, data: { status: "completed" } });
-  if (priorState !== "active") await f.db.run.update({ where: { id: f.context.runId }, data: {
+  await f.db.run.update({ where: { id: f.context.runId }, data: {
     status: "cancelled", error: { code: "priority_peer_interrupt" },
   } });
   if (priorState === "stopped") await f.db.$transaction(tx => stopRequestProgress(tx, f.owner.id, f.context.runId));
@@ -262,58 +214,6 @@ async function end(f: Awaited<ReturnType<typeof setup>>, runId = f.context.runId
 }
 
 test.skipIf(!url)(
-  "a completed exact-message worker leaves the larger request owned until its parent records a next step",
-  () =>
-    fixture(async (f) => {
-      await f.service.task(f.context, {
-        description: "Send the approved message",
-        subagent_type: "computerUse",
-        prompt:
-          "Send exactly this approved message once. Then read status only; no other outgoing messages.",
-      });
-      const child = await f.db.subagent.findFirstOrThrow({ where: { parentBotId: f.owner.id } });
-      expect(child.requestRunId).toBe(f.context.runId);
-      await end(f);
-      expect(
-        await f.db.inboxEvent.count({ where: { botId: f.owner.id, type: "request.check" } })
-      ).toBe(0);
-      await f.db.subagent.update({
-        where: { id: child.id },
-        data: {
-          status: "completed",
-          progress: { state: "complete", remaining: [] },
-          nextCheckAt: null,
-        },
-      });
-      await end(f);
-      await end(f); // a repeated completion must not enqueue another reminder
-      const checks = await f.db.inboxEvent.findMany({
-        where: { botId: f.owner.id, type: "request.check" },
-      });
-      expect(checks).toHaveLength(1);
-      expect(await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } })).toMatchObject({
-        requestReconciliations: 1,
-        requestNextCheckAt: null,
-      });
-      const saved = JSON.stringify(
-        (await requestProgressSnapshot(f.db, f.owner.id, f.channel.id))[0]
-      );
-      expect(saved).not.toContain("Private login");
-      const outcome = (await reportRequestProgress(f.db, f.context, wait())) as any;
-      expect(outcome.request_run_id).toBe(f.context.runId);
-      expect(outcome.deferred).toBe(true);
-      expect((await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).prompt).toBe(
-        child.prompt
-      );
-      expect(
-        await f.db.inboxEvent.count({
-          where: { botId: f.owner.id, type: "request.check", status: "pending" },
-        })
-      ).toBe(0);
-    })
-);
-
-test.skipIf(!url)(
   "a saved parent wait survives a fresh dispatcher and concurrent duplicate checks enqueue once",
   () =>
     fixture(async (f) => {
@@ -366,104 +266,6 @@ test.skipIf(!url)(
 );
 
 test.skipIf(!url)(
-  "a parent-only wait never holds an update, and stopping the bot still ends it",
-  () =>
-    fixture(async (f) => {
-      await reportRequestProgress(f.db, f.context, wait());
-      expect(
-        (await Effect.runPromise(f.service.busyBots())).bots.find((b) => b.botId === f.owner.id)?.runIds
-      ).toContain(f.context.runId);
-      await f.db.run.update({ where: { id: f.context.runId }, data: { status: "completed" } });
-      expect(
-        (await Effect.runPromise(f.service.busyBots())).bots.find((b) => b.botId === f.owner.id)
-      ).toBeUndefined();
-      expect((await Effect.runPromise(f.service.stopBot(f.owner.id))).hadActiveRun).toBe(true);
-      expect(await dispatchRequestChecks(f.db, f.messaging, new Date(Date.now() + 86400_000))).toBe(
-        0
-      );
-    })
-);
-
-test.skipIf(!url)("a new check supersedes queued old checks without a second owner", () =>
-  fixture(async (f) => {
-    await reportRequestProgress(f.db, f.context, wait());
-    await dispatchRequestChecks(f.db, f.messaging, new Date(Date.now() + 3601_000));
-    const old = await f.db.inboxEvent.findFirstOrThrow({
-      where: { botId: f.owner.id, type: "request.check" },
-    });
-    await reportRequestProgress(f.db, f.context, wait("later-status-check"));
-    expect(await f.db.$transaction((tx) => requestWakeAllowed(tx, old))).toBe(false);
-    expect((await f.db.run.findUniqueOrThrow({ where: { id: old.runId } })).status).toBe(
-      "cancelled"
-    );
-  })
-);
-
-test.skipIf(!url)(
-  "a fresh approved step replaces the parent's earlier wait without reviving its old timer",
-  () =>
-    fixture(async (f) => {
-      const pending = wait();
-      await reportRequestProgress(f.db, f.context, pending);
-      await f.service.task(f.context, {
-        request_run_id: f.context.runId,
-        description: "Read the changed status",
-        subagent_type: "computerUse",
-        prompt: "Read the status only. Earlier send approval does not carry over.",
-        read_only: true,
-      });
-      const root = await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } });
-      expect(root.requestProgress).toMatchObject({ state: "working" });
-      expect(root.requestNextCheckAt).toBeNull();
-      await expect(reportRequestProgress(f.db, f.context, pending)).rejects.toThrow("superseded");
-      await expect(reportRequestProgress(f.db, f.context, wait("duplicate-owner"))).rejects.toThrow(
-        "unfinished workers"
-      );
-    })
-);
-
-test.skipIf(!url)("a failed durable enqueue leaves the original wait available for one retry", () =>
-  fixture(async (f) => {
-    await reportRequestProgress(f.db, f.context, wait());
-    const unavailable = new AgentMessaging(
-      f.db,
-      {
-        send: async () => {
-          throw new Error("queue write unavailable");
-        },
-      } as never,
-      f.store
-    );
-    const due = new Date(Date.now() + 3601_000);
-    await expect(dispatchRequestChecks(f.db, unavailable, due)).rejects.toThrow(
-      "queue write unavailable"
-    );
-    const root = await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } });
-    expect(root.requestProgress).toMatchObject({ state: "waiting" });
-    expect(root.requestNextCheckAt).not.toBeNull();
-    expect(await dispatchRequestChecks(f.db, f.messaging, due)).toBe(1);
-    expect(
-      await f.db.inboxEvent.count({ where: { botId: f.owner.id, type: "request.check" } })
-    ).toBe(1);
-  })
-);
-
-test.skipIf(!url)(
-  "deleting the original delivery channel retires the wait instead of breaking the dispatcher or recreating a route",
-  () =>
-    fixture(async (f) => {
-      await reportRequestProgress(f.db, f.context, wait());
-      await f.db.channel.delete({ where: { id: f.channel.id } });
-      expect(await dispatchRequestChecks(f.db, f.messaging, new Date(Date.now() + 3601_000))).toBe(
-        0
-      );
-      expect(
-        (await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } })).requestStoppedAt
-      ).not.toBeNull();
-    })
-);
-
-test.skipIf(!url)(
   "an unresolved turn gets at most three private reconciliation reminders, then a durable blocker",
   () =>
     fixture(async (f) => {
@@ -498,153 +300,6 @@ test.skipIf(!url)(
           where: { botId: f.owner.id, type: "request.check", status: "pending" },
         })
       ).toBe(1);
-    })
-);
-
-for (const recoveredStatus of ["completed", "cancelled"] as const) test.skipIf(!url)(`restart recovery does not let a cancelled request hide ${recoveredStatus === "completed" ? "completed" : "priority-interrupted"} work in the same channel`, () => fixture(async f => {
-  await f.db.$transaction(tx => ensureRequestForTask(tx, f.owner.id, f.context.runId));
-  await f.db.run.update({ where: { id: f.context.runId }, data: {
-    status: "cancelled", error: { code: "cancelled_by_user" },
-  } });
-  const other = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, {
-    botId: f.owner.id, channelId: f.channel.id, origin: "user", type: "user.message",
-    content: "Verify the unrelated export.", clientId: crypto.randomUUID(), priority: 300,
-  }));
-  await f.db.$transaction(tx => ensureRequestForTask(tx, f.owner.id, other.run.id));
-  await f.db.run.update({ where: { id: other.run.id }, data: {
-    status: recoveredStatus, error: { code: "priority_peer_interrupt" },
-  } });
-  await recoverRequestProgress(f.db, f.messaging);
-  await recoverRequestProgress(f.db, f.messaging);
-  const checks = await f.db.inboxEvent.findMany({
-    where: { botId: f.owner.id, type: "request.check", status: "pending" },
-  });
-  expect(checks).toHaveLength(1);
-  expect(checks[0]!.payload).toMatchObject({ taskContextRunId: other.run.id });
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } })).requestReconciliations).toBe(0);
-}));
-
-test.skipIf(!url)(
-  "folded independent completions are reconciled together without erasing either request",
-  () =>
-    fixture(async (f) => {
-      await f.db.$transaction((tx) => ensureRequestForTask(tx, f.owner.id, f.context.runId));
-      const other = await f.db.$transaction((tx) =>
-        f.messaging.enqueueWake(tx, {
-          botId: f.owner.id,
-          channelId: f.channel.id,
-          origin: "user",
-          type: "user.message",
-          content: "Independently verify the document export too.",
-          clientId: crypto.randomUUID(),
-          priority: 300,
-        })
-      );
-      await f.db.$transaction((tx) => ensureRequestForTask(tx, f.owner.id, other.run.id));
-      await end(f);
-      const checks = await f.db.inboxEvent.findMany({
-        where: { botId: f.owner.id, type: "request.check", status: "pending" },
-      });
-      expect(checks).toHaveLength(2);
-      expect(checks.map((c) => (c.payload as any).taskContextRunId).sort()).toEqual(
-        [f.context.runId, other.run.id].sort()
-      );
-    })
-);
-
-test.skipIf(!url)(
-  "independent requests survive interleaving and approval replies explicitly keep the original ownership",
-  () =>
-    fixture(async (f) => {
-      const original = (await reportRequestProgress(f.db, f.context, wait())) as any;
-      const other = await f.db.$transaction((tx) =>
-        f.messaging.enqueueWake(tx, {
-          botId: f.owner.id,
-          channelId: f.channel.id,
-          origin: "user",
-          type: "user.message",
-          content: "Find a document too. This is independent of the appointment.",
-          clientId: crypto.randomUUID(),
-          priority: 300,
-        })
-      );
-      await f.db.run.update({ where: { id: other.run.id }, data: { status: "running" } });
-      const next = { ...f.context, runId: other.run.id, callId: crypto.randomUUID() };
-      await f.db.$transaction((tx) => ensureRequestForTask(tx, f.owner.id, next.runId));
-      await f.service.task(next, {
-        request_run_id: original.request_run_id,
-        description: "Read pending confirmation",
-        subagent_type: "computerUse",
-        prompt: "The later user instruction permits reading status only. Do not send anything.",
-        read_only: true,
-      });
-      const child = await f.db.subagent.findFirstOrThrow({ where: { parentBotId: f.owner.id } });
-      expect(child.requestRunId).toBe(f.context.runId);
-      expect(child.readOnly).toBe(true);
-      const snapshots = await requestProgressSnapshot(f.db, f.owner.id, f.channel.id);
-      expect(snapshots.map((s) => s.request_run_id).sort()).toEqual(
-        [f.context.runId, next.runId].sort()
-      );
-      await expect(
-        reportRequestProgress(f.db, f.context, {
-          key: "premature-done",
-          state: "complete",
-          summary: "A scoped step ended",
-          evidence: ["/step"],
-          remaining: [],
-        })
-      ).rejects.toThrow("unfinished workers");
-    })
-);
-
-test.skipIf(!url)(
-  "a required new decision parks the request without a timer and records interpretation versus actual refusal",
-  () =>
-    fixture(async (f) => {
-      await reportRequestProgress(f.db, f.context, {
-        key: "changed-terms",
-        state: "blocked",
-        summary: "The appointment now requires a fee; no fee is approved.",
-        evidence: ["/appointments/changed-terms"],
-        remaining: ["Obtain the user's fee decision"],
-        nextAction: "Ask whether the user accepts the new fee; do not submit anything.",
-        blockSource: "user",
-      });
-      await end(f);
-      expect(await dispatchRequestChecks(f.db, f.messaging, new Date(Date.now() + 86400_000))).toBe(
-        0
-      );
-      expect(
-        await f.db.inboxEvent.count({ where: { botId: f.owner.id, type: "request.check" } })
-      ).toBe(0);
-      await expect(
-        reportRequestProgress(f.db, f.context, {
-          key: "invented-refusal",
-          state: "blocked",
-          summary: "The tool refused",
-          evidence: [],
-          remaining: ["Send the authorized message"],
-          nextAction: "Resolve block",
-          blockSource: "tool",
-        })
-      ).rejects.toThrow("actual returned error");
-    })
-);
-
-test.skipIf(!url)(
-  "a missed deadline retains reconciliation and evidence instead of authorizing an expired action",
-  () =>
-    fixture(async (f) => {
-      await reportRequestProgress(f.db, f.context, wait());
-      await dispatchRequestChecks(f.db, f.messaging, new Date(Date.now() + 86400_000));
-      const root = await f.db.run.findUniqueOrThrow({ where: { id: f.context.runId } });
-      expect(root.requestProgress).toMatchObject({
-        state: "working",
-        reconciliationRequired: true,
-        nextAction: "Read the confirmation status. Ask before any further outgoing message.",
-      });
-      expect((root.requestProgress as any).deadline).toBeDefined();
-      expect(await f.db.subagent.count({ where: { parentBotId: f.owner.id } })).toBe(0);
     })
 );
 

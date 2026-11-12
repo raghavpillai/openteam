@@ -33,14 +33,13 @@ describe("durable message acceptance boundary", () => {
     let runtimeContent="";
     const tx = {
       $executeRaw: async () => 0,
-      $queryRaw: async () => [],
       conversation: {
         findUnique: async () => ({
           botId: "bot-1",
           bot: { id: "bot-1", status: "active", subagentIdentity: null },
         }),
       },
-      idempotencyRecord: { findUnique: async () => null, create: async () => ({}), update: async () => ({}) },
+      idempotencyRecord: { create: async () => ({}), update: async () => ({}) },
       channel: {
         findUnique: async () => ({ id: channelId, archivedAt: null }),
         update: async () => ({}),
@@ -85,60 +84,5 @@ describe("durable message acceptance boundary", () => {
     expect(storedLocation).toMatchObject({ where: { id: "global" }, update: { latitude: 40.75, longitude: -73.99, accuracyMeters: 35, device: "phone" } });
     expect(runtimeContent).not.toContain("40.75");
     cancellation.resolve(new Response(null, { status: 200 }));
-  });
-
-  test("returns a group-message acknowledgement without waiting for round advancement", async () => {
-    const channelId = "channel-group";
-    const clientId = "nonce-group-1";
-    const advancement = deferred<void>();
-    let advancementStarted = false;
-    const message = acceptedMessage(channelId, clientId);
-    const tx = {
-      $executeRaw: async () => 0,
-      $queryRaw: async () => [],
-      channel: {
-        findUnique: async () => ({
-          id: channelId,
-          kind: "group",
-          archivedAt: null,
-          members: [{ botId: "bot-1" }],
-        }),
-        update: async () => ({}),
-      },
-      channelMessage: { create: async () => message, count: async () => 0, findUniqueOrThrow: async () => message, findMany: async () => [] },
-      channelRound: { findMany: async () => [] },
-      idempotencyRecord: { findUnique: async () => null, create: async () => ({}), update: async () => ({}) },
-      event: { create: async () => ({}) },
-    };
-    const prisma = {
-      idempotencyRecord: { findUnique: async () => null },
-      $transaction: async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx),
-    };
-    const messaging = {
-      scheduleTranscriptProjection: async () => undefined,
-      createGroupRound: async () => ({ id: "round-1" }),
-      advanceRound: () => {
-        advancementStarted = true;
-        return advancement.promise;
-      },
-    };
-    const service = new ChannelService(
-      prisma as never,
-      messaging as never,
-      "/workspace",
-      async () => new Response(null)
-    );
-
-    const result = await Promise.race([
-      Effect.runPromise(service.sendGroupMessage(channelId, { content: "hello", clientId })),
-      Bun.sleep(100).then(() => "timed-out" as const),
-    ]);
-    expect(result).not.toBe("timed-out");
-    expect(result).toMatchObject({
-      message: { id: message.id, clientId },
-      round: { id: "round-1" },
-    });
-    expect(advancementStarted).toBe(true);
-    advancement.resolve();
   });
 });

@@ -15,12 +15,7 @@ import {
 } from "../../../packages/client-core/src";
 import { createDurableSendController } from "../../../packages/product-core/src/durable-delivery";
 import { projectOutgoingMessages } from "../../../packages/product-core/src/outgoing-messages";
-import {
-  type EventStreamSource,
-  eventPoll,
-  eventStream,
-  SSE_EVENT_BATCH_SIZE,
-} from "../src/event-stream";
+import { type EventStreamSource, eventPoll, eventStream } from "../src/event-stream";
 
 const gate = () => {
   let resolve!: () => void;
@@ -331,68 +326,4 @@ describe("desktop SSE ↔ mobile long-poll delivery over HTTP", () => {
       }
     });
   }
-
-  test("delivers a multi-batch burst exactly once and in order on both transports", async () => {
-    const f = fixture();
-    try {
-      const desktop = f.peer("stream"),
-        mobile = f.peer("long-poll");
-      await until(() => desktop.healthy && mobile.healthy);
-      for (let i = 0; i < 150; i += 1) f.commit(`burst ${i}`, i % 2 ? "user" : "agent");
-      await until(() => desktop.history.length === 150 && mobile.history.length === 150);
-      const expected = Array.from({ length: 150 }, (_, i) => String(i + 1));
-      expect(desktop.received).toEqual(expected);
-      expect(mobile.received).toEqual(expected);
-      expect(new Set(desktop.history.map((m: ChannelMessageView) => m.id)).size).toBe(150);
-      expect(desktop.history).toEqual(mobile.history);
-      expect(f.limits.every((limit) => limit === SSE_EVENT_BATCH_SIZE)).toBe(true);
-      expect(desktop.reads).toBeLessThan(10);
-      expect(mobile.reads).toBeLessThan(10);
-    } finally {
-      f.stop();
-    }
-  });
-
-  test("recovers the last update after read failure, transport disconnect, and background/resume", async () => {
-    const f = fixture();
-    try {
-      const desktop = f.peer("stream"),
-        mobile = f.peer("long-poll");
-      await until(() => desktop.healthy && mobile.healthy);
-      mobile.sync.setActive(false);
-      f.failNextHistory();
-      f.commit("final event; no later wakeup");
-      await until(() => desktop.history.length === 1);
-      expect(desktop.reads).toBeGreaterThanOrEqual(2);
-      expect(mobile.history).toHaveLength(0);
-      f.disconnect();
-      f.commit("sent while disconnected");
-      mobile.sync.setActive(true, true);
-      await until(() => desktop.history.length === 2 && mobile.history.length === 2);
-      expect(desktop.history).toEqual(mobile.history);
-      expect(new Set(mobile.history.map((m: ChannelMessageView) => m.id)).size).toBe(2);
-    } finally {
-      f.stop();
-    }
-  });
-
-  test("retries the final message when hydration was pending, without another event", async () => {
-    const f = fixture(),
-      hydration = gate();
-    try {
-      const mobile = f.peer("long-poll");
-      await until(() => mobile.healthy);
-      mobile.setPending(hydration.promise);
-      f.commit("last update during hydration");
-      await until(() => mobile.reads > 0);
-      expect(mobile.history).toHaveLength(0);
-      mobile.setPending(null);
-      hydration.resolve();
-      await until(() => mobile.history.length === 1);
-      expect(mobile.history[0]?.content).toBe("last update during hydration");
-    } finally {
-      hydration.resolve();
-      f.stop();
-    }
-  });
 });

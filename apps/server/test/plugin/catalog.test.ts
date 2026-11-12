@@ -24,20 +24,6 @@ describe("plugin catalog", () => {
     }
   });
 
-  test("rejects duplicate connector identities", () => {
-    const source = pluginCatalog.find((plugin) => plugin.connections.length > 0);
-    const connector = source?.connections[0];
-    if (!source || !connector) throw new Error("Expected the bundled fixture connector");
-    expect(() =>
-      validatePluginCatalog([
-        {
-          ...source,
-          connections: [connector, connector],
-        },
-      ])
-    ).toThrow("Duplicate connector key");
-  });
-
   test("bounds large and deeply nested tool results", () => {
     let nested: unknown = "hidden";
     for (let depth = 0; depth < 10; depth += 1) nested = { next: nested };

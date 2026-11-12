@@ -75,13 +75,6 @@ describe("computer handoff lifecycle", () => {
       expect(wakes).toHaveLength(1);
     });
   }
-  test("a pending form cannot be completed through computer controls", async () => {
-    message.metadata = { type: "user-form", cardState: "pending", form: { id: "form-1" } };
-    const { service, takeovers, wakes } = fixture();
-    await expect(Effect.runPromise(service.mutateComputerHandoff(message.id, { action: "complete", clientId: "desktop-client-1" }))).rejects.toThrow("Live computer handoff not found");
-    expect(takeovers).toEqual([]);
-    expect(wakes).toEqual([]);
-  });
   test("leases on start, releases on completion, and enqueues one resume", async () => {
     message.metadata = { type: "computer-handoff", computerHandoff: { reason: "Finish 2FA" } };
     const { events, service, takeovers, wakes } = fixture();

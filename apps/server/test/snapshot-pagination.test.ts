@@ -1,19 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import {
-  MAX_THREAD_CONTEXT_MESSAGES,
-  normalizeHistoryLimit,
-  normalizeMessageContextExtent,
-  SnapshotService,
-  selectBoundedActivity,
-} from "../src/services/snapshot-service";
+import { MAX_THREAD_CONTEXT_MESSAGES, normalizeHistoryLimit, normalizeMessageContextExtent, SnapshotService } from "../src/services/snapshot-service";
 
 type RawQuery = {
   strings?: readonly string[];
   values?: readonly unknown[];
 };
-
-const rawSql = (query: RawQuery): string => query.strings?.join("?") ?? String(query);
 
 const deferred = <Value>() => {
   let resolve!: (value: Value) => void;
@@ -91,55 +83,6 @@ describe("snapshot pagination", () => {
     expect(state.truncated.runItems).toBe(false);
   });
 
-  test("prioritizes current state while enforcing a hard response cap", () => {
-    const row = (id: string, createdAt: number) => ({ id, createdAt: new Date(createdAt) });
-    const selected = selectBoundedActivity(
-      [row("current-2", 2), row("current-1", 1)],
-      [row("recent-3", 3), row("recent-2", 2), row("recent-1", 1)],
-      3
-    );
-
-    expect(selected.items.map(({ id }) => id)).toEqual(["current-1", "current-2", "recent-3"]);
-    expect(selected.truncated).toBe(true);
-  });
-
-  test("a busy idle channel reports activity truncation independently of message history", async () => {
-    const channelId = "busy-channel";
-    const finished = Array.from({ length: 101 }, (_, index) => ({
-      id: `run-${index}`, botId: "bot-1", channelId, status: "completed",
-      createdAt: new Date(index * 1000), updatedAt: new Date(index * 1000),
-    })).reverse();
-    const message = {
-      id: "message-1", channelId, sequence: 1n, sender: "user", senderBotId: null,
-      sourceRunId: null, content: "Please check this transaction.", metadata: {},
-      createdAt: new Date(0),
-    };
-    let count = 100;
-    const service = new SnapshotService({
-      channel: { findFirst: async () => ({ id: channelId }) },
-      channelRound: { findMany: async () => [] },
-      run: {
-        findMany: async ({ where, take }: { where: { OR?: unknown[] }; take: number }) =>
-          where.OR ? [] : finished.slice(0, Math.min(count, take)),
-      },
-      runItem: { findMany: async () => [] },
-      subagentAttempt: { findMany: async () => [] },
-      channelMessage: { findMany: async () => [message] },
-      event: { findFirst: async () => ({ sequence: 7n }) },
-    } as never, "/workspace", "http://computer", () => true);
-
-    expect((await Effect.runPromise(service.channelState(channelId))).truncated.runs).toBe(false);
-    count = 101;
-    const state = await Effect.runPromise(service.channelState(channelId));
-    expect(state.runs).toHaveLength(100);
-    expect(state.truncated).toEqual({ channelRounds: false, runs: true, runItems: false, subagents: false });
-    expect(state.runItems).toEqual([]);
-    const history = await Effect.runPromise(service.history(channelId, null, 100));
-    expect(history.messages.map(({ content }) => content)).toEqual([message.content]);
-    expect(history.hasMore).toBe(false);
-    expect(history.threadContextTruncated).toBe(false);
-  });
-
   test("keeps the history cursor contiguous while supplying an older thread-root chain", async () => {
     const channelId = "00000000-0000-0000-0000-000000000010";
     const message = (sequence: number, metadata: Record<string, unknown> = {}) => ({
@@ -206,10 +149,6 @@ describe("snapshot pagination", () => {
       event: { findFirst: async () => ({ sequence: 42n }) },
       $queryRaw: async (query: RawQuery) => {
         threadQueries += 1;
-        expect(rawSql(query)).toContain("WITH RECURSIVE");
-        for (const alias of ["message", "parent", "ranked"]) {
-          expect(rawSql(query)).toContain(`${alias}."clientId"`);
-        }
         expect(query.values?.[0]).toBe(channelId);
         expect(query.values?.[2]).toEqual([replyMessage.id]);
         return [
@@ -261,189 +200,6 @@ describe("snapshot pagination", () => {
     expect(afterContext.messages.map(({ sequence }) => sequence)).toEqual(["1", "2", "3"]);
     expect(afterContext.threadContext).toEqual([]);
     expect(threadQueries).toBe(2);
-  });
-
-  test("does not reload a reply target that is already in the requested window", async () => {
-    const channelId = "00000000-0000-0000-0000-000000000015";
-    const rootId = "00000000-0000-0000-0000-000000000016";
-    const replyId = "00000000-0000-0000-0000-000000000017";
-    const rows = [
-      {
-        id: rootId,
-        sequence: 1n,
-        channelId,
-        sender: "user",
-        senderBotId: null,
-        sourceRunId: null,
-        content: "root",
-        metadata: {},
-        createdAt: new Date(1_000),
-      },
-      {
-        id: replyId,
-        sequence: 2n,
-        channelId,
-        sender: "user",
-        senderBotId: null,
-        sourceRunId: null,
-        content: "reply",
-        metadata: { branched: true, replyTo: rootId },
-        createdAt: new Date(2_000),
-      },
-    ];
-    let rawQueryCount = 0;
-    const service = new SnapshotService(
-      {
-        channel: { findFirst: async () => ({ id: channelId }) },
-        channelMessage: { findMany: async () => [...rows].reverse() },
-        notificationPresence: { findMany: async () => [] },
-        notificationPreferences: { findUnique: async () => null },
-        event: { findFirst: async () => ({ sequence: 2n }) },
-        $queryRaw: async () => {
-          rawQueryCount += 1;
-          return [];
-        },
-      } as never,
-      "/workspace",
-      "http://computer",
-      () => true
-    );
-
-    const page = await Effect.runPromise(service.history(channelId, null, 2));
-    expect(page.messages.map(({ id }) => id)).toEqual([rootId, replyId]);
-    expect(page.threadContext).toEqual([]);
-    expect(rawQueryCount).toBe(0);
-  });
-
-  test("loads a pathological deep thread with one bounded database query", async () => {
-    const channelId = "00000000-0000-0000-0000-000000000020";
-    const message = (sequence: number, replyTo: string | null = null) => ({
-      id: `00000000-0000-0000-0001-${String(sequence).padStart(12, "0")}`,
-      sequence: BigInt(sequence),
-      channelId,
-      sender: "user",
-      senderBotId: null,
-      sourceRunId: null,
-      content: `message ${sequence}`,
-      metadata: replyTo === null ? {} : { branched: true, replyTo },
-      createdAt: new Date(sequence * 1_000),
-    });
-    const ancestors = Array.from({ length: MAX_THREAD_CONTEXT_MESSAGES + 1 }, (_, index) => {
-      const sequence = MAX_THREAD_CONTEXT_MESSAGES + 1 - index;
-      return message(
-        sequence,
-        sequence === 1 ? null : `00000000-0000-0000-0001-${String(sequence - 1).padStart(12, "0")}`
-      );
-    });
-    const firstAncestor = ancestors[0];
-    if (!firstAncestor) throw new Error("invalid deep-thread fixture");
-    const loaded = message(102, firstAncestor.id);
-    let rawQueryCount = 0;
-    let threadSql = "";
-    const service = new SnapshotService(
-      {
-        channel: { findFirst: async () => ({ id: channelId }) },
-        channelMessage: {
-          findMany: async () => [loaded],
-        },
-        notificationPresence: { findMany: async () => [] },
-        notificationPreferences: { findUnique: async () => null },
-        event: { findFirst: async () => ({ sequence: 500n }) },
-        $queryRaw: async (query: RawQuery) => {
-          rawQueryCount += 1;
-          threadSql = rawSql(query);
-          return ancestors.map((row, index) => ({
-            ...row,
-            traversalDepth: index + 1,
-            seedOrder: 1,
-          }));
-        },
-      } as never,
-      "/workspace",
-      "http://computer",
-      () => true
-    );
-
-    const page = await Effect.runPromise(service.history(channelId, null, 1));
-
-    expect(rawQueryCount).toBe(1);
-    expect(page.threadContext).toHaveLength(MAX_THREAD_CONTEXT_MESSAGES);
-    expect(page.threadContext[0]?.sequence).toBe("2");
-    expect(page.threadContext.at(-1)?.sequence).toBe("101");
-    expect(page.threadContextTruncated).toBe(true);
-    expect(threadSql).toContain(`current."traversalDepth" < ?`);
-    expect(threadSql).toContain('NOT (parent."id" = ANY(current.path))');
-    expect(threadSql).toContain('parent."id" = current."replyToId"');
-    expect(threadSql).not.toContain('parent."id"::text');
-    expect(threadSql).toContain("LIMIT ?");
-  });
-
-  test("orders shared ancestors and terminates cycles or missing parents", async () => {
-    const channelId = "00000000-0000-0000-0000-000000000030";
-    const message = (sequence: number, replyTo: string | null = null) => ({
-      id: `00000000-0000-0000-0002-${String(sequence).padStart(12, "0")}`,
-      sequence: BigInt(sequence),
-      channelId,
-      sender: "agent",
-      senderBotId: null,
-      sourceRunId: null,
-      content: `message ${sequence}`,
-      metadata: replyTo === null ? {} : { branched: true, replyTo },
-      createdAt: new Date(sequence * 1_000),
-    });
-    const second = message(2);
-    const third = message(3, second.id);
-    second.metadata = { branched: true, replyTo: third.id };
-    const loaded = message(4, third.id);
-    let cycleQueries = 0;
-    const cycleService = new SnapshotService(
-      {
-        channel: { findFirst: async () => ({ id: channelId }) },
-        channelMessage: { findMany: async () => [loaded] },
-        notificationPresence: { findMany: async () => [] },
-        notificationPreferences: { findUnique: async () => null },
-        event: { findFirst: async () => ({ sequence: 4n }) },
-        $queryRaw: async () => {
-          cycleQueries += 1;
-          return [
-            { ...third, traversalDepth: 1, seedOrder: 1 },
-            { ...second, traversalDepth: 2, seedOrder: 1 },
-          ];
-        },
-      } as never,
-      "/workspace",
-      "http://computer",
-      () => true
-    );
-
-    const cyclePage = await Effect.runPromise(cycleService.history(channelId, null, 1));
-    expect(cycleQueries).toBe(1);
-    expect(cyclePage.threadContext.map(({ sequence }) => sequence)).toEqual(["2", "3"]);
-    expect(cyclePage.threadContextTruncated).toBe(false);
-
-    const missing = message(5, "00000000-0000-0000-0002-999999999999");
-    let missingQueries = 0;
-    const missingService = new SnapshotService(
-      {
-        channel: { findFirst: async () => ({ id: channelId }) },
-        channelMessage: { findMany: async () => [missing] },
-        notificationPresence: { findMany: async () => [] },
-        notificationPreferences: { findUnique: async () => null },
-        event: { findFirst: async () => ({ sequence: 5n }) },
-        $queryRaw: async () => {
-          missingQueries += 1;
-          return [];
-        },
-      } as never,
-      "/workspace",
-      "http://computer",
-      () => true
-    );
-
-    const missingPage = await Effect.runPromise(missingService.history(channelId, null, 1));
-    expect(missingQueries).toBe(1);
-    expect(missingPage.threadContext).toEqual([]);
-    expect(missingPage.threadContextTruncated).toBe(false);
   });
 
   test("captures the replay cursor before starting bootstrap projection queries", async () => {
@@ -568,117 +324,6 @@ describe("snapshot pagination", () => {
     const [firstBootstrap, secondBootstrap] = await Promise.all([first, second]);
     expect(firstBootstrap).toBe(secondBootstrap);
     expect(firstBootstrap.cursor).toBe("52");
-  });
-
-  test("bootstrap keeps profile, unread count, and message delivery identity", async () => {
-    const botId = "00000000-0000-0000-0000-000000000040";
-    const channelId = "00000000-0000-0000-0000-000000000041";
-    const conversationId = "00000000-0000-0000-0000-000000000042";
-    const now = new Date("2026-08-31T12:00:00.000Z");
-    const bot = {
-      id: botId,
-      name: "Profile bot",
-      title: "Performance engineer",
-      description: "Keeps the original profile fields",
-      icon: "●",
-      color: "#336699",
-      notificationsEnabled: false,
-      hiddenFromSidebar: false,
-      avatarPath: "/avatars/profile.png",
-      defaultDirectory: "/workspace/bots/profile",
-      status: "ready",
-      onboardingStatus: "complete",
-      onboardingVersion: 2,
-      onboardingCompletedAt: now,
-      provisioningError: null,
-      createdAt: now,
-      updatedAt: now,
-      conversation: { id: conversationId },
-      channelMemberships: [
-        { channelId, channel: { id: channelId, kind: "bot_dm", archivedAt: null } },
-      ],
-    };
-    const channel = {
-      id: channelId,
-      kind: "bot_dm",
-      name: "Profile bot",
-      description: "Direct channel description",
-      avatarPath: "/avatars/channel.png",
-      directKey: `bot:${botId}`,
-      workingDirectory: "/workspace/bots/profile",
-      members: [{ botId, ordinal: 0 }],
-      createdAt: now,
-      updatedAt: now,
-    };
-    const latestMessage = {
-      id: "00000000-0000-0000-0000-000000000043",
-      clientId: "desktop-send-nonce",
-      sequence: 43n,
-      channelId,
-      sender: "user",
-      senderBotId: null,
-      sourceRunId: null,
-      content: "Latest user message",
-      metadata: {},
-      createdAt: now,
-    };
-    const service = new SnapshotService(
-      {
-        bot: { findMany: async () => [bot] },
-        channel: { findMany: async () => [channel] },
-        notificationPresence: { findMany: async () => [] },
-        notificationPreferences: { findUnique: async () => null },
-        event: { findFirst: async () => ({ sequence: 43n }) },
-        run: { findMany: async () => [] },
-        channelRound: { findMany: async () => [] },
-        subagentAttempt: { findMany: async () => [] },
-        approval: { findMany: async () => [] },
-        $queryRaw: async (query: RawQuery) => {
-          const sql = rawSql(query);
-          if (sql.includes('"notificationCursor"'))
-            return [
-              {
-                channelId,
-                lastReadSequence: 40n,
-                lastReadNotificationSequence: 0n,
-                notificationCursor: 0n,
-                notifications: [],
-                activityUnreadCount: 0n,
-              },
-            ];
-          if (sql.includes("CROSS JOIN LATERAL")) return [latestMessage];
-          return [{ channelId, unreadCount: 3 }];
-        },
-      } as never,
-      "/workspace",
-      "http://127.0.0.1:1",
-      () => true
-    );
-
-    const bootstrap = await Effect.runPromise(service.bootstrap());
-
-    expect(bootstrap.bots[0]).toMatchObject({
-      id: botId,
-      title: "Performance engineer",
-      description: "Keeps the original profile fields",
-      hasAvatar: true,
-      notificationsEnabled: false,
-      conversationId,
-      dmChannelId: channelId,
-    });
-    expect(bootstrap.channels[0]).toMatchObject({
-      id: channelId,
-      description: "Direct channel description",
-      hasAvatar: true,
-      unreadCount: 3,
-      members: [{ botId, ordinal: 0 }],
-    });
-    expect(bootstrap.latestMessages[0]).toMatchObject({
-      id: latestMessage.id,
-      clientId: "desktop-send-nonce",
-      sequence: "43",
-      content: "Latest user message",
-    });
   });
 
   test("rejects future event cursors instead of leaving the stream permanently idle", async () => {

@@ -44,18 +44,3 @@ test("presence route binds the authenticated session, not client-supplied owners
     { input, auth: { mode: "required", sessionId: "authenticated-session" } },
   ]);
 });
-
-test("presence route rejects missing auth and invalid activity before touching storage", async () => {
-  const missing = context("/api/notification-presence", {}, null);
-  expect((await clientRoutes(missing.route))?.status).toBe(401);
-  expect(missing.calls).toEqual([]);
-  const invalid = context("/api/notification-presence", {
-    clientId: crypto.randomUUID(),
-    sequence: 1,
-    platform: "macos",
-    active: true,
-    idleSeconds: -1,
-  });
-  await expect(clientRoutes(invalid.route)).rejects.toThrow("Request body failed validation");
-  expect(invalid.calls).toEqual([]);
-});

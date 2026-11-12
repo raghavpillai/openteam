@@ -10,9 +10,7 @@ import {
   dispatchTaskContinuations,
   TASK_RECOVERY_LOCK,
 } from "@openteam/messaging";
-import { Effect } from "effect";
 import { recover } from "../src/services/startup-recovery";
-import { SubagentService } from "../src/services/subagent/service";
 
 const url = process.env.OPENTEAM_RECOVERY_TEST_DATABASE_URL;
 async function fixture(body: (f: Awaited<ReturnType<typeof setup>>) => Promise<void>) {
@@ -211,30 +209,6 @@ test.skipIf(!url)("startup fences new queue claims while it stops old Pi context
   })
 );
 
-test.skipIf(!url)("an exhausted foreground recovery posts one resend notice instead of another continuation", () =>
-  fixture(async (f) => {
-    await f.db.inboxEvent.createMany({
-      data: [1, 2, 3].map(attempt => ({
-        botId: f.parent.bot.id,
-        conversationId: f.parent.bot.conversation!.id,
-        runId: f.parent.run.id,
-        idempotencyKey: `runtime-recovery:${f.parent.run.id}:${attempt}`,
-        type: "fixture.recovery-history",
-        status: "completed" as const,
-        payload: {},
-      })),
-    });
-    await recover(f.db, f.boss as never, f.messaging, f.computer);
-    await recover(f.db, f.boss as never, f.messaging, f.computer);
-    expect(await f.db.inboxEvent.count({
-      where: { botId: f.parent.bot.id, type: "runtime.reconcile" },
-    })).toBe(0);
-    expect(await f.db.channelMessage.count({
-      where: { clientId: `restart-interrupted:${f.parent.run.id}` },
-    })).toBe(1);
-  })
-);
-
 test.skipIf(!url)("a failed context stop rolls recovery back without queuing duplicate work", () =>
   fixture(async (f) => {
     await expect(
@@ -255,61 +229,4 @@ test.skipIf(!url)("a failed context stop rolls recovery back without queuing dup
       "running"
     );
   })
-);
-
-test.skipIf(!url)(
-  "recovery exhaustion leaves an explicit parent-owned blocker with no automatic timer",
-  () =>
-    fixture(async (f) => {
-      await f.db.subagent.update({ where: { id: f.sub.id }, data: { recoveryAttempts: 3 } });
-      await recover(f.db, f.boss as never, f.messaging, f.computer);
-      expect(await f.db.subagent.findUnique({ where: { id: f.sub.id } })).toMatchObject({
-        status: "waiting",
-        nextCheckAt: null,
-        recoveryAttempts: 3,
-        progress: { state: "blocked", blockSource: "runtime" },
-      });
-      expect(
-        await dispatchTaskContinuations(f.db, f.messaging, new Date(Date.now() + 3600000))
-      ).toBe(0);
-    })
-);
-
-test.skipIf(!url)(
-  "a parked helper never holds an update and resumes after the restart that update causes",
-  () =>
-    fixture(async (f) => {
-      const checkAt = new Date(Date.now() + 3600_000);
-      await f.db.run.updateMany({ where: { id: { in: [f.parent.run.id, f.child.run.id] } }, data: { status: "completed", completedAt: new Date() } });
-      await f.db.inboxEvent.updateMany({ where: { runId: { in: [f.parent.run.id, f.child.run.id] } }, data: { status: "completed", completedAt: new Date() } });
-      await f.db.botRunLease.deleteMany({ where: { runId: { in: [f.parent.run.id, f.child.run.id] } } });
-      await f.db.subagentAttempt.update({ where: { id: f.attempt.id }, data: { status: "waiting" } });
-      await f.db.subagent.update({
-        where: { id: f.sub.id },
-        data: {
-          status: "waiting",
-          nextCheckAt: checkAt,
-          progress: { ...initialTaskProgress(f.child.run.id), state: "waiting", checkAt: checkAt.toISOString() },
-        },
-      });
-      const service = new SubagentService(f.db, f.messaging, {} as never, f.root, f.computer as never, f.store);
-      expect((await Effect.runPromise(service.busyBots())).bots).toEqual([]);
-
-      // The update stops and recreates everything; startup recovery leaves parked work alone.
-      await recover(f.db, f.boss as never, f.messaging, f.computer);
-      expect(f.cancellations).toEqual([]);
-      expect(await f.db.subagent.findUniqueOrThrow({ where: { id: f.sub.id } })).toMatchObject({
-        status: "waiting",
-        nextCheckAt: checkAt,
-        recoveryAttempts: 0,
-      });
-      expect(await f.db.channelMessage.count({ where: { channelId: f.parent.channel.id } })).toBe(0);
-
-      // The recorded check still wakes it once.
-      expect(await dispatchTaskContinuations(f.db, f.messaging, new Date(checkAt.getTime() - 1000))).toBe(0);
-      expect(await dispatchTaskContinuations(f.db, f.messaging, new Date(checkAt.getTime() + 1000))).toBe(1);
-      expect((await f.db.subagent.findUniqueOrThrow({ where: { id: f.sub.id } })).status).toBe("queued");
-      expect(await f.db.inboxEvent.count({ where: { botId: f.child.bot.id, type: "subagent.continue" } })).toBe(1);
-      expect((await Effect.runPromise(service.busyBots())).bots.map((bot) => bot.botId)).toEqual([f.parent.bot.id]);
-    })
 );

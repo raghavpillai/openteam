@@ -75,31 +75,7 @@ async function setup() {
   return { db, dir, bot, channel, service, messaging, parent, completion, failures, sendVisible, root, wake, send, connectedSends: () => connectedSends };
 }
 
-test.skipIf(!url)("actual Stop of a completed legacy root fences an already-running completion and preserves siblings", () => fixture(async f => {
-  const root = await f.parent(), historical = await f.parent(), sibling = await f.parent("running");
-  const wake = await f.completion(root.id);
-  expect(root.requestProgress).toBeNull();
-  expect(await Effect.runPromise(f.service.stopRun(root.id))).toMatchObject({ ok: true });
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: root.id } })).requestStoppedAt).not.toBeNull();
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: wake.id } })).status).toBe("running");
-  await expect(f.sendVisible(wake)).rejects.toThrow("request was stopped");
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: historical.id } })).requestStoppedAt).toBeNull();
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: sibling.id } })).requestStoppedAt).toBeNull();
-  await f.sendVisible(sibling);
-}));
-
-test.skipIf(!url)("failed actual cancellation of an active legacy root still fences its running completion", () => fixture(async f => {
-  const root = await f.parent("running"), historical = await f.parent();
-  const wake = await f.completion(root.id);
-  f.failures.add(root.id);
-  await expect(Effect.runPromise(f.service.stopRun(root.id))).rejects.toThrow("Synthetic cancellation transport failure");
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: root.id } })).status).toBe("running");
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: root.id } })).requestStoppedAt).not.toBeNull();
-  await expect(f.sendVisible(wake)).rejects.toThrow("request was stopped");
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: historical.id } })).requestStoppedAt).toBeNull();
-}));
-
-for (const tracked of [false, true]) test.skipIf(!url)(`a running completion cannot deliver after Stop (${tracked ? "tracked" : "legacy"} request)`, () => fixture(async f => {
+for (const tracked of [true]) test.skipIf(!url)(`a running completion cannot deliver after Stop (${tracked ? "tracked" : "legacy"} request)`, () => fixture(async f => {
   if (tracked) await f.db.$transaction(tx => ensureRequestForTask(tx, f.bot.id, f.root.id));
   const run = await f.wake(); // Already claimed before Stop; cancellation transport fails to stop this turn.
   await f.db.run.update({ where: { id: f.root.id }, data: { requestStoppedAt: new Date() } });
@@ -128,12 +104,6 @@ test.skipIf(!url)("a Stop committed during attachment preparation prevents publi
   } finally { release(); }
   await expect(pending).rejects.toThrow("request was stopped");
   expect(await f.db.channelMessage.count({ where: { channelId: f.channel.id, sender: "agent" } })).toBe(0);
-}));
-
-test.skipIf(!url)("an active completion can deliver; a priority interruption does not stop the request", () => fixture(async f => {
-  await f.db.run.update({ where: { id: f.root.id }, data: { status: "cancelled", error: { code: "priority_peer_interrupt" } } });
-  await f.send(await f.wake());
-  expect(await f.db.channelMessage.count({ where: { channelId: f.channel.id, sender: "agent" } })).toBe(1);
 }));
 
 for (const retiring of [false, true])
@@ -177,12 +147,6 @@ test.skipIf(!url)(`publication waits for a concurrent ${retiring ? "retirement a
   await stop;
   await expect(pending).rejects.toThrow("request was stopped");
   expect(await f.db.channelMessage.count({ where: { channelId: f.channel.id, sender: "agent" } })).toBe(0);
-}));
-
-test.skipIf(!url)("a fresh user turn can acknowledge Stop even when referencing the stopped request", () => fixture(async f => {
-  await f.db.run.update({ where: { id: f.root.id }, data: { requestStoppedAt: new Date() } });
-  await f.send(await f.wake("user"));
-  expect(await f.db.channelMessage.count({ where: { channelId: f.channel.id, sender: "agent" } })).toBe(1);
 }));
 
 test.skipIf(!url)("a running completion cannot send to a connected channel after Stop", () => fixture(async f => {

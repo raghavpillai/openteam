@@ -64,5 +64,3 @@ export const auth = betterAuth({
     bearer({ requireSignature: true }),
   ],
 });
-
-export type OpenTeamSession = typeof auth.$Infer.Session;

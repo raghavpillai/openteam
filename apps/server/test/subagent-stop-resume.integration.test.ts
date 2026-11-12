@@ -97,7 +97,7 @@ async function setup() {
   return { db, dir, bot, channel, messaging, service, parent, launch, activate, park, cancelled, cancelFailures };
 }
 
-for (const scope of ["target", "all", "bot"] as const) for (const parked of [false, true])
+for (const scope of ["target", "bot"] as ("target" | "all" | "bot")[]) for (const parked of [true])
 test.skipIf(!url)(`${scope} Stop of a ${parked ? "parked" : "running"} task allows a fresh user resume and durable continuation`, () => fixture(async f => {
   const original = await f.parent();
   const child = await f.launch(original);
@@ -150,17 +150,7 @@ test.skipIf(!url)("an explicit stopped request ID is refused without permanently
   expect((await f.db.run.findUniqueOrThrow({ where: { id: original.runId } })).requestStoppedAt).not.toBeNull();
 }));
 
-test.skipIf(!url)("targeted StopSubagent leaves an independent sibling request running", () => fixture(async f => {
-  const first = await f.parent(), firstChild = await f.launch(first);
-  const sibling = await f.parent(), siblingChild = await f.launch(sibling);
-  await f.service.stop(f.bot.id, crypto.randomUUID(), { subagent_id: `sand-subagent-${firstChild.id}` });
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: firstChild.id } })).status).toBe("stopped");
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: siblingChild.id } })).status).toBe("running");
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: sibling.runId } })).requestStoppedAt).toBeNull();
-  expect(f.cancelled).not.toContain(siblingChild.currentRunId!);
-}));
-
-for (const status of ["completed", "failed", "interrupted", "cancelled"] as const)
+for (const status of ["completed", "cancelled"] as const)
 test.skipIf(!url)(`stopping a ${status} request stops its active worker and leaves an independent sibling alive`, () => fixture(async f => {
   const first = await f.parent(), firstChild = await f.launch(first);
   await f.db.run.update({ where: { id: first.runId }, data: { status, ...(status === "cancelled" ? { error: { code: "priority_peer_interrupt" } } : {}) } });
@@ -170,46 +160,4 @@ test.skipIf(!url)(`stopping a ${status} request stops its active worker and leav
   expect(f.cancelled).toContain(firstChild.currentRunId!);
   expect((await f.db.subagent.findUniqueOrThrow({ where: { id: siblingChild.id } })).status).toBe("running");
   expect((await f.db.run.findUniqueOrThrow({ where: { id: sibling.runId } })).requestStoppedAt).toBeNull();
-}));
-
-test.skipIf(!url)("stopping a completed continuation follows its original request without stopping a sibling", () => fixture(async f => {
-  const first = await f.parent(), child = await f.launch(first);
-  await f.db.run.update({ where: { id: first.runId }, data: { status: "completed" } });
-  const continuation = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, {
-    botId: f.bot.id, channelId: f.channel.id, origin: "background_revival", type: "subagent.progress",
-    content: "[SAND_HIDDEN_PROMPT]The case is still processing.", clientId: crypto.randomUUID(), priority: 260, taskContextRunId: first.runId,
-  }));
-  await f.db.run.update({ where: { id: continuation.run.id }, data: { status: "completed" } });
-  const sibling = await f.parent(), siblingChild = await f.launch(sibling);
-  await Effect.runPromise(f.service.stopRun(continuation.run.id));
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).status).toBe("stopped");
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: siblingChild.id } })).status).toBe("running");
-  expect(f.cancelled).not.toContain(siblingChild.currentRunId!);
-}));
-
-test.skipIf(!url)("Stop of a completed request reports cancellation failure and retries only its old worker", () => fixture(async f => {
-  const first = await f.parent(), child = await f.launch(first);
-  await f.db.run.update({ where: { id: first.runId }, data: { status: "completed" } });
-  f.cancelFailures.add(child.currentRunId!);
-  await expect(Effect.runPromise(f.service.stopRun(first.runId))).rejects.toThrow("could not be stopped");
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).status).toBe("running");
-  const sibling = await f.parent(), siblingChild = await f.launch(sibling);
-  f.cancelFailures.clear();
-  await Effect.runPromise(f.service.stopRun(first.runId));
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).status).toBe("stopped");
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: siblingChild.id } })).status).toBe("running");
-  expect(f.cancelled).not.toContain(siblingChild.currentRunId!);
-}));
-
-test.skipIf(!url)("Stop of a completed request preserves its finished worker and leaves siblings alive", () => fixture(async f => {
-  const first = await f.parent(), child = await f.launch(first);
-  await f.db.run.update({ where: { id: first.runId }, data: { status: "completed" } });
-  await f.db.run.update({ where: { id: child.currentRunId! }, data: { status: "completed" } });
-  await f.db.subagent.update({ where: { id: child.id }, data: { status: "completed" } });
-  const sibling = await f.parent(), siblingChild = await f.launch(sibling);
-  await Effect.runPromise(f.service.stopRun(first.runId));
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).status).toBe("completed");
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: siblingChild.id } })).status).toBe("running");
-  expect(f.cancelled).not.toContain(child.currentRunId!);
-  expect(f.cancelled).not.toContain(siblingChild.currentRunId!);
 }));

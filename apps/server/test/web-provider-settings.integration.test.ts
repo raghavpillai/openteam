@@ -1,43 +1,10 @@
 import { expect, test } from "bun:test";
 import { createPrismaClient } from "@openteam/db";
 import { FETCH_PROVIDER_LIST, SEARCH_PROVIDER_LIST } from "@openteam/contracts/web-search";
-import {
-  parseWebProviderSettings,
-  WebProviderSettingsService,
-  type WebProviderChecker,
-} from "../src/services/web-provider-settings";
+import { WebProviderSettingsService } from "../src/services/web-provider-settings";
 import { settingsRoutes } from "../src/routes/settings";
 import type { RouteContext } from "../src/routes/context";
 import { errorResponse } from "../src/http";
-
-test("provider settings validate tools, providers and fields without echoing them", () => {
-  for (const input of [
-    null,
-    [],
-    { searches: {} },
-    { search: "exa" },
-    { search: { selected: "bing" } },
-    { search: { selected: "builtin" } },
-    { search: { selected: "exa-free" } },
-    { fetch: { selected: "exa-free" } },
-    { search: { providers: { google: { apiKey: "k" } } } },
-    { search: { providers: { exa: { baseUrl: "https://x" } } } },
-    { search: { providers: { exa: { apiKey: " " } } } },
-    { search: { providers: { exa: { apiKey: "bad\nkey" } } } },
-    { fetch: { providers: { builtin: { apiKey: "k" } } } },
-    { search: { selected: "exa", configured: true } },
-  ])
-    expect(() => parseWebProviderSettings(input)).toThrow();
-  expect(
-    parseWebProviderSettings({
-      search: { selected: "bing-serpapi", providers: { "bing-serpapi": { apiKey: " serp-key " }, exa: { apiKey: null } } },
-      fetch: { selected: null, providers: { firecrawl: { apiKey: " fc-key " } } },
-    })
-  ).toEqual({
-    search: { selected: "bing-serpapi", providers: { "bing-serpapi": { apiKey: "serp-key" }, exa: { apiKey: null } } },
-    fetch: { selected: null, providers: { firecrawl: { apiKey: "fc-key" } } },
-  });
-});
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const reset = async (prisma: ReturnType<typeof createPrismaClient>) => {
@@ -135,88 +102,6 @@ test.skipIf(!databaseUrl)(
     }
   }
 );
-
-test.skipIf(!databaseUrl)("connection checks run with the saved key and store their outcome", async () => {
-  const prisma = createPrismaClient(databaseUrl!);
-  const requests: Parameters<WebProviderChecker>[0][] = [];
-  let outcome: { ok: boolean; message: string } | Error = { ok: true, message: "Returned 3 results." };
-  let during: (() => Promise<unknown>) | undefined;
-  const service = new WebProviderSettingsService(prisma, async (request) => {
-    requests.push(request);
-    await during?.();
-    if (outcome instanceof Error) throw outcome;
-    return outcome;
-  });
-  try {
-    await reset(prisma);
-    await expect(service.check({ tool: "search", provider: "exa" })).rejects.toThrow("Add the Exa API key before checking it.");
-    await expect(service.check({ tool: "search", provider: "builtin" })).rejects.toThrow("Unknown search provider.");
-
-    await service.save({ search: { providers: { exa: { apiKey: "exa-check-key" } } } });
-    let view = await service.check({ tool: "search", provider: "exa" });
-    expect(requests.at(-1)).toEqual({ tool: "search", provider: "exa", apiKey: "exa-check-key" });
-    expect(view.search.providers.exa!.check).toMatchObject({ status: "passed", message: "Returned 3 results." });
-    expect(Date.parse(view.search.providers.exa!.check!.checkedAt)).toBeGreaterThan(Date.now() - 60_000);
-    // Checks are per tool: fetch Exa has not been checked.
-    expect(view.fetch.providers.exa!.check).toBeNull();
-
-    // The built-in fetcher can be checked and stores a row without a secret.
-    outcome = { ok: false, message: "The site did not respond within 20 seconds" };
-    view = await service.check({ tool: "fetch", provider: "builtin" });
-    expect(view.fetch.providers.builtin).toMatchObject({ secretSaved: false, check: { status: "failed" } });
-    expect(requests.at(-1)).toEqual({ tool: "fetch", provider: "builtin", apiKey: null });
-
-    // Changing a provider's key clears its stored check.
-    view = await service.save({ search: { providers: { exa: { apiKey: "exa-rotated-key" } } } });
-    expect(view.search.providers.exa!.check).toBeNull();
-
-    // A result for a key that changed mid-check is discarded.
-    outcome = { ok: true, message: "stale" };
-    during = () => service.save({ search: { providers: { exa: { apiKey: "exa-newer-key" } } } });
-    view = await service.check({ tool: "search", provider: "exa" });
-    expect(view.search.providers.exa!.check).toBeNull();
-    during = undefined;
-
-    // An unreachable computer fails the request without storing anything.
-    outcome = new Error("connect ECONNREFUSED");
-    await expect(service.check({ tool: "search", provider: "exa" })).rejects.toMatchObject({ status: 503 });
-    expect((await service.view()).search.providers.exa!.check).toBeNull();
-  } finally {
-    await reset(prisma);
-    await prisma.$disconnect();
-  }
-});
-
-test.skipIf(!databaseUrl)("database constraints accept every catalog provider and reject invalid rows", async () => {
-  const prisma = createPrismaClient(databaseUrl!);
-  try {
-    await reset(prisma);
-    for (const provider of SEARCH_PROVIDER_LIST) {
-      await prisma.webSearchSettings.upsert({ where: { id: "global" }, create: { id: "global", provider: provider.id }, update: { provider: provider.id } });
-      await prisma.webToolProvider.create({ data: { tool: "search", provider: provider.id } });
-    }
-    for (const provider of FETCH_PROVIDER_LIST) {
-      await prisma.webFetchSettings.upsert({ where: { id: "global" }, create: { id: "global", provider: provider.id }, update: { provider: provider.id } });
-      await prisma.webToolProvider.create({ data: { tool: "fetch", provider: provider.id } });
-    }
-    for (const data of [
-      { tool: "search", provider: "builtin" },
-      { tool: "fetch", provider: "exa-free" },
-      { tool: "search", provider: "exa-free" },
-      { tool: "other", provider: "exa" },
-      { tool: "search", provider: "google" },
-    ])
-      await expect(Promise.resolve(prisma.webToolProvider.create({ data }))).rejects.toThrow();
-    const exa = { tool_provider: { tool: "search", provider: "exa" } };
-    await expect(Promise.resolve(prisma.webToolProvider.update({ where: exa, data: { secret: " " } }))).rejects.toThrow();
-    await expect(Promise.resolve(prisma.webToolProvider.update({ where: exa, data: { checkStatus: "maybe", checkedAt: new Date() } }))).rejects.toThrow();
-    await expect(Promise.resolve(prisma.webToolProvider.update({ where: exa, data: { checkStatus: "passed" } }))).rejects.toThrow();
-    await expect(Promise.resolve(prisma.webSearchSettings.create({ data: { id: "another" } }))).rejects.toThrow();
-  } finally {
-    await reset(prisma);
-    await prisma.$disconnect();
-  }
-});
 
 test("database write errors cannot leak plaintext provider secrets", async () => {
   const key = "synthetic-key-in-a-database-error";

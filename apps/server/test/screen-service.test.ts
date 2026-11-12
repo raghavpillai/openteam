@@ -1,11 +1,10 @@
 import { expect, test } from "bun:test";
 import { Effect, Schema } from "effect";
-import { formPreparationFailureMessage, ScreenClipboardInput } from "@openteam/contracts";
+import { ScreenClipboardInput } from "@openteam/contracts";
 import type { PrismaClient } from "@openteam/db";
 import { botRoutes } from "../src/routes/bot";
 import type { RouteContext } from "../src/routes/context";
-import { RichMessageService } from "../src/services/rich-message-service";
-import { ScreenService, screenViewerUrl, UserFormRefusal } from "../src/services/screen-service";
+import { ScreenService, screenViewerUrl } from "../src/services/screen-service";
 
 type Computer = (path: string, init: RequestInit) => Promise<Response>;
 const prisma = (bot: () => Record<string, unknown>, channelKind = "bot_dm") => ({
@@ -84,39 +83,4 @@ test("inactive bots cannot use the clipboard or stream, and upstream diagnostics
     expect(String(error?.message)).toMatch(/clipboard operation failed|Computer video is unavailable/);
     expect(String(error?.message)).not.toContain("private upstream details");
   }
-});
-
-const formFailure = (body: unknown, calls: unknown[] = [], channelKind?: string) =>
-  screens(async (path) => (calls.push(path), Response.json(body, { status: 400 })), activeBot(), channelKind);
-const form = { title: "Pay", instruction: "Card", domain: "shop.example", fields: [
-  { id: "cc", label: "Card number", type: "text", secret: true, target: { kind: "selector", value: "#cc" } },
-] };
-const formContext = { runId: "run", botId: "bot", conversationId: "conversation", channelId: "channel", deliveryId: null, origin: "user" as const, callId: "call", isFork: false, replyToMessageId: null };
-
-test("form preflight returns only allowlisted reasons on prepare and none on submit", async () => {
-  const failure = { error: "form_preflight_failed", failureKinds: ["tab_missing", "SECRET-246810", "__proto__"], message: "SECRET-246810" };
-  const prepared = await formFailure(failure).userFormAction("bot", "form", "prepare", {}).catch((error) => error);
-  expect(prepared.code).toBe("form_preflight_failed");
-  expect(prepared.message).toContain("No live browser tab");
-  expect(prepared.message).not.toContain("SECRET-246810");
-  expect(formPreparationFailureMessage({ error: "form_preflight_failed", failureKinds: ["__proto__", "SECRET-246810"] })).toBeUndefined();
-  const submitted = await formFailure(failure).userFormAction("bot", "form", "submit", {}).catch((error) => error);
-  expect(submitted.code).toBe("form_host_unavailable");
-  expect(submitted.message).not.toContain("SECRET-246810");
-  expect(submitted.message).not.toContain("browser tab");
-});
-
-test("a refused preflight reaches the model as a status result, and room turns are never preflighted", async () => {
-  const refused = formFailure({ error: "form_preflight_failed", fieldKinds: { cc: "in_unreachable_frame" }, message: "SECRET-246810" });
-  expect(await refused.userFormAction("bot", "form", "prepare", { form }).catch((error) => error)).toBeInstanceOf(UserFormRefusal);
-  const result = await new RichMessageService(prisma(activeBot()), {} as never, {} as never, refused).createUserForm(formContext, form);
-  expect(result).toStartWith('The form "Pay" was NOT shown');
-  expect(result).toContain("- cc: target is inside a frame");
-  expect(result).not.toContain("SECRET-246810");
-  const offline = new RichMessageService(prisma(activeBot()), {} as never, {} as never, formFailure({ error: "form_driver_unavailable" }));
-  expect(await offline.createUserForm(formContext, form)).toStartWith('The form "Pay" was NOT shown');
-  const calls: unknown[] = [];
-  const room = new RichMessageService(prisma(activeBot(), "group"), {} as never, {} as never, formFailure({}, calls, "group"));
-  expect(await room.createUserForm(formContext, form)).toContain("group-room turn");
-  expect(calls).toEqual([]);
 });

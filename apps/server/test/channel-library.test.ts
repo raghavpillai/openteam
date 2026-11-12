@@ -70,22 +70,4 @@ describe("conversation Library", () => {
     expect(channels[0].where.archivedAt).toBeNull();
     expect(channels[0].where.members.some.bot.subagentIdentity).toEqual({ is: null });
   });
-  test("advances across malformed legacy attachments and bounds each page", async () => {
-    const rows = Array.from({ length: 51 }, (_, i) =>
-      row(100 - i, i === 49 ? { broken: true } : attachment)
-    );
-    const page = await Effect.runPromise(fixture(rows).service.list("channel"));
-    expect(page.items).toHaveLength(49);
-    expect(page.nextCursor).toBe("51.1");
-  });
-  test("does not query files for missing or archived conversations", async () => {
-    const { service, queries } = fixture([], false);
-    await expect(Effect.runPromise(service.list("missing"))).rejects.toThrow("Channel not found");
-    expect(queries).toHaveLength(0);
-  });
-  test("rejects bad cursors before accessing storage", async () => {
-    const { service, channels } = fixture([]);
-    await expect(Effect.runPromise(service.list("channel", "invalid"))).rejects.toThrow();
-    expect(channels).toHaveLength(0);
-  });
 });

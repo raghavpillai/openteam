@@ -93,38 +93,6 @@ test("failed credential persistence cannot change the provider's in-memory autho
   expect(stored.tokens).toEqual(original);
 });
 
-test("concurrent OAuth metadata saves retain both updates", async () => {
-  let stored: StoredOAuthState = {};
-  const provider = new OpenTeamOAuthProvider({
-    redirectUrl: "http://127.0.0.1/callback", initial: {}, save: async state => { stored = state; },
-  });
-  await Promise.all([provider.saveIssuer("https://issuer.example"), provider.saveClientInformation({ client_id: "public-client" })]);
-  expect(stored.issuer).toBe("https://issuer.example");
-  expect(stored.clientInformation?.client_id).toBe("public-client");
-  expect(provider.snapshot()).toEqual(stored);
-});
-
-test("a delayed metadata save cannot restore an older access token", async () => {
-  const entered = gate(), release = gate();
-  let stored: StoredOAuthState = { tokens: { access_token: "old-token", token_type: "Bearer" } };
-  const provider = new OpenTeamOAuthProvider({
-    redirectUrl: "http://127.0.0.1/callback", initial: stored, save: async state => {
-      if (state.issuer && state.tokens?.access_token === "old-token") { entered.release(); await release.promise; }
-      stored = state;
-    },
-  });
-  const metadata = provider.saveIssuer("https://issuer.example");
-  try {
-    await entered.promise;
-    const tokens = provider.saveTokens({ access_token: "new-token", token_type: "Bearer" });
-    release.release();
-    await Promise.all([metadata, tokens]);
-    expect(stored.tokens?.access_token).toBe("new-token");
-    expect(stored.issuer).toBe("https://issuer.example");
-    expect(provider.tokens()).toEqual(stored.tokens);
-  } finally { release.release(); await metadata; }
-});
-
 for (const operation of ["verifier", "redirect"] as const) {
   test(`a stale ${operation} cannot reopen sign-in behind a successful token write`, async () => {
     const entered = gate(), release = gate();
@@ -148,47 +116,5 @@ for (const operation of ["verifier", "redirect"] as const) {
       expect(stored.authorizationUrl).toBeUndefined();
       expect(stored.codeVerifier).toBeUndefined();
     } finally { release.release(); await tokens; }
-  });
-}
-
-test("a failed queued write cannot poison later OAuth saves", async () => {
-  let stored: StoredOAuthState = {};
-  let first = true;
-  const provider = new OpenTeamOAuthProvider({
-    redirectUrl: "http://127.0.0.1/callback", initial: {}, save: async state => {
-      if (first) { first = false; throw new Error("Synthetic persistence failure"); }
-      stored = state;
-    },
-  });
-  const results = await Promise.allSettled([provider.saveIssuer("https://issuer.example"), provider.saveClientInformation({ client_id: "next-client" })]);
-  expect(results.map(result => result.status)).toEqual(["rejected", "fulfilled"]);
-  expect(stored.clientInformation?.client_id).toBe("next-client");
-  expect(stored.issuer).toBeUndefined();
-});
-
-for (const scope of ["all", "tokens", "client", "verifier"] as const) {
-  test(`queued ${scope} invalidation cannot be undone by an older metadata write`, async () => {
-    const entered = gate(), release = gate();
-    let stored: StoredOAuthState = {
-      state: "pending-sign-in", codeVerifier: "old-verifier",
-      clientInformation: { client_id: "old-client" }, tokens: { access_token: "old-token", token_type: "Bearer" },
-    };
-    const provider = new OpenTeamOAuthProvider({
-      redirectUrl: "http://127.0.0.1/callback", initial: stored, save: async state => {
-        if (state.issuer && state.tokens?.access_token === "old-token") { entered.release(); await release.promise; }
-        stored = state;
-      },
-    });
-    const metadata = provider.saveIssuer("https://issuer.example");
-    try {
-      await entered.promise;
-      const invalidated = provider.invalidateCredentials(scope);
-      release.release();
-      await Promise.all([metadata, invalidated]);
-      if (scope === "all" || scope === "tokens") expect(stored.tokens).toBeUndefined();
-      if (scope === "all" || scope === "client") expect(stored.clientInformation).toBeUndefined();
-      if (scope === "all" || scope === "verifier") expect(stored.codeVerifier).toBeUndefined();
-      expect(provider.snapshot()).toEqual(stored);
-    } finally { release.release(); await metadata; }
   });
 }

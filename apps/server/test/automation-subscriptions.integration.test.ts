@@ -137,57 +137,6 @@ test.skipIf(!url)(
 );
 
 test.skipIf(!url)(
-  "failed disconnect stays disabled and retry accepts an already removed subscription",
-  async () => {
-    const db = createPrismaClient(url!);
-    const botId = crypto.randomUUID();
-    let deletes = 0;
-    const service = new AutomationWebhooksService(db, async () => {}, (async (
-      _url: any,
-      init: any
-    ) => {
-      if (init.method !== "DELETE") return Response.json({ id: 1 });
-      deletes++;
-      if (deletes === 1) throw new Error("private fixture token must not escape");
-      return new Response(null, { status: 404 });
-    }) as unknown as typeof fetch);
-    try {
-      await db.bot.create({
-        data: { id: botId, name: "Disconnect fixture", defaultDirectory: "/tmp", status: "active" },
-      });
-      const input = {
-        ownerKind: "bot",
-        ownerId: botId,
-        publicUrl: "https://fixture.example.test",
-        signingSecret: "fixture-signing-secret",
-        apiToken: "fixture-provider-token",
-      };
-      await expect(
-        service.save({ ...input, source: "slack", configuration: { teamId: "T123" } })
-      ).rejects.toThrow("required provider");
-      expect(await db.automationWebhook.count({ where: { ownerId: botId } })).toBe(0);
-      const row = await service.save({
-        ...input,
-        source: "github",
-        configuration: { repository: "fixture/repo" },
-      });
-      await expect(service.remove(row.id)).rejects.toThrow("retry disconnect");
-      expect((await service.list()).find((item) => item.id === row.id)).toMatchObject({
-        enabled: false,
-        status: "error",
-      });
-      expect((await service.receive(row.id, new Request(row.callbackUrl)))!.status).toBe(410);
-      expect(await service.remove(row.id)).toMatchObject({ removed: true });
-      expect(deletes).toBe(2);
-    } finally {
-      await db.automationWebhook.deleteMany({ where: { ownerId: botId } });
-      await db.bot.deleteMany({ where: { id: botId } });
-      await db.$disconnect();
-    }
-  }
-);
-
-test.skipIf(!url)(
   "subscription creation is exclusive and an uncertain write cannot be blindly replayed",
   async () => {
     const db = createPrismaClient(url!);

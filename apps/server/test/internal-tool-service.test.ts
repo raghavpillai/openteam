@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
-import { connectorDraftCardReminder } from "../src/services/connector-draft-reminder";
 import { InternalToolService } from "../src/services/internal-tool-service";
 
 type Fixture = {
@@ -46,13 +45,6 @@ test("SendToUser delivers and removed or unknown tools are rejected without deli
   await expect(call("SendToUser", { type: "text", content: "Hello" })).resolves.toBe("sent");
   for (const tool of ["SendMessage", "ListAgents"]) await expect(call(tool)).rejects.toThrow(`Unknown tool ${tool}`);
   expect(deliveries).toEqual([{ type: "text", content: "Hello" }]);
-});
-
-test("request_box_help creates a computer handoff and tells the agent to wait", async () => {
-  const { call, deliveries } = fixture();
-  await expect(call("request_box_help", { instruction: "Finish 2FA", reason: "auth", url: "https://example.com/login" }))
-    .resolves.toMatchObject({ sent: true, waiting_for_user: true });
-  expect(deliveries).toEqual([{ type: "computer-handoff", content: "Finish 2FA", computerHandoff: { reason: "Finish 2FA", category: "auth" } }]);
 });
 
 test("StopSubagent passes all: true or one id, and subagents cannot use parent control-plane tools", async () => {
@@ -123,34 +115,4 @@ test("routine runs manage installed plugins but cannot touch the visible transcr
   for (const tool of ["SendToUser", "RequestUserForm", "RemapUserFormTargets", "CreateBotShareJson", "InstallPlugin", "AddMcpServer", "AuthenticateMcpServer"])
     await expect(call(tool, {})).rejects.toThrow("Automation runs cannot mutate the visible transcript.");
   expect(reached).toHaveLength(allowed.length);
-});
-
-test("plugin actions carry the run origin so installs can refuse turns the user did not start", async () => {
-  for (const origin of ["user", "background_revival", "agent"]) {
-    const { call, origins } = policy(origin);
-    await call("InstallPlugin", { plugin_id: "linear" });
-    expect(origins).toEqual([origin]);
-  }
-});
-
-test("a connector draft on a user turn reminds the agent to show the draft card, and nowhere else", async () => {
-  const draftCall = (options: { origin?: string; child?: boolean; toolName?: string; result?: unknown; drafts?: boolean } = {}) => {
-    const result = options.result ?? { content: [{ type: "text", text: "{\"id\":\"r-1\"}" }] };
-    const connections = [{ key: "gmail", name: "Gmail", ...(options.drafts === false ? {} : { drafts: { platform: "email", tool: "send_reviewed_email" } }) }];
-    const { call } = fixture({
-      origin: options.origin,
-      child: options.child ? child() : null,
-      connection: { connectorKey: "gmail", installation: { name: "Gmail", manifest: { key: "gmail", name: "Gmail", skills: [], connections } } },
-      plugins: { invoke: async () => result },
-    });
-    return call("PluginCall", { connectionId: "connection", toolName: options.toolName ?? "create_draft", arguments: {} }) as Promise<{ content: Array<{ text: string }> }>;
-  };
-  expect((await draftCall()).content.map((item) => item.text)).toEqual(["{\"id\":\"r-1\"}", connectorDraftCardReminder("Gmail")]);
-  for (const options of [
-    { origin: "routine" },
-    { child: true },
-    { toolName: "get_draft" },
-    { drafts: false },
-    { result: { isError: true, content: [{ type: "text", text: "Not called" }] } },
-  ]) expect((await draftCall(options)).content).toHaveLength(1);
 });

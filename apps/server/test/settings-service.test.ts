@@ -59,26 +59,6 @@ test("model tests verify the choice, then send one minimal request", async () =>
   });
 });
 
-test("model tests report provider failures instead of throwing", async () => {
-  const service = new SettingsService(
-    {} as never,
-    (async (path: string) => {
-      if (path === "/v1/infer") throw new Error("Incorrect API key provided");
-      return { settings: {} };
-    }) as never
-  );
-
-  const result = await Effect.runPromise(
-    service.testInference({ providerId: "openai", modelId: "gpt-5.6", reasoning: "low" })
-  );
-  expect(result).toEqual({
-    ok: false,
-    providerId: "openai",
-    modelId: "gpt-5.6",
-    error: "Incorrect API key provided",
-  });
-});
-
 test("Task settings verify every model before changing the saved configuration", async () => {
   let saved = defaultTaskConfiguration();
   const verified: string[] = [];

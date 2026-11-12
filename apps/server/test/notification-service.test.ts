@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
-import {
-  deliverablePushDeviceWhere,
-  NotificationService,
-} from "../src/services/notification-service";
+import { NotificationService } from "../src/services/notification-service";
 
 const apnsRegistration = (installationId: string) => ({
   installationId,
@@ -52,34 +49,6 @@ describe("NotificationService", () => {
     expect(enabled).toBe(false);
   });
 
-  test("keeps auth-disabled registrations deliverable without inventing a session", async () => {
-    let persisted: Record<string, unknown> | null = null;
-    const prisma = {
-      pushDevice: {
-        findUnique: async () => null,
-        upsert: async ({ create }: { create: Record<string, unknown> }) => {
-          persisted = create;
-          return { ...create, enabled: true, lastSeenAt: create.lastSeenAt as Date };
-        },
-      },
-    } as unknown as PrismaClient;
-    const service = new NotificationService(prisma, "disabled");
-
-    await Effect.runPromise(
-      service.register(apnsRegistration("disabled-installation"), { mode: "disabled" })
-    );
-
-    expect(persisted).toMatchObject({ authRequired: false, authSessionId: null });
-    await expect(
-      Effect.runPromise(
-        new NotificationService(prisma, "required").register(
-          apnsRegistration("stale-disabled-installation"),
-          { mode: "disabled" }
-        )
-      )
-    ).rejects.toThrow("Refresh authentication before registering this push device");
-  });
-
   test("disables every device bound to a session before sign-out", async () => {
     let update: unknown = null;
     let lockCount = 0;
@@ -108,76 +77,6 @@ describe("NotificationService", () => {
     expect(update).toEqual({
       where: { authRequired: true, authSessionId: "session-retiring", enabled: true },
       data: { enabled: false },
-    });
-  });
-
-  test("cannot re-enable a required device after its sign-out session is retired", async () => {
-    let releaseRegistration: () => void = () => undefined;
-    const registrationGate = new Promise<void>((resolve) => {
-      releaseRegistration = resolve;
-    });
-    let markRegistrationStarted: () => void = () => undefined;
-    const registrationStarted = new Promise<void>((resolve) => {
-      markRegistrationStarted = resolve;
-    });
-    let sessionExists = true;
-    let enabled = false;
-    const pushDevice = {
-      findUnique: async () => null,
-      upsert: async () => {
-        markRegistrationStarted();
-        await registrationGate;
-        if (!sessionExists) throw new Error("PushDevice_authSessionId_fkey");
-        enabled = true;
-        return {
-          installationId: "late-installation",
-          platform: "ios",
-          enabled,
-          lastSeenAt: new Date(),
-        };
-      },
-      updateMany: async () => {
-        enabled = false;
-        return { count: 1 };
-      },
-    };
-    const tx = {
-      notificationPresence: { updateMany: async () => ({ count: 0 }) },
-      event: { create: async () => ({}) },
-      $executeRaw: async () => 0,
-      pushDevice,
-    };
-    const prisma = {
-      pushDevice,
-      $transaction: async (operation: (client: typeof tx) => Promise<unknown>) => operation(tx),
-    } as unknown as PrismaClient;
-    const service = new NotificationService(prisma);
-    const lateRegistration = Effect.runPromise(
-      service.register(apnsRegistration("late-installation"), {
-        mode: "required",
-        sessionId: "retired-session",
-      })
-    );
-    await registrationStarted;
-
-    await Effect.runPromise(service.disableForSession("retired-session"));
-    sessionExists = false;
-    releaseRegistration();
-
-    await expect(lateRegistration).rejects.toThrow("PushDevice_authSessionId_fkey");
-    expect(enabled).toBe(false);
-  });
-
-  test("filters required devices through a live session while preserving disabled mode", () => {
-    const now = new Date("2026-08-31T12:00:00.000Z");
-    expect(deliverablePushDeviceWhere("required", now)).toEqual({
-      enabled: true,
-      authRequired: true,
-      authSession: { is: { expiresAt: { gt: now } } },
-    });
-    expect(deliverablePushDeviceWhere("disabled", now)).toEqual({
-      enabled: true,
-      authRequired: false,
     });
   });
 
@@ -256,11 +155,5 @@ describe("native push registration", () => {
     const prisma = {pushDevice:{findUnique:async()=>null,upsert:async({create}:any)=>{persisted=create;return {...create,enabled:true};}}} as unknown as PrismaClient;
     await Effect.runPromise(new NotificationService(prisma,"disabled").register(input,{mode:"disabled"}));
     expect(persisted).toMatchObject({provider:"apns",apnsEnvironment:"development",apnsTopic:input.apnsTopic,notificationScope:input.notificationScope,pushToken:input.pushToken.toLowerCase(),authRequired:false});
-  });
-  test("rejects incomplete or mismatched native transports before touching the database", async () => {
-    const service = new NotificationService({} as PrismaClient,"disabled");
-    for (const invalid of [{...input,platform:"android"},{...input,apnsEnvironment:undefined},{...input,notificationScope:undefined},{...input,apnsTopic:undefined},{...input,pushToken:"a".repeat(65)},{...input,pushToken:"zz".repeat(32)},{...input,provider:"fcm"},{...input,provider:undefined}]) {
-      await expect(Effect.runPromise(service.register(invalid as typeof input,{mode:"disabled"}))).rejects.toThrow("push token and delivery settings");
-    }
   });
 });

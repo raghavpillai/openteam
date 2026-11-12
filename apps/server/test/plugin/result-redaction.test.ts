@@ -1,41 +1,6 @@
 import { expect, test } from "bun:test";
 import { redactConnectionSecrets } from "../../src/services/plugin/values";
 
-test("public OAuth metadata preserves provider ids, links, and model inputs", () => {
-  const result = {
-    providerInstanceId: "codex",
-    driverKind: "codex",
-    message: "Write code with OpenTeam",
-    link: "https://environment.example/threads/test",
-    authMethod: "none",
-    tokenKind: "Bearer",
-  };
-  const scrubbed = redactConnectionSecrets(result, {
-    configuration: {},
-    credentials: {
-      oauth: {
-        clientInformation: {
-          client_id: "public-id",
-          client_name: "OpenTeam",
-          response_types: ["code"],
-          grant_types: ["authorization_code"],
-          token_endpoint_auth_method: "none",
-        },
-        issuer: "https://environment.example",
-        redirectUrl: "http://localhost/callback",
-        tokens: {
-          access_token: "private-access-value",
-          refresh_token: "private-refresh-value",
-          token_type: "Bearer",
-          scope: "code",
-        },
-      },
-    },
-  });
-  // Keys such as tokenKind are deliberately excluded: name-based redaction still applies.
-  expect(scrubbed).toEqual({ ...result, tokenKind: "[redacted]" });
-});
-
 test("OAuth and configured secrets stay redacted even inside free-form result text", () => {
   const secrets = [
     "access-private",

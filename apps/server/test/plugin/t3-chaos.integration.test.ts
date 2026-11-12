@@ -1,3 +1,4 @@
+import { gate } from "./fixtures/gate";
 import { expect, test } from "bun:test";
 import { createOpenTeamClient } from "../../../../packages/client-core/src";
 import { pluginCatalog } from "@openteam/plugins";
@@ -53,10 +54,15 @@ function freshHost(f: Awaited<ReturnType<typeof setup>>) {
   return service;
 }
 
-function gate() {
-  let release!: () => void;
-  const promise = new Promise<void>(resolve => { release = resolve; });
-  return { promise, release };
+async function invocation(f: Awaited<ReturnType<typeof setup>>) {
+  const bot = await f.db.bot.create({ data: {
+    name: "T3 invocation", defaultDirectory: "/tmp", status: "active", onboardingStatus: "completed", conversation: { create: {} },
+  }, include: { conversation: true } });
+  const run = await f.db.run.create({ data: {
+    botId: bot.id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running",
+  } });
+  const callId = crypto.randomUUID();
+  return { bot, run, callId, request: { connectionId: f.id, botId: bot.id, runId: run.id, callId, toolName: "whoami", arguments: {} } };
 }
 
 integration("revoked no-refresh grants require explicit sign-in and recover without an orphan OAuth attempt", async () => {
@@ -170,17 +176,11 @@ integration("a late tools-changed callback cannot overwrite a newer account gene
 
 integration("a revoked grant fails an agent invocation without dispatching the tool", async () => {
   const f = await setup();
-  const bot = await f.db.bot.create({ data: {
-    name: "T3 chaos invocation", defaultDirectory: "/tmp", status: "active", conversation: { create: {} },
-  }, include: { conversation: true } });
+  const { bot, callId, request } = await invocation(f);
   try {
-    const run = await f.db.run.create({ data: {
-      botId: bot.id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running",
-    } });
     const callsBefore = f.provider.observations.calls;
     f.provider.expireTokens();
-    const callId = crypto.randomUUID();
-    await expect(f.service.invoke({ connectionId: f.id, botId: bot.id, runId: run.id, callId, toolName: "whoami", arguments: {} })).rejects.toThrow();
+    await expect(f.service.invoke(request)).rejects.toThrow();
     expect((await f.row()).status).toBe("needs_auth");
     expect((await f.db.pluginInvocation.findUniqueOrThrow({ where: { callId } })).status).toBe("failed");
     expect(f.provider.observations.calls).toBe(callsBefore);
@@ -216,17 +216,11 @@ integration("an error after token refresh redacts the newly issued credential", 
 
 integration("provider errors are redacted before they enter invocation history", async () => {
   const f = await setup();
-  const bot = await f.db.bot.create({ data: {
-    name: "T3 diagnostic fixture", defaultDirectory: "/tmp", status: "active", conversation: { create: {} },
-  }, include: { conversation: true } });
+  const { bot, callId, request } = await invocation(f);
   try {
-    const run = await f.db.run.create({ data: {
-      botId: bot.id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running",
-    } });
     const credentials = (await f.row()).credentials as any;
     f.provider.setToolFailure({ status: 503, body: "Diagnostic: ${accessToken}" });
-    const callId = crypto.randomUUID();
-    const error = await f.service.invoke({ connectionId: f.id, botId: bot.id, runId: run.id, callId, toolName: "whoami", arguments: {} }).then(() => null, error => error);
+    const error = await f.service.invoke(request).then(() => null, error => error);
     const saved = await f.db.pluginInvocation.findUniqueOrThrow({ where: { callId } });
     expect(saved.status).toBe("failed");
     expect(saved.error).toContain("[redacted]");
@@ -283,43 +277,7 @@ integration("duplicate browser callbacks redeem a one-time code only once", asyn
   } finally { await f.close(); }
 });
 
-integration("disconnect after call preparation prevents later credential use and tool dispatch", async () => {
-  const f = await setup();
-  const entered = gate(), release = gate();
-  const http = (f.service as any).http;
-  const original = http.call.bind(http);
-  http.call = async (...args: unknown[]) => { entered.release(); await release.promise; return original(...args); };
-  const before = f.provider.observations.calls;
-  const pending = f.call().then(() => "executed", () => "revoked");
-  try {
-    await entered.promise;
-    await f.client.disconnectPlugin(f.id);
-    release.release();
-    expect(await pending).toBe("revoked");
-    expect(f.provider.observations.calls).toBe(before);
-    expect((await f.row()).status).toBe("disconnected");
-  } finally { release.release(); await pending; await f.close(); }
-});
-
-integration("an endpoint change after call preparation cannot send the call to the previous environment", async () => {
-  const f = await setup();
-  const entered = gate(), release = gate();
-  const http = (f.service as any).http;
-  const original = http.call.bind(http);
-  http.call = async (...args: unknown[]) => { entered.release(); await release.promise; return original(...args); };
-  const before = f.provider.observations.calls;
-  const pending = f.call().then(() => "executed", () => "changed");
-  try {
-    await entered.promise;
-    await f.client.savePluginConfiguration(f.id, { values: { mcpUrl: `${f.provider.endpoint}?environment=next` } });
-    release.release();
-    expect(await pending).toBe("changed");
-    expect(f.provider.observations.calls).toBe(before);
-    expect((await f.row()).status).toBe("disconnected");
-  } finally { release.release(); await pending; await f.close(); }
-});
-
-for (const mutation of ["unavailable", "remove_tool", "uninstall", "reauthorize"] as const) {
+for (const mutation of ["disconnect", "endpoint_change", "unavailable", "remove_tool", "uninstall", "reauthorize"] as const) {
   integration(`a prepared call respects a later ${mutation}`, async () => {
     const f = await setup();
     const entered = gate(), release = gate();
@@ -331,6 +289,8 @@ for (const mutation of ["unavailable", "remove_tool", "uninstall", "reauthorize"
     try {
       await entered.promise;
       const row = await f.row();
+      if (mutation === "disconnect") await f.client.disconnectPlugin(f.id);
+      if (mutation === "endpoint_change") await f.client.savePluginConfiguration(f.id, { values: { mcpUrl: `${f.provider.endpoint}?environment=next` } });
       if (mutation === "unavailable") await f.db.pluginInstallation.update({ where: { id: row.installationId }, data: { status: "error" } });
       if (mutation === "remove_tool") await f.db.pluginConnection.update({ where: { id: f.id }, data: { toolSnapshot: [] } });
       if (mutation === "uninstall") {
@@ -341,6 +301,7 @@ for (const mutation of ["unavailable", "remove_tool", "uninstall", "reauthorize"
       release.release();
       expect(await pending).not.toBeNull();
       expect(f.provider.observations.calls).toBe(before);
+      if (mutation === "disconnect" || mutation === "endpoint_change") expect((await f.row()).status).toBe("disconnected");
       if (mutation === "reauthorize") {
         expect((await f.row()).status).toBe("ready");
         expect(JSON.stringify(await f.call())).toContain("Account A");
@@ -352,15 +313,9 @@ for (const mutation of ["unavailable", "remove_tool", "uninstall", "reauthorize"
 integration("SIGKILL after remote acceptance settles the local invocation as an unknown outcome without replay", async () => {
   const f = await setup();
   const entered = gate(), release = gate();
-  const bot = await f.db.bot.create({ data: {
-    name: "T3 killed host", defaultDirectory: "/tmp", status: "active", onboardingStatus: "completed", conversation: { create: {} },
-  }, include: { conversation: true } });
+  const { bot, run, callId, request } = await invocation(f);
   let child: ReturnType<typeof Bun.spawn> | undefined;
   try {
-    const run = await f.db.run.create({ data: {
-      botId: bot.id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running",
-    } });
-    const callId = crypto.randomUUID();
     await f.db.pluginInvocation.create({ data: {
       callId: `${callId}:completed`, connectionId: f.id, botId: bot.id, runId: run.id,
       toolName: "whoami", status: "completed", result: { verified: true }, completedAt: new Date(),
@@ -392,7 +347,7 @@ integration("SIGKILL after remote acceptance settles the local invocation as an 
     expect((await f.db.pluginInvocation.findUniqueOrThrow({ where: { callId } })).completedAt).toEqual(receipt.completedAt);
     expect(await f.db.pluginInvocation.findUniqueOrThrow({ where: { callId: `${callId}:completed` } }))
       .toMatchObject({ status: "completed", result: { verified: true } });
-    await expect(f.service.invoke({ connectionId: f.id, botId: bot.id, runId: run.id, callId, toolName: "whoami", arguments: {} }))
+    await expect(f.service.invoke(request))
       .rejects.toMatchObject({ code: "plugin_call_outcome_unknown" });
     expect(f.provider.observations.calls).toBe(1);
   } finally {
@@ -406,18 +361,12 @@ integration("SIGKILL after remote acceptance settles the local invocation as an 
 integration("cancellation reaches an in-flight HTTP invocation through the plugin service", async () => {
   const f = await setup();
   const entered = gate(), release = gate();
-  const bot = await f.db.bot.create({ data: {
-    name: "T3 cancelled invocation", defaultDirectory: "/tmp", status: "active", onboardingStatus: "completed", conversation: { create: {} },
-  }, include: { conversation: true } });
+  const { bot, callId, request } = await invocation(f);
   const controller = new AbortController();
   let pending: Promise<string> | undefined;
   try {
-    const run = await f.db.run.create({ data: {
-      botId: bot.id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running",
-    } });
-    const callId = crypto.randomUUID();
     f.provider.setBeforeToolReply(async () => { entered.release(); await release.promise; });
-    pending = f.service.invoke({ connectionId: f.id, botId: bot.id, runId: run.id, callId, toolName: "whoami", arguments: {} }, controller.signal)
+    pending = f.service.invoke(request, controller.signal)
       .then(() => "completed", () => "cancelled");
     await entered.promise;
     controller.abort();
@@ -433,15 +382,9 @@ integration("cancellation reaches an in-flight HTTP invocation through the plugi
 integration("HTTP disconnect cancellation propagates through the real internal tool and plugin services", async () => {
   const f = await setup();
   const entered = gate(), release = gate(), settled = gate();
-  const bot = await f.db.bot.create({ data: {
-    name: "T3 HTTP cancellation", defaultDirectory: "/tmp", status: "active", onboardingStatus: "completed", conversation: { create: {} },
-  }, include: { conversation: true } });
+  const { bot, run, callId } = await invocation(f);
   let server: ReturnType<typeof Bun.serve> | undefined;
   try {
-    const run = await f.db.run.create({ data: {
-      botId: bot.id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running",
-    } });
-    const callId = crypto.randomUUID();
     const plugins = Object.create(f.service) as PluginService;
     plugins.invoke = (...args) => f.service.invoke(...args).finally(settled.release);
     const internal = new InternalToolService(f.db, {} as never, {} as never, async () => {}, {} as never, {} as never, {} as never, plugins);
@@ -472,17 +415,10 @@ integration("HTTP disconnect cancellation propagates through the real internal t
 for (const failure of ["before_commit", "after_commit"] as const) {
   integration(`result persistence failure ${failure} cannot replay or erase the remote outcome`, async () => {
     const f = await setup();
-    const bot = await f.db.bot.create({ data: {
-      name: "T3 persistence failure", defaultDirectory: "/tmp", status: "active", onboardingStatus: "completed", conversation: { create: {} },
-    }, include: { conversation: true } });
+    const { bot, callId, request } = await invocation(f);
     const transaction = f.db.$transaction.bind(f.db);
     let injected = false;
     try {
-      const run = await f.db.run.create({ data: {
-        botId: bot.id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running",
-      } });
-      const callId = crypto.randomUUID();
-      const request = { connectionId: f.id, botId: bot.id, runId: run.id, callId, toolName: "whoami", arguments: {} };
       const before = f.provider.observations.calls;
       (f.db as any).$transaction = async (...args: unknown[]) => {
         if (!injected && typeof args[0] === "function" && f.provider.observations.calls > before) {
@@ -516,23 +452,20 @@ for (const failure of ["before_commit", "after_commit"] as const) {
 integration("a removed invocation cannot overwrite a replacement that reuses its call ID", async () => {
   const f = await setup();
   const entered = gate(), release = gate();
-  const bot = await f.db.bot.create({ data: {
-    name: "T3 receipt isolation", defaultDirectory: "/tmp", status: "active", onboardingStatus: "completed", conversation: { create: {} },
-  }, include: { conversation: true } });
+  const { bot, callId, request } = await invocation(f);
   let pending: Promise<unknown> | undefined;
   try {
-    const runs = await Promise.all([0, 1].map(() => f.db.run.create({ data: {
+    const otherRun = await f.db.run.create({ data: {
       botId: bot.id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running",
-    } })));
-    const callId = crypto.randomUUID();
+    } });
     f.provider.setBeforeToolReply(async () => { entered.release(); await release.promise; });
-    pending = f.service.invoke({ connectionId: f.id, botId: bot.id, runId: runs[0]!.id, callId, toolName: "whoami", arguments: {} })
+    pending = f.service.invoke(request)
       .then(result => ({ result }), error => ({ error }));
     await entered.promise;
     const original = await f.db.pluginInvocation.findUniqueOrThrow({ where: { callId } });
     await f.db.pluginInvocation.delete({ where: { id: original.id } });
     const replacement = await f.db.pluginInvocation.create({ data: {
-      callId, connectionId: f.id, botId: bot.id, runId: runs[1]!.id, toolName: "whoami",
+      callId, connectionId: f.id, botId: bot.id, runId: otherRun.id, toolName: "whoami",
       status: "completed", result: { marker: "other-run-receipt" }, completedAt: new Date(),
     } });
     release.release();
@@ -595,18 +528,11 @@ for (const action of ["reset_last_account", "remove_sibling_account", "uninstall
   integration(`active invocation cleanup during ${action} settles without replay or storage errors`, async () => {
     const f = await setup();
     const entered = gate(), release = gate();
-    const bot = await f.db.bot.create({ data: {
-      name: "T3 active cleanup", defaultDirectory: "/tmp", status: "active", onboardingStatus: "completed", conversation: { create: {} },
-    }, include: { conversation: true } });
+    const { bot, callId, request } = await invocation(f);
     let pending: Promise<unknown> | undefined;
     try {
-      const run = await f.db.run.create({ data: {
-        botId: bot.id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running",
-      } });
       if (action === "remove_sibling_account") await f.client.addPluginAccount(f.id, "other");
       const row = await f.row();
-      const callId = crypto.randomUUID();
-      const request = { connectionId: f.id, botId: bot.id, runId: run.id, callId, toolName: "whoami", arguments: {} };
       f.provider.setBeforeToolReply(async () => { entered.release(); await release.promise; });
       pending = f.service.invoke(request).then(() => null, error => error);
       await entered.promise;

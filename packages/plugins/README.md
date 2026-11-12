@@ -50,8 +50,6 @@ If a provider requires OAuth authorization extensions, set `configuration.oauthA
 
 `${FIELD_NAME}` substitutes a typed setup value. Declare credential fields with `secret: true`, no default, and use placeholders in the manifest. Enter real secrets in the installed account's settings. Keep, replace and clear are distinct operations. Never include `.env`, credentials files, `node_modules`, or a real token in a contribution.
 
-For a user-supplied remote MCP endpoint, declare a required, non-secret string field with `format: "mcp-url"`, and use the entire field as the endpoint, such as `"endpoint": "${mcpUrl}"`. Account setup saves and validates the URL before OAuth discovery. This format accepts HTTPS or HTTP loopback and rejects embedded credentials, approval-code queries, and fragments. It does not assert reachability: authenticated discovery must still succeed. Use `configuration.oauthRegistration: "dynamic"` for a connector that must not inherit global manual OAuth client credentials.
-
 ## Multiple provider accounts
 
 Gmail, Google Calendar, Google Drive, and the other account-based connectors support multiple accounts. On the plugin's page, choose **Add Another Account**, label it (for example, `work` or `personal`), choose **Add Account**, then sign in to the new account. Each account keeps its own credentials, tools and activity. Gmail, Calendar, Drive, Docs, Sheets, and Slides are separate connectors; authorizing one does not authorize the others.

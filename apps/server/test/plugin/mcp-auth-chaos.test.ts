@@ -1,20 +1,17 @@
+import { gate } from "./fixtures/gate";
 import { expect, test } from "bun:test";
 import { McpHttpClientManager } from "../../src/plugins/mcp-client-manager";
 import { OpenTeamOAuthProvider } from "../../src/plugins/oauth-provider";
 import { createOAuthMcpFixture } from "./fixtures/oauth-mcp";
 
-function gate() {
-  let release!: () => void;
-  const promise = new Promise<void>(resolve => { release = resolve; });
-  return { promise, release };
-}
+const createProvider = () => new OpenTeamOAuthProvider({
+  redirectUrl: "http://127.0.0.1/callback", initial: { state: crypto.randomUUID() }, save: async () => {},
+});
 
 function setup(timeoutMs?: number) {
   const server = createOAuthMcpFixture(0, { refreshTokens: false });
   const manager = new McpHttpClientManager(timeoutMs);
-  const provider = new OpenTeamOAuthProvider({
-    redirectUrl: "http://127.0.0.1/callback", initial: { state: crypto.randomUUID() }, save: async () => {},
-  });
+  const provider = createProvider();
   const options = { endpoint: server.endpoint, authProvider: provider };
   return { server, manager, provider, options };
 }
@@ -63,9 +60,7 @@ test("closing a connection aborts a stalled token exchange without installing it
 test("overlapping OAuth starts cannot leave an untracked authorization after shutdown", async () => {
   const f = setup();
   const entered = gate(), release = gate();
-  const other = new OpenTeamOAuthProvider({
-    redirectUrl: "http://127.0.0.1/callback", initial: { state: crypto.randomUUID() }, save: async () => {},
-  });
+  const other = createProvider();
   f.server.setBeforeRegistration(async () => { entered.release(); await release.promise; });
   const first = f.manager.beginOAuth("overlap", f.options).then(() => "authorized", () => "cancelled");
   const second = f.manager.beginOAuth("overlap", { ...f.options, authProvider: other }).then(() => "authorized", () => "cancelled");
@@ -77,46 +72,25 @@ test("overlapping OAuth starts cannot leave an untracked authorization after shu
   } finally { release.release(); await pending; await f.manager.closeAll(); f.server.close(); }
 });
 
-test("a replacement OAuth start can finish after the superseded attempt rejects", async () => {
-  const f = setup();
-  const entered = gate(), release = gate();
-  const other = new OpenTeamOAuthProvider({
-    redirectUrl: "http://127.0.0.1/callback", initial: { state: crypto.randomUUID() }, save: async () => {},
+for (const shared of [false, true]) {
+  test(`replacement OAuth completes without corrupting ${shared ? "a shared" : "a separate"} provider`, async () => {
+    const f = setup();
+    const entered = gate(), release = gate();
+    const provider = shared ? f.provider : createProvider();
+    const options = { ...f.options, authProvider: provider };
+    f.server.setBeforeRegistration(async () => { entered.release(); await release.promise; });
+    const first = f.manager.beginOAuth("replacement", f.options).then(() => "authorized", () => "cancelled");
+    const second = f.manager.beginOAuth("replacement", options);
+    try {
+      await entered.promise;
+      release.release();
+      expect(await first).toBe("cancelled");
+      const { authorizationUrl } = await second;
+      expect(provider.snapshot().authorizationUrl).toBe(authorizationUrl);
+      const approve = new URL(authorizationUrl); approve.pathname = "/approve";
+      const response = await fetch(approve, { method: "POST", body: new URLSearchParams({ account: "Account A" }), redirect: "manual" });
+      const callback = new URL(response.headers.get("location")!);
+      expect((await f.manager.finishOAuth("replacement", options, callback.searchParams.get("code")!)).map(tool => tool.name)).toContain("whoami");
+    } finally { release.release(); await first; await second.catch(() => {}); await f.manager.closeAll(); f.server.close(); }
   });
-  f.server.setBeforeRegistration(async () => { entered.release(); await release.promise; });
-  const first = f.manager.beginOAuth("replacement", f.options).then(() => "authorized", () => "cancelled");
-  const second = f.manager.beginOAuth("replacement", { ...f.options, authProvider: other });
-  try {
-    await entered.promise;
-    release.release();
-    expect(await first).toBe("cancelled");
-    const start = await second;
-    const approve = new URL(start.authorizationUrl); approve.pathname = "/approve";
-    const response = await fetch(approve, { method: "POST", body: new URLSearchParams({ account: "Account A" }), redirect: "manual" });
-    const callback = new URL(response.headers.get("location")!);
-    expect((await f.manager.finishOAuth("replacement", { ...f.options, authProvider: other }, callback.searchParams.get("code")!)).map(tool => tool.name))
-      .toContain("whoami");
-  } finally { release.release(); await first; await second.catch(() => {}); await f.manager.closeAll(); f.server.close(); }
-});
-
-test("overlapping starts using the same provider cannot corrupt the surviving redirect callback", async () => {
-  const f = setup();
-  const entered = gate(), release = gate();
-  f.server.setBeforeRegistration(async () => { entered.release(); await release.promise; });
-  const first = f.manager.beginOAuth("shared-provider", f.options).then(() => "authorized", () => "cancelled");
-  const second = f.manager.beginOAuth("shared-provider", f.options).then(value => ({ value }), error => ({ error }));
-  try {
-    await entered.promise;
-    release.release();
-    expect(await first).toBe("cancelled");
-    const result = await second;
-    if (!("value" in result)) throw result.error;
-    const authorizationUrl = result.value.authorizationUrl;
-    expect(typeof authorizationUrl).toBe("string");
-    expect(f.provider.snapshot().authorizationUrl).toBe(authorizationUrl);
-    const approve = new URL(authorizationUrl); approve.pathname = "/approve";
-    const response = await fetch(approve, { method: "POST", body: new URLSearchParams({ account: "Account A" }), redirect: "manual" });
-    const callback = new URL(response.headers.get("location")!);
-    expect((await f.manager.finishOAuth("shared-provider", f.options, callback.searchParams.get("code")!)).map(tool => tool.name)).toContain("whoami");
-  } finally { release.release(); await first; await second; await f.manager.closeAll(); f.server.close(); }
-});
+}

@@ -1,11 +1,6 @@
+import { gate } from "./fixtures/gate";
 import { afterEach, expect, test } from "bun:test";
 import { McpHttpClientManager } from "../../src/plugins/mcp-client-manager";
-
-function gate() {
-  let release!: () => void;
-  const promise = new Promise<void>(resolve => { release = resolve; });
-  return { promise, release };
-}
 
 const managers: McpHttpClientManager[] = [];
 const servers: ReturnType<typeof Bun.serve>[] = [];

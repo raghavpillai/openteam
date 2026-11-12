@@ -1,3 +1,4 @@
+import { gate } from "./fixtures/gate";
 import { expect, test } from "bun:test";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { OpenTeamOAuthProvider, type StoredOAuthState } from "../../src/plugins/oauth-provider";
@@ -91,12 +92,6 @@ test("failed credential persistence cannot change the provider's in-memory autho
   await provider.saveIssuer("https://issuer.example");
   expect(stored.tokens).toEqual(original);
 });
-
-function gate() {
-  let release!: () => void;
-  const promise = new Promise<void>(resolve => { release = resolve; });
-  return { promise, release };
-}
 
 test("concurrent OAuth metadata saves retain both updates", async () => {
   let stored: StoredOAuthState = {};

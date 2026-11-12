@@ -3,8 +3,7 @@ import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { ApiError } from "@openteam/contracts";
 import { connectorHostTools, MCP_TOOL_CALL_TIMEOUT_MS, type PluginToolDefinition } from "@openteam/plugin-sdk";
 import type { Prisma, PrismaClient } from "@openteam/db";
-import type { McpHttpClientManager } from "../../plugins/mcp-client-manager";
-import { isMcpAuthorizationError } from "../../plugins/mcp-client-manager";
+import { isMcpAuthorizationError, type McpHttpClientManager } from "../../plugins/mcp-client-manager";
 import { OpenTeamOAuthProvider, type StoredOAuthState } from "../../plugins/oauth-provider";
 import {
   beginPackagedOAuth,
@@ -86,18 +85,11 @@ export class PluginTransport {
         throw new ApiError(404, "plugin_tool_not_found", "The tool is no longer available");
       // Claim once, including simultaneous requests from multiple clients.
       const claim = await this.prisma.pluginInvocation.updateMany({
-        where: { id: invocation.id, status: "running", error: { not: "Executing" } },
+        where: { id: invocation.id, status: "running", OR: [{ error: null }, { error: { not: "Executing" } }] },
         data: { error: "Executing" },
       });
-      // Nullable error requires a separate predicate in PostgreSQL.
-      if (!claim.count) {
-        const emptyClaim = await this.prisma.pluginInvocation.updateMany({
-          where: { id: invocation.id, status: "running", error: null },
-          data: { error: "Executing" },
-        });
-        if (!emptyClaim.count)
-          throw new ApiError(409, "plugin_call_replayed", "This call is already executing");
-      }
+      if (!claim.count)
+        throw new ApiError(409, "plugin_call_replayed", "This call is already executing");
       const rawResult =
         current.transport === "builtin"
           ? await this.invokeBuiltin(invocation.toolName, invocation.arguments, invocation)
@@ -180,16 +172,16 @@ export class PluginTransport {
         (connection.runtimeGeneration !== undefined && current.runtimeGeneration !== connection.runtimeGeneration))
         throw new ApiError(409, "plugin_connection_changed", "Connection changed before this request could be sent.");
       if (method === "tools/call") {
-        if (current.status !== "ready" || current.installation.status !== "installed")
+        if (current.status !== "ready")
           throw new ApiError(403, "plugin_access_revoked", "Connection access was revoked before this call could run.");
         if (!toolSnapshot(current.toolSnapshot).some(tool => tool.name === toolName))
           throw new ApiError(404, "plugin_tool_not_found", "The tool is no longer available.");
       }
     };
-    if (connection.authType !== "oauth") {
-      return { endpoint, headers, runtimeGeneration: connection.runtimeGeneration, beforeRequest };
-    }
-    return { endpoint, headers, authProvider: this.oauthProvider(connection), runtimeGeneration: connection.runtimeGeneration, beforeRequest };
+    return {
+      endpoint, headers, runtimeGeneration: connection.runtimeGeneration, beforeRequest,
+      authProvider: connection.authType === "oauth" ? this.oauthProvider(connection) : undefined,
+    };
   }
 
   private oauthProvider(

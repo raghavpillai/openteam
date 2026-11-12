@@ -35,7 +35,6 @@ export interface HttpMcpConnectionOptions {
 interface ManagedHttpClient {
   fingerprint: string;
   client: Client;
-  transport: StreamableHTTPClientTransport | SSEClientTransport;
 }
 
 interface PendingHttpClient {
@@ -342,7 +341,7 @@ export class McpHttpClientManager {
             requestInit: { headers: options.headers, ...LONG_CALL_INIT },
             fetch: connectionFetch,
           });
-    const managed = { fingerprint: fingerprintFor(options), client, transport };
+    const managed = { fingerprint: fingerprintFor(options), client };
     client.onclose = () => {
       if (this.clients.get(connectionId) === managed) this.clients.delete(connectionId);
     };

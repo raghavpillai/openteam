@@ -1,5 +1,4 @@
-import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js";
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { UnauthorizedError, type OAuthClientProvider, type OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js";
 import { ApiError } from "@openteam/contracts";
 import type {
   OAuthClientInformationMixed,
@@ -181,7 +180,7 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
   private enqueue(operation: () => Promise<void>): Promise<void> {
     const pending = this.writes.then(operation);
     // A rejected save must not prevent later valid writes from running.
-    this.writes = pending.then(() => undefined, () => undefined);
+    this.writes = pending.catch(() => undefined);
     return pending;
   }
 

@@ -14,5 +14,3 @@ The user authorizes on T3's page. A one-time code from the wizard lasts five min
 Read only permits inspection. Supervised asks for execution approval. Auto uses the provider's automatic review for routine actions and can still ask about other actions; providers without equivalent review may fall back to asking. Full access is broader. Explain the choice without changing the user's approved level. The granted access can cover all projects in that T3 environment.
 
 If discovery fails, check reachability, endpoint path (normally `/mcp`), T3 host availability, expired/revoked authorization, and supported outside-client tools. A missing repository/provider should be configured in T3, not silently replaced. Keep existing remote IDs when reconnecting; a new OAuth session changes retry-key scope. Removing a plugin account does not itself stop remote coding work or revoke access in T3; revocation is available under T3 Sharing & access.
-
-See [T3 outside-agent setup](https://github.com/pingdotgg/t3code/blob/main/docs/user/outside-agents.md) and [permission modes](https://github.com/pingdotgg/t3code/blob/main/docs/user/permission-modes.md).

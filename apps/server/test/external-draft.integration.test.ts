@@ -283,6 +283,66 @@ test('Grokbot comparison: same-subject discard followed by reverse-order burst r
  } finally { await f.cleanup(); }
 });
 
+test('draft discard executes through worker dispatch and projection without a follow-up user message', async () => {
+ if (!databaseUrl) return;
+ const { Projection } = await import('../../worker/src/projection');
+ for (const variant of ['control', 'treatment'] as const) {
+  const f = await notificationExperiment(variant);
+  const dispatched: any[] = [], failures: unknown[] = [];
+  let outage = false;
+  const computer = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
+   const path = new URL(request.url).pathname;
+   if (outage) return new Response('Injected computer outage', { status: 503 });
+   if (path.startsWith('/v1/context-sessions/')) return Response.json({ type: 'context.state', contextSessionId: path.split('/').at(-1), epoch: 0, archives: [] });
+   if (path === '/v1/task-capabilities') return Response.json({ desktopAvailable: true, boxAvailable: true });
+   if (path !== '/v1/turns') return new Response(null, { status: 404 });
+   const input = await request.json() as any;
+   dispatched.push(input);
+   // The treatment status must exist before the computer receives the turn.
+   expect(await f.visible()).toHaveLength(variant === 'treatment' ? 1 : 0);
+   await f.messaging.sendVisible(f.context(input.runId), { type: 'text', content: 'The three synthetic drafts were discarded.' });
+   return new Response([
+    { type: 'turn.started', turnId: input.runId },
+    { type: 'prompt.delivered', turnId: input.runId },
+    { type: 'turn.completed', turnId: input.runId, status: 'completed' },
+   ].map(event => JSON.stringify(event)).join('\n') + '\n', { headers: { 'content-type': 'application/x-ndjson' } });
+  } });
+  try {
+   await f.messaging.agentData.writeInferenceSettings({ providerId: 'openai-codex', modelId: 'synthetic-fixture', reasoning: 'low' });
+   for (let i = 0; i < 3; i++) await f.settle(await f.create(i), 'cancel');
+   await f.ready();
+   const worker = Object.assign(f.worker(), { agentData: f.messaging.agentData, computerUrl: computer.url.origin,
+    controlToken: 'synthetic-draft-test', projection: new Projection(f.prisma, f.messaging.agentData),
+    pushNotifications: { drain: async () => {} } });
+   const originalFail = worker.fail.bind(worker);
+   worker.fail = async (...args: any[]) => { failures.push(args[1]); return originalFail(...args); };
+   const claimed = await worker.claim(f.botId);
+   await worker.execute(claimed);
+   expect(failures).toEqual([]);
+   expect(dispatched).toHaveLength(1);
+   for (const id of f.ids) expect(dispatched[0].content).toContain(id);
+   expect((await f.prisma.run.findUniqueOrThrow({ where: { id: claimed.runId } })).status).toBe('completed');
+   expect((await f.prisma.inboxEvent.findUniqueOrThrow({ where: { id: claimed.inboxId } })).status).toBe('completed');
+   expect(await f.prisma.botRunLease.count({ where: { botId: f.botId } })).toBe(0);
+   expect(await f.visible()).toHaveLength(1);
+   expect(await worker.claim(f.botId)).toBeNull();
+   if (variant === 'treatment') {
+    outage = true;
+    await f.settle(await f.create(3), 'cancel'); await f.ready();
+    const interrupted = await worker.claim(f.botId);
+    await worker.execute(interrupted);
+    expect(failures).toHaveLength(1);
+    expect(String(failures[0])).toContain('Injected computer outage');
+    expect(await f.visible()).toHaveLength(2);
+    expect((await f.visible())[1]!.content).toContain('Nothing was sent');
+    expect((await f.prisma.run.findUniqueOrThrow({ where: { id: interrupted.runId } })).status).toBe('interrupted');
+    expect(await f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'ack.redrive' } })).toBe(0);
+   }
+   expect(f.mailSends()).toBe(0);
+  } finally { computer.stop(true); await f.cleanup(); }
+ }
+});
+
 test('A/B: 24 completions, lost response, new call IDs and a replayed run', async () => {
  if (!databaseUrl) return;
  for (const variant of ['control', 'treatment'] as const) {

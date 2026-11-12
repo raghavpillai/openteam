@@ -475,7 +475,7 @@ async function draftReviewScenario(theme: string, width: number) {
     revision: { baselineMessageId: "older", changedFields: ["subject"], body: [{ text: "Please review ", added: false }, { text: "before Friday", added: true }, { text: ".", added: false }] } };
   let card = { id: `draft-${theme}-${width}`, channelId: "test", sequence: "1", sender: "agent", senderBotId: "bot-0", sourceRunId: null, content: draft.subject, createdAt: new Date().toISOString(), metadata: { type: "external-draft", draft: { ...draft, verification }, cardState: "pending" } } as ChannelMessageView;
   const calls: string[] = [];
-  const draw = () => render(<div style={{ width, padding: 12 }}><ExternalDraftCard key={card.id} message={card} draft={draft} bot={bots[0]} /></div>);
+  const draw = () => render(<div style={{ width, padding: 12 }}><ExternalDraftCard key={card.id} message={card} draft={parseExternalDraft((card.metadata as any).draft)} bot={bots[0]} /></div>);
   Object.assign(api, { mutateExternalDraft: async (_id: string, action: string) => {
     calls.push(action);
     card = { ...card, metadata: { ...(card.metadata as object), cardState: action === "cancel" ? "dismissed" : "sent" } };
@@ -533,6 +533,28 @@ async function draftReviewScenario(theme: string, width: number) {
     check(document.querySelector('.draft-card')!.getBoundingClientRect().width <= width, "Draft overflows narrow chat");
     render(null); await pause(50); draw(); await pause(100);
     check(!document.querySelector("form") && document.querySelector("details"), "Discarded state was lost after remount");
+    // Keep the same mounted component while a different device submits edits.
+    card = { ...card, id: card.id + "-remote", metadata: { type: "external-draft", cardState: "pending", draft: { ...draft, verification } } };
+    draw(); await pause(100);
+    await setField("To", "unsaved@example.com");
+    await setField("Message body", "Unsubmitted local text.");
+    const remote = { ...draft, from: "other@example.com", to: ["remote@example.com"], cc: ["copied@example.com"], subject: "Sent from another device", body: "Server-confirmed body." };
+    card = { ...card, metadata: { type: "external-draft", cardState: "sent", draft: { ...remote, verification } } };
+    draw(); await pause(100);
+    document.querySelector<HTMLElement>("details > summary")!.click(); await pause(50);
+    check(document.querySelector("details .draft-body")?.textContent === remote.body, "Sent history retained stale local body after remote edits");
+    for (const value of [remote.from, remote.to[0]!, remote.cc[0]!, remote.subject])
+      check(document.querySelector("details")?.textContent?.includes(value), "Sent history lost remote field: " + value);
+    check(!document.querySelector("form") && !document.querySelector("details")?.textContent?.includes("unsaved@example.com"), "Sent history retained unsaved edits");
+    card = { ...card, id: card.id + "-response", metadata: { type: "external-draft", cardState: "pending", draft: { ...draft, verification } } };
+    draw(); await pause(100);
+    Object.assign(api, { mutateExternalDraft: async () => {
+      calls.push("send");
+      return { accepted: false, message: { ...card, metadata: { type: "external-draft", cardState: "sent", draft: { ...remote, verification } } }, runId: null };
+    } });
+    send().click(); await pause(150);
+    document.querySelector<HTMLElement>("details > summary")!.click(); await pause(50);
+    check(document.querySelector("details .draft-body")?.textContent === remote.body, "Mutation receipt lost canonical history before its live update arrived");
     reports.push({ theme, width, scenario: "draft forwarding, revision, attachment preview, validation and discard history", calls });
   } finally { window.fetch = oldFetch; render(null); await pause(50); }
 }

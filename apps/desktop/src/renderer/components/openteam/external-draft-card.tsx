@@ -4,6 +4,7 @@ import type { BotView, ChannelMessageView } from "@openteam/contracts";
 import {
   externalDraftApprovalMode,
   isDraftEmailAddress,
+  parseExternalDraft,
   type ExternalDraft,
   type ExternalDraftApprovalMode,
   type ExternalDraftVerification,
@@ -172,6 +173,7 @@ export function ExternalDraftCard({
   const sendingAddresses = verification.sendingAddresses ?? [];
   const email = draft.platform === "email";
   const [state, setState] = useState(String(metadata.cardState ?? "pending"));
+  const [resolvedDraft, setResolvedDraft] = useState<ExternalDraft | null>(null);
   const [from, setFrom] = useState(draft.from ?? "");
   const [text, setText] = useState(draft.body);
   const [subject, setSubject] = useState(draft.subject ?? "");
@@ -215,6 +217,12 @@ export function ExternalDraftCard({
     caret.current = null;
   }, [text, revisionDismissed]);
   const sendError = typeof metadata.sendError === "string" ? metadata.sendError : "";
+  const acceptResult = (message: ChannelMessageView) => {
+    const next = record(message.metadata);
+    setResolvedDraft(parseExternalDraft(next.draft));
+    setState(String(next.cardState ?? "pending"));
+    return next;
+  };
   const fields = { body: text, subject, to, cc, from };
   const run = async (work: () => Promise<void>) => {
     if (inFlight.current) return;
@@ -234,8 +242,7 @@ export function ExternalDraftCard({
         const edits = externalDraftReviewEdits(draft, action, fields, sendingAddresses);
         if (action === "send") setState("sending");
         const result = await api.mutateExternalDraft(message.id, action, edits);
-        const next = record(result.message.metadata);
-        setState(String(next.cardState ?? "pending"));
+        const next = acceptResult(result.message);
         if (typeof next.sendError === "string") setError(`Couldn't send this draft: ${next.sendError}`);
       } catch (failure) {
         setError(
@@ -248,7 +255,7 @@ export function ExternalDraftCard({
         // The server decides whether anything went out; never guess.
         try {
           const checked = await api.mutateExternalDraft(message.id, "refresh");
-          setState(String(record(checked.message.metadata).cardState ?? "pending"));
+          acceptResult(checked.message);
         } catch {
           setState("sending");
           setLost(true);
@@ -259,7 +266,7 @@ export function ExternalDraftCard({
     run(async () => {
       try {
         const checked = await api.mutateExternalDraft(message.id, "refresh");
-        setState(String(record(checked.message.metadata).cardState ?? "pending"));
+        acceptResult(checked.message);
         setLost(false);
       } catch (failure) {
         setError(clientErrorMessage(failure, "Couldn't check delivery. Try again."));
@@ -339,7 +346,10 @@ export function ExternalDraftCard({
   );
 
   if (state !== "pending" && state !== "sending") {
-    const settled = state === "dismissed" ? draft : { ...draft, from, to: addresses(to), cc: addresses(cc), subject, body: text };
+    // Live updates can include edits submitted from another device. History
+    // always shows the stored receipt, including before its push reaches us.
+    const settled = metadata.cardState && !["pending", "sending"].includes(String(metadata.cardState))
+      ? draft : resolvedDraft ?? draft;
     const settledSignature = email ? verification.signatures?.[settled.from?.toLowerCase() ?? ""] : undefined;
     const recipient = email ? (settled.to?.[0] ?? "") : (draft.target ?? "");
     const summary =

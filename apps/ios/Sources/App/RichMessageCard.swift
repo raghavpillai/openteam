@@ -610,26 +610,29 @@ struct RichMessageCard: View {
         approvalMenu
       }
     } else {
-      let recipient = email ? (Self.addresses(to).first ?? "") : draft["target"].string
+      let recipient = email ? (draft["to"].array.first?.string ?? "") : draft["target"].string
       let summary = state == "unknown"
         ? "The send was interrupted — check your mailbox to see whether it went out"
         : (state == "sent" ? "Sent to " : "To ") + recipient
-          + (email ? " — “" + subject + "”" : "")
+          + (email ? " — “" + draft["subject"].string + "”" : "")
       DisclosureGroup(isExpanded: $draftHistoryExpanded) {
         VStack(alignment: .leading, spacing: 0) {
           if email {
-            DraftRow(label: "From", width: width) { DraftValue(fromAddress) }
+            DraftRow(label: "From", width: width) { DraftValue(draft["from"].string) }
             draftReplyRow(width: width)
-            DraftRow(label: "To", width: width) { DraftValue(to) }
-            if !cc.isEmpty { DraftRow(label: "Cc", width: width) { DraftValue(cc) } }
-            DraftRow(label: "Subject", width: width) { DraftValue(subject) }
+            DraftRow(label: "To", width: width) { DraftValue(draft["to"].array.map(\.string).joined(separator: ", ")) }
+            if !draft["cc"].array.isEmpty { DraftRow(label: "Cc", width: width) { DraftValue(draft["cc"].array.map(\.string).joined(separator: ", ")) } }
+            DraftRow(label: "Subject", width: width) { DraftValue(draft["subject"].string) }
           } else {
             DraftRow(label: "Workspace", width: width) { DraftValue(verification["identity"].string) }
             DraftRow(label: "To", width: width) { DraftValue(draft["target"].string) }
           }
-          Text(verbatim: bodyText).font(.system(size: 16)).foregroundStyle(DraftPalette.text)
+          Text(verbatim: draft["body"].string).font(.system(size: 16)).foregroundStyle(DraftPalette.text)
             .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-          if let draftSignature { Text(verbatim: draftSignature).font(.system(size: 15)).padding(10) }
+          let signature = verification["signatures"][draft["from"].string.lowercased()].string
+          if !signature.isEmpty {
+            Text(verbatim: signatureText(signature)).font(.system(size: 15)).padding(10)
+          }
           draftAttachments
         }.background(DraftPalette.panel, in: RoundedRectangle(cornerRadius: 10))
       } label: {

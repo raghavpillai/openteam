@@ -214,6 +214,9 @@ function PdfPreview({ url }: { url: string }) {
     setError(null);
     void Promise.all([import("pdfjs-dist"), import("pdfjs-dist/build/pdf.worker.min.mjs?url")])
       .then(async ([pdfjs, worker]) => {
+        // An immediate close can happen before either lazy import resolves.
+        // Creating a loading task after cleanup would leave its worker unowned.
+        if (!active) return;
         const pdfWorkerUrl = worker.default;
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
         const currentTask = pdfjs.getDocument({
@@ -231,26 +234,36 @@ function PdfPreview({ url }: { url: string }) {
     };
   }, [url]);
 
-  if (error) return <PreviewStatus detail={error} title="Couldn’t render this PDF" />;
-  if (!document) return <PreviewStatus loading title="Loading PDF…" />;
   return (
     <div
-      aria-label={`${document.numPages} page PDF preview`}
-      className="bot-scrollbar h-full min-h-[360px] overflow-auto bg-[#ececec] dark:bg-[#111]"
+      aria-label={document ? `${document.numPages} page PDF preview` : "PDF preview"}
+      className={
+        document && !error
+          ? "bot-scrollbar h-full min-h-[360px] overflow-auto bg-[#ececec] dark:bg-[#111]"
+          : "h-full"
+      }
       ref={scrollRef}
     >
-      <div className="relative w-full" style={{ height: totalSize }}>
-        {virtualItems.map((item) => (
-          <div
-            className="absolute inset-x-0 top-0 flex justify-center px-5 py-2"
-            key={item.key}
-            ref={(node) => measureElement(item.index, item.key, node)}
-            style={{ transform: `translateY(${item.start}px)` }}
-          >
-            <PdfPage document={document} pageNumber={item.index + 1} />
-          </div>
-        ))}
-      </div>
+      {/* Keep the scrollport mounted while loading so the virtualizer can bind
+          its scroll and resize listeners before the document arrives. */}
+      {error ? (
+        <PreviewStatus detail={error} title="Couldn’t render this PDF" />
+      ) : !document ? (
+        <PreviewStatus loading title="Loading PDF…" />
+      ) : (
+        <div className="relative w-full" style={{ height: totalSize }}>
+          {virtualItems.map((item) => (
+            <div
+              className="absolute inset-x-0 top-0 flex justify-center px-5 py-2"
+              key={item.key}
+              ref={(node) => measureElement(item.index, item.key, node)}
+              style={{ transform: `translateY(${item.start}px)` }}
+            >
+              <PdfPage document={document} pageNumber={item.index + 1} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

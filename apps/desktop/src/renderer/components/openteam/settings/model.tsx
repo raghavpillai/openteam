@@ -137,7 +137,7 @@ export default function ModelSettings() {
           anchors={["inference-reasoning"]}
           control={
             <Select
-              disabled={working || !setup.selectedModel?.reasoning}
+              disabled={working || !setup.selectedModel?.reasoning || !setup.reasoningLevels.length}
               onValueChange={(value) =>
                 setup.setReasoning(value as typeof setup.effectiveReasoning)
               }
@@ -149,7 +149,9 @@ export default function ModelSettings() {
               <SettingsSelectContent>
                 {(setup.reasoningLevels.length ? setup.reasoningLevels : ["off"]).map((level) => (
                   <SelectItem key={level} value={level}>
-                    {reasoningLabel(level)}
+                    {!setup.reasoningLevels.length && setup.selectedModel?.reasoning
+                      ? "Provider default"
+                      : reasoningLabel(level)}
                   </SelectItem>
                 ))}
               </SettingsSelectContent>
@@ -157,7 +159,9 @@ export default function ModelSettings() {
           }
           description={
             setup.selectedModel?.reasoning
-              ? "Higher effort is slower but more careful."
+              ? setup.reasoningLevels.length
+                ? "Higher effort is slower but more careful."
+                : "This model manages reasoning automatically."
               : "This model doesn't offer reasoning levels."
           }
           title="Reasoning effort"

@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { type Api, getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
+import { type Api, type Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   type InferenceProviderView,
-  PI_REASONING_LEVELS,
   type PiReasoningLevel,
   type ServerInferenceSettings,
 } from "@openteam/contracts";
@@ -15,6 +14,12 @@ import {
   replacementFor,
   requireInferenceModel,
 } from "./inference-models";
+import {
+  openRouterReasoning,
+  reasoningCapabilities,
+  reasoningLevel,
+  reasoningLevelMap,
+} from "./reasoning-capabilities";
 
 export const CHAT_PROVIDERS = new Set(Object.keys(CHAT_PROVIDER_DEFINITIONS));
 export const KEYLESS_API_KEY = "openteam-no-auth";
@@ -153,13 +158,6 @@ const advertisedInput = (entry: Entry): ChatModel["input"] | undefined => {
   if (!Array.isArray(entry.input_modalities)) return undefined;
   return entry.input_modalities.includes("image") ? ["text", "image"] : ["text"];
 };
-const reasoningLevel = (value: unknown): PiReasoningLevel | undefined => {
-  const normalized = value === "none" ? "off" : value;
-  return typeof normalized === "string" &&
-    (PI_REASONING_LEVELS as readonly string[]).includes(normalized)
-    ? (normalized as PiReasoningLevel)
-    : undefined;
-};
 const advertisedReasoning = (
   entry: Entry
 ):
@@ -180,15 +178,14 @@ const advertisedReasoning = (
     advertisedValues.set(level, value);
   }
   const first = levels[0];
-  if (!first) return undefined;
   const advertisedDefault = reasoningLevel(entry.default_reasoning_level);
   return {
     levels,
     defaultLevel:
-      advertisedDefault && levels.includes(advertisedDefault) ? advertisedDefault : first,
-    levelMap: Object.fromEntries(
-      PI_REASONING_LEVELS.map((level) => [level, advertisedValues.get(level) ?? null])
-    ),
+      advertisedDefault && levels.includes(advertisedDefault)
+        ? advertisedDefault
+        : (first ?? "off"),
+    levelMap: reasoningLevelMap(advertisedValues),
   };
 };
 
@@ -236,9 +233,11 @@ const applyOpenRouterMetadata = (model: ChatModel, entry: Entry): void => {
   model.reasoning =
     Array.isArray(entry.supported_parameters) &&
     entry.supported_parameters.some((p) => p === "reasoning" || p === "reasoning_effort");
-  // Endpoints that require reasoning answer 400 to `off`, so it isn't offered.
-  if (model.reasoning && object(entry.reasoning) && entry.reasoning.mandatory === true)
-    model.thinkingLevelMap = { ...model.thinkingLevelMap, off: null };
+  // Live metadata replaces bundled/persisted effort maps, including removals.
+  Object.assign(model, openRouterReasoning(model.reasoning ? entry.reasoning : undefined));
+  const capabilities = reasoningCapabilities(model);
+  model.reasoningLevels = capabilities.reasoningLevels;
+  model.defaultReasoningLevel = capabilities.defaultReasoningLevel;
   model.input =
     Array.isArray(architecture.input_modalities) && architecture.input_modalities.includes("image")
       ? ["text", "image"]
@@ -506,6 +505,8 @@ export class ChatProviderRegistry {
                 "openai-completions",
               baseUrl: base,
               reasoning:
+                (advertised ? advertised.levels.some((level) => level !== "off") : undefined) ??
+                (typeof m.thinking === "boolean" ? m.thinking : undefined) ??
                 existing?.reasoning ??
                 (m.thinking === true ||
                   (Array.isArray(m.supported_reasoning_levels) &&
@@ -527,6 +528,8 @@ export class ChatProviderRegistry {
               maxTokens: positive(m.max_tokens ?? m.outputTokenLimit, existing?.maxTokens ?? 16384),
             };
             if (id === "openrouter") applyOpenRouterMetadata(model, m);
+            else if (advertised || typeof m.thinking === "boolean")
+              Object.assign(model, reasoningCapabilities(model));
             return [m.id, model] as const;
           })
       ).values(),
@@ -557,16 +560,20 @@ export class ChatProviderRegistry {
         provider.modelMessage ??
           `Model ${settings.modelId} is not available from this connected provider. Refresh its model list and choose a listed chat model.`
       );
-    const levels =
-      model.reasoningLevels ?? (model.reasoning ? getSupportedThinkingLevels(model) : undefined);
-    if (levels && !levels.includes(settings.reasoning)) {
+    const { reasoningLevels: levels, defaultReasoningLevel } = reasoningCapabilities(model);
+    if (
+      levels.length
+        ? !levels.includes(settings.reasoning)
+        : settings.reasoning !== defaultReasoningLevel
+    ) {
       throw new Error(
-        `${model.name} does not support reasoning level ${settings.reasoning}. Choose one of: ${levels.join(", ")}.`
+        `${model.name} does not support reasoning level ${settings.reasoning}. Choose one of: ${levels.length ? levels.join(", ") : "provider default"}.`
       );
     }
     // Persist dynamic capability mappings so inference keeps the same request contract
     // after a restart, even before the next catalog refresh.
     if (
+      model.reasoningLevels !== undefined ||
       settings.providerId === "openrouter" ||
       settings.providerId === "openai-codex" ||
       !this.runtime().getModel(settings.providerId, settings.modelId)

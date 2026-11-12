@@ -176,7 +176,8 @@ atMost("startup CSS bytes", startupCssBytes, 202_000);
 // 16,652,343 B with Esc leaving early (mid-intro fade, dismissing the sent pill).
 // Rebased on main at 2090e228 (16,593,176 B on its own): 16,661,513 B; 16,662,762 B with
 // the Bot menu fitting the screen (flips below the chip) and fading where it scrolls.
-atMost("renderer bytes", result.renderer.bytes, 16_663_500);
+// Main at 521b9f32 grows to 16,599,431 B (+6,255, routines); with Appshots, 16,669,264 B.
+atMost("renderer bytes", result.renderer.bytes, 16_670_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -198,7 +199,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_663_500);
 // shortcut settings: 4,152,175; after the review fixes, the chat's voice bar in the composer
 // and one continuous card shadow: 4,153,604; with Esc leaving early: 4,153,714.
 // Rebased on main at 2090e228 (4,133,729 on its own): 4,157,884.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_158_500);
+// Main at 521b9f32: 4,135,795; with Appshots, 4,160,418.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_161_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun

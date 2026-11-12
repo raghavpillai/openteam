@@ -16,7 +16,14 @@ const baseUrl = (process.env.MAGPIE_BASE_URL ?? "http://127.0.0.1:3425/v1").repl
 const modelId = process.env.MAGPIE_MODEL;
 assert.ok(modelId, "Set MAGPIE_MODEL to a vision-capable model listed by Magpie");
 const root = resolve(process.env.MAGPIE_TEST_OUTPUT ?? "output/magpie-capabilities");
+const timeoutMs = Number(process.env.MAGPIE_TEST_TIMEOUT_MS ?? 90000);
+assert.ok(
+  Number.isSafeInteger(timeoutMs) && timeoutMs > 0,
+  "MAGPIE_TEST_TIMEOUT_MS must be a positive integer"
+);
 await mkdir(root, { recursive: true, mode: 0o700 });
+// Invalidate an earlier run before discovery or inference can fail.
+await writeFile(join(root, "result.json"), JSON.stringify({ modelId, success: false }));
 const token = process.env.MAGPIE_API_KEY ?? "magpie";
 const response = await fetch(`${baseUrl}/models`, {
   headers: { authorization: `Bearer ${token}` },
@@ -155,15 +162,19 @@ for (let trial = 0; trial < 2; trial++) {
     active.modelRef
   );
   active.session = session;
+  let timedOut = false;
   const timeout = setTimeout(() => {
+    timedOut = true;
     void session.abort();
-  }, 90000);
+  }, timeoutMs);
   try {
     assert.deepEqual(provider.getModel("magpie", modelId)?.input, ["text", "image"]);
     await session.prompt(
       "First take a screenshot using Computer. What color is the square on the left, and what color is the circle on the right? Reply only LEFT=<color>; RIGHT=<color>."
     );
+    clearTimeout(timeout);
     const messages = manager.buildSessionContext().messages as any[];
+    const lastAssistant = messages.filter((message) => message.role === "assistant").at(-1);
     const answer =
       messages
         .filter((message) => message.role === "assistant")
@@ -180,13 +191,17 @@ for (let trial = 0; trial < 2; trial++) {
       answer,
       captures,
       images: images.length,
+      timedOut,
+      stopReason: lastAssistant?.stopReason,
     };
     trials.push(result);
     await writeFile(
       join(root, "result.json"),
-      JSON.stringify({ modelId, advertised, trials }, null, 2)
+      JSON.stringify({ modelId, advertised, trials, success: false }, null, 2)
     );
     console.log(JSON.stringify(result));
+    assert.ok(!timedOut, "Live Magpie inference exceeded its deadline");
+    assert.equal(lastAssistant?.stopReason, "stop", "The model must complete normally");
     assert.ok(
       captures > 0 && images.length > 0,
       "The real model must request and receive a screenshot"
@@ -201,6 +216,10 @@ for (let trial = 0; trial < 2; trial++) {
 const saved = JSON.parse(await readFile(modelsPath, "utf8"));
 assert.deepEqual(saved.providers.magpie.models[0], { ...definition, input: ["text", "image"] });
 assert.deepEqual((await create()).getModel("magpie", modelId)?.input, ["text", "image"]);
+await writeFile(
+  join(root, "result.json"),
+  JSON.stringify({ modelId, advertised, trials, success: true }, null, 2)
+);
 console.log(
   "PASS: real Magpie screenshot inference, request-setting preservation, and restart persistence"
 );

@@ -820,3 +820,102 @@ test("OpenRouter recommends the Auto Router, else a rolling general model, and l
   expect(saved.providers.openrouter.models[0].id).toBe("openrouter/auto");
   expect(saved.providers.openrouter.models[0]).not.toHaveProperty("recommended");
 });
+
+test("a late OpenRouter verification cannot raise a concurrently refreshed prompt cap", async () => {
+  const saved = {
+    ...model("openrouter", "vendor/chat"),
+    api: "openai-completions",
+    reasoning: false,
+    contextWindow: 16000,
+    baseUrl: "https://openrouter.test/api/v1",
+  };
+  const f = await fixture({
+    openrouter: { baseUrl: saved.baseUrl, api: "openai-completions", models: [saved] },
+  });
+  f.connected.clear();
+  f.connected.add("openrouter");
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let endpoints = 0;
+  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (
+    raw: URL | string | Request,
+    init: RequestInit
+  ) => {
+    const url = new URL(String(raw));
+    if (url.pathname.endsWith("/endpoints")) {
+      const older = ++endpoints === 1;
+      if (older) {
+        entered.resolve();
+        await release.promise;
+      }
+      return Response.json({ data: { endpoints: [{ max_prompt_tokens: older ? 12000 : 4000 }] } });
+    }
+    f.state.body = {
+      data: [
+        {
+          id: saved.id,
+          context_length: 16000,
+          architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
+          supported_parameters: ["tools"],
+        },
+      ],
+    };
+    return f.fetcher(raw, init);
+  }) as typeof fetch);
+  const verifying = registry.verify({
+    providerId: "openrouter",
+    modelId: saved.id,
+    reasoning: "off",
+  });
+  try {
+    await entered.promise;
+    await registry.refreshPromptCaps();
+    expect(
+      JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].contextWindow
+    ).toBe(4000);
+    release.resolve();
+    await verifying;
+    expect(
+      JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].contextWindow
+    ).toBe(4000);
+  } finally {
+    release.resolve();
+    await verifying;
+  }
+});
+
+for (const change of ["URL", "remove model", "remove provider"] as const) {
+  test(`pending OpenRouter prompt-cap refresh preserves an in-flight ${change} edit`, async () => {
+    const saved = {
+      ...model("openrouter", "vendor/chat"),
+      api: "openai-completions",
+      contextWindow: 16000,
+      baseUrl: "https://openrouter.test/api/v1",
+    };
+    const f = await fixture({ openrouter: { baseUrl: saved.baseUrl, models: [saved] } });
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async () => {
+      entered.resolve();
+      await release.promise;
+      return Response.json({ data: { endpoints: [{ max_prompt_tokens: 4000 }] } });
+    }) as unknown as typeof fetch);
+    const operation = registry.refreshPromptCaps();
+    try {
+      await entered.promise;
+      const edited = JSON.parse(await readFile(f.path, "utf8"));
+      if (change === "URL")
+        edited.providers.openrouter.models[0].baseUrl = "https://new-deployment.test/api/v1";
+      if (change === "remove model") edited.providers.openrouter.models = [];
+      if (change === "remove provider") delete edited.providers.openrouter;
+      const bytes = JSON.stringify(edited);
+      await writeFile(f.path, bytes);
+      release.resolve();
+      await operation;
+      expect(await readFile(f.path, "utf8")).toBe(bytes);
+    } finally {
+      release.resolve();
+      await operation;
+    }
+  });
+}

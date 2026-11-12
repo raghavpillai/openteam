@@ -477,74 +477,83 @@ export class ChatProviderRegistry {
     }
     // Persist dynamic capability mappings so inference keeps the same request contract
     // after a restart, even before the next catalog refresh.
-    if (
+    const persist =
       settings.providerId === "openrouter" ||
       settings.providerId === "openai-codex" ||
       !existingModel ||
-      JSON.stringify(existingModel.input) !== JSON.stringify(model.input)
-    ) {
-      if (provider.id === "openrouter") {
-        const cap = await this.openRouterPromptCap(model);
-        if (cap) model.contextWindow = Math.min(model.contextWindow, cap);
-      }
-      const {
-        id,
-        name,
-        reasoning,
-        reasoningLevels,
-        defaultReasoningLevel,
-        thinkingLevelMap,
-        input,
-        cost,
-        contextWindow,
-        maxTokens,
-        api,
-        baseUrl,
-        compat,
-        samplingParams,
-        headers,
-      } = model;
-      await updateModelsConfig(this.modelsPath, (document) => {
-        const current = document.providers?.[provider.id];
-        if (
-          (before && !current) ||
-          !isDeepStrictEqual(providerSettings(before), providerSettings(current))
-        ) {
-          throw new Error("Provider settings changed. Reload the model list and retry.");
-        }
-        document.providers ??= {};
-        const config = (document.providers[provider.id] ??= {});
-        const saved = config.models?.find((m) => m.id === id);
-        if (before?.models?.some((m) => m.id === id) && !saved) {
-          throw new Error("Model settings changed. Reload the model list and retry.");
-        }
-        const dynamic = provider.id === "openrouter" || provider.id === "openai-codex";
-        // Existing custom models own their endpoint, protocol, headers, sampling
-        // and compatibility settings. Capability repair changes only their input.
-        const snapshot =
-          saved && !dynamic
-            ? { ...saved, input }
-            : {
-                ...(saved ?? { compat, samplingParams, headers }),
-                id,
-                name,
-                reasoning,
-                reasoningLevels,
-                defaultReasoningLevel,
-                thinkingLevelMap,
-                input,
-                cost,
-                contextWindow,
-                maxTokens,
-                api,
-                baseUrl: saved?.baseUrl ?? baseUrl,
-              };
-        if (saved && isDeepStrictEqual(saved, snapshot)) return false;
-        config.models = [...(config.models ?? []).filter((m) => m.id !== id), snapshot];
-        return true;
-      });
-      await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
+      JSON.stringify(existingModel.input) !== JSON.stringify(model.input);
+    if (persist && provider.id === "openrouter") {
+      const cap = await this.openRouterPromptCap(model);
+      if (cap) model.contextWindow = Math.min(model.contextWindow, cap);
     }
+    const {
+      id,
+      name,
+      reasoning,
+      reasoningLevels,
+      defaultReasoningLevel,
+      thinkingLevelMap,
+      input,
+      cost,
+      contextWindow,
+      maxTokens,
+      api,
+      baseUrl,
+      compat,
+      samplingParams,
+      headers,
+    } = model;
+    const apply = (document: Awaited<ReturnType<typeof configFile>>) => {
+      const current = document.providers?.[provider.id];
+      if (
+        (before && !current) ||
+        !isDeepStrictEqual(providerSettings(before), providerSettings(current))
+      ) {
+        throw new Error("Provider settings changed. Reload the model list and retry.");
+      }
+      document.providers ??= {};
+      const config = (document.providers[provider.id] ??= {});
+      const saved = config.models?.find((m) => m.id === id);
+      const previous = before?.models?.find((m) => m.id === id);
+      if (previous && !saved) {
+        throw new Error("Model settings changed. Reload the model list and retry.");
+      }
+      if (!persist) return false;
+      const dynamic = provider.id === "openrouter" || provider.id === "openai-codex";
+      // Existing custom models own their endpoint, protocol, headers, sampling
+      // and compatibility settings. Capability repair changes only their input.
+      const snapshot =
+        saved && !dynamic
+          ? { ...saved, input }
+          : {
+              ...(saved ?? { compat, samplingParams, headers }),
+              id,
+              name,
+              reasoning,
+              reasoningLevels,
+              defaultReasoningLevel,
+              thinkingLevelMap,
+              input,
+              cost,
+              // A prompt-cap refresh or user edit may have lowered the window
+              // while this verification was fetching its own endpoint limits.
+              contextWindow:
+                previous && saved && previous.contextWindow !== saved.contextWindow
+                  ? Math.min(contextWindow, positive(saved.contextWindow, contextWindow))
+                  : contextWindow,
+              maxTokens,
+              api,
+              baseUrl: saved?.baseUrl ?? baseUrl,
+            };
+      if (saved && isDeepStrictEqual(saved, snapshot)) return false;
+      config.models = [...(config.models ?? []).filter((m) => m.id !== id), snapshot];
+      return true;
+    };
+    // Even a no-write verification must reject stale discovery and reload model
+    // edits. Avoid creating a write lock when the configuration is read-only.
+    if (persist) await updateModelsConfig(this.modelsPath, apply);
+    else apply(await configFile(this.modelsPath));
+    await this.runtime().refresh({ allowNetwork: false, signal: AbortSignal.timeout(8_000) });
   }
   /**
    * Bound saved OpenRouter models by their endpoints' current prompt cap, so a model

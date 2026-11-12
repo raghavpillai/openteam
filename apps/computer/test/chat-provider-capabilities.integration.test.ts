@@ -326,3 +326,183 @@ test("a failed capability write keeps the original file and runtime metadata", a
     await f.cleanup();
   }
 });
+
+for (const input of [["text"], ["text", "image"]]) {
+  for (const change of [
+    "remove provider",
+    "API",
+    "URL",
+    "credentials",
+    "headers",
+    "remove model",
+    "invalid JSON",
+  ] as const) {
+    test(`unchanged ${input.join("+")} capabilities still reject an in-flight ${change} edit`, async () => {
+      const f = await fixture({ models: [model("chat-a", input)], input });
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      f.state.onList = async () => {
+        entered.resolve();
+        await release.promise;
+      };
+      try {
+        const operation = f.verify().then(
+          () => undefined,
+          (error) => (error as Error).message
+        );
+        await entered.promise;
+        const edited = structuredClone(f.config) as any;
+        if (change === "remove provider") delete edited.providers.relay;
+        if (change === "API") edited.providers.relay.api = "anthropic-messages";
+        if (change === "URL") edited.providers.relay.baseUrl = "http://127.0.0.1:1/replacement";
+        if (change === "credentials")
+          edited.providers.relay.apiKey = "synthetic-private-replacement";
+        if (change === "headers") edited.providers.relay.headers = { "x-replacement": "new" };
+        if (change === "remove model") edited.providers.relay.models = [];
+        const bytes = change === "invalid JSON" ? "{invalid-json" : JSON.stringify(edited);
+        await writeFile(f.path, bytes);
+        release.resolve();
+        const error = await operation;
+        expect(error).toMatch(/settings changed|Repair models.json/);
+        expect(error).not.toContain("synthetic-private");
+        expect(await readFile(f.path, "utf8")).toBe(bytes);
+      } finally {
+        release.resolve();
+        await f.cleanup();
+      }
+    });
+  }
+}
+
+test("same-model verification contention remains idempotent and preserves request settings", async () => {
+  const definition = {
+    ...model(),
+    headers: { "x-preserve": "value" },
+    compat: { maxTokensField: "max_tokens" },
+    samplingParams: { temperature: 0.25 },
+  };
+  const f = await fixture({ models: [definition] });
+  try {
+    await Promise.all(
+      Array.from({ length: 16 }, () =>
+        new ChatProviderRegistry(() => f.runtime, f.path).verify({
+          providerId: "relay",
+          modelId: "chat-a",
+          reasoning: "off",
+        })
+      )
+    );
+    expect((await f.read()).providers.relay.models).toEqual([
+      { ...definition, input: ["text", "image"] },
+    ]);
+    expect(f.runtime.getModel("relay", "chat-a")?.input).toEqual(["text", "image"]);
+  } finally {
+    await f.cleanup();
+  }
+}, 15000);
+
+test("unchanged verification reloads a concurrent selected-model edit without needing a writable directory", async () => {
+  const f = await fixture({ models: [model()], input: ["text"] });
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  f.state.onList = async () => {
+    entered.resolve();
+    await release.promise;
+  };
+  try {
+    const operation = f.verify();
+    await entered.promise;
+    const edited = structuredClone(f.config) as any;
+    edited.providers.relay.models[0].samplingParams = { temperature: 0.75 };
+    await writeFile(f.path, JSON.stringify(edited));
+    await chmod(f.root, 0o500);
+    release.resolve();
+    await operation;
+    expect(f.runtime.getModel("relay", "chat-a")?.samplingParams).toEqual({ temperature: 0.75 });
+    expect(await f.read()).toEqual(edited);
+  } finally {
+    release.resolve();
+    await f.cleanup();
+  }
+});
+
+for (const input of [["text"], ["text", "image"]]) {
+  test(`CLI removal during unchanged ${input.join("+")} discovery cannot be undone`, async () => {
+    const f = await fixture({ models: [model("chat-a", input)], input });
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    f.state.onList = async () => {
+      entered.resolve();
+      await release.promise;
+    };
+    try {
+      const operation = f.verify().then(
+        () => undefined,
+        (error) => (error as Error).message
+      );
+      await entered.promise;
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          resolve(import.meta.dir, "../src/provider-cli.ts"),
+          "remove-custom",
+          "relay",
+        ],
+        {
+          env: { PATH: process.env.PATH!, PI_OFFLINE: "1", OPENTEAM_PI_AGENT_DIR: f.root },
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+      const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+      expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+      release.resolve();
+      expect(await operation).toMatch(/Provider settings changed/);
+      expect((await f.read()).providers.relay).toBeUndefined();
+      expect((await f.create()).getModel("relay", "chat-a")).toBeUndefined();
+    } finally {
+      release.resolve();
+      await f.cleanup();
+    }
+  }, 15000);
+}
+
+test("simultaneous create-only CLI requests cannot replace each other's provider", async () => {
+  const f = await fixture();
+  try {
+    const cli = resolve(import.meta.dir, "../src/provider-cli.ts");
+    const results = await Promise.all(
+      ["first", "second"].map(async (name) => {
+        const child = Bun.spawn([process.execPath, cli, "add-custom"], {
+          env: { PATH: process.env.PATH!, PI_OFFLINE: "1", OPENTEAM_PI_AGENT_DIR: f.root },
+          stdin: new Blob([
+            JSON.stringify({
+              id: "new-relay",
+              name,
+              api: "openai-completions",
+              baseUrl: f.config.providers.relay.baseUrl,
+              noAuth: true,
+              createOnly: true,
+            }),
+          ]),
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const [code, stdout, stderr] = await Promise.all([
+          child.exited,
+          new Response(child.stdout).text(),
+          new Response(child.stderr).text(),
+        ]);
+        return { name, code, stdout, stderr };
+      })
+    );
+    expect(results.map((result) => result.code).sort()).toEqual([0, 1]);
+    expect(results.find((result) => result.code === 1)?.stderr).toContain("already exists");
+    expect((await f.read()).providers["new-relay"].name).toBe(
+      results.find((result) => result.code === 0)?.name
+    );
+    expect((await f.read()).providers.relay).toEqual(f.config.providers.relay);
+  } finally {
+    await f.cleanup();
+  }
+}, 15000);

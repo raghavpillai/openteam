@@ -105,10 +105,14 @@ export default defineConfig({
     // import React from their importing entry and create an initialization cycle.
     // Shared plugin primitives must not pull their parent screens into a detail
     // chunk. These modules declare components/functions without startup effects.
-    rolldownOptions: { output: { codeSplitting: { groups: [{
+    rolldownOptions: {
+      // The floating appshot composer is its own small page (src/renderer/appshot).
+      input: { index: "index.html", appshot: "appshot.html" },
+      output: { codeSplitting: { groups: [{
       name: "plugin-common",
       test: /(?:plugins\/(?:plugin-ui|plugin-mark|plugin-authorization)|product-core\/src\/plugin-authorization|renderer\/lib\/plugin-settings-scale)\.(?:ts|tsx)$/,
       includeDependenciesRecursively: false,
-    }] } } },
+    }] } },
+    },
   },
 });

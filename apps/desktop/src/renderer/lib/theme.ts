@@ -38,9 +38,10 @@ export const setThemePreference = (preference: ThemePreference): void => {
   window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT, { detail: { preference } }));
 };
 
-export const initializeTheme = (): (() => void) => {
+/** Follows a preference (or the stored one), tracking the system appearance for "system". */
+export const initializeTheme = (preference?: ThemePreference): (() => void) => {
   const media = window.matchMedia("(prefers-color-scheme: dark)");
-  const sync = () => syncDocumentTheme(readThemePreference(), media.matches);
+  const sync = () => syncDocumentTheme(preference ?? readThemePreference(), media.matches);
   sync();
   media.addEventListener("change", sync);
   return () => media.removeEventListener("change", sync);

@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 export const MAX_DELIVERY_STAGE_BYTES = 200 * 1024 * 1024;
@@ -57,4 +57,19 @@ export const discardDeliveryFiles = async (
       })
     )
   );
+};
+
+/** Half-written stages (a crash between write and rename) can never be sent: drop them. Old
+ * ones only, so a write in progress in this run is left alone. */
+export const sweepIncompleteDeliveryStages = async (directory: string, olderThanMs = 10 * 60_000): Promise<number> => {
+  const names = await readdir(directory).catch(() => [] as string[]);
+  let removed = 0;
+  for (const name of names) {
+    if (!name.endsWith(".next") || !STAGING_ID.test(name.slice(0, -5))) continue;
+    const path = join(directory, name);
+    const info = await stat(path).catch(() => null);
+    if (!info || Date.now() - info.mtimeMs < olderThanMs) continue;
+    if (await unlink(path).then(() => true, () => false)) removed += 1;
+  }
+  return removed;
 };

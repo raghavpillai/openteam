@@ -127,7 +127,8 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // 1,293,288 B on this baseline. File previews reuse the lazy attachment viewer.
 // Rebindable shortcuts: windows match key presses against the saved bindings and show them in
 // hints (the rules and labels load with Settings): 1,292,846.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_293_500);
+// Both together on main at 3f91add4 (#309 email review + rebindable shortcuts): 1,297,183.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_298_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -183,7 +184,8 @@ atMost("startup CSS bytes", startupCssBytes, 202_000);
 // Main at 521b9f32 grows to 16,599,431 B (+6,255, routines); with ScreenBot, 16,669,264 B.
 // Email review parity on this baseline: 16,673,564 B.
 // Settings › Keyboard and rebindable shortcuts: 16,678,696 B.
-atMost("renderer bytes", result.renderer.bytes, 16_679_500);
+// Both together on main at 3f91add4: 16,683,510 B.
+atMost("renderer bytes", result.renderer.bytes, 16_684_500);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -208,7 +210,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_679_500);
 // Main at 521b9f32: 4,135,795; with ScreenBot, 4,160,418.
 // Same email review feature build: 4,161,640 B gzip.
 // Settings › Keyboard and rebindable shortcuts: 4,163,937.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_164_500);
+// Both together on main at 3f91add4: 4,165,193.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_166_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun

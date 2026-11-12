@@ -36,17 +36,14 @@ const fixture = () => {
   const events: ProductEvent[] = [];
   const wakeups = new Set<() => void>();
   const connections = new Set<AbortController>();
-  const limits: number[] = [];
   const requests: string[] = [];
   let acceptance: Promise<void> | null = null;
   let acknowledgement: Promise<void> | null = null;
-  let failHistory = 0;
   const source: EventStreamSource = {
     get eventVersion() {
       return events.length;
     },
     eventWindowAfter: async (after, limit) => {
-      limits.push(limit);
       return {
         oldest: events.length ? 1n : null,
         latest: events.length ? BigInt(events.length) : null,
@@ -136,10 +133,6 @@ const fixture = () => {
       if (url.pathname.endsWith("/client-bootstrap"))
         return Response.json({ cursor: String(events.length), channels: [{ id: "chat" }] });
       if (url.pathname.endsWith("/history")) {
-        if (failHistory > 0) {
-          failHistory -= 1;
-          return new Response("temporary read failure", { status: 503 });
-        }
         return Response.json({ channelId: "chat", revision: String(events.length), messages });
       }
       if (url.pathname.endsWith("/client-state"))
@@ -157,11 +150,8 @@ const fixture = () => {
   type FixturePeer = {
     client: ReturnType<typeof createOpenTeamClient>;
     sync: ReturnType<typeof createLiveSyncController>;
-    received: string[];
     readonly history: ChannelMessageView[];
     readonly healthy: boolean;
-    readonly reads: number;
-    setPending(value: Promise<unknown> | null): void;
   };
   const peers: FixturePeer[] = [];
   function peer(eventTransport: "stream" | "long-poll"): FixturePeer {
@@ -169,9 +159,6 @@ const fixture = () => {
     const cursor = new CommittedEventCursor();
     let history: ChannelMessageView[] = [];
     let healthy = false;
-    let reads = 0;
-    const received: string[] = [];
-    let pendingHistory: Promise<unknown> | null = null;
     const sync = createLiveSyncController({
       cursor: () => cursor.reconnectAfter(),
       listen: client.listenForEvents,
@@ -185,18 +172,16 @@ const fixture = () => {
       },
       handleEvent: (event) => {
         cursor.observe(event.sequence);
-        received.push(event.sequence);
         return shouldRefreshForEvent(event);
       },
       synchronize: async () => {
-        reads += 1;
         await synchronizeClientSnapshot({
           readBootstrap: client.bootstrap,
           readHistory: client.channelHistory,
           readState: client.channelState,
           activeChannel: () => "chat",
           historyIdentity: () => history,
-          pendingHistory: () => pendingHistory,
+          pendingHistory: () => null,
           isCurrent: () => true,
           acceptBootstrap: (bootstrap: ClientBootstrapView) => cursor.commit(bootstrap.cursor),
           acceptHistory: (page: ChannelHistoryPage) => {
@@ -213,18 +198,11 @@ const fixture = () => {
     const result = {
       client,
       sync,
-      received,
       get history() {
         return history;
       },
       get healthy() {
         return healthy;
-      },
-      get reads() {
-        return reads;
-      },
-      setPending(value: Promise<unknown> | null) {
-        pendingHistory = value;
       },
     };
     peers.push(result);
@@ -233,7 +211,6 @@ const fixture = () => {
   }
   return {
     messages,
-    limits,
     requests,
     peer,
     commit,
@@ -242,13 +219,6 @@ const fixture = () => {
     },
     holdAcknowledgement(value: Promise<void> | null) {
       acknowledgement = value;
-    },
-    failNextHistory() {
-      failHistory += 1;
-    },
-    disconnect() {
-      for (const connection of connections) connection.abort();
-      connections.clear();
     },
     stop() {
       for (const peer of peers) peer.sync.stop();

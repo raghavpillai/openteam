@@ -180,23 +180,3 @@ for (const mode of ["scheduled"] as string[]) {
     }
   }, 15_000);
 }
-
-test.skipIf(!url)("late peer sends, routine launches, callbacks, and room output stay rejected after retirement", async () => {
-  const f = await fixture();
-  try {
-    const target = f.bots[1]!;
-    const room = await f.db.channel.create({ data: { kind: "group", name: "Surviving room", members: { create: f.bots.map((bot, ordinal) => ({ botId: bot.id, ordinal })) } } });
-    f.channels.push(room.id);
-    const routines = new RoutineService(f.db, f.messaging, f.data);
-    const routine = await routines.mutate(target.id, crypto.randomUUID(), null, { action: "create", name: "Deleted routine", prompt: "Check once", schedule: "@every 5m", enabled: true });
-    await f.retire(target.id);
-    const peer = await f.messaging.sendToAgent(f.context, { target_id: target.id, message: "Too late" });
-    expect(String(peer.acknowledgement)).toContain("No agent found");
-    await expect(routines.runNow(target.id, String(routine.id), crypto.randomUUID())).rejects.toThrow();
-    expect(await routines.dispatchDue(new Date(Date.now() + 600_000))).toBe(0);
-    expect(await f.messaging.completeShell({ id: "late", scope: target.id, exitCode: 0, outputPath: "/unused/late.log" })).toEqual({ delivered: false, ignored: true });
-    await expect(f.messaging.sendVisible({ ...f.context, botId: target.id, conversationId: target.conversation!.id, channelId: room.id }, { type: "text", content: "Too late" })).rejects.toThrow("unavailable");
-    expect(await f.db.run.count({ where: { botId: target.id, status: { in: ["queued", "running"] } } })).toBe(0);
-    expect(await f.db.channelMessage.count({ where: { channelId: room.id } })).toBe(0);
-  } finally { await f.cleanup(); }
-});

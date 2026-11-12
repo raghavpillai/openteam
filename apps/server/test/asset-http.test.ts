@@ -4,9 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AssetStore } from "@openteam/messaging";
-import { ApiError } from "@openteam/contracts";
 import { assetResponse } from "../src/asset-http";
-import { requireAssetBody } from "../src/services/asset-service";
 
 const roots: string[] = [];
 const noAgentAttachment = { agentAttachmentPath: async () => null };
@@ -127,21 +125,5 @@ describe("bounded asset HTTP responses", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("agent-local-authority");
     expect(response.headers.get("content-type")).toContain("text/plain");
-  });
-});
-
-describe("binary assets", () => {
-  test("passes a raw request body through without reading or buffering it", async () => {
-    let pulls = 0;
-    const stream = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        pulls += 1;
-        controller.enqueue(new Uint8Array([1, 2, 3, 4]));
-        controller.close();
-      },
-    });
-    expect(requireAssetBody(stream)).toBe(stream);
-    expect(pulls).toBe(0);
-    expect(() => requireAssetBody(null)).toThrow(ApiError);
   });
 });

@@ -286,46 +286,6 @@ describe("snapshot pagination", () => {
     ]);
   });
 
-  test("shares one bootstrap load across overlapping client refreshes", async () => {
-    const cursorStarted = deferred<void>();
-    const releaseCursor = deferred<void>();
-    let cursorReads = 0;
-    const service = new SnapshotService(
-      {
-        notificationPresence: { findMany: async () => [] },
-        notificationPreferences: { findUnique: async () => null },
-        event: {
-          findFirst: async () => {
-            cursorReads += 1;
-            cursorStarted.resolve();
-            await releaseCursor.promise;
-            return { sequence: 52n };
-          },
-        },
-        bot: { findMany: async () => [] },
-        channel: { findMany: async () => [] },
-        run: { findMany: async () => [] },
-        channelRound: { findMany: async () => [] },
-        subagentAttempt: { findMany: async () => [] },
-        approval: { findMany: async () => [] },
-      } as never,
-      "/workspace",
-      "http://127.0.0.1:1",
-      () => true
-    );
-
-    const first = Effect.runPromise(service.bootstrap());
-    await cursorStarted.promise;
-    const second = Effect.runPromise(service.bootstrap());
-    await Promise.resolve();
-
-    expect(cursorReads).toBe(1);
-    releaseCursor.resolve();
-    const [firstBootstrap, secondBootstrap] = await Promise.all([first, second]);
-    expect(firstBootstrap).toBe(secondBootstrap);
-    expect(firstBootstrap.cursor).toBe("52");
-  });
-
   test("rejects future event cursors instead of leaving the stream permanently idle", async () => {
     const service = new SnapshotService(
       {

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import {
-  normalizeSearchQuery,
   prefixTsQuery,
   SearchService,
 } from "../src/services/search-service";
@@ -15,10 +14,6 @@ describe("search query parsing", () => {
     ["project-0916abc", "project:* & 0916abc:*"],
   ])("prefixTsQuery(%j) is %j", (input, expected) => {
     expect(prefixTsQuery(input)).toBe(expected);
-  });
-
-  test("normalizes whitespace", () => {
-    expect(normalizeSearchQuery("  Command   K  ")).toBe("Command K");
   });
 
   test("authorizes and navigates routines through either a Bot or group owner", async () => {

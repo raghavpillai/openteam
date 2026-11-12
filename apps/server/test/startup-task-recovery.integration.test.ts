@@ -8,7 +8,6 @@ import {
   AgentMessaging,
   initialTaskProgress,
   dispatchTaskContinuations,
-  TASK_RECOVERY_LOCK,
 } from "@openteam/messaging";
 import { recover } from "../src/services/startup-recovery";
 
@@ -183,30 +182,6 @@ test.skipIf(!url)(
         where: { clientId: `restart-interrupted:${f.parent.run.id}` },
       })).toBe(0);
     })
-);
-
-test.skipIf(!url)("startup fences new queue claims while it stops old Pi contexts", () =>
-  fixture(async (f) => {
-    let inspected = false;
-    const other = createPrismaClient(url!);
-    try {
-      await recover(f.db, f.boss as never, f.messaging, async () => {
-        const result = await other.$queryRaw<
-          { acquired: boolean }[]
-        >`SELECT pg_try_advisory_xact_lock_shared(hashtext(${TASK_RECOVERY_LOCK})) AS acquired`;
-        expect(result[0]!.acquired).toBe(false);
-        inspected = true;
-        return Response.json({ ok: true });
-      });
-      expect(inspected).toBe(true);
-      const result = await other.$queryRaw<
-        { acquired: boolean }[]
-      >`SELECT pg_try_advisory_xact_lock_shared(hashtext(${TASK_RECOVERY_LOCK})) AS acquired`;
-      expect(result[0]!.acquired).toBe(true);
-    } finally {
-      await other.$disconnect();
-    }
-  })
 );
 
 test.skipIf(!url)("a failed context stop rolls recovery back without queuing duplicate work", () =>

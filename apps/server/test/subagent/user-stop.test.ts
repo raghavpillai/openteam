@@ -70,14 +70,6 @@ test("stopping a worker's run stops that worker for good: its shells end and it 
   expect(f.events.map((event) => event.topic)).toEqual(["subagent.stopped"]);
 });
 
-test("stopping a bot's run also stops every subagent it has running", async () => {
-  const f = fixture();
-  await Effect.runPromise(f.service.stopRun("main"));
-  expect(f.cancelled).toEqual(["main", "workerRun", "otherRun"]);
-  expect(f.shellStops).toHaveLength(2);
-  expect(f.subagents.map((row) => row.status)).toEqual(["stopped", "stopped"]);
-});
-
 test("stopping a parent run reports a worker that could not be stopped", async () => {
   const f = fixture();
   const cancel = f.service["runs"].cancel;

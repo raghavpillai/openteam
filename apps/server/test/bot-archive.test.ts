@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import { BotService } from "../src/services/bot-service";
 
-const fixture = (failure?: "context-network" | "screen-network" | "active-context" | "cancel-network" | "background-network") => {
+const fixture = (failure?: "context-network" | "active-context") => {
   let status = "active";
   let runStatus = "running";
   let contextExists = true;
@@ -45,7 +45,6 @@ const fixture = (failure?: "context-network" | "screen-network" | "active-contex
     observations.push({ status, runStatus, retired: [...retired] });
     if (path.endsWith("/cancel")) {
       cancelBody = JSON.parse(String(init.body));
-      if (failure === "cancel-network") throw new TypeError("fetch failed");
       runtimeActive = false;
     }
     if (path.includes("context-sessions")) {
@@ -53,8 +52,6 @@ const fixture = (failure?: "context-network" | "screen-network" | "active-contex
       if (failure === "context-network") throw new TypeError("fetch failed");
       if (failure === "active-context" || runtimeActive) return new Response("Cannot delete an active context session", { status: 500 });
     }
-    if (path.includes("background-shells") && failure === "background-network") throw new TypeError("fetch failed");
-    if (path.includes("screens") && failure === "screen-network") throw new DOMException("timed out", "TimeoutError");
     return Response.json({ ok: true });
   }, { deleteAgentFiles: async () => {}, repairActiveAgentAfterDeletion: async () => {} } as never);
   return { service, calls, observations, cancelBody: () => cancelBody, contextWasActive: () => contextWasActive,

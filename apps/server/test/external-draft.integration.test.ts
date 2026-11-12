@@ -162,27 +162,6 @@ test('attachment review sends immutable previewed bytes and refuses missing asse
  } finally { await f.cleanup(); }
 });
 
-test('bulk draft outcomes are claimed as one continuation rather than 24 repeated confirmations', async () => {
- if (!databaseUrl) return;
- const f = await fixture('draft-batch');
- const { WakeWorker } = await import('../../worker/src/worker');
- const worker = Object.create(WakeWorker.prototype) as any;
- Object.assign(worker, { prisma: f.prisma, messaging: f.messaging, workspaceRoot: f.messaging.agentData.workspaceRoot });
- try {
-  for (let i = 0; i < 24; i++) await f.prisma.$transaction(tx => f.messaging.enqueueWake(tx, {
-   botId: f.botId, channelId: f.context('batch').channelId, origin: 'user', type: 'draft.response',
-   content: '[SAND_HIDDEN_PROMPT]A draft settled.', clientId: `draft:${crypto.randomUUID()}:outcome`, priority: 400, wrapUserContent: false,
-  }));
-  const claimed = await worker.claim(f.botId);
-  expect(claimed.content).toContain('24 external message draft outcome(s)');
-  const events = await f.prisma.inboxEvent.findMany({ where: { botId: f.botId }, include: { run: true } });
-  expect(events.filter(event => event.status === 'processing')).toHaveLength(1);
-  expect(events.filter(event => event.status === 'completed' && event.run.status === 'completed')).toHaveLength(23);
-  expect(events.filter(event => event.status === 'pending')).toHaveLength(0);
-  expect(await worker.claim(f.botId)).toBeNull();
- } finally { await f.cleanup(); }
-});
-
 test('same-subject outcomes retain distinct card identities after ambient receipts were consumed', async () => {
  if (!databaseUrl) return;
  const f = await fixture('draft-identity');

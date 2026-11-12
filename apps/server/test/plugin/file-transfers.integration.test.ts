@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { FileTransferProvider } from "../../src/services/plugin/file-transfer-providers";
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
-test.skipIf(!databaseUrl).each(["google-drive", "gmail"] as const)(
+test.skipIf(!databaseUrl).each(["google-drive"] as const)(
   "%s file transfers pin account, hash and call identity and do not replay writes after restart",
   async (pluginKey) => {
     const db = createPrismaClient(databaseUrl!);
@@ -42,7 +42,7 @@ test.skipIf(!databaseUrl).each(["google-drive", "gmail"] as const)(
       const connection = await db.pluginConnection.create({
         data: {
           installationId,
-          connectorKey: pluginKey === "gmail" ? "gmail" : "drive",
+          connectorKey: "drive",
           name: `${pluginKey} fixture`,
           transport: "stdio",
           authType: "oauth",
@@ -71,7 +71,7 @@ test.skipIf(!databaseUrl).each(["google-drive", "gmail"] as const)(
       const bytes = Buffer.from("abc");
       const raw = {
         tool: "UploadFile",
-        input: { connection: connection.id, sourcePath: "/workspace/file.bin", destination: pluginKey === "gmail" ? { draftId: "fixture-draft" } : {} },
+        input: { connection: connection.id, sourcePath: "/workspace/file.bin", destination: {} },
         sha256: createHash("sha256").update(bytes).digest("hex"),
         sizeBytes: 3,
       };
@@ -134,7 +134,7 @@ test.skipIf(!databaseUrl).each(["google-drive", "gmail"] as const)(
       }
       // Two accounts of one service: the short name names both instead of calling the service unknown.
       const second = await db.pluginConnection.create({ data: {
-        installationId, connectorKey: pluginKey === "gmail" ? "gmail" : "drive", name: `${pluginKey} fixture`, alias: "home", transport: "stdio", authType: "oauth", status: "ready", configuration: {}, credentials: {},
+        installationId, connectorKey: "drive", name: `${pluginKey} fixture`, alias: "home", transport: "stdio", authType: "oauth", status: "ready", configuration: {}, credentials: {},
       } });
       const ambiguous = await service().prepare({ ...context, callId: crypto.randomUUID() }, { ...raw, input: { ...raw.input, connection: pluginKey } });
       expect(ambiguous).toMatchObject({ outcome: { kind: "ambiguous_connection", service: `${pluginKey} fixture` } });

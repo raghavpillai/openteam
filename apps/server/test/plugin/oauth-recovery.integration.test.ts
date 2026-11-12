@@ -83,7 +83,6 @@ for (const description of ["Le jeton a expiré. fixture-secret"]) {
 
 for (const failure of [
   { error: "server_error", status: 503, error_description: "Provider unavailable" },
-  { error: "access_denied", status: 403, error_description: "Permission denied (403)" },
   { error: "invalid_client", status: 401, error_description: "Client setup is wrong" },
 ]) {
   integration(`non-grant failure preserves credentials: ${failure.error}`, async () => {

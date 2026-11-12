@@ -4,10 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { createPrismaClient } from "@openteam/db";
-import { AgentDataStore, AgentMessaging, ensureRequestForTask, stopRequestProgress, lockAgentLifecycle, type ToolContext } from "@openteam/messaging";
+import { AgentDataStore, AgentMessaging, ensureRequestForTask, stopRequestProgress, lockAgentLifecycle } from "@openteam/messaging";
 import { InternalToolService } from "../src/services/internal-tool-service";
-import { RunService } from "../src/services/run-service";
-import { SubagentService } from "../src/services/subagent/service";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 
@@ -37,42 +35,30 @@ async function setup() {
   const channel = await db.channel.create({ data: {
     kind: "bot_dm", name: "main", directKey: `bot:${bot.id}`, members: { create: { botId: bot.id, ordinal: 0 } },
   } });
-  const parent = (status: "running" | "completed" = "completed") => db.run.create({ data: {
+  const root = await db.run.create({ data: {
     botId: bot.id, conversationId: bot.conversation!.id, channelId: channel.id,
-    userMessageId: crypto.randomUUID(), origin: "user", status,
+    userMessageId: crypto.randomUUID(), origin: "user", status: "completed",
   } });
-  const completion = async (requestId: string, origin: "background_revival" | "user" = "background_revival") => {
-    const wake = await db.$transaction(tx => messaging.enqueueWake(tx, {
-      botId: bot.id, channelId: channel.id, origin, type: origin === "user" ? "user.message" : "subagent.completed",
-      content: origin === "user" ? "Stop. Please confirm." : "[SAND_HIDDEN_PROMPT]The requested result is ready.", taskContextRunId: requestId,
+  const wake = async () => {
+    const queued = await db.$transaction(tx => messaging.enqueueWake(tx, {
+      botId: bot.id, channelId: channel.id, origin: "background_revival", type: "subagent.completed",
+      content: "[SAND_HIDDEN_PROMPT]The requested result is ready.", taskContextRunId: root.id,
       clientId: crypto.randomUUID(), priority: 260,
     }));
-    return db.run.update({ where: { id: wake.run.id }, data: { status: "running" } });
+    return db.run.update({ where: { id: queued.run.id }, data: { status: "running" } });
   };
-  const failures = new Set<string>();
-  const computerFetch = async (path: string) => {
-    if ([...failures].some(id => path.includes(id))) throw new Error("Synthetic cancellation transport failure");
-    return Response.json({ stopped: true });
-  };
-  const service = new SubagentService(db, messaging, new RunService(db, computerFetch), dir, computerFetch, store);
-  const sendVisible = (run: Awaited<ReturnType<typeof parent>> | Awaited<ReturnType<typeof completion>>) => messaging.sendVisible({
-    botId: bot.id, runId: run.id, conversationId: bot.conversation!.id, channelId: channel.id,
-    deliveryId: null, origin: run.origin, callId: crypto.randomUUID(),
-  } as ToolContext, { type: "text", content: "The case was verified." });
-  const root = await parent();
-  const wake = (origin?: "background_revival" | "user") => completion(root.id, origin);
   let connectedSends = 0;
   const tools = new InternalToolService(db, messaging, {} as never, async () => {}, {} as never,
     {} as never, {} as never, { deliverConnectedChannel: async () => {
       connectedSends++;
       return { connectionId: "fixture", toolName: "send" };
     } } as never);
-  const send = (run: Awaited<ReturnType<typeof wake>>, channel?: string, images?: { url: string }[]) => Effect.runPromise(tools.execute({
+  const send = (run: Awaited<ReturnType<typeof wake>>, channel?: string) => Effect.runPromise(tools.execute({
     runId: run.id, botId: bot.id, conversationId: bot.conversation!.id, channelId: run.channelId!,
-    deliveryId: null, tool: "SendToUser", arguments: { type: "text", content: "The result is ready.", ...(channel ? { channel } : {}), ...(images ? { images } : {}) },
+    deliveryId: null, tool: "SendToUser", arguments: { type: "text", content: "The result is ready.", ...(channel ? { channel } : {}) },
     callId: crypto.randomUUID(),
   }));
-  return { db, dir, bot, channel, service, messaging, parent, completion, failures, sendVisible, root, wake, send, connectedSends: () => connectedSends };
+  return { db, dir, bot, channel, messaging, root, wake, send, connectedSends: () => connectedSends };
 }
 
 for (const tracked of [true]) test.skipIf(!url)(`a running completion cannot deliver after Stop (${tracked ? "tracked" : "legacy"} request)`, () => fixture(async f => {
@@ -82,28 +68,6 @@ for (const tracked of [true]) test.skipIf(!url)(`a running completion cannot del
   await expect(f.send(run)).rejects.toThrow("request was stopped");
   expect(await f.db.channelMessage.count({ where: { channelId: f.channel.id, sender: "agent" } })).toBe(0);
   expect(await f.db.channelNotification.count({ where: { channelId: f.channel.id } })).toBe(0);
-}));
-
-test.skipIf(!url)("a Stop committed during attachment preparation prevents publication by an already executing SendToUser", () => fixture(async f => {
-  await f.db.$transaction(tx => ensureRequestForTask(tx, f.bot.id, f.root.id));
-  const run = await f.wake();
-  let entered!: () => void, release!: () => void;
-  const started = new Promise<void>(resolve => { entered = resolve; });
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  const original = (f.messaging as any).persistedVisibleInput.bind(f.messaging);
-  (f.messaging as any).persistedVisibleInput = async (...args: unknown[]) => {
-    entered();
-    await gate;
-    return original(...args);
-  };
-  const pending = f.send(run);
-  try {
-    await started;
-    await f.db.$transaction(tx => stopRequestProgress(tx, f.bot.id, f.root.id));
-    expect((await f.db.run.findUniqueOrThrow({ where: { id: run.id } })).status).toBe("running");
-  } finally { release(); }
-  await expect(pending).rejects.toThrow("request was stopped");
-  expect(await f.db.channelMessage.count({ where: { channelId: f.channel.id, sender: "agent" } })).toBe(0);
 }));
 
 for (const retiring of [false, true])

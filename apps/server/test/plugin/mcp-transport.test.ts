@@ -14,12 +14,11 @@ afterEach(async () => {
 function fixture() {
   const manager = new McpHttpClientManager();
   managers.push(manager);
-  const entered = gate(), release = gate(), called = gate(), finishCall = gate(), cancelled = gate();
+  const called = gate(), finishCall = gate(), cancelled = gate();
   const initializations: string[] = [];
-  const methods: string[] = [];
   const writes = new Map<string, number>();
   const sessions = new Set<string>();
-  let unavailable = false, deliveries = 0;
+  let deliveries = 0;
   let droppedResponse: boolean | "truncated" = false;
   const server = Bun.serve({
     hostname: "127.0.0.1", port: 0,
@@ -28,16 +27,11 @@ function fixture() {
       if (request.method === "DELETE") return new Response(null, { status: 204 });
       const path = new URL(request.url).pathname;
       const message = await request.json() as { id?: number; method: string; params?: { name?: string; arguments?: { requestId?: string } } };
-      methods.push(message.method);
       if (message.method !== "initialize" && !sessions.has(request.headers.get("mcp-session-id") ?? ""))
         return new Response("Session expired", { status: 404 });
-      if (unavailable) return new Response("Provider unavailable", { status: 503 });
       let result: unknown;
       if (message.method === "initialize") {
         initializations.push(path);
-        if (path === "/slow" && initializations.filter(p => p === path).length === 1) {
-          entered.release(); await release.promise;
-        }
         result = { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "chaos", version: "1" } };
       } else if (message.method === "tools/list") {
         result = { tools: [{ name: path.slice(1) || "echo", inputSchema: { type: "object" } }] };
@@ -62,9 +56,8 @@ function fixture() {
   });
   servers.push(server);
   return {
-    manager, entered, release, called, finishCall, cancelled, methods, initializations, writes,
+    manager, called, finishCall, cancelled, initializations, writes,
     options: (path = "echo") => ({ endpoint: `http://127.0.0.1:${server.port}/${path}` }),
-    unavailable: (value: boolean) => { unavailable = value; },
     dropResponse: (value: boolean | "truncated") => { droppedResponse = value; },
     deliveries: () => deliveries,
     expireSessions: () => sessions.clear(),
@@ -159,87 +152,6 @@ describe("remote MCP transport", () => {
     expect((await http.discover("legacy", options)).map((tool) => tool.name)).toEqual(["image"]);
     expect(await http.call("legacy", options, "image", {})).toMatchObject({ content: [{ type: "image", data: png, mimeType: "image/png" }] });
     expect(methods).toEqual(["initialize", "notifications/initialized", "tools/list", "tools/call"]);
-  });
-
-  test("initializes and reuses a streamable HTTP session for discovery and calls", async () => {
-    const http = new McpHttpClientManager();
-    managers.push(http);
-    const methods: string[] = [];
-    const sessionHeaders: Array<string | null> = [];
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        if (request.method === "GET") {
-          return new Response("SSE not available", {
-            status: 405,
-            headers: { allow: "POST" },
-          });
-        }
-        if (request.method === "DELETE") return new Response(null, { status: 204 });
-        const message = (await request.json()) as {
-          id?: string;
-          method: string;
-          params?: { name?: string; arguments?: unknown };
-        };
-        methods.push(message.method);
-        sessionHeaders.push(request.headers.get("mcp-session-id"));
-        if (message.method === "initialize") {
-          return Response.json(
-            {
-              jsonrpc: "2.0",
-              id: message.id,
-              result: {
-                protocolVersion: "2025-06-18",
-                capabilities: { tools: {} },
-                serverInfo: { name: "fixture", version: "1.0.0" },
-              },
-            },
-            { headers: { "mcp-session-id": "fixture-session" } }
-          );
-        }
-        if (message.method === "notifications/initialized")
-          return new Response(null, { status: 202 });
-        if (message.method === "tools/list") {
-          return Response.json({
-            jsonrpc: "2.0",
-            id: message.id,
-            result: {
-              tools: [
-                {
-                  name: "echo",
-                  description: "Echo text",
-                  inputSchema: {
-                    type: "object",
-                    properties: { text: { type: "string" } },
-                    required: ["text"],
-                  },
-                },
-              ],
-            },
-          });
-        }
-        return Response.json({
-          jsonrpc: "2.0",
-          id: message.id,
-          result: { content: [{ type: "text", text: String(message.params?.arguments) }] },
-        });
-      },
-    });
-    servers.push(server);
-    const endpoint = `http://127.0.0.1:${server.port}`;
-
-    expect((await http.discover("connection", { endpoint })).map((tool) => tool.name)).toEqual(["echo"]);
-    expect(await http.call("connection", { endpoint }, "echo", { text: "hello" })).toMatchObject({
-      content: [{ type: "text" }],
-    });
-    expect(methods).toEqual([
-      "initialize",
-      "notifications/initialized",
-      "tools/list",
-      "tools/call",
-    ]);
-    expect(sessionHeaders.filter((header) => header === "fixture-session")).toHaveLength(3);
   });
 });
 

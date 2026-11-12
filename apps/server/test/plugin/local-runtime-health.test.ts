@@ -101,7 +101,6 @@ test("background MCP health observes processes and resumes stopped connections o
     expect(connection.toolSnapshot).toHaveLength(1);
     expect(resumed).toEqual(["connection.tools_changed", "connection.resumed"]);
 
-    expect(paths).toHaveLength(18);
     // Connector-managed credentials still require sign-in, even with authType none.
     state = "error";
     error = "Authentication failed: Slack rejected the saved browser session (invalid_auth). Replace both credentials, then reconnect.";

@@ -46,52 +46,25 @@ describe("authentication client attribution", () => {
     expect(attributed.headers.has("x-forwarded-proto")).toBe(false);
   });
 
-  test("accepts a private upstream's forwarded address only in external-proxy mode", () => {
-    const request = new Request("http://server:8787/api/auth/config", {
-      headers: { "x-forwarded-for": "198.51.100.42" },
-    });
-    const attributed = authRequestWithClientIp(
-      request,
-      { requestIP: () => ({ address: "172.20.0.1" }) },
-      proxySecret,
-      undefined,
-      undefined,
-      { trustPrivateForwarder: true }
-    );
-
-    expect(attributed.headers.get("x-openteam-client-ip")).toBe("198.51.100.42");
-  });
-
-  test("does not trust a client-prepended forwarded address", () => {
-    const request = new Request("http://server:8787/api/auth/config", {
-      headers: { "x-forwarded-for": "198.51.100.99, 198.51.100.42" },
-    });
-    const attributed = authRequestWithClientIp(
-      request,
-      { requestIP: () => ({ address: "172.20.0.1" }) },
-      proxySecret,
-      undefined,
-      undefined,
-      { trustPrivateForwarder: true }
-    );
-
-    expect(attributed.headers.get("x-openteam-client-ip")).toBe("198.51.100.42");
-  });
-
-  test("recognizes IPv4-mapped and private IPv6 proxy addresses", () => {
-    for (const address of ["::ffff:172.20.0.1", "fd00::1", "fe80::1"]) {
+  test("external-proxy mode trusts only the private upstream's last forwarded hop", () => {
+    for (const [address, forwarded, expected] of [
+      ["172.20.0.1", "198.51.100.42", "198.51.100.42"],
+      ["172.20.0.1", "198.51.100.99, 198.51.100.42", "198.51.100.42"],
+      ["::ffff:172.20.0.1", "2001:db8::42", "2001:db8::42"],
+      ["fd00::1", "2001:db8::42", "2001:db8::42"],
+      ["fe80::1", "2001:db8::42", "2001:db8::42"],
+    ]) {
       const attributed = authRequestWithClientIp(
         new Request("http://server:8787/api/auth/config", {
-          headers: { "x-forwarded-for": "2001:db8::42" },
+          headers: { "x-forwarded-for": forwarded! },
         }),
-        { requestIP: () => ({ address }) },
+        { requestIP: () => ({ address: address! }) },
         proxySecret,
         undefined,
         undefined,
         { trustPrivateForwarder: true }
       );
-
-      expect(attributed.headers.get("x-openteam-client-ip")).toBe("2001:db8::42");
+      expect(attributed.headers.get("x-openteam-client-ip")).toBe(expected!);
     }
   });
 

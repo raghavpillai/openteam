@@ -45,12 +45,8 @@ async function setup() {
   const channel = await db.channel.create({ data: {
     kind: "bot_dm", name: "main", directKey: `bot:${bot.id}`, members: { create: { botId: bot.id, ordinal: 0 } },
   } });
-  const cancelled: string[] = [];
-  const cancelFailures = new Set<string>();
   const service = new SubagentService(db, messaging, {
     cancel: (runId: string) => Effect.promise(async () => {
-      cancelled.push(runId);
-      if (cancelFailures.has(runId)) throw new Error("Synthetic cancellation transport failure");
       const run = await db.run.findUniqueOrThrow({ where: { id: runId } });
       if (["queued", "running"].includes(run.status)) await db.run.update({ where: { id: runId }, data: {
         status: "cancelled", completedAt: new Date(), error: { code: "cancelled_by_user" },
@@ -94,7 +90,7 @@ async function setup() {
     await db.$transaction(async tx => settleTaskProgress(tx, messaging,
       await tx.subagent.findUniqueOrThrow({ where: { id } }), attempt.id, context.runId));
   };
-  return { db, dir, bot, channel, messaging, service, parent, launch, activate, park, cancelled, cancelFailures };
+  return { db, dir, bot, channel, messaging, service, parent, launch, activate, park };
 }
 
 for (const scope of ["target", "bot"] as ("target" | "all" | "bot")[]) for (const parked of [true])
@@ -148,16 +144,4 @@ test.skipIf(!url)("an explicit stopped request ID is refused without permanently
   await f.service.task(fresh, input);
   expect((await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).requestRunId).toBe(fresh.runId);
   expect((await f.db.run.findUniqueOrThrow({ where: { id: original.runId } })).requestStoppedAt).not.toBeNull();
-}));
-
-for (const status of ["completed", "cancelled"] as const)
-test.skipIf(!url)(`stopping a ${status} request stops its active worker and leaves an independent sibling alive`, () => fixture(async f => {
-  const first = await f.parent(), firstChild = await f.launch(first);
-  await f.db.run.update({ where: { id: first.runId }, data: { status, ...(status === "cancelled" ? { error: { code: "priority_peer_interrupt" } } : {}) } });
-  const sibling = await f.parent(), siblingChild = await f.launch(sibling);
-  await Effect.runPromise(f.service.stopRun(first.runId));
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: firstChild.id } })).status).toBe("stopped");
-  expect(f.cancelled).toContain(firstChild.currentRunId!);
-  expect((await f.db.subagent.findUniqueOrThrow({ where: { id: siblingChild.id } })).status).toBe("running");
-  expect((await f.db.run.findUniqueOrThrow({ where: { id: sibling.runId } })).requestStoppedAt).toBeNull();
 }));

@@ -8,9 +8,9 @@ import { PluginService } from "../../../src/services/plugin-service";
 import { createOAuthMcpFixture } from "./oauth-mcp";
 
 /** Real plugin routes/DB/MCP, with a synthetic catalog and local OAuth provider. */
-export async function createPluginFlowFixture(databaseUrl: string, options: { publicUrl?: string; callbackMode?: "auto" | "server" | "desktop" | "manual"; authSessions?: string[]; packaged?: boolean; refreshTokens?: boolean } = {}) {
+export async function createPluginFlowFixture(databaseUrl: string, options: { callbackMode?: "auto" | "server" | "desktop" | "manual"; authSessions?: string[]; packaged?: boolean } = {}) {
   const db = createPrismaClient(databaseUrl);
-  const provider = createOAuthMcpFixture(0, {refreshTokens:options.refreshTokens});
+  const provider = createOAuthMcpFixture();
   const suffix = crypto.randomUUID();
   const oauth = createPluginTemplate(options.packaged ? "packaged-mcp" : "remote-mcp", `flow-oauth-${suffix}`);
   oauth.name = "Flow OAuth";
@@ -50,7 +50,6 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
   const skill = createPluginTemplate("skills", `flow-skills-${suffix}`);
   skill.name = "Flow Skills";
   const definitions = [oauth, configured, skill];
-  const requests: Array<{ method: string; path: string }> = [];
   let app: AppService;
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -64,7 +63,6 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
       };
       if (request.method === "OPTIONS") return new Response(null, { headers });
       const path = url.pathname.replace(/^\/api\/v0\//, "/api/");
-      requests.push({ method: request.method, path });
       try {
         // Synthetic login tokens exercise the real routes with distinct session
         // identities. OAuth itself still uses the real local provider and DB.
@@ -101,12 +99,10 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
   });
   const previousPublicUrl = process.env.OPENTEAM_PUBLIC_URL;
   const previousAuthMode = process.env.OPENTEAM_AUTH_MODE;
-  process.env.OPENTEAM_PUBLIC_URL = options.publicUrl ?? server.url.origin;
+  process.env.OPENTEAM_PUBLIC_URL = server.url.origin;
   process.env.OPENTEAM_AUTH_MODE = options.authSessions ? "required" : "disabled";
   const runtimes = new Map<string, "ready" | "stopped">();
-  const computerRequests: string[] = [];
   const service = new PluginService(db, options.packaged ? async (path, init) => {
-    computerRequests.push(`${init?.method ?? "POST"} ${path}`);
     const id = path.split("/")[4]!;
     const runtime = runtimes.get(id) ?? "stopped";
     if (init?.method === "DELETE") { runtimes.set(id, "stopped"); return Response.json({}); }
@@ -153,8 +149,6 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
     service,
     provider,
     definitions,
-    requests,
-    computerRequests,
     async close() {
       await service.close();
       server.stop(true);

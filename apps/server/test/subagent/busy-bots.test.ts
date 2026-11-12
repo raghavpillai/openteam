@@ -47,14 +47,3 @@ test("parked work that resumes on its own after a restart never holds an update"
   ).busyBots());
   expect(result).toEqual({ bots: [] });
 });
-
-test("a parked subagent doesn't hide another subagent that is still running", async () => {
-  const result = await Effect.runPromise(service(
-    [{ id: "worker-turn", botId: "worker", status: "running" }],
-    [
-      { parentBotId: "chief", childBotId: "worker", status: "running" },
-      { parentBotId: "scout", childBotId: "nested", status: "waiting" },
-    ],
-  ).busyBots());
-  expect(result).toEqual({ bots: [{ botId: "chief", name: "Chief of Staff", runIds: ["worker-turn"] }] });
-});

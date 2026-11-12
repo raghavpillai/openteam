@@ -3,52 +3,7 @@ import type { PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import { NotificationService } from "../src/services/notification-service";
 
-const apnsRegistration = (installationId: string) => ({
-  installationId,
-  platform: "ios" as const,
-  provider: "apns" as const,
-  pushToken: "ab".repeat(32),
-  apnsEnvironment: "production" as const,
-  apnsTopic: "dev.openteam.mobile.swift",
-  notificationScope: "cd".repeat(32),
-});
-
 describe("NotificationService", () => {
-  test("registers an installation idempotently and can disable it", async () => {
-    let enabled = true;
-    let persisted: Record<string, unknown> | null = null;
-    const prisma = {
-      pushDevice: {
-        findUnique: async () => null,
-        upsert: async ({ create }: { create: Record<string, unknown> }) => {
-          persisted = create;
-          return {
-            ...create,
-            enabled,
-            lastSeenAt: create.lastSeenAt as Date,
-          };
-        },
-        updateMany: async () => {
-          enabled = false;
-          return { count: 1 };
-        },
-      },
-    } as unknown as PrismaClient;
-    const service = new NotificationService(prisma);
-    const registered = await Effect.runPromise(
-      service.register(
-        { ...apnsRegistration("installation-123"), locale: "en-US" },
-        { mode: "required", sessionId: "session-123" }
-      )
-    );
-    expect(registered).toMatchObject({ installationId: "installation-123", enabled: true });
-    expect(persisted).toMatchObject({ authRequired: true, authSessionId: "session-123" });
-    await expect(Effect.runPromise(service.unregister("installation-123"))).resolves.toEqual({
-      ok: true,
-    });
-    expect(enabled).toBe(false);
-  });
-
   test("disables every device bound to a session before sign-out", async () => {
     let update: unknown = null;
     let lockCount = 0;
@@ -150,10 +105,12 @@ describe("NotificationService", () => {
 
 describe("native push registration", () => {
   const input = {installationId:"swift-installation",platform:"ios" as const,provider:"apns" as const,pushToken:"AB".repeat(32),apnsEnvironment:"development" as const,apnsTopic:"dev.openteam.mobile.swift",notificationScope:"cd".repeat(32)};
-  test("persists native transport settings and normalizes a rotated APNs token", async () => {
+  test("persists native transport settings and normalizes a rotated APNs token, binding it to the signing-in session", async () => {
     let persisted: any;
     const prisma = {pushDevice:{findUnique:async()=>null,upsert:async({create}:any)=>{persisted=create;return {...create,enabled:true};}}} as unknown as PrismaClient;
     await Effect.runPromise(new NotificationService(prisma,"disabled").register(input,{mode:"disabled"}));
     expect(persisted).toMatchObject({provider:"apns",apnsEnvironment:"development",apnsTopic:input.apnsTopic,notificationScope:input.notificationScope,pushToken:input.pushToken.toLowerCase(),authRequired:false});
+    await Effect.runPromise(new NotificationService(prisma).register(input,{mode:"required",sessionId:"session-123"}));
+    expect(persisted).toMatchObject({authRequired:true,authSessionId:"session-123"});
   });
 });

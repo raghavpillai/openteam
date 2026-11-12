@@ -49,12 +49,7 @@ test("activity collapses repeats and keeps the newest 24 entries", () => {
   ])).toEqual(["[pending] Shell"]);
 });
 
-test("another parent cannot inspect the child", async () => {
-  const { service } = fixture();
-  expect(typeof await service.check("other-parent", { subagent_id: "child" })).toBe("string");
-});
-
-test("unavailable or foreign current run exposes no run", async () => {
-  const { service } = fixture("running", "foreign");
-  expect(await service.check("parent", { subagent_id: "child" })).toMatchObject({ run_status: null, tool_call_count: 0 });
+test("another parent, or an unavailable or foreign current run, exposes nothing", async () => {
+  expect(typeof await fixture().service.check("other-parent", { subagent_id: "child" })).toBe("string");
+  expect(await fixture("running", "foreign").service.check("parent", { subagent_id: "child" })).toMatchObject({ run_status: null, tool_call_count: 0 });
 });

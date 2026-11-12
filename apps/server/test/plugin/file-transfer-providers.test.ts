@@ -43,7 +43,7 @@ test("Drive export preserves native document bytes and upload uses an authentica
   ).toBe(true);
 });
 
-test("Gmail attaches to an existing draft without losing MIME parts or sending mail; attachment reads return the bytes", async () => {
+test("Gmail attaches to an existing draft without losing MIME parts or sending mail", async () => {
   const old = Buffer.from(
     'To: fixture@example.test\r\nSubject: Fixture\r\nContent-Type: multipart/mixed; boundary="old"\r\n\r\n--old\r\nContent-Type: text/plain\r\n\r\nBody\r\n--old\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n\r\nb2xkLWZpbGU=\r\n--old--\r\n'
   );
@@ -68,32 +68,15 @@ test("Gmail attaches to an existing draft without losing MIME parts or sending m
       expect(JSON.parse(String(init.body)).message.threadId).toBe("thread");
       return Response.json({ id: "draft" });
     }
-    if (u.includes("/drafts/"))
-      return Response.json({
-        id: "draft",
-        message: { raw: old.toString("base64url"), threadId: "thread" },
-      });
-    if (u.includes("/attachments/"))
-      return Response.json({ data: Buffer.from("binary\0attachment").toString("base64url") });
     return Response.json({
-      payload: {
-        parts: [
-          {
-            filename: "file.bin",
-            mimeType: "application/octet-stream",
-            body: { attachmentId: "a", size: 17 },
-          },
-        ],
-      },
+      id: "draft",
+      message: { raw: old.toString("base64url"), threadId: "thread" },
     });
   }) as typeof fetch);
   expect(
     await provider.upload("gmail", "new.pdf", { draftId: "draft" }, Buffer.from("new-file"))
   ).toMatchObject({ id: "draft", draftId: "draft" });
   expect(writes).toBe(1);
-  expect((await provider.download("gmail", { fileId: "m/a" })).bytes).toEqual(
-    Buffer.from("binary\0attachment")
-  );
 });
 
 test("Gmail downloads an attachment by an ID from an earlier message read", async () => {

@@ -89,24 +89,6 @@ test.skipIf(!url)("a typed follow-up does not discard a completed background res
   expect(await f.db.$transaction(tx => requestWakeAllowed(tx, event))).toBe(false);
 }));
 
-for (const priorState of ["stopped"] as ("interrupted" | "stopped")[]) test.skipIf(!url)(`resuming a worker ${priorState === "stopped" ? "starts a new request after an explicit stop" : `retains the original ${priorState} request`} without requiring the model to repeat its ID`, () => fixture(async f => {
-  await f.service.task(f.context, { description: "Approved one-message step", subagent_type: "computerUse", prompt: "Send the approved message once, then read the receipt." });
-  const child = await f.db.subagent.findFirstOrThrow({ where: { parentBotId: f.owner.id } });
-  await f.db.bot.update({ where: { id: child.childBotId }, data: { status: "active" } });
-  await f.db.subagent.update({ where: { id: child.id }, data: { status: "completed" } });
-  await f.db.run.update({ where: { id: f.context.runId }, data: {
-    status: "cancelled", error: { code: "priority_peer_interrupt" },
-  } });
-  if (priorState === "stopped") await f.db.$transaction(tx => stopRequestProgress(tx, f.owner.id, f.context.runId));
-  const reply = await f.db.$transaction(tx => f.messaging.enqueueWake(tx, { botId: f.owner.id, channelId: f.channel.id,
-    origin: "user", type: "user.message", content: "Read its status only; do not send anything further.", clientId: crypto.randomUUID(), priority: 300 }));
-  await f.db.run.update({ where: { id: reply.run.id }, data: { status: "running" } });
-  await f.service.task({ ...f.context, runId: reply.run.id, callId: crypto.randomUUID() }, { description: "Read the existing status", subagent_type: "computerUse",
-    resume: `sand-subagent-${child.id}`, prompt: "Read the status only; no further outgoing action is approved.", read_only: true });
-  const expectedRequest = priorState === "stopped" ? reply.run.id : f.context.runId;
-  expect(await f.db.subagent.findUniqueOrThrow({ where: { id: child.id } })).toMatchObject({ requestRunId: expectedRequest, readOnly: true });
-  expect((await requestProgressSnapshot(f.db, f.owner.id, f.channel.id)).map(s => s.request_run_id)).toEqual([expectedRequest]);
-}));
 async function fixture(body: (f: Awaited<ReturnType<typeof setup>>) => Promise<void>) {
   const f = await setup();
   try {

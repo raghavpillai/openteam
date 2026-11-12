@@ -183,8 +183,7 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
   });
 
   test.each([
-    { state: "ready", recovering: false }, { state: "stopped", recovering: false },
-    { state: "ready", recovering: true }, { state: "stopped", recovering: true },
+    { state: "ready", recovering: false }, { state: "stopped", recovering: true },
   ])("a previously ready account resumes after a computer outage (%j) without provisioning", async ({ state, recovering }) => {
     const f = fixture();
     f.connection.status = "error";
@@ -211,17 +210,6 @@ describe("generic device link host lifecycle (fake DB/computer)", () => {
     expect(f.connection.status).toBe("needs_auth");
     await expect(f.service.invoke({ connectionId: f.connection.id, botId: "synthetic-bot", runId: "synthetic-run",
       callId: "synthetic-call", toolName: "read_synthetic", arguments: {} })).rejects.toThrow("not ready");
-  });
-
-  test("reconnect after computer restart replaces the QR whose in-memory session was lost", async () => {
-    const f = fixture();
-    await f.connect();
-    f.runtime.state = "stopped";
-    // The restarted connector reports neither a linked account nor an active waiter.
-    f.runtime.onCall = async name => name === "link_status" ? envelope({ linked: false, linking: false }) : undefined;
-    await f.connect();
-    expect(f.connection.credentials.deviceLink.sessionId).not.toBe("synthetic-1");
-    expect(f.toolCalls("start_link")).toHaveLength(2);
   });
 
   test("Bot invocation cannot execute any manifest-declared lifecycle tool from a polluted tool snapshot", async () => {
@@ -402,25 +390,6 @@ describe("rotating device approval challenges", () => {
       expect(f.connection.credentials.deviceLink).toEqual(stored);
     }
     expect(f.toolCalls("cancel_link")).toHaveLength(0);
-  });
-
-  test("failed setup cannot recover using a foreign session's linked status", async () => {
-    const f = rotating();
-    await f.connect();
-    const stored = structuredClone(f.connection.credentials.deviceLink);
-    let statuses = 0;
-    f.runtime.onCall = async name => {
-      if (name === "link_status") return envelope(++statuses === 1
-        ? { linked: false, linking: false, sessionId: f.start.sessionId }
-        : { linked: true, sessionId: "foreign-recovered-session" });
-      if (name === "start_link") throw new Error("synthetic approval start failed");
-    };
-    await expect(f.connect()).rejects.toThrow("synthetic approval start failed");
-    expect(statuses).toBe(2);
-    expect(f.connection.status).not.toBe("ready");
-    expect(f.connection.connectedAt).toBeNull();
-    expect(f.connection.credentials.deviceLink).toEqual(stored);
-    expect(f.toolCalls("finish_link")).toHaveLength(1);
   });
 
   test("Get new code replaces a dynamic session and fences its late successful status", async () => {

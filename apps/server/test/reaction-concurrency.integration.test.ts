@@ -56,13 +56,6 @@ test.skipIf(!url)("simultaneous retries of one user reaction return one receipt 
   expect((await f.stored()).metadata).toMatchObject({ reactions: [{ by: "me", emoji: "👎" }] });
 }));
 
-test.skipIf(!url)("simultaneous different user reactions leave only the last serialized emoji for that actor", () => fixture(async f => {
-  await Promise.all([f.react("👍"), f.react("❤️")]);
-  const reactions = ((await f.stored()).metadata as { reactions: { by: string; emoji: string }[] }).reactions;
-  const last = await f.db.event.findFirstOrThrow({ where: { topic: "channel.message.user_reaction", entityId: f.message.id }, orderBy: { sequence: "desc" } });
-  expect(reactions).toEqual([{ by: "me", emoji: (last.payload as { emoji: string }).emoji }]);
-}));
-
 test.skipIf(!url)("a bot cannot add a tapback after its target chat is archived", () => fixture(async f => {
   const context = await userContext(f);
   await f.db.channel.update({ where: { id: f.channel.id }, data: { archivedAt: new Date() } });

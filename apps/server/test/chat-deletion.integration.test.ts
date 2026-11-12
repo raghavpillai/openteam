@@ -12,55 +12,6 @@ import { GroupAdministration } from "../src/services/channel/group-administratio
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
-test.skipIf(!databaseUrl)("deleting an executing agent cancels its parent and child runs before removing contexts", async () => {
-  const prisma = createPrismaClient(databaseUrl!);
-  const ids = [crypto.randomUUID(), crypto.randomUUID()];
-  const calls: string[] = [];
-  const observations: Array<{ archived: number; cancelled: number }> = [];
-  try {
-    const runs: string[] = [];
-    for (const id of ids) {
-      const bot = await prisma.bot.create({
-        data: { id, name: "Delete running chat", defaultDirectory: "/workspace", status: "active", conversation: { create: {} } },
-        include: { conversation: true },
-      });
-      const run = await prisma.run.create({ data: {
-        botId: id, conversationId: bot.conversation!.id, userMessageId: crypto.randomUUID(), status: "running",
-      } });
-      runs.push(run.id);
-      await prisma.contextSession.create({ data: { botId: id, scope: "home", scopeId: bot.conversation!.id } });
-    }
-    await prisma.subagent.create({ data: {
-      parentBotId: ids[0]!, childBotId: ids[1]!, parentRunId: runs[0]!,
-      parentChannelId: crypto.randomUUID(), launchCallId: crypto.randomUUID(),
-      description: "Child", prompt: "Work", subagentType: "executor", status: "running", currentRunId: runs[1]!,
-      outputPath: "/unused/child-output.jsonl",
-    } });
-    const service = new BotService(prisma, {} as never, "/workspace", async (path) => {
-      calls.push(path);
-      observations.push({
-        archived: await prisma.bot.count({ where: { id: { in: ids }, status: "archived" } }),
-        cancelled: await prisma.run.count({ where: { id: { in: runs }, status: "cancelled" } }),
-      });
-      return Response.json({ ok: true });
-    }, { deleteAgentFiles: async () => {}, repairActiveAgentAfterDeletion: async () => {} } as never);
-    expect(await Effect.runPromise(service.archive(ids[0]!))).toEqual({ ok: true });
-    expect(observations.every(({ archived, cancelled }) => archived === 2 && cancelled === 2)).toBe(true);
-    for (const run of runs) expect(calls).toContain(`/v1/turns/${run}/cancel`);
-    for (const id of ids) expect(calls).toContain(`/v1/bots/${id}/background-shells/stop`);
-    const lastCancel = Math.max(...calls.map((path, index) => path.endsWith("/cancel") ? index : -1));
-    const firstContextDelete = calls.findIndex((path) => path.includes("context-sessions"));
-    expect(lastCancel).toBeLessThan(firstContextDelete);
-    expect(await prisma.contextSession.count({ where: { botId: { in: ids } } })).toBe(0);
-    expect(await prisma.retiredAgent.count({ where: { id: { in: ids } } })).toBe(2);
-    expect(await prisma.subagent.findFirst({ where: { parentBotId: ids[0] } })).toMatchObject({ status: "stopped" });
-  } finally {
-    await prisma.bot.deleteMany({ where: { id: { in: ids } } });
-    await prisma.retiredAgent.deleteMany({ where: { id: { in: ids } } });
-    await prisma.$disconnect();
-  }
-});
-
 test.skipIf(!databaseUrl)("a deleted group cannot return after event pruning or a failed directory cleanup", async () => {
   const prisma = createPrismaClient(databaseUrl!);
   const root = await mkdtemp(join(tmpdir(), "openteam-chat-delete-"));

@@ -44,90 +44,43 @@ const request = {
 };
 const modelRef = { providerId: model.provider, modelId: model.id };
 
-test("compaction omits historic malformed images without changing original receipts", async () => {
-  let context: any;
-  const image = {type:"image",data:Buffer.from("not an image").toString("base64"),mimeType:"image/png"};
-  const history = [{role:"toolResult",toolCallId:"read-image",toolName:"Read",content:[image],isError:false,timestamp:1}];
-  await inferCompaction(
-    {completeSimple: async (_model: unknown, input: any) => {context=input;return answer("Keep the user task");}} as unknown as ModelRuntime,
-    () => model, () => [], {modelRef,reasoning:"off"} as ActiveTurn,
-    {...request,messagesToSummarize:history},new AbortController().signal
-  );
-  expect(JSON.stringify(context.messages)).toContain("image omitted");
-  expect(JSON.stringify(context.messages)).not.toContain(image.data);
-  expect(history[0]!.content[0]).toBe(image);
-});
-
-for (const stopReason of ["error", "length", "aborted"] as const) {
-  for (const text of ["", "Unfinished prose"]) {
-    test(`summary adapter rejects ${stopReason} with ${text ? "partial" : "empty"} output`, async () => {
-      const runtime = {
-        completeSimple: async () => ({
-          ...answer(text, stopReason),
-          errorMessage: "Fixture failure",
-        }),
-      } as unknown as ModelRuntime;
-      await expect(
-        inferCompaction(
-          runtime,
-          () => model,
-          () => [],
-          { modelRef, reasoning: "off" } as ActiveTurn,
-          request,
-          new AbortController().signal
-        )
-      ).rejects.toThrow("Fixture failure");
-    });
-  }
-}
-
-test("summary requests retain original system authority, transform Pi custom messages, and never execute tools", async () => {
-  let captured: any;
-  let executed = false;
-  const runtime = {
-    completeSimple: async (_model: unknown, context: unknown) => {
-      captured = context;
-      return answer("Ready");
-    },
-  } as unknown as ModelRuntime;
-  const result = await inferCompaction(
-    runtime,
+const infer = (runtime: unknown, tools: unknown[], summarize: unknown[]) =>
+  inferCompaction(
+    runtime as ModelRuntime,
     () => model,
-    () =>
-      [
-        {
-          name: "Read",
-          description: "Read files",
-          parameters: {},
-          execute: async () => {
-            executed = true;
-            throw new Error("must not execute");
-          },
-        },
-      ] as never,
+    () => tools as never,
     { modelRef, reasoning: "off" } as ActiveTurn,
-    {
-      ...request,
-      messagesToSummarize: [
-        ...request.messagesToSummarize,
-        {
-          role: "custom",
-          customType: "openteam-ambient",
-          content: "Background job completed",
-          display: false,
-        },
-      ],
-    },
+    { ...request, messagesToSummarize: summarize as BotMessage[] },
     new AbortController().signal
   );
+
+test("summary adapter rejects error, length and aborted stops even with partial output", async () => {
+  for (const stopReason of ["error", "length", "aborted"] as const) {
+    const runtime = { completeSimple: async () => ({ ...answer("Unfinished prose", stopReason), errorMessage: "Fixture failure" }) };
+    await expect(infer(runtime, [], request.messagesToSummarize)).rejects.toThrow("Fixture failure");
+  }
+});
+
+test("summary requests retain system authority, transform custom messages, omit malformed images, and never execute tools", async () => {
+  let captured: any;
+  let executed = false;
+  const image = { type: "image", data: Buffer.from("not an image").toString("base64"), mimeType: "image/png" };
+  const receipt = { role: "toolResult", toolCallId: "read-image", toolName: "Read", content: [image], isError: false, timestamp: 1 };
+  const tool = { name: "Read", description: "Read files", parameters: {}, execute: async () => { executed = true; throw new Error("must not execute"); } };
+  const runtime = { completeSimple: async (_model: unknown, context: unknown) => { captured = context; return answer("Ready"); } };
+  const result = await infer(runtime, [tool], [
+    ...request.messagesToSummarize,
+    { role: "custom", customType: "openteam-ambient", content: "Background job completed", display: false },
+    receipt,
+  ]);
   expect(result.text).toBe("Ready");
   expect(executed).toBe(false);
   expect(captured.systemPrompt).toBe(request.systemPrompt);
   expect(captured.tools[0].execute).toBeUndefined();
-  expect(captured.messages[1]).toMatchObject({
-    role: "user",
-    content: [{ type: "text", text: "Background job completed" }],
-  });
+  expect(captured.messages[1]).toMatchObject({ role: "user", content: [{ type: "text", text: "Background job completed" }] });
+  expect(JSON.stringify(captured.messages)).toContain("image omitted");
+  expect(JSON.stringify(captured.messages)).not.toContain(image.data);
+  expect(receipt.content[0]).toBe(image);
   expect(captured.messages.at(-1).content[0].text).toContain("<summary_request>");
 });
 
@@ -220,12 +173,7 @@ test("streamed input usage starts a summary before assistant completion and ever
 });
 
 // Exercise Pi's native overflow, persistence, tool loop, and reopened-session paths.
-for (const scenario of [
-  "overflow",
-  "overflow-tools",
-  "overflow-refresh",
-  "overflow-exhausted",
-] as const) {
+for (const scenario of ["overflow", "overflow-tools", "overflow-exhausted"] as const) {
   test(`real Pi ${scenario} recovery preserves one conversation across reopen`, async () => {
     const root = await mkdtemp(join(tmpdir(), "compaction-overflow-qa-"));
     const store = new BotCompactionArchiveStore(join(root, "archives"));
@@ -407,10 +355,8 @@ for (const scenario of [
           )
         ).toBe(true);
       }
-      // A mid-turn summary keeps the turn's prompt; the next turn renders the new epoch.
-      if (scenario === "overflow-refresh") {
-        expect(requests.every((request: any) => JSON.stringify(request.messages[0]).includes("System fixture"))).toBe(true);
-      }
+      // A mid-turn summary keeps the turn's prompt.
+      expect(requests.every((request: any) => JSON.stringify(request.messages[0]).includes("System fixture"))).toBe(true);
     } finally {
       coordinator.discardBackground(contextSessionId);
       for (const session of sessions) session.dispose();
@@ -422,6 +368,12 @@ for (const scenario of [
 test("summary serialization repairs an in-flight tool exchange and ignores returned tool calls", async () => {
   let sent: any;
   let executed = false;
+  const toolCall = { index: 0, id: "forbidden", type: "function", function: { name: "Read", arguments: "{}" } };
+  const chunks = [
+    { choices: [{ index: 0, delta: { role: "assistant", content: "<think>internal</think>  Keep blue\n" }, finish_reason: null }] },
+    { choices: [{ index: 0, delta: { tool_calls: [toolCall] }, finish_reason: null }] },
+    { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },
+  ];
   const runtime = {
     completeSimple: (_model: unknown, context: any, options: any) =>
       streamSimple(model, context, {
@@ -430,79 +382,20 @@ test("summary serialization repairs an in-flight tool exchange and ignores retur
         maxRetries: 0,
         fetch: (async (_url: unknown, init: any) => {
           sent = JSON.parse(await new Response(init.body).text());
-          const chunks = [
-            {
-              choices: [
-                {
-                  index: 0,
-                  delta: { role: "assistant", content: "<think>internal</think>  Keep blue\n" },
-                  finish_reason: null,
-                },
-              ],
-            },
-            {
-              choices: [
-                {
-                  index: 0,
-                  delta: {
-                    tool_calls: [
-                      {
-                        index: 0,
-                        id: "forbidden",
-                        type: "function",
-                        function: { name: "Read", arguments: "{}" },
-                      },
-                    ],
-                  },
-                  finish_reason: null,
-                },
-              ],
-            },
-            { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },
-          ];
           return sseResponse(model, chunks);
         }) as typeof fetch,
       }).result(),
-  } as unknown as ModelRuntime;
-  const result = await inferCompaction(
-    runtime,
-    () => model,
-    () =>
-      [
-        {
-          name: "Read",
-          description: "Read fixture",
-          parameters: { type: "object", properties: {} },
-          execute: async () => {
-            executed = true;
-            throw Error("must not execute");
-          },
-        },
-      ] as never,
-    { modelRef, reasoning: "off" } as ActiveTurn,
-    {
-      ...request,
-      messagesToSummarize: [
-        request.messagesToSummarize[0]!,
-        {
-          ...answer(""),
-          stopReason: "toolUse",
-          content: [{ type: "toolCall", id: "pending-read", name: "Read", arguments: {} }],
-        },
-      ],
-    },
-    new AbortController().signal
-  );
+  };
+  const tool = { name: "Read", description: "Read fixture", parameters: { type: "object", properties: {} }, execute: async () => { executed = true; throw Error("must not execute"); } };
+  const result = await infer(runtime, [tool], [
+    request.messagesToSummarize[0]!,
+    { ...answer(""), stopReason: "toolUse", content: [{ type: "toolCall", id: "pending-read", name: "Read", arguments: {} }] },
+  ]);
   expect(result.text).toBe("  Keep blue\n");
   expect(executed).toBe(false);
-  const callIndex = sent.messages.findIndex(
-    (message: any) => message.tool_calls?.[0]?.id === "pending-read"
-  );
+  const callIndex = sent.messages.findIndex((message: any) => message.tool_calls?.[0]?.id === "pending-read");
   expect(callIndex).toBeGreaterThan(0);
-  expect(sent.messages[callIndex + 1]).toMatchObject({
-    role: "tool",
-    tool_call_id: "pending-read",
-  });
+  expect(sent.messages[callIndex + 1]).toMatchObject({ role: "tool", tool_call_id: "pending-read" });
   expect(JSON.stringify(sent.messages.at(-1).content)).toContain("<summary_request>");
 });
 

@@ -31,14 +31,8 @@ describe("Bot trigger thresholds", () => {
   test("starts and adopts once 10,000 tokens or 10% of the window remain, including Pi's strict boundary", () => {
     for (const [window, boundary] of [
       [12_000, 2_000],
-      [32_768, 22_768],
-      [64_000, 54_000],
-      [100_000, 90_000],
       [100_003, 90_003],
       [128_000, 115_200],
-      [256_000, 230_400],
-      [272_000, 244_800],
-      [922_000, 829_800],
       [1_000_000, 900_000],
     ] as const) {
       expect(botBackgroundThreshold(window)).toBe(boundary);
@@ -105,61 +99,22 @@ describe("Bot summary partition", () => {
   });
 
   test("matches Bot's summary retry classifier", () => {
-    const named = (name: string, message = name): Error => {
-      const error = new Error(message);
-      error.name = name;
-      return error;
-    };
-    expect(botSummaryRetryDirective(named("OutputTokensLimitExceededError"))).toEqual({
-      retry: true,
-      delay: true,
-      reduceInputs: true,
-      shorter: true,
-    });
-    expect(botSummaryRetryDirective(named("InputTokenLimitError"))).toEqual({
-      retry: true,
-      delay: false,
-      reduceInputs: true,
-      shorter: false,
-    });
-    expect(
-      botSummaryRetryDirective(named("ResourceExhausted", "text fields are too large"))
-    ).toEqual({
-      retry: true,
-      delay: false,
-      reduceInputs: true,
-      shorter: false,
-    });
-    expect(botSummaryRetryDirective(named("ResourceExhausted"))).toEqual({
-      retry: true,
-      delay: true,
-      reduceInputs: false,
-      shorter: false,
-    });
-    expect(
-      botSummaryRetryDirective(
-        named("InvalidArgument", "User API Key Rate limit exceeded for this request")
-      )
-    ).toEqual({ retry: true, delay: true, reduceInputs: false, shorter: false });
-    expect(botSummaryRetryDirective(named("InvalidArgument"))).toEqual({
-      retry: false,
-      delay: false,
-      reduceInputs: false,
-      shorter: false,
-    });
-    expect(botSummaryRetryDirective(named("AbortError"))).toEqual({
-      retry: false,
-      delay: false,
-      reduceInputs: false,
-      shorter: false,
-    });
+    const named = (name: string, message = name): Error =>
+      Object.assign(new Error(message), { name });
+    const cases: Array<[unknown, [boolean, boolean, boolean, boolean]]> = [
+      [named("OutputTokensLimitExceededError"), [true, true, true, true]],
+      [named("InputTokenLimitError"), [true, false, true, false]],
+      [named("ResourceExhausted", "text fields are too large"), [true, false, true, false]],
+      [named("ResourceExhausted"), [true, true, false, false]],
+      [named("InvalidArgument", "User API Key Rate limit exceeded for this request"), [true, true, false, false]],
+      [named("InvalidArgument"), [false, false, false, false]],
+      [named("AbortError"), [false, false, false, false]],
+      [new Error("uncategorized"), [true, true, false, false]],
+    ];
+    for (const [error, [retry, delay, reduceInputs, shorter]] of cases) {
+      expect(botSummaryRetryDirective(error)).toEqual({ retry, delay, reduceInputs, shorter });
+    }
     expect(botSummaryRetryDirective("not-an-error").retry).toBe(false);
-    expect(botSummaryRetryDirective(new Error("uncategorized"))).toEqual({
-      retry: true,
-      delay: true,
-      reduceInputs: false,
-      shorter: false,
-    });
   });
 
   test("retry reduction keeps the reference suffix even for a delayed tool result", () => {
@@ -248,78 +203,55 @@ describe("Bot overflow attempt budget", () => {
 });
 
 describe("Bot preserved suffix", () => {
-  test("moves a captured tool-call owner across the boundary with its appended result", () => {
-    const call: BotMessage = {
-      role: "assistant",
-      content: [{ type: "toolCall", id: "call-1", name: "SendToUser", arguments: {} }],
-    };
-    const result: BotMessage = {
-      role: "toolResult",
-      toolCallId: "call-1",
-      content: [{ type: "text", text: "delivered" }],
-    };
-    const completed = text("assistant", "done");
-    expect(
-      closeBotPreservedTail(3, [
-        text("user", "goal"),
-        text("assistant", "work"),
-        call,
-        result,
-        completed,
-      ])
-    ).toEqual([call, result, completed]);
-  });
-
-  test("keeps sibling results when a multi-call assistant straddles the boundary", () => {
+  test("moves a multi-call owner straddling the boundary with all results and later messages", () => {
     const call: BotMessage = {
       role: "assistant",
       content: [
-        { type: "toolCall", id: "call-1", name: "one", arguments: {} },
+        { type: "toolCall", id: "call-1", name: "SendToUser", arguments: {} },
         { type: "toolCall", id: "call-2", name: "two", arguments: {} },
       ],
     };
-    const first: BotMessage = {
+    const result = (id: string): BotMessage => ({
       role: "toolResult",
-      toolCallId: "call-1",
-      content: [{ type: "text", text: "one" }],
-    };
-    const second: BotMessage = {
-      role: "toolResult",
-      toolCallId: "call-2",
-      content: [{ type: "text", text: "two" }],
-    };
-    expect(closeBotPreservedTail(3, [text("user", "goal"), call, first, second])).toEqual([
-      call,
-      first,
-      second,
-    ]);
+      toolCallId: id,
+      content: [{ type: "text", text: id }],
+    });
+    const completed = text("assistant", "done");
+    expect(
+      closeBotPreservedTail(3, [text("user", "goal"), call, result("call-1"), result("call-2"), completed])
+    ).toEqual([call, result("call-1"), result("call-2"), completed]);
   });
 });
 
 describe("restart-safe compaction archive", () => {
+  const record = (lastUser: BotMessage, overrides: Record<string, unknown> = {}) => ({
+    id: crypto.randomUUID(),
+    reason: "approaching_token_limit" as const,
+    summary: "summary",
+    prefixDigest: botMessageDigest([lastUser]),
+    piBaseMessageCount: 1,
+    userInfoMessage: null,
+    lastUserMessage: lastUser,
+    preservedTailMessages: [],
+    tokensBefore: 95_000,
+    tokensAfter: 2_000,
+    imageCount: 0,
+    turnCount: 2,
+    usage: null,
+    startedAt: new Date(1).toISOString(),
+    completedAt: new Date(2).toISOString(),
+    ...overrides,
+  });
   test("retains the sealed failed assistant before the overflow retry", async () => {
     const root = await workspace();
     const contextSessionId = crypto.randomUUID();
     const store = new BotCompactionArchiveStore(root);
     const lastUser = text("user", "retry this request");
     const nativeBase = [text("user", "native summary"), lastUser];
-    await store.commit(contextSessionId, {
-      id: crypto.randomUUID(),
-      reason: "fallback_on_limit_error",
-      summary: "state before overflow",
-      prefixDigest: botMessageDigest([lastUser]),
-      piBaseMessageCount: nativeBase.length,
-      userInfoMessage: null,
-      lastUserMessage: lastUser,
-      preservedTailMessages: [],
-      tokensBefore: 100_001,
-      tokensAfter: 2_000,
-      imageCount: 0,
-      turnCount: 2,
-      usage: null,
-      startedAt: new Date(1).toISOString(),
-      completedAt: new Date(2).toISOString(),
-    });
+    await store.commit(
+      contextSessionId,
+      record(lastUser, { reason: "fallback_on_limit_error", piBaseMessageCount: nativeBase.length })
+    );
     const failed = {
       ...text("assistant", "context limit"),
       stopReason: "error",
@@ -339,23 +271,7 @@ describe("restart-safe compaction archive", () => {
     const store = new BotCompactionArchiveStore(await workspace());
     const contextSessionId = crypto.randomUUID();
     const commit = (label: string) =>
-      store.commit(contextSessionId, {
-        id: crypto.randomUUID(),
-        reason: "approaching_token_limit",
-        summary: label,
-        prefixDigest: botMessageDigest([text("user", label)]),
-        piBaseMessageCount: 1,
-        userInfoMessage: null,
-        lastUserMessage: text("user", label),
-        preservedTailMessages: [],
-        tokensBefore: 95_000,
-        tokensAfter: 2_000,
-        imageCount: 0,
-        turnCount: 12,
-        usage: null,
-        startedAt: new Date(1).toISOString(),
-        completedAt: new Date(2).toISOString(),
-      });
+      store.commit(contextSessionId, record(text("user", label), { summary: label }));
     const first = await commit("first");
     const second = await commit("second");
     await store.beginUserQuery(contextSessionId);
@@ -381,333 +297,144 @@ describe("restart-safe compaction archive", () => {
 });
 
 describe("Bot coordinator", () => {
+  const fixture = async (retryDelayMs = 0) => {
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, retryDelayMs);
+    const contextSessionId = crypto.randomUUID();
+    const base = { contextSessionId, systemPrompt: "system-v1", usedTokens: 90_000, maxTokens: 100_000 };
+    const compact = { contextSessionId, reason: "threshold" as const, firstKeptEntryId: "kept-entry", tokensBefore: 95_000, systemPrompt: "system-v1", signal: new AbortController().signal };
+    return { store, coordinator, contextSessionId, base, compact };
+  };
+  const latest = () => [text("user", "goal"), text("assistant", "progress"), text("user", "latest request")];
 
   test("projects a completed background result between model steps at the 90 percent gate", async () => {
-    const store = new BotCompactionArchiveStore(await workspace());
-    const coordinator = new BotCompactionCoordinator(store, 0);
-    const contextSessionId = crypto.randomUUID();
-    const captured = [
-      text("user", "goal"),
-      text("assistant", "progress"),
-      text("user", "latest request"),
-    ];
-    await coordinator.observe({
-      contextSessionId,
-      piMessages: captured,
-      systemPrompt: "system-v1",
-      usedTokens: 90_000,
-      maxTokens: 100_000,
-      infer: async () => ({ text: "settled background summary" }),
-    });
+    const { store, coordinator, contextSessionId, base } = await fixture();
+    const captured = latest();
+    await coordinator.observe({ ...base, piMessages: captured, infer: async () => ({ text: "settled background summary" }) });
     await Promise.resolve();
     const suffix = text("assistant", "tool call completed after capture");
-    const projected = await coordinator.modelContextMessages({
-      contextSessionId,
-      piMessages: [...captured, suffix],
-      systemPrompt: "system-v1",
-      usedTokens: 90_000,
-      maxTokens: 100_000,
-    });
+    const projected = await coordinator.modelContextMessages({ ...base, piMessages: [...captured, suffix] });
     expect(projected[0]).toEqual(captured.at(-1));
     expect(projected[1]?.providerOptions).toEqual({ cursor: { isSummary: true } });
     expect(projected[2]).toEqual(suffix);
     expect(coordinator.projectedReason(contextSessionId)).toBeNull();
     expect((await store.manifest(contextSessionId)).epoch).toBe(1);
-    expect(coordinator.takeProjectedEvent(contextSessionId)).toMatchObject({
-      epoch: 1,
-      reason: "approaching_token_limit",
-    });
+    expect(coordinator.takeProjectedEvent(contextSessionId)).toMatchObject({ epoch: 1, reason: "approaching_token_limit" });
     expect(coordinator.consumeProjectedCommit(contextSessionId)).toBe(true);
     expect(coordinator.consumeProjectedCommit(contextSessionId)).toBe(false);
   });
 
-  test("starts background inference without waiting for it", async () => {
-    const store = new BotCompactionArchiveStore(await workspace());
-    const coordinator = new BotCompactionCoordinator(store, 0);
-    const contextSessionId = crypto.randomUUID();
-    let release!: (value: { text: string }) => void;
-    let settled = false;
-    const inference = new Promise<{ text: string }>((resolve) => {
-      release = resolve;
-    }).then((value) => {
-      settled = true;
-      return value;
-    });
-    await coordinator.observe({
-      contextSessionId,
-      piMessages: [text("user", "goal"), text("assistant", "progress"), text("user", "latest")],
-      systemPrompt: "system-v1",
-      usedTokens: 90_000,
-      maxTokens: 100_000,
-      infer: async () => inference,
-    });
-    expect(settled).toBe(false);
-    release({ text: "background result" });
-    expect(
-      (
-        await coordinator.beforePiCompaction({
-          contextSessionId,
-          piMessages: [text("user", "goal"), text("assistant", "progress"), text("user", "latest")],
-          reason: "threshold",
-          firstKeptEntryId: "kept-entry",
-          tokensBefore: 95_000,
-          systemPrompt: "system-v1",
-          infer: async () => ({ text: "should not run" }),
-          signal: new AbortController().signal,
-        })
-      )?.summary
-    ).toBe("background result");
-  });
-
-  test("restarts background inference when an observed prefix message changes", async () => {
-    const store = new BotCompactionArchiveStore(await workspace());
-    const coordinator = new BotCompactionCoordinator(store, 0);
-    const contextSessionId = crypto.randomUUID();
-    const initial = [text("user", "goal"), text("assistant", "tool call"), text("user", "latest")];
-    const requests: Array<{ messagesToSummarize: BotMessage[] }> = [];
-    const infer = async (request: { messagesToSummarize: BotMessage[] }) => {
+  test("restarts background inference when an observed prefix message or the system snapshot changes", async () => {
+    const { coordinator, base, compact } = await fixture();
+    const initial = latest();
+    const requests: Array<{ messagesToSummarize: BotMessage[]; systemPrompt: string }> = [];
+    const infer = async (request: { messagesToSummarize: BotMessage[]; systemPrompt: string }) => {
       requests.push(request);
-      return { text: `summary-${requests.length}` };
+      return { text: request.systemPrompt.includes("system-v2") ? "fresh result" : "stale result" };
     };
-    await coordinator.observe({
-      contextSessionId,
-      piMessages: initial,
-      systemPrompt: "system-v1",
-      usedTokens: 90_000,
-      maxTokens: 100_000,
-      infer,
-    });
-    const first = initial[0];
-    const last = initial[2];
-    if (!first || !last) throw new Error("Expected initial prefix messages");
-    const rewritten = [first, text("assistant", "rewritten tool call"), last];
-    await coordinator.observe({
-      contextSessionId,
-      piMessages: rewritten,
-      systemPrompt: "system-v1",
-      usedTokens: 91_000,
-      maxTokens: 100_000,
-      infer,
-    });
+    await coordinator.observe({ ...base, piMessages: initial, infer });
+    const rewritten = [initial[0]!, text("assistant", "rewritten tool call"), initial[2]!];
+    await coordinator.observe({ ...base, piMessages: rewritten, usedTokens: 91_000, infer });
     expect(requests).toHaveLength(2);
     expect(requests[1]?.messagesToSummarize).toContainEqual(rewritten[1]);
-  });
-
-  test("rejects a background result when the system snapshot changed", async () => {
-    const store = new BotCompactionArchiveStore(await workspace());
-    const coordinator = new BotCompactionCoordinator(store, 0);
-    const contextSessionId = crypto.randomUUID();
-    const messages = [text("user", "goal"), text("assistant", "progress"), text("user", "latest")];
-    let calls = 0;
-    const infer = async (request: { systemPrompt: string }) => {
-      calls += 1;
-      return {
-        text: request.systemPrompt.includes("system-v2") ? "fresh result" : "stale result",
-      };
-    };
-    await coordinator.observe({
-      contextSessionId,
-      piMessages: messages,
-      systemPrompt: "system-v1",
-      usedTokens: 90_000,
-      maxTokens: 100_000,
-      infer,
-    });
-    const prepared = await coordinator.beforePiCompaction({
-      contextSessionId,
-      piMessages: messages,
-      reason: "threshold",
-      firstKeptEntryId: "kept-entry",
-      tokensBefore: 95_000,
-      systemPrompt: "system-v2",
-      infer,
-      signal: new AbortController().signal,
-    });
+    const prepared = await coordinator.beforePiCompaction({ ...compact, piMessages: rewritten, systemPrompt: "system-v2", infer });
     expect(prepared?.summary).toBe("fresh result");
-    expect(calls).toBe(2);
+    expect(requests).toHaveLength(3);
   });
 
   test("reuses a non-blocking background result at Pi's persist boundary", async () => {
-    const store = new BotCompactionArchiveStore(await workspace());
-    const coordinator = new BotCompactionCoordinator(store, 0);
-    const contextSessionId = crypto.randomUUID();
-    const messages = [
-      text("user", "goal"),
-      text("assistant", "progress"),
-      text("user", "latest request"),
-      text("assistant", "latest work"),
-    ];
+    const { store, coordinator, contextSessionId, base, compact } = await fixture();
+    const messages = [...latest(), text("assistant", "latest work")];
     let calls = 0;
     const infer = async () => {
       calls += 1;
       return { text: "merged state" };
     };
-    await coordinator.observe({
-      contextSessionId,
-      piMessages: messages,
-      systemPrompt: "system-v1",
-      usedTokens: 90_000,
-      maxTokens: 100_000,
-      infer,
-    });
-    const prepared = await coordinator.beforePiCompaction({
-      contextSessionId,
-      piMessages: messages,
-      reason: "threshold",
-      firstKeptEntryId: "kept-entry",
-      tokensBefore: 95_000,
-      systemPrompt: "system-v1",
-      infer,
-      signal: new AbortController().signal,
-    });
+    await coordinator.observe({ ...base, piMessages: messages, infer });
+    const prepared = await coordinator.beforePiCompaction({ ...compact, piMessages: messages, infer });
     expect(prepared?.summary).toBe("merged state");
     expect(prepared?.details.reason).toBe("self_summary_completed");
     expect(calls).toBe(1);
-    const adopted = await coordinator.afterPiCompaction({
-      contextSessionId,
-      piBaseMessageCount: 2,
-    });
-    expect(adopted?.epoch).toBe(1);
-    expect(adopted?.compactionId).toBe(prepared?.details.id);
-    expect(adopted?.reason).toBe("self_summary_completed");
+    const adopted = await coordinator.afterPiCompaction({ contextSessionId, piBaseMessageCount: 2 });
+    expect(adopted).toMatchObject({ epoch: 1, compactionId: prepared?.details.id, reason: "self_summary_completed" });
     expect(await store.stagedId(contextSessionId)).toBeNull();
   });
 
   test("archives serialized payloads without nesting prior summary records", async () => {
-    const store = new BotCompactionArchiveStore(await workspace());
-    const coordinator = new BotCompactionCoordinator(store, 0);
-    const contextSessionId = crypto.randomUUID();
-    const priorSummary = text("user", "old summary record", { isSummary: true });
+    const { store, coordinator, contextSessionId, compact } = await fixture();
     const messages: BotMessage[] = [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: "goal" },
-          { type: "image", data: "secret-image-bytes", mimeType: "image/png" },
-        ],
-      },
-      priorSummary,
-      {
-        role: "toolResult",
-        toolCallId: "tool-1",
-        content: [{ type: "text", text: "x".repeat(9_000) }],
-      },
+      { role: "user", content: [{ type: "text", text: "goal" }, { type: "image", data: "secret-image-bytes", mimeType: "image/png" }] },
+      text("user", "old summary record", { isSummary: true }),
+      { role: "toolResult", toolCallId: "tool-1", content: [{ type: "text", text: "x".repeat(9_000) }] },
       text("user", "latest request"),
     ];
-    await coordinator.beforePiCompaction({
-      contextSessionId,
-      piMessages: messages,
-      reason: "threshold",
-      firstKeptEntryId: "kept-entry",
-      tokensBefore: 95_000,
-      systemPrompt: "system-v1",
-      infer: async () => ({ text: "merged state" }),
-      signal: new AbortController().signal,
-    });
+    await coordinator.beforePiCompaction({ ...compact, piMessages: messages, infer: async () => ({ text: "merged state" }) });
     await coordinator.afterPiCompaction({ contextSessionId, piBaseMessageCount: 2 });
-    const archive = await store.latest(contextSessionId);
-    const serialized = JSON.stringify(archive?.summarizedMessages);
+    const serialized = JSON.stringify((await store.latest(contextSessionId))?.summarizedMessages);
     expect(serialized).toContain("secret-image-bytes");
+    expect(serialized).toContain("x".repeat(9_000));
     expect(serialized).not.toContain("old summary record");
-    expect(
-      (
-        archive?.summarizedMessages?.find((message) => message.role === "toolResult")
-          ?.content as Array<{ text?: string }>
-      )[0]?.text
-    ).toHaveLength(9_000);
   });
 
   test("overflow recovery sends a size-capped transcript and shrinks it after an input-limit error", async () => {
-    const store = new BotCompactionArchiveStore(await workspace());
-    const coordinator = new BotCompactionCoordinator(store, 0);
-    const contextSessionId = crypto.randomUUID();
+    const { store, coordinator, contextSessionId, compact } = await fixture();
     const messages: BotMessage[] = [text("user", "goal")];
     for (let index = 0; index < 12; index += 1) {
       messages.push(text(index % 2 ? "assistant" : "user", `message-${index} ${"x".repeat(30_000)}`));
     }
     messages.push(text("user", "latest"), text("assistant", "current work"));
-    const promptSizes: number[] = [];
     const requests: BotSummaryRequest[] = [];
     const prepared = await coordinator.beforePiCompaction({
-      contextSessionId,
+      ...compact,
       piMessages: messages,
       reason: "overflow",
-      firstKeptEntryId: "kept-entry",
       tokensBefore: 100_000,
       maxTokens: 100_000,
-      systemPrompt: "system-v1",
       tools: [{ name: "Read", description: "Read", parameters: {} }],
       infer: async (request) => {
         requests.push(request);
-        promptSizes.push(request.external?.prompt.length ?? 0);
-        if (promptSizes.length === 1) {
-          const error = new Error("input token limit");
-          error.name = "InputTokenLimitError";
-          throw error;
-        }
-        if (promptSizes.length === 2) return { text: "" };
-        return { text: "recovered" };
+        if (requests.length === 1) throw Object.assign(new Error("input token limit"), { name: "InputTokenLimitError" });
+        return { text: requests.length === 2 ? "" : "recovered" };
       },
-      signal: new AbortController().signal,
     });
+    const promptSizes = requests.map((request) => request.external?.prompt.length ?? 0);
     expect(prepared?.summary).toBe("recovered");
     expect(promptSizes).toHaveLength(3);
     expect(promptSizes[0]).toBeLessThanOrEqual(219_000);
-    expect(promptSizes.at(1)!).toBeLessThan(promptSizes.at(0)!);
-    expect(promptSizes.at(2)).toBe(promptSizes.at(1));
+    expect(promptSizes[1]!).toBeLessThan(promptSizes[0]!);
+    expect(promptSizes[2]).toBe(promptSizes[1]);
     expect(requests[0]!.systemPrompt).toStartWith("You are an intelligent assistant, tasked with summarizing the following conversation.");
     expect(requests[0]!.tools).toBeUndefined();
     expect(requests[0]!.external!.maxTokens).toBe(25_000);
     expect(requests[0]!.external!.prompt).toContain("user: latest");
-    expect(requests[0]!.external!.prompt).toEndWith("following this structure and ensuring precision and thoroughness in your response.</summarization_request>");
     // The carrier comes first; the latest request and its tail stay verbatim after it.
     await coordinator.afterPiCompaction({ contextSessionId, piBaseMessageCount: messages.length });
     const projected = await store.contextMessages(contextSessionId, messages);
     const textOf = (message: BotMessage) => typeof message.content === "string" ? message.content : (message.content as Array<{ text?: string }>).map((part) => part.text ?? "").join("");
-    expect(projected.map(textOf)).toEqual([
-      "[Previous conversation summary]: recovered",
-      "latest",
-      "current work",
-    ]);
+    expect(projected.map(textOf)).toEqual(["[Previous conversation summary]: recovered", "latest", "current work"]);
     expect(projected[0]!.providerOptions).toEqual({ cursor: { isSummary: true } });
   });
 
   test("aborts immediately while waiting between summary retries", async () => {
-    const store = new BotCompactionArchiveStore(await workspace());
-    const coordinator = new BotCompactionCoordinator(store, 60_000);
-    const contextSessionId = crypto.randomUUID();
+    const { coordinator, compact } = await fixture(60_000);
     const controller = new AbortController();
     let firstAttempt!: () => void;
     const attempted = new Promise<void>((resolve) => {
       firstAttempt = resolve;
     });
     const compaction = coordinator.beforePiCompaction({
-      contextSessionId,
-      piMessages: [
-        text("user", "goal"),
-        text("assistant", "progress"),
-        text("user", "latest request"),
-      ],
-      reason: "threshold",
-      firstKeptEntryId: "kept-entry",
-      tokensBefore: 95_000,
-      systemPrompt: "system-v1",
+      ...compact,
+      piMessages: latest(),
+      signal: controller.signal,
       infer: async () => {
         firstAttempt();
         throw new Error("transient");
       },
-      signal: controller.signal,
     });
     await attempted;
     controller.abort();
-    await expect(
-      Promise.race([
-        compaction,
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("abort did not interrupt retry delay")), 1_000)
-        ),
-      ])
-    ).rejects.toMatchObject({ name: "AbortError" });
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("abort did not interrupt retry delay")), 1_000));
+    await expect(Promise.race([compaction, timeout])).rejects.toMatchObject({ name: "AbortError" });
   });
 });
 

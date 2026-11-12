@@ -24,24 +24,12 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 const model: any = offlineModel("recovery-fixture", { maxTokens: 1000 });
-const usage = {
-  input: 10,
-  output: 1,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 11,
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+const usage = { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 11, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+const answer = (text: string): any => ({ role: "assistant", content: [{ type: "text", text }], api: model.api, provider: model.provider, model: model.id, stopReason: "stop", timestamp: 1, usage });
+const appendSend = (manager: SessionManager, id: string, receipt: string, args: Record<string, unknown> = {}) => {
+  manager.appendMessage({ ...answer(""), stopReason: "toolUse", content: [{ type: "toolCall", id, name: "SendToUser", arguments: args }] });
+  manager.appendMessage({ role: "toolResult", toolCallId: id, toolName: "SendToUser", content: [{ type: "text", text: receipt }], isError: false, timestamp: 2 });
 };
-const answer = (text: string): any => ({
-  role: "assistant",
-  content: [{ type: "text", text }],
-  api: model.api,
-  provider: model.provider,
-  model: model.id,
-  stopReason: "stop",
-  timestamp: 1,
-  usage,
-});
 const archiveInput = (id: string, count: number): BotArchiveCommitInput => ({
   id,
   reason: "self_summary_completed",
@@ -97,21 +85,7 @@ async function fixture(kind: "owned" | "projected" | "anchored" = "owned", grow 
     inputTokens: 100,
     source: "provider",
   });
-  manager.appendMessage({
-    ...answer(""),
-    stopReason: "toolUse",
-    content: [
-      { type: "toolCall", id: "sent-once", name: "SendToUser", arguments: { text: "Delivered" } },
-    ],
-  });
-  manager.appendMessage({
-    role: "toolResult",
-    toolCallId: "sent-once",
-    toolName: "SendToUser",
-    content: [{ type: "text", text: "SEND_RECEIPT_791" }],
-    isError: false,
-    timestamp: 2,
-  });
+  appendSend(manager, "sent-once", "SEND_RECEIPT_791", { text: "Delivered" });
   manager.appendCustomMessageEntry("fixture-notice", "CUSTOM_AFTER_ARCHIVE_792", false);
   const later: string[] = [];
   for (let i = 0; i < 800; i++)
@@ -159,26 +133,12 @@ async function localRuntime(f: Awaited<ReturnType<typeof fixture>>, deliver = fa
     requests.push(JSON.parse(await new Response(init.body).text()));
     const send = deliver && providerCalls === 1;
     const delta = send
-      ? {
-          role: "assistant",
-          tool_calls: [
-            {
-              index: 0,
-              id: "fresh-send",
-              type: "function",
-              function: { name: "SendToUser", arguments: "{}" },
-            },
-          ],
-        }
+      ? { role: "assistant", tool_calls: [{ index: 0, id: "fresh-send", type: "function", function: { name: "SendToUser", arguments: "{}" } }] }
       : { role: "assistant", content: "Continue from the persisted receipt" };
-    const rows = [
+    return sseResponse(model, [
       { choices: [{ index: 0, delta, finish_reason: null }] },
-      {
-        choices: [{ index: 0, delta: {}, finish_reason: send ? "tool_calls" : "stop" }],
-        usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
-      },
-    ];
-    return sseResponse(model, rows);
+      { choices: [{ index: 0, delta: {}, finish_reason: send ? "tool_calls" : "stop" }], usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 } },
+    ]);
   });
   provider.completeSimple = async () => {
     summaryCalls++;
@@ -207,25 +167,11 @@ async function localRuntime(f: Awaited<ReturnType<typeof fixture>>, deliver = fa
     userForms: { beginTurn: async () => {}, endTurn: async () => {} },
   };
   const active: any = {
-    runId: crypto.randomUUID(),
-    turnId: crypto.randomUUID(),
-    botId: "fixture",
-    contextSessionId: f.id,
-    modelRef: { providerId: model.provider, modelId: model.id },
-    reasoning: "off",
-    instructions: "Synthetic system",
-    userInfoMessage: null,
-    cwd: f.root,
-    runtimeProfile: "agent",
-    subagentType: null,
-    requestSource: "agent",
-    resetSelfSummaryCount: true,
-    sentMessageCount: 0,
-    assistantOrdinal: 0,
-    startedItems: new Set(),
-    toolArgs: new Map(),
-    attachmentTempDirectories: [],
-    queue: { push: (event: any) => events.push(event), end() {} },
+    runId: crypto.randomUUID(), turnId: crypto.randomUUID(), botId: "fixture", contextSessionId: f.id,
+    modelRef: { providerId: model.provider, modelId: model.id }, reasoning: "off", instructions: "Synthetic system",
+    userInfoMessage: null, cwd: f.root, runtimeProfile: "agent", subagentType: null, requestSource: "agent",
+    resetSelfSummaryCount: true, sentMessageCount: 0, assistantOrdinal: 0, startedItems: new Set(), toolArgs: new Map(),
+    attachmentTempDirectories: [], queue: { push: (event: any) => events.push(event), end() {} },
   };
   const session = await runtime.createStandaloneSession(
     f.root,
@@ -345,19 +291,7 @@ test("staged restart adopts at the matching compaction, preserving later tool re
     { openteamBotCompaction: true, id: staged },
     true
   );
-  manager.appendMessage({
-    ...answer(""),
-    stopReason: "toolUse",
-    content: [{ type: "toolCall", id: "later-send", name: "SendToUser", arguments: {} }],
-  });
-  manager.appendMessage({
-    role: "toolResult",
-    toolCallId: "later-send",
-    toolName: "SendToUser",
-    content: [{ type: "text", text: "LATER_RECEIPT" }],
-    isError: false,
-    timestamp: 5,
-  });
+  appendSend(manager, "later-send", "LATER_RECEIPT");
   const reopened = f.open();
   await recoverStagedPiCompaction(f.coordinator, reopened, f.id);
   expect((await f.store.latest(f.id))?.piBaseMessageCount).toBe(2);

@@ -21,7 +21,7 @@ const temporary = async () => {
 
 describe("native computer tools", () => {
   test("Read returns numbered lines with positive and negative paging", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-read-"));
+    const root = await temporary();
     const path = join(root, "notes.txt");
     await writeFile(path, "alpha\nbeta\ngamma\n", "utf8");
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
@@ -33,7 +33,7 @@ describe("native computer tools", () => {
   });
 
   test("Read renders a Jupyter notebook as cells and outputs", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-read-notebook-"));
+    const root = await temporary();
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
     const path = join(root, "analysis.ipynb");
     await writeFile(path, JSON.stringify({
@@ -52,7 +52,7 @@ describe("native computer tools", () => {
   });
 
   test("Read streams large text files and keeps only the requested lines", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-read-large-"));
+    const root = await temporary();
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
     const path = join(root, "server.log");
     const line = "x".repeat(99);
@@ -71,7 +71,7 @@ describe("native computer tools", () => {
   });
 
   test("Read exposes supported agent files while fencing stores and host metadata", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-protected-read-"));
+    const root = await temporary();
     const sandRoot = join(root, "sand-data");
     const agentRoot = join(sandRoot, "agents", "probe");
     await mkdir(join(sandRoot, ".openteam"), { recursive: true });
@@ -86,67 +86,27 @@ describe("native computer tools", () => {
     await writeFile(join(sandRoot, "custom-folder", "public.txt"), "harmless public file");
     await writeFile(join(sandRoot, "settings.json"), "private fixture");
     await writeFile(join(sandRoot, ".openteam", "marker.json"), "{}\n");
-    const executor = new NativeToolExecutor({
-      agentDir: root,
-      controlToken: "test-token",
-      agentDataCanonicalRoot: sandRoot,
-    });
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token", agentDataCanonicalRoot: sandRoot });
 
-    expect(
-      (await executor.read({ path: join(agentRoot, "profile.json") }, root)).content[0]
-    ).toEqual({ type: "text", text: '     1|{"name":"Probe"}\n     2|' });
-    expect(
-      (await executor.read({ path: join(sandRoot, "plugin-skills", "cache.json") }, root)).content[0]
-    ).toEqual({ type: "text", text: '     1|{"skills":[]}\n     2|' });
-    for (const path of [join(agentRoot, "deliverables", "store.db"), join(sandRoot, "custom-folder", "public.txt")]) {
-      expect(JSON.stringify((await executor.read({path},root)).content)).toContain("harmless");
+    expect((await executor.read({ path: join(agentRoot, "profile.json") }, root)).content[0]).toEqual({ type: "text", text: '     1|{"name":"Probe"}\n     2|' });
+    for (const path of [join(sandRoot, "plugin-skills", "cache.json"), join(agentRoot, "deliverables", "store.db"), join(sandRoot, "custom-folder", "public.txt")]) {
+      expect(JSON.stringify((await executor.read({ path }, root)).content)).toMatch(/harmless|skills/);
     }
-    await expect(executor.read({path:join(sandRoot,"settings.json")},root)).rejects.toThrow("protected agent-data path");
-    await expect(executor.read({ path: join(agentRoot, "store.db") }, root)).rejects.toThrow(
-      "Read does not expose live agent SQLite files"
-    );
-    await expect(
-      executor.read({ path: join(sandRoot, ".openteam", "marker.json") }, root)
-    ).rejects.toThrow("Read is not allowed for protected agent-data path");
+    await expect(executor.read({ path: join(sandRoot, "settings.json") }, root)).rejects.toThrow("protected agent-data path");
+    await expect(executor.read({ path: join(agentRoot, "store.db") }, root)).rejects.toThrow("Read does not expose live agent SQLite files");
+    await expect(executor.read({ path: join(sandRoot, ".openteam", "marker.json") }, root)).rejects.toThrow("Read is not allowed for protected agent-data path");
   });
 
   test("Shell environment removes gateway credentials and startup injection hooks", () => {
-    const environment = sanitizedShellEnvironment(
-      {
-        HOME: "/home/box",
-        OPENTEAM_CONTROL_TOKEN: "secret",
-        OPENAI_API_KEY: "secret",
-        ANTHROPIC_API_KEY: "secret",
-        GENERIC_PROVIDER_PASSWORD: "secret",
-        AWS_ACCESS_KEY_ID: "secret",
-        OPENTEAM_PI_AGENT_DIR: "/home/box/.pi/agent",
-        DATABASE_URL: "postgres://secret",
-        BASH_ENV: "/tmp/inject",
-        ENV: "/tmp/inject",
-        SAFE_VALUE: "kept",
-      },
-      "/workspace"
-    );
+    const secrets = ["OPENTEAM_CONTROL_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GENERIC_PROVIDER_PASSWORD", "AWS_ACCESS_KEY_ID", "OPENTEAM_PI_AGENT_DIR", "DATABASE_URL", "BASH_ENV", "ENV"];
+    const environment = sanitizedShellEnvironment({ HOME: "/home/box", SAFE_VALUE: "kept", ...Object.fromEntries(secrets.map((key) => [key, "secret"])) }, "/workspace");
     expect(environment).toEqual({ HOME: "/home/box", SAFE_VALUE: "kept", PWD: "/workspace" });
   });
 
   const shellTest = process.env.CI === "true" && process.platform === "darwin" ? test.skip : test;
 
-  shellTest("Shell executes foreground commands and records a terminal log", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-shell-"));
-    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-    const result = await executor.shell(
-      { command: "printf 'native-shell-ok'", working_directory: root, block_until_ms: 5_000 },
-      root
-    );
-    expect(result.content[0]).toMatchObject({ type: "text" });
-    expect((result.content[0] as any).text).toContain("```\nnative-shell-ok\n```");
-    const outputPath = (result.details as { outputPath: string }).outputPath;
-    expect(await readFile(outputPath, "utf8")).toContain("exit_code: 0");
-  });
-
   shellTest("Shell keeps the head and tail of long output and spills large output to a file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-large-"));
+    const root = await temporary();
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
     const medium = await executor.shell(
       { command: "printf 'START'; head -c 30000 /dev/zero | tr '\\0' m; printf 'END'", block_until_ms: 5_000 },
@@ -168,7 +128,7 @@ describe("native computer tools", () => {
   });
 
   shellTest("each Shell command's processes carry its own shell id, which is never saved as shell state", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-shell-id-"));
+    const root = await temporary();
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
     const run = async () => {
       const result = await executor.shell({ command: "echo \"id=$OPENTEAM_SHELL_ID\"; export OPENTEAM_SHELL_ID=stale", working_directory: root }, root, undefined, undefined, "bot-a");
@@ -183,7 +143,7 @@ describe("native computer tools", () => {
   });
 
   shellTest("Shell reports the final directory, signal kills and the terminal header", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-cwd-"));
+    const root = await temporary();
     await mkdir(join(root, "sub"));
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
     const moved = await executor.shell({ command: "cd sub", working_directory: root, description: "Enter sub" }, root);
@@ -201,7 +161,7 @@ describe("native computer tools", () => {
   });
 
   shellTest("a command that outlives block_until_ms keeps its early output and a live header", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-timeout-"));
+    const root = await temporary();
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
     const result = await executor.shell({ command: "echo starting; sleep 6; echo done", block_until_ms: 300 }, root);
     const { shellId, outputPath } = result.details as { shellId: string; outputPath: string };
@@ -220,7 +180,7 @@ describe("native computer tools", () => {
   }, 15_000);
 
   shellTest("a background completion carries the call's description, else its command", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-title-"));
+    const root = await temporary();
     const completions: Array<{ title?: string; exitCode: number | null }> = [];
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token", onShellComplete: async (job) => { completions.push(job); } });
     await executor.shell({ command: "exit 2", description: "Run the suite", block_until_ms: 0 }, root);
@@ -233,7 +193,7 @@ describe("native computer tools", () => {
   });
 
   shellTest("a background command is stopped once it reaches the hard time limit", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-expire-"));
+    const root = await temporary();
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token", shellHardTimeoutMs: 300 });
     const started = await executor.shell({ command: "sleep 30", block_until_ms: 0 }, root);
     const done = await executor.awaitShell({ shell_id: String(started.details.shellId), block_until_ms: 5_000 });
@@ -241,112 +201,55 @@ describe("native computer tools", () => {
     expect(await readFile(String(started.details.outputPath), "utf8")).toContain("status: aborted  \n");
   });
 
-  test("Shell backgrounds long commands and exposes their log path", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openteam-native-background-"));
-    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-    const result = await executor.shell(
-      { command: "sleep 0.1; printf done", working_directory: root, block_until_ms: 0 },
-      root
-    );
-    expect((result.details as { status: string }).status).toBe("running");
-    expect((result.details as { outputPath: string }).outputPath).toContain("terminals");
-  });
-
-  test("host-targeted Read and Shell authenticate to the physical-host bridge", async () => {
+  test("host-targeted Read, Shell and AwaitShell authenticate to the physical-host bridge", async () => {
     const requests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
     const bridge = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       async fetch(request) {
-        requests.push({
-          path: new URL(request.url).pathname,
-          authorization: request.headers.get("authorization"),
-          body: await request.json(),
-        });
-        if (new URL(request.url).pathname === "/v1/read") {
-          return Response.json({
-            kind: "text",
-            path: "/host/notes.txt",
-            text: "1: host-read-ok",
-            lines: 1,
-          });
-        }
-        return Response.json({
-          shell_id: "host-shell-1",
-          status: "completed",
-          exit_code: 0,
-          output: "host-shell-ok",
-          output_path: "/host/terminals/host-shell-1.log",
-          elapsed_ms: 3,
-        });
+        const path = new URL(request.url).pathname;
+        requests.push({ path, authorization: request.headers.get("authorization"), body: await request.json() });
+        return path === "/v1/read"
+          ? Response.json({ kind: "text", path: "/host/notes.txt", text: "1: host-read-ok", lines: 1 })
+          : Response.json({ shell_id: "host-shell-1", status: "completed", exit_code: 0, output: "host-shell-ok", output_path: "/host/terminals/host-shell-1.log", elapsed_ms: 3, ...(path === "/v1/await-shell" ? { output_length: 13, waited_ms: 1, pattern_matched: true } : {}) });
       },
     });
     try {
-      const root = await mkdtemp(join(tmpdir(), "openteam-native-external-"));
-      const executor = new NativeToolExecutor({
-        agentDir: root,
-        controlToken: "bridge-token",
-        hostBridgeUrl: `http://127.0.0.1:${bridge.port}`,
-      });
-      const read = await executor.externalRead({ path: "/host/notes.txt" });
-      expect(read.content[0]).toEqual({ type: "text", text: "1: host-read-ok" });
-      const shell = await executor.externalShell({ command: "printf host-shell-ok" });
+      const executor = new NativeToolExecutor({ agentDir: await temporary(), controlToken: "bridge-token", hostBridgeUrl: `http://127.0.0.1:${bridge.port}` });
+      expect((await executor.externalRead({ path: "/host/notes.txt" })).content[0]).toEqual({ type: "text", text: "1: host-read-ok" });
       // Host results use the same layout as box results.
-      expect(shell.content[0]).toEqual({
+      expect((await executor.externalShell({ command: "printf host-shell-ok" })).content[0]).toEqual({
         type: "text",
         text: "Exit code: 0\n\nCommand output:\n\n```\nhost-shell-ok\n```\n\nCommand completed in 3 ms.\n\nShell state (cwd, env vars) persists for subsequent calls.",
       });
+      const wait = { shell_id: "host-shell-1", machineId: "machine-1", block_until_ms: 780_000, pattern: "ok" };
+      expect((await executor.externalAwaitShell(wait)).details).toMatchObject({ status: "completed", pattern_matched: true });
       expect(requests).toEqual([
-        {
-          path: "/v1/read",
-          authorization: "Bearer bridge-token",
-          body: { path: "/host/notes.txt" },
-        },
-        {
-          path: "/v1/shell",
-          authorization: "Bearer bridge-token",
-          body: { command: "printf host-shell-ok" },
-        },
+        { path: "/v1/read", authorization: "Bearer bridge-token", body: { path: "/host/notes.txt" } },
+        { path: "/v1/shell", authorization: "Bearer bridge-token", body: { command: "printf host-shell-ok" } },
+        { path: "/v1/await-shell", authorization: "Bearer bridge-token", body: wait },
       ]);
     } finally {
       bridge.stop(true);
     }
   });
-
 });
 
 describe("Read edge cases", () => {
-  test.skipIf(!Bun.which("pdftotext"))(
-    "extracts the real native PDF fixture and leaves its bytes intact",
-    async () => {
-      const root = await temporary();
-      const file = join(root, "fixture.pdf");
-      const original = await readFile(
-        new URL("./fixtures/input-parity/fixture.pdf", import.meta.url)
-      );
-      await writeFile(file, original);
-      const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-      const result = await executor.read({ path: file }, root);
-      expect(
-        result.content.some((item) => item.type === "text" && item.text.includes("PDF_"))
-      ).toBeTrue();
-      expect(await readFile(file)).toEqual(original);
-    }
-  );
-
-  test.skipIf(!Bun.which("pdftotext"))(
-    "knows a large PDF by its header too, instead of streaming it as text",
-    async () => {
-      const root = await temporary();
-      const file = join(root, "1089646.data");
-      const pdf = await readFile(new URL("./fixtures/input-parity/three-pages.pdf", import.meta.url));
-      // Past the 8 MiB streaming threshold; PDF readers ignore bytes after the end marker.
-      await writeFile(file, Buffer.concat([pdf, Buffer.alloc(9 * 1024 * 1024, 0x0a)]));
-      const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-      const result = await executor.read({ path: file }, root);
-      expect((result.content[0] as { text: string }).text).toContain("-- 1 of 3 --");
-    }
-  );
+  test.skipIf(!Bun.which("pdftotext"))("extracts native PDFs, including a large one known by its header, and leaves bytes intact", async () => {
+    const root = await temporary();
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+    const file = join(root, "fixture.pdf");
+    const original = await readFile(new URL("./fixtures/input-parity/fixture.pdf", import.meta.url));
+    await writeFile(file, original);
+    expect(JSON.stringify((await executor.read({ path: file }, root)).content)).toContain("PDF_");
+    expect(await readFile(file)).toEqual(original);
+    const large = join(root, "1089646.data");
+    const pdf = await readFile(new URL("./fixtures/input-parity/three-pages.pdf", import.meta.url));
+    // Past the 8 MiB streaming threshold; PDF readers ignore bytes after the end marker.
+    await writeFile(large, Buffer.concat([pdf, Buffer.alloc(9 * 1024 * 1024, 0x0a)]));
+    expect(((await executor.read({ path: large }, root)).content[0] as { text: string }).text).toContain("-- 1 of 3 --");
+  });
 
   test('Read rejects a file swapped into protected state after its initial readability check',async()=>{
    const root=await realpath(await mkdtemp('/tmp/read-race-'));

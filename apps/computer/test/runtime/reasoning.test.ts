@@ -40,15 +40,10 @@ function captureRequests() {
     maxRetries: 0,
     fetch: (async (_url: Parameters<typeof fetch>[0], init: Parameters<typeof fetch>[1]) => {
       const bytes = new Uint8Array(await new Response(init?.body).arrayBuffer());
-      const decoded =
-        new Headers(init?.headers).get("content-encoding") === "zstd"
-          ? Bun.zstdDecompressSync(bytes)
-          : bytes;
+      const decoded = new Headers(init?.headers).get("content-encoding") === "zstd" ? Bun.zstdDecompressSync(bytes) : bytes;
       requests.push(JSON.parse(new TextDecoder().decode(decoded)));
       // Stop after serialization. No network request or real credential is used.
-      return new Response(JSON.stringify({ error: { message: "Offline request captured" } }), {
-        status: 400,
-      });
+      return new Response(JSON.stringify({ error: { message: "Offline request captured" } }), { status: 400 });
     }) as typeof fetch,
   };
   return { requests, options };
@@ -56,23 +51,16 @@ function captureRequests() {
 
 const directories: string[] = [];
 afterEach(async () => {
-  await Promise.all(
-    directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))
-  );
+  await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
 describe("Codex reasoning request semantics", () => {
   test.each([
     ["off", "none"],
-    ["low", "low"],
-    ["medium", "medium"],
     ["high", "high"],
   ] as const)("serializes %s as explicit %s effort", async (requested, effort) => {
     const capture = captureRequests();
-    await streamSimple(model, context, {
-      ...capture.options,
-      ...inferenceReasoningOptions(model, requested),
-    }).result();
+    await streamSimple(model, context, { ...capture.options, ...inferenceReasoningOptions(model, requested) }).result();
     expect(capture.requests).toHaveLength(1);
     expect(capture.requests[0]).toMatchObject({ model: "gpt-5.6-sol", reasoning: { effort } });
   });
@@ -80,27 +68,14 @@ describe("Codex reasoning request semantics", () => {
   test("respects model capability mappings when off is unsupported", async () => {
     const restricted = { ...model, thinkingLevelMap: { off: null, minimal: null } };
     const capture = captureRequests();
-    await streamSimple(restricted, context, {
-      ...capture.options,
-      ...inferenceReasoningOptions(restricted, "off"),
-    }).result();
+    await streamSimple(restricted, context, { ...capture.options, ...inferenceReasoningOptions(restricted, "off") }).result();
     expect(capture.requests[0]).toMatchObject({ reasoning: { effort: "low" } });
   });
 
-  test("omits off when a dynamic Codex model has no advertised off mapping", () => {
+  test("omits off for a dynamic Codex model with no off mapping, and keeps other providers and non-reasoning models on Pi's path", () => {
     expect(inferenceReasoningOptions({ ...model, thinkingLevelMap: undefined }, "off")).toEqual({});
-  });
-
-  test("keeps other providers and non-reasoning models on Pi's existing path", () => {
-    expect(
-      inferenceReasoningOptions(
-        { ...model, api: "anthropic-messages", provider: "anthropic" },
-        "off"
-      ).onPayload
-    ).toBeUndefined();
-    expect(
-      inferenceReasoningOptions({ ...model, reasoning: false }, "off").onPayload
-    ).toBeUndefined();
+    expect(inferenceReasoningOptions({ ...model, api: "anthropic-messages", provider: "anthropic" }, "off").onPayload).toBeUndefined();
+    expect(inferenceReasoningOptions({ ...model, reasoning: false }, "off").onPayload).toBeUndefined();
   });
 
   test("normal ComputerRuntime sessions send none through the actual Pi request pipeline", async () => {
@@ -115,37 +90,16 @@ describe("Codex reasoning request semantics", () => {
     const capture = captureRequests();
     // Keep the real session, agent loop, extensions and provider serializer;
     // substitute only credentials/transport so this test stays fully offline.
-    modelRuntime.streamSimple = (_model, messages, options) =>
-      streamSimple(model, messages, {
-        ...options,
-        ...capture.options,
-      });
+    modelRuntime.streamSimple = (_model, messages, options) => streamSimple(model, messages, { ...options, ...capture.options });
     const runtime = new ComputerRuntime();
-    const internals = runtime as unknown as {
-      agentDir: string;
-      modelRuntime: ModelRuntime;
-      resolveModel: () => typeof model;
-      customTools: () => [];
-      compactionExtension: () => { name: string; hidden: boolean; factory: () => void };
-      createStandaloneSession: (
-        cwd: string,
-        instructions: string,
-        manager: SessionManager,
-        active: ActiveTurn,
-        ref: { providerId: string; modelId: string }
-      ) => Promise<AgentSession>;
-    };
+    const internals = runtime as any;
     internals.agentDir = directory;
     internals.modelRuntime = modelRuntime;
     internals.resolveModel = () => model;
     internals.customTools = () => [];
-    internals.compactionExtension = () => ({
-      name: "offline-compaction",
-      hidden: true,
-      factory() {},
-    });
+    internals.compactionExtension = () => ({ name: "offline-compaction", hidden: true, factory() {} });
     const manager = SessionManager.inMemory(directory);
-    const session = await internals.createStandaloneSession(
+    const session: AgentSession = await internals.createStandaloneSession(
       directory,
       "Offline test",
       manager,

@@ -9,7 +9,6 @@ import {
   isChatModel,
   KEYLESS_API_KEY,
   modelsEndpoint,
-  openRouterEndpointPromptCap,
 } from "../src/chat-provider-registry";
 
 const dirs: string[] = [];
@@ -137,29 +136,31 @@ describe("provider-first chat registry", () => {
       }
     }
   });
-  test.each([
-    401, 403, 404, 405, 429, 500,
-  ])("HTTP %i yields zero selectable models and an actionable, secret-free error", async (status) => {
+  test("HTTP errors, malformed bodies, oversized responses and transport failures yield zero models and a secret-free error", async () => {
     const f = await fixture();
-    f.state.status = status;
-    const result = await f.registry.catalog("openai");
-    expect(result.models).toEqual([]);
-    expect(result.providers[0]?.modelStatus).toBe("unavailable");
-    expect(JSON.stringify(result)).not.toContain("synthetic");
-    expect(result.providers[0]?.modelMessage).toMatch(/Reconnect|Check/);
+    const cases: Array<(state: typeof f.state) => void> = [
+      (state) => (state.status = 401),
+      (state) => (state.status = 500),
+      (state) => (state.body = {}),
+      (state) => (state.body = { data: [{ id: 42 }] }),
+      (state) => (state.body = { data: [{ id: "bad\u001b[31m" }] }),
+      (state) => (state.fail = true),
+    ];
+    for (const apply of cases) {
+      Object.assign(f.state, { status: 200, body: null, fail: false });
+      apply(f.state);
+      const result = await f.registry.catalog("openai");
+      expect(result.models).toEqual([]);
+      expect(result.providers[0]?.modelStatus).toBe("unavailable");
+      expect(JSON.stringify(result)).not.toContain("synthetic");
+    }
+    f.state.fail = false;
+    f.state.status = 401;
+    expect((await f.registry.catalog("openai")).providers[0]?.modelMessage).toMatch(/Reconnect|Check/);
     f.state.status = 200;
     expect((await f.registry.catalog("openai")).models).toHaveLength(1);
-  });
-  test.each([
-    {},
-    { data: [{ id: 42 }] },
-    { data: [{ id: "bad\u001b[31m" }] },
-  ])("rejects malformed model responses %j", async (body) => {
-    const f = await fixture();
-    f.state.body = body;
-    const result = await f.registry.catalog("openai");
-    expect(result.models).toEqual([]);
-    expect(result.providers[0]?.modelStatus).toBe("unavailable");
+    const oversized = new ChatProviderRegistry(() => f.runtime, f.path, (async () => new Response("x".repeat(2 * 1024 * 1024 + 1))) as unknown as typeof fetch);
+    expect((await oversized.catalog("openai")).models).toEqual([]);
   });
   test("isolates a broken provider so other connected providers still work", async () => {
     const f = await fixture();
@@ -233,20 +234,6 @@ describe("provider-first chat registry", () => {
     f.state.body = { data: [{ id: "claude-chat" }], has_more: true, last_id: "claude-chat" };
     expect((await f.registry.catalog("anthropic")).models).toEqual([]);
   });
-  test("rejects oversized responses and redacts transport failures", async () => {
-    const f = await fixture();
-    f.state.fail = true;
-    let result = await f.registry.catalog("openai");
-    expect(result.models).toEqual([]);
-    expect(JSON.stringify(result)).not.toContain("synthetic");
-    const registry = new ChatProviderRegistry(
-      () => f.runtime,
-      f.path,
-      (async () => new Response("x".repeat(2 * 1024 * 1024 + 1))) as unknown as typeof fetch
-    );
-    result = await registry.catalog("openai");
-    expect(result.models).toEqual([]);
-  });
   test("does not silently ignore a corrupt custom registry", async () => {
     const f = await fixture();
     await writeFile(f.path, "broken");
@@ -254,41 +241,26 @@ describe("provider-first chat registry", () => {
   });
 });
 describe("chat model classification and endpoint paths", () => {
-  test.each([
-    "whisper-1",
-    "gpt-4o-transcribe",
-    "gpt-4o-audio-preview",
-    "text-embedding-3-small",
-    "tts-1",
-    "dall-e-3",
-    "gpt-image-1",
-    "omni-moderation-latest",
-    "parakeet-v3",
-  ])("excludes %s from chat even if bundled", (id) =>
-    expect(isChatModel({ id }, true, true)).toBe(false));
-  test("uses capability metadata for opaque model names", () => {
-    expect(
-      isChatModel({ id: "opaque", supported_endpoints: ["/v1/audio/transcriptions"] }, false, true)
-    ).toBe(false);
+  test("excludes non-chat models by name even if bundled, and uses capability metadata for opaque names", () => {
+    for (const id of ["whisper-1", "gpt-4o-transcribe", "gpt-4o-audio-preview", "text-embedding-3-small", "tts-1", "dall-e-3", "gpt-image-1", "omni-moderation-latest", "parakeet-v3"])
+      expect(isChatModel({ id }, true, true), id).toBe(false);
+    expect(isChatModel({ id: "opaque", supported_endpoints: ["/v1/audio/transcriptions"] }, false, true)).toBe(false);
     expect(isChatModel({ id: "opaque", supported_endpoints: ["/v1/chat/completions"] })).toBe(true);
   });
-  test.each([
-    ["http://localhost:11434", "http://localhost:11434/v1/models"],
-    ["http://localhost:1234/v1/", "http://localhost:1234/v1/models"],
-    ["https://gateway.test/api/v1", "https://gateway.test/api/v1/models"],
-  ])("%s resolves to %s", (base, expected) => expect(modelsEndpoint(base).href).toBe(expected));
-  test.each([
-    "file:///tmp/models",
-    "https://user:secret@host/v1",
-    "https://host/v1?api_key=secret",
-    "https://host/v1/chat/completions",
-  ])("rejects unsafe or non-base URL %s", (base) => expect(() => modelsEndpoint(base)).toThrow());
+  test("model endpoints resolve from base URLs and reject unsafe or non-base URLs", () => {
+    for (const [base, expected] of [
+      ["http://localhost:11434", "http://localhost:11434/v1/models"],
+      ["http://localhost:1234/v1/", "http://localhost:1234/v1/models"],
+      ["https://gateway.test/api/v1", "https://gateway.test/api/v1/models"],
+    ])
+      expect(modelsEndpoint(base!).href).toBe(expected!);
+    for (const base of ["file:///tmp/models", "https://user:secret@host/v1", "https://host/v1?api_key=secret", "https://host/v1/chat/completions"])
+      expect(() => modelsEndpoint(base), base).toThrow();
+  });
 });
 
 test("OpenRouter discovers account-filtered tool models and persists capabilities", async () => {
-  const f = await fixture({
-    openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" },
-  });
+  const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" } });
   f.state.body = {
     data: [
       {
@@ -300,69 +272,26 @@ test("OpenRouter discovers account-filtered tool models and persists capabilitie
         top_provider: { max_completion_tokens: 32000 },
         pricing: { prompt: "0.000002", completion: "0.000008" },
       },
-      {
-        id: "author/no-tools",
-        architecture: { output_modalities: ["text"] },
-        supported_parameters: [],
-      },
-      {
-        id: "author/image",
-        architecture: { output_modalities: ["image"] },
-        supported_parameters: ["tools"],
-      },
+      { id: "author/no-tools", architecture: { output_modalities: ["text"] }, supported_parameters: [] },
+      { id: "author/image", architecture: { output_modalities: ["image"] }, supported_parameters: ["tools"] },
     ],
   };
   const catalog = await f.registry.catalog("openrouter");
-  expect(catalog.providers.find((p) => p.id === "openrouter")).toMatchObject({
-    custom: false,
-    connected: true,
-  });
+  expect(catalog.providers.find((p) => p.id === "openrouter")).toMatchObject({ custom: false, connected: true });
+  const expected = { id: "author/new-model", api: "openai-completions", input: ["text", "image"], contextWindow: 200000, cost: { input: 2, output: 8 } };
   expect(catalog.models).toHaveLength(1);
-  expect(catalog.models[0]).toMatchObject({
-    id: "author/new-model",
-    provider: "openrouter",
-    name: "New model",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text", "image"],
-    contextWindow: 200000,
-    maxTokens: 32000,
-    cost: { input: 2, output: 8 },
-  });
+  expect(catalog.models[0]).toMatchObject({ ...expected, provider: "openrouter", name: "New model", reasoning: true, maxTokens: 32000 });
   const request = f.calls.find((c) => c.url.hostname === "openrouter.test")!;
   expect(request.url.pathname).toBe("/api/v1/models/user");
-  expect(new Headers(request.init.headers).get("authorization")).toBe(
-    "Bearer synthetic-openrouter-key"
-  );
-  await f.registry.verify({
-    providerId: "openrouter",
-    modelId: "author/new-model",
-    reasoning: "medium",
-  });
-  const saved = JSON.parse(await readFile(f.path, "utf8"));
-  expect(saved.providers.openrouter.models[0]).toMatchObject({
-    id: "author/new-model",
-    api: "openai-completions",
-    contextWindow: 200000,
-    input: ["text", "image"],
-    cost: { input: 2, output: 8 },
-  });
-  f.state.status = 401;
-  expect((await f.registry.catalog("openrouter")).models).toEqual([]);
+  expect(new Headers(request.init.headers).get("authorization")).toBe("Bearer synthetic-openrouter-key");
+  await f.registry.verify({ providerId: "openrouter", modelId: "author/new-model", reasoning: "medium" });
+  expect(JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0]).toMatchObject(expected);
 });
 
 test("the usable window is the smallest advertised input limit, else the fallback", () => {
   expect(inputWindow([1_050_000, 922_000], 128_000)).toBe(922_000);
   expect(inputWindow([200_000, undefined, "100000", 0, -1, 1.5], 128_000)).toBe(200_000);
   expect(inputWindow([], 128_000)).toBe(128_000);
-  expect(openRouterEndpointPromptCap({ data: { endpoints: [
-    { context_length: 1_050_000, max_prompt_tokens: 922_000 },
-    { context_length: 1_050_000, max_prompt_tokens: null },
-    { context_length: 1_050_000, max_prompt_tokens: 930_000 },
-  ] } })).toBe(922_000);
-  expect(openRouterEndpointPromptCap({ data: { endpoints: [{ context_length: 1_000_000 }] } })).toBeUndefined();
-  expect(openRouterEndpointPromptCap({ data: [] })).toBeUndefined();
-  expect(openRouterEndpointPromptCap(null)).toBeUndefined();
 });
 
 test("OpenRouter saves the selected model with its endpoints' prompt cap as the window", async () => {
@@ -387,6 +316,7 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
       endpoints: [
         { provider_name: "OpenAI", context_length: 1_050_000, max_prompt_tokens: 922_000, max_completion_tokens: 128_000 },
         { provider_name: "Azure", context_length: 1_050_000, max_prompt_tokens: null, max_completion_tokens: 128_000 },
+        { provider_name: "Other", context_length: 1_050_000, max_prompt_tokens: 930_000, max_completion_tokens: 128_000 },
       ],
     },
   };

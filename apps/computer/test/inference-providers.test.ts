@@ -16,51 +16,16 @@ describe("inference provider service", () => {
   test("exposes catalogs and keeps submitted secrets out of session views", async () => {
     let connected = false;
     let submittedSecret = "";
+    const provider = { id: "anthropic", name: "Test Provider", auth: { apiKey: { name: "Test API key", login: () => undefined } } };
     const runtime = {
-      getProviders: () => [
-        {
-          id: "anthropic",
-          name: "Test Provider",
-          auth: {
-            apiKey: {
-              name: "Test API key",
-              login: async (interaction: AuthInteraction) => {
-                submittedSecret = await interaction.prompt({
-                  type: "secret",
-                  message: "API key",
-                });
-                connected = true;
-                return { type: "api_key", key: submittedSecret };
-              },
-            },
-          },
-        },
-      ],
-      getProvider: (id: string) =>
-        id === "anthropic"
-          ? {
-              id,
-              name: "Test Provider",
-              auth: { apiKey: { name: "Test API key", login: () => undefined } },
-            }
-          : undefined,
+      getProviders: () => [provider],
+      getProvider: (id: string) => (id === "anthropic" ? provider : undefined),
       getModels: (providerId?: string) =>
         !providerId || providerId === "anthropic"
-          ? [
-              {
-                provider: "anthropic",
-                id: "test-model",
-                name: "Test Model",
-                reasoning: true,
-                contextWindow: 128_000,
-                maxTokens: 8_192,
-              },
-            ]
+          ? [{ provider: "anthropic", id: "test-model", name: "Test Model", reasoning: true, contextWindow: 128_000, maxTokens: 8_192 }]
           : [],
-      getModel: (providerId: string, modelId: string) =>
-        providerId === "anthropic" && modelId === "test-model" ? {} : undefined,
-      checkAuth: async () =>
-        connected ? { type: "api_key" as const, source: "stored credential" } : undefined,
+      getModel: (providerId: string, modelId: string) => (providerId === "anthropic" && modelId === "test-model" ? {} : undefined),
+      checkAuth: async () => (connected ? { type: "api_key" as const, source: "stored credential" } : undefined),
       login: async (_providerId: string, _type: string, interaction: AuthInteraction) => {
         submittedSecret = await interaction.prompt({ type: "secret", message: "API key" });
         connected = true;
@@ -74,50 +39,26 @@ describe("inference provider service", () => {
     const service = new InferenceProviderService(() => runtime, "/does/not/exist/models.json");
 
     const catalog = await service.catalog("anthropic");
-    expect(catalog.providers[0]).toMatchObject({
-      id: "anthropic",
-      connected: false,
-      modelCount: 0,
-    });
+    expect(catalog.providers[0]).toMatchObject({ id: "anthropic", connected: false, modelCount: 0 });
     expect(catalog.models).toEqual([]);
 
+    const waitingFor = (id: string) => eventually(() => service.authSession(id), (session) => session.status === "waiting");
     const started = service.startAuthSession("anthropic", "api_key");
-    const waiting = await eventually(
-      () => service.authSession(started.id),
-      (session) => session.status === "waiting"
-    );
+    const waiting = await waitingFor(started.id);
     expect(waiting.prompt).toMatchObject({ type: "secret", message: "API key" });
-    const promptId = waiting.prompt?.id;
-    expect(promptId).toBeString();
-    service.respond(started.id, promptId as string, "super-secret-value");
-    const complete = await eventually(
-      () => service.authSession(started.id),
-      (session) => session.status === "connected"
-    );
+    service.respond(started.id, waiting.prompt!.id, "super-secret-value");
+    const complete = await eventually(() => service.authSession(started.id), (session) => session.status === "connected");
     expect(submittedSecret).toBe("super-secret-value");
     expect(JSON.stringify(complete)).not.toContain("super-secret-value");
 
     const expiring = service.startAuthSession("anthropic", "api_key");
-    await eventually(
-      () => service.authSession(expiring.id),
-      (session) => session.status === "waiting"
-    );
-    const internals = service as unknown as {
-      sessions: Map<string, { createdAt: number }>;
-    };
-    const state = internals.sessions.get(expiring.id);
-    if (!state) throw new Error("Expected provider session state");
-    state.createdAt = Date.now() - 16 * 60_000;
+    await waitingFor(expiring.id);
+    (service as unknown as { sessions: Map<string, { createdAt: number }> }).sessions.get(expiring.id)!.createdAt = Date.now() - 16 * 60_000;
     expect(service.authSession(expiring.id).status).toBe("cancelled");
   });
 
   test("defaults to medium reasoning and never offers off where OpenRouter requires reasoning", async () => {
-    const openrouter = {
-      id: "openrouter",
-      name: "OpenRouter",
-      baseUrl: "https://openrouter.test/api/v1",
-      auth: { apiKey: { name: "OpenRouter API key", login: () => undefined } },
-    };
+    const openrouter = { id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.test/api/v1", auth: { apiKey: { name: "OpenRouter API key", login: () => undefined } } };
     const runtime = {
       getProviders: () => [openrouter],
       getProvider: (id: string) => (id === "openrouter" ? openrouter : undefined),
@@ -143,19 +84,9 @@ describe("inference provider service", () => {
           entry("author/no-reasoning", []),
         ],
       })) as unknown as typeof fetch;
-    const service = new InferenceProviderService(
-      () => runtime,
-      "/does/not/exist/models.json",
-      fetcher
-    );
+    const service = new InferenceProviderService(() => runtime, "/does/not/exist/models.json", fetcher);
     const catalog = await service.catalog("openrouter");
-    expect(
-      catalog.models.map((model) => [
-        model.modelId,
-        model.reasoningLevels,
-        model.defaultReasoningLevel,
-      ])
-    ).toEqual([
+    expect(catalog.models.map((model) => [model.modelId, model.reasoningLevels, model.defaultReasoningLevel])).toEqual([
       ["openrouter/auto", ["off", "minimal", "low", "medium", "high"], "medium"],
       ["anthropic/claude-sonnet-5.5", ["minimal", "low", "medium", "high"], "medium"],
       ["anthropic/claude-haiku-5.5", ["off", "minimal", "low", "medium", "high"], "medium"],

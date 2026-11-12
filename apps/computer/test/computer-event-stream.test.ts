@@ -25,15 +25,7 @@ describe("computer event stream", () => {
     let nextCalls = 0;
     const events: AsyncIterable<ComputerEvent> = {
       [Symbol.asyncIterator]() {
-        return {
-          next: async () => {
-            nextCalls += 1;
-            return {
-              value: { type: "turn.started", turnId: String(nextCalls) },
-              done: false,
-            } as IteratorResult<ComputerEvent>;
-          },
-        };
+        return { next: async () => ({ value: { type: "turn.started", turnId: String(++nextCalls) }, done: false }) as IteratorResult<ComputerEvent> };
       },
     };
     const stream = computerEventStream(events);
@@ -51,12 +43,8 @@ describe("computer event stream", () => {
       yield { type: "turn.completed", turnId: "run", status: "completed" } as const;
     }
     const reader = computerEventStream(ordered()).getReader();
-    expect(new TextDecoder().decode((await reader.read()).value)).toContain(
-      '"type":"turn.started"'
-    );
-    expect(new TextDecoder().decode((await reader.read()).value)).toContain(
-      '"type":"turn.completed"'
-    );
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain('"type":"turn.started"');
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain('"type":"turn.completed"');
     expect((await reader.read()).done).toBe(true);
 
     async function* failed(): AsyncGenerator<ComputerEvent> {
@@ -93,10 +81,7 @@ describe("computer event stream", () => {
       const response = await fetch(server.url);
       const body = await response.text();
       expect(body).toContain("\n\n");
-      const events = body
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => JSON.parse(line));
+      const events = body.split("\n").filter(Boolean).map((line) => JSON.parse(line));
       expect(events.map((event) => event.type)).toEqual(["turn.started", "turn.completed"]);
     } finally {
       server.stop(true);
@@ -105,30 +90,16 @@ describe("computer event stream", () => {
 
   test("disconnect cancels the owning runtime before returning its iterator", async () => {
     const order: string[] = [];
-    const stream = computerEventStream(
-      {
-        [Symbol.asyncIterator]() {
-          return {
-            async next() {
-              return {
-                done: false as const,
-                value: { type: "turn.started", turnId: "cancel" } as any,
-              };
-            },
-            async return() {
-              order.push("iterator");
-              return { done: true as const, value: undefined };
-            },
-          };
-        },
+    const iterator = {
+      async next() {
+        return { done: false as const, value: { type: "turn.started", turnId: "cancel" } as any };
       },
-      undefined,
-      {
-        onCancel: async () => {
-          order.push("runtime");
-        },
-      }
-    );
+      async return() {
+        order.push("iterator");
+        return { done: true as const, value: undefined };
+      },
+    };
+    const stream = computerEventStream({ [Symbol.asyncIterator]: () => iterator }, undefined, { onCancel: async () => void order.push("runtime") });
     const reader = stream.getReader();
     await reader.read();
     await reader.cancel();

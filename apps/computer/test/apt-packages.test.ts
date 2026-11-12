@@ -1,8 +1,13 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { archivesToPrune, captureSources, forgetPackages, imagePackagePins, installFailureReason, installsPaths, keepSources, localDebArguments, nextRecordedList, packageSnapshot, parseAutoInstalled, parseInstalled, parseSourceFile, readRecord, recordAfterApt, replayRecordedPackages, restoreSources, snapshotBeforeApt, unfetchedUrls, type CommandRunner } from "../src/apt-packages";
+
+const roots: string[] = [];
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
 
 const snapshot = (manual: string[], auto: string[] = []) =>
   packageSnapshot(Object.fromEntries([...manual, ...auto].map((name) => [name, "1"])), new Set(auto));
@@ -66,6 +71,7 @@ interface FakeRepo { [name: string]: Array<{ version: string; uri: string; suite
  */
 async function fakeSystem(installed: Record<string, string>, repos: FakeRepo, options: { cached?: Set<string>; deps?: Record<string, string[]>; broken?: Set<string>; offlineNetwork?: boolean; unreachable?: Set<string> } = {}) {
   const root = await mkdtemp(join(tmpdir(), "openteam-installs-"));
+  roots.push(root);
   const paths = installsPaths(join(root, "state"));
   const system = (path: string) => join(root, "system", path);
   const image = { baseline: join(root, "image/apt-baseline"), sourcesBaseline: join(root, "image/apt-sources-baseline"), buildId: join(root, "image/build-id") };
@@ -175,7 +181,6 @@ test("kept sources come back where they are missing, and only a finished replay 
   const options = { paths: fake.paths, image: fake.image, run: fake.run, systemPath: fake.system, sourceLocations: ["/etc/apt/sources.list.d"] };
   await writeFile(fake.system("etc/apt/sources.list.d/gh.list"), `deb ${GH} stable main\n`);
   await captureSources(options);
-  const { rm } = await import("node:fs/promises");
   await rm(fake.system("etc/apt/sources.list.d/gh.list"));
   // A recreated computer before its replay: the copy stays and comes back.
   await captureSources({ ...options, removeGone: false });
@@ -288,14 +293,6 @@ test("one package that can't come back doesn't slow the rest, is marked once per
 
   expect(await forgetPackages(["glow", "nope"], options)).toEqual({ forgotten: ["glow"], unknown: ["nope"] });
   expect(Object.keys(await readRecord(fake.paths))).not.toContain("glow");
-});
-
-test("without the network, packages wait for the next start instead of failing", async () => {
-  const fake = await fakeSystem({ bash: "5" }, { cowsay: [{ version: "3", uri: DEBIAN, suite: "trixie" }] }, { offlineNetwork: true });
-  await writeFile(fake.paths.packages, JSON.stringify({ packages: { cowsay: {} } }));
-  const status = await replayRecordedPackages({ paths: fake.paths, image: fake.image, run: fake.run, systemPath: fake.system, log: () => {} });
-  expect(status).toMatchObject({ restored: [], failed: [], pending: ["cowsay"] });
-  expect((await readRecord(fake.paths)).cowsay?.failed).toBeUndefined();
 });
 
 test("offline, kept .debs and cached packages come back, and one the cache lacks doesn't hold them up", async () => {

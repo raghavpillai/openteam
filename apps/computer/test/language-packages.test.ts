@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { afterEach, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CommandRunner } from "../src/apt-packages";
@@ -12,8 +12,14 @@ async function distribution(sitePackages: string, name: string, requested: boole
   if (requested) await writeFile(join(info, "REQUESTED"), "");
 }
 
+const roots: string[] = [];
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
 async function scratch() {
   const root = await mkdtemp(join(tmpdir(), "openteam-languages-"));
+  roots.push(root);
   const home = join(root, "home");
   await distribution(join(root, "usr/local/lib/python3.12/dist-packages"), "Rich", true);
   await distribution(join(root, "usr/local/lib/python3.12/dist-packages"), "markdown-it-py", false);

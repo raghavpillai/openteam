@@ -3,64 +3,19 @@ import { BrowserBroker, browserCookieInternals, browserStateInternals } from "..
 import { stateDigest } from "../../src/browser/origin-state";
 
 describe("computer-scoped browser authority", () => {
-  test("keys cookies by name, domain, path, and partition", () => {
-    const first = {
-      name: "session",
-      value: "one",
-      domain: ".example.com",
-      path: "/",
-      partitionKey: { topLevelSite: "https://example.com", hasCrossSiteAncestor: false },
-    };
-    expect(browserCookieInternals.cookieKey(first)).toBe(
-      browserCookieInternals.cookieKey({ ...first, value: "two" })
-    );
-    expect(browserCookieInternals.cookieKey(first)).not.toBe(
-      browserCookieInternals.cookieKey({ ...first, path: "/admin" })
-    );
-  });
-
-  test("emits only CDP-settable cookie fields", () => {
-    expect(
-      browserCookieInternals.cookieParameter({
-        name: "session",
-        value: "secret",
-        domain: ".example.com",
-        path: "/",
-        secure: true,
-        httpOnly: true,
-        expires: 2_000_000_000,
-        size: 128,
-        session: false,
-      })
-    ).toEqual({
-      name: "session",
-      value: "secret",
-      domain: ".example.com",
-      path: "/",
-      secure: true,
-      httpOnly: true,
-      expires: 2_000_000_000,
-    });
+  test("keys cookies by name, domain, path, and partition, and emits only CDP-settable fields", () => {
+    const first = { name: "session", value: "one", domain: ".example.com", path: "/", partitionKey: { topLevelSite: "https://example.com", hasCrossSiteAncestor: false } };
+    expect(browserCookieInternals.cookieKey(first)).toBe(browserCookieInternals.cookieKey({ ...first, value: "two" }));
+    expect(browserCookieInternals.cookieKey(first)).not.toBe(browserCookieInternals.cookieKey({ ...first, path: "/admin" }));
+    const settable = { name: "session", value: "secret", domain: ".example.com", path: "/", secure: true, httpOnly: true, expires: 2_000_000_000 };
+    expect(browserCookieInternals.cookieParameter({ ...settable, size: 128, session: false })).toEqual(settable);
   });
 
   test("normalizes routable origins and ignores volatile capture timestamps", () => {
-    expect(browserStateInternals.originForUrl("https://example.com/path?q=1")).toBe(
-      "https://example.com"
-    );
+    expect(browserStateInternals.originForUrl("https://example.com/path?q=1")).toBe("https://example.com");
     expect(browserStateInternals.originForUrl("chrome://settings")).toBeNull();
-    expect(
-      browserStateInternals.stateDigest({
-        origin: "https://example.com",
-        capturedAt: "2026-01-01T00:00:00.000Z",
-        localStorage: [["session", "one"]],
-      })
-    ).toBe(
-      browserStateInternals.stateDigest({
-        origin: "https://example.com",
-        capturedAt: "2026-01-02T00:00:00.000Z",
-        localStorage: [["session", "one"]],
-      })
-    );
+    const captured = (capturedAt: string) => browserStateInternals.stateDigest({ origin: "https://example.com", capturedAt, localStorage: [["session", "one"]] });
+    expect(captured("2026-01-01T00:00:00.000Z")).toBe(captured("2026-01-02T00:00:00.000Z"));
   });
 });
 
@@ -139,9 +94,7 @@ test("fresh bot detach is independent of old pending reconciliation", async () =
   b.reconcile = () => gate;
   tick(b);
   let settled = false;
-  const pending = b.detach("fresh-bot").then(() => {
-    settled = true;
-  });
+  const pending = b.detach("fresh-bot").then(() => (settled = true));
   await flush();
   const before = settled;
   release();
@@ -154,13 +107,7 @@ test("owned detach still waits for reconciliation before closing its peer", asyn
   const gate = new Promise<void>((r) => (release = r));
   let closed = false;
   b.reconcile = () => gate;
-  b.peers.set("owned", {
-    cdp: {
-      close() {
-        closed = true;
-      },
-    },
-  });
+  b.peers.set("owned", { cdp: { close() { closed = true; } } });
   const pending = b.detach("owned");
   await flush();
   expect(closed).toBe(false);

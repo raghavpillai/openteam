@@ -20,30 +20,21 @@ afterEach(async () => {
 });
 const fixture = async () => {
   home = await mkdtemp(join(tmpdir(), "openteam-authority-persistence-"));
-  const broker = new BrowserBroker(home) as unknown as Persistence;
-  await broker.load();
-  return {
-    broker,
-    directory: join(home, ".openteam"),
-    path: join(home, ".openteam", "browser-authority.json.enc"),
-  };
+  const broker = await reload();
+  return { broker, directory: join(home, ".openteam"), path: join(home, ".openteam", "browser-authority.json.enc") };
 };
+async function reload() {
+  const loaded = new BrowserBroker(home) as unknown as Persistence;
+  await loaded.load();
+  return loaded;
+}
 const origin = "https://fixture.invalid";
-const cookie: BrowserCookie = {
-  name: "persistent",
-  value: "kept",
-  domain: "fixture.invalid",
-  path: "/",
-  expires: 2_000_000_000,
-};
+const cookie: BrowserCookie = { name: "persistent", value: "kept", domain: "fixture.invalid", path: "/", expires: 2_000_000_000 };
 
 const decrypt = (envelope: { iv: string; tag: string; data: string }, key: Buffer) => {
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64"));
   decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
-  return Buffer.concat([
-    decipher.update(Buffer.from(envelope.data, "base64")),
-    decipher.final(),
-  ]).toString("utf8");
+  return Buffer.concat([decipher.update(Buffer.from(envelope.data, "base64")), decipher.final()]).toString("utf8");
 };
 const partsOf = async (directory: string) => {
   const parts = join(directory, "browser-authority.parts");
@@ -61,11 +52,7 @@ test("encrypted saves preserve the envelope across base64 chunk boundaries", asy
   let previousIv = "";
   for (const size of [0, 786431, 786432, 786433, 1572881]) {
     const payload = "x".repeat(size) + "😀測試é";
-    const state: BrowserOriginState = {
-      origin,
-      capturedAt: "2026-10-19",
-      localStorage: [["payload", payload]],
-    };
+    const state: BrowserOriginState = { origin, capturedAt: "2026-10-19", localStorage: [["payload", payload]] };
     broker.origins.set(origin, state);
     await broker.save();
     const envelope = JSON.parse(await readFile(path, "utf8"));
@@ -92,8 +79,7 @@ test("encrypted saves preserve the envelope across base64 chunk boundaries", asy
       expect((await stat(join(directory, "browser-authority.parts", name))).mode & 0o777).toBe(0o600);
     }
     expect((await stat(path)).mode & 0o777).toBe(0o600);
-    const loaded = new BrowserBroker(home) as unknown as Persistence;
-    await loaded.load();
+    const loaded = await reload();
     expect(loaded.origins.get(origin)).toEqual(state);
     expect([...loaded.cookies.values()]).toEqual([cookie]);
   }
@@ -121,22 +107,20 @@ test("a missing or altered part drops only that storage area on restore", async 
   const cachePart = names[contents.findIndex((value) => value.includes("ccc"))]!;
   const bundlePart = names.find((name) => name !== cachePart)!;
   await rm(join(partsDirectory, cachePart));
-  let loaded = new BrowserBroker(home) as unknown as Persistence;
-  await loaded.load();
+  let loaded = await reload();
   expect(loaded.origins.get(origin)).toEqual({ ...state, cacheStorage: undefined } as unknown as BrowserOriginState);
   expect("cacheStorage" in loaded.origins.get(origin)!).toBe(false);
 
   // A valid part under another part's name is rejected too.
   await broker.save();
   await writeFile(join(partsDirectory, cachePart), await readFile(join(partsDirectory, bundlePart)));
-  loaded = new BrowserBroker(home) as unknown as Persistence;
-  await loaded.load();
+  loaded = await reload();
   expect(loaded.origins.get(origin)?.localStorage).toEqual(state.localStorage);
   expect("cacheStorage" in loaded.origins.get(origin)!).toBe(false);
 });
 
-test("streamed saves preserve multiple origins and reject tampered ciphertext before loading state", async () => {
-  const { broker, path } = await fixture();
+test("streamed saves preserve multiple origins", async () => {
+  const { broker } = await fixture();
   for (let i = 0; i < 4; i++) {
     const site = `https://site-${i}.invalid`;
     broker.origins.set(site, {
@@ -149,16 +133,8 @@ test("streamed saves preserve multiple origins and reject tampered ciphertext be
     });
   }
   await broker.save();
-  const loaded = new BrowserBroker(home) as unknown as Persistence;
-  await loaded.load();
+  const loaded = await reload();
   expect([...loaded.origins]).toEqual([...broker.origins]);
-  const packed = JSON.parse(await readFile(path, "utf8"));
-  packed.data = (packed.data[0] === "A" ? "B" : "A") + packed.data.slice(1);
-  await writeFile(path, JSON.stringify(packed));
-  const tampered = new BrowserBroker(home) as unknown as Persistence;
-  await tampered.load();
-  expect(tampered.origins.size).toBe(0);
-  expect(tampered.cookies.size).toBe(0);
 });
 
 test("a mid-stream failure preserves the last save, cleans staging, and allows a later save", async () => {
@@ -166,11 +142,7 @@ test("a mid-stream failure preserves the last save, cleans staging, and allows a
   broker.cookies.set("persistent", cookie);
   await broker.save();
   const previous = await readFile(path);
-  const badState: BrowserOriginState = {
-    origin,
-    capturedAt: "2026-10-20",
-    localStorage: [["large", "x".repeat(300000)]],
-  };
+  const badState: BrowserOriginState = { origin, capturedAt: "2026-10-20", localStorage: [["large", "x".repeat(300000)]] };
   badState.cycle = badState;
   broker.origins.set(origin, badState);
   await expect(broker.save()).rejects.toThrow("Circular browser state");
@@ -178,8 +150,7 @@ test("a mid-stream failure preserves the last save, cleans staging, and allows a
   expect((await readdir(directory)).filter((name) => name.includes(".tmp-"))).toEqual([]);
   broker.origins.clear();
   await broker.save();
-  const loaded = new BrowserBroker(home) as unknown as Persistence;
-  await loaded.load();
+  const loaded = await reload();
   expect([...loaded.cookies.values()]).toEqual([cookie]);
 });
 
@@ -189,8 +160,7 @@ test("loads reordered legacy envelopes and rejects truncated or invalid authenti
   await broker.save();
   const packed = JSON.parse(await readFile(path, "utf8"));
   await writeFile(path, JSON.stringify({ data: packed.data, tag: packed.tag, iv: packed.iv }, null, 2));
-  const legacy = new BrowserBroker(home) as unknown as Persistence;
-  await legacy.load();
+  const legacy = await reload();
   expect([...legacy.cookies.values()]).toEqual([cookie]);
   const canonical = JSON.stringify(packed);
   for (const compatible of [
@@ -198,17 +168,16 @@ test("loads reordered legacy envelopes and rejects truncated or invalid authenti
     JSON.stringify({ ...packed, extra: "ignored by legacy readers" }),
   ]) {
     await writeFile(path, compatible);
-    const loaded = new BrowserBroker(home) as unknown as Persistence;
-    await loaded.load();
+    const loaded = await reload();
     expect([...loaded.cookies.values()]).toEqual([cookie]);
   }
   for (const bad of [
     canonical.slice(0, -1),
     JSON.stringify({ ...packed, tag: Buffer.alloc(16).toString("base64") }),
+    JSON.stringify({ ...packed, data: (packed.data[0] === "A" ? "B" : "A") + packed.data.slice(1) }),
   ]) {
     await writeFile(path, bad);
-    const loaded = new BrowserBroker(home) as unknown as Persistence;
-    await loaded.load();
+    const loaded = await reload();
     expect(loaded.cookies.size).toBe(0);
     expect(loaded.origins.size).toBe(0);
   }
@@ -238,8 +207,7 @@ test("overlapping saves publish the latest snapshot after an in-flight older sav
   const newer = broker.save();
   release();
   await Promise.all([older, newer]);
-  const loaded = new BrowserBroker(home) as unknown as Persistence;
-  await loaded.load();
+  const loaded = await reload();
   expect(loaded.origins.get(origin)?.localStorage).toEqual([["value", "new"]]);
 });
 

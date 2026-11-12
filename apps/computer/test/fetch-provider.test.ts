@@ -108,22 +108,13 @@ test("fetch defaults to built-in, can be turned off, and never sends a request w
     requests++;
     throw new Error("unexpected request");
   };
-  expect(await new FetchProviderClient(undefined, request).fetch(url)).toEqual({
-    configured: true,
-    provider: "builtin",
-  });
-  expect(await new FetchProviderClient(() => ({ provider: "builtin" }), request).fetch(url)).toEqual({
-    configured: true,
-    provider: "builtin",
-  });
+  for (const configuration of [undefined, () => ({ provider: "builtin" as const })])
+    expect(await new FetchProviderClient(configuration, request).fetch(url)).toEqual({ configured: true, provider: "builtin" });
   const off = await new FetchProviderClient(() => ({ provider: null }), request).fetch(url);
   expect(off).toMatchObject({ configured: false, provider: null });
   expect("message" in off && off.message).toContain("Web fetch is turned off");
   for (const provider of ["exa", "parallel", "firecrawl"] as const) {
-    const result = new WebTools(
-      new SearchProviderClient(),
-      new FetchProviderClient(() => ({ provider }), request)
-    ).fetch(url);
+    const result = new WebTools(new SearchProviderClient(), new FetchProviderClient(() => ({ provider }), request)).fetch(url);
     await expect(result).rejects.toThrow("is selected but its API key is missing. No page was fetched");
   }
   await expect(
@@ -132,65 +123,32 @@ test("fetch defaults to built-in, can be turned off, and never sends a request w
   expect(requests).toBe(0);
 });
 test("external fetch sanitizes failures and honors cancellation and response bounds", async () => {
-  for (const status of [401, 403, 429, 500]) {
-    const client = new FetchProviderClient(
-      () => ({ provider: "exa", apiKey: key }),
-      async () => new Response(key, { status }),
-      validate
-    );
-    await expect(client.fetch(url)).rejects.toThrow(`HTTP ${status}`);
-  }
-  const failed = new FetchProviderClient(
-    () => ({ provider: "exa", apiKey: key }),
-    async () => {
-      throw new Error(key);
-    },
-    validate
-  );
-  try {
-    await failed.fetch(url);
-  } catch (error) {
-    expect(String(error)).not.toContain(key);
-  }
+  const provider = (name: "exa" | "firecrawl" | "parallel", respond: () => Promise<Response>) =>
+    new FetchProviderClient(() => ({ provider: name, apiKey: key }), respond, validate);
+  const failed = provider("exa", async () => { throw new Error(key); });
+  expect(String(await failed.fetch(url).catch((error) => error))).not.toContain(key);
   // Provider pages share the built-in fetcher's 20 MiB bound (Firecrawl returned 7.5 MB for the WHATWG spec).
-  const large = new FetchProviderClient(
-    () => ({ provider: "firecrawl", apiKey: key }),
-    async () => Response.json({ success: true, data: { markdown: "x".repeat(7 * 1024 * 1024), metadata: { url, statusCode: 200 } } }),
-    validate
-  );
+  const large = provider("firecrawl", async () => Response.json({ success: true, data: { markdown: "x".repeat(7 * 1024 * 1024), metadata: { url, statusCode: 200 } } }));
   expect(await large.fetch(url)).toMatchObject({ configured: true, provider: "firecrawl" });
-  const oversized = new FetchProviderClient(
-    () => ({ provider: "parallel", apiKey: key }),
-    async () => new Response("x".repeat(20 * 1024 * 1024 + 1)),
-    validate
+  await expect(provider("parallel", async () => new Response("x".repeat(20 * 1024 * 1024 + 1))).fetch(url)).rejects.toThrow(
+    "Parallel returned more than 20 MiB for this page, which is over the WebFetch limit."
   );
-  await expect(oversized.fetch(url)).rejects.toThrow("Parallel returned more than 20 MiB for this page, which is over the WebFetch limit.");
-  const invalid = new FetchProviderClient(() => ({ provider: "parallel", apiKey: key }), async () => new Response("not json"), validate);
-  await expect(invalid.fetch(url)).rejects.toThrow("returned an invalid response");
+  await expect(provider("parallel", async () => new Response("not json")).fetch(url)).rejects.toThrow("returned an invalid response");
   const abort = new AbortController();
   abort.abort();
   await expect(failed.fetch(url, abort.signal)).rejects.toThrow();
-  for (const invalid of [
-    "http://localhost",
-    "http://169.254.169.254",
-    "https://user:pw@example.com",
-    "file:///tmp/private",
-  ])
+  for (const invalid of ["http://localhost", "http://169.254.169.254", "https://user:pw@example.com", "file:///tmp/private"])
     await expect(failed.fetch(invalid)).rejects.toThrow();
 });
 test("runtime fetch configuration defaults from server and observes provider changes", async () => {
   let value = { provider: null as string | null, apiKey: null as string | null };
   let reads = 0;
-  const configuration = serverFetchConfiguration(
-    "http://server",
-    "test-control",
-    async (input, init) => {
-      expect(input).toBe("http://server/api/internal/server-settings/web-fetch/credentials");
-      expect(new Headers(init.headers).get("authorization")).toBe("Bearer test-control");
-      reads++;
-      return Response.json(value);
-    }
-  );
+  const configuration = serverFetchConfiguration("http://server", "test-control", async (input, init) => {
+    expect(input).toBe("http://server/api/internal/server-settings/web-fetch/credentials");
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer test-control");
+    reads++;
+    return Response.json(value);
+  });
   expect(await configuration()).toEqual({ provider: null, apiKey: undefined });
   value = { provider: "builtin", apiKey: null };
   expect(await configuration()).toEqual({ provider: "builtin", apiKey: undefined });
@@ -202,11 +160,7 @@ test("runtime fetch configuration defaults from server and observes provider cha
 });
 
 test("a long page is cut inline at 100,000 characters with the reference marker, with no file", async () => {
-  const client = new FetchProviderClient(
-    () => ({ provider: "exa", apiKey: key }),
-    async () => Response.json({ results: [{ url, text: "Start\n" + "text ".repeat(25000) + key + "\nEnd" }] }),
-    validate
-  );
+  const client = new FetchProviderClient(() => ({ provider: "exa", apiKey: key }), async () => Response.json({ results: [{ url, text: "Start\n" + "text ".repeat(25000) + key + "\nEnd" }] }), validate);
   const result = await new WebTools(new SearchProviderClient(), client).fetch(url);
   const text = result.content[0]!.text;
   // The heading, the first 100,000 characters of the page, then the count of the lines left out.

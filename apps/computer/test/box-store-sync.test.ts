@@ -12,25 +12,24 @@ afterEach(async () => {
   root = null;
 });
 
+/** Creates home/sand-data, home/.pi/agent and a workspace under `root/<prefix>`. */
+const layout = async (prefix: string, workspaceName = `${prefix}-workspace`) => {
+  const home = join(root!, `${prefix}-home`);
+  const sandRoot = join(home, "sand-data");
+  const workspaceRoot = join(root!, workspaceName);
+  await Promise.all([mkdir(sandRoot, { recursive: true }), mkdir(join(home, ".pi", "agent"), { recursive: true }), mkdir(workspaceRoot, { recursive: true })]);
+  return { home, sandRoot, workspaceRoot };
+};
+const blob = async (manifest: BoxStoreManifest, path: string) =>
+  readFile(join(root!, "store", "blobs", manifest.files.find((file) => file.path === path)!.sha256), "utf8");
+
 describe("OpenTeam-compatible box-store synchronization", () => {
   test("stat reuse detects same-size content changes even when mtime is restored", async () => {
     root = await mkdtemp(join(tmpdir(), "openteam-box-store-signature-safety-"));
-    const home = join(root, "home");
-    const sandRoot = join(home, "sand-data");
-    const workspaceRoot = join(root, "workspace");
-    const path = join(workspaceRoot, "same-size.txt");
-    await Promise.all([
-      mkdir(sandRoot, { recursive: true }),
-      mkdir(join(home, ".pi", "agent"), { recursive: true }),
-      mkdir(workspaceRoot, { recursive: true }),
-    ]);
+    const dirs = await layout("source");
+    const path = join(dirs.workspaceRoot, "same-size.txt");
     await writeFile(path, "aaaa");
-    const sync = new BoxStoreSync({
-      storeRoot: join(root, "replica"),
-      home,
-      sandRoot,
-      workspaceRoot,
-    });
+    const sync = new BoxStoreSync({ storeRoot: join(root, "replica"), ...dirs });
     const before = await sync.snapshotOut();
     const beforeStats = await stat(path);
     await writeFile(path, "bbbb");
@@ -43,151 +42,73 @@ describe("OpenTeam-compatible box-store synchronization", () => {
   test("coalesces a burst during an active snapshot into one merged rerun", async () => {
     root = await mkdtemp(join(tmpdir(), "openteam-box-store-coalescing-"));
     let signalStarted: (() => void) | undefined;
-    const started = new Promise<void>((resolve) => {
-      signalStarted = resolve;
-    });
+    const started = new Promise<void>((resolve) => (signalStarted = resolve));
     let releaseFirst: (() => void) | undefined;
-    const firstGate = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
+    const firstGate = new Promise<void>((resolve) => (releaseFirst = resolve));
     class ControlledSync extends BoxStoreSync {
       readonly hints: BoxStoreDirtyHint[] = [];
 
-      override async snapshotOut(
-        hint: BoxStoreDirtyHint = { all: true }
-      ): Promise<BoxStoreManifest> {
+      override async snapshotOut(hint: BoxStoreDirtyHint = { all: true }): Promise<BoxStoreManifest> {
         this.hints.push(hint);
         if (this.hints.length === 1) {
           signalStarted?.();
           await firstGate;
         }
-        return {
-          version: 1,
-          revision: this.hints.length,
-          generatedAt: new Date(0).toISOString(),
-          files: [],
-          tombstones: [],
-          etag: `run-${this.hints.length}`,
-        };
+        return { version: 1, revision: this.hints.length, generatedAt: new Date(0).toISOString(), files: [], tombstones: [], etag: `run-${this.hints.length}` };
       }
     }
     const sync = new ControlledSync({ storeRoot: join(root, "replica") });
     sync.scheduleSnapshot(0, { workspace: true });
     await started;
     for (let index = 0; index < 100; index += 1) {
-      sync.scheduleSnapshot(0, {
-        agentIds: [index % 2 === 0 ? "agent-a" : "agent-b"],
-        pi: true,
-        chrome: true,
-      });
+      sync.scheduleSnapshot(0, { agentIds: [index % 2 === 0 ? "agent-a" : "agent-b"], pi: true, chrome: true });
     }
     releaseFirst?.();
     await sync.flushScheduledSnapshots();
 
     expect(sync.hints).toHaveLength(2);
     expect(sync.hints[0]).toMatchObject({ workspace: true });
-    expect(sync.hints[1]).toMatchObject({
-      all: false,
-      agentIds: ["agent-a", "agent-b"],
-      pi: true,
-      chrome: true,
-    });
-    expect(sync.diagnostics()).toMatchObject({
-      scheduledRequests: 101,
-      coalescedRequests: 100,
-    });
+    expect(sync.hints[1]).toMatchObject({ all: false, agentIds: ["agent-a", "agent-b"], pi: true, chrome: true });
+    expect(sync.diagnostics()).toMatchObject({ scheduledRequests: 101, coalescedRequests: 100 });
   });
 
   test("snapshots WAL databases with VACUUM and hydrates by hash without pruning extras", async () => {
     root = await mkdtemp(join(tmpdir(), "openteam-box-store-"));
-    const sourceHome = join(root, "source-home");
-    const sourceSand = join(sourceHome, "sand-data");
-    const sourceWorkspace = join(root, "source-workspace");
     const replica = join(root, "replica");
-    await Promise.all([
-      mkdir(join(sourceSand, "agents", "probe"), { recursive: true }),
-      mkdir(join(sourceHome, ".pi", "agent"), { recursive: true }),
-      mkdir(sourceWorkspace, { recursive: true }),
-    ]);
-    await writeFile(join(sourceSand, "agents", "probe", "profile.json"), "source-profile\n");
-    await writeFile(join(sourceWorkspace, "workspace.txt"), "workspace-source\n");
-
-    const databasePath = join(sourceSand, "agents", "probe", "store.db");
-    const database = new Database(databasePath, { create: true });
+    const sourceDirs = await layout("source");
+    await mkdir(join(sourceDirs.sandRoot, "agents", "probe"), { recursive: true });
+    await writeFile(join(sourceDirs.sandRoot, "agents", "probe", "profile.json"), "source-profile\n");
+    await writeFile(join(sourceDirs.workspaceRoot, "workspace.txt"), "workspace-source\n");
+    const database = new Database(join(sourceDirs.sandRoot, "agents", "probe", "store.db"), { create: true });
     database.exec("PRAGMA journal_mode=WAL; CREATE TABLE values_table(value TEXT) STRICT");
     database.query("INSERT INTO values_table(value) VALUES (?)").run("wal-visible");
 
-    const source = new BoxStoreSync({
-      storeRoot: replica,
-      home: sourceHome,
-      sandRoot: sourceSand,
-      workspaceRoot: sourceWorkspace,
-    });
+    const source = new BoxStoreSync({ storeRoot: replica, ...sourceDirs });
     const manifest = await source.snapshotOut();
-    expect(manifest.revision).toBe(1);
     expect(manifest.files.some(({ path }) => path.endsWith("store.db-wal"))).toBeFalse();
-    const storeEntry = manifest.files.find(({ path }) => path.endsWith("/store.db"));
-    expect(storeEntry).toBeDefined();
-    const metricsAfterFirst = source.diagnostics();
-    const unchanged = await source.snapshotOut();
-    const metricsAfterUnchanged = source.diagnostics();
-    expect(unchanged.revision).toBe(2);
-    expect(metricsAfterUnchanged.sourceFilesRead).toBe(metricsAfterFirst.sourceFilesRead);
-    expect(metricsAfterUnchanged.contentHashes).toBe(metricsAfterFirst.contentHashes);
-    expect(metricsAfterUnchanged.sqliteVacuums).toBe(metricsAfterFirst.sqliteVacuums);
-    expect(metricsAfterUnchanged.signatureReuses - metricsAfterFirst.signatureReuses).toBe(
-      manifest.files.length
-    );
-    const restartedSource = new BoxStoreSync({
-      storeRoot: replica,
-      home: sourceHome,
-      sandRoot: sourceSand,
-      workspaceRoot: sourceWorkspace,
-    });
+    const storeHash = manifest.files.find(({ path }) => path.endsWith("/store.db"))!.sha256;
+    const first = source.diagnostics();
+    await source.snapshotOut();
+    // An unchanged tree, even after a restart, is reused from stat signatures alone.
+    expect(source.diagnostics()).toMatchObject({ sourceFilesRead: first.sourceFilesRead, contentHashes: first.contentHashes, sqliteVacuums: first.sqliteVacuums });
+    const restartedSource = new BoxStoreSync({ storeRoot: replica, ...sourceDirs });
     await restartedSource.snapshotOut();
-    expect(restartedSource.diagnostics()).toMatchObject({
-      sourceFilesRead: 0,
-      contentHashes: 0,
-      sqliteVacuums: 0,
-      signatureReuses: manifest.files.length,
-    });
+    expect(restartedSource.diagnostics()).toMatchObject({ sourceFilesRead: 0, contentHashes: 0, sqliteVacuums: 0, signatureReuses: manifest.files.length });
     database.query("INSERT INTO values_table(value) VALUES (?)").run("wal-changed");
-    const changed = await source.snapshotOut();
-    expect(changed.files.find(({ path }) => path.endsWith("/store.db"))?.sha256).not.toBe(
-      storeEntry?.sha256
-    );
-    expect(source.diagnostics().sqliteVacuums).toBe(metricsAfterFirst.sqliteVacuums + 1);
+    expect((await source.snapshotOut()).files.find(({ path }) => path.endsWith("/store.db"))?.sha256).not.toBe(storeHash);
     database.close(false);
 
-    const targetHome = join(root, "target-home");
-    const targetSand = join(targetHome, "sand-data");
-    const targetWorkspace = join(root, "target-workspace");
-    await Promise.all([
-      mkdir(join(targetSand, "agents", "probe"), { recursive: true }),
-      mkdir(targetWorkspace, { recursive: true }),
-    ]);
-    await writeFile(join(targetSand, "agents", "probe", "profile.json"), "stale-profile\n");
-    await writeFile(join(targetSand, "local-extra.txt"), "keep-local\n");
-
-    const target = new BoxStoreSync({
-      storeRoot: replica,
-      home: targetHome,
-      sandRoot: targetSand,
-      workspaceRoot: targetWorkspace,
-    });
+    const targetDirs = await layout("target");
+    await mkdir(join(targetDirs.sandRoot, "agents", "probe"), { recursive: true });
+    await writeFile(join(targetDirs.sandRoot, "agents", "probe", "profile.json"), "stale-profile\n");
+    await writeFile(join(targetDirs.sandRoot, "local-extra.txt"), "keep-local\n");
+    const target = new BoxStoreSync({ storeRoot: replica, ...targetDirs });
     expect(await target.copyIn()).toMatchObject({ copied: manifest.files.length, skipped: 0 });
-    expect(await readFile(join(targetSand, "agents", "probe", "profile.json"), "utf8")).toBe(
-      "source-profile\n"
-    );
-    expect(await readFile(join(targetSand, "local-extra.txt"), "utf8")).toBe("keep-local\n");
-
-    const restored = new Database(join(targetSand, "agents", "probe", "store.db"), {
-      readonly: true,
-    });
+    expect(await readFile(join(targetDirs.sandRoot, "agents", "probe", "profile.json"), "utf8")).toBe("source-profile\n");
+    expect(await readFile(join(targetDirs.sandRoot, "local-extra.txt"), "utf8")).toBe("keep-local\n");
+    const restored = new Database(join(targetDirs.sandRoot, "agents", "probe", "store.db"), { readonly: true });
     try {
-      expect(restored.query("SELECT value FROM values_table").get()).toEqual({
-        value: "wal-visible",
-      });
+      expect(restored.query("SELECT value FROM values_table").get()).toEqual({ value: "wal-visible" });
     } finally {
       restored.close(false);
     }
@@ -196,91 +117,36 @@ describe("OpenTeam-compatible box-store synchronization", () => {
 
   test("propagates tombstones, recursively repairs transfer temps, and refuses live DB clobbers", async () => {
     root = await mkdtemp(join(tmpdir(), "openteam-box-store-recovery-"));
-    const sourceHome = join(root, "source-home");
-    const sourceSand = join(sourceHome, "sand-data");
-    const sourceWorkspace = join(root, "source-workspace");
     const replica = join(root, "replica");
-    const agentDirectory = join(sourceSand, "agents", "probe");
-    await Promise.all([
-      mkdir(join(sourceHome, ".pi", "agent"), { recursive: true }),
-      mkdir(sourceWorkspace, { recursive: true }),
-      mkdir(agentDirectory, { recursive: true }),
-    ]);
+    const sourceDirs = await layout("source");
+    const agentDirectory = join(sourceDirs.sandRoot, "agents", "probe");
+    await mkdir(agentDirectory, { recursive: true });
     await writeFile(join(agentDirectory, "profile.json"), "first\n");
     const database = new Database(join(agentDirectory, "store.db"), { create: true });
     database.exec("CREATE TABLE value_table(value TEXT) STRICT");
-    database.query("INSERT INTO value_table(value) VALUES (?)").run("source");
     database.close(false);
-
-    const source = new BoxStoreSync({
-      storeRoot: replica,
-      home: sourceHome,
-      sandRoot: sourceSand,
-      workspaceRoot: sourceWorkspace,
-    });
+    const source = new BoxStoreSync({ storeRoot: replica, ...sourceDirs });
     await source.snapshotOut();
     await rm(join(agentDirectory, "profile.json"));
-    const deletedManifest = await source.snapshotOut();
-    expect(
-      deletedManifest.tombstones?.some(({ path }) => path.endsWith("/profile.json"))
-    ).toBeTrue();
+    expect((await source.snapshotOut()).tombstones?.some(({ path }) => path.endsWith("/profile.json"))).toBeTrue();
 
-    const targetHome = join(root, "target-home");
-    const targetSand = join(targetHome, "sand-data");
-    const targetWorkspace = join(root, "target-workspace");
-    await Promise.all([
-      mkdir(join(targetSand, "agents", "probe", "nested"), { recursive: true }),
-      mkdir(targetWorkspace, { recursive: true }),
-      mkdir(join(targetHome, ".pi", "agent"), { recursive: true }),
-      mkdir(join(targetHome, "unrelated-cache", "deep"), { recursive: true }),
-      mkdir(join(targetWorkspace, ".git", "objects"), { recursive: true }),
-    ]);
-    await writeFile(join(targetSand, "agents", "probe", "profile.json"), "must-delete\n");
-    await writeFile(
-      join(targetSand, "agents", "probe", "nested", ".box-store-part-leaked"),
-      "partial"
-    );
-    await writeFile(join(replica, ".box-store-part-manifest-leaked"), "partial manifest");
-    await writeFile(
-      join(targetHome, "unrelated-cache", "deep", ".box-store-part-unrelated"),
-      "not a snapshot source"
-    );
-    await writeFile(
-      join(targetWorkspace, ".git", "objects", ".box-store-part-git-cache"),
-      "excluded source cache"
-    );
-    const target = new BoxStoreSync({
-      storeRoot: replica,
-      home: targetHome,
-      sandRoot: targetSand,
-      workspaceRoot: targetWorkspace,
-    });
+    const targetDirs = await layout("target");
+    const { home: targetHome, sandRoot: targetSand, workspaceRoot: targetWorkspace } = targetDirs;
+    const removed = [join(targetSand, "agents", "probe", "profile.json"), join(targetSand, "agents", "probe", "nested", ".box-store-part-leaked"), join(replica, ".box-store-part-manifest-leaked")];
+    const untouched = [join(targetHome, "unrelated-cache", "deep", ".box-store-part-unrelated"), join(targetWorkspace, ".git", "objects", ".box-store-part-git-cache")];
+    for (const path of [...removed, ...untouched]) {
+      await mkdir(join(path, ".."), { recursive: true });
+      await writeFile(path, path);
+    }
+    const target = new BoxStoreSync({ storeRoot: replica, ...targetDirs });
     await target.start();
     await target.copyIn();
-    await expect(readFile(join(targetSand, "agents", "probe", "profile.json"))).rejects.toThrow();
-    await expect(
-      readFile(join(targetSand, "agents", "probe", "nested", ".box-store-part-leaked"))
-    ).rejects.toThrow();
-    await expect(readFile(join(replica, ".box-store-part-manifest-leaked"))).rejects.toThrow();
-    expect(
-      await readFile(
-        join(targetHome, "unrelated-cache", "deep", ".box-store-part-unrelated"),
-        "utf8"
-      )
-    ).toBe("not a snapshot source");
-    expect(
-      await readFile(join(targetWorkspace, ".git", "objects", ".box-store-part-git-cache"), "utf8")
-    ).toBe("excluded source cache");
+    for (const path of removed) await expect(readFile(path)).rejects.toThrow();
+    for (const path of untouched) expect(await readFile(path, "utf8")).toBe(path);
     expect(target.diagnostics().repairDirectoriesVisited).toBeLessThan(10);
 
     await writeFile(join(targetSand, "agents", "probe", "store.db"), "different bytes");
-    const liveTarget = new BoxStoreSync({
-      storeRoot: replica,
-      home: targetHome,
-      sandRoot: targetSand,
-      workspaceRoot: targetWorkspace,
-      hasLiveAgentHandle: (id) => id === "probe",
-    });
+    const liveTarget = new BoxStoreSync({ storeRoot: replica, ...targetDirs, hasLiveAgentHandle: (id) => id === "probe" });
     await expect(liveTarget.copyIn()).rejects.toThrow("live-agent");
   });
 
@@ -327,10 +193,7 @@ describe("OpenTeam-compatible box-store synchronization", () => {
     const preferences = join(profile, "Default", "Preferences");
     const note = join(workspaceRoot, "note.txt");
     const sync = new BoxStoreSync({ storeRoot: join(root, "store"), home, sandRoot, workspaceRoot });
-    const hash = (manifest: BoxStoreManifest, path: string) =>
-      manifest.files.find((file) => file.path === path)?.sha256;
-    const saved = async (manifest: BoxStoreManifest, path: string) =>
-      (await readFile(join(root!, "store", "blobs", hash(manifest, path)!), "utf8"));
+    const saved = blob;
     const profilePath = "home/box/chrome-profile/Default/Preferences";
 
     await writeFile(preferences, "v1");
@@ -353,13 +216,7 @@ describe("OpenTeam-compatible box-store synchronization", () => {
     await rm(join(profile, "SingletonLock"));
     expect(await saved(await sync.snapshotOut(), profilePath)).toBe("v4");
 
-    const shortInterval = new BoxStoreSync({
-      storeRoot: join(root, "store"),
-      home,
-      sandRoot,
-      workspaceRoot,
-      chromeProfileIntervalMs: 1_000,
-    });
+    const shortInterval = new BoxStoreSync({ storeRoot: join(root, "store"), home, sandRoot, workspaceRoot, chromeProfileIntervalMs: 1_000 });
     await symlink("openteam-1234", join(profile, "SingletonLock"));
     await shortInterval.snapshotOut();
     await writeFile(preferences, "v5");
@@ -384,8 +241,7 @@ describe("OpenTeam-compatible box-store synchronization", () => {
     }
     const write = (path: string, value: string) => writeFile(join(home, path.slice("home/box/".length)), value);
     const sync = new BoxStoreSync({ storeRoot: join(root, "store"), home, sandRoot, workspaceRoot });
-    const saved = async (manifest: BoxStoreManifest, path: string) =>
-      readFile(join(root!, "store", "blobs", manifest.files.find((file) => file.path === path)!.sha256), "utf8");
+    const saved = blob;
 
     await write(used, "v1");
     await write(idle, "v1");

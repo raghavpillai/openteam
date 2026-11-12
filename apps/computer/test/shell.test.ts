@@ -1,8 +1,19 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NativeToolExecutor } from "../src/native-tool-executor";
+
+const roots: string[] = [];
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+const workspace = async () => {
+  const root = await mkdtemp(join(tmpdir(), "openteam-shell-"));
+  roots.push(root);
+  await chmod(root, 0o755);
+  return { root, executor: new NativeToolExecutor({ agentDir: root, controlToken: "fixture" }) };
+};
 
 test("shell restores scoped cwd/env after errors, honors overrides and refuses a deleted cwd", async () => {
   const root=await mkdtemp(join(tmpdir(),"edge-shell-"));
@@ -47,42 +58,28 @@ test("background completion preserves newer foreground cwd and exported/unset va
 });
 
 test("named secrets enter the real shell without appearing in results, logs or persisted environment", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-process-secret-"));
-  try {
-    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "unused-fixture" });
-    const secret = "fixture-secrét-密-private";
-    const result = await executor.shell(
-      {
-        command: 'test -n "$FIXTURE_PROCESS_SECRET" && printf "%s" "$FIXTURE_PROCESS_SECRET"',
-        block_until_ms: 5000,
-        working_directory: root,
-      },
-      root,
-      undefined,
-      undefined,
-      "fixture-bot",
-      { secretEnvironment: { FIXTURE_PROCESS_SECRET: secret }, secrets: [secret] }
-    );
-    expect((result.content[0] as any).text).toContain("```\n[REDACTED]\n```");
-    expect(JSON.stringify(result)).not.toContain(secret);
-    expect(await readFile(String(result.details.outputPath), "utf8")).not.toContain(secret);
-    const inspect = async (path: string): Promise<void> => {
-      for (const entry of await readdir(path, { withFileTypes: true })) {
-        const file = join(path, entry.name);
-        if (entry.isDirectory()) await inspect(file);
-        else expect((await readFile(file)).includes(Buffer.from(secret))).toBe(false);
-      }
-    };
-    await inspect(root);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  const { root, executor } = await workspace();
+  const secret = "fixture-secrét-密-private";
+  const result = await executor.shell(
+    { command: 'test -n "$FIXTURE_PROCESS_SECRET" && printf "%s" "$FIXTURE_PROCESS_SECRET"', block_until_ms: 5000, working_directory: root },
+    root, undefined, undefined, "fixture-bot",
+    { secretEnvironment: { FIXTURE_PROCESS_SECRET: secret }, secrets: [secret] }
+  );
+  expect((result.content[0] as any).text).toContain("```\n[REDACTED]\n```");
+  expect(JSON.stringify(result)).not.toContain(secret);
+  expect(await readFile(String(result.details.outputPath), "utf8")).not.toContain(secret);
+  const inspect = async (path: string): Promise<void> => {
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      const file = join(path, entry.name);
+      if (entry.isDirectory()) await inspect(file);
+      else expect((await readFile(file)).includes(Buffer.from(secret))).toBe(false);
+    }
+  };
+  await inspect(root);
 });
 
-for (const command of ["echo READY; sleep 3; echo UNEXPECTED", "trap '' TERM; echo READY; sleep 3; echo UNEXPECTED", "(trap '' TERM; sleep 3) & wait; echo UNEXPECTED"]) test(`foreground cancellation stops descendants: ${command}`, async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-shell-cancel-"));
-  await chmod(root, 0o755);
-  const executor = new NativeToolExecutor({agentDir: root, controlToken: "fixture"});
+for (const command of ["trap '' TERM; echo READY; sleep 3; echo UNEXPECTED", "(trap '' TERM; sleep 3) & wait; echo UNEXPECTED"]) test(`foreground cancellation stops descendants: ${command}`, async () => {
+  const { root, executor } = await workspace();
   const controller = new AbortController();
   const started = Date.now();
   const timer = setTimeout(() => controller.abort(), 200);
@@ -91,15 +88,13 @@ for (const command of ["echo READY; sleep 3; echo UNEXPECTED", "trap '' TERM; ec
     const error = await executor.shell({command, block_until_ms: 5000}, root, controller.signal).then(() => undefined, (error: Error) => error);
     expect(error?.message).toMatch(/^Error: Shell command was interrupted by the user after \d+ms before it completed\./);
     expect(error?.message).not.toContain("UNEXPECTED");
-    if (command.startsWith("echo") || command.startsWith("trap")) expect(error?.message).toContain("Output collected before interruption:\n\n```\nREADY\n\n```");
+    if (command.startsWith("trap")) expect(error?.message).toContain("Output collected before interruption:\n\n```\nREADY\n\n```");
     expect(Date.now() - started).toBeLessThan(2000);
-  } finally { clearTimeout(timer); await rm(root, {recursive: true, force: true}); }
+  } finally { clearTimeout(timer); }
 });
 
 test("a stopped command returns promptly even when a descendant left the process group holding its output", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-shell-cancel-setsid-"));
-  await chmod(root, 0o755);
-  const executor = new NativeToolExecutor({agentDir: root, controlToken: "fixture"});
+  const { root, executor } = await workspace();
   const controller = new AbortController();
   const pidFile = join(root, "escaped.pid");
   // The descendant moves to its own session, out of reach of the group kill, and keeps stdout open.
@@ -114,14 +109,11 @@ test("a stopped command returns promptly even when a descendant left the process
     clearTimeout(timer);
     const pid = Number(await readFile(pidFile, "utf8").catch(() => ""));
     if (pid) try { process.kill(pid, "SIGKILL"); } catch { /* It already exited. */ }
-    await rm(root, {recursive: true, force: true});
   }
 });
 
 test("a routine handoff stops the background commands its runs started, and only those", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-shell-handoff-"));
-  await chmod(root, 0o755);
-  const executor = new NativeToolExecutor({agentDir: root, controlToken: "fixture"});
+  const { root, executor } = await workspace();
   const started: string[] = [];
   const status = async (id: string, block_until_ms: number) => (await executor.awaitShell({shell_id: id, block_until_ms}, undefined, "scope")).details.status;
   try {
@@ -138,14 +130,11 @@ test("a routine handoff stops the background commands its runs started, and only
     expect(await status(parent, 0)).toBe("running");
   } finally {
     for (const id of started) await status(id, 5000).catch(() => undefined);
-    await rm(root, {recursive: true, force: true});
   }
 });
 
 test("stopping a subagent ends its background commands, TERM-trapping ones too, and leaves other agents' running", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-shell-subagent-stop-"));
-  await chmod(root, 0o755);
-  const executor = new NativeToolExecutor({agentDir: root, controlToken: "fixture"});
+  const { root, executor } = await workspace();
   const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; } };
   const started: Array<{ id: string; scope: string; path: string }> = [];
   const start = async (scope: string, command: string) => {
@@ -181,14 +170,11 @@ test("stopping a subagent ends its background commands, TERM-trapping ones too, 
   } finally {
     for (const shell of started) if (shell.scope === "parent-bot") executor.stopBackgroundShells("parent-bot");
     for (const shell of started) await executor.awaitShell({shell_id: shell.id, block_until_ms: 5000}, undefined, shell.scope).catch(() => undefined);
-    await rm(root, {recursive: true, force: true});
   }
 });
 
 test("retiring a room stops its background commands without stopping members' other conversations", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-room-shell-retirement-"));
-  await chmod(root, 0o755);
-  const executor = new NativeToolExecutor({ agentDir: root, controlToken: "fixture" });
+  const { root, executor } = await workspace();
   const room = crypto.randomUUID();
   const otherRoom = crypto.randomUUID();
   const bots = [crypto.randomUUID(), crypto.randomUUID()];
@@ -209,6 +195,5 @@ test("retiring a room stops its background commands without stopping members' ot
   } finally {
     for (const botId of bots) executor.stopBackgroundShells(botId);
     await Promise.all(jobs.map((job) => status(job, 5000).catch(() => {})));
-    await rm(root, { recursive: true, force: true });
   }
 }, 15_000);

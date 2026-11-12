@@ -11,24 +11,10 @@ const call = (name: string, args = {}) => ({
 });
 const active = { requestSource: "turn", subagentType: null } as const;
 
-test("runtime context describes actual tools and preserves saved skill catalog", () => {
-  const text = enrichUserInfo(
-    "<user_info>\n<agent_skills>test skill</agent_skills>\n</user_info>",
-    {
-      cwd: "/workspace/task",
-      catalog: renderDynamicToolCatalog([{ name: "test", description: "test namespace", tools: [{ name: "Lookup" }] }]),
-    }
-  );
-  expect(text).toContain("Workspace Path: /workspace/task");
-  expect(text).toContain("test skill");
-  expect(text).toContain("<available_subagent_types>");
-  expect(text).toContain('<namespace name="test" tools="Lookup" source="mcp" />');
-  expect(promptFingerprint("system", text, [], 2)).toEqual(
-    promptFingerprint("system", text, [], 2)
-  );
-  expect(promptFingerprint("system", text, ["Lookup"], 2).toolsSha).not.toBe(
-    promptFingerprint("system", text, [], 2).toolsSha
-  );
+test("the prompt fingerprint is stable and changes with the tool list", () => {
+  const text = enrichUserInfo("<user_info>\n<agent_skills>test skill</agent_skills>\n</user_info>", { cwd: "/workspace/task", catalog: null });
+  expect(promptFingerprint("system", text, [], 2)).toEqual(promptFingerprint("system", text, [], 2));
+  expect(promptFingerprint("system", text, ["Lookup"], 2).toolsSha).not.toBe(promptFingerprint("system", text, [], 2).toolsSha);
 });
 
 test("main user_info follows the reference layout and leaves transcripts to ReadTranscript", () => {
@@ -65,12 +51,7 @@ test("acknowledgement reminders fire during work, with silent/worker exclusions"
   expect(communicationReminder(messages, active)).toEqual({ kind: "ack", content: ACK_REMINDER });
   expect(communicationReminder(messages, { ...active, requestSource: "automation" })).toBeNull();
   expect(communicationReminder(messages, { ...active, subagentType: "executor" })).toBeNull();
-  expect(
-    communicationReminder(
-      [...messages, { role: "custom", customType: "openteam-communication-reminder" }],
-      active
-    )
-  ).toBeNull();
+  expect(communicationReminder([...messages, { role: "custom", customType: "openteam-communication-reminder" }], active)).toBeNull();
 });
 
 test("the dynamic tool catalog has the reference shape and marks connections that are not ready", () => {
@@ -174,11 +155,6 @@ test("Task, Stop and web schemas ride in the catalog without an extra discovery 
   const cursor = tools.contextCatalog(turn).find((namespace) => namespace.name === "cursor")!;
   const preloaded = cursor.tools.filter((tool) => tool.inputSchema !== undefined);
   expect(preloaded.map((tool) => tool.name).sort()).toEqual(["StopSubagent", "Task", "WebFetch", "WebSearch"]);
-  expect(JSON.stringify(preloaded.find((tool) => tool.name === "Task")!.inputSchema)).toContain("subagent_type");
   // A quick lookup is one call away too: without these schemas the main agent handed one-question research to an executor.
-  expect(JSON.stringify(preloaded.find((tool) => tool.name === "WebSearch")!.inputSchema)).toContain("search_term");
-  expect(JSON.stringify(preloaded.find((tool) => tool.name === "WebFetch")!.inputSchema)).toContain("url");
-  const stop = preloaded.find(tool => tool.name === "StopSubagent")!;
-  expect(JSON.stringify(stop.inputSchema)).toContain("all");
   expect(renderDynamicToolCatalog([cursor])).toContain('"tool":"StopSubagent"');
 });

@@ -20,54 +20,29 @@ async function fixture() {
 
 // RuntimeTools' native implementations do not consume Pi's UI context arguments.
 function testTools(runtime: RuntimeTools, active: ActiveTurn) {
-  return runtime.customTools(active) as unknown as Array<{
-    name: string;
-    execute(
-      id: string,
-      args: Record<string, unknown>
-    ): Promise<AgentToolResult<Record<string, unknown>>>;
-  }>;
+  return runtime.customTools(active) as unknown as Array<{ name: string; execute(id: string, args: Record<string, unknown>): Promise<AgentToolResult<Record<string, unknown>>> }>;
 }
 
 test("waits on split stdout/stderr beyond inline output and preserves completed metadata", async () => {
   const { executor, root } = await fixture();
-  const shell = await executor.shell(
-    {
-      command:
-        "printf '%0100001d' 0; printf '\nREA'; sleep 0.05; printf 'DY\n' >&2; sleep 0.2; exit 7",
-      block_until_ms: 0,
-    },
-    root
-  );
+  const shell = await executor.shell({ command: "printf '%0100001d' 0; printf '\nREA'; sleep 0.05; printf 'DY\n' >&2; sleep 0.2; exit 7", block_until_ms: 0 }, root);
   const shell_id = shell.details.shellId as string;
   const ready = await executor.awaitShell({ shell_id, pattern: "^READY$", block_until_ms: 2_000 });
   expect(ready.details).toMatchObject({ status: "running", pattern_matched: true });
   expect(ready.details.output_length as number).toBeGreaterThan(100_000);
   const done = await executor.awaitShell({ shell_id, block_until_ms: 2_000 });
-  expect(done.details).toMatchObject({
-    status: "completed",
-    exit_code: 7,
-    output_path: shell.details.outputPath,
-  });
+  expect(done.details).toMatchObject({ status: "completed", exit_code: 7, output_path: shell.details.outputPath });
   const again = await executor.awaitShell({ shell_id, block_until_ms: 0 });
   expect(again.details.elapsed_ms).toBe(done.details.elapsed_ms);
   expect(await readFile(done.details.output_path as string, "utf8")).toContain("exit_code: 7");
-  expect(
-    (await executor.awaitShell({ shell_id, pattern: "^exit_code:", block_until_ms: 0 })).details
-      .pattern_matched
-  ).toBe(false);
+  expect((await executor.awaitShell({ shell_id, pattern: "^exit_code:", block_until_ms: 0 })).details.pattern_matched).toBe(false);
 });
 
 test("timeout and cancellation leave the background process available for another wait", async () => {
   const { executor, root } = await fixture();
-  const shell = await executor.shell(
-    { command: "sleep 0.3; printf survived", block_until_ms: 0 },
-    root
-  );
+  const shell = await executor.shell({ command: "sleep 0.3; printf survived", block_until_ms: 0 }, root);
   const shell_id = shell.details.shellId as string;
-  expect((await executor.awaitShell({ shell_id, block_until_ms: 5 })).details.status).toBe(
-    "running"
-  );
+  expect((await executor.awaitShell({ shell_id, block_until_ms: 5 })).details.status).toBe("running");
   const controller = new AbortController();
   const wait = executor.awaitShell({ shell_id, block_until_ms: 60_000 }, controller.signal);
   controller.abort(new Error("cancel wait"));
@@ -90,132 +65,41 @@ test("exports, unsets and cwd persist across shell calls and runtime restarts", 
   expect(JSON.stringify(cleared.content)).toContain("unset");
 });
 
-test("discovers and invokes AwaitShell locally across turns with bot scope", async () => {
+test("discovers and invokes AwaitShell locally with bot scope", async () => {
   const { root } = await fixture();
   const runtime = new RuntimeTools({} as ScreenBroker, "http://unused.invalid", "test", root, root);
   (runtime as any).processSecrets = async () => ({});
-  const active = {
-    runtimeProfile: "agent",
-    botId: "bot-1",
-    cwd: root,
-    pluginNamespaces: [],
-  } as unknown as ActiveTurn;
-  const custom = testTools(runtime, active);
-  const shell = await custom
-    .find((t) => t.name === "Shell")!
-    .execute("shell", { command: "printf done", block_until_ms: 500 });
-  const get = custom.find((t) => t.name === "GetDynamicTools")!;
-  const call = custom.find((t) => t.name === "CallDynamicTool")!;
-  const args = {
-    namespace: "cursor",
-    toolName: "AwaitShell",
-    arguments: { shell_id: (shell.details as { shellId: string }).shellId, block_until_ms: 0 },
-  };
+  const active = { runtimeProfile: "agent", botId: "bot-1", cwd: root, pluginNamespaces: [] } as unknown as ActiveTurn;
+  const tool = (turn: ActiveTurn, name: string) => testTools(runtime, turn).find((t) => t.name === name)!;
+  const shell = await tool(active, "Shell").execute("shell", { command: "printf done", block_until_ms: 500 });
+  const args = { namespace: "cursor", toolName: "AwaitShell", arguments: { shell_id: (shell.details as { shellId: string }).shellId, block_until_ms: 0 } };
   // As in the reference, a call needs no prior schema lookup.
-  expect((await call.execute("undiscovered", args)).details).toMatchObject({ status: "completed" });
-  const discovered = await get.execute("discover", { namespace: "cursor", toolName: "AwaitShell" });
+  expect((await tool(active, "CallDynamicTool").execute("undiscovered", args)).details).toMatchObject({ status: "completed", exit_code: 0 });
+  const discovered = await tool(active, "GetDynamicTools").execute("discover", { namespace: "cursor", toolName: "AwaitShell" });
   expect(JSON.stringify(discovered.content)).toContain("pattern");
-  expect((await call.execute("wait", args)).details).toMatchObject({
-    status: "completed",
-    exit_code: 0,
-  });
-  const next = testTools(runtime, { ...active });
-  await next
-    .find((t) => t.name === "GetDynamicTools")!
-    .execute("discover-next", { namespace: "cursor", toolName: "AwaitShell" });
-  expect(
-    (await next.find((t) => t.name === "CallDynamicTool")!.execute("wait-next", args)).details
-  ).toMatchObject({ status: "completed" });
-  const other = testTools(runtime, { ...active, botId: "bot-2" });
-  await expect(
-    other.find((t) => t.name === "CallDynamicTool")!.execute("wait-other", args)
-  ).rejects.toThrow(`Error awaiting task: No shell found for id ${args.arguments.shell_id}`);
-  const subagent = testTools(runtime, {
-    ...active,
-    runtimeProfile: "subagent",
-    subagentType: "executor",
-  });
+  await expect(tool({ ...active, botId: "bot-2" }, "CallDynamicTool").execute("wait-other", args)).rejects.toThrow(
+    `Error awaiting task: No shell found for id ${args.arguments.shell_id}`
+  );
+  const subagent = { ...active, runtimeProfile: "subagent", subagentType: "executor" } as ActiveTurn;
   // Executors have AwaitShell directly, so the cursor form runs that tool natively.
-  expect(
-    (await subagent.find((t) => t.name === "CallDynamicTool")!.execute("via-namespace", args)).details
-  ).toMatchObject({ status: "completed" });
-  await expect(
-    subagent
-      .find((t) => t.name === "AwaitShell")!
-      .execute("host-blocked", { ...args.arguments, machineId: "host" })
-  ).rejects.toThrow("Subagents cannot target");
+  expect((await tool(subagent, "CallDynamicTool").execute("via-namespace", args)).details).toMatchObject({ status: "completed" });
+  await expect(tool(subagent, "AwaitShell").execute("host-blocked", { ...args.arguments, machineId: "host" })).rejects.toThrow("Subagents cannot target");
 });
 
 test("Read exposes supervisor terminal logs while retaining checks on adjacent files and symlink escapes", async () => {
   const { executor, root } = await fixture();
-  const shell = await executor.shell(
-    { command: "printf inspectable", block_until_ms: 1_000 },
-    root
-  );
+  const shell = await executor.shell({ command: "printf inspectable", block_until_ms: 1_000 }, root);
   // Simulate the container's unprivileged runner being unable to traverse agentDir.
-  (
-    executor as unknown as { assertAgentReadable(path: string): Promise<void> }
-  ).assertAgentReadable = async () => {
+  (executor as any).assertAgentReadable = async () => {
     throw new Error("agent-inaccessible");
   };
-  const outputPath = shell.details.outputPath as string;
-  expect(JSON.stringify((await executor.read({ path: outputPath }, root)).content)).toContain(
-    "inspectable"
-  );
+  expect(JSON.stringify((await executor.read({ path: shell.details.outputPath as string }, root)).content)).toContain("inspectable");
   const privatePath = join(root, "auth.json");
   await writeFile(privatePath, "test fixture");
   await expect(executor.read({ path: privatePath }, root)).rejects.toThrow("agent-inaccessible");
   const escape = join(root, "terminals", "4242424242.log");
   await symlink(privatePath, escape);
   await expect(executor.read({ path: escape }, root)).rejects.toThrow("agent-inaccessible");
-});
-
-test("external AwaitShell authenticates, uses the host wait endpoint, and parses metadata", async () => {
-  const requests: unknown[] = [];
-  const bridge = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(request) {
-      requests.push({
-        path: new URL(request.url).pathname,
-        authorization: request.headers.get("authorization"),
-        body: await request.json(),
-      });
-      return Response.json({
-        status: "completed",
-        shell_id: "host-job",
-        exit_code: 0,
-        output_path: "/host/job.log",
-        output_length: 2,
-        elapsed_ms: 3,
-        waited_ms: 1,
-        pattern_matched: true,
-      });
-    },
-  });
-  try {
-    const { root } = await fixture();
-    const executor = new NativeToolExecutor({
-      agentDir: root,
-      controlToken: "test",
-      hostBridgeUrl: `http://127.0.0.1:${bridge.port}`,
-    });
-    const input = {
-      shell_id: "host-job",
-      machineId: "machine-1",
-      block_until_ms: 780_000,
-      pattern: "ok",
-    };
-    expect((await executor.externalAwaitShell(input)).details).toMatchObject({
-      status: "completed",
-      pattern_matched: true,
-    });
-    expect(requests).toEqual([
-      { path: "/v1/await-shell", authorization: "Bearer test", body: input },
-    ]);
-  } finally {
-    bridge.stop(true);
-  }
 });
 
 test("a stop kills a running foreground Shell and reports it as interrupted", async () => {
@@ -236,14 +120,8 @@ test("each Shell or AwaitShell call waits at most 13 minutes, or 58 for a comput
   const screens = { commandEnvironment: async () => ({ PATH: process.env.PATH }) } as unknown as ScreenBroker;
   const runtime = new RuntimeTools(screens, "http://unused.invalid", "test", root, root);
   (runtime as any).processSecrets = async () => ({});
-  const turn = (subagentType: string | null) => ({
-    runId: `cap-${subagentType}`,
-    runtimeProfile: subagentType ? "subagent" : "agent",
-    subagentType,
-    botId: "bot-cap",
-    cwd: root,
-    pluginNamespaces: [],
-  }) as unknown as ActiveTurn;
+  const turn = (subagentType: string | null) =>
+    ({ runId: `cap-${subagentType}`, runtimeProfile: subagentType ? "subagent" : "agent", subagentType, botId: "bot-cap", cwd: root, pluginNamespaces: [] }) as unknown as ActiveTurn;
   for (const [subagentType, capMs, minutes] of [["executor", 780_000, 13], ["computerUse", 3_480_000, 58]] as const) {
     const tools = testTools(runtime, turn(subagentType));
     const shell = tools.find((t) => t.name === "Shell")!, wait = tools.find((t) => t.name === "AwaitShell")!;

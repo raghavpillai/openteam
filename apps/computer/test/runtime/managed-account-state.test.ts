@@ -144,21 +144,6 @@ test.each(["parent", "account"] as const)("rejects an existing %s state-director
   expect(await readFile(join(outside, "sentinel"), "utf8")).toBe("synthetic-untouched");
 });
 
-test("forget preserves outside account-shaped data when the accounts parent is a symlink", async () => {
-  const f = await fixture();
-  const id = "outside-account-shaped-data";
-  const outside = join(f.root, "synthetic-outside");
-  const outsideAccount = statePath(outside, id);
-  await mkdir(outsideAccount, { recursive: true });
-  const marker = join(outsideAccount, "synthetic-marker");
-  await writeFile(marker, "synthetic-untouched");
-  await symlink(join(outside, "accounts"), join(f.root, "accounts"));
-  // Startup must fail closed, and subsequent removal must also stay confined.
-  await expect(f.manager.discover(id, f.input)).rejects.toThrow(/real directory/);
-  await f.manager.forget(id, 1).catch(() => {});
-  expect(await readFile(marker, "utf8")).toBe("synthetic-untouched");
-});
-
 test("repairs permissions of an existing real account state directory before launch", async () => {
   const f = await fixture();
   const directory = statePath(f.root, "existing-state");

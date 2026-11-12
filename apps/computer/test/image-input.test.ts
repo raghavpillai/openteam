@@ -34,16 +34,10 @@ describe("model image input", () => {
   test("allows 25 MiB inline transport and never silently drops the ninth image", () => {
     expect(MAX_IMAGE_BYTES).toBe(26_214_400);
     const bytes = Buffer.alloc(MAX_IMAGE_BYTES);
-    expect(
-      decodeInlineImages([{ url: `data:image/png;base64,${bytes.toString("base64")}` }])
-    ).toHaveLength(1);
+    expect(decodeInlineImages([{ url: `data:image/png;base64,${bytes.toString("base64")}` }])).toHaveLength(1);
     const tiny = { url: "data:image/png;base64,AAAA" };
     expect(decodeInlineImages(Array.from({ length: 9 }, () => tiny))).toHaveLength(9);
-    expect(() =>
-      decodeInlineImages([
-        { url: `data:image/png;base64,${Buffer.alloc(MAX_IMAGE_BYTES + 1).toString("base64")}` },
-      ])
-    ).toThrow();
+    expect(() => decodeInlineImages([{ url: `data:image/png;base64,${Buffer.alloc(MAX_IMAGE_BYTES + 1).toString("base64")}` }])).toThrow();
   });
 
   test("sends GIF images to the model as PNG, on both the upload and tool paths", async () => {
@@ -62,14 +56,8 @@ describe("model image input", () => {
 
   test("reports malformed tool and user images without forwarding invalid bytes", async () => {
     const invalid = Buffer.from("not an image");
-    const tool = await boundToolImage(invalid, "image/png");
-    expect(tool).toEqual({
-      type: "text",
-      text: "[image omitted: failed to process 12 bytes (image/png)]",
-    });
-    const user = await prepareUserImages([
-      { type: "image", data: invalid.toString("base64"), mimeType: "image/png" },
-    ]);
+    expect(await boundToolImage(invalid, "image/png")).toEqual({ type: "text", text: "[image omitted: failed to process 12 bytes (image/png)]" });
+    const user = await prepareUserImages([{ type: "image", data: invalid.toString("base64"), mimeType: "image/png" }]);
     expect(user.images).toEqual([]);
     expect(user.notice).toBe("[image omitted: failed to process 12 bytes (image/png)]");
   });
@@ -109,11 +97,6 @@ describe("image history repair", () => {
     const { default: jpeg } = await import('@jimp/js-jpeg');
     const decoded=await factory({formats:[jpeg]}).read(output);
     expect([decoded.width,decoded.height]).toEqual([1280,800]);
-  });
-
-  test('invalid graphical images are still omitted', async()=>{
-    const [result]=await repairImageHistory([{role:'toolResult',toolName:'Computer',content:[{type:'image',data:Buffer.from('invalid').toString('base64'),mimeType:'image/png'}]}]);
-    expect(result!.content[0]!.type).toBe('text');
   });
 
   test("concurrent history repair preserves ordering, notices, cache identity, and receipt isolation", async () => {

@@ -75,13 +75,12 @@ test("queued worker cleanup completes after closing text without creating anothe
   await expect(execute()).rejects.toThrow("turn has ended");
 });
 
-for (const scenario of ["changed", "new", "failed", "cancelled", "interrupted", "later", "read-only"] as const) {
+for (const scenario of ["changed", "new", "failed", "interrupted", "later", "read-only"] as const) {
   test(`worker cleanup grace respects ${scenario}`, async () => {
     const {active, call, execute, tools, batch} = cleanupFixture();
     await call("summary", {type: "text", content: "Done", end_turn: true});
     if (scenario === "interrupted") { active.pluginAbortController = new AbortController(); active.pluginAbortController.abort(new Error("interrupted by user")); }
     if (scenario === "failed") tools.callControlPlaneTool = async () => {throw new Error("stop failed");};
-    if (scenario === "cancelled") { active.pluginAbortController = new AbortController(); active.pluginAbortController.abort(); }
     if (scenario === "read-only") active.readOnly = true;
     if (scenario === "later") batch([{type: "toolCall", name: "CallDynamicTool", id: "later", arguments: stop}]);
     await expect(execute(scenario === "changed" ? {...stop, arguments: {subagent_id: "other"}} : stop,

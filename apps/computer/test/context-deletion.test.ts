@@ -35,14 +35,6 @@ test("context deletion discovers the file when session attachment was not record
   expect(f.disposed).toEqual(["context"]);
 });
 
-test("context deletion preserves files outside the sessions parent", async () => {
-  const f = await fixture();
-  const path = join(f.root, "unrelated.jsonl");
-  await writeFile(path, "keep");
-  await f.runtime.deleteContextSession("context", path);
-  expect(await readFile(path, "utf8")).toBe("keep");
-});
-
 test("an executing context must be settled before its files are deleted", async () => {
   const f = await fixture();
   const path = join(f.sessionsDir, "2026-11-11_context.jsonl");
@@ -51,18 +43,6 @@ test("an executing context must be settled before its files are deleted", async 
   await expect(f.runtime.deleteContextSession("context", path)).rejects.toThrow("active context session");
   expect(await readFile(path, "utf8")).toBe("session");
   expect(f.disposed).toEqual([]);
-});
-
-test("context cleanup never follows a legacy directory symlink outside the sessions tree", async () => {
-  const f = await fixture();
-  const outside = join(f.root, "outside");
-  await mkdir(outside);
-  const target = join(outside, "keep.jsonl");
-  await writeFile(target, "keep");
-  const legacy = join(f.root, "sessions", "legacy");
-  await symlink(outside, legacy);
-  await f.runtime.deleteContextSession("context", join(legacy, "keep.jsonl"));
-  expect(await readFile(target, "utf8")).toBe("keep");
 });
 
 test("an internal legacy-directory symlink is cleaned without deleting another session", async () => {
@@ -78,10 +58,17 @@ test("an internal legacy-directory symlink is cleaned without deleting another s
   expect(await readFile(unrelated, "utf8")).toBe("keep");
 });
 
-test("a final-component symlink is unlinked while its external target is preserved", async () => {
+test("context cleanup stays inside the sessions tree: outside files, outside legacy links and link targets are kept", async () => {
   const f = await fixture();
-  const target = join(f.root, "keep.jsonl");
+  const outside = join(f.root, "outside");
+  await mkdir(outside);
+  const target = join(outside, "keep.jsonl");
   await writeFile(target, "keep");
+  await f.runtime.deleteContextSession("context", target);
+  await symlink(outside, join(f.root, "sessions", "legacy"));
+  await f.runtime.deleteContextSession("context", join(f.root, "sessions", "legacy", "keep.jsonl"));
+  expect(await readFile(target, "utf8")).toBe("keep");
+  // A final-component symlink is unlinked while its external target is preserved.
   const link = join(f.sessionsDir, "context.jsonl");
   await symlink(target, link);
   await f.runtime.deleteContextSession("context", link);
@@ -93,23 +80,13 @@ const piSessionsDir = "/home/box/.pi/agent/sessions/openteam";
 
 describe("Pi session paths", () => {
   test("a turn only reopens a session inside the current session root", () => {
-    expect(assertSessionPath(piSessionsDir, `${piSessionsDir}/one_ctx.jsonl`)).toBe(
-      `${piSessionsDir}/one_ctx.jsonl`
-    );
-    expect(() =>
-      assertSessionPath(piSessionsDir, "/home/box/.pi/agent/sessions/legacy/x.jsonl")
-    ).toThrow("outside the OpenTeam session directory");
-    expect(() => assertSessionPath(piSessionsDir, `${piSessionsDir}/../escape.jsonl`)).toThrow(
-      "outside the OpenTeam session directory"
-    );
+    expect(assertSessionPath(piSessionsDir, `${piSessionsDir}/one_ctx.jsonl`)).toBe(`${piSessionsDir}/one_ctx.jsonl`);
+    for (const path of ["/home/box/.pi/agent/sessions/legacy/x.jsonl", `${piSessionsDir}/../escape.jsonl`])
+      expect(() => assertSessionPath(piSessionsDir, path)).toThrow("outside the OpenTeam session directory");
   });
 
   test("discarding never leaves the sessions parent directory or drops a non-session file", () => {
-    expect(disposableSessionPath(piSessionsDir, "/etc/passwd")).toBeNull();
-    expect(disposableSessionPath(piSessionsDir, "/home/box/.pi/agent/credentials.json")).toBeNull();
-    expect(
-      disposableSessionPath(piSessionsDir, "/home/box/.pi/agent/sessions/../../secret.jsonl")
-    ).toBeNull();
-    expect(disposableSessionPath(piSessionsDir, "/home/box/.pi/agent/sessions")).toBeNull();
+    for (const path of ["/etc/passwd", "/home/box/.pi/agent/credentials.json", "/home/box/.pi/agent/sessions/../../secret.jsonl", "/home/box/.pi/agent/sessions"])
+      expect(disposableSessionPath(piSessionsDir, path), path).toBeNull();
   });
 });

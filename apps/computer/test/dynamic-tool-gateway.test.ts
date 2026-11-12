@@ -20,21 +20,11 @@ const catalog = (
     kind: "first-party",
     namespaceStatus: "ready",
     tools: [
-      {
-        name: "SendToAgent",
-        description: "Send a message\n\nto another agent",
-        inputSchema: { type: "object" },
-        source: "first-party",
-        decodeArguments: (input) => input,
-      },
+      { name: "SendToAgent", description: "Send a message\n\nto another agent", inputSchema: { type: "object" }, source: "first-party", decodeArguments: (input) => input },
       {
         name: "Computer",
         description: longDescription,
-        inputSchema: {
-          type: "object",
-          properties: { action: { type: "string" } },
-          required: ["action"],
-        },
+        inputSchema: { type: "object", properties: { action: { type: "string" } }, required: ["action"] },
         source: "first-party",
         decodeArguments: (input) => {
           const action = (input as { action?: unknown }).action;

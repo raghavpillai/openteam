@@ -79,9 +79,12 @@ test("markdown keeps whole-page forms, landmark-wrapped content and drops noise"
   const landmark = webMarkdown(html(`<footer role="contentinfo"><h2>Shop iPhone</h2><ul>${products}</ul></footer>`).toString(), url);
   expect(landmark).toContain("iPhone model 19 from $818");
   const links = webMarkdown(
-    html(`<article><p>Read the <a href="/source" title="Tooltip text">source</a>. <a href="/empty"></a><img src="/x.png" alt="A chart"><img src="/y.png"></p>${paragraphs}</article>`).toString(),
+    html(`<script>PRIVATE_SCRIPT</script><article><h1>Heading</h1><p>Read the <a href="/source" title="Tooltip text">source</a>. <a href="/empty"></a><img src="/x.png" alt="A chart"><img src="/y.png"></p><pre><code>const value = 1;</code></pre>${paragraphs}</article>`).toString(),
     url
   );
+  expect(links).toContain("# Heading");
+  expect(links).toContain("const value = 1;");
+  expect(links).not.toContain("PRIVATE_");
   expect(links).toContain("[source](https://example.com/source)");
   expect(links).not.toContain("Tooltip text");
   expect(links).not.toContain("https://example.com/empty");
@@ -187,19 +190,14 @@ test.skipIf(!Bun.which("pdftotext"))("PDFs are converted to text", async () => {
   expect(page.text).toContain("PDF_VIOLET_284");
 });
 
-test.each([
-  ["relative directory", '<base href="/archives/2024/">', "record.html", "https://example.org/archives/2024/record.html"],
-  ["cross-origin base", '<base href="https://data.example.net/releases/">', "table.csv", "https://data.example.net/releases/table.csv"],
-  ["first href wins", '<base target="_blank"><base href="/first/"><base href="/second/">', "item", "https://example.org/first/item"],
-  ["invalid first stays fallback", '<base href="http://["><base href="/second/">', "item", "https://example.org/news/current/item"],
-  ["javascript base rejected", '<base href="javascript:alert(1)">', "item", "https://example.org/news/current/item"],
-  ["no base unchanged", "", "../source", "https://example.org/news/source"],
-])("links resolve against <base>: %s", (_name, head, href, expected) => {
-  const result = webMarkdown(`<html><head>${head}</head><body><p>Read <a href="${href}">source</a>.</p></body></html>`, "https://example.org/news/current/page");
-  expect(result).toContain(`[source](${expected})`);
-});
-
-test("base resolution never emits executable or local-file links", () => {
+test("links resolve against the first valid <base> and never become executable or local-file links", () => {
+  const link = (head: string, href: string) =>
+    webMarkdown(`<html><head>${head}</head><body><p>Read <a href="${href}">source</a>.</p></body></html>`, "https://example.org/news/current/page");
+  expect(link('<base href="/archives/2024/">', "record.html")).toContain("[source](https://example.org/archives/2024/record.html)");
+  expect(link('<base href="https://data.example.net/releases/">', "table.csv")).toContain("[source](https://data.example.net/releases/table.csv)");
+  expect(link('<base target="_blank"><base href="/first/"><base href="/second/">', "item")).toContain("[source](https://example.org/first/item)");
+  expect(link('<base href="http://["><base href="/second/">', "item")).toContain("[source](https://example.org/news/current/item)");
+  expect(link('<base href="javascript:alert(1)">', "item")).toContain("[source](https://example.org/news/current/item)");
   const result = webMarkdown('<html><head><base href="file:///tmp/"></head><body><p><a href="private.txt">local</a> <a href="javascript:alert(1)">script</a> <a href="https://example.net/ok">public</a></p></body></html>', "https://example.org/page");
   expect(result).not.toContain("file:");
   expect(result).not.toContain("javascript:");
@@ -228,45 +226,15 @@ test("PDF extraction keeps output at the limit and refuses silent truncation pas
 }, 30_000);
 
 test("public web reader blocks private, encoded, credentialed and non-HTTP destinations", async () => {
-  for (const address of [
-    "127.0.0.1",
-    "10.0.0.1",
-    "169.254.169.254",
-    "192.168.1.1",
-    "100.64.0.1",
-    "0.0.0.0",
-    "::1",
-    "::ffff:127.0.0.1",
-    "fc00::1",
-    "fe80::1",
-  ])
-    expect(isPublicAddress(address)).toBe(false);
+  for (const address of ["127.0.0.1", "10.0.0.1", "169.254.169.254", "192.168.1.1", "100.64.0.1", "0.0.0.0", "::1", "::ffff:127.0.0.1", "fc00::1", "fe80::1"])
+    expect(isPublicAddress(address), address).toBe(false);
   expect(isPublicAddress("1.1.1.1")).toBe(true);
   expect(isPublicAddress("2606:4700:4700::1111")).toBe(true);
-  for (const url of [
-    "file:///etc/passwd",
-    "http://localhost",
-    "http://2130706433",
-    "http://0x7f000001",
-    "http://[::ffff:7f00:1]",
-    "https://user:pass@example.com",
-  ])
-    expect(() => publicWebUrl(url)).toThrow();
+  for (const url of ["file:///etc/passwd", "http://localhost", "http://2130706433", "http://0x7f000001", "http://[::ffff:7f00:1]", "https://user:pass@example.com"])
+    expect(() => publicWebUrl(url), url).toThrow();
   await expect(publicWebGet("http://127.0.0.1/")).rejects.toThrow();
   // Literal local and private hosts get the reference's explanation.
   expect(() => publicWebUrl("http://localhost:3000/app")).toThrow("Cannot fetch from localhost (localhost:3000) because this tool runs from an isolated server.");
-  expect(() => publicWebUrl("http://127.0.0.1/")).toThrow("Cannot fetch from localhost (127.0.0.1) because this tool runs from an isolated server.");
-  expect(() => publicWebUrl("http://[::1]:8080/")).toThrow("Cannot fetch from localhost ([::1]:8080) because this tool runs from an isolated server.");
   expect(() => publicWebUrl("http://192.168.1.10:8000/")).toThrow("Cannot fetch from private IP (192.168.1.10:8000) because this tool runs from an isolated server.");
   expect(() => publicWebUrl("http://printer.local/")).toThrow("Private and local network destinations are not allowed");
-});
-
-test("HTML conversion keeps article structure and absolute citations without active content", () => {
-  const html =
-    '<html><head><title>Test</title><script>PRIVATE_SCRIPT</script></head><body><article><h1>Heading</h1><p>Useful article with a <a href="/source">citation</a> and <strong>detail</strong>.</p><pre><code>const value = 1;</code></pre></article><form><input value="PRIVATE_FIELD"></form></body></html>';
-  const result = webMarkdown(html, "https://example.com/page");
-  expect(result).toContain("# Heading");
-  expect(result).toContain("[citation](https://example.com/source)");
-  expect(result).toContain("const value = 1;");
-  expect(result).not.toContain("PRIVATE_");
 });

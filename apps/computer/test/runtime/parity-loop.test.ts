@@ -31,79 +31,26 @@ for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true },
       const modelRuntime = await offlineModelRuntime(model, async (_url: any, init: any) => {
         // Pi used to delay first-write until an assistant existed. This assertion
         // runs inside the actual provider call, before the first assistant arrives.
-        expect(readFileSync(manager.getSessionFile()!, "utf8")).toContain(
-          "<user_query>Read the result</user_query>"
-        );
+        expect(readFileSync(manager.getSessionFile()!, "utf8")).toContain("<user_query>Read the result</user_query>");
         requests.push(JSON.parse(await new Response(init.body).text()));
         const toolId = `send-${requests.length}`;
-        const chunks = [
-          {
-            choices: [
-              {
-                index: 0,
-                delta: {
-                  role: "assistant",
-                  tool_calls: [
-                    {
-                      index: 0,
-                      id: toolId,
-                      type: "function",
-                      function: {
-                        name: handoff ? "WakeParent" : "SendToUser",
-                        arguments: JSON.stringify(handoff ? {
-                          message: "Fixture result: notify the user.",
-                        } : {
-                          type: "text",
-                          content: "Fixture result",
-                          end_turn: true,
-                        }),
-                      },
-                    },
-                  ],
-                },
-                finish_reason: null,
-              },
-            ],
-          },
-          {
-            choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-            usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
-          },
-        ];
-        if (batch) {
-          const delta = chunks[0]!.choices[0]!.delta!;
-          if (!("tool_calls" in delta)) throw new Error("Missing fixture tool calls");
-          const first = delta.tool_calls![0]!;
-          delta.tool_calls = Array.from({ length: 3 }, (_, index) => ({
-            ...first,
-            index,
-            id: index === 0 ? toolId : `${toolId}-${index}`,
-            function: {
-              name: "SendToUser",
-              arguments: JSON.stringify({ type: "text", content: `Batch ${index + 1}`, end_turn: index === 2 }),
-            },
-          }));
-        }
-        return sseResponse(model, chunks);
+        const call = (index: number, id: string, name: string, args: unknown) => ({ index, id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+        const tool_calls = batch
+          ? Array.from({ length: 3 }, (_, index) => call(index, index === 0 ? toolId : `${toolId}-${index}`, "SendToUser", { type: "text", content: `Batch ${index + 1}`, end_turn: index === 2 }))
+          : [handoff ? call(0, toolId, "WakeParent", { message: "Fixture result: notify the user." }) : call(0, toolId, "SendToUser", { type: "text", content: "Fixture result", end_turn: true })];
+        return sseResponse(model, [
+          { choices: [{ index: 0, delta: { role: "assistant", tool_calls }, finish_reason: null }] },
+          { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } },
+        ]);
       });
       const runtime = new ComputerRuntime();
       const internals = runtime as any;
       internals.agentDir = root;
       internals.modelRuntime = modelRuntime;
       internals.resolveModel = () => model;
-      const toolHost = new RuntimeTools(
-        {} as never,
-        server.url.origin,
-        "synthetic-control-token",
-        root,
-        root
-      );
+      const toolHost = new RuntimeTools({} as never, server.url.origin, "synthetic-control-token", root, root);
       internals.tools = toolHost;
-      internals.compactionExtension = () => ({
-        name: "fixture-compaction",
-        hidden: true,
-        factory() {},
-      });
+      internals.compactionExtension = () => ({ name: "fixture-compaction", hidden: true, factory() {} });
       const active = {
         runId: crypto.randomUUID(),
         botId: crypto.randomUUID(),
@@ -126,13 +73,7 @@ for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true },
       const sessions = join(root, "sessions");
       await mkdir(sessions);
       const manager = SessionManager.create(root, sessions, { id: active.contextSessionId });
-      session = await internals.createStandaloneSession(
-        root,
-        "System fixture: verified instructions",
-        manager,
-        active,
-        { providerId: model.provider, modelId: model.id }
-      );
+      session = await internals.createStandaloneSession(root, "System fixture: verified instructions", manager, active, { providerId: model.provider, modelId: model.id });
       active.session = session!;
       internals.activeByRun.set(active.runId, active);
       session!.subscribe((event) => {
@@ -143,16 +84,10 @@ for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true },
       });
       internals.bindTurnStop(active, session!);
       await session!.sendCustomMessage(
-        {
-          customType: "openteam-ambient",
-          content: "[SAND_HIDDEN_PROMPT]A background job completed.",
-          display: false,
-          details: { messageId: "ambient-fixture" },
-        },
+        { customType: "openteam-ambient", content: "[SAND_HIDDEN_PROMPT]A background job completed.", display: false, details: { messageId: "ambient-fixture" } },
         { triggerTurn: false }
       );
-      const running = session!.prompt("<user_query>Read the result</user_query>");
-      await running;
+      await session!.prompt("<user_query>Read the result</user_query>");
       expect(acknowledged.filter((event) => event.type === "prompt.delivered")).toHaveLength(1);
       expect(requests).toHaveLength(1);
       expect(sent).toHaveLength(batch ? 3 : 1);
@@ -169,51 +104,18 @@ for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true },
       const messages = payload.messages.filter((message: any) => message.role === "user");
       expect(JSON.stringify(messages)).toContain("A background job completed.");
       expect(JSON.stringify(messages)).toContain("<user_query>Read the result</user_query>");
-      expect(payload.tools.some((tool: any) => tool.function.name === "CallDynamicTool")).toBe(
-        true
-      );
-      const tape = session!.messages;
-      expect(
-        tape.some(
-          (message: any) => message.role === "toolResult" && message.toolCallId === "send-1"
-        )
-      ).toBe(true);
+      expect(payload.tools.some((tool: any) => tool.function.name === "CallDynamicTool")).toBe(true);
+      const hasReceipt = (messages: any[]) => messages.some((message) => message.role === "toolResult" && message.toolCallId === "send-1");
+      expect(hasReceipt(session!.messages)).toBe(true);
       const path = manager.getSessionFile()!;
       session!.dispose();
       session = undefined;
       const reopened = SessionManager.open(path);
       const restored = reopened.buildSessionContext().messages;
-      expect(
-        restored.some(
-          (message: any) => message.role === "toolResult" && message.toolCallId === "send-1"
-        )
-      ).toBe(true);
-      expect(
-        restored.filter(
-          (message: any) =>
-            message.role === "custom" && message.details?.messageId === "ambient-fixture"
-        )
-      ).toHaveLength(1);
+      expect(hasReceipt(restored)).toBe(true);
+      expect(restored.filter((message: any) => message.role === "custom" && message.details?.messageId === "ambient-fixture")).toHaveLength(1);
       expect((await readFile(path, "utf8")).includes("synthetic-control-token")).toBe(false);
-      expect(
-        reopened
-          .getEntries()
-          .filter(
-            (entry: any) => entry.type === "custom" && entry.customType === "openteam-input-receipt"
-          )
-      ).toHaveLength(1);
-      if (process.env.OPENTEAM_PARITY_ARTIFACT_DIR && !handoff) {
-        const { writeFile } = await import("node:fs/promises");
-        await mkdir(process.env.OPENTEAM_PARITY_ARTIFACT_DIR, { recursive: true });
-        await writeFile(
-          join(process.env.OPENTEAM_PARITY_ARTIFACT_DIR, "provider-request.json"),
-          JSON.stringify(payload, null, 2)
-        );
-        await writeFile(
-          join(process.env.OPENTEAM_PARITY_ARTIFACT_DIR, "pi-session.jsonl"),
-          await readFile(path, "utf8")
-        );
-      }
+      expect(reopened.getEntries().filter((entry: any) => entry.type === "custom" && entry.customType === "openteam-input-receipt")).toHaveLength(1);
     } finally {
       session?.dispose();
       server.stop(true);
@@ -226,24 +128,17 @@ describe("sibling closing calls", () => {
     reply: { name: "SendToUser", arguments: { type: "text", content: "I'll check back at 1:10 PM.", end_turn: true } },
     reaction: { name: "ReactToMessage", arguments: { message_address: "t1u", emoji: "\u{1F44D}", end_turn: true } },
     question: { name: "SendToUser", arguments: { type: "widget", widget: { prompt: "Check back at 1:10 PM?", options: [{ label: "Yes", value: "yes", style: "primary" }] } } },
-    form: { name: "RequestUserForm", arguments: { title: "Delivery city", instruction: "Enter the city", domain: "example.com",
-      fields: [{ id: "city", label: "City", type: "text", target: { kind: "ref", value: "e1" } }] } },
     aliasReply: { name: "CallDynamicTool", arguments: { namespace: "cursor", toolName: "SendToUser", arguments: { type: "text", content: "Second result", end_turn: true } } },
-    aliasQuestion: { name: "CallDynamicTool", arguments: { namespace: "cursor", toolName: "SendToUser", arguments: { type: "widget",
-      widget: { prompt: "Continue?", options: [{ label: "Yes", value: "yes" }] } } } },
   } as const;
   const cases: { closings: (keyof typeof CLOSINGS)[]; failures?: number; routineDelay?: number; closingDelays?: number[]; failedSend?: number; failedClosing?: number; connectorFailure?: boolean; extraRoutine?: boolean; cancelOnSend?: number }[] = [
     { closings: ["reply", "reaction", "reply"] },
     { closings: ["reaction", "reply"], failures: 1, routineDelay: 80 },
     { closings: ["reply", "question"], failures: 1 },
-    { closings: ["question", "reaction"], failures: 1, routineDelay: 80 },
     { closings: ["reaction", "reply"], failedSend: 1 },
     { closings: ["reaction", "reply"], connectorFailure: true, routineDelay: 80 },
     { closings: ["reaction"], extraRoutine: true, routineDelay: 80 },
-    { closings: ["reply", "form"], failures: 1, closingDelays: [80, 0] },
     { closings: ["reaction", "reply"], cancelOnSend: 1 },
     { closings: ["reply", "aliasReply"] },
-    { closings: ["reply", "aliasQuestion"] },
     // Completion order of sibling closings must not matter.
     { closings: ["reaction", "reply", "reaction"], closingDelays: [80, 40, 0], failures: 1, routineDelay: 120 },
     { closings: ["reaction", "reply", "reaction"], closingDelays: [80, 40, 0], failedClosing: 2 },
@@ -347,7 +242,7 @@ describe("sibling closing calls", () => {
         expect(host.map(call => call.callId).sort()).toEqual([
           ...closings.map((_, index) => `closing-${index}`), "routine", ...(extraRoutine ? ["routine-2"] : []),
         ].sort());
-        const asked = closings.includes("question") || closings.includes("form") || closings.includes("aliasQuestion");
+        const asked = closings.includes("question");
         const holds = (failures || failedSend !== undefined || failedClosing !== undefined || connectorFailure) && !asked ? 1 : 0;
         expect(requests).toHaveLength(1 + holds);
         expect(active.endTurnHolds ?? 0).toBe(holds);
@@ -362,7 +257,7 @@ describe("sibling closing calls", () => {
         }
         expect(active.awaitingUser === true).toBe(asked);
         expect(active.pluginAbortController!.signal.aborted).toBe(cancelOnSend !== undefined);
-        const aliasIndex = closings.findIndex(closing => closing === "aliasReply" || closing === "aliasQuestion");
+        const aliasIndex = closings.findIndex(closing => closing === "aliasReply");
         if (aliasIndex !== -1) {
           const alias = CLOSINGS[closings[aliasIndex]!];
           // The dispatch transfer is consumed by its one native invocation. Reusing

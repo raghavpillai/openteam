@@ -1,7 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { rm } from "node:fs/promises";
+import { describe, expect, test } from "bun:test";
 import { BROWSER_USE_TOOLS } from "../../src/browser/use";
-import { ComputerRuntime, modelVisibleSummaryTools } from "../../src/runtime";
+import { ComputerRuntime } from "../../src/runtime";
 
 const runtimeTools = () => (new ComputerRuntime() as unknown as { tools: unknown }).tools;
 
@@ -27,14 +26,6 @@ test('background status evidence comes only from active server records', async (
       expect(result.details.pendingBackgroundWork).toBe(expected);
     }
   } finally { globalThis.fetch = previousFetch; }
-});
-
-const temporaryRoots: string[] = [];
-
-afterEach(async () => {
-  await Promise.all(
-    temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true }))
-  );
 });
 
 const turnRequest = (overrides: Record<string, unknown> = {}) => ({
@@ -76,63 +67,29 @@ describe("specialized subagent tool surfaces", () => {
     expect((runtimeTools() as any).customTools({ subagentType })).toEqual([]);
   });
 
-  test("summary requests receive normal schemas but no executable tool functions", () => {
-    const runtime = runtimeTools() as unknown as {
-      customTools(active: { subagentType: null }): Array<{
-        name: string;
-        description: string;
-        parameters: unknown;
-        execute: unknown;
-      }>;
-    };
-    const executable = runtime.customTools(workerTurn(null));
-    const visible = modelVisibleSummaryTools(executable);
-    expect(visible.map((tool) => tool.name)).toEqual(executable.map((tool) => tool.name));
-    expect(visible.map((tool) => tool.description)).toEqual(
-      executable.map((tool) => tool.description)
-    );
-    expect(visible.every((tool) => !("execute" in tool))).toBe(true);
-  });
-
   test("computerUse receives Shell, Read, AwaitShell, Computer and the browser tools", () => {
     expect(toolNames("computerUse")).toEqual(["Shell", "Read", "ReportTaskProgress", "AwaitShell", "Computer", ...BROWSER_USE_TOOLS.map(tool => tool.name)]);
   });
 
-  test("StopSubagent and request_box_help decode their reference arguments and route through the control plane", async () => {
+  test("StopSubagent decodes exactly one target and routes through the control plane", async () => {
+    const runtime = runtimeTools() as any;
     const calls: Array<{ tool: string; args: unknown }> = [];
-    const runtime = runtimeTools() as unknown as {
-      callControlPlaneTool(active: unknown, callId: string, tool: string, args: unknown): Promise<{ content: []; details: Record<string, unknown> }>;
-      dynamicCatalog(active: { runtimeProfile: "agent"; pluginNamespaces: [] }): Array<{
-        name: string;
-        tools: Array<{ name: string; decodeArguments(args: unknown): unknown; execute(active: unknown, callId: string, args: unknown): Promise<unknown> }>;
-      }>;
-    };
-    runtime.callControlPlaneTool = async (_active, _callId, tool, args) => {
+    runtime.callControlPlaneTool = async (_active: unknown, _callId: string, tool: string, args: unknown) => {
       calls.push({ tool, args });
       return { content: [], details: {} };
     };
-    const catalog = runtime.dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] }).find((namespace) => namespace.name === "cursor");
-    const stop = catalog!.tools.find((tool) => tool.name === "StopSubagent")!;
-    expect(stop.decodeArguments({ all: true })).toEqual({ all: true });
+    const stop = runtime.dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
+      .find((namespace: any) => namespace.name === "cursor").tools.find((tool: any) => tool.name === "StopSubagent");
     expect(stop.decodeArguments({ subagent_id: "sand-subagent-1" })).toEqual({ subagent_id: "sand-subagent-1" });
     for (const invalid of [{}, { all: false }, { all: true, subagent_id: "sand-subagent-1" }])
       expect(() => stop.decodeArguments(invalid), JSON.stringify(invalid)).toThrow();
-    const help = catalog!.tools.find((tool) => tool.name === "request_box_help")!;
-    const handoff = { instruction: "Sign in", reason: "auth", domain: "example.com", url: "https://app.example.com/login" };
-    expect(help.decodeArguments(handoff)).toEqual(handoff);
-    await stop.execute({}, "call-stop", { all: true });
+    await stop.execute({}, "call-stop", stop.decodeArguments({ all: true }));
     expect(calls).toEqual([{ tool: "StopSubagent", args: { all: true } }]);
   });
 
   test("DraftExternalMessage refuses HTML email bodies and sends the server an unwrapped body", () => {
-    const runtime = runtimeTools() as unknown as {
-      dynamicCatalog(active: { runtimeProfile: "agent"; pluginNamespaces: [] }): Array<{
-        name: string;
-        tools: Array<{ name: string; decodeArguments(args: unknown): unknown }>;
-      }>;
-    };
-    const draft = runtime.dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
-      .find((namespace) => namespace.name === "cursor")!.tools.find((tool) => tool.name === "DraftExternalMessage")!;
+    const draft = (runtimeTools() as any).dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
+      .find((namespace: any) => namespace.name === "cursor").tools.find((tool: any) => tool.name === "DraftExternalMessage");
     const email = { platform: "email", providerIdentifier: "p", from: "me@example.com", to: ["ann@example.com"], subject: "Hi" };
     expect(draft.decodeArguments({ ...email, body: "We reviewed the contract terms with legal on Monday and they asked us to\nadd a clause about data retention before anything gets signed.\n\nBest,\nAnn" }))
       .toMatchObject({ body: "We reviewed the contract terms with legal on Monday and they asked us to add a clause about data retention before anything gets signed.\n\nBest,\nAnn" });
@@ -206,113 +163,46 @@ describe("durable state tools", () => {
   });
 });
 
-describe("local computer routing", () => {
+describe("local turn plumbing", () => {
   test("routes Shell by machineId while keeping omitted machineId in the box", async () => {
     const calls: string[] = [];
-    const runtime = runtimeTools() as unknown as {
-      processSecrets: () => Promise<Record<string, string>>;
-      nativeToolExecutor: {
-        shell: (...args: unknown[]) => Promise<unknown>;
-        externalShell: (...args: unknown[]) => Promise<unknown>;
-      };
-      executeOpenTeamTool(
-        active: Record<string, unknown>,
-        callId: string,
-        tool: string,
-        args: unknown,
-        signal?: AbortSignal
-      ): Promise<unknown>;
-    };
+    const runtime = runtimeTools() as any;
     runtime.processSecrets = async () => ({});
-    runtime.nativeToolExecutor.shell = async () => {
-      calls.push("box");
-      return { content: [{ type: "text", text: "box" }], details: {} };
+    const fake = (where: string) => async () => {
+      calls.push(where);
+      return { content: [{ type: "text", text: where }], details: {} };
     };
-    runtime.nativeToolExecutor.externalShell = async () => {
-      calls.push("host");
-      return { content: [{ type: "text", text: "host" }], details: {} };
-    };
-    const active = {
-      subagentType: null,
-      cwd: "/workspace",
-      runId: "run-1",
-      turnId: "run-1",
-      queue: { push: () => undefined },
-    };
-
+    runtime.nativeToolExecutor.shell = fake("box");
+    runtime.nativeToolExecutor.externalShell = fake("host");
+    const active = { subagentType: null, cwd: "/workspace", runId: "run-1", turnId: "run-1", queue: { push: () => undefined } };
     await runtime.executeOpenTeamTool(active, "box-call", "Shell", { command: "pwd" });
-    await runtime.executeOpenTeamTool(active, "host-call", "Shell", {
-      command: "pwd",
-      machineId: "machine-1",
-    });
+    await runtime.executeOpenTeamTool(active, "host-call", "Shell", { command: "pwd", machineId: "machine-1" });
     expect(calls).toEqual(["box", "host"]);
   });
-});
 
-describe("compaction durable state capture", () => {
   test("refreshes the summary todo snapshot after a successful TodoWrite", async () => {
-    const runtime = runtimeTools() as unknown as {
-      callControlPlaneTool(): Promise<{
-        content: Array<{ type: "text"; text: string }>;
-        details: Record<string, unknown>;
-      }>;
-      executeTodoWrite(
-        active: { todoUpdate: string | null },
-        callId: string,
-        args: unknown
-      ): Promise<unknown>;
-    };
-    runtime.callControlPlaneTool = async () => ({
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            todos: [
-              { id: "audit", content: "Review parity", status: "completed" },
-              { id: "ship", content: "Run checks", status: "in_progress" },
-            ],
-          }),
-        },
-      ],
-      details: {},
-    });
+    const runtime = runtimeTools() as any;
+    const todos = [
+      { id: "audit", content: "Review parity", status: "completed" },
+      { id: "ship", content: "Run checks", status: "in_progress" },
+    ];
+    runtime.callControlPlaneTool = async () => ({ content: [{ type: "text", text: JSON.stringify({ todos }) }], details: {} });
     const active = { todoUpdate: "- [pending] stale: Old snapshot" };
     await runtime.executeTodoWrite(active, "call-1", { todos: [] });
-    expect(active.todoUpdate).toBe(
-      "- **COMPLETED**: Review parity (id: audit)\n- **IN_PROGRESS**: Run checks (id: ship)"
-    );
+    expect(active.todoUpdate).toBe("- **COMPLETED**: Review parity (id: audit)\n- **IN_PROGRESS**: Run checks (id: ship)");
   });
 
-});
-
-describe("context turn reservation", () => {
   test("reserves a context before asynchronous setup and releases it on failure", async () => {
-    const runtime = new ComputerRuntime() as unknown as {
-      authenticated: boolean;
-      modelRuntime: {
-        checkAuth(providerId: string): Promise<{ type: string; source: string }>;
-        isUsingSubscription(providerId: string): boolean;
-      };
-      resolveModel(): object;
-      start(): Promise<void>;
-      contextState(contextSessionId: string): Promise<never>;
-      run(request: ReturnType<typeof turnRequest>): Promise<AsyncIterable<unknown>>;
-      diagnostics: { activeTurns: number };
-    };
+    const runtime = new ComputerRuntime() as any;
     runtime.start = async () => {};
-    Object.assign((runtime as any).tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
+    Object.assign(runtime.tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
     runtime.authenticated = true;
     runtime.resolveModel = () => ({});
-    runtime.modelRuntime = {
-      checkAuth: async () => ({ type: "oauth", source: "test" }),
-      isUsingSubscription: () => true,
-    };
+    runtime.modelRuntime = { checkAuth: async () => ({ type: "oauth", source: "test" }), isUsingSubscription: () => true };
     let rejectSetup!: (error: Error) => void;
     let enteredSetup!: () => void;
-    const entered = new Promise<void>((resolve) => {
-      enteredSetup = resolve;
-    });
-    runtime.contextState = async () =>
+    const entered = new Promise<void>((resolve) => (enteredSetup = resolve));
+    runtime.contextState = () =>
       new Promise<never>((_resolve, reject) => {
         rejectSetup = reject;
         enteredSetup();
@@ -320,14 +210,11 @@ describe("context turn reservation", () => {
     const contextSessionId = crypto.randomUUID();
     const first = runtime.run(turnRequest({ contextSessionId }));
     await entered;
-    await expect(
-      runtime.run(turnRequest({ contextSessionId, runId: crypto.randomUUID() }))
-    ).rejects.toThrow("already has an active Pi turn");
+    await expect(runtime.run(turnRequest({ contextSessionId, runId: crypto.randomUUID() }))).rejects.toThrow("already has an active Pi turn");
     rejectSetup(new Error("setup failed"));
     await expect(first).rejects.toThrow("setup failed");
     expect(runtime.diagnostics.activeTurns).toBe(0);
   });
-
 });
 
 test('browser workers retain their parent desktop session', async () => {

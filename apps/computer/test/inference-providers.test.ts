@@ -57,8 +57,13 @@ describe("inference provider service", () => {
     expect(service.authSession(expiring.id).status).toBe("cancelled");
   });
 
-  test("defaults to medium reasoning and never offers off where OpenRouter requires reasoning", async () => {
-    const openrouter = { id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.test/api/v1", auth: { apiKey: { name: "OpenRouter API key", login: () => undefined } } };
+  test("does not invent effort controls when OpenRouter omits supported efforts", async () => {
+    const openrouter = {
+      id: "openrouter",
+      name: "OpenRouter",
+      baseUrl: "https://openrouter.test/api/v1",
+      auth: { apiKey: { name: "OpenRouter API key", login: () => undefined } },
+    };
     const runtime = {
       getProviders: () => [openrouter],
       getProvider: (id: string) => (id === "openrouter" ? openrouter : undefined),
@@ -84,12 +89,22 @@ describe("inference provider service", () => {
           entry("author/no-reasoning", []),
         ],
       })) as unknown as typeof fetch;
-    const service = new InferenceProviderService(() => runtime, "/does/not/exist/models.json", fetcher);
+    const service = new InferenceProviderService(
+      () => runtime,
+      "/does/not/exist/models.json",
+      fetcher
+    );
     const catalog = await service.catalog("openrouter");
-    expect(catalog.models.map((model) => [model.modelId, model.reasoningLevels, model.defaultReasoningLevel])).toEqual([
-      ["openrouter/auto", ["off", "minimal", "low", "medium", "high"], "medium"],
-      ["anthropic/claude-sonnet-5.5", ["minimal", "low", "medium", "high"], "medium"],
-      ["anthropic/claude-haiku-5.5", ["off", "minimal", "low", "medium", "high"], "medium"],
+    expect(
+      catalog.models.map((model) => [
+        model.modelId,
+        model.reasoningLevels,
+        model.defaultReasoningLevel,
+      ])
+    ).toEqual([
+      ["openrouter/auto", [], "off"],
+      ["anthropic/claude-sonnet-5.5", [], "off"],
+      ["anthropic/claude-haiku-5.5", [], "off"],
       ["author/no-reasoning", ["off"], "off"],
     ]);
   });

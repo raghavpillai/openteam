@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import {
   ChatProviderRegistry,
   inputWindow,
@@ -260,7 +261,9 @@ describe("chat model classification and endpoint paths", () => {
 });
 
 test("OpenRouter discovers account-filtered tool models and persists capabilities", async () => {
-  const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" } });
+  const f = await fixture({
+    openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" },
+  });
   f.state.body = {
     data: [
       {
@@ -268,24 +271,60 @@ test("OpenRouter discovers account-filtered tool models and persists capabilitie
         name: "New model",
         architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
         supported_parameters: ["tools", "reasoning"],
+        reasoning: { supported_efforts: ["minimal", "low", "medium", "high"] },
         context_length: 200000,
         top_provider: { max_completion_tokens: 32000 },
         pricing: { prompt: "0.000002", completion: "0.000008" },
       },
-      { id: "author/no-tools", architecture: { output_modalities: ["text"] }, supported_parameters: [] },
-      { id: "author/image", architecture: { output_modalities: ["image"] }, supported_parameters: ["tools"] },
+      {
+        id: "author/no-tools",
+        architecture: { output_modalities: ["text"] },
+        supported_parameters: [],
+      },
+      {
+        id: "author/image",
+        architecture: { output_modalities: ["image"] },
+        supported_parameters: ["tools"],
+      },
     ],
   };
   const catalog = await f.registry.catalog("openrouter");
-  expect(catalog.providers.find((p) => p.id === "openrouter")).toMatchObject({ custom: false, connected: true });
-  const expected = { id: "author/new-model", api: "openai-completions", input: ["text", "image"], contextWindow: 200000, cost: { input: 2, output: 8 } };
+  expect(catalog.providers.find((p) => p.id === "openrouter")).toMatchObject({
+    custom: false,
+    connected: true,
+  });
   expect(catalog.models).toHaveLength(1);
-  expect(catalog.models[0]).toMatchObject({ ...expected, provider: "openrouter", name: "New model", reasoning: true, maxTokens: 32000 });
+  expect(catalog.models[0]).toMatchObject({
+    id: "author/new-model",
+    provider: "openrouter",
+    name: "New model",
+    api: "openai-completions",
+    reasoning: true,
+    input: ["text", "image"],
+    contextWindow: 200000,
+    maxTokens: 32000,
+    cost: { input: 2, output: 8 },
+  });
   const request = f.calls.find((c) => c.url.hostname === "openrouter.test")!;
   expect(request.url.pathname).toBe("/api/v1/models/user");
-  expect(new Headers(request.init.headers).get("authorization")).toBe("Bearer synthetic-openrouter-key");
-  await f.registry.verify({ providerId: "openrouter", modelId: "author/new-model", reasoning: "medium" });
-  expect(JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0]).toMatchObject(expected);
+  expect(new Headers(request.init.headers).get("authorization")).toBe(
+    "Bearer synthetic-openrouter-key"
+  );
+  await f.registry.verify({
+    providerId: "openrouter",
+    modelId: "author/new-model",
+    reasoning: "medium",
+  });
+  const saved = JSON.parse(await readFile(f.path, "utf8"));
+  expect(saved.providers.openrouter.models[0]).toMatchObject({
+    id: "author/new-model",
+    api: "openai-completions",
+    contextWindow: 200000,
+    input: ["text", "image"],
+    cost: { input: 2, output: 8 },
+  });
+  f.state.status = 401;
+  expect((await f.registry.catalog("openrouter")).models).toEqual([]);
 });
 
 test("the usable window is the smallest advertised input limit, else the fallback", () => {
@@ -305,6 +344,7 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
         name: "GPT-6.1 Sol",
         architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
         supported_parameters: ["tools", "reasoning"],
+        reasoning: { supported_efforts: ["minimal", "low", "medium", "high"] },
         context_length: 1_050_000,
         top_provider: { context_length: 1_050_000, max_completion_tokens: 128_000 },
       },
@@ -316,7 +356,6 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
       endpoints: [
         { provider_name: "OpenAI", context_length: 1_050_000, max_prompt_tokens: 922_000, max_completion_tokens: 128_000 },
         { provider_name: "Azure", context_length: 1_050_000, max_prompt_tokens: null, max_completion_tokens: 128_000 },
-        { provider_name: "Other", context_length: 1_050_000, max_prompt_tokens: 930_000, max_completion_tokens: 128_000 },
       ],
     },
   };
@@ -348,3 +387,182 @@ test("OpenRouter saves the selected model with its endpoints' prompt cap as the 
   expect((await saved()).contextWindow).toBe(1_050_000);
 });
 
+
+test.each([true, false])("OpenRouter persists tiers and reloads them after restart (catalog overrides: %s)", async (catalogOverrides) => {
+  const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" } });
+  f.connected.clear();
+  f.connected.add("openrouter");
+  const pricing = {
+    prompt: "0.000002", completion: "0.00001", input_cache_read: "0.0000001", input_cache_write: "0.0000025",
+    overrides: [{ min_prompt_tokens: 272000, prompt: "0.000004", completion: "0.000015" }],
+  };
+  f.state.body = { data: [{
+    id: "openai/gpt-6.1-sol", architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
+    supported_parameters: ["tools", "reasoning"], reasoning: { supported_efforts: ["low", "medium", "high"] }, context_length: 1050000,
+    top_provider: { max_completion_tokens: 128000 }, pricing: { ...pricing, overrides: catalogOverrides ? pricing.overrides : undefined },
+  }] };
+  let offline = false;
+  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (url: any, init: any) => {
+    if (!String(url).endsWith("/endpoints")) return f.fetcher(url, init);
+    if (offline) throw new Error("offline");
+    return Response.json({ data: { endpoints: [{ max_prompt_tokens: 922000, pricing }] } });
+  }) as typeof fetch);
+  await registry.verify({ providerId: "openrouter", modelId: "openai/gpt-6.1-sol", reasoning: "medium" });
+  const document = JSON.parse(await readFile(f.path, "utf8"));
+  const saved = structuredClone(document.providers.openrouter.models[0]);
+  expect(saved.cost.tiers).toEqual([{ inputTokensAbove: 272000, input: 4, output: 15, cacheRead: saved.cost.cacheRead, cacheWrite: 2.5 }]);
+  expect(saved).toMatchObject({ api: "openai-completions", contextWindow: 922000, maxTokens: 128000, input: ["text", "image"] });
+  const restarted = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: f.path,
+    modelsStorePath: join(f.path, "..", "restart-models-store.json"), refreshOnCreate: false });
+  await restarted.refresh({ allowNetwork: false });
+  expect(restarted.getModel("openrouter", saved.id)?.cost).toEqual(saved.cost);
+  // Startup refresh upgrades already-selected models even if their window is already capped.
+  delete document.providers.openrouter.models[0].cost.tiers;
+  await writeFile(f.path, JSON.stringify(document));
+  await registry.refreshPromptCaps();
+  expect(JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0]).toEqual(saved);
+  const before = await readFile(f.path, "utf8");
+  await registry.refreshPromptCaps();
+  expect(await readFile(f.path, "utf8")).toBe(before);
+  offline = true;
+  await registry.refreshPromptCaps();
+  expect(await readFile(f.path, "utf8")).toBe(before);
+});
+
+test("OpenRouter pricing refresh preserves a model reselected during its endpoint lookup", async () => {
+  const saved = {
+    ...model("openrouter", "openai/gpt-6.1-sol"), api: "openai-completions",
+    baseUrl: "https://openrouter.test/api/v1", contextWindow: 922000,
+    cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+  };
+  const f = await fixture({ openrouter: { models: [saved] } });
+  const replacement = { ...saved, cost: { input: 3, output: 12, cacheRead: 0.3, cacheWrite: 3 } };
+  const registry = new ChatProviderRegistry(() => f.runtime, f.path, (async (_raw: URL | string | Request, _init?: RequestInit) => {
+    await writeFile(f.path, JSON.stringify({ providers: { openrouter: { models: [replacement] } } }));
+    return Response.json({ data: { endpoints: [{ pricing: {
+      prompt: "0.000002", completion: "0.00001", input_cache_read: "0.0000001", input_cache_write: "0.0000025",
+      overrides: [{ min_prompt_tokens: 272000, prompt: "0.000004" }],
+    } }] } });
+  }) as typeof fetch);
+  await registry.refreshPromptCaps();
+  expect(JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models).toEqual([replacement]);
+});
+
+test("issue 281: advertised efforts drive API selection, validation and saved mappings", async () => {
+  const { InferenceProviderService } = await import("../src/inference-providers");
+  const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1" } });
+  const entry = {
+    id: "anthropic/claude-fable-5.2",
+    name: "Anthropic: Claude Fable 5.2",
+    architecture: { output_modalities: ["text"] },
+    supported_parameters: ["tools", "reasoning"],
+    reasoning: {
+      supported_efforts: ["max", "xhigh", "high", "medium", "low"],
+      mandatory: true,
+      default_effort: "high",
+    },
+  };
+  f.state.body = { data: [entry] };
+  const service = new InferenceProviderService(() => f.runtime, f.path, f.fetcher);
+  expect((await service.catalog("openrouter")).models[0]).toMatchObject({
+    reasoningLevels: ["low", "medium", "high", "xhigh", "max"],
+    defaultReasoningLevel: "high",
+  });
+  for (const reasoning of ["xhigh", "max"] as const) {
+    await service.verify({ providerId: "openrouter", modelId: entry.id, reasoning });
+    const saved = JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0];
+    expect(saved.thinkingLevelMap).toEqual({
+      off: null,
+      minimal: null,
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: "xhigh",
+      max: "max",
+    });
+    // Simulate a saved/bundled snapshot remaining available during future discovery.
+    f.runtime.registerProvider("openrouter", { models: [saved] } as never);
+  }
+  // A later refresh removes max/xhigh and changes the default, overriding the snapshot.
+  entry.reasoning.supported_efforts = ["high", "low"];
+  entry.reasoning.default_effort = "low";
+  expect((await service.catalog("openrouter")).models[0]).toMatchObject({
+    reasoningLevels: ["low", "high"],
+    defaultReasoningLevel: "low",
+  });
+  await expect(
+    service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "max" })
+  ).rejects.toThrow("Choose one of: low, high");
+  await service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "low" });
+  expect(
+    JSON.parse(await readFile(f.path, "utf8")).providers.openrouter.models[0].thinkingLevelMap.max
+  ).toBeNull();
+  // Removing effort metadata must also clear saved controls rather than resurrecting them.
+  f.state.body = { data: [{ ...entry, reasoning: { mandatory: true } }] };
+  expect((await service.catalog("openrouter")).models[0]).toMatchObject({
+    reasoningLevels: [],
+    defaultReasoningLevel: "off",
+  });
+  await service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "off" });
+  await expect(
+    service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "high" })
+  ).rejects.toThrow("provider default");
+  const beforeFailure = await readFile(f.path, "utf8");
+  f.state.status = 503;
+  await expect(
+    service.verify({ providerId: "openrouter", modelId: entry.id, reasoning: "off" })
+  ).rejects.toThrow("HTTP 503");
+  expect(await readFile(f.path, "utf8")).toBe(beforeFailure);
+});
+
+test("validation refuses effort on a model that does not reason", async () => {
+  const f = await fixture({ openrouter: { baseUrl: "https://openrouter.test/api/v1" } });
+  f.state.body = {
+    data: [
+      {
+        id: "author/plain",
+        architecture: { output_modalities: ["text"] },
+        supported_parameters: ["tools"],
+      },
+    ],
+  };
+  await expect(
+    f.registry.verify({ providerId: "openrouter", modelId: "author/plain", reasoning: "max" })
+  ).rejects.toThrow("Choose one of: off");
+  await f.registry.verify({ providerId: "openrouter", modelId: "author/plain", reasoning: "off" });
+});
+
+test("known providers also persist advertised capabilities instead of retaining bundled efforts", async () => {
+  const f = await fixture();
+  f.state.body = {
+    data: [
+      {
+        id: "claude-chat",
+        supported_reasoning_levels: ["low", "max"],
+        default_reasoning_level: "max",
+      },
+    ],
+  };
+  const discovered = (await f.registry.catalog("anthropic")).models[0]!;
+  const { reasoningCapabilities } = await import("../src/reasoning-capabilities");
+  expect(reasoningCapabilities(discovered)).toEqual({
+    reasoningLevels: ["low", "max"],
+    defaultReasoningLevel: "max",
+  });
+  await expect(
+    f.registry.verify({ providerId: "anthropic", modelId: "claude-chat", reasoning: "high" })
+  ).rejects.toThrow("Choose one of: low, max");
+  await f.registry.verify({ providerId: "anthropic", modelId: "claude-chat", reasoning: "max" });
+  expect(
+    JSON.parse(await readFile(f.path, "utf8")).providers.anthropic.models[0].thinkingLevelMap
+  ).toMatchObject({ high: null, max: "max" });
+  f.state.body = { data: [{ id: "claude-chat", thinking: false }] };
+  expect(reasoningCapabilities((await f.registry.catalog("anthropic")).models[0]!)).toEqual({
+    reasoningLevels: ["off"],
+    defaultReasoningLevel: "off",
+  });
+  await f.registry.verify({ providerId: "anthropic", modelId: "claude-chat", reasoning: "off" });
+  expect(JSON.parse(await readFile(f.path, "utf8")).providers.anthropic.models[0].reasoning).toBe(
+    false
+  );
+});

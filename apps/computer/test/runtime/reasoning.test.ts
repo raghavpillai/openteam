@@ -11,6 +11,7 @@ import { streamSimple } from "@earendil-works/pi-ai/api/openai-codex-responses";
 import { type AgentSession, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { ComputerRuntime } from "../../src/runtime";
 import { inferenceReasoningOptions } from "../../src/runtime/reasoning";
+import { inferCompaction } from "../../src/runtime/compaction";
 import type { ActiveTurn } from "../../src/runtime/types";
 
 const model: Model<"openai-codex-responses"> = {

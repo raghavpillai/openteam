@@ -4,6 +4,8 @@ export interface PluginField {
   key: string;
   label: string;
   type?: "string" | "number" | "integer" | "boolean";
+  /** A remote MCP endpoint: HTTPS, or HTTP on the client's loopback interface. */
+  format?: "mcp-url";
   required: boolean;
   secret: boolean;
   default?: ConfigValue;

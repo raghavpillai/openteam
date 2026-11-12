@@ -43,6 +43,10 @@ test("first-time dynamic OAuth can authorize while manual clients and missing to
   ).toBe(false);
   expect(pluginNeedsSetup({ auth: "token", configured: false })).toBe(true);
   expect(pluginNeedsSetup({ auth: "token", configured: true })).toBe(false);
+  expect(pluginNeedsSetup(
+    {auth:"oauth",configured:false},
+    {setup:{kind:"oauth",fields:[{required:true,format:"mcp-url"}]} as any,setupFields:[]}
+  )).toBe(true);
   expect(
     pluginNeedsSetup(
       { auth: "oauth", configured: false },

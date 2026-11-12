@@ -3,7 +3,7 @@ import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { ApiError } from "@openteam/contracts";
 import { connectorHostTools, MCP_TOOL_CALL_TIMEOUT_MS, type PluginToolDefinition } from "@openteam/plugin-sdk";
 import type { Prisma, PrismaClient } from "@openteam/db";
-import type { McpHttpClientManager } from "../../plugins/mcp-client-manager";
+import { isMcpAuthorizationError, type McpHttpClientManager } from "../../plugins/mcp-client-manager";
 import { OpenTeamOAuthProvider, type StoredOAuthState } from "../../plugins/oauth-provider";
 import {
   beginPackagedOAuth,
@@ -12,6 +12,7 @@ import {
   OAuthReauthorizationRequiredError,
 } from "../../plugins/packaged-oauth";
 import { toJson } from "../service-utils";
+import { PLUGIN_UNSAVED_UNKNOWN_OUTCOME } from "./invocation-outcomes";
 import {
   boundPluginResult,
   jsonObject,
@@ -44,7 +45,7 @@ export class PluginTransport {
     private readonly publicUrl: string,
     private readonly computerFetch?: (path: string, init?: RequestInit) => Promise<Response>
   ) {}
-  async executeInvocation(callId: string): Promise<unknown> {
+  async executeInvocation(callId: string, signal?: AbortSignal): Promise<unknown> {
     const invocation = await this.prisma.pluginInvocation.findUnique({
       where: { callId },
       include: { connection: true },
@@ -52,6 +53,7 @@ export class PluginTransport {
     if (!invocation)
       throw new ApiError(404, "plugin_invocation_not_found", "Plugin call not found");
     if (invocation.status === "completed") return invocation.result;
+    let receivedResult = false;
     try {
       if (invocation.status !== "running")
         throw new ApiError(409, "plugin_call_replayed", "This call is no longer pending");
@@ -83,33 +85,29 @@ export class PluginTransport {
         throw new ApiError(404, "plugin_tool_not_found", "The tool is no longer available");
       // Claim once, including simultaneous requests from multiple clients.
       const claim = await this.prisma.pluginInvocation.updateMany({
-        where: { callId, status: "running", error: { not: "Executing" } },
+        where: { id: invocation.id, status: "running", OR: [{ error: null }, { error: { not: "Executing" } }] },
         data: { error: "Executing" },
       });
-      // Nullable error requires a separate predicate in PostgreSQL.
-      if (!claim.count) {
-        const emptyClaim = await this.prisma.pluginInvocation.updateMany({
-          where: { callId, status: "running", error: null },
-          data: { error: "Executing" },
-        });
-        if (!emptyClaim.count)
-          throw new ApiError(409, "plugin_call_replayed", "This call is already executing");
-      }
+      if (!claim.count)
+        throw new ApiError(409, "plugin_call_replayed", "This call is already executing");
       const rawResult =
-        invocation.connection.transport === "builtin"
+        current.transport === "builtin"
           ? await this.invokeBuiltin(invocation.toolName, invocation.arguments, invocation)
-          : invocation.connection.transport === "stdio"
-            ? await this.callStdio(invocation.connection, invocation.toolName, invocation.arguments)
-            : await this.http.call(
-                invocation.connectionId,
-                this.httpOptions(invocation.connection),
+          : current.transport === "stdio"
+            ? await this.callStdio(current, invocation.toolName, invocation.arguments, signal)
+            : await this.callHttp(
+                current,
                 invocation.toolName,
-                invocation.arguments
+                invocation.arguments,
+                signal
               );
-      const result = boundPluginResult(redactConnectionSecrets(rawResult, invocation.connection));
+      receivedResult = true;
+      const result = boundPluginResult(await this.redactValue(
+        redactConnectionSecrets(rawResult, current), invocation.connection
+      ));
       await this.prisma.$transaction(async (tx) => {
         await tx.pluginInvocation.update({
-          where: { callId },
+          where: { id: invocation.id },
           data: {
             status: "completed",
             error: null,
@@ -130,12 +128,21 @@ export class PluginTransport {
       return result;
     } catch (error) {
       if (error instanceof ApiError && error.code === "plugin_call_replayed") throw error;
-      const message = error instanceof Error ? error.message : String(error);
-      await this.prisma.pluginInvocation.update({
-        where: { callId },
+      // The database can commit and then lose its acknowledgement. Reconcile
+      // the receipt before reporting uncertainty; never overwrite a completion.
+      if (receivedResult) {
+        const receipt = await this.prisma.pluginInvocation.findUnique({ where: { id: invocation.id } }).catch(() => null);
+        if (receipt?.status === "completed") return receipt.result;
+      }
+      const safe = receivedResult
+        ? new ApiError(409, "plugin_call_outcome_unknown", PLUGIN_UNSAVED_UNKNOWN_OUTCOME)
+        : await this.redactError(error, invocation.connection);
+      const message = safe.message;
+      await this.prisma.pluginInvocation.updateMany({
+        where: { id: invocation.id, status: "running" },
         data: { status: "failed", error: message.slice(0, 2_000), completedAt: new Date() },
-      });
-      throw error;
+      }).catch(() => undefined); // A failed diagnostic write must not replace the primary outcome.
+      throw safe;
     }
   }
 
@@ -156,10 +163,25 @@ export class PluginTransport {
     if (typeof credentials.bearerToken === "string") {
       headers.authorization = `Bearer ${credentials.bearerToken}`;
     }
-    if (connection.authType !== "oauth") {
-      return { endpoint, headers };
-    }
-    return { endpoint, headers, authProvider: this.oauthProvider(connection) };
+    const beforeRequest = async (method?: string, toolName?: string) => {
+      const current = await this.prisma.pluginConnection.findUnique({
+        where: { id: connection.id },
+        select: { runtimeGeneration: true, status: true, toolSnapshot: true, installation: { select: { status: true } } },
+      });
+      if (!current || current.installation.status !== "installed" ||
+        (connection.runtimeGeneration !== undefined && current.runtimeGeneration !== connection.runtimeGeneration))
+        throw new ApiError(409, "plugin_connection_changed", "Connection changed before this request could be sent.");
+      if (method === "tools/call") {
+        if (current.status !== "ready")
+          throw new ApiError(403, "plugin_access_revoked", "Connection access was revoked before this call could run.");
+        if (!toolSnapshot(current.toolSnapshot).some(tool => tool.name === toolName))
+          throw new ApiError(404, "plugin_tool_not_found", "The tool is no longer available.");
+      }
+    };
+    return {
+      endpoint, headers, runtimeGeneration: connection.runtimeGeneration, beforeRequest,
+      authProvider: connection.authType === "oauth" ? this.oauthProvider(connection) : undefined,
+    };
   }
 
   private oauthProvider(
@@ -173,13 +195,17 @@ export class PluginTransport {
     const clientId =
       typeof configuration.clientId === "string"
         ? configuration.clientId
-        : (process.env[
+        : configuration.oauthRegistration === "dynamic"
+          ? undefined
+          : (process.env[
             `OPENTEAM_${connection.connectorKey.toUpperCase().replaceAll("-", "_")}_OAUTH_CLIENT_ID`
           ] ?? process.env.OPENTEAM_MCP_OAUTH_CLIENT_ID);
     const clientSecret =
       typeof configuration.clientSecret === "string"
         ? configuration.clientSecret
-        : (process.env[
+        : configuration.oauthRegistration === "dynamic"
+          ? undefined
+          : (process.env[
             `OPENTEAM_${connection.connectorKey.toUpperCase().replaceAll("-", "_")}_OAUTH_CLIENT_SECRET`
           ] ?? process.env.OPENTEAM_MCP_OAUTH_CLIENT_SECRET);
     const clientInformation: OAuthClientInformationMixed | undefined = clientId
@@ -268,17 +294,87 @@ export class PluginTransport {
       endpoint: string | null;
       configuration: Prisma.JsonValue;
       credentials: Prisma.JsonValue;
+      runtimeGeneration?: number;
     },
     toolName: string,
     args: unknown
   ): Promise<unknown> {
-    const result =
-      connection.transport === "builtin"
-        ? await this.invokeBuiltin(toolName, args, { connectionId: connection.id })
-        : connection.transport === "stdio"
-          ? await this.callStdio(connection, toolName, args)
-          : await this.http.call(connection.id, this.httpOptions(connection), toolName, args);
-    return boundPluginResult(redactConnectionSecrets(result, connection));
+    try {
+      const result =
+        connection.transport === "builtin"
+          ? await this.invokeBuiltin(toolName, args, { connectionId: connection.id })
+          : connection.transport === "stdio"
+            ? await this.callStdio(connection, toolName, args)
+            : await this.callHttp(connection, toolName, args);
+      return boundPluginResult(await this.redactValue(result, connection));
+    } catch (error) {
+      throw await this.redactError(error, connection);
+    }
+  }
+
+  private async redactValue(value: unknown, connection: {
+    id: string; configuration: Prisma.JsonValue; credentials: Prisma.JsonValue;
+  }): Promise<unknown> {
+    let safe = redactConnectionSecrets(value, connection);
+    // SDK token refresh can replace credentials during a call. Scrub the saved
+    // token too, without allowing a failed diagnostic read to hide the error.
+    const latest = await this.prisma.pluginConnection.findUnique({
+      where: { id: connection.id }, select: { configuration: true, credentials: true },
+    }).catch(() => null);
+    if (latest) safe = redactConnectionSecrets(safe, latest);
+    return safe;
+  }
+
+  private async redactError(error: unknown, connection: {
+    id: string; configuration: Prisma.JsonValue; credentials: Prisma.JsonValue;
+  }): Promise<Error> {
+    const message = error instanceof Error ? error.message : String(error);
+    const safe = String(await this.redactValue(message, connection));
+    if (safe === message && error instanceof Error) return error;
+    return error instanceof ApiError ? new ApiError(error.status, error.code, safe) : new Error(safe);
+  }
+
+  private async callHttp(
+    connection: Parameters<PluginTransport["httpOptions"]>[0],
+    toolName: string,
+    args: unknown,
+    signal?: AbortSignal
+  ) {
+    try {
+      return await this.http.call(connection.id, this.httpOptions(connection), toolName, args, signal);
+    } catch (error) {
+      await this.recoverHttpAuthorization(connection, error);
+      throw error;
+    }
+  }
+
+  /** Commit a terminal HTTP authorization failure once; stale calls cannot erase a newer sign-in. */
+  async recoverHttpAuthorization(connection: OAuthConnection & { authType: string }, error: unknown) {
+    if (connection.authType !== "oauth" || !isMcpAuthorizationError(error)) return;
+    const changed = await this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE id = ${connection.id}::uuid FOR UPDATE`;
+      const current = await tx.pluginConnection.findUnique({ where: { id: connection.id } });
+      if (!current || !["ready", "error"].includes(current.status) ||
+        (connection.runtimeGeneration !== undefined && current.runtimeGeneration !== connection.runtimeGeneration)) return false;
+      const credentials = jsonObject(current.credentials);
+      const oauth = { ...jsonObject(credentials.oauth) };
+      for (const key of ["tokens", "tokensExpireAt", "codeVerifier", "authorizationUrl"]) delete oauth[key];
+      await tx.pluginConnection.update({ where: { id: current.id }, data: {
+        credentials: toJson({ ...credentials, oauth }),
+        runtimeGeneration: { increment: 1 },
+        status: "needs_auth",
+        statusMessage: new OAuthReauthorizationRequiredError().message,
+        lastCheckedAt: new Date(),
+      } });
+      await tx.pluginActivity.create({ data: {
+        installationId: current.installationId, connectionId: current.id,
+        kind: "connection.auth_required", summary: "Authorization expired or was revoked. Sign in again.",
+      } });
+      return true;
+    });
+    if (!changed) throw new ApiError(409, "plugin_connection_changed", "Connection changed while this call was running. Check the current account settings.");
+    await this.http.close(connection.id);
+    throw new OAuthReauthorizationRequiredError();
   }
 
   async discoverStdio(connection: {
@@ -352,7 +448,8 @@ export class PluginTransport {
     connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue; runtimeGeneration?: number;
     },
     toolName: string,
-    args: unknown
+    args: unknown,
+    signal?: AbortSignal
   ): Promise<unknown> {
     const { configuration, runtimeGeneration } = await this.stdioRuntime(connection);
     const response = await this.callComputer(`/v1/mcp/connections/${connection.id}/call`, {
@@ -360,7 +457,7 @@ export class PluginTransport {
       runtimeGeneration,
       toolName,
       arguments: args,
-    });
+    }, signal);
     // Scrub every resolved environment value (fresh OAuth tokens included) except
     // values of non-secret setup fields, such as a mailbox address, that tools return.
     const publicValues = new Set(
@@ -537,17 +634,19 @@ export class PluginTransport {
       );
   }
 
-  private async callComputer(path: string, body: unknown): Promise<JsonObject> {
+  private async callComputer(path: string, body: unknown, signal?: AbortSignal): Promise<JsonObject> {
     if (!this.computerFetch) {
       throw new ApiError(503, "computer_unavailable", "The computer runtime is unavailable");
     }
+    signal?.throwIfAborted();
+    const deadline = AbortSignal.timeout(path.endsWith("/discover") ? 360_000 : path.endsWith("/call") ? MCP_TOOL_CALL_TIMEOUT_MS + 60_000 : 65_000);
     const response = await this.computerFetch(path, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
       // Startup can wait for browser consent. Keep the RPC alive through the
       // computer's five-minute startup and tool-discovery budgets, and a call through its own.
-      signal: AbortSignal.timeout(path.endsWith("/discover") ? 360_000 : path.endsWith("/call") ? MCP_TOOL_CALL_TIMEOUT_MS + 60_000 : 65_000),
+      signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
       // Bun's fetch otherwise gives up after 300 seconds whatever the signal allows.
       timeout: false,
     } as RequestInit);

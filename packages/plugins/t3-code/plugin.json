@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "key": "t3-code",
+  "version": "1.0.0",
+  "name": "T3 Code",
+  "description": "Start coding tasks in your T3 Code projects, follow progress, and continue existing threads from OpenTeam.",
+  "publisher": "OpenTeam",
+  "category": "Agent Orchestration",
+  "featured": false,
+  "components": ["mcp", "skills"],
+  "homepageUrl": "https://t3.codes",
+  "icon": "assets/icon.png",
+  "setup": {
+    "kind": "oauth",
+    "connectionKey": "t3-code",
+    "title": "Connect T3 Code",
+    "description": "Paste the MCP URL from your T3 Code environment. OpenTeam validates the URL, then opens T3's authorization page. No client ID or API key is needed.",
+    "documentationUrl": "https://github.com/pingdotgg/t3code/blob/main/docs/user/outside-agents.md",
+    "steps": [
+      "In T3 Code, choose Use T3 Code in another app (MCP), or Copy MCP URL from your environment's menu.",
+      "Paste the complete URL below. Use T3 Connect or reachable HTTPS when OpenTeam runs on another computer.",
+      "Authorize OpenTeam on T3's page. If T3 asks for a one-time approval code, enter it there; OpenTeam does not save that code.",
+      "Choose your access level in T3. Read only can inspect threads. Auto lets the coding provider review routine actions automatically and ask about others; it is not unrestricted access.",
+      "Return to OpenTeam. The connection is ready after its authenticated MCP tool discovery succeeds. Keep the T3 host online."
+    ],
+    "fields": [
+      {
+        "key": "mcpUrl",
+        "label": "T3 Code MCP URL",
+        "format": "mcp-url",
+        "required": true,
+        "secret": false,
+        "placeholder": "https://your-environment.t3coderelay.com/mcp",
+        "helpText": "Paste the full URL ending in /mcp, not a pairing link or approval code. HTTPS is required except for localhost."
+      }
+    ],
+    "requiredScopes": ["orchestration:read", "orchestration:operate"]
+  },
+  "connections": [
+    {
+      "key": "t3-code",
+      "name": "T3 Code",
+      "transport": "http",
+      "auth": "oauth",
+      "endpoint": "${mcpUrl}",
+      "configuration": { "oauthRegistration": "dynamic" },
+      "tools": [],
+      "oauth": {
+        "clientType": "public",
+        "registration": "dynamic",
+        "tokenEndpointAuthMethod": "none",
+        "shareClientCredentials": false
+      }
+    }
+  ],
+  "skills": [
+    {
+      "name": "t3-code",
+      "description": "Implement features, fix bugs, run tests, or research code through a connected T3 Code environment; start a worktree thread and follow its verified result.",
+      "path": "skills/t3-code",
+      "agents": ["main", "executor"]
+    },
+    {
+      "name": "t3-threads",
+      "description": "Inspect T3 Code projects and existing threads, report progress, send follow-ups, or stop a specified remote coding run.",
+      "path": "skills/t3-threads",
+      "agents": ["main", "executor"]
+    },
+    {
+      "name": "t3-setup",
+      "description": "Connect T3 Code or diagnose its MCP URL, sign-in, Auto access, offline host, or missing project/provider.",
+      "path": "skills/t3-setup",
+      "agents": ["main"]
+    }
+  ]
+}

@@ -136,9 +136,9 @@ export class PluginService {
     this.configuration = new PluginConfiguration(prisma, this.publicUrl, (id, transport) =>
       this.stopRuntime(id, transport)
     );
-    this.http.onToolsChanged = async (id, tools) => {
+    this.http.onToolsChanged = async (id, tools, options) => {
       const connection = await this.connectionOrThrow(id);
-      if (connection.status === "ready")
+      if (connection.status === "ready" && connection.runtimeGeneration === options.runtimeGeneration)
         await this.markReady(connection, tools, "connection.tools_changed");
     };
 
@@ -836,6 +836,7 @@ export class PluginService {
         tools = await this.discoverStdio(connection);
       }
     } catch (error) {
+      if (connection.transport === "http") await this.transport.recoverHttpAuthorization(connection, error);
       // The packaged OAuth boundary already committed needs_auth under its row
       // lock. Do not replace that state with a generic runtime failure.
       if (error instanceof OAuthReauthorizationRequiredError) throw error;
@@ -1390,10 +1391,10 @@ export class PluginService {
 
   dynamicNamespaces = forwardServiceMethod(() => this.queries.dynamicNamespaces);
 
-  invoke = (request: Parameters<PluginInvocations["invoke"]>[0]) => this.invocations.invoke(request);
+  invoke = (request: Parameters<PluginInvocations["invoke"]>[0], signal?: AbortSignal) => this.invocations.invoke(request, signal);
 
-  private async executeInvocation(callId: string): Promise<unknown> {
-    return this.transport.executeInvocation(callId);
+  private async executeInvocation(callId: string, signal?: AbortSignal): Promise<unknown> {
+    return this.transport.executeInvocation(callId, signal);
   }
 
   skillInstructions = forwardServiceMethod(() => this.queries.skillInstructions);
@@ -1426,6 +1427,7 @@ export class PluginService {
     authType: string;
     configuration: Prisma.JsonValue;
     credentials: Prisma.JsonValue;
+    runtimeGeneration?: number;
   }) {
     return this.transport.httpOptions(connection);
   }

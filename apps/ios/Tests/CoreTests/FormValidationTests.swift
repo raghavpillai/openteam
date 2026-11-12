@@ -7,6 +7,15 @@ final class FormValidationTests: XCTestCase {
   func json(_ value: String) throws -> JSON {
     try JSONDecoder().decode(JSON.self, from: Data(value.utf8))
   }
+  func testMCPURLSetupRequiresHTTPSOrLoopbackAndRejectsApprovalLinks() throws {
+    let fields = try json(#"[{"key":"url","label":"MCP URL","format":"mcp-url","required":true}]"#).array
+    for value in ["https://environment.example/mcp", "http://localhost:3773/mcp", "http://127.0.0.1:3773/mcp", "http://[::1]:3773/mcp"] {
+      XCTAssertNoThrow(try FormValidation.fields(fields, values: ["url": .string(value)]))
+    }
+    for value in ["AUTO-example", "http://192.168.1.5/mcp", "https://user:pass@example.com/mcp", "https://example.com/pair#token=private", "https://example.com/mcp?code=private"] {
+      XCTAssertThrowsError(try FormValidation.fields(fields, values: ["url": .string(value)]))
+    }
+  }
   func testPluginValidationPreservesSavedSecretsAndFalseBooleans() throws {
     let fields = try json(
       #"[{"key":"token","label":"API token","secret":true,"required":true},{"key":"enabled","type":"boolean","required":true},{"key":"count","type":"integer"},{"key":"region","enum":["east","west"]}]"#

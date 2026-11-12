@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 /** Joined text above this many bytes is written to a file instead of the context, as in the reference. */
-export const CONNECTOR_TEXT_FILE_THRESHOLD_BYTES = 40_000;
+const CONNECTOR_TEXT_FILE_THRESHOLD_BYTES = 40_000;
 const CONNECTOR_TEXT_FILE_MAX_BYTES = 49 * 1024 * 1024;
 
 export type ConnectorResultPart =

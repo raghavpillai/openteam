@@ -1,6 +1,6 @@
 import { CliError } from "./errors";
 
-export type CommandName =
+type CommandName =
   | "tailscale-enable"
   | "tailscale-status"
   | "tailscale-disable"

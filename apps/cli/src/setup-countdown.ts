@@ -2,7 +2,7 @@ import type { InstallationPaths } from "./config";
 import { installationCommand } from "./command-ui";
 import { TerminalReport, type TerminalOptions } from "./terminal";
 
-export const renderSetupCountdown = (seconds: number, options: TerminalOptions = {}): string => {
+const renderSetupCountdown = (seconds: number, options: TerminalOptions = {}): string => {
   const view = new TerminalReport(options);
   const remaining = Math.max(1, Math.min(5, Math.ceil(seconds)));
   return view.paint(

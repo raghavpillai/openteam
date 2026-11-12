@@ -29,7 +29,7 @@ export interface ProviderConnectionAPI {
   importLogin(provider: string, signal?: AbortSignal): Promise<void>;
 }
 
-export type Invocation = {
+type Invocation = {
   command: string;
   args: readonly string[];
   cwd?: string;
@@ -93,7 +93,7 @@ const object = (value: unknown): value is Record<string, unknown> =>
 const invalid = () =>
   new CliError("The connection service returned invalid data. Update OpenTeam and retry.");
 
-export const parseAuthSession = (value: unknown): AuthSession => {
+const parseAuthSession = (value: unknown): AuthSession => {
   if (
     !object(value) ||
     typeof value.id !== "string" ||

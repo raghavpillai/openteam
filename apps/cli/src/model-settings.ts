@@ -42,7 +42,7 @@ export interface TranscriptionView extends Omit<TranscriptionDraft, "apiKey"> {
   apiKeySuffix?: string | null;
   configured: boolean;
 }
-export type ModelCheck = { level: "pass" | "warn" | "fail"; detail: string };
+type ModelCheck = { level: "pass" | "warn" | "fail"; detail: string };
 export interface ModelSettingsAPI {
   catalog(provider?: string, signal?: AbortSignal): Promise<ModelCatalog>;
   transcription(signal?: AbortSignal): Promise<TranscriptionView>;
@@ -54,7 +54,7 @@ export interface ModelSettingsAPI {
   checkTranscription(signal?: AbortSignal): Promise<ModelCheck>;
   transcriptionModels(settings: TranscriptionDraft, signal?: AbortSignal): Promise<string[]>;
 }
-export const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const object = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const invalid = () =>

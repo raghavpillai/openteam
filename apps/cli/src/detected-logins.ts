@@ -65,18 +65,18 @@ const settings = (options: LoginDetectionOptions) => ({
   runner: options.runner,
 });
 
-export const codexAuthPath = (options: LoginDetectionOptions = {}): string => {
+const codexAuthPath = (options: LoginDetectionOptions = {}): string => {
   const { env, home } = settings(options);
   return join(env.CODEX_HOME || join(home, ".codex"), "auth.json");
 };
 
-export const claudeCredentialsPath = (options: LoginDetectionOptions = {}): string => {
+const claudeCredentialsPath = (options: LoginDetectionOptions = {}): string => {
   const { env, home } = settings(options);
   return join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), ".credentials.json");
 };
 
 /** The ChatGPT sign-in the Codex CLI keeps in auth.json, when present. */
-export const readCodexCredential = (
+const readCodexCredential = (
   options: LoginDetectionOptions = {}
 ): { credential: ReusableCredential; source: string } | null => {
   const { home } = settings(options);

@@ -22,7 +22,7 @@ import { dockerDaemon } from "./docker";
 import { CliError } from "./errors";
 import type { CommandRunner } from "./process";
 
-export type PersistedUpdatePhase =
+type PersistedUpdatePhase =
   | "checking"
   | "downloading"
   | "backing-up"

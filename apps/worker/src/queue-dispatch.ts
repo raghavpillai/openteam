@@ -1,6 +1,6 @@
 import type { Job, JobWithMetadata, PgBoss } from "pg-boss";
 
-export const DISPATCH_POLL_SECONDS = 2;
+const DISPATCH_POLL_SECONDS = 2;
 
 /** One job per consumer, with immediate backlog draining and a polling backstop. */
 export async function workContinuously<T>(

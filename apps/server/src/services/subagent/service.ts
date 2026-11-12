@@ -73,7 +73,7 @@ const withoutLatestSteer = (content: string): string => {
 export const botSubagentId = (id: string): string =>
   id.startsWith("sand-subagent-") ? id : `sand-subagent-${id}`;
 
-export const openteamSubagentId = (id: string): string => id.replace(/^sand-subagent-/, "");
+const openteamSubagentId = (id: string): string => id.replace(/^sand-subagent-/, "");
 
 const agentIdLine = (id: string) =>
   `Agent ID: ${botSubagentId(id)} (can be used with the \`resume\` parameter to send a follow-up after it completes)`;

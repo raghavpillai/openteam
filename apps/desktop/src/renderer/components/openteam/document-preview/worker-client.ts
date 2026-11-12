@@ -7,7 +7,7 @@ type DocumentPreviewRequest = {
 
 type DocumentPreviewResponse = { html: string; ok: true } | { message: string; ok: false };
 
-export interface DocumentPreviewWorker {
+interface DocumentPreviewWorker {
   onerror: ((event: ErrorEvent) => void) | null;
   onmessage: ((event: MessageEvent<DocumentPreviewResponse>) => void) | null;
   onmessageerror: ((event: MessageEvent) => void) | null;

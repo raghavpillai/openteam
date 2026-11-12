@@ -33,7 +33,7 @@ export type PushRegistrationAuthentication =
   | { mode: "required"; sessionId: string };
 export type PushAuthenticationMode = PushRegistrationAuthentication["mode"];
 
-export const deliverablePushDeviceWhere = (
+const deliverablePushDeviceWhere = (
   authMode: PushAuthenticationMode,
   now = new Date()
 ): Prisma.PushDeviceWhereInput =>

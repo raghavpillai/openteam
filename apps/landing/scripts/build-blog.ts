@@ -9,7 +9,7 @@ import { codeBlockHtml, docsDirectory, escapeHtml, generatedDirectory, plainText
 export const blogDirectory = fileURLToPath(new URL("../content/blog/", import.meta.url));
 const publicDirectory = fileURLToPath(new URL("../public/", import.meta.url));
 
-export const DEFAULT_AUTHOR: BlogAuthor = { name: "Raghav Pillai", url: "https://github.com/raghavpillai" };
+const DEFAULT_AUTHOR: BlogAuthor = { name: "Raghav Pillai", url: "https://github.com/raghavpillai" };
 
 const FIELDS = ["title", "seoTitle", "description", "date", "updated", "category", "image", "imageAlt", "related"] as const;
 type Field = (typeof FIELDS)[number];
@@ -35,7 +35,7 @@ function isDate(value: string) {
 }
 
 /** Width and height keep images from shifting the page while they load. */
-export function imageSize(file: string): { width: number; height: number } | undefined {
+function imageSize(file: string): { width: number; height: number } | undefined {
   const bytes = new Uint8Array(readFileSync(file));
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const text = (start: number, end: number) => new TextDecoder("latin1").decode(bytes.subarray(start, end));

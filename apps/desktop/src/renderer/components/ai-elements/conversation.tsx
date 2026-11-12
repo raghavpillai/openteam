@@ -53,7 +53,7 @@ const notifyGlide = (state: StickToBottomState) => {
 /** True while a glide owns the scroll position; bottom-follow must not snap. */
 export const isConversationGliding = (state: StickToBottomState) => activeGlides.has(state);
 
-export const useConversationGliding = () => {
+const useConversationGliding = () => {
   const { state } = useStickToBottomContext();
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -336,7 +336,7 @@ const CloseIcon = () => (
   </svg>
 );
 
-export const appendedTimelineEntryCount = ({
+const appendedTimelineEntryCount = ({
   previousCount,
   nextCount,
   previousLatestKey,
@@ -369,7 +369,7 @@ type ConversationNoticeSnapshot = {
   trackNewMessages: boolean;
 };
 
-export const conversationNoticeTransition = ({
+const conversationNoticeTransition = ({
   previous,
   next,
   trackNewMessages,
@@ -405,7 +405,7 @@ type ConversationViewportFocusTarget = {
   tabIndex: number;
 };
 
-export const focusConversationViewport = (
+const focusConversationViewport = (
   viewport: ConversationViewportFocusTarget | null
 ): boolean => {
   if (!viewport) return false;

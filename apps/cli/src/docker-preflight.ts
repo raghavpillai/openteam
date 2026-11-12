@@ -10,7 +10,7 @@ const DOCKER_DESKTOP_URL = "https://www.docker.com/products/docker-desktop/";
 const DOCKER_ENGINE_URL = "https://docs.docker.com/engine/install/";
 const START_TIMEOUT_MS = 120_000;
 
-export const dockerDesktopApplication = (
+const dockerDesktopApplication = (
   candidates: readonly string[] = [
     "/Applications/Docker.app",
     join(homedir(), "Applications", "Docker.app"),

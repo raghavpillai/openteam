@@ -3,7 +3,7 @@ import { utilityProcess, type UtilityProcess } from "electron";
 import type { HostJobPayload, HostJobResponse } from "./job-protocol";
 
 const MAX_CONCURRENT_JOBS = 2;
-export const MAX_QUEUED_HOST_JOBS = 32;
+const MAX_QUEUED_HOST_JOBS = 32;
 const JOB_RESPONSE_TIMEOUT_MS = 2 * 60 * 60 * 1_000 + 60_000;
 
 interface QueueEntry {

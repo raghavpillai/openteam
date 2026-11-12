@@ -45,7 +45,7 @@ const categoryKind = (category: SearchCategory): SearchResultKind | null => {
 };
 
 /** Keep parsing deterministic and safe for PostgreSQL's to_tsquery syntax. */
-export const normalizeSearchQuery = (value: string) =>
+const normalizeSearchQuery = (value: string) =>
   value.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, MAX_QUERY_LENGTH);
 
 export const prefixTsQuery = (value: string) =>

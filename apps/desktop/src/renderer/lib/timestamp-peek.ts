@@ -1,10 +1,10 @@
-export const TIMESTAMP_PEEK_WIDTH = 82;
-export const TIMESTAMP_PEEK_RELEASE_MS = 90;
-export const TIMESTAMP_PEEK_RETURN_MS = 435;
-export const TIMESTAMP_PEEK_EASING = "linear(0, 0.03866 4%, 0.133 8%, 0.2566 12%, 0.3901 15%, 0.5206 19%, 0.6396 23%, 0.7426 27%, 0.8278 31%, 0.8954 35%, 0.9467 38%, 0.9837 42%, 1.009 46%, 1.024 50%, 1.033 54%, 1.036 58%, 1.035 62%, 1.032 65%, 1.028 69%, 1.023 73%, 1.019 77%, 1.014 81%, 1.01 85%, 1.007 88%, 1.004 92%, 1.002 96%, 1.001)";
+const TIMESTAMP_PEEK_WIDTH = 82;
+const TIMESTAMP_PEEK_RELEASE_MS = 90;
+const TIMESTAMP_PEEK_RETURN_MS = 435;
+const TIMESTAMP_PEEK_EASING = "linear(0, 0.03866 4%, 0.133 8%, 0.2566 12%, 0.3901 15%, 0.5206 19%, 0.6396 23%, 0.7426 27%, 0.8278 31%, 0.8954 35%, 0.9467 38%, 0.9837 42%, 1.009 46%, 1.024 50%, 1.033 54%, 1.036 58%, 1.035 62%, 1.032 65%, 1.028 69%, 1.023 73%, 1.019 77%, 1.014 81%, 1.01 85%, 1.007 88%, 1.004 92%, 1.002 96%, 1.001)";
 
-export const clampTimestampPeek = (offset: number) => Math.max(0, Math.min(TIMESTAMP_PEEK_WIDTH, offset));
-export const isTimestampPeekGesture = (deltaX: number, deltaY: number) =>
+const clampTimestampPeek = (offset: number) => Math.max(0, Math.min(TIMESTAMP_PEEK_WIDTH, offset));
+const isTimestampPeekGesture = (deltaX: number, deltaY: number) =>
   Math.abs(deltaX) >= 1.5 && Math.abs(deltaX) > Math.abs(deltaY);
 
 // A gesture that starts inside a code block/table belongs to that scroller for

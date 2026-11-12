@@ -16,8 +16,6 @@ import { useLinkHoverPreview } from "./link-hover-preview";
 import { SANITIZED_MESSAGE_LINK_PREFIX, SANITIZED_OPENTEAM_LINK_PREFIX } from "./markdown-source";
 export { messageRemarkPlugins, prepareMessageMarkdown } from "./markdown-source";
 
-export { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
-
 export const streamdownControls: ControlsConfig = {
   code: { copy: true, download: false },
   image: false,

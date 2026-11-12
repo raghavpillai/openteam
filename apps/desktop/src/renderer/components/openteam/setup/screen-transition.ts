@@ -22,7 +22,7 @@ const markShown = (key: string) => {
  * How something arrives, from how long ago it first appeared (null: never) and whether a
  * view transition is bringing it in: see useEnterAnimation and useEntranceResume.
  */
-export function entrance(
+function entrance(
   since: number | null,
   inTransition: boolean
 ): { mode: EnterMode; resumeAt: number } {

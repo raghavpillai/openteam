@@ -47,7 +47,7 @@ const BROWSER_DEBUG_PORT_BASE = 9300;
 
 const TAKEOVER_TTL_MS = 45_000;
 /** A held lease with no user operation for this long is released so the bot can work again. */
-export const HUMAN_IDLE_RELEASE_MS = 5 * 60_000;
+const HUMAN_IDLE_RELEASE_MS = 5 * 60_000;
 
 /**
  * The user holds the input lease while heartbeats keep it alive and they operated the computer

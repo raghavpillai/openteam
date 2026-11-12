@@ -67,7 +67,7 @@ const attribute = (tag: string, name: string) =>
   new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i").exec(tag)?.slice(1).find(Boolean) ?? null;
 
 /** The best `<link rel="icon">` (or apple-touch-icon) the page declares. */
-export function declaredIcon(html: string, base: URL): URL | null {
+function declaredIcon(html: string, base: URL): URL | null {
   let best: { score: number; url: URL } | null = null;
   for (const [tag] of html.matchAll(/<link\b[^>]*>/gi)) {
     const rel = attribute(tag, "rel")?.toLowerCase();

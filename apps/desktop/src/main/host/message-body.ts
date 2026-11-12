@@ -1,7 +1,7 @@
 import bplist from "bplist-parser";
 import { basename } from "node:path";
 
-export interface MessageRun {
+interface MessageRun {
   text: string;
   mention?: string;
   part?: number;
@@ -431,7 +431,7 @@ export function messageBody(text: unknown, hex: unknown): MessageBody {
 
 const APPLE_EPOCH_MS = 978_307_200_000;
 /** Unix milliseconds for a Messages date column: nanoseconds since 2001 (or seconds on old stores); 0/null is absent. */
-export function messageMs(value: unknown): number | undefined {
+function messageMs(value: unknown): number | undefined {
   if (value === null || value === undefined || value === "") return undefined;
   let raw: bigint;
   try {

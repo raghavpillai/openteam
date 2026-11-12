@@ -5,12 +5,12 @@ import { join } from "node:path";
 import { spawnAgentProcess as spawn, agentProcessIdentity, AGENT_SEARCH_PATHS, sanitizedAgentEnvironment } from "../agent-process";
 import type { ScreenSession } from "./types";
 
-export const SCREEN_HEALTH_CHECK_INTERVAL_MS = 2_000;
+const SCREEN_HEALTH_CHECK_INTERVAL_MS = 2_000;
 
-export const ENDPOINT_PROBE_TIMEOUT_MS = 1_000;
+const ENDPOINT_PROBE_TIMEOUT_MS = 1_000;
 const endpointFailures = new WeakMap<ScreenSession, number>();
 
-export const processError = (command: string, stderr: string, code: number | null) =>
+const processError = (command: string, stderr: string, code: number | null) =>
   new Error(`${command} exited ${code ?? "without a code"}${stderr ? `: ${stderr.trim()}` : ""}`);
 
 export const run = async (
@@ -149,7 +149,7 @@ export async function refreshSessionHealth(session: ScreenSession): Promise<void
   await session.healthCheckPromise;
 }
 
-export async function sessionEndpointsReady(session: ScreenSession): Promise<boolean> {
+async function sessionEndpointsReady(session: ScreenSession): Promise<boolean> {
   const [vncReady, viewerReady] = await Promise.all([
     tcpPortAccepts(session.rfbPort),
     viewerHttpResponds(session.viewerPort),

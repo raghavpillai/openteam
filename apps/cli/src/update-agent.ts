@@ -134,13 +134,13 @@ export const isUpdateAgentProcess = (
   }
 };
 
-export const runningUpdateAgent = (paths: InstallationPaths): number | null => {
+const runningUpdateAgent = (paths: InstallationPaths): number | null => {
   const owner = lockOwner(paths);
   return owner && isUpdateAgentProcess(owner, paths.directory) ? owner : null;
 };
 
 /** The command the service manager or the CLI runs to start this installation's agent. */
-export const updateAgentCommand = (paths: InstallationPaths): UpdateAgentCommand => {
+const updateAgentCommand = (paths: InstallationPaths): UpdateAgentCommand => {
   const executable = updateAgentExecutable();
   const environment: Record<string, string> = {
     [UPDATE_AGENT_ENV]: "1",

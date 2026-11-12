@@ -102,17 +102,17 @@ import { boxHelpPage } from "../box-help-page";
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@openteam/shell-jobs";
 
-export const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
+const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
   "Executes a given command in a shell session with optional foreground timeout.",
   "Use it for commands, scripts, installs, and creating or converting files. Read files with Read rather than `cat`, `head`, or `tail`, search file contents with `rg` rather than `grep` or `find`, and wait for a background command with AwaitShell rather than `sleep`. Before a destructive git step (force-pushing, skipping hooks with `--no-verify`, amending or rebasing commits that are already pushed, `reset --hard`), tell the user what it would overwrite and get their confirmation first, even when they asked for it.",
   "- Do not truncate output with `head`, `tail`, or `sed -n` solely to limit its size; large output is saved to a terminal file.\n- Run independent commands as parallel Shell calls. Chain dependent commands with `&&`.",
 ].join("\n\n");
 
-export const GRAPHICAL_WORKER_READ_DESCRIPTION =
+const GRAPHICAL_WORKER_READ_DESCRIPTION =
   "Reads a file on the box, the same filesystem Shell acts on.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.";
 
 /** The reference's per-call guard: its 15-minute tier less a minute of headroom. */
-export const TOOL_CALL_TIMEOUT_MS = 840_000;
+const TOOL_CALL_TIMEOUT_MS = 840_000;
 /** Tools that wait on the user or a whole subagent run rather than on a service. */
 const USER_PACED_CONTROL_TOOLS: ReadonlySet<string> = new Set([
   "Task",
@@ -126,11 +126,11 @@ const USER_PACED_CONTROL_TOOLS: ReadonlySet<string> = new Set([
   "RenameMcpAccount",
   "SetMcpInstructions",
 ]);
-export const toolCallTimedOutMessage = (tool: string, timeoutMs: number) =>
+const toolCallTimedOutMessage = (tool: string, timeoutMs: number) =>
   `The ${tool} tool call timed out after ${Math.round(timeoutMs / 1000)} seconds and was terminated. The execution environment may be unresponsive, or the operation needs longer than the per-call time limit.`;
 
 /** A failed control-plane call, carrying the server's error code for callers that act on it. */
-export class ControlPlaneError extends Error {
+class ControlPlaneError extends Error {
   constructor(message: string, readonly code: string | undefined, readonly status: number) {
     super(message);
   }
@@ -195,7 +195,7 @@ const BOX_HELP_PAGE_TIMEOUT_MS = 12_000;
 /** A question card waits on the user's answer, so it ends the turn after its response. */
 const isQuestionSend = (args: unknown): boolean =>
   ["widget", "secret-request"].includes(String((args as { type?: unknown } | null)?.type));
-export const EARLIER_SEND_FAILED_QUESTION_HELD =
+const EARLIER_SEND_FAILED_QUESTION_HELD =
   "Failed to send the message to the user: An earlier message in this response was not delivered (its own result says why), so this question was not shown either and the turn is still yours. Fix and resend that message, then ask again.";
 
 /** Browser and desktop workers stay on the box, so their box tools take no machineId. */
@@ -233,7 +233,7 @@ const COMBINED_COMPUTER_GUIDANCE =
 /** A readonly agent lists and greps with Shell, since Read opens one file and cannot list a directory. */
 const READONLY_NATIVE_TOOLS = ["Read", "Shell", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"];
 
-export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
+const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   "RecallMemory",
   "ListSections",
   SEND_TO_USER_TOOL.name,
@@ -244,7 +244,7 @@ export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /** First-party tools a worker or routine run calls directly instead of looking them up with GetDynamicTools. */
-export const workerTopLevelTools = (
+const workerTopLevelTools = (
   active: Pick<ActiveTurn, "subagentType" | "readOnly"> & Partial<Pick<ActiveTurn, "requestSource" | "runtimeProfile">>
 ): readonly string[] => {
   if (active.requestSource === "automation" && active.runtimeProfile !== "subagent") return [WAKE_PARENT_TOOL.name];

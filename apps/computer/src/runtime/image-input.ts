@@ -8,7 +8,7 @@ import { methods as resize } from "@jimp/plugin-resize";
 import type { RuntimeImage } from "./types";
 
 const Jimp = createJimp({ formats: [png, jpeg, bmp, msBmp, gif, tiff], plugins: [resize] });
-export const MODEL_IMAGE_BYTE_TARGET = 1024 * 1024;
+const MODEL_IMAGE_BYTE_TARGET = 1024 * 1024;
 const MIN_DIMENSION = 8;
 
 // Geometry and encoding loop mirror the inspected host 886e13a helper.
@@ -28,7 +28,7 @@ const targetFitImageSize = (width: number, height: number, maxDimension = 1024) 
   return { width: w, height: h, needsResize: w !== width || h !== height };
 };
 
-export const readWebpDimensions = (
+const readWebpDimensions = (
   bytes: Buffer
 ): { width: number; height: number } | undefined => {
   if (

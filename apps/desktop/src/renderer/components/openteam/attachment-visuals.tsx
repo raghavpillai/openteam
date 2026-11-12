@@ -7,7 +7,7 @@ import { cn } from "../../lib/cn";
  * smaller, never under 64). When they don't fit, the row folds to at most three
  * tiles and the last one counts the photos left over.
  */
-export const IMAGE_ROW = { height: 200, minHeight: 64, gap: 6, maxFoldedTiles: 3, defaultAspect: 4 / 3 } as const;
+const IMAGE_ROW = { height: 200, minHeight: 64, gap: 6, maxFoldedTiles: 3, defaultAspect: 4 / 3 } as const;
 
 export interface ImageRowPlan {
   height: number;

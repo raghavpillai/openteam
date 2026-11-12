@@ -47,7 +47,7 @@ export function attachSession(active: ActiveTurn): void {
   });
 }
 
-export function startReasoning(active: ActiveTurn, itemId: string): void {
+function startReasoning(active: ActiveTurn, itemId: string): void {
   if (active.startedItems.has(itemId)) return;
   active.startedItems.add(itemId);
   active.queue.push({

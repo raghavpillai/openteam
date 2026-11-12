@@ -132,7 +132,7 @@ const checkAction = (check: DoctorCheck): string | undefined => {
     : undefined;
 };
 
-export const isSkippedDoctorCheck = (check: DoctorCheck): boolean =>
+const isSkippedDoctorCheck = (check: DoctorCheck): boolean =>
   check.level === "warn" && /^not tested\b/i.test(check.detail.trim());
 
 export const doctorNextSteps = (

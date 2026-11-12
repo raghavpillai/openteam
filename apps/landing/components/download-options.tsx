@@ -68,7 +68,7 @@ export function targetForPlatform(
   return null;
 }
 
-export const detectTarget = async (): Promise<DesktopTargetId | null> => {
+const detectTarget = async (): Promise<DesktopTargetId | null> => {
   const browser = navigator as NavigatorHints;
   const ua = navigator.userAgent.toLowerCase();
   const platform = (browser.userAgentData?.platform ?? navigator.platform ?? "").toLowerCase();

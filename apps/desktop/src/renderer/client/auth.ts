@@ -13,13 +13,10 @@ import { resolveConfiguredApiBase } from "./runtime-url";
 import { readNativeAuthWithDeadline } from "./native-auth-deadline";
 
 export type {
-  OpenTeamAuthConnection,
   OpenTeamAuthMode,
   OpenTeamAuthSnapshot,
-  OpenTeamAuthStatus,
   OpenTeamAuthUser,
 } from "@openteam/client-core";
-export { parseAuthUser } from "@openteam/client-core";
 
 const API_BASE = resolveConfiguredApiBase(
   window.location.href,
@@ -27,7 +24,7 @@ const API_BASE = resolveConfiguredApiBase(
   import.meta.env.VITE_OPENTEAM_API_URL
 );
 const USER_KEY = "openteam:auth-user";
-export const AUTH_REQUIRED_EVENT = "openteam:auth-required";
+const AUTH_REQUIRED_EVENT = "openteam:auth-required";
 
 const readCachedUser = (): OpenTeamAuthUser | null => {
   try {

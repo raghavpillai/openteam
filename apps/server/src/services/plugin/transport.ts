@@ -28,7 +28,7 @@ import {
 } from "./values";
 
 /** MCP tool `_meta` key marking a tool the host calls and Bots must not see. */
-export const HOST_ONLY_TOOL_META = "openteam/hostOnly";
+const HOST_ONLY_TOOL_META = "openteam/hostOnly";
 
 type OAuthConnection = {
   id: string;

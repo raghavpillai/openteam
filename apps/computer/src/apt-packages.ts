@@ -14,9 +14,9 @@ import { spawn } from "node:child_process";
 import { copyFile, link, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-export const INSTALLS_ROOT = "/usr/local/var/lib/openteam";
+const INSTALLS_ROOT = "/usr/local/var/lib/openteam";
 /** Cached downloads beyond this are evicted, the earliest downloaded first. Kept local .debs don't count. */
-export const APT_ARCHIVE_CAP_BYTES = 1024 ** 3;
+const APT_ARCHIVE_CAP_BYTES = 1024 ** 3;
 
 export const installsPaths = (root = INSTALLS_ROOT) => ({
   root,
@@ -36,15 +36,15 @@ export const installsPaths = (root = INSTALLS_ROOT) => ({
 export type InstallsPaths = ReturnType<typeof installsPaths>;
 
 /** What the image itself ships, written when it was built (docker/computer.Dockerfile). */
-export const imageFiles = (root = "/") => ({
+const imageFiles = (root = "/") => ({
   baseline: join(root, "usr/share/openteam/apt-baseline"),
   sourcesBaseline: join(root, "usr/share/openteam/apt-sources-baseline"),
   buildId: join(root, "usr/lib/openteam/build-id"),
 });
-export type ImageFiles = ReturnType<typeof imageFiles>;
+type ImageFiles = ReturnType<typeof imageFiles>;
 
 /** Where bots add apt sources, keys and pins; files the image or a package owns are not theirs. */
-export const APT_SOURCE_LOCATIONS = [
+const APT_SOURCE_LOCATIONS = [
   "/etc/apt/sources.list",
   "/etc/apt/sources.list.d",
   "/etc/apt/keyrings",
@@ -138,11 +138,11 @@ export function nextRecordedList(input: {
  * The forgotten packages that stay untracked after one apt or dpkg run: those still installed that
  * this run didn't install. Removing a forgotten package, or installing it again, ends that.
  */
-export function stillForgotten(forgotten: Iterable<string>, before: PackageSnapshot | undefined, after: PackageSnapshot): string[] {
+function stillForgotten(forgotten: Iterable<string>, before: PackageSnapshot | undefined, after: PackageSnapshot): string[] {
   return [...forgotten].filter((name) => name in after.installed && (!before || name in before.installed));
 }
 
-export interface PolicySource { uri: string; suite: string }
+interface PolicySource { uri: string; suite: string }
 export interface PackagePolicy {
   installed?: string;
   candidate?: string;
@@ -210,7 +210,7 @@ export interface ArchiveEntry { file: string; size: number; downloadedMs: number
 /** apt names its downloads `<name>_<version>_<arch>.deb`. */
 const archivePackage = (file: string) => /^([^_]+)_([^_]+)_([^_]+)\.deb$/.exec(file);
 /** apt writes ':' in a version as %3a in the file name. */
-export const debFileName = (name: string, version: string, arch: string) => `${name}_${version.replace(/:/g, "%3a")}_${arch}.deb`;
+const debFileName = (name: string, version: string, arch: string) => `${name}_${version.replace(/:/g, "%3a")}_${arch}.deb`;
 
 /**
  * The cached downloads to delete: those of packages this run removed, every version but the newest
@@ -241,7 +241,7 @@ export function archivesToPrune(entries: readonly ArchiveEntry[], removed: Reado
   return [...doomed].sort();
 }
 
-export interface CommandResult { code: number | null; output: string }
+interface CommandResult { code: number | null; output: string }
 export type CommandRunner = (command: string, args: readonly string[], options?: { timeoutMs?: number; env?: NodeJS.ProcessEnv }) => Promise<CommandResult>;
 
 /** Package tools run with a fixed environment: no bot-writable search paths, no supervisor secrets. */
@@ -301,7 +301,7 @@ export const readRecord = async (paths: InstallsPaths): Promise<PackageRecord> =
 export const readForgotten = async (paths: InstallsPaths): Promise<string[]> => (await readInstallsFile(paths)).forgotten;
 
 /** Re-reads the record just before writing, so a hook and the replay don't undo each other's changes. */
-export async function updateRecord(paths: InstallsPaths, change: (record: PackageRecord, forgotten: Set<string>) => void): Promise<PackageRecord> {
+async function updateRecord(paths: InstallsPaths, change: (record: PackageRecord, forgotten: Set<string>) => void): Promise<PackageRecord> {
   const saved = await readInstallsFile(paths);
   const before = JSON.stringify(saved);
   const forgotten = new Set(saved.forgotten);
@@ -358,7 +358,7 @@ async function policies(run: CommandRunner, names: readonly string[], extra: rea
 }
 
 /** The "uri suite" pairs of the image's own apt sources. */
-export async function imageSources(image: ImageFiles, systemPath: (path: string) => string = (path) => path): Promise<Set<string>> {
+async function imageSources(image: ImageFiles, systemPath: (path: string) => string = (path) => path): Promise<Set<string>> {
   const files = (await readLines(image.sourcesBaseline)).filter((file) => /\/sources\.list(\.d\/.+\.(list|sources))?$/.test(file));
   return new Set((await Promise.all(files.map(async (file) => parseSourceFile(await readText(systemPath(file)))))).flat());
 }

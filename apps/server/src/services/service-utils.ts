@@ -14,17 +14,6 @@ export const toJson = (value: unknown): Prisma.InputJsonValue =>
 export const hashRequest = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
-export const slugify = (value: string): string => {
-  const slug = value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 48);
-  return slug || "bot";
-};
-
 export const appendEvent = (
   tx: Prisma.TransactionClient,
   topic: string,
@@ -32,7 +21,7 @@ export const appendEvent = (
   payload: unknown
 ) => tx.event.create({ data: { topic, entityId, payload: toJson(payload) } });
 
-export const toError = (error: unknown) =>
+const toError = (error: unknown) =>
   error instanceof Error ? error : new Error(String(error));
 
 export type ComputerFetch = (path: string, init: RequestInit) => Promise<Response>;

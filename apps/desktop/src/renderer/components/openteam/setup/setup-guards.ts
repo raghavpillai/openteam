@@ -1,5 +1,5 @@
 /** How long a new screen ignores submits, so one double press can't also answer the next screen. */
-export const SETTLE_MS = 400;
+const SETTLE_MS = 400;
 
 /**
  * True for a submit that arrives while a screen has only just appeared and nothing on it was

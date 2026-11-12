@@ -1,5 +1,5 @@
 const MICROPHONE_STORAGE_KEY = "openteam:microphone";
-export const MICROPHONE_CHANGE_EVENT = "openteam:microphone-change";
+const MICROPHONE_CHANGE_EVENT = "openteam:microphone-change";
 export const MICROPHONE_ACCESS_EVENT = "openteam:microphone-access";
 
 // Hardware identifiers belong to this client, never to server/account settings.

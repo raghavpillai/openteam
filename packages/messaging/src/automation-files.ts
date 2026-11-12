@@ -315,7 +315,7 @@ export const renderAutomationFile = (routine: {
   });
 };
 
-export const renderRunsFile = (runs: unknown): string =>
+const renderRunsFile = (runs: unknown): string =>
   jsonFile(parseAutomationRuns(JSON.stringify(Array.isArray(runs) ? runs : [])));
 
 export const writeAutomationFiles = async (

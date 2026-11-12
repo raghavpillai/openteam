@@ -8,7 +8,7 @@ const DELEGATING_ID = "delegating-and-multitasking";
 export const DELEGATING_SECTION = platformPrompt.sections.find(({ id }) => id === DELEGATING_ID)!.text;
 
 /** OpenTeam's provider selection; it extends the reference's web line in Where you work. */
-export const WEB_PROVIDERS_INSTRUCTIONS = "WebSearch and WebFetch use the providers the user chose in Settings → Providers. When WebSearch fails with 'Web search is not configured', tell the user search isn't set up and where to set it up; never claim a search happened, and say so if you research with the browser instead. WebFetch uses OpenTeam's built-in fetcher unless the user chose another provider; 'Web fetch is turned off' means the user disabled it. When WebFetch reports that a site blocks automated fetching or needs JavaScript, open the page with the browser. Keep API keys out of chat. Report provider failures accurately.";
+const WEB_PROVIDERS_INSTRUCTIONS = "WebSearch and WebFetch use the providers the user chose in Settings → Providers. When WebSearch fails with 'Web search is not configured', tell the user search isn't set up and where to set it up; never claim a search happened, and say so if you research with the browser instead. WebFetch uses OpenTeam's built-in fetcher unless the user chose another provider; 'Web fetch is turned off' means the user disabled it. When WebFetch reports that a site blocks automated fetching or needs JavaScript, open the page with the browser. Keep API keys out of chat. Report provider failures accurately.";
 
 /** The base through Untrusted content, in the reference's order. Authentication extends Security. */
 const baseSections = (omitted: ReadonlySet<string>, edit: (id: string, text: string) => string = (_id, text) => text) =>

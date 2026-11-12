@@ -10,15 +10,15 @@ import { browserJsonChunks } from "./json-chunks";
  * mostly immutable data in separate content-addressed files means such a
  * change rewrites only the small index instead of every cached response.
  */
-export const AUTHORITY_PART_MIN_BYTES = 16 * 1024;
+const AUTHORITY_PART_MIN_BYTES = 16 * 1024;
 
 export const PART_NAME = /^[a-f0-9]{64}$/;
 
-export interface AuthorityPartReference {
+interface AuthorityPartReference {
   $part: string;
 }
 
-export const isAuthorityPartReference = (value: unknown): value is AuthorityPartReference => {
+const isAuthorityPartReference = (value: unknown): value is AuthorityPartReference => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const keys = Object.keys(value);
   const name = (value as { $part?: unknown }).$part;

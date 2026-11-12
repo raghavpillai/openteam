@@ -1,6 +1,6 @@
-export const EMOJI_GRID_HEADER_HEIGHT = 32;
-export const EMOJI_GRID_ROW_HEIGHT = 34;
-export const EMOJI_GRID_EMPTY_HEIGHT = 48;
+const EMOJI_GRID_HEADER_HEIGHT = 32;
+const EMOJI_GRID_ROW_HEIGHT = 34;
+const EMOJI_GRID_EMPTY_HEIGHT = 48;
 
 export type EmojiVirtualRow =
   | { key: string; kind: "header"; label: string }

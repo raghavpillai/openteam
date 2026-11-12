@@ -4,7 +4,7 @@ import { installsPaths, readPackageSnapshot, readRecord, readReplayStatus, runCo
 export const INSTALL_NOTICE_TYPE = "openteam-installs";
 
 /** What the last start couldn't bring back, leaving out packages installed again or forgotten since. */
-export function installNotice(status: ReplayStatus, installed: Record<string, string>, log: string, recorded?: ReadonlySet<string>): string | null {
+function installNotice(status: ReplayStatus, installed: Record<string, string>, log: string, recorded?: ReadonlySet<string>): string | null {
   const current = (name: string) => !(name in installed) && (!recorded || recorded.has(name));
   const failed = status.failed.filter(({ name }) => current(name));
   const pending = status.pending.filter(current);

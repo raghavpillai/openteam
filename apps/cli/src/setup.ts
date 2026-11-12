@@ -85,7 +85,7 @@ export {
 } from "./setup-values";
 
 /** Where to get the apps after setup; they connect a model and create the first bot. */
-export const APP_DOWNLOADS = [
+const APP_DOWNLOADS = [
   { label: "Desktop", value: "https://openteam.so/download" },
   { label: "iPhone", value: "https://testflight.apple.com/join/KFBFPkjP" },
 ] as const;

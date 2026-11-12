@@ -6,7 +6,7 @@ import type {
   WithAgentStore,
 } from "./types";
 
-export const LIVE_ROOT_MAX_BYTES = 8 * 1024 * 1024;
+const LIVE_ROOT_MAX_BYTES = 8 * 1024 * 1024;
 
 export async function appendConversationEnvelopesInternal(
   withAgentStore: WithAgentStore,

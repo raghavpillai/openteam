@@ -6,7 +6,7 @@ const INPUT_CHUNK_CHARACTERS = 256 * 1024;
 const PERCENT_CHUNK_BYTES = 64 * 1024;
 const BASE64_NON_ALPHABET = /[^A-Za-z0-9+/_-]/g;
 
-export interface DataUrlWriteProgress {
+interface DataUrlWriteProgress {
   bytesWritten: number;
   chunkBytes: number;
 }

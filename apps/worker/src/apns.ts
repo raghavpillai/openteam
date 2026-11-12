@@ -29,7 +29,7 @@ export type ApnsTransport = (
   body: string
 ) => Promise<ApnsResult>;
 
-export function apnsPayload(
+function apnsPayload(
   device: ApnsDevice,
   payload: PushNotificationPayload,
   badgeCount: number

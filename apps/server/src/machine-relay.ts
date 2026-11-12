@@ -3,7 +3,7 @@ import { ApiError } from "@openteam/contracts";
 import { HOST_BRIDGE_PATHS, HOST_TRANSFER_MAX_BYTES } from "@openteam/contracts/service-protocol";
 import { spoolFile, type StagedFile } from "@openteam/plugin-sdk/file-spool";
 
-export interface MachineRequest {
+interface MachineRequest {
   id: string;
   method: string;
   path: string;

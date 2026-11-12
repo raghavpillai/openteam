@@ -14,7 +14,7 @@ export interface ReleaseArtifact {
   compose: string;
 }
 
-export const releaseComposeUrl = (repository: string, version: string): string =>
+const releaseComposeUrl = (repository: string, version: string): string =>
   `https://github.com/${normalizeRepository(repository)}/releases/download/v${normalizeVersion(version)}/openteam-compose.yaml`;
 
 const fetchText = async (url: string, accept = "text/plain"): Promise<string> => {
@@ -102,7 +102,7 @@ const checksumFor = (contents: string, filename: string): string | null => {
   return null;
 };
 
-export const validateCompose = (contents: string): void => {
+const validateCompose = (contents: string): void => {
   if (contents.length < 100 || contents.length > 1_000_000) {
     throw new CliError("The downloaded Compose file has an unexpected size");
   }

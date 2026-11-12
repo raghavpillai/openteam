@@ -83,7 +83,7 @@ export const cliAssetName = (
   return `openteam-${platform}-${architecture}`;
 };
 
-export const cliReleaseAssetUrl = (repository: string, version: string, filename: string): string =>
+const cliReleaseAssetUrl = (repository: string, version: string, filename: string): string =>
   `https://github.com/${normalizeRepository(repository)}/releases/download/v${normalizeVersion(version)}/${filename}`;
 
 const fetchResponse = async (fetcher: Fetcher, url: string, accept: string): Promise<Response> => {

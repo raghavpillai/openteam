@@ -5,7 +5,7 @@ import type { CommandRunner } from "./process";
 import { createProviderConnectionAPI, runConnectionProcess } from "./provider-connection-api";
 import { ProviderConnectionSession } from "./provider-connection-session";
 
-export const connectionLinks = {
+const connectionLinks = {
   async open(url: string) {
     try {
       const invocation =

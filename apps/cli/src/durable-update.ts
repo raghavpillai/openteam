@@ -171,7 +171,7 @@ export const updateWorkerArguments = (
   return argv.slice(1);
 };
 
-export const followUpdateJob = async (
+const followUpdateJob = async (
   paths: InstallationPaths,
   options: CliOptions,
   jobId: string,

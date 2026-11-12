@@ -19,7 +19,7 @@ function desktopGroup(botId: string): string {
   return join(ROOT, createHash("sha256").update(botId).digest("hex"));
 }
 
-export function desktopMemoryEnabled(): boolean {
+function desktopMemoryEnabled(): boolean {
   return Boolean(process.env.OPENTEAM_DESKTOP_MEMORY_LIMIT);
 }
 

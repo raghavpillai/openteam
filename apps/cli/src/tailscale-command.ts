@@ -122,7 +122,7 @@ export async function tailscaleStatus(
   }
   return result;
 }
-export async function verifyTailscaleEndpoint(url: string): Promise<void> {
+async function verifyTailscaleEndpoint(url: string): Promise<void> {
   const readiness = await inspectPublicReadiness(url);
   const errors = [readiness.dns, readiness.endpoint, readiness.tls]
     .filter((c) => c && !c.ok)

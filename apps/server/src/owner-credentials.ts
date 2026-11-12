@@ -3,7 +3,7 @@ import { hashPassword } from "better-auth/crypto";
 import { authPrisma } from "./auth";
 import { usernameKey, usernameProblem } from "./username";
 
-export type OwnerCredentialOperation = "setup" | "update" | "reset";
+type OwnerCredentialOperation = "setup" | "update" | "reset";
 
 export interface OwnerCredentialInput {
   operation: OwnerCredentialOperation;

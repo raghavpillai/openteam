@@ -8,7 +8,7 @@ import type { RuntimeImage } from "./types";
 
 export const MAX_IMAGE_BYTES = MAX_INLINE_IMAGE_BYTES;
 
-export const INLINE_IMAGE_PREFIX = /^data:(image\/(?:gif|jpeg|png|webp));base64,/i;
+const INLINE_IMAGE_PREFIX = /^data:(image\/(?:gif|jpeg|png|webp));base64,/i;
 
 export const decodeInlineImages = (inputs: readonly RuntimeInlineImage[]): RuntimeImage[] =>
   inputs.map((input, index) => {
@@ -34,8 +34,8 @@ export const decodeInlineImages = (inputs: readonly RuntimeInlineImage[]): Runti
     };
   });
 
-export const IMAGE_MIME_TYPES = TASK_IMAGE_MIME_TYPES;
-export const VIDEO_EXTENSIONS = TASK_VIDEO_EXTENSIONS;
+const IMAGE_MIME_TYPES = TASK_IMAGE_MIME_TYPES;
+const VIDEO_EXTENSIONS = TASK_VIDEO_EXTENSIONS;
 
 const within = (root: string, path: string) => path === root || path.startsWith(root + sep);
 

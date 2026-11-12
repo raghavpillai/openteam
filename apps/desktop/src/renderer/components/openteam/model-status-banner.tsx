@@ -2,7 +2,7 @@ import type { ClientSnapshot } from "@openteam/contracts";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 
-export const MODEL_STATUS_TOAST_ID = "openteam-model-status";
+const MODEL_STATUS_TOAST_ID = "openteam-model-status";
 
 type Problem = Exclude<ClientSnapshot["runtime"]["inference"], "ready">;
 

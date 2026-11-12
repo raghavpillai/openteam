@@ -45,15 +45,6 @@ const selectionFor = (next: ServerSettingsView, providerId: string): ModelSelect
   return { providerId, modelId, reasoning };
 };
 
-/** Providers people usually mean, in the order onboarding offers them. */
-export const FEATURED_PROVIDERS = [
-  { id: "openai-codex", title: "ChatGPT", detail: "Sign in with your ChatGPT plan" },
-  { id: "claude-code", title: "Claude", detail: "Sign in with your Claude plan" },
-  { id: "openai", title: "OpenAI API key", detail: "Pay as you go with an OpenAI key" },
-  { id: "anthropic", title: "Anthropic API key", detail: "Pay as you go with an Anthropic key" },
-  { id: "openrouter", title: "OpenRouter", detail: "Many models with one OpenRouter account" },
-] as const;
-
 const terminal = (session: InferenceProviderAuthSessionView | null) =>
   !session || ["connected", "failed", "cancelled"].includes(session.status);
 

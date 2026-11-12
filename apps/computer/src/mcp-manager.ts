@@ -11,7 +11,7 @@ import type { PluginRuntimeAsset } from "@openteam/plugin-sdk";
 import { SecretRedactor } from "@openteam/shell-jobs";
 import { McpDiagnostics } from "./mcp-diagnostics";
 
-export interface StdioMcpConfiguration {
+interface StdioMcpConfiguration {
   command: string;
   args?: string[];
   env?: Record<string, string>;

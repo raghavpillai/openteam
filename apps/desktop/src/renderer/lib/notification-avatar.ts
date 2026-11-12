@@ -10,7 +10,7 @@ import {
 const cache = new Map<string, Promise<string | undefined>>();
 const escape = (value: string) =>
   value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
-export function notificationAvatarSvg(sender: NotificationSender): string {
+function notificationAvatarSvg(sender: NotificationSender): string {
   const color = /^#[0-9a-f]{6}$/i.test(sender.color) ? sender.color : "#4f7cff";
   const render = (node: RobotAvatarNode): string => {
     const attributes = Object.entries(node.attributes)

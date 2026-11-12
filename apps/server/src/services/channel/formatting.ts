@@ -9,7 +9,7 @@ export type ReplyTarget = {
   metadata: unknown;
 };
 
-export const messageAddress = (message: ReplyTarget): string => {
+const messageAddress = (message: ReplyTarget): string => {
   const metadata = metadataRecord(message.metadata);
   return typeof metadata.address === "string" ? metadata.address : message.id;
 };
@@ -37,7 +37,7 @@ export const formatDirectMentionContext = (
   ].join("\n");
 };
 
-export const reactionQuote = (content: string): string => {
+const reactionQuote = (content: string): string => {
   const collapsed = content.replace(/\s+/g, " ").trim();
   return collapsed.length > 80 ? `${collapsed.slice(0, 79)}…` : collapsed;
 };
@@ -52,7 +52,7 @@ export const formatUserReactionPrompt = (emoji: string, content: string) => {
     JSON.stringify(reactionQuote(content)) + ". " + guidance + "][SAND_HIDDEN_PROMPT]";
 };
 
-export const xmlText = (value: string): string =>
+const xmlText = (value: string): string =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 export const formatChannelRenamePrompt = (input: { name: string; description: string }): string => {

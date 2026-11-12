@@ -74,9 +74,9 @@ const LEASE_MS = 2 * 60_000;
 export const BOOTSTRAP_ATTEMPT_LIMIT = 4;
 /** How often a cut-off greeting asks whether the computer is ready again. */
 export const BOOTSTRAP_RETRY_PROBE_MS = 5_000;
-export const AUTOMATION_RECONCILE_BATCH_SIZE = 8;
-export const TRANSCRIPT_FINGERPRINT_TTL_MS = 5_000;
-export const TRANSCRIPT_FINGERPRINT_CACHE_MAX_ENTRIES = 1_024;
+const AUTOMATION_RECONCILE_BATCH_SIZE = 8;
+const TRANSCRIPT_FINGERPRINT_TTL_MS = 5_000;
+const TRANSCRIPT_FINGERPRINT_CACHE_MAX_ENTRIES = 1_024;
 
 const computerEventQueuesPushNotification = (event: ComputerEvent): boolean =>
   event.type === "turn.completed";
@@ -209,13 +209,13 @@ export const runtimeRequestSourceForOrigin = (origin: RunOrigin, inboxType?: str
   origin === "user" && inboxType === "user.reaction" ? "event" : REQUEST_SOURCE_BY_ORIGIN[origin];
 
 /** Interrupted wakes that run again, and how often: agent messages up to 3 times, the rest once. */
-export const WAKE_REDRIVE_LIMITS: Partial<Record<RunOrigin, number>> = {
+const WAKE_REDRIVE_LIMITS: Partial<Record<RunOrigin, number>> = {
   agent: 3,
   connector: 1,
   background_revival: 1,
 };
 
-export const SUBAGENT_INTERRUPTED_RESULT = "The background task was interrupted before it finished.";
+const SUBAGENT_INTERRUPTED_RESULT = "The background task was interrupted before it finished.";
 
 export const runOwesUserDelivery = (origin: RunOrigin): boolean =>
   ["user", "bootstrap", "connector", "handoff_resume", "broadcast"].includes(origin);
@@ -298,7 +298,7 @@ const revivalOf = (wake: RevivalWake): RevivalCompletion | null => {
 };
 
 /** A background result resumes either the chat it came from or the routine run that started it. */
-export const routineRevivalContext = (wake: RevivalWake): string | null =>
+const routineRevivalContext = (wake: RevivalWake): string | null =>
   wake.run.origin === "routine" && revivalOf(wake)
     ? ((wake.payload as { automationContextRunId?: unknown }).automationContextRunId as string | undefined) ?? null
     : null;

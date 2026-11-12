@@ -3,9 +3,9 @@ import { createRequire } from "node:module";
 import { nodeBinary } from "../node-runtime";
 
 const require = createRequire(import.meta.url);
-export const RUN_CODE_TIMEOUT_MS = 30_000;
-export const RUN_CODE_MAX_BYTES = 256 * 1024;
-export const RUN_CODE_MAX_IMAGES = 4;
+const RUN_CODE_TIMEOUT_MS = 30_000;
+const RUN_CODE_MAX_BYTES = 256 * 1024;
+const RUN_CODE_MAX_IMAGES = 4;
 const RUN_CODE_IMAGE_BYTES = 20 * 1024 * 1024;
 const RUN_CODE_PDF_BYTES = 40 * 1024 * 1024;
 // Images, saved PDFs and in-memory uploads travel as base64 lines; the JSON
@@ -526,9 +526,9 @@ process.stdin.on('end', async () => {
 });
 `;
 
-export type RunCodeErrorCode = "policy_denied" | "job_failed" | "worker_failed" | "timed_out";
-export interface RunCodeState { targets: string[]; selected: string | null; dialog?: string }
-export type RunCodeFilePayload = { name: string; mimeType: string; buffer: string };
+type RunCodeErrorCode = "policy_denied" | "job_failed" | "worker_failed" | "timed_out";
+interface RunCodeState { targets: string[]; selected: string | null; dialog?: string }
+type RunCodeFilePayload = { name: string; mimeType: string; buffer: string };
 export type RunCodeRequest =
   | { type: "snapshot"; target: string; scope?: string }
   | { type: "files"; paths: string[] }

@@ -138,7 +138,7 @@ export function sidePeakReach(x: number, peaks: readonly SidePeak[]) {
 }
 
 /** VoiceGlowBand.bell, with the mobile preset's curve, spread and skew. */
-export function centreBias(x: number) {
+function centreBias(x: number) {
   const t = 2 * Math.max(0, Math.min(1, x)) - 1;
   const sigma = 0.9 * (t < 0 ? 1 - 0.12 : 1 + 0.12);
   const tail = Math.exp(-((1 / sigma) ** 1.55));

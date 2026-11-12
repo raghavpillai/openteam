@@ -9,7 +9,7 @@ import { appendEvent } from "./service-utils";
 import { SUBAGENT_RECOVERY_RUN_STATUSES, subagentRestartError } from "./subagent/recovery";
 import { PLUGIN_RESTART_UNKNOWN_OUTCOME } from "./plugin/invocation-outcomes";
 
-export const RESTART_INTERRUPTED_NOTICE =
+const RESTART_INTERRUPTED_NOTICE =
   "This reply was interrupted by a restart. Send your message again to continue.";
 
 /** Turns a person is waiting on. Background work (routines, Tasks, events) reports through its own paths. */

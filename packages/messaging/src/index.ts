@@ -132,7 +132,7 @@ export const reactionNotificationBody = (emoji: string, content: string | null):
   return `Reacted ${emoji} to ${quote ? `“${quote}”` : "your message"}`;
 };
 
-export const graphicalDelegationInstructions = (config: TaskConfiguration = defaultTaskConfiguration()) => [
+const graphicalDelegationInstructions = (config: TaskConfiguration = defaultTaskConfiguration()) => [
   "## The box desktop",
   config.graphicalAvailable === false
     ? "Browser and desktop workers are unavailable. Do not request graphical Tasks or bypass this limitation through Shell."
@@ -151,7 +151,6 @@ export const graphicalDelegationInstructions = (config: TaskConfiguration = defa
       ].join("\n"),
   "Carry user deadlines and remaining time into each delegated task, including resumed tasks. For an overall deadline, pass the original absolute cutoff and remaining budget; do not restart the allowance for each worker. Stop unfinished delegated work at that cutoff and report partial results. If the user instead gives a separate allowance per item, preserve that distinction.",
 ].join("\n");
-export const MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS = graphicalDelegationInstructions();
 
 export interface PlatformPrompt {
   instructions: string;
@@ -255,7 +254,7 @@ export const REVIVAL_HELD_AFTER_MS = 60_000;
 export const HELD_REVIVAL_NOTE =
   "Some of these results were held back and arrive late; each one says how long it waited. Judge each by its age: act on it only if it is still current, and skip it if it is stale, already handled, or overtaken by a newer result. Never fold a held result into a reply about something else the user asked.";
 
-export const describeHeldDuration = (heldForMs: number): string => {
+const describeHeldDuration = (heldForMs: number): string => {
   const minutes = Math.max(1, Math.round(heldForMs / 60_000));
   if (minutes < 90) return minutes === 1 ? "1 minute" : `${minutes} minutes`;
   const hours = Math.round(minutes / 60);
@@ -304,7 +303,7 @@ export const renderRevivalBatchPrompt = (completions: ReadonlyArray<RevivalCompl
   ].join("\n");
 };
 
-export const buildAdminBroadcastWakePrompt = (message: string): string =>
+const buildAdminBroadcastWakePrompt = (message: string): string =>
   [
     "[SAND_HIDDEN_PROMPT]",
     "[broadcast] A service announcement was sent to this agent.",
@@ -432,7 +431,7 @@ export const renderTeammatesUserInfo = (input: {
 // message runs beside them instead of interrupting them.
 const PRIORITY_INTERRUPTIBLE_ORIGINS: ReadonlySet<string> = new Set(["event", "background_revival", "broadcast"]);
 
-export const directAgentAcknowledgement = (input: {
+const directAgentAcknowledgement = (input: {
   targetName: string;
   priority: boolean;
 }): string => {
@@ -489,7 +488,7 @@ export const normalizeGroupAgentMessage = (message: string): NormalizedGroupAgen
   return { status: "message", content };
 };
 
-export const groupAgentAcknowledgement = (
+const groupAgentAcknowledgement = (
   groupName: string,
   options: { imageCount?: number; priority?: boolean } = {}
 ): string => {

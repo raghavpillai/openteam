@@ -36,7 +36,7 @@ const BROWSER_STATE_SOURCE =
 const BROWSER_STATE_FILE =
   /^(home\/box\/(?:chrome-profile(?:-\d+)?|\.openteam\/browser-(?:authority(?:\.key|\.json\.enc|\.parts)?|profile-authority)|\.pki\/nssdb))(?:\/|$)/;
 /** How often a periodic snapshot recaptures a profile whose Chromium is still running. */
-export const CHROME_PROFILE_SNAPSHOT_INTERVAL_MS = 30 * 60_000;
+const CHROME_PROFILE_SNAPSHOT_INTERVAL_MS = 30 * 60_000;
 
 type SnapshotContent = Buffer | Awaited<ReturnType<typeof stageFile>>;
 

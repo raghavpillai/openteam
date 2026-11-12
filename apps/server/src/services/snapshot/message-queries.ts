@@ -15,7 +15,7 @@ export type StoredChannelMessage = {
   createdAt: Date;
 };
 
-export type StoredThreadContextMessage = StoredChannelMessage & {
+type StoredThreadContextMessage = StoredChannelMessage & {
   traversalDepth: number;
   seedOrder: number;
 };

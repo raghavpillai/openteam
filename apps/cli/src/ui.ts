@@ -7,7 +7,7 @@ export interface SetupStage {
   description: string;
 }
 
-export interface SetupSummaryRow {
+interface SetupSummaryRow {
   label: string;
   value: string;
 }
@@ -194,7 +194,7 @@ export const renderSelectionResult = (
   return `${paint(color, "✓", ANSI.green)} ${paint(color, truncate(message, messageWidth), ANSI.dim)}  ${paint(color, truncate(label, labelWidth), ANSI.bold)}`;
 };
 
-export const renderSetupHeader = (input: {
+const renderSetupHeader = (input: {
   version: string;
   stages: readonly SetupStage[];
   activeStage: number;

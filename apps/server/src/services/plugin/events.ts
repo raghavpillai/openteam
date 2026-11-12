@@ -23,7 +23,7 @@ const TICK_MS = 15_000;
 const FAILURE_LOG_INTERVAL_MS = 10 * 60_000;
 
 /** A connector tool result is MCP content: JSON text, or structuredContent. */
-export const parsePollResult = (raw: unknown): { events: unknown[]; cursor: unknown } => {
+const parsePollResult = (raw: unknown): { events: unknown[]; cursor: unknown } => {
   const result = jsonObject(raw);
   const text = Array.isArray(result.content)
     ? result.content

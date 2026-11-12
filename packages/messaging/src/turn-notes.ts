@@ -9,7 +9,7 @@ const OPEN = "<system_reminder>\n";
 const CLOSE = "\n</system_reminder>";
 
 /** A note that is already one whole reminder block joins the shared block as its body. */
-export const unwrapSystemReminder = (block: string): string => {
+const unwrapSystemReminder = (block: string): string => {
   if (!block.startsWith(OPEN) || !block.endsWith(CLOSE)) return block;
   const body = block.slice(OPEN.length, -CLOSE.length);
   return body.includes("<system_reminder>") ? block : body;

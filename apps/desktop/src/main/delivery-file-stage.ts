@@ -1,7 +1,7 @@
 import { mkdir, open, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
-export const MAX_DELIVERY_STAGE_BYTES = 200 * 1024 * 1024;
+const MAX_DELIVERY_STAGE_BYTES = 200 * 1024 * 1024;
 const STAGING_ID = /^[a-zA-Z0-9-]{8,120}$/;
 
 export interface DeliveryFileStageInput {
@@ -14,7 +14,7 @@ const checkedId = (value: string): string => {
   return value;
 };
 
-export const deliveryStagePath = (directory: string, stagingId: string): string =>
+const deliveryStagePath = (directory: string, stagingId: string): string =>
   join(directory, checkedId(stagingId));
 
 const bytesFrom = (value: ArrayBuffer | Uint8Array): Uint8Array => {

@@ -26,7 +26,7 @@ const CONFIRM_RESET_MS = 3_000;
 const button = settingsSecondaryButton;
 
 /** A button that asks for a second click within 3 s before it acts, as the reference's settings do. */
-export function ConfirmButton({
+function ConfirmButton({
   label,
   pendingLabel,
   pending = false,

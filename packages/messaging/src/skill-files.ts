@@ -4,9 +4,9 @@ import type { Prisma } from "@openteam/db";
 import { parseDocument, stringify as stringifyYaml } from "yaml";
 import { atomicWrite, listDirectories, readText, uniqueSlug } from "./file-state";
 
-export const MAX_SKILL_NAME = 80;
-export const MAX_SKILL_DESCRIPTION = 1_536;
-export const MAX_SKILL_BODY = 100_000;
+const MAX_SKILL_NAME = 80;
+const MAX_SKILL_DESCRIPTION = 1_536;
+const MAX_SKILL_BODY = 100_000;
 export interface ParsedSkillFile {
   name: string;
   description: string;

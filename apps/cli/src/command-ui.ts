@@ -5,7 +5,7 @@ import type { InstallationPaths } from "./config";
 import { defaultInstallDirectory } from "./config";
 import { providerDisplayName } from "./model-provider-options";
 import type { ProviderRow, ModelRow } from "./providers";
-export { renderStatus } from "./status-ui";
+
 import type { PersistedUpdateState } from "./update-safety";
 import { TerminalReport, type TerminalOptions, type TerminalTone } from "./terminal";
 

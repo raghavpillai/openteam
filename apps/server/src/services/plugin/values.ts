@@ -288,23 +288,6 @@ export const validateJsonSchema = (
 
 export const manifestJson = (plugin: PluginDefinition) => toJson(plugin);
 
-export const substituteValues = (value: unknown, values: Record<string, string>): unknown => {
-  if (typeof value === "string") {
-    return value.replace(
-      /\$\{([A-Z][A-Z0-9_]*)\}/g,
-      (placeholder, key: string) => values[key] ?? placeholder
-    );
-  }
-  if (Array.isArray(value)) return value.map((item) => substituteValues(item, values));
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as JsonObject).map(([key, nested]) => [
-      key,
-      substituteValues(nested, values),
-    ])
-  );
-};
-
 export const hasPlaceholder = (value: unknown): boolean =>
   typeof value === "string"
     ? /\$\{(?!PLUGIN_ROOT\})[A-Za-z_][A-Za-z0-9_]*\}/.test(value)

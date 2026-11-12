@@ -36,7 +36,7 @@ const EVENT_BATCH_SIZE = 500;
 
 const MAX_RETAINED_EVENTS = 100_000;
 
-export const CHANNEL_CLIENT_STATE_LIMITS = {
+const CHANNEL_CLIENT_STATE_LIMITS = {
   channelRounds: 100,
   runs: 100,
   runItems: 1_000,
@@ -53,7 +53,7 @@ export const normalizeMessageContextExtent = (value: number): number =>
     ? Math.min(MAX_CONTEXT_EXTENT, Math.max(0, Math.trunc(value)))
     : DEFAULT_CONTEXT_EXTENT;
 
-export const selectBoundedActivity = <T extends { id: string; createdAt: Date }>(
+const selectBoundedActivity = <T extends { id: string; createdAt: Date }>(
   current: readonly T[],
   recent: readonly T[],
   limit: number

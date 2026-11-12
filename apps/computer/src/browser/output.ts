@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export const BROWSER_INLINE_BYTES = 32 * 1024;
+const BROWSER_INLINE_BYTES = 32 * 1024;
 const PREVIEW_BYTES = 8 * 1024;
 
 /** Call only after redaction; saved observations have the same visibility as screenshots. */

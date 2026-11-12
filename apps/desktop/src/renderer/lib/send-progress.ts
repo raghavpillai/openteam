@@ -1,7 +1,5 @@
 import type { DurableSendRecord } from "@openteam/product-core/durable-delivery";
 
-export const SEND_PROGRESS_DELAY_MS = 2_000;
-
 /** A single indicator follows the newest pending message and the oldest active attempt. */
 type SendProgressRecord = Pick<
   DurableSendRecord,

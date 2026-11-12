@@ -42,10 +42,10 @@ const TOO_MANY_MEDIA_MARKERS = [
 // Pi's overflow detector recognizes this phrase, which routes the error into compaction.
 const MEDIA_OVERFLOW_NOTE = "context_length_exceeded: too many images or documents";
 
-export const isTooManyMediaError = (message: unknown): boolean =>
+const isTooManyMediaError = (message: unknown): boolean =>
   typeof message === "string" && TOO_MANY_MEDIA_MARKERS.some((marker) => message.toLowerCase().includes(marker));
 
-export const modelVisibleSummaryTools = (
+const modelVisibleSummaryTools = (
   tools: ReadonlyArray<{
     name: string;
     description: string;

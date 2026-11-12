@@ -2,7 +2,7 @@ import type { CallDynamicToolInput, GetDynamicToolsInput } from "@openteam/contr
 import { compileToolSearchPattern } from "@openteam/shell-jobs";
 import { parseArgumentsLeniently } from "./dynamic-tool-argument-repair.js";
 
-export type DynamicNamespaceStatus = "ready" | "needsAuth" | "error" | "loading";
+type DynamicNamespaceStatus = "ready" | "needsAuth" | "error" | "loading";
 
 export interface DynamicToolDefinition {
   name: string;
@@ -24,7 +24,7 @@ export interface DynamicNamespaceDefinition<
   tools: readonly Tool[];
 }
 
-export interface DynamicToolView {
+interface DynamicToolView {
   name: string;
   description: string;
   inputSchema: Readonly<Record<string, unknown>>;
@@ -64,7 +64,7 @@ const descriptionSummary = (description: string): string => {
 const byName = <T extends { name: string }>(items: readonly T[]): T[] => [...items].sort((a, b) => a.name.localeCompare(b.name));
 
 /** The reference's sentence for a namespace whose tools cannot be used. */
-export const namespaceUnavailableReason = (status: DynamicNamespaceStatus): string =>
+const namespaceUnavailableReason = (status: DynamicNamespaceStatus): string =>
   status === "needsAuth"
     ? "This MCP server requires authentication before its tools can be used."
     : status === "loading"

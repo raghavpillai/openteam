@@ -21,11 +21,11 @@ import {
 } from "../service-utils";
 import { serialize, toChannelView } from "../view-mappers";
 
-export const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 
-export const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
-export const decodeAvatarPng = (encoded: string): Buffer => {
+const decodeAvatarPng = (encoded: string): Buffer => {
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 === 1) {
     throw new ApiError(400, "invalid_avatar", "Avatar must be a base64-encoded PNG");
   }

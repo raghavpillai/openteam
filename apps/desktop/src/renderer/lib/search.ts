@@ -1,19 +1,4 @@
-import type { SearchCategory, SearchResultKind } from "@openteam/contracts";
-import {
-  normalizeSearchQuery,
-  SEARCH_CATEGORIES,
-  searchTextMatches,
-} from "@openteam/product-core/search";
-
-export type SearchSection = SearchCategory | "actions";
-
-export const SEARCH_SECTIONS: ReadonlyArray<{ id: SearchSection; label: string }> = [
-  ...SEARCH_CATEGORIES.map(({ category, label }) => ({
-    id: category,
-    label: category === "channels" ? "Groups" : label,
-  })),
-  { id: "actions", label: "Actions" },
-];
+import type { SearchResultKind } from "@openteam/contracts";
 
 export const isDefaultSearchResultKind = (kind: SearchResultKind) =>
   kind === "bot" || kind === "channel";
@@ -23,8 +8,6 @@ export const moveSearchSelection = (current: number, count: number, direction: -
   if (current < 0) return 0;
   return Math.max(0, Math.min(count - 1, current + direction));
 };
-
-export { searchTextMatches };
 
 const COMBINING_MARKS = /\p{M}+/gu;
 const LETTER_OR_NUMBER = /[\p{L}\p{N}]/u;
@@ -68,7 +51,7 @@ const normalizePaletteTextWithIndices = (value: string): NormalizedPaletteText =
   return { normalized, sourceIndices };
 };
 
-export const normalizePaletteText = (value: string): string =>
+const normalizePaletteText = (value: string): string =>
   normalizePaletteTextWithIndices(value).normalized;
 
 const paletteQueryTokens = (query: string): string[] => {
@@ -77,7 +60,7 @@ const paletteQueryTokens = (query: string): string[] => {
 };
 
 /** Score a compact subsequence with bonuses for word starts and consecutive characters. */
-export const fuzzyPaletteScore = (field: string, token: string): number | null => {
+const fuzzyPaletteScore = (field: string, token: string): number | null => {
   if (token.length === 0) return 0;
   const comparableField = field.toLowerCase();
   let score = 0;
@@ -124,7 +107,7 @@ export interface PaletteSearchItem {
   searchPriority?: number;
 }
 
-export const scorePaletteItem = (query: string, item: PaletteSearchItem): number | null => {
+const scorePaletteItem = (query: string, item: PaletteSearchItem): number | null => {
   const tokens = paletteQueryTokens(query);
   if (tokens.length === 0) return 0;
   const normalizedQuery = tokens.join(" ");
